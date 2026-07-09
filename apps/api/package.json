@@ -1,0 +1,26 @@
+{
+  "name": "@pathfinder/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@pathfinder/canonical": "0.1.0",
+    "@pathfinder/customer-directory": "0.1.0",
+    "@pathfinder/lift-adapter": "0.1.0",
+    "@pathfinder/templates": "0.1.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.3"
+  }
+}

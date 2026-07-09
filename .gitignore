@@ -1,0 +1,20 @@
+.DS_Store
+node_modules/
+dist/
+apps/*/dist/
+*.tsbuildinfo
+apps/*/tsconfig.tsbuildinfo
+apps/*/node_modules/.tmp/
+
+# Local runtime state and credentials/placeholders
+data/*.local.json
+*.local.json
+assets/brand/Vornan-Brand-Guidelines.pdf
+
+# Logs and editor noise
+*.log
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/

@@ -1,0 +1,32 @@
+{
+  "destination_adapter": "lift-standard-graphics",
+  "active_environment": "QA1",
+  "environments": {
+    "PROD": {
+      "endpoint_url": "http://prod-lifterp/lifterp/ords/lifterp/lift/erp/api/create_order"
+    },
+    "QA1": {
+      "endpoint_url": "http://devcompute/lifterp-qa1/lifterp/liftqa1/erp/api/create_orde",
+      "_note": "Confirm whether final path should be create_order."
+    }
+  },
+  "headers": {
+    "Content-Type": "application/json",
+    "Company ID": "91",
+    "Ext_ID": {
+      "strategy": "field",
+      "field": "order.ext_id",
+      "body_field": "order.ext_id",
+      "must_match_body": true,
+      "default_source_field": "canonical.order.external_order_id",
+      "fallback_fields": [
+        "canonical.order.contract_number",
+        "canonical.order.po_number"
+      ]
+    }
+  },
+  "credentials": {
+    "User": "LIFT_IMPORT_USERNAME_TBD",
+    "Password": "SECRET_REFERENCE_ONLY"
+  }
+}

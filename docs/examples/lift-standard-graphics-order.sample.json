@@ -1,0 +1,119 @@
+{
+  "customer": {
+    "lift_customer_id": "LIFT_CUSTOMER_ID_TBD",
+    "customer_name": "Momentara"
+  },
+  "source": {
+    "platform": "Pathfinder",
+    "pathfinder_customer_id": "customer_momentara",
+    "source_system": "Manual Upload",
+    "source_customer": "Momentara",
+    "source_record_id": "AS360-30904511",
+    "source_record_url": null,
+    "source_template": "Momentara OOH Order Form",
+    "submitted_at": "2026-06-18T14:32:00-04:00",
+    "pathfinder_job_id": "job_20260618_000001",
+    "pathfinder_canonical_order_id": "co_20260618_000001"
+  },
+  "order": {
+    "ext_id": "AS360-30904511",
+    "po_number": "1122334455",
+    "contract_number": "1122334455",
+    "order_title": "Campaign",
+    "order_note": "Optional order-level production note.",
+    "requested_ship_date": "2026-06-23",
+    "shipping": {
+      "method": "UPS Ground",
+      "account_number": null,
+      "attention_to": "Jane Smith",
+      "company": "Example Company",
+      "address_1": "123 Main St",
+      "address_2": "Suite 200",
+      "city": "Cincinnati",
+      "state": "OH",
+      "postal_code": "45202",
+      "country": "US",
+      "phone": "555-555-0100",
+      "email": "jane.smith@example.com",
+      "instructions": "Deliver to receiving dock."
+    }
+  },
+  "lines": [
+    {
+      "line_number": 1,
+      "unit_number": "2SHEET_46x60_48PT",
+      "customer_sku": "OOH-2SHEET-46X60",
+      "description": "2 Sheet Poster",
+      "product_name": "2 Sheet Poster",
+      "quantity": 1,
+      "artwork": {
+        "file_name": "momentara_campaign_art.pdf",
+        "file_url": "https://example.com/artwork/momentara_campaign_art.pdf",
+        "checksum": null
+      },
+      "dimensions": {
+        "final_height": 46.2,
+        "final_width": 60.2,
+        "live_height": 43,
+        "live_width": 57,
+        "bleed": 0.125
+      },
+      "production": {
+        "material": "15pt Styrene",
+        "laminate": "8520",
+        "coating": "N",
+        "premask": "N",
+        "ink": "4CP/0",
+        "cut_type": "Square Cut"
+      },
+      "shipping": null,
+      "line_note": "Optional line-level production note."
+    },
+    {
+      "line_number": 2,
+      "unit_number": "BANNER_36x96_13OZ",
+      "customer_sku": "OOH-BANNER-36X96",
+      "description": "13oz Vinyl Banner",
+      "product_name": "13oz Vinyl Banner",
+      "quantity": 2,
+      "artwork": {
+        "file_name": "momentara_banner_art.pdf",
+        "file_url": "https://example.com/artwork/momentara_banner_art.pdf",
+        "checksum": null
+      },
+      "dimensions": {
+        "final_height": 36,
+        "final_width": 96,
+        "live_height": null,
+        "live_width": null,
+        "bleed": 0.125
+      },
+      "production": {
+        "material": "13oz Vinyl",
+        "laminate": null,
+        "coating": "N",
+        "premask": "N",
+        "ink": "4CP/0",
+        "cut_type": "Square Cut",
+        "hem": true,
+        "grommets": true
+      },
+      "shipping": {
+        "method": "UPS Ground",
+        "account_number": null,
+        "attention_to": "Store Manager",
+        "company": "Example Store 002",
+        "address_1": "456 Market Ave",
+        "address_2": null,
+        "city": "Columbus",
+        "state": "OH",
+        "postal_code": "43215",
+        "country": "US",
+        "phone": null,
+        "email": null,
+        "instructions": "Line-level ship-to override."
+      },
+      "line_note": null
+    }
+  ]
+}
