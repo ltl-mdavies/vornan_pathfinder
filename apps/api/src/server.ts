@@ -30,8 +30,10 @@ import {
   listJobs,
   listTargets,
   getJob,
+  getSubmitAttemptByIdempotencyKey,
   maskTargetConfig,
   persistPreviewJob,
+  persistSubmitAttempt,
   updateProductMapping,
   updateImportMethod,
   updateOutputRoute,
@@ -46,6 +48,8 @@ import {
   type SubmitCertificationActionKey,
   type SubmitCertification,
   type SubmitCertificationItem,
+  type SubmitAttempt,
+  type SubmitAttemptStatus,
   type SubmitProfile,
   type TargetConfig
 } from "./store.js";
@@ -603,6 +607,69 @@ function buildSubmitCertification(args: {
   };
 }
 
+function submitIdempotencyKey(job: ProcessingJobPreview, requestedKey?: string) {
+  if (requestedKey?.trim()) {
+    return requestedKey.trim();
+  }
+  return [
+    job.job_id,
+    job.output_route_id,
+    job.submit_profile_id,
+    job.submit_request_masked.headers.Ext_ID,
+    job.submit_request_masked.headers.Company
+  ].join(":");
+}
+
+function createSubmitAttempt(args: {
+  job: ProcessingJobPreview;
+  idempotencyKey: string;
+  state: SubmitAttemptStatus;
+  blockingItems: SubmitCertificationItem[];
+  message: string;
+}): SubmitAttempt {
+  const timestamp = new Date().toISOString();
+  const certification =
+    args.job.submit_certification ??
+    ({
+      can_submit: false,
+      external_submit_enabled: externalLiftSubmitEnabled,
+      summary: "Preview job has no submit certification.",
+      items: []
+    } satisfies SubmitCertification);
+
+  return {
+    attempt_id: `submit_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`,
+    idempotency_key: args.idempotencyKey,
+    customer_id: args.job.customer_id,
+    customer_name: args.job.customer_name,
+    job_id: args.job.job_id,
+    output_route_id: args.job.output_route_id,
+    output_route_name: args.job.output_route_name,
+    submit_profile_id: args.job.submit_profile_id,
+    submit_profile_name: args.job.submit_profile_name,
+    submit_mode: args.job.submit_mode,
+    sandbox: args.job.sandbox,
+    state: args.state,
+    external_submit_enabled: externalLiftSubmitEnabled,
+    endpoint_url: args.job.submit_request_masked.endpoint_url,
+    ext_id: args.job.submit_request_masked.headers.Ext_ID,
+    company_id: args.job.submit_request_masked.headers.Company,
+    submit_request_masked: args.job.submit_request_masked,
+    certification,
+    blocking_items: args.blockingItems,
+    response: {
+      status: "not_sent",
+      http_status: null,
+      lift_order_id: null,
+      message: args.message,
+      raw_body: null,
+      received_at: timestamp
+    },
+    created_at: timestamp,
+    updated_at: timestamp
+  };
+}
+
 async function fetchLiftCustomerDirectory(): Promise<LiftCustomerDirectory> {
   const response = await fetch(liftCustomerListEndpoint, {
     headers: { Accept: "text/csv,*/*" },
@@ -963,10 +1030,32 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
       return;
     }
 
+    const idempotencyKey = submitIdempotencyKey(job, req.header("Idempotency-Key") ?? req.body?.idempotency_key);
+    const existingAttempt = await getSubmitAttemptByIdempotencyKey(customer, idempotencyKey);
+    if (existingAttempt) {
+      res.status(200).json({
+        attempt: existingAttempt,
+        reused: true,
+        message: "Existing submit attempt returned for idempotency key."
+      });
+      return;
+    }
+
     const certification = job.submit_certification;
     if (!certification) {
+      const attempt = await persistSubmitAttempt(
+        customer,
+        createSubmitAttempt({
+          job,
+          idempotencyKey,
+          state: "Blocked",
+          blockingItems: [],
+          message: "Preview job has no submit certification. Regenerate the preview before submitting."
+        })
+      );
       res.status(409).json({
         error: "Preview job has no submit certification. Regenerate the preview before submitting.",
+        attempt,
         job
       });
       return;
@@ -975,8 +1064,19 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
     const blockingItems = certification.items.filter((item) => item.blocking);
     const nonGateBlockers = blockingItems.filter((item) => item.item_id !== "external-submit-gate");
     if (nonGateBlockers.length) {
+      const attempt = await persistSubmitAttempt(
+        customer,
+        createSubmitAttempt({
+          job,
+          idempotencyKey,
+          state: "Blocked",
+          blockingItems: nonGateBlockers,
+          message: "Preview job is not certified for Lift submit."
+        })
+      );
       res.status(409).json({
         error: "Preview job is not certified for Lift submit.",
+        attempt,
         certification,
         blocking_items: nonGateBlockers
       });
@@ -984,8 +1084,19 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
     }
 
     if (!externalLiftSubmitEnabled) {
+      const attempt = await persistSubmitAttempt(
+        customer,
+        createSubmitAttempt({
+          job,
+          idempotencyKey,
+          state: "Gate Locked",
+          blockingItems,
+          message: "External Lift submit is disabled by Pathfinder feature gate."
+        })
+      );
       res.status(423).json({
         error: "External Lift submit is disabled by Pathfinder feature gate.",
+        attempt,
         certification,
         submit_request_masked: job.submit_request_masked
       });
@@ -993,16 +1104,38 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
     }
 
     if (!certification.can_submit) {
+      const attempt = await persistSubmitAttempt(
+        customer,
+        createSubmitAttempt({
+          job,
+          idempotencyKey,
+          state: "Blocked",
+          blockingItems,
+          message: "Preview job is not certified for Lift submit."
+        })
+      );
       res.status(409).json({
         error: "Preview job is not certified for Lift submit.",
+        attempt,
         certification,
         blocking_items: blockingItems
       });
       return;
     }
 
+    const attempt = await persistSubmitAttempt(
+      customer,
+      createSubmitAttempt({
+        job,
+        idempotencyKey,
+        state: "Dry Run",
+        blockingItems: [],
+        message: "External Lift submit transport is not implemented in this local slice."
+      })
+    );
     res.status(501).json({
       error: "External Lift submit transport is not implemented in this local slice.",
+      attempt,
       certification,
       submit_request_masked: job.submit_request_masked
     });

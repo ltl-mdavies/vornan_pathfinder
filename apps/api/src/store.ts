@@ -39,6 +39,7 @@ export type SubmitCertificationActionKey =
   | "target-output-routes"
   | "target-output-templates"
   | "target-health";
+export type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
 
 export interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
@@ -259,12 +260,47 @@ export interface ProcessingJobPreview {
   updated_at: string;
 }
 
+export interface NormalizedLiftSubmitResponse {
+  status: "not_sent" | "accepted" | "rejected" | "error";
+  http_status?: number | null;
+  lift_order_id?: string | null;
+  message: string;
+  raw_body?: unknown;
+  received_at: string;
+}
+
+export interface SubmitAttempt {
+  attempt_id: string;
+  idempotency_key: string;
+  customer_id: string;
+  customer_name: string;
+  job_id: string;
+  output_route_id: string;
+  output_route_name: string;
+  submit_profile_id: string;
+  submit_profile_name: string;
+  submit_mode: SubmitProfileMode;
+  sandbox: boolean;
+  state: SubmitAttemptStatus;
+  external_submit_enabled: boolean;
+  endpoint_url: string;
+  ext_id: string;
+  company_id: string;
+  submit_request_masked: ProcessingJobPreview["submit_request_masked"];
+  certification: SubmitCertification;
+  blocking_items: SubmitCertificationItem[];
+  response: NormalizedLiftSubmitResponse;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PathfinderCustomerWorkspace {
   customer: LiftCustomer;
   import_methods: ImportMethod[];
   output_routes: OutputRoute[];
   templates: SavedFieldMappingTemplate[];
   jobs: ProcessingJobPreview[];
+  submit_attempts?: SubmitAttempt[];
   product_mappings: CustomerProductMapping[];
   primary_target_id: string;
   primary_output_route_id: string;
@@ -276,6 +312,7 @@ export interface PathfinderStore {
   targets: Record<string, TargetConfig>;
   workspaces: Record<string, PathfinderCustomerWorkspace>;
   jobs: ProcessingJobPreview[];
+  submit_attempts: SubmitAttempt[];
 }
 
 const storePath = fileURLToPath(new URL("../../../data/pathfinder-store.local.json", import.meta.url));
@@ -686,6 +723,7 @@ function createWorkspace(customer: LiftCustomer): PathfinderCustomerWorkspace {
       }
     ],
     jobs: [],
+    submit_attempts: [],
     product_mappings: [],
     primary_target_id: targetId,
     primary_output_route_id: route.output_route_id,
@@ -701,7 +739,8 @@ function createSeedStore(): PathfinderStore {
       [ecommerceTargetId]: createSeedEcommerceTarget()
     },
     workspaces: {},
-    jobs: []
+    jobs: [],
+    submit_attempts: []
   };
 }
 
@@ -838,6 +877,7 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
     product_mappings: (workspace.product_mappings ?? []).map(normalizeProductMapping),
     primary_target_id: workspace.primary_target_id ?? route.target_id,
     primary_output_route_id: primaryOutputRouteId,
+    submit_attempts: workspace.submit_attempts ?? [],
     jobs: workspace.jobs ?? []
   };
 }
@@ -867,7 +907,8 @@ export async function readStore(): Promise<PathfinderStore> {
           normalizeWorkspace(workspace as PathfinderCustomerWorkspace)
         ])
       ),
-      jobs: parsed.jobs ?? []
+      jobs: parsed.jobs ?? [],
+      submit_attempts: parsed.submit_attempts ?? []
     };
   } catch {
     const seed = createSeedStore();
@@ -884,6 +925,7 @@ export async function getOrCreateWorkspace(customer: LiftCustomer) {
     const normalized = normalizeWorkspace(existing);
     normalized.customer = customer;
     normalized.jobs = store.jobs.filter((job) => job.customer_id === customer.lift_customer_id);
+    normalized.submit_attempts = store.submit_attempts.filter((attempt) => attempt.customer_id === customer.lift_customer_id);
     store.workspaces[customer.lift_customer_id] = normalized;
     await writeStore(store);
     return normalized;
@@ -992,6 +1034,31 @@ export async function listJobs() {
 export async function getJob(customer: LiftCustomer, jobId: string) {
   const store = await readStore();
   return store.jobs.find((job) => job.customer_id === customer.lift_customer_id && job.job_id === jobId) ?? null;
+}
+
+export async function getSubmitAttemptByIdempotencyKey(customer: LiftCustomer, idempotencyKey: string) {
+  const store = await readStore();
+  return (
+    store.submit_attempts.find(
+      (attempt) => attempt.customer_id === customer.lift_customer_id && attempt.idempotency_key === idempotencyKey
+    ) ?? null
+  );
+}
+
+export async function persistSubmitAttempt(customer: LiftCustomer, attempt: SubmitAttempt) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+
+  store.submit_attempts = [
+    attempt,
+    ...(store.submit_attempts ?? []).filter((candidate) => candidate.attempt_id !== attempt.attempt_id)
+  ];
+  workspace.submit_attempts = store.submit_attempts.filter((candidate) => candidate.customer_id === customer.lift_customer_id);
+  workspace.updated_at = attempt.updated_at;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+
+  return attempt;
 }
 
 export async function listProductMappings(customer: LiftCustomer) {

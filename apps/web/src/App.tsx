@@ -72,6 +72,7 @@ type TargetsView = "Overview" | "Environments" | "Output Templates" | "Output Ro
 type TargetDetailView = Exclude<TargetsView, "Overview">;
 type SubmitProfileMode = "live_customer" | "sandbox_customer";
 type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
+type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
 type SubmitCertificationActionKey =
   | "manual-import"
   | "field-mapping"
@@ -300,12 +301,47 @@ interface ProcessingJobPreview {
   updated_at: string;
 }
 
+interface NormalizedLiftSubmitResponse {
+  status: "not_sent" | "accepted" | "rejected" | "error";
+  http_status?: number | null;
+  lift_order_id?: string | null;
+  message: string;
+  raw_body?: unknown;
+  received_at: string;
+}
+
+interface SubmitAttempt {
+  attempt_id: string;
+  idempotency_key: string;
+  customer_id: string;
+  customer_name: string;
+  job_id: string;
+  output_route_id: string;
+  output_route_name: string;
+  submit_profile_id: string;
+  submit_profile_name: string;
+  submit_mode: SubmitProfileMode;
+  sandbox: boolean;
+  state: SubmitAttemptStatus;
+  external_submit_enabled: boolean;
+  endpoint_url: string;
+  ext_id: string;
+  company_id: string;
+  submit_request_masked: ProcessingJobPreview["submit_request_masked"];
+  certification: SubmitCertification;
+  blocking_items: SubmitCertificationItem[];
+  response: NormalizedLiftSubmitResponse;
+  created_at: string;
+  updated_at: string;
+}
+
 interface PathfinderCustomerWorkspace {
   customer: LiftCustomer;
   import_methods: ImportMethod[];
   output_routes: OutputRoute[];
   templates: SavedFieldMappingTemplate[];
   jobs: ProcessingJobPreview[];
+  submit_attempts?: SubmitAttempt[];
   product_mappings: CustomerProductMapping[];
   primary_target_id: string;
   primary_output_route_id: string;
@@ -1638,6 +1674,7 @@ export function App() {
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("idle");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
   const [lastPreviewJob, setLastPreviewJob] = useState<ProcessingJobPreview | null>(null);
+  const [lastSubmitAttempt, setLastSubmitAttempt] = useState<SubmitAttempt | null>(null);
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("live-customer");
   const [productMappingDrafts, setProductMappingDrafts] = useState<Record<string, { unit: string; product: string }>>({});
   const [compositeColumnToAdd, setCompositeColumnToAdd] = useState("");
@@ -1686,6 +1723,7 @@ export function App() {
       const response = await fetch(`${apiBaseUrl}/api/customers/${liftCustomerId}/workspace`);
       const loadedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       setWorkspace(loadedWorkspace);
+      setLastSubmitAttempt(loadedWorkspace.submit_attempts?.[0] ?? null);
       setActiveMethodId(
         loadedWorkspace.import_methods.find((method) => method.status !== "Archived")?.import_method_id ?? "manual-xlsx"
       );
@@ -1766,6 +1804,7 @@ export function App() {
       });
       const payload = await readJsonResponse<{ job: ProcessingJobPreview; workspace: PathfinderCustomerWorkspace }>(response);
       setLastPreviewJob(payload.job);
+      setLastSubmitAttempt(null);
       setWorkspace(payload.workspace);
       setWorkspaceMessage(
         payload.job.state === "Ready"
@@ -2132,6 +2171,7 @@ export function App() {
       setSourceName(file.name);
       setSheetName(parsed.sheetName);
       setLastPreviewJob(null);
+      setLastSubmitAttempt(null);
       setImportError(null);
       setActiveGlobalView("Customers");
       setActiveCustomerView("Manual Import");
@@ -2157,6 +2197,7 @@ export function App() {
     setSourceName("Sample workbook");
     setSheetName("Sample");
     setLastPreviewJob(null);
+    setLastSubmitAttempt(null);
     setImportError(null);
   }
 
@@ -2314,10 +2355,16 @@ export function App() {
       );
       const payload = (await response.json()) as {
         error?: string;
+        attempt?: SubmitAttempt;
+        reused?: boolean;
+        message?: string;
         certification?: SubmitCertification;
         submit_request_masked?: ProcessingJobPreview["submit_request_masked"];
       };
-      setWorkspaceMessage(payload.error ?? "Lift submit request accepted.");
+      if (payload.attempt) {
+        setLastSubmitAttempt(payload.attempt);
+      }
+      setWorkspaceMessage(payload.error ?? payload.message ?? "Lift submit request accepted.");
       setWorkspaceState(response.ok ? "idle" : "error");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Lift submit request failed.");
@@ -3957,6 +4004,26 @@ export function App() {
                       <strong>{submitCertification.can_submit ? "Ready for external submit" : "Submit still gated"}</strong>
                       <span>{submitCertification.summary}</span>
                     </div>
+                    {lastSubmitAttempt ? (
+                      <div className="submit-attempt-summary">
+                        <div>
+                          <span>Last submit attempt</span>
+                          <strong>{lastSubmitAttempt.state}</strong>
+                        </div>
+                        <div>
+                          <span>Attempt</span>
+                          <strong>{lastSubmitAttempt.attempt_id}</strong>
+                        </div>
+                        <div>
+                          <span>Idempotency key</span>
+                          <strong>{lastSubmitAttempt.idempotency_key}</strong>
+                        </div>
+                        <div>
+                          <span>Response</span>
+                          <strong>{lastSubmitAttempt.response.message}</strong>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="certification-list">
                       {submitCertification.items.map((item) => (
                         <div className="certification-row" key={item.item_id}>

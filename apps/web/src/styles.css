@@ -2114,6 +2114,43 @@ h1 {
   font-weight: 700;
 }
 
+.submit-attempt-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 16px 14px;
+}
+
+.submit-attempt-summary > div {
+  min-width: 0;
+  padding: 10px;
+  background: rgba(245, 247, 241, 0.92);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.submit-attempt-summary span,
+.submit-attempt-summary strong {
+  display: block;
+}
+
+.submit-attempt-summary span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.submit-attempt-summary strong {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .certification-list {
   display: grid;
   max-height: 260px;

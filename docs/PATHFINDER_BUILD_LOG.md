@@ -249,11 +249,44 @@ This is the living implementation record for Pathfinder. It tracks completed mil
   - does not call Lift yet
 - This prepares the real submit path without risking an accidental external order creation.
 
+### 16. Submit Attempt Audit and Idempotency
+
+- Added local submit attempt records to the file-backed store.
+- Submit attempts capture:
+  - attempt id
+  - idempotency key
+  - preview job id
+  - output route
+  - submit profile
+  - sandbox/live mode
+  - endpoint
+  - Ext_ID
+  - Company ID
+  - masked request
+  - certification snapshot
+  - blocking items
+  - normalized response placeholder
+- The guarded submit endpoint now persists attempts for blocked, gate-locked, and dry-run submit requests.
+- Repeated submit requests with the same idempotency key return the existing attempt instead of creating a duplicate.
+- Manual Import now shows the latest submit attempt audit summary after a submit request and reloads the latest workspace attempt after refresh.
+- This establishes the audit/replay foundation needed before external Lift transport is enabled.
+
 ## Current Verification
 
-Most recent verification for the actionable certification / gated submit slice:
+Most recent verification for the submit attempt audit/idempotency slice:
 
 - `npm run check` passed.
+- API smoke check passed:
+  - generated a preview job
+  - called the guarded submit endpoint twice with the same `Idempotency-Key`
+  - confirmed the first request creates a blocked submit attempt
+  - confirmed the second request reuses the same attempt id
+  - confirmed the attempt stores normalized response text and blocking certification items
+
+Previous verification for the actionable certification / gated submit slice:
+
+- `npm run check` passed.
+- `npm run build` passed.
 - API smoke check passed:
   - generated a preview job
   - called the guarded submit endpoint
@@ -417,16 +450,11 @@ Known non-blocking notes:
 
 ### Sprint 4: Real QA1 Submit
 
-- Add a submit button gated by:
-  - Ready state
-  - credentials present
-  - selected submit profile
-  - `Ext_ID` header/body equality
-  - valid product identifiers
-- Start with Sandbox `LTL Demo / 1249` submit only.
-- Persist submit attempts and Lift responses.
+- Add real external Lift transport behind the existing submit certification and feature gate.
+- Start with Sandbox `LTL Demo / 1249` submit only, likely against PROD if the Lift integration mapping is first built there.
+- Persist real Lift responses into the submit attempt record.
 - Add retry/replay from persisted jobs.
-- Expand from sandbox submit to live customer submit only after QA1 behavior is proven.
+- Expand from sandbox submit to live customer submit only after sandbox behavior is proven.
 
 ### Sprint 5: Production Foundation
 
@@ -444,4 +472,4 @@ Known non-blocking notes:
 
 ### Current Recommendation
 
-Proceed with Sprint 1 first, while shaping Sprint 2 around Lift product catalog access. Real QA1 submission should wait until the current architecture is stabilized and product/unit-number approval can be validated against real Lift data.
+Proceed next with Lift transport response handling and credential readiness, then run a controlled sandbox submit once credentials, product mappings, and integration-team mapping expectations are confirmed.
