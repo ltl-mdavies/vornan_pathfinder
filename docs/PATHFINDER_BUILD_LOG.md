@@ -271,17 +271,32 @@ This is the living implementation record for Pathfinder. It tracks completed mil
 - Manual Import now shows the latest submit attempt audit summary after a submit request and reloads the latest workspace attempt after refresh.
 - This establishes the audit/replay foundation needed before external Lift transport is enabled.
 
+### 17. Lift Transport Dry-Run Adapter
+
+- Added a real Lift submit transport boundary in the Lift adapter.
+- The transport supports two modes:
+  - `dry_run`: normalize and audit a certified submit attempt without sending an external request.
+  - `live`: POST the Lift request to the selected route environment endpoint.
+- Added normalized Lift response handling for accepted, rejected, and transport-error outcomes.
+- The guarded submit endpoint now:
+  - still requires submit certification
+  - still respects `PATHFINDER_ENABLE_LIFT_SUBMIT`
+  - rebuilds the unmasked submit request from the selected output route and target environment at submit time
+  - keeps persisted job records masked
+  - writes the normalized transport response into the submit attempt audit trail
+- `PATHFINDER_LIFT_TRANSPORT_MODE=live` is required before the API will make an external POST. Without it, a certified submit records a dry-run attempt.
+- No external Lift request is sent by default.
+
 ## Current Verification
 
-Most recent verification for the submit attempt audit/idempotency slice:
+Most recent verification for the Lift transport dry-run adapter slice:
 
 - `npm run check` passed.
-- API smoke check passed:
-  - generated a preview job
-  - called the guarded submit endpoint twice with the same `Idempotency-Key`
-  - confirmed the first request creates a blocked submit attempt
-  - confirmed the second request reuses the same attempt id
-  - confirmed the attempt stores normalized response text and blocking certification items
+- `npm run build` passed.
+- Adapter smoke check passed:
+  - called `submitLiftOrder` with no live transport mode
+  - confirmed the result is `not_sent`
+  - confirmed the message states that the external Lift request was not sent
 
 Previous verification for the actionable certification / gated submit slice:
 

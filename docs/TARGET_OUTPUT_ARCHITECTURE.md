@@ -98,4 +98,9 @@ This is intentionally different from a QA1 test. `PROD` describes the Lift infra
 - Every submit request creates or reuses a Submit Attempt audit record with an idempotency key, masked request, certification snapshot, blockers, and normalized response state.
 - Template body/header fields should be mapped through the template editor, not hand-authored by non-technical users where possible.
 - Lift `Ext_ID` header must match `body.order.ext_id`.
-- `POST /api/customers/:liftCustomerId/jobs/:jobId/submit` is the guarded submit entrypoint. It must refuse uncertified jobs and must not call Lift unless target credentials, response handling, Ready-state validation, and `PATHFINDER_ENABLE_LIFT_SUBMIT=true` are finalized.
+- `POST /api/customers/:liftCustomerId/jobs/:jobId/submit` is the guarded submit entrypoint. It refuses uncertified jobs and records every attempt with a masked request plus normalized response state.
+- External submit has two switches:
+  - `PATHFINDER_ENABLE_LIFT_SUBMIT=true` unlocks the submit gate after certification passes.
+  - `PATHFINDER_LIFT_TRANSPORT_MODE=live` allows the adapter to make the external Lift POST.
+- If the submit gate is unlocked but transport mode is not `live`, Pathfinder records a certified dry-run submit attempt and does not call Lift.
+- Live submit rebuilds the unmasked request from the selected Output Route and Target Environment at submit time. Persisted preview jobs and submit attempts remain masked.

@@ -88,6 +88,17 @@ export interface LiftSubmitRequest {
   body: LiftOrderPayload;
 }
 
+export type LiftSubmitTransportMode = "dry_run" | "live";
+
+export interface LiftSubmitTransportResult {
+  status: "not_sent" | "accepted" | "rejected" | "error";
+  http_status?: number | null;
+  lift_order_id?: string | null;
+  message: string;
+  raw_body?: unknown;
+  received_at: string;
+}
+
 export const defaultLiftTargetConfig: LiftTargetConfig = {
   destination_adapter: "lift-standard-graphics",
   active_environment: "QA1",
@@ -264,4 +275,104 @@ export function maskLiftSubmitRequest(request: LiftSubmitRequest) {
       Password: "********"
     }
   };
+}
+
+function valueFromBody(body: unknown, keys: string[]): string | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === "number") {
+      return String(value);
+    }
+  }
+
+  return null;
+}
+
+function messageFromBody(body: unknown): string | null {
+  if (typeof body === "string" && body.trim()) {
+    return body.trim().slice(0, 500);
+  }
+
+  return valueFromBody(body, ["message", "status", "error", "error_message", "detail"]);
+}
+
+function bodyHasFailureSignal(body: unknown): boolean {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return false;
+  }
+
+  const joinedValues = Object.values(body as Record<string, unknown>)
+    .filter((value) => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  return /\b(error|failed|failure|rejected|invalid)\b/.test(joinedValues);
+}
+
+export function normalizeLiftSubmitResponse(httpStatus: number, rawBody: unknown): LiftSubmitTransportResult {
+  const acceptedHttpStatus = httpStatus >= 200 && httpStatus < 300;
+  const failureSignal = bodyHasFailureSignal(rawBody);
+  const liftOrderId = valueFromBody(rawBody, ["lift_order_id", "liftOrderId", "order_id", "orderId", "id"]);
+  const bodyMessage = messageFromBody(rawBody);
+  const status = acceptedHttpStatus && !failureSignal ? "accepted" : "rejected";
+
+  return {
+    status,
+    http_status: httpStatus,
+    lift_order_id: liftOrderId,
+    message:
+      bodyMessage ??
+      (status === "accepted"
+        ? "Lift accepted the order request."
+        : `Lift rejected the order request with HTTP ${httpStatus}.`),
+    raw_body: rawBody,
+    received_at: new Date().toISOString()
+  };
+}
+
+export async function submitLiftOrder(
+  request: LiftSubmitRequest,
+  options: { mode?: LiftSubmitTransportMode; timeoutMs?: number } = {}
+): Promise<LiftSubmitTransportResult> {
+  const mode = options.mode ?? "dry_run";
+  if (mode !== "live") {
+    return {
+      status: "not_sent",
+      http_status: null,
+      lift_order_id: null,
+      message: "Dry run: external Lift request not sent.",
+      raw_body: null,
+      received_at: new Date().toISOString()
+    };
+  }
+
+  try {
+    const response = await fetch(request.endpoint_url, {
+      method: "POST",
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 15000)
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    const rawBody = contentType.includes("application/json") ? await response.json() : await response.text();
+
+    return normalizeLiftSubmitResponse(response.status, rawBody);
+  } catch (error) {
+    return {
+      status: "error",
+      http_status: null,
+      lift_order_id: null,
+      message: error instanceof Error ? error.message : "Lift submit transport failed.",
+      raw_body: null,
+      received_at: new Date().toISOString()
+    };
+  }
 }

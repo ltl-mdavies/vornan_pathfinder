@@ -7,9 +7,11 @@ import {
   buildLiftSubmitRequest,
   generateLiftPayload,
   maskLiftSubmitRequest,
+  submitLiftOrder,
   validateLiftPayload,
   type LiftOrderPayload,
   type LiftSubmitRequest,
+  type LiftSubmitTransportMode,
   type LiftTargetConfig
 } from "@pathfinder/lift-adapter";
 import {
@@ -60,6 +62,8 @@ const liftCustomerListEndpoint =
   process.env.LIFT_CUSTOMER_LIST_URL ??
   "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerContactLIst/LTL-Customer-List?offset=0";
 const externalLiftSubmitEnabled = process.env.PATHFINDER_ENABLE_LIFT_SUBMIT === "true";
+const liftSubmitTransportMode: LiftSubmitTransportMode =
+  process.env.PATHFINDER_LIFT_TRANSPORT_MODE === "live" ? "live" : "dry_run";
 const localCustomerSeedUrl = new URL("../../../data/lift-customers.sample.csv", import.meta.url);
 
 app.use(cors({ origin: ["http://127.0.0.1:5173", "http://localhost:5173"] }));
@@ -626,6 +630,8 @@ function createSubmitAttempt(args: {
   state: SubmitAttemptStatus;
   blockingItems: SubmitCertificationItem[];
   message: string;
+  response?: SubmitAttempt["response"];
+  submitRequestMasked?: ProcessingJobPreview["submit_request_masked"];
 }): SubmitAttempt {
   const timestamp = new Date().toISOString();
   const certification =
@@ -651,13 +657,13 @@ function createSubmitAttempt(args: {
     sandbox: args.job.sandbox,
     state: args.state,
     external_submit_enabled: externalLiftSubmitEnabled,
-    endpoint_url: args.job.submit_request_masked.endpoint_url,
-    ext_id: args.job.submit_request_masked.headers.Ext_ID,
-    company_id: args.job.submit_request_masked.headers.Company,
-    submit_request_masked: args.job.submit_request_masked,
+    endpoint_url: (args.submitRequestMasked ?? args.job.submit_request_masked).endpoint_url,
+    ext_id: (args.submitRequestMasked ?? args.job.submit_request_masked).headers.Ext_ID,
+    company_id: (args.submitRequestMasked ?? args.job.submit_request_masked).headers.Company,
+    submit_request_masked: args.submitRequestMasked ?? args.job.submit_request_masked,
     certification,
     blocking_items: args.blockingItems,
-    response: {
+    response: args.response ?? {
       status: "not_sent",
       http_status: null,
       lift_order_id: null,
@@ -1123,21 +1129,86 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
       return;
     }
 
+    const workspace = await getOrCreateWorkspace(customer);
+    const outputRoute = workspace.output_routes.find((route) => route.output_route_id === job.output_route_id);
+
+    if (!outputRoute) {
+      const attempt = await persistSubmitAttempt(
+        customer,
+        createSubmitAttempt({
+          job,
+          idempotencyKey,
+          state: "Blocked",
+          blockingItems: [],
+          message: "Preview job output route could not be found."
+        })
+      );
+      res.status(409).json({
+        error: "Preview job output route could not be found.",
+        attempt,
+        certification
+      });
+      return;
+    }
+
+    const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
+    if (!target) {
+      const attempt = await persistSubmitAttempt(
+        customer,
+        createSubmitAttempt({
+          job,
+          idempotencyKey,
+          state: "Blocked",
+          blockingItems: [],
+          message: "Preview job target could not be found."
+        })
+      );
+      res.status(409).json({
+        error: "Preview job target could not be found.",
+        attempt,
+        certification
+      });
+      return;
+    }
+
+    const unmaskedSubmitRequest = buildLiftSubmitRequest(job.lift_payload, liftConfigForRoute(target, outputRoute));
+    const submitRequestMasked = maskLiftSubmitRequest(unmaskedSubmitRequest);
+    const transportResult = await submitLiftOrder(unmaskedSubmitRequest, { mode: liftSubmitTransportMode });
+    const attemptState: SubmitAttemptStatus =
+      transportResult.status === "accepted"
+        ? "Submitted"
+        : transportResult.status === "not_sent"
+          ? "Dry Run"
+          : "Failed";
     const attempt = await persistSubmitAttempt(
       customer,
       createSubmitAttempt({
         job,
         idempotencyKey,
-        state: "Dry Run",
+        state: attemptState,
         blockingItems: [],
-        message: "External Lift submit transport is not implemented in this local slice."
+        message: transportResult.message,
+        response: transportResult,
+        submitRequestMasked
       })
     );
-    res.status(501).json({
-      error: "External Lift submit transport is not implemented in this local slice.",
+
+    if (transportResult.status === "rejected" || transportResult.status === "error") {
+      res.status(502).json({
+        error: transportResult.message,
+        attempt,
+        certification,
+        transport_mode: liftSubmitTransportMode,
+        submit_request_masked: submitRequestMasked
+      });
+      return;
+    }
+
+    res.status(202).json({
       attempt,
       certification,
-      submit_request_masked: job.submit_request_masked
+      transport_mode: liftSubmitTransportMode,
+      submit_request_masked: submitRequestMasked
     });
   } catch (error) {
     res.status(500).json({
