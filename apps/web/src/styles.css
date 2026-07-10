@@ -1552,6 +1552,22 @@ h1 {
   border-top: 1px solid var(--border-subtle);
 }
 
+.template-warning-strip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  color: #8f2b24;
+  background: rgba(190, 66, 58, 0.08);
+  border-top: 1px solid rgba(190, 66, 58, 0.12);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.template-warning-strip svg {
+  flex: 0 0 auto;
+}
+
 .template-mapping-builder .mapping-table {
   border-top: 1px solid var(--border-subtle);
 }

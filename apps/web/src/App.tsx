@@ -399,6 +399,112 @@ const generatedTemplateOptions = [
   "generated.filename"
 ];
 
+const liftStandardGraphicsBodyTemplateText = JSON.stringify(
+  {
+    customer: {
+      lift_customer_id: "{{customer.lift_customer_id}}",
+      customer_name: "{{customer.name}}"
+    },
+    source: {
+      platform: "Pathfinder",
+      pathfinder_customer_id: "{{customer.id}}",
+      source_system: "{{source.source_system}}",
+      source_customer: "{{source.source_customer}}",
+      source_record_id: "{{source.source_record_id}}",
+      source_record_url: "{{source.source_record_url}}",
+      source_template: "{{source.source_template}}",
+      submitted_at: "{{source.submitted_at}}",
+      pathfinder_job_id: "{{generated.pathfinder_job_id}}",
+      pathfinder_canonical_order_id: "{{generated.pathfinder_canonical_order_id}}"
+    },
+    order: {
+      ext_id: "{{order.external_order_id}}",
+      po_number: "{{order.po_number}}",
+      contract_number: "{{order.contract_number}}",
+      order_title: "{{order.order_title}}",
+      order_note: "{{order.order_note}}",
+      requested_ship_date: "{{order.ship_date}}",
+      shipping: {
+        method: "{{order.shipping.method}}",
+        account_number: "{{order.shipping.account_number}}",
+        attention_to: "{{order.shipping.attention_to}}",
+        company: "{{order.shipping.company}}",
+        address_1: "{{order.shipping.address_1}}",
+        address_2: "{{order.shipping.address_2}}",
+        city: "{{order.shipping.city}}",
+        state: "{{order.shipping.state}}",
+        postal_code: "{{order.shipping.postal_code}}",
+        country: "{{order.shipping.country}}",
+        phone: "{{order.shipping.phone}}",
+        email: "{{order.shipping.email}}",
+        instructions: "{{order.shipping.instructions}}"
+      }
+    },
+    lines: [
+      {
+        line_number: "{{lines[].line_number}}",
+        unit_number: "{{lines[].unit_number}}",
+        customer_sku: "{{lines[].customer_sku}}",
+        description: "{{lines[].description}}",
+        product_name: "{{lines[].product_name}}",
+        quantity: "{{lines[].quantity}}",
+        artwork: {
+          file_name: "{{lines[].artwork.file_name}}",
+          file_url: "{{lines[].artwork.file_url}}",
+          checksum: "{{lines[].artwork.checksum}}"
+        },
+        dimensions: {
+          final_height: "{{lines[].dimensions.final_height}}",
+          final_width: "{{lines[].dimensions.final_width}}",
+          live_height: "{{lines[].dimensions.live_height}}",
+          live_width: "{{lines[].dimensions.live_width}}",
+          bleed: "{{lines[].dimensions.bleed}}"
+        },
+        production: {
+          material: "{{lines[].production.material}}",
+          laminate: "{{lines[].production.laminate}}",
+          coating: "{{lines[].production.coating}}",
+          premask: "{{lines[].production.premask}}",
+          ink: "{{lines[].production.ink}}",
+          cut_type: "{{lines[].production.cut_type}}",
+          hem: "{{lines[].production.hem}}",
+          grommets: "{{lines[].production.grommets}}"
+        },
+        shipping: {
+          method: "{{lines[].shipping.method}}",
+          account_number: "{{lines[].shipping.account_number}}",
+          attention_to: "{{lines[].shipping.attention_to}}",
+          company: "{{lines[].shipping.company}}",
+          address_1: "{{lines[].shipping.address_1}}",
+          address_2: "{{lines[].shipping.address_2}}",
+          city: "{{lines[].shipping.city}}",
+          state: "{{lines[].shipping.state}}",
+          postal_code: "{{lines[].shipping.postal_code}}",
+          country: "{{lines[].shipping.country}}",
+          phone: "{{lines[].shipping.phone}}",
+          email: "{{lines[].shipping.email}}",
+          instructions: "{{lines[].shipping.instructions}}"
+        },
+        line_note: "{{lines[].line_note}}"
+      }
+    ]
+  },
+  null,
+  2
+);
+
+const liftStandardGraphicsHeaderTemplateText = JSON.stringify(
+  {
+    "Content-Type": "application/json",
+    Ext_ID: "{{order.external_order_id}}",
+    User: "{{environment.credentials.User}}",
+    Password: "{{environment.credentials.Password}}",
+    Company: "{{environment.headers.Company}}"
+  },
+  null,
+  2
+);
+
 interface TemplateFieldReference {
   key: string;
   section: "body" | "header";
@@ -525,11 +631,15 @@ function defaultCanonicalForTemplateField(field: TemplateFieldReference) {
     "customer.name": "customer.name",
     "customer.customer_name": "customer.name",
     "customer.lift_customer_id": "customer.lift_customer_id",
+    "source.pathfinder_customer_id": "customer.id",
     "source.source_customer": "source.source_customer",
+    "source.source_system": "source.source_system",
     "source.source_record_id": "source.source_record_id",
     "source.source_record_url": "source.source_record_url",
     "source.source_template": "source.source_template",
     "source.submitted_at": "source.submitted_at",
+    "source.pathfinder_job_id": "generated.pathfinder_job_id",
+    "source.pathfinder_canonical_order_id": "generated.pathfinder_canonical_order_id",
     "environment.credentials.User": "environment.credentials.User",
     "environment.credentials.Password": "environment.credentials.Password",
     "environment.credentials.token": "environment.credentials.token",
@@ -645,6 +755,43 @@ function mappingSourceLabel(value: string) {
     return "Generated";
   }
   return "Canonical Order";
+}
+
+function isExpectedStaticTemplateField(field: TemplateFieldReference) {
+  return (
+    (field.section === "body" && field.path === "source.platform") ||
+    (field.section === "header" && field.path === "Content-Type")
+  );
+}
+
+function templateMappingStats(template: OutputTemplate) {
+  const fields = templateFields(template);
+  const staticFields = fields.filter((field) => !templateMappingValue(template, field));
+  const warningFields = staticFields.filter((field) => !isExpectedStaticTemplateField(field));
+  return {
+    total: fields.length,
+    mapped: fields.length - staticFields.length,
+    staticCount: staticFields.length,
+    warningFields
+  };
+}
+
+function liftStandardGraphicsTemplateMappings() {
+  return templateFieldsFromText(liftStandardGraphicsBodyTemplateText, "body")
+    .concat(templateFieldsFromText(liftStandardGraphicsHeaderTemplateText, "header"))
+    .map((field) => ({
+      sourceColumn: field.key,
+      targetField: field.token ?? defaultCanonicalForTemplateField(field),
+      required:
+        field.path === "order.ext_id" ||
+        field.path === "lines[].unit_number" ||
+        field.path === "lines[].quantity" ||
+        field.path === "Ext_ID" ||
+        field.path === "User" ||
+        field.path === "Password" ||
+        field.path === "Company"
+    }))
+    .filter((mapping) => mapping.targetField);
 }
 
 const fallbackJobs: Array<{
@@ -1548,6 +1695,7 @@ export function App() {
     targetOutputTemplates.find((template) => template.output_template_id === activeOutputTemplateId) ??
     targetOutputTemplates[0] ??
     null;
+  const selectedOutputTemplateStats = selectedOutputTemplate ? templateMappingStats(selectedOutputTemplate) : null;
   const targetRowIds = targetRows.map((target) => target.target_id).join("|");
   const targetTemplateIds = targetOutputTemplates.map((template) => template.output_template_id).join("|");
 
@@ -2155,6 +2303,21 @@ export function App() {
       updated_at: new Date().toISOString()
     }));
     setActiveOutputTemplateId(template.output_template_id);
+  }
+
+  function resetOutputTemplateToLiftSample(targetId: string, templateId: string) {
+    updateOutputTemplateDraft(targetId, templateId, (template) => ({
+      ...template,
+      name: template.name || "Lift Standard Graphics Order",
+      destination_method: "HTTP POST",
+      output_format: "JSON",
+      body_template: liftStandardGraphicsBodyTemplateText,
+      header_template: liftStandardGraphicsHeaderTemplateText,
+      canonical_mappings: liftStandardGraphicsTemplateMappings(),
+      filename_format: template.filename_format || "orders-%y-%m-%d-%h-%i-%s.json",
+      updated_at: new Date().toISOString()
+    }));
+    setWorkspaceMessage("Lift Standard Graphics sample template restored.");
   }
 
   function updateOutputTemplateMapping(targetId: string, templateId: string, field: TemplateFieldReference, targetField: string) {
@@ -4081,6 +4244,12 @@ export function App() {
                               <strong>{selectedOutputTemplate.name}</strong>
                               <span>{selectedOutputTemplate.destination_method} · {selectedOutputTemplate.output_format}</span>
                             </div>
+                            <button
+                              className="secondary-button table-inline-button"
+                              onClick={() => resetOutputTemplateToLiftSample(selectedTarget.target_id, selectedOutputTemplate.output_template_id)}
+                            >
+                              Reset Lift sample
+                            </button>
                             <span className={selectedOutputTemplate.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
                               {selectedOutputTemplate.status}
                             </span>
@@ -4195,8 +4364,22 @@ export function App() {
                           <div className="template-mapping-builder">
                             <div className="resolver-subsection-heading">
                               <h3>Template Field Mapping</h3>
-                              <span>Paste normal JSON, then choose where each detected field should get its value.</span>
+                              <span>
+                                {selectedOutputTemplateStats
+                                  ? `${selectedOutputTemplateStats.mapped} of ${selectedOutputTemplateStats.total} fields mapped`
+                                  : "Paste normal JSON, then choose where each detected field should get its value."}
+                              </span>
                             </div>
+                            {selectedOutputTemplateStats?.warningFields.length ? (
+                              <div className="template-warning-strip">
+                                <AlertTriangle size={16} />
+                                <span>
+                                  {selectedOutputTemplateStats.warningFields.length} detected field
+                                  {selectedOutputTemplateStats.warningFields.length === 1 ? "" : "s"} still use pasted/static values.
+                                  Map dynamic order, customer, line, or generated fields before submitting.
+                                </span>
+                              </div>
+                            ) : null}
                             {templateFields(selectedOutputTemplate).length ? (
                               <table className="mapping-table">
                                 <thead>
@@ -4266,7 +4449,15 @@ export function App() {
                                         </td>
                                         <td>
                                           <strong>{mappedValue ? `{{${mappedValue}}}` : "Static"}</strong>
-                                          <span className="cell-meta">{mappingSourceLabel(mappedValue)}</span>
+                                          <span
+                                            className={
+                                              !mappedValue && !isExpectedStaticTemplateField(field)
+                                                ? "cell-meta trend-bad"
+                                                : "cell-meta"
+                                            }
+                                          >
+                                            {mappingSourceLabel(mappedValue)}
+                                          </span>
                                         </td>
                                       </tr>
                                     );

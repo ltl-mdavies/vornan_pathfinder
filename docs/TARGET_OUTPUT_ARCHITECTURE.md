@@ -1,0 +1,92 @@
+# Pathfinder Target and Output Architecture
+
+This note records the current destination model used by Pathfinder.
+
+## Mental Model
+
+`Customer Input -> Canonical Order -> Output Route -> Output Template -> Target Environment`
+
+The customer import method owns how data enters Pathfinder. The output route owns where the resulting Canonical Order is rendered and sent.
+
+## Core Objects
+
+### Target
+
+A Target is a destination platform Pathfinder can send orders to.
+
+Examples:
+
+- Lift ERP
+- ThinkDifferentPrint
+- Ecommerce shop
+- SFTP destination
+
+Target-level settings describe the platform itself: name, target type, adapter, status, health, environments, templates, and routes.
+
+### Target Environment
+
+A Target Environment is one deployable endpoint or connection context for a target.
+
+Examples:
+
+- QA1
+- PROD
+- DEV
+- Sandbox
+
+Environment-level settings include endpoint URL, auth method, credentials, headers, and status. Infrastructure environments should not be used to represent customer identity.
+
+### Output Template
+
+An Output Template defines the rendered body/header/file shape.
+
+Examples:
+
+- Lift Standard Graphics Order JSON
+- Ecommerce order JSON
+- CSV export
+- XML file export
+
+Templates can be pasted as normal JSON with example values. Pathfinder detects fields and lets users map those fields to Canonical Order, environment, route, generated, or static values.
+
+### Output Route
+
+An Output Route combines a target, environment, destination account/company, output template, and product identifier strategy.
+
+Example:
+
+`Larger Than Life · Lift / 91 · Standard Graphics`
+
+Routes are what customer import methods select. Product mapping is scoped to routes because the same customer-provided value may resolve differently for different factories, Lift companies, ecommerce shops, or output templates.
+
+### Submit Profile
+
+A Submit Profile controls submit-time customer identity for a route.
+
+Current profiles:
+
+- `Live Customer`: submit using the selected customer workspace.
+- `Sandbox · LTL Demo`: submit using Lift customer `1249 / LTL Demo`.
+
+Submit Profiles are route-level because sandbox/live customer behavior is not the same thing as QA/PROD infrastructure.
+
+## Current Lift Route
+
+The current seeded route is:
+
+- Target: `Lift ERP`
+- Environment: `QA1`
+- Destination account/company: `Larger Than Life / 91`
+- Output template: `Lift Standard Graphics Order`
+- Product identifier: `Lift unit_number`
+- Submit profiles: `Live Customer`, `Sandbox · LTL Demo`
+
+## Rules
+
+- Import methods select Output Routes, not raw targets or raw templates.
+- Product mappings are scoped to Output Routes.
+- Environment settings provide connection details and credentials.
+- Submit Profiles provide submit customer identity.
+- Template body/header fields should be mapped through the template editor, not hand-authored by non-technical users where possible.
+- Lift `Ext_ID` header must match `body.order.ext_id`.
+- Real external submit remains gated until QA1 credentials, response handling, and Ready-state validation are finalized.
