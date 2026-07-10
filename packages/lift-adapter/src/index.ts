@@ -96,7 +96,27 @@ export interface LiftSubmitTransportResult {
   lift_order_id?: string | null;
   message: string;
   raw_body?: unknown;
+  error_translation?: LiftSubmitErrorTranslation | null;
   received_at: string;
+}
+
+export type LiftSubmitErrorCategory =
+  | "auth"
+  | "company"
+  | "duplicate_ext_id"
+  | "customer"
+  | "unit_number"
+  | "payload"
+  | "endpoint"
+  | "timeout"
+  | "unknown";
+
+export interface LiftSubmitErrorTranslation {
+  category: LiftSubmitErrorCategory;
+  operator_message: string;
+  suggested_action: string;
+  retryable: boolean;
+  source_message: string;
 }
 
 export const defaultLiftTargetConfig: LiftTargetConfig = {
@@ -304,6 +324,18 @@ function messageFromBody(body: unknown): string | null {
   return valueFromBody(body, ["message", "status", "error", "error_message", "detail"]);
 }
 
+function rawTextFromBody(body: unknown): string {
+  if (typeof body === "string") {
+    return body;
+  }
+
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return String(body);
+  }
+}
+
 function bodyHasFailureSignal(body: unknown): boolean {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return false;
@@ -315,6 +347,108 @@ function bodyHasFailureSignal(body: unknown): boolean {
     .toLowerCase();
 
   return /\b(error|failed|failure|rejected|invalid)\b/.test(joinedValues);
+}
+
+export function translateLiftSubmitError(args: {
+  httpStatus?: number | null;
+  rawBody?: unknown;
+  message?: string | null;
+}): LiftSubmitErrorTranslation {
+  const sourceMessage = (args.message || rawTextFromBody(args.rawBody) || "Unknown Lift submit failure").slice(0, 1000);
+  const text = sourceMessage.toLowerCase();
+  const httpStatus = args.httpStatus ?? null;
+
+  if (httpStatus === 401 || httpStatus === 403 || /auth|unauthori[sz]ed|credential|password|user\b|forbidden/.test(text)) {
+    return {
+      category: "auth",
+      operator_message: "Lift rejected the request because the import credentials were not accepted.",
+      suggested_action: "Check the selected target environment's import user and password, then retry the submit.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/company|company_id|company id/.test(text)) {
+    return {
+      category: "company",
+      operator_message: "Lift could not accept the request for the configured Company ID.",
+      suggested_action: "Confirm the Output Route company ID and environment header settings match the destination Lift company.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (
+    /(duplicate|already exists|unique).*(ext[_ -]?id|external id|order)|(ext[_ -]?id|external id|order).*(duplicate|already exists|unique)/.test(
+      text
+    )
+  ) {
+    return {
+      category: "duplicate_ext_id",
+      operator_message: "Lift appears to have rejected the order as a duplicate external order.",
+      suggested_action: "Confirm whether this Ext_ID was already submitted. If this is a retry, use the existing Lift order or choose a corrected Ext_ID strategy before resubmitting.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/customer|customerid|customer id/.test(text)) {
+    return {
+      category: "customer",
+      operator_message: "Lift could not resolve the customer on the order.",
+      suggested_action: "Check the selected submit profile and Lift customer ID. For sandbox tests, confirm LTL Demo / 1249 is selected when intended.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/unit[_ -]?number|unit number|product|item|sku|part/.test(text)) {
+    return {
+      category: "unit_number",
+      operator_message: "Lift could not resolve one or more submitted product identifiers.",
+      suggested_action: "Review the Output Product Map for this route and confirm each customer key maps to an approved Lift unit_number.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/missing|required|invalid|payload|json|parse|field|format/.test(text) || httpStatus === 400 || httpStatus === 422) {
+    return {
+      category: "payload",
+      operator_message: "Lift rejected the order payload because required or formatted data was not accepted.",
+      suggested_action: "Review the Canonical Order, Output Template mappings, and Lift payload preview for missing or malformed fields.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/timeout|timed out|abort/.test(text)) {
+    return {
+      category: "timeout",
+      operator_message: "Pathfinder timed out while waiting for Lift to respond.",
+      suggested_action: "Check Lift availability and retry after confirming the order was not created in Lift.",
+      retryable: true,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/fetch failed|econn|enotfound|network|unavailable|service unavailable|bad gateway|gateway/.test(text) || (httpStatus !== null && httpStatus >= 500)) {
+    return {
+      category: "endpoint",
+      operator_message: "Pathfinder could not reach Lift or Lift returned a server-side error.",
+      suggested_action: "Check the selected environment endpoint and Lift service health. Retry after confirming whether Lift created the order.",
+      retryable: true,
+      source_message: sourceMessage
+    };
+  }
+
+  return {
+    category: "unknown",
+    operator_message: "Lift rejected the submit request, but Pathfinder does not yet recognize this error pattern.",
+    suggested_action: "Review the raw Lift response with the Lift integration team, then add or refine an error translation rule.",
+    retryable: false,
+    source_message: sourceMessage
+  };
 }
 
 export function normalizeLiftSubmitResponse(httpStatus: number, rawBody: unknown): LiftSubmitTransportResult {
@@ -334,6 +468,14 @@ export function normalizeLiftSubmitResponse(httpStatus: number, rawBody: unknown
         ? "Lift accepted the order request."
         : `Lift rejected the order request with HTTP ${httpStatus}.`),
     raw_body: rawBody,
+    error_translation:
+      status === "accepted"
+        ? null
+        : translateLiftSubmitError({
+            httpStatus,
+            rawBody,
+            message: bodyMessage
+          }),
     received_at: new Date().toISOString()
   };
 }
@@ -350,6 +492,7 @@ export async function submitLiftOrder(
       lift_order_id: null,
       message: "Dry run: external Lift request not sent.",
       raw_body: null,
+      error_translation: null,
       received_at: new Date().toISOString()
     };
   }
@@ -366,12 +509,17 @@ export async function submitLiftOrder(
 
     return normalizeLiftSubmitResponse(response.status, rawBody);
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Lift submit transport failed.";
     return {
       status: "error",
       http_status: null,
       lift_order_id: null,
-      message: error instanceof Error ? error.message : "Lift submit transport failed.",
+      message,
       raw_body: null,
+      error_translation: translateLiftSubmitError({
+        httpStatus: null,
+        message
+      }),
       received_at: new Date().toISOString()
     };
   }

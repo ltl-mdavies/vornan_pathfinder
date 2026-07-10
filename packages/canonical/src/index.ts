@@ -8,6 +8,7 @@ export type ProcessingState =
   | "Needs Mapping"
   | "Ready"
   | "Submitted"
+  | "Submit Failed"
   | "Completed"
   | "Archived"
   | "Failed"

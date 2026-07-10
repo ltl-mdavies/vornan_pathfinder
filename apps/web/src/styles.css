@@ -2151,6 +2151,47 @@ h1 {
   white-space: nowrap;
 }
 
+.submit-attempt-summary .submit-error-translation {
+  grid-column: 1 / -1;
+  border-color: rgba(183, 64, 57, 0.2);
+  background: rgba(255, 247, 244, 0.88);
+}
+
+.submit-error-translation em,
+.submit-error-translation small,
+.submit-error-translation code {
+  display: block;
+  margin-top: 6px;
+}
+
+.submit-error-translation em {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.submit-error-translation small {
+  color: var(--danger);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.submit-error-translation code {
+  overflow: hidden;
+  padding: 8px;
+  border: 1px solid rgba(183, 64, 57, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text-muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .certification-list {
   display: grid;
   max-height: 260px;

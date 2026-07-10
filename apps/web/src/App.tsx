@@ -39,6 +39,7 @@ import {
   maskLiftSubmitRequest,
   validateLiftPayload,
   type LiftOrderPayload,
+  type LiftSubmitErrorTranslation,
   type LiftSubmitRequest,
   type LiftTargetConfig
 } from "@pathfinder/lift-adapter";
@@ -307,6 +308,7 @@ interface NormalizedLiftSubmitResponse {
   lift_order_id?: string | null;
   message: string;
   raw_body?: unknown;
+  error_translation?: LiftSubmitErrorTranslation | null;
   received_at: string;
 }
 
@@ -1000,7 +1002,7 @@ function formatJson(value: unknown) {
 
 function StatePill({ state }: { state: ProcessingState }) {
   const className =
-    state === "Failed"
+    state === "Failed" || state === "Submit Failed"
       ? "pill pill-danger"
       : state === "Needs Mapping"
         ? "pill pill-warning"
@@ -1104,7 +1106,7 @@ function displayJobId(jobId: string) {
 }
 
 function isFailureState(state: ProcessingState) {
-  return state === "Failed" || state === "Cancelled";
+  return state === "Failed" || state === "Submit Failed" || state === "Cancelled";
 }
 
 function jobExtId(job: ProcessingJobPreview) {
@@ -1113,6 +1115,10 @@ function jobExtId(job: ProcessingJobPreview) {
 
 function jobOrderCount(job: ProcessingJobPreview) {
   return job.lift_payload.lines.length;
+}
+
+function upsertJob(jobs: ProcessingJobPreview[], job: ProcessingJobPreview) {
+  return [job, ...jobs.filter((candidate) => candidate.job_id !== job.job_id)];
 }
 
 function methodLastRun(method: ImportMethod) {
@@ -2356,6 +2362,7 @@ export function App() {
       const payload = (await response.json()) as {
         error?: string;
         attempt?: SubmitAttempt;
+        job?: ProcessingJobPreview;
         reused?: boolean;
         message?: string;
         certification?: SubmitCertification;
@@ -2363,6 +2370,23 @@ export function App() {
       };
       if (payload.attempt) {
         setLastSubmitAttempt(payload.attempt);
+      }
+      if (payload.job) {
+        const submittedJob = payload.job;
+        const submitAttempt = payload.attempt;
+        setLastPreviewJob(submittedJob);
+        setWorkspace((current) =>
+          current
+            ? {
+                ...current,
+                jobs: upsertJob(current.jobs, submittedJob),
+                submit_attempts: submitAttempt
+                  ? [submitAttempt, ...(current.submit_attempts ?? []).filter((attempt) => attempt.attempt_id !== submitAttempt.attempt_id)]
+                  : current.submit_attempts
+              }
+            : current
+        );
+        setGlobalJobs((current) => upsertJob(current, submittedJob));
       }
       setWorkspaceMessage(payload.error ?? payload.message ?? "Lift submit request accepted.");
       setWorkspaceState(response.ok ? "idle" : "error");
@@ -4022,6 +4046,18 @@ export function App() {
                           <span>Response</span>
                           <strong>{lastSubmitAttempt.response.message}</strong>
                         </div>
+                        {lastSubmitAttempt.response.error_translation ? (
+                          <div className="submit-error-translation">
+                            <span>Translated issue</span>
+                            <strong>{lastSubmitAttempt.response.error_translation.operator_message}</strong>
+                            <em>{lastSubmitAttempt.response.error_translation.suggested_action}</em>
+                            <small>
+                              {lastSubmitAttempt.response.error_translation.retryable ? "Retryable after review" : "Fix setup/data before retry"} ·{" "}
+                              {lastSubmitAttempt.response.error_translation.category}
+                            </small>
+                            <code>{lastSubmitAttempt.response.error_translation.source_message}</code>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                     <div className="certification-list">

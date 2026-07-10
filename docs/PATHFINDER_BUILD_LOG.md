@@ -287,6 +287,25 @@ This is the living implementation record for Pathfinder. It tracks completed mil
 - `PATHFINDER_LIFT_TRANSPORT_MODE=live` is required before the API will make an external POST. Without it, a certified submit records a dry-run attempt.
 - No external Lift request is sent by default.
 
+### 18. Submit Failure Translation and Origin Acknowledgement
+
+- Added Lift submit error translation rules in the Lift adapter.
+- Translated submit failures now include:
+  - category
+  - operator-facing message
+  - suggested action
+  - retryable flag
+  - original source message
+- Submit attempts persist translated error details with the normalized response.
+- Accepted submit attempts now promote the job state to `Submitted`.
+- Rejected or transport-error submit attempts now promote the job state to `Submit Failed`.
+- Manual Import now shows translated submit failure guidance in the Submit Certification panel.
+- Added `docs/ORIGIN_ACKNOWLEDGEMENT_MODEL.md` to record the recommended origin-system contract:
+  - return `202 Accepted` when Pathfinder receives and persists an inbound order
+  - track downstream Lift submission separately
+  - surface `Submit Failed` jobs for manual correction and replay
+  - add optional outbound callbacks later for `received`, `submit_failed`, `submitted`, and `completed`
+
 ## Current Verification
 
 Most recent verification for the Lift transport dry-run adapter slice:

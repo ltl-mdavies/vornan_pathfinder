@@ -5,6 +5,7 @@ import type { CanonicalOrder, ProcessingState, ValidationMessage } from "@pathfi
 import type { LiftCustomer } from "@pathfinder/customer-directory";
 import {
   defaultLiftTargetConfig,
+  type LiftSubmitErrorTranslation,
   type LiftOrderPayload,
   type LiftSubmitRequest,
   type LiftTargetConfig
@@ -266,6 +267,7 @@ export interface NormalizedLiftSubmitResponse {
   lift_order_id?: string | null;
   message: string;
   raw_body?: unknown;
+  error_translation?: LiftSubmitErrorTranslation | null;
   received_at: string;
 }
 
@@ -1048,13 +1050,28 @@ export async function getSubmitAttemptByIdempotencyKey(customer: LiftCustomer, i
 export async function persistSubmitAttempt(customer: LiftCustomer, attempt: SubmitAttempt) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const submitJobState: ProcessingState | null =
+    attempt.state === "Submitted" ? "Submitted" : attempt.state === "Failed" ? "Submit Failed" : null;
+  const timestamp = attempt.updated_at;
 
   store.submit_attempts = [
     attempt,
     ...(store.submit_attempts ?? []).filter((candidate) => candidate.attempt_id !== attempt.attempt_id)
   ];
+  if (submitJobState) {
+    store.jobs = store.jobs.map((job) =>
+      job.job_id === attempt.job_id && job.customer_id === customer.lift_customer_id
+        ? {
+            ...job,
+            state: submitJobState,
+            updated_at: timestamp
+          }
+        : job
+    );
+  }
   workspace.submit_attempts = store.submit_attempts.filter((candidate) => candidate.customer_id === customer.lift_customer_id);
-  workspace.updated_at = attempt.updated_at;
+  workspace.jobs = store.jobs.filter((candidate) => candidate.customer_id === customer.lift_customer_id);
+  workspace.updated_at = timestamp;
   store.workspaces[customer.lift_customer_id] = workspace;
   await writeStore(store);
 

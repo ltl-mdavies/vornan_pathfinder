@@ -1192,11 +1192,13 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
         submitRequestMasked
       })
     );
+    const submittedJob = await getJob(customer, job.job_id);
 
     if (transportResult.status === "rejected" || transportResult.status === "error") {
       res.status(502).json({
         error: transportResult.message,
         attempt,
+        job: submittedJob ?? job,
         certification,
         transport_mode: liftSubmitTransportMode,
         submit_request_masked: submitRequestMasked
@@ -1206,6 +1208,7 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
 
     res.status(202).json({
       attempt,
+      job: submittedJob ?? job,
       certification,
       transport_mode: liftSubmitTransportMode,
       submit_request_masked: submitRequestMasked
