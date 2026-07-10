@@ -94,6 +94,7 @@ This is intentionally different from a QA1 test. `PROD` describes the Lift infra
 - Environment settings provide connection details and credentials.
 - Submit Profiles provide submit customer identity.
 - Submit Certification is separate from preview job state; a preview may be `Ready` but still blocked from real external submit by credentials, product mapping, route configuration, or the explicit external-submit gate.
+- Certification blockers include action keys that route users to the relevant setup surface before retrying submit.
 - Template body/header fields should be mapped through the template editor, not hand-authored by non-technical users where possible.
 - Lift `Ext_ID` header must match `body.order.ext_id`.
-- Real external submit remains gated until target credentials, response handling, Ready-state validation, and `PATHFINDER_ENABLE_LIFT_SUBMIT=true` are finalized.
+- `POST /api/customers/:liftCustomerId/jobs/:jobId/submit` is the guarded submit entrypoint. It must refuse uncertified jobs and must not call Lift unless target credentials, response handling, Ready-state validation, and `PATHFINDER_ENABLE_LIFT_SUBMIT=true` are finalized.

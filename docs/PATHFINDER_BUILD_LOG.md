@@ -228,11 +228,43 @@ This is the living implementation record for Pathfinder. It tracks completed mil
 - Added a Manual Import `Submit Certification` panel with pass/blocking checklist rows and submit-gate status.
 - Updated validation rows so warnings no longer look like hard failures.
 
+### 15. Actionable Submit Certification and Gated Submit Endpoint
+
+- Added action keys to submit certification checklist items so blockers can route the user to the correct setup surface.
+- Added `Fix this` controls in the Manual Import certification panel.
+- Certification actions currently route to:
+  - Manual Import / Field Mapping for canonical and general preview issues
+  - Output Product Map for product resolution issues
+  - Target Environments for endpoint and credential issues
+  - Target Output Routes for route status and Company ID issues
+  - Target Output Templates for `Ext_ID` mapping issues
+  - Target Test & Health for external submit gate issues
+- Added guarded submit endpoint:
+  - `POST /api/customers/:liftCustomerId/jobs/:jobId/submit`
+- The submit endpoint currently:
+  - loads the persisted preview job
+  - requires submit certification
+  - returns `409` for unresolved certification blockers
+  - returns `423` when only the explicit external-submit feature gate remains locked
+  - does not call Lift yet
+- This prepares the real submit path without risking an accidental external order creation.
+
 ## Current Verification
 
-Most recent verification for the submit certification checklist slice:
+Most recent verification for the actionable certification / gated submit slice:
 
 - `npm run check` passed.
+- API smoke check passed:
+  - generated a preview job
+  - called the guarded submit endpoint
+  - confirmed `409` response for unresolved blockers
+  - confirmed response includes actionable blocker keys such as `product-map`, `field-mapping`, and `target-environments`
+  - confirmed no external Lift request is made
+
+Previous verification for the submit certification checklist slice:
+
+- `npm run check` passed.
+- `npm run build` passed.
 - API smoke check passed:
   - generated a preview job
   - confirmed `submit_certification.can_submit = false`

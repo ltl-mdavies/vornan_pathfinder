@@ -31,6 +31,14 @@ export type OutputDestinationMethod = "HTTP POST" | "SFTP file" | "Email attachm
 export type OutputFormat = "JSON" | "XML" | "CSV" | "XLSX";
 export type SubmitProfileMode = "live_customer" | "sandbox_customer";
 export type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
+export type SubmitCertificationActionKey =
+  | "manual-import"
+  | "field-mapping"
+  | "product-map"
+  | "target-environments"
+  | "target-output-routes"
+  | "target-output-templates"
+  | "target-health";
 
 export interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
@@ -203,6 +211,7 @@ export interface SubmitCertificationItem {
   blocking: boolean;
   message: string;
   suggested_action?: string;
+  action_key?: SubmitCertificationActionKey;
 }
 
 export interface SubmitCertification {
@@ -978,6 +987,11 @@ export async function updateOutputRoute(customer: LiftCustomer, routeId: string,
 export async function listJobs() {
   const store = await readStore();
   return store.jobs;
+}
+
+export async function getJob(customer: LiftCustomer, jobId: string) {
+  const store = await readStore();
+  return store.jobs.find((job) => job.customer_id === customer.lift_customer_id && job.job_id === jobId) ?? null;
 }
 
 export async function listProductMappings(customer: LiftCustomer) {

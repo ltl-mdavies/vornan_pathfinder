@@ -2055,6 +2055,24 @@ h1 {
   line-height: 1.35;
 }
 
+.certification-action {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 8px;
+  padding: 6px 9px;
+  color: var(--vornan-forest);
+  background: rgba(171, 198, 95, 0.16);
+  border: 1px solid rgba(57, 82, 59, 0.16);
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.certification-action:hover {
+  background: rgba(171, 198, 95, 0.24);
+}
+
 .dot {
   width: 8px;
   height: 8px;

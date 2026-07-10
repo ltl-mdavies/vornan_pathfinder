@@ -72,6 +72,14 @@ type TargetsView = "Overview" | "Environments" | "Output Templates" | "Output Ro
 type TargetDetailView = Exclude<TargetsView, "Overview">;
 type SubmitProfileMode = "live_customer" | "sandbox_customer";
 type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
+type SubmitCertificationActionKey =
+  | "manual-import"
+  | "field-mapping"
+  | "product-map"
+  | "target-environments"
+  | "target-output-routes"
+  | "target-output-templates"
+  | "target-health";
 
 interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
@@ -244,6 +252,7 @@ interface SubmitCertificationItem {
   blocking: boolean;
   message: string;
   suggested_action?: string;
+  action_key?: SubmitCertificationActionKey;
 }
 
 interface SubmitCertification {
@@ -1164,7 +1173,8 @@ function submitCertificationItem(
   passed: boolean,
   blockedMessage: string,
   passedMessage: string,
-  suggested_action?: string
+  suggested_action?: string,
+  action_key?: SubmitCertificationActionKey
 ): SubmitCertificationItem {
   return {
     item_id,
@@ -1172,7 +1182,8 @@ function submitCertificationItem(
     status: passed ? "Passed" : "Blocked",
     blocking: !passed,
     message: passed ? passedMessage : blockedMessage,
-    suggested_action: passed ? undefined : suggested_action
+    suggested_action: passed ? undefined : suggested_action,
+    action_key: passed ? undefined : action_key
   };
 }
 
@@ -1195,7 +1206,8 @@ function buildLocalSubmitCertification(args: {
       args.state === "Ready",
       `Preview is ${args.state}, not Ready.`,
       "Preview job is Ready.",
-      "Generate a Ready preview before external submit."
+      "Generate a Ready preview before external submit.",
+      args.unresolvedProductCount ? "product-map" : "manual-import"
     ),
     submitCertificationItem(
       "canonical-validation",
@@ -1203,7 +1215,8 @@ function buildLocalSubmitCertification(args: {
       canonicalFailures.length === 0,
       `${canonicalFailures.length} Canonical Order failure${canonicalFailures.length === 1 ? "" : "s"} must be resolved.`,
       "Canonical Order has no blocking failures.",
-      canonicalFailures[0]?.suggested_action
+      canonicalFailures[0]?.suggested_action,
+      "field-mapping"
     ),
     submitCertificationItem(
       "lift-validation",
@@ -1211,7 +1224,8 @@ function buildLocalSubmitCertification(args: {
       liftFailures.length === 0,
       `${liftFailures.length} Lift payload failure${liftFailures.length === 1 ? "" : "s"} must be resolved.`,
       "Lift payload has no blocking failures.",
-      liftFailures[0]?.suggested_action
+      liftFailures[0]?.suggested_action,
+      liftFailures.some((message) => message.code === "LIFT-UNIT") ? "product-map" : "manual-import"
     ),
     submitCertificationItem(
       "product-resolution",
@@ -1219,7 +1233,8 @@ function buildLocalSubmitCertification(args: {
       args.unresolvedProductCount === 0,
       `${args.unresolvedProductCount} product key${args.unresolvedProductCount === 1 ? "" : "s"} need mapping.`,
       "Every order line has an approved product identifier.",
-      "Approve unresolved product keys in Output Product Map."
+      "Approve unresolved product keys in Output Product Map.",
+      "product-map"
     ),
     submitCertificationItem(
       "route-status",
@@ -1227,7 +1242,8 @@ function buildLocalSubmitCertification(args: {
       args.route.status === "Active",
       `Output route is ${args.route.status}.`,
       "Output route is Active.",
-      "Set the route status to Active before submitting."
+      "Set the route status to Active before submitting.",
+      "target-output-routes"
     ),
     submitCertificationItem(
       "endpoint",
@@ -1235,7 +1251,8 @@ function buildLocalSubmitCertification(args: {
       Boolean(args.request.endpoint_url?.trim()),
       "Selected route environment has no endpoint URL.",
       `Endpoint is ${args.request.endpoint_url}.`,
-      "Configure the selected Target Environment endpoint."
+      "Configure the selected Target Environment endpoint.",
+      "target-environments"
     ),
     submitCertificationItem(
       "ext-id",
@@ -1243,7 +1260,8 @@ function buildLocalSubmitCertification(args: {
       args.request.headers.Ext_ID === args.payload.order.ext_id && Boolean(args.payload.order.ext_id?.trim()),
       "Header Ext_ID must match body.order.ext_id.",
       "Header Ext_ID matches body.order.ext_id.",
-      "Map both values to the same canonical order id."
+      "Map both values to the same canonical order id.",
+      "target-output-templates"
     ),
     submitCertificationItem(
       "company",
@@ -1251,7 +1269,8 @@ function buildLocalSubmitCertification(args: {
       Boolean(args.request.headers.Company?.trim()),
       "Company header is missing.",
       `Company header is ${args.request.headers.Company}.`,
-      "Set the route Company ID or environment Company header."
+      "Set the route Company ID or environment Company header.",
+      "target-output-routes"
     ),
     submitCertificationItem(
       "credentials",
@@ -1259,7 +1278,8 @@ function buildLocalSubmitCertification(args: {
       !isPlaceholderSecret(args.request.headers.User) && !isPlaceholderSecret(args.request.headers.Password),
       "Lift import credentials are placeholders or masked values.",
       "Lift import credentials are configured.",
-      "Enter the Lift import username and password in Target Environment settings."
+      "Enter the Lift import username and password in Target Environment settings.",
+      "target-environments"
     ),
     {
       item_id: "submit-profile",
@@ -1273,7 +1293,8 @@ function buildLocalSubmitCertification(args: {
       suggested_action:
         args.profile.mode === "sandbox_customer"
           ? "This is the preferred profile for first production-endpoint tests."
-          : "Use Sandbox · LTL Demo for non-customer-facing tests."
+          : "Use Sandbox · LTL Demo for non-customer-facing tests.",
+      action_key: "manual-import"
     },
     {
       item_id: "external-submit-gate",
@@ -1281,7 +1302,8 @@ function buildLocalSubmitCertification(args: {
       status: "Blocked",
       blocking: true,
       message: "External Lift submit is still disabled in Pathfinder.",
-      suggested_action: "Enable the explicit submit gate only after credentials and response handling are approved."
+      suggested_action: "Enable the explicit submit gate only after credentials and response handling are approved.",
+      action_key: "target-health"
     }
   ];
   const blockingCount = items.filter((item) => item.blocking).length;
@@ -2239,6 +2261,66 @@ export function App() {
       setWorkspaceState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Product mapping save failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  function handleCertificationAction(actionKey?: SubmitCertificationActionKey) {
+    if (!actionKey) {
+      return;
+    }
+
+    if (actionKey.startsWith("target-")) {
+      setActiveGlobalView("Targets");
+      setSelectedTargetId(activeOutputRoute.target_id);
+      if (actionKey === "target-environments") {
+        setActiveTargetsView("Environments");
+      } else if (actionKey === "target-output-routes") {
+        setActiveTargetsView("Output Routes");
+      } else if (actionKey === "target-output-templates") {
+        setActiveTargetsView("Output Templates");
+        setActiveOutputTemplateId(activeOutputRoute.output_template_id);
+      } else {
+        setActiveTargetsView("Test & Health");
+      }
+      return;
+    }
+
+    setActiveGlobalView("Customers");
+    if (actionKey === "product-map") {
+      setOutputMapRouteFilter(activeOutputRoute.output_route_id);
+      setActiveCustomerView("Output Product Map");
+    } else if (actionKey === "field-mapping" || actionKey === "manual-import") {
+      setActiveCustomerView("Manual Import");
+    } else {
+      setActiveCustomerView("Import Methods");
+    }
+  }
+
+  async function requestLiftSubmit() {
+    if (!lastPreviewJob) {
+      setWorkspaceMessage("Generate a persisted preview job before requesting Lift submit.");
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/jobs/${lastPreviewJob.job_id}/submit`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
+        }
+      );
+      const payload = (await response.json()) as {
+        error?: string;
+        certification?: SubmitCertification;
+        submit_request_masked?: ProcessingJobPreview["submit_request_masked"];
+      };
+      setWorkspaceMessage(payload.error ?? "Lift submit request accepted.");
+      setWorkspaceState(response.ok ? "idle" : "error");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Lift submit request failed.");
       setWorkspaceState("error");
     }
   }
@@ -3891,12 +3973,25 @@ export function App() {
                             <strong>{item.label}</strong>
                             <span>{item.message}</span>
                             {item.suggested_action ? <em>{item.suggested_action}</em> : null}
+                            {item.action_key ? (
+                              <button
+                                className="certification-action"
+                                onClick={() => handleCertificationAction(item.action_key)}
+                                type="button"
+                              >
+                                Fix this
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       ))}
                     </div>
                     <div className="request-actions">
-                      <button className={submitCertification.can_submit ? "primary-button" : "secondary-button"} disabled>
+                      <button
+                        className={submitCertification.can_submit ? "primary-button" : "secondary-button"}
+                        onClick={() => void requestLiftSubmit()}
+                        disabled={!lastPreviewJob || workspaceState === "saving"}
+                      >
                         {submitCertification.external_submit_enabled ? "Submit to Lift" : "Submit gate locked"}
                       </button>
                       <span>

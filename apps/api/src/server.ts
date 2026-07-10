@@ -29,6 +29,7 @@ import {
   listProductMappings,
   listJobs,
   listTargets,
+  getJob,
   maskTargetConfig,
   persistPreviewJob,
   updateProductMapping,
@@ -42,6 +43,7 @@ import {
   type ProductResolutionConfig,
   type ProductResolutionResult,
   type ProcessingJobPreview,
+  type SubmitCertificationActionKey,
   type SubmitCertification,
   type SubmitCertificationItem,
   type SubmitProfile,
@@ -447,7 +449,8 @@ function certificationItem(
   passed: boolean,
   blockedMessage: string,
   passedMessage: string,
-  suggested_action?: string
+  suggested_action?: string,
+  action_key?: SubmitCertificationActionKey
 ): SubmitCertificationItem {
   return {
     item_id,
@@ -455,7 +458,8 @@ function certificationItem(
     status: passed ? "Passed" : "Blocked",
     blocking: !passed,
     message: passed ? passedMessage : blockedMessage,
-    suggested_action: passed ? undefined : suggested_action
+    suggested_action: passed ? undefined : suggested_action,
+    action_key: passed ? undefined : action_key
   };
 }
 
@@ -482,7 +486,8 @@ function buildSubmitCertification(args: {
       args.state === "Ready",
       `Preview is ${args.state}, not Ready.`,
       "Preview job is Ready.",
-      "Resolve blocking preview validation or product mapping issues."
+      "Resolve blocking preview validation or product mapping issues.",
+      args.unresolvedProducts.length ? "product-map" : "manual-import"
     ),
     certificationItem(
       "canonical-validation",
@@ -490,7 +495,8 @@ function buildSubmitCertification(args: {
       canonicalFailures.length === 0,
       `${canonicalFailures.length} Canonical Order failure${canonicalFailures.length === 1 ? "" : "s"} must be resolved.`,
       "Canonical Order has no blocking failures.",
-      canonicalFailures[0]?.suggested_action
+      canonicalFailures[0]?.suggested_action,
+      "field-mapping"
     ),
     certificationItem(
       "lift-validation",
@@ -498,7 +504,8 @@ function buildSubmitCertification(args: {
       liftFailures.length === 0,
       `${liftFailures.length} Lift payload failure${liftFailures.length === 1 ? "" : "s"} must be resolved.`,
       "Lift payload has no blocking failures.",
-      liftFailures[0]?.suggested_action
+      liftFailures[0]?.suggested_action,
+      liftFailures.some((message) => message.code === "LIFT-UNIT") ? "product-map" : "manual-import"
     ),
     certificationItem(
       "product-resolution",
@@ -506,7 +513,8 @@ function buildSubmitCertification(args: {
       args.unresolvedProducts.length === 0,
       `${args.unresolvedProducts.length} product key${args.unresolvedProducts.length === 1 ? "" : "s"} need mapping.`,
       "Every order line has an approved product identifier.",
-      "Approve unresolved product keys in Output Product Map."
+      "Approve unresolved product keys in Output Product Map.",
+      "product-map"
     ),
     certificationItem(
       "route-status",
@@ -514,7 +522,8 @@ function buildSubmitCertification(args: {
       args.route.status === "Active",
       `Output route is ${args.route.status}.`,
       "Output route is Active.",
-      "Set the route status to Active before submitting."
+      "Set the route status to Active before submitting.",
+      "target-output-routes"
     ),
     certificationItem(
       "endpoint",
@@ -522,7 +531,8 @@ function buildSubmitCertification(args: {
       Boolean(args.request.endpoint_url?.trim()),
       "Selected route environment has no endpoint URL.",
       `Endpoint is ${args.request.endpoint_url}.`,
-      "Configure the selected Target Environment endpoint."
+      "Configure the selected Target Environment endpoint.",
+      "target-environments"
     ),
     certificationItem(
       "ext-id",
@@ -530,7 +540,8 @@ function buildSubmitCertification(args: {
       args.request.headers.Ext_ID === args.payload.order.ext_id && Boolean(args.payload.order.ext_id?.trim()),
       "Header Ext_ID must match body.order.ext_id.",
       "Header Ext_ID matches body.order.ext_id.",
-      "Map both values to the same canonical order id."
+      "Map both values to the same canonical order id.",
+      "target-output-templates"
     ),
     certificationItem(
       "company",
@@ -538,7 +549,8 @@ function buildSubmitCertification(args: {
       Boolean(args.request.headers.Company?.trim()),
       "Company header is missing.",
       `Company header is ${args.request.headers.Company}.`,
-      "Set the route Company ID or environment Company header."
+      "Set the route Company ID or environment Company header.",
+      "target-output-routes"
     ),
     certificationItem(
       "credentials",
@@ -546,7 +558,8 @@ function buildSubmitCertification(args: {
       placeholderCredentialWarnings.length === 0,
       "Lift import credentials are placeholders or masked values.",
       "Lift import credentials are configured.",
-      "Enter the Lift import username and password in Target Environment settings."
+      "Enter the Lift import username and password in Target Environment settings.",
+      "target-environments"
     ),
     {
       item_id: "submit-profile",
@@ -560,7 +573,8 @@ function buildSubmitCertification(args: {
       suggested_action:
         args.profile.mode === "sandbox_customer"
           ? "This is the preferred profile for first production-endpoint tests."
-          : "Use Sandbox · LTL Demo for non-customer-facing tests."
+          : "Use Sandbox · LTL Demo for non-customer-facing tests.",
+      action_key: "manual-import"
     },
     {
       item_id: "external-submit-gate",
@@ -572,7 +586,8 @@ function buildSubmitCertification(args: {
         : "External Lift submit is still disabled in Pathfinder.",
       suggested_action: externalLiftSubmitEnabled
         ? undefined
-        : "Enable the explicit submit gate only after credentials and response handling are approved."
+        : "Enable the explicit submit gate only after credentials and response handling are approved.",
+      action_key: externalLiftSubmitEnabled ? undefined : "target-health"
     }
   ];
   const blockingCount = items.filter((item) => item.blocking).length;
@@ -934,6 +949,68 @@ app.get("/api/jobs", async (_req, res) => {
   res.json({
     jobs: await listJobs()
   });
+});
+
+app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const job = await getJob(customer, req.params.jobId);
+
+    if (!job) {
+      res.status(404).json({
+        error: "Preview job not found."
+      });
+      return;
+    }
+
+    const certification = job.submit_certification;
+    if (!certification) {
+      res.status(409).json({
+        error: "Preview job has no submit certification. Regenerate the preview before submitting.",
+        job
+      });
+      return;
+    }
+
+    const blockingItems = certification.items.filter((item) => item.blocking);
+    const nonGateBlockers = blockingItems.filter((item) => item.item_id !== "external-submit-gate");
+    if (nonGateBlockers.length) {
+      res.status(409).json({
+        error: "Preview job is not certified for Lift submit.",
+        certification,
+        blocking_items: nonGateBlockers
+      });
+      return;
+    }
+
+    if (!externalLiftSubmitEnabled) {
+      res.status(423).json({
+        error: "External Lift submit is disabled by Pathfinder feature gate.",
+        certification,
+        submit_request_masked: job.submit_request_masked
+      });
+      return;
+    }
+
+    if (!certification.can_submit) {
+      res.status(409).json({
+        error: "Preview job is not certified for Lift submit.",
+        certification,
+        blocking_items: blockingItems
+      });
+      return;
+    }
+
+    res.status(501).json({
+      error: "External Lift submit transport is not implemented in this local slice.",
+      certification,
+      submit_request_masked: job.submit_request_masked
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Lift submit failed."
+    });
+  }
 });
 
 app.get("/api/targets", async (_req, res) => {
