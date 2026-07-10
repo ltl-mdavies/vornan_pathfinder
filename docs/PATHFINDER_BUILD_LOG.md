@@ -4,9 +4,9 @@ This is the living implementation record for Pathfinder. It tracks completed mil
 
 ## Current Build Snapshot
 
-**Date:** 2026-07-09  
+**Date:** 2026-07-10  
 **Phase:** MVP vertical slice  
-**Primary focus:** Customer workspace, manual XLSX/grid import, field mapping, Canonical Order preview, Lift payload preview, and local persistence.
+**Primary focus:** Customer workspace, manual XLSX/grid import, field mapping, product resolution, Canonical Order preview, Lift payload preview, and local persistence.
 
 ## Master Spec Alignment
 
@@ -16,9 +16,9 @@ This is the living implementation record for Pathfinder. It tracks completed mil
 | Input templates and mapping | Implemented for manual XLSX/grid slice | Source columns can map to canonical fields; mappings can be saved per import method. |
 | Lift Standard Graphics adapter | Implemented through preview request | Generates Lift payload and masked submit request; real QA1 submission is intentionally gated. |
 | Customer workspace | Implemented for local MVP | Lift customers can be selected; workspace loads persisted import methods, target, and jobs. |
-| Target configuration | Implemented for local MVP | QA1/PROD endpoints, company ID, import username, password placeholder, and active environment are editable. |
+| Target configuration | Implemented for local MVP | Targets now separate platform, environments, output templates, and output routes; Lift QA1/PROD behavior remains seeded. |
 | Processing jobs | Implemented as persisted preview jobs | Preview jobs include source grid, mappings, canonical validation, Lift validation, payload, and masked request. |
-| Product mapping | Deferred / lightweight | Current preview can map `unit_number` directly or reuse SKU; richer SKU-to-unit mapping is next. |
+| Product mapping | Implemented for local MVP preview | Product keys can be derived/composited from source rows, mapped to Lift `unit_number`, and gated before Ready state. |
 | QA1 submission | Deferred by design | Waiting on credentials, final endpoint confirmation, and header-name confirmation. |
 
 ## Completed Milestones
@@ -74,19 +74,201 @@ This is the living implementation record for Pathfinder. It tracks completed mil
 - Added persisted preview job creation from Manual Import.
 - Added customer/global jobs lists backed by persisted preview jobs.
 
+### 6. Product Resolution and Multi-Tab Workbook Handling
+
+- Added Product Resolution config per import method:
+  - derived key
+  - composite key
+  - direct Lift unit number
+  - mapped-to-Lift-unit or send-derived-unit modes
+- Added persistent customer product mappings with `Mapped`, `Unmapped`, `Ambiguous`, and `Inactive` statuses.
+- Extended XLSX parsing to inspect all workbook tabs, classify rows with valid `Print QTY` as order lines, retain no-quantity rows as reference/catalog candidates, and preserve sheet name plus row number.
+- Preview jobs now include source sheets, parsed order rows, reference rows, product resolution results, unresolved products, and Lift payload lines populated from resolved unit numbers.
+- Added `Needs Mapping` processing state so unresolved products are distinct from hard validation failures.
+- Added Product Resolution setup controls and a Manual Import mapping approval table.
+- Added workbook sheet summaries and product mapping health signals in the customer workspace.
+
+### 7. Import Method Management and Source Expansion
+
+- Added import method operational statuses for `Active`, `Inactive`, `Draft`, `Paused`, and soft-deleted `Archived`.
+- Added import method row actions for edit, duplicate, and delete/archive.
+- Added source types for XLSX, Google Sheet, PDF PO, Clipboard, REST API, and SFTP.
+- Added source-specific setup fields for Google Sheet URL/tab/range, PDF PO review mode, REST endpoint, and SFTP path.
+- Preview generation now requires an Active import method.
+- Reworked field mapping into a found-input-elements table with source field names, sample values, and any canonical target selectable per row.
+- Refined Product Resolution setup so resolver strategies show only relevant controls, and composite columns are selected as chips from detected input fields.
+- Promoted Product Resolution strategy selection into its own hierarchy with plain-language guidance and stable downstream field alignment.
+- Simplified Product Resolution by removing operator-facing fallback behavior, clarifying resolution mode, and adding a live example of customer key and Lift `unit_number` output.
+- Clarified the recommended resolution mode as a customer-specific crosswalk to Lift unit numbers, while keeping Lift as the product source of truth.
+- Reduced Product Resolution example output to only the cards relevant to the selected strategy and resolution mode.
+- Added an Example Output test-value input so users can type a sample source value and immediately see the generated customer key.
+
+### 8. Customer Lift Unit Map
+
+- Added a customer-level Lift Unit Map page for managing the crosswalk between customer-submitted product values and approved Lift `unit_number` values.
+- Added searchable/filterable mapping review across `Mapped`, `Unmapped`, `Ambiguous`, and `Inactive` statuses.
+- Added bulk assignment controls so multiple customer keys can be assigned to one Lift unit number and product name in a single action.
+- Added one-to-one inline editing for Lift `unit_number`, product name, and mapping status.
+- Added last-seen source examples so operators can understand which sheet/row produced each customer key.
+- Added customer mapping health metrics for unmapped keys, mapped keys, seen examples, and current selection count.
+
+### 9. Output Route Scoping
+
+- Promoted the mapping concept from a Lift-only unit map to a route-scoped Output Product Map.
+- Added `OutputRoute` as the customer-level scope that combines target system, destination account/company, output template, and product identifier type.
+- Seeded the current route as `Larger Than Life · Lift / 91 · Standard Graphics`.
+- Attached import methods to an output route while preserving existing target/template fields for the current Lift workflow.
+- Scoped product mappings to output route so the same customer-generated product key can resolve differently for Lift/91, another Lift company, or a future ecommerce output.
+- Updated the customer UI to show Output Product Map route filters, route context, and route-specific product identifier labels.
+- Kept Lift Standard Graphics behavior intact: the route-specific product identifier is still Lift `unit_number`.
+
+### 10. Targets and Output Template Management
+
+- Refactored Targets from one Lift settings panel into a destination-management workspace.
+- Added target setup sections for:
+  - Overview
+  - Environments
+  - Output Templates
+  - Output Routes
+  - Test & Health
+- Expanded local target data models with `TargetEnvironment`, `OutputTemplate`, and route links to environment/template IDs.
+- Seeded Lift ERP with QA1 and PROD environments, the existing Lift Standard Graphics JSON template, and the `Larger Than Life · Lift / 91 · Standard Graphics` output route.
+- Preserved Lift requirements:
+  - Company ID defaults to `91`
+  - QA1/PROD endpoints remain configurable
+  - credentials and password-like secrets are masked in API responses
+  - `Ext_ID` equality remains the expected template rule
+- Added output template editor basics for destination method, output format, body template, header template, canonical mapping count, and filename format tags.
+- Kept customer import methods pointed at an Output Route so downstream mapping and preview behavior consume the target/environment/template bundle consistently.
+- Added a local-only Test & Health panel that previews the selected target configuration without sending external requests.
+- Refined Targets into an overview/detail workflow:
+  - overview lists all targets
+  - selected target detail owns Environments, Output Templates, Output Routes, and Test & Health
+  - Save Target moved into the selected target detail
+  - Add Target creates a draft target and opens its setup
+- Seeded `ThinkDifferentPrint` as a draft Ecommerce target to validate multi-target behavior.
+- Reworked Output Templates into a template list/detail flow with Add Template, status control, and selected-template editing.
+- Added template placeholder detection so pasted body/header tokens can be mapped through selectable Canonical Order fields.
+- Added mapped body/header previews that show the Canonical Order values currently assigned to each template token.
+
+### 11. Sandbox Submit Profile
+
+- Added submit profiles to output routes so an order can be previewed as either:
+  - the selected live customer
+  - a sandbox/test customer override
+- Seeded the Lift Standard Graphics output route with:
+  - `Live Customer`
+  - `Sandbox · LTL Demo`
+- Added the LTL Demo sandbox customer override:
+  - Lift CustomerID `1249`
+  - Customer Name `LTL Demo`
+- Kept sandbox submit scoped to the output route, not the target environment, so QA1/PROD still represent infrastructure while submit profiles represent customer identity.
+- Updated Manual Import preview to show source customer versus submit customer before preview generation.
+- Updated preview job persistence to record submit profile, submit mode, sandbox flag, source customer, and submit customer.
+- Updated Canonical Order and Lift payload generation so sandbox previews preserve the source workspace/customer but submit the outbound Lift payload under `LTL Demo / 1249`.
+
+### 12. Output Template Field Detection
+
+- Reworked Output Template mapping from token-first to JSON-field-first.
+- Body and header editors now support pasting normal JSON with blank or example values instead of requiring `{{...}}` tokens up front.
+- Added JSON field detection for nested objects and repeatable arrays such as `lines[].unit_number`, `lines[].quantity`, and `lines[].dimensions.final_width`.
+- Added a field mapping table that lists detected Body/Header fields, sample values, selected value source, and preview token.
+- Mapping a detected field now rewrites the corresponding JSON value to the selected token, such as `{{order.external_order_id}}`.
+- Header mapping now supports non-Canonical value sources:
+  - static/example value
+  - Canonical Order
+  - environment credentials/settings
+  - output route values
+  - generated values
+- Lift default header behavior remains non-technical:
+  - `Content-Type` can stay static
+  - `Ext_ID` maps to the order id
+  - `User` and `Password` map to environment credentials
+  - `Company` maps to environment/header settings
+- Seeded Lift Standard Graphics template now uses a normal example body/header shape plus saved field mappings, matching the intended paste-and-map workflow.
+
 ## Current Verification
 
-Most recent verification for the persistent workflow slice:
+Most recent verification for the output template field detection slice:
+
+- `npm run check` passed.
+- `npm run build` passed.
+
+Previous verification for the sandbox submit profile slice:
+
+- `npm run check` passed.
+- `npm run build` passed.
+- API smoke check passed:
+  - posting a preview job with `submit_profile_id = sandbox-ltl-demo-1249` keeps source customer `Empirical - Momentara / 284619`
+  - generated submit customer is `LTL Demo / 1249`
+  - Lift payload customer id is `1249`
+  - Canonical Order keeps Pathfinder/source customer id as `lift:284619`
+  - job records `sandbox: true`
+
+Previous verification for the target/output-template management slice:
 
 - `npm run check` passed.
 - `npm run build` passed.
 - API smoke checks passed:
-  - customer workspace loads
-  - preview job persists as `Ready`
-  - target config saves
-  - password remains masked in API responses
+  - targets load with environments, output templates, and routes
+  - target environment changes save through `/api/targets/:targetId`
+  - output template changes save through `/api/targets/:targetId`
+  - password-like values remain masked in target responses
+  - Lift/91 route settings remain available for preview generation
+- UI checks passed:
+  - Targets tabs render for Overview, Environments, Output Templates, Output Routes, and Test & Health
+  - Environment settings expose QA1/PROD endpoint, auth, company, user, password, and header fields
+  - Output Templates expose body/header editor areas and filename supported tags
+  - Output Routes shows the Lift/91 Standard Graphics route
+  - Customer Import Method route selector still uses the route model
+  - Output Product Map remains route-scoped
+  - Targets Overview lists both Lift ERP and ThinkDifferentPrint
+  - selected target detail scopes Environments, Output Templates, Output Routes, and Test & Health to the chosen target
+  - Add Target opens a draft target detail with scoped tabs and Save Target
+  - selected output template detail shows detected placeholders and Canonical Order dropdowns
+  - mapped preview renders template tokens as selected Canonical Order values
+
+Previous verification for the product resolution slice:
+
+- `npm run check` passed.
+- `npm run build` passed.
+- API smoke checks passed:
+  - Momentara workbook parses all tabs
+  - only rows with valid `Print QTY` become order lines
+  - no-quantity rows are retained as reference/catalog rows
+  - unresolved product keys produce `Needs Mapping`
+  - approved product mappings regenerate as `Ready`
+  - Lift payload lines use resolved `unit_number`
   - Lift `Ext_ID` header matches body `order.ext_id`
-- Visual QA screenshot captured at `/private/tmp/pathfinder-persist-slice-final.png`.
+  - password remains masked in API responses
+- Import method management smoke checks passed:
+  - Google Sheet source settings persist
+  - `Inactive` status persists
+  - delete archives methods instead of hard-deleting them
+  - visible method list excludes archived methods
+- In-app browser QA passed for Import Methods:
+  - edit/duplicate/delete controls render
+  - Google Sheet, PDF PO, and Inactive options render
+  - field mapping shows found input elements with sample values
+  - product resolution switches between strategy-specific controls
+  - composite columns render as selectable/removable chips instead of a free-text field
+  - Product Resolution downstream controls remain aligned across Derived, Composite, and Direct Lift unit strategies
+  - fallback controls are hidden and no hidden fallback key is generated during preview
+  - live example output updates from current resolver settings and source sample values
+  - example output shows only strategy/mode-relevant cards
+  - typing `2 Sheet Poster` as a `SIGN TYPE` test value produces `MOMENTARA__2_SHEET_POSTER`
+  - save buttons remain right-edge aligned
+  - no console errors or horizontal overflow
+- In-app browser QA passed for Lift Unit Map:
+  - customer nav exposes the new Lift Unit Map page
+  - search, status filter, bulk assignment controls, and inline row editing render in the Vornan interface
+  - visible rows can be selected for bulk operations
+- Route scoping implementation verification:
+  - import methods now carry an `output_route_id`
+  - product mappings normalize with route metadata and product identifier fields
+  - preview jobs resolve product mappings against the import method's output route
+  - the same customer product key can be stored separately per route
+- Visual automation note: Playwright package was present, but the local Chromium executable was not installed, so browser screenshot capture was skipped for this slice.
 
 Known non-blocking notes:
 
@@ -96,8 +278,75 @@ Known non-blocking notes:
 
 ## Next Recommended Milestones
 
-1. Product mapping table and SKU-to-Unit Number resolution.
-2. Stronger validation states and failure recovery workflow.
-3. Full import method detail page with source, mapping, canonical, payload, schedule/API sections.
-4. QA1 submit endpoint once Lift credentials and header details are confirmed.
-5. Replace local JSON store with a production-ready database layer when the workflow stabilizes.
+### Sprint 1: Stabilize The Current MVP
+
+- Commit the current working state.
+- Add a short architecture note for:
+  - Target
+  - Environment
+  - Output Template
+  - Output Route
+  - Submit Profile
+- Add a Canonical Order field dictionary so template mapping has a clear source of truth.
+- Add a “Reset to Lift sample template” affordance for Output Templates.
+- Add clearer warning states for unmapped output template fields.
+- Start a light frontend refactor so the large `App.tsx` surface is split into customer, target, import, and mapping components.
+
+### Sprint 2: Lift Product Catalog Groundwork
+
+- Import or mirror searchable Lift product/unit-number data.
+- Let Output Product Map search approved Lift unit numbers instead of relying only on typed values.
+- Support bulk assignment from discovered customer values to real Lift unit numbers.
+- Show product source/status so operators know whether a unit number is approved and current.
+- Keep preview jobs out of `Ready` unless route product identifiers resolve to valid approved values.
+
+### Sprint 3: Preview Job Maturity
+
+- Add a real job detail screen.
+- Show the full review chain:
+  - source rows
+  - parsed rows
+  - field mapping
+  - product resolution
+  - Canonical Order
+  - target payload/body
+  - headers
+  - validation messages
+- Add clearer workflow states:
+  - Ready
+  - Needs Mapping
+  - Needs Field Mapping
+  - Invalid Template
+  - Failed
+- Add regenerate-preview behavior after mappings, product maps, or target settings change.
+
+### Sprint 4: Real QA1 Submit
+
+- Add a submit button gated by:
+  - Ready state
+  - credentials present
+  - selected submit profile
+  - `Ext_ID` header/body equality
+  - valid product identifiers
+- Start with Sandbox `LTL Demo / 1249` submit only.
+- Persist submit attempts and Lift responses.
+- Add retry/replay from persisted jobs.
+- Expand from sandbox submit to live customer submit only after QA1 behavior is proven.
+
+### Sprint 5: Production Foundation
+
+- Replace the local JSON store with a production database layer.
+- Add auth, users, and roles.
+- Move credentials/secrets into proper secret storage.
+- Add audit history for config changes, mappings, previews, and submits.
+- Split backend behavior into clearer services:
+  - customer directory
+  - import parser
+  - product resolver
+  - template renderer
+  - target adapter
+  - job submitter
+
+### Current Recommendation
+
+Proceed with Sprint 1 first, while shaping Sprint 2 around Lift product catalog access. Real QA1 submission should wait until the current architecture is stabilized and product/unit-number approval can be validated against real Lift data.

@@ -2,6 +2,7 @@ import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
+  ArrowLeft,
   Archive,
   Bell,
   Braces,
@@ -10,7 +11,9 @@ import {
   ChevronDown,
   Clock3,
   ClipboardList,
+  Copy,
   Database,
+  Edit3,
   FileSpreadsheet,
   FileText,
   Gauge,
@@ -22,6 +25,7 @@ import {
   Send,
   Settings,
   SlidersHorizontal,
+  Trash2,
   Upload,
   Users,
   Workflow
@@ -44,13 +48,79 @@ import {
   parseWorkbookArrayBuffer,
   sampleSourceGrid,
   type FieldMapping,
+  type ParsedSourceRow,
+  type ParsedWorkbookSheet,
   type SourceGrid
 } from "@pathfinder/templates";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
-type CustomerView = "Overview" | "Import Methods" | "Manual Import" | "Jobs" | "Settings";
+type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
 
-type ImportMethodStatus = "Active" | "Draft" | "Paused";
+type ImportMethodStatus = "Active" | "Inactive" | "Draft" | "Paused" | "Archived";
+type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP";
+type ProductResolverStrategy = "derived_key" | "composite_key" | "direct_lift_unit_number";
+type ProductResolutionMode = "map_to_lift_unit" | "send_derived_unit";
+type ProductMappingStatus = "Mapped" | "Unmapped" | "Ambiguous" | "Inactive";
+type OutputProductIdentifierType = "lift_unit_number" | "sku" | "variant_id" | "catalog_item_id" | "custom";
+type TargetType = "ERP" | "Ecommerce" | "Print Factory" | "SFTP" | "Webhook" | "Custom";
+type TargetEnvironmentRole = "PROD" | "QA" | "DEV" | "Sandbox" | "Custom";
+type TargetAuthMethod = "Header credentials" | "Bearer token" | "API key" | "None";
+type OutputDestinationMethod = "HTTP POST" | "SFTP file" | "Email attachment" | "Manual download";
+type OutputFormat = "JSON" | "XML" | "CSV" | "XLSX";
+type TargetsView = "Overview" | "Environments" | "Output Templates" | "Output Routes" | "Test & Health";
+type TargetDetailView = Exclude<TargetsView, "Overview">;
+type SubmitProfileMode = "live_customer" | "sandbox_customer";
+
+interface ProductResolutionConfig {
+  strategy: ProductResolverStrategy;
+  mode: ProductResolutionMode;
+  source_column: string;
+  prefix: string;
+  suffix: string;
+  composite_columns: string[];
+  fallback_strategy: "none" | "composite_key";
+  direct_unit_number_column?: string | null;
+}
+
+interface CustomerProductMapping {
+  mapping_id: string;
+  output_route_id: string;
+  target_id: string;
+  target_template: string;
+  customer_product_key: string;
+  display_label: string;
+  source_columns: string[];
+  product_identifier_type: OutputProductIdentifierType;
+  product_identifier_value: string | null;
+  lift_unit_number: string | null;
+  product_name: string | null;
+  status: ProductMappingStatus;
+  last_seen_examples: Array<{
+    sheet_name: string;
+    row_number: number;
+    description?: string | null;
+    sign_type?: string | null;
+    media_type?: string | null;
+  }>;
+  created_at: string;
+  updated_at: string;
+}
+
+interface ProductResolutionResult {
+  output_route_id: string;
+  source_sheet_name: string;
+  source_row_number: number;
+  line_number: number;
+  strategy: ProductResolverStrategy;
+  mode: ProductResolutionMode;
+  customer_product_key: string;
+  display_label: string;
+  source_columns: string[];
+  resolved_unit_number: string | null;
+  product_name: string | null;
+  status: ProductMappingStatus;
+  message: string;
+}
 
 interface SavedFieldMappingTemplate {
   template_id: string;
@@ -65,12 +135,23 @@ interface ImportMethod {
   import_method_id: string;
   name: string;
   type: "Manual upload" | "API import" | "Manual paste" | "Scheduled";
-  source: "XLSX" | "REST API" | "Clipboard" | "SFTP";
+  source: ImportMethodSource;
   status: ImportMethodStatus;
+  output_route_id: string;
   target_id: string;
   target_template: string;
   template_id: string;
   mappings: FieldMapping[];
+  source_config: {
+    google_sheet_url?: string | null;
+    google_sheet_tab?: string | null;
+    google_sheet_range?: string | null;
+    pdf_review_mode?: "manual_review" | "assisted_extract";
+    api_endpoint_url?: string | null;
+    sftp_path?: string | null;
+  };
+  workbook_sheet_policy: "rows_with_quantity";
+  product_resolution_config: ProductResolutionConfig;
   last_run_at?: string | null;
   success_rate?: string | null;
   created_at: string;
@@ -80,25 +161,106 @@ interface ImportMethod {
 interface TargetConfig {
   target_id: string;
   name: string;
+  target_type: TargetType;
   adapter: LiftTargetConfig["destination_adapter"];
   format: "JSON";
   template: string;
   status: "Ready" | "Configured" | "Draft";
+  health_status: "Healthy" | "Untested" | "Warning" | "Error";
+  environments: TargetEnvironment[];
+  output_templates: OutputTemplate[];
   lift: LiftTargetConfig;
+  last_test_at?: string | null;
   updated_at: string;
+}
+
+interface TargetEnvironment {
+  environment_id: string;
+  name: string;
+  role: TargetEnvironmentRole;
+  endpoint_url: string;
+  auth_method: TargetAuthMethod;
+  headers: Record<string, string>;
+  credentials: {
+    User?: string;
+    Password?: string;
+    token?: string;
+    api_key?: string;
+  };
+  status: "Active" | "Draft" | "Inactive";
+  last_test_at?: string | null;
+  last_test_status?: "Not tested" | "Passed" | "Failed" | null;
+}
+
+interface OutputTemplate {
+  output_template_id: string;
+  name: string;
+  destination_method: OutputDestinationMethod;
+  output_format: OutputFormat;
+  body_template: string;
+  header_template: string;
+  canonical_mappings: FieldMapping[];
+  filename_format: string;
+  status: "Active" | "Draft" | "Inactive";
+  updated_at: string;
+}
+
+interface OutputRoute {
+  output_route_id: string;
+  name: string;
+  target_id: string;
+  environment_id: string;
+  output_template_id: string;
+  target_system: string;
+  destination_account_name: string;
+  destination_account_id: string;
+  company_id?: string | null;
+  output_template: string;
+  product_identifier_type: OutputProductIdentifierType;
+  product_identifier_label: string;
+  submit_profiles: SubmitProfile[];
+  status: "Active" | "Draft" | "Inactive";
+  updated_at: string;
+}
+
+interface SubmitProfile {
+  profile_id: string;
+  name: string;
+  mode: SubmitProfileMode;
+  enabled: boolean;
+  customer_override?: {
+    lift_customer_id: string;
+    customer_name: string;
+  } | null;
+  description?: string | null;
 }
 
 interface ProcessingJobPreview {
   job_id: string;
   customer_id: string;
   customer_name: string;
+  source_customer_id?: string;
+  source_customer_name?: string;
+  submit_customer_id?: string;
+  submit_customer_name?: string;
+  submit_profile_id?: string;
+  submit_profile_name?: string;
+  submit_mode?: SubmitProfileMode;
+  sandbox?: boolean;
   import_method_id: string;
   import_method_name: string;
+  output_route_id: string;
+  output_route_name: string;
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;
   source_grid: SourceGrid;
+  source_sheets: ParsedWorkbookSheet[];
+  parsed_order_rows: ParsedSourceRow[];
+  reference_rows: ParsedSourceRow[];
   mappings: FieldMapping[];
+  product_resolution_results: ProductResolutionResult[];
+  unresolved_products: CustomerProductMapping[];
   canonical_order: CanonicalOrder;
   canonical_validation: ValidationMessage[];
   lift_payload: LiftOrderPayload;
@@ -113,9 +275,12 @@ interface ProcessingJobPreview {
 interface PathfinderCustomerWorkspace {
   customer: LiftCustomer;
   import_methods: ImportMethod[];
+  output_routes: OutputRoute[];
   templates: SavedFieldMappingTemplate[];
   jobs: ProcessingJobPreview[];
+  product_mappings: CustomerProductMapping[];
   primary_target_id: string;
+  primary_output_route_id: string;
   primary_target: TargetConfig;
   updated_at: string;
 }
@@ -132,12 +297,355 @@ const globalNavItems: Array<{ label: GlobalView; icon: typeof Gauge }> = [
 const customerNavItems: Array<{ label: CustomerView; icon: typeof Gauge }> = [
   { label: "Overview", icon: Gauge },
   { label: "Import Methods", icon: Workflow },
+  { label: "Output Product Map", icon: Database },
   { label: "Manual Import", icon: Upload },
   { label: "Jobs", icon: Archive },
   { label: "Settings", icon: SlidersHorizontal }
 ];
 
 const seedTimestamp = "2026-07-09T13:41:00.000Z";
+const importMethodSourceOptions: ImportMethodSource[] = [
+  "XLSX",
+  "Google Sheet",
+  "PDF PO",
+  "Clipboard",
+  "REST API",
+  "SFTP"
+];
+const importMethodStatusOptions: ImportMethodStatus[] = ["Active", "Inactive", "Draft", "Paused"];
+
+const defaultProductResolutionConfig: ProductResolutionConfig = {
+  strategy: "derived_key",
+  mode: "map_to_lift_unit",
+  source_column: "SIGN TYPE",
+  prefix: "MOMENTARA__",
+  suffix: "",
+  composite_columns: ["DESCRIPTION", "Media Type", "Final Size Width", "Final Size Length", "STOCK", "FINISHING"],
+  fallback_strategy: "none",
+  direct_unit_number_column: null
+};
+
+const defaultOutputRoute: OutputRoute = {
+  output_route_id: "route-ltl-lift-91-standard-graphics",
+  name: "Larger Than Life · Lift / 91 · Standard Graphics",
+  target_id: "lift-standard-graphics",
+  environment_id: "env-lift-qa1",
+  output_template_id: "template-lift-standard-graphics",
+  target_system: "Lift ERP",
+  destination_account_name: "Larger Than Life",
+  destination_account_id: "91",
+  company_id: "91",
+  output_template: "Lift Standard Graphics Order",
+  product_identifier_type: "lift_unit_number",
+  product_identifier_label: "Lift unit_number",
+  submit_profiles: [
+    {
+      profile_id: "live-customer",
+      name: "Live Customer",
+      mode: "live_customer",
+      enabled: true,
+      customer_override: null,
+      description: "Submit using the selected customer workspace Lift customer."
+    },
+    {
+      profile_id: "sandbox-ltl-demo-1249",
+      name: "Sandbox · LTL Demo",
+      mode: "sandbox_customer",
+      enabled: true,
+      customer_override: {
+        lift_customer_id: "1249",
+        customer_name: "LTL Demo"
+      },
+      description: "Submit test orders under the internal LTL Demo Lift customer."
+    }
+  ],
+  status: "Active",
+  updated_at: seedTimestamp
+};
+
+const targetDetailTabs: TargetDetailView[] = ["Environments", "Output Templates", "Output Routes", "Test & Health"];
+const filenameTags = ["%y", "%m", "%d", "%h", "%i", "%s", "{{order.ext_id}}", "{{customer.name}}"];
+const canonicalOrderOptions = Array.from(new Set([
+  "order.ext_id",
+  "customer.id",
+  "customer.name",
+  "customer.lift_customer_id",
+  "source.source_system",
+  "source.source_customer",
+  "source.source_record_id",
+  "source.source_record_url",
+  "source.source_template",
+  "source.submitted_at",
+  "lines[]",
+  ...canonicalTargetFields,
+  "order.order_note",
+  "lines[].line_number",
+  "lines[].artwork.checksum",
+  "lines[].production.cut_type"
+]));
+const environmentTemplateOptions = [
+  "environment.credentials.User",
+  "environment.credentials.Password",
+  "environment.credentials.token",
+  "environment.credentials.api_key",
+  "environment.headers.Company",
+  "environment.endpoint_url"
+];
+const routeTemplateOptions = ["route.company_id", "route.destination_account_id", "route.destination_account_name"];
+const generatedTemplateOptions = [
+  "generated.submitted_at",
+  "generated.pathfinder_job_id",
+  "generated.pathfinder_canonical_order_id",
+  "generated.filename"
+];
+
+interface TemplateFieldReference {
+  key: string;
+  section: "body" | "header";
+  path: string;
+  sample: string;
+  token?: string;
+}
+
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+function valuePreview(value: unknown) {
+  if (value === null) {
+    return "null";
+  }
+  if (value === undefined) {
+    return "";
+  }
+  if (typeof value === "object") {
+    return Array.isArray(value) ? `Array (${value.length})` : "Object";
+  }
+  return String(value);
+}
+
+function addTemplateField(
+  fields: globalThis.Map<string, TemplateFieldReference>,
+  section: TemplateFieldReference["section"],
+  path: string,
+  sample: unknown
+) {
+  if (!path) {
+    return;
+  }
+  const key = `${section}:${path}`;
+  const existing = fields.get(key);
+  const sampleText = valuePreview(sample);
+  if (!existing || (!existing.sample && sampleText)) {
+    fields.set(key, {
+      key,
+      section,
+      path,
+      sample: sampleText,
+      token: typeof sample === "string" ? sample.match(/^\{\{\s*([^}]+?)\s*\}\}$/)?.[1]?.trim() : undefined
+    });
+  }
+}
+
+function collectTemplateJsonFields(
+  value: unknown,
+  section: TemplateFieldReference["section"],
+  path: string,
+  fields: globalThis.Map<string, TemplateFieldReference>
+) {
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      addTemplateField(fields, section, `${path}[]`, []);
+      return;
+    }
+    value.forEach((item) => {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        collectTemplateJsonFields(item, section, `${path}[]`, fields);
+      } else {
+        addTemplateField(fields, section, `${path}[]`, item);
+      }
+    });
+    return;
+  }
+
+  if (value && typeof value === "object") {
+    Object.entries(value as Record<string, unknown>).forEach(([key, child]) => {
+      collectTemplateJsonFields(child, section, path ? `${path}.${key}` : key, fields);
+    });
+    return;
+  }
+
+  addTemplateField(fields, section, path, value);
+}
+
+function extractTemplateTokenFields(templateText: string, section: TemplateFieldReference["section"]) {
+  return Array.from(templateText.matchAll(/\{\{\s*([^}]+?)\s*\}\}/g)).map((match) => {
+    const token = match[1].trim();
+    return {
+      key: `${section}:${token}`,
+      section,
+      path: token,
+      sample: `{{${token}}}`,
+      token
+    } satisfies TemplateFieldReference;
+  });
+}
+
+function templateFieldsFromText(templateText: string, section: TemplateFieldReference["section"]) {
+  const fields = new globalThis.Map<string, TemplateFieldReference>();
+  try {
+    collectTemplateJsonFields(JSON.parse(templateText), section, "", fields);
+    return Array.from(fields.values());
+  } catch {
+    return extractTemplateTokenFields(templateText, section);
+  }
+}
+
+function templateFields(template: OutputTemplate) {
+  return [
+    ...templateFieldsFromText(template.body_template, "body"),
+    ...templateFieldsFromText(template.header_template, "header")
+  ];
+}
+
+function defaultCanonicalForTemplateField(field: TemplateFieldReference) {
+  const defaults: Record<string, string> = {
+    "order.ext_id": "order.external_order_id",
+    "order.external_order_id": "order.external_order_id",
+    "order.po_number": "order.po_number",
+    "order.contract_number": "order.contract_number",
+    "order.order_title": "order.order_title",
+    "order.order_note": "order.order_note",
+    "order.requested_ship_date": "order.ship_date",
+    "customer.name": "customer.name",
+    "customer.customer_name": "customer.name",
+    "customer.lift_customer_id": "customer.lift_customer_id",
+    "source.source_customer": "source.source_customer",
+    "source.source_record_id": "source.source_record_id",
+    "source.source_record_url": "source.source_record_url",
+    "source.source_template": "source.source_template",
+    "source.submitted_at": "source.submitted_at",
+    "environment.credentials.User": "environment.credentials.User",
+    "environment.credentials.Password": "environment.credentials.Password",
+    "environment.credentials.token": "environment.credentials.token",
+    "environment.headers.Company": "environment.headers.Company",
+    "lines[]": "lines[]"
+  };
+  const directDefault = defaults[field.path] ?? defaults[field.token ?? ""];
+  if (directDefault) {
+    return directDefault;
+  }
+  if (field.section === "header") {
+    const headerDefaults: Record<string, string> = {
+      Ext_ID: "order.external_order_id",
+      User: "environment.credentials.User",
+      Password: "environment.credentials.Password",
+      Company: "environment.headers.Company",
+      Authorization: "environment.credentials.token"
+    };
+    return headerDefaults[field.path] ?? "";
+  }
+  if (field.path.startsWith("lines[].")) {
+    const linePath = field.path.replace(/^lines\[\]\./, "lines[].");
+    return canonicalOrderOptions.includes(linePath) ? linePath : "";
+  }
+  return canonicalOrderOptions.includes(field.path) ? field.path : "";
+}
+
+function templateMappingValue(template: OutputTemplate, field: TemplateFieldReference) {
+  return (
+    template.canonical_mappings.find(
+      (mapping) =>
+        mapping.sourceColumn === field.key ||
+        mapping.sourceColumn === field.path ||
+        (field.token ? mapping.sourceColumn === field.token : false)
+    )?.targetField ??
+    defaultCanonicalForTemplateField(field)
+  );
+}
+
+function effectiveTemplateMappings(template: OutputTemplate) {
+  return templateFields(template)
+    .map((field) => ({
+      sourceColumn: field.key,
+      targetField: templateMappingValue(template, field),
+      required: field.section === "body" && field.path === "order.ext_id"
+    }))
+    .filter((mapping) => mapping.targetField);
+}
+
+function pathSegments(path: string) {
+  return path.split(".").filter(Boolean);
+}
+
+function setTemplateValueAtPath(current: unknown, segments: string[], replacement: string): unknown {
+  if (!segments.length) {
+    return replacement;
+  }
+  const [segment, ...rest] = segments;
+  if (segment.endsWith("[]")) {
+    const key = segment.slice(0, -2);
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return current;
+    }
+    const record = current as Record<string, unknown>;
+    const items = Array.isArray(record[key]) ? record[key] : [];
+    return {
+      ...record,
+      [key]: items.map((item) => setTemplateValueAtPath(item, rest, replacement))
+    };
+  }
+  if (!current || typeof current !== "object" || Array.isArray(current)) {
+    return current;
+  }
+  const record = current as Record<string, unknown>;
+  return {
+    ...record,
+    [segment]: rest.length ? setTemplateValueAtPath(record[segment], rest, replacement) : replacement
+  };
+}
+
+function applyTemplateMappingToJson(templateText: string, fieldPath: string, targetField: string) {
+  try {
+    const parsed = JSON.parse(templateText);
+    const replacement = targetField ? `{{${targetField}}}` : "";
+    return JSON.stringify(setTemplateValueAtPath(parsed, pathSegments(fieldPath), replacement), null, 2);
+  } catch {
+    return templateText.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, placeholder: string) =>
+      placeholder.trim() === fieldPath ? (targetField ? `{{${targetField}}}` : "") : match
+    );
+  }
+}
+
+function mappedTemplatePreview(template: OutputTemplate, section: TemplateFieldReference["section"]) {
+  const fields = templateFields(template).filter((field) => field.section === section);
+  const sourceText = section === "body" ? template.body_template : template.header_template;
+  return fields.reduce((current, field) => {
+    const mappingValue = templateMappingValue(template, field);
+    return mappingValue ? applyTemplateMappingToJson(current, field.path, mappingValue) : current;
+  }, sourceText);
+}
+
+function mappingSourceLabel(value: string) {
+  if (!value) {
+    return "Static/example value";
+  }
+  if (environmentTemplateOptions.includes(value)) {
+    return "Environment";
+  }
+  if (routeTemplateOptions.includes(value)) {
+    return "Output route";
+  }
+  if (generatedTemplateOptions.includes(value)) {
+    return "Generated";
+  }
+  return "Canonical Order";
+}
 
 const fallbackJobs: Array<{
   id: string;
@@ -192,10 +700,14 @@ const fallbackImportMethods: ImportMethod[] = [
     type: "Manual upload",
     source: "XLSX",
     status: "Active",
+    output_route_id: defaultOutputRoute.output_route_id,
     target_id: "lift-standard-graphics",
     target_template: "Lift Standard Graphics Order",
     template_id: "template_manual_xlsx_v1",
     mappings: buildDefaultMappings(sampleSourceGrid.columns),
+    source_config: {},
+    workbook_sheet_policy: "rows_with_quantity",
+    product_resolution_config: defaultProductResolutionConfig,
     last_run_at: seedTimestamp,
     success_rate: "100%",
     created_at: seedTimestamp,
@@ -207,10 +719,16 @@ const fallbackImportMethods: ImportMethod[] = [
     type: "API import",
     source: "REST API",
     status: "Draft",
+    output_route_id: defaultOutputRoute.output_route_id,
     target_id: "lift-standard-graphics",
     target_template: "Lift Standard Graphics Order",
     template_id: "template_wrike_intake_v1",
     mappings: [],
+    source_config: {
+      api_endpoint_url: ""
+    },
+    workbook_sheet_policy: "rows_with_quantity",
+    product_resolution_config: defaultProductResolutionConfig,
     last_run_at: null,
     success_rate: "98.7%",
     created_at: seedTimestamp,
@@ -222,10 +740,14 @@ const fallbackImportMethods: ImportMethod[] = [
     type: "Manual paste",
     source: "Clipboard",
     status: "Draft",
+    output_route_id: defaultOutputRoute.output_route_id,
     target_id: "lift-standard-graphics",
     target_template: "Lift Standard Graphics Order",
     template_id: "template_paste_grid_v1",
     mappings: [],
+    source_config: {},
+    workbook_sheet_policy: "rows_with_quantity",
+    product_resolution_config: defaultProductResolutionConfig,
     last_run_at: null,
     success_rate: null,
     created_at: seedTimestamp,
@@ -269,10 +791,24 @@ function StatePill({ state }: { state: ProcessingState }) {
   const className =
     state === "Failed"
       ? "pill pill-danger"
+      : state === "Needs Mapping"
+        ? "pill pill-warning"
       : state === "Ready" || state === "Completed"
         ? "pill pill-success"
         : "pill pill-neutral";
   return <span className={className}>{state}</span>;
+}
+
+function MethodStatusPill({ status }: { status: ImportMethodStatus }) {
+  const className =
+    status === "Active"
+      ? "pill pill-success"
+      : status === "Inactive" || status === "Paused"
+        ? "pill pill-neutral"
+        : status === "Archived"
+          ? "pill pill-danger"
+          : "pill pill-warning";
+  return <span className={className}>{status}</span>;
 }
 
 function PanelHeader({
@@ -317,6 +853,22 @@ function DetailItem({ label, value }: { label: string; value?: string | null }) 
   );
 }
 
+function targetLogoText(target?: TargetConfig | null) {
+  if (!target) {
+    return "OUT";
+  }
+  if (target.name.toLowerCase().includes("lift")) {
+    return "LIFT";
+  }
+  return target.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+}
+
 function displayTimestamp(value?: string | null) {
   if (!value) {
     return "Not run";
@@ -356,8 +908,330 @@ function methodLastRun(method: ImportMethod) {
   return displayTimestamp(method.last_run_at);
 }
 
-function methodTargetLabel(method: ImportMethod) {
-  return `Lift ERP · ${method.target_template}`;
+function outputRouteForMethod(method: ImportMethod, routes: OutputRoute[]) {
+  return (
+    routes.find((route) => route.output_route_id === method.output_route_id) ??
+    routes.find((route) => route.target_id === method.target_id && route.output_template === method.target_template) ??
+    defaultOutputRoute
+  );
+}
+
+function methodTargetLabel(method: ImportMethod, routes: OutputRoute[] = [defaultOutputRoute]) {
+  const route = outputRouteForMethod(method, routes);
+  return `${route.target_system} · ${route.destination_account_name} · ${route.output_template}`;
+}
+
+function submitProfileForRoute(route: OutputRoute, profileId?: string | null) {
+  const enabledProfiles = route.submit_profiles.filter((profile) => profile.enabled);
+  return (
+    enabledProfiles.find((profile) => profile.profile_id === profileId) ??
+    enabledProfiles.find((profile) => profile.mode === "live_customer") ??
+    route.submit_profiles[0] ??
+    defaultOutputRoute.submit_profiles[0]
+  );
+}
+
+function submitCustomerForProfile(customer: LiftCustomer, profile: SubmitProfile) {
+  if (profile.mode === "sandbox_customer" && profile.customer_override) {
+    return {
+      lift_customer_id: profile.customer_override.lift_customer_id,
+      customer_name: profile.customer_override.customer_name
+    };
+  }
+
+  return {
+    lift_customer_id: customer.lift_customer_id,
+    customer_name: customer.customer_name
+  };
+}
+
+function outputIdentifierPlaceholder(route: OutputRoute) {
+  if (route.product_identifier_type === "sku") {
+    return "SKU";
+  }
+  if (route.product_identifier_type === "variant_id") {
+    return "Variant ID";
+  }
+  if (route.product_identifier_type === "catalog_item_id") {
+    return "Catalog item ID";
+  }
+  if (route.product_identifier_type === "custom") {
+    return route.product_identifier_label;
+  }
+  return "Lift unit_number";
+}
+
+function sourceTypeLabel(source: ImportMethodSource) {
+  return source;
+}
+
+function productResolverCopy(strategy: ProductResolverStrategy) {
+  if (strategy === "direct_lift_unit_number") {
+    return {
+      title: "Use a Lift unit number already in the file",
+      body:
+        "Choose this when the incoming sheet or source already provides the exact Lift unit number for each order line."
+    };
+  }
+  if (strategy === "composite_key") {
+    return {
+      title: "Build a product key from several columns",
+      body:
+        "Choose this when one field is not reliable enough. Pathfinder joins the selected columns into a customer product key, then maps that key to one Lift unit."
+    };
+  }
+  return {
+    title: "Create a product key from one source column",
+    body:
+      "Choose this when a field like SIGN TYPE identifies the product. Prefixes and suffixes can make the key unique before it maps to a Lift unit."
+  };
+}
+
+function resolutionModeCopy(mode: ProductResolutionMode) {
+  if (mode === "send_derived_unit") {
+    return {
+      title: "Use the generated key as the Lift unit number",
+      body:
+        "Only use this when the generated key is intentionally formatted to match real Lift unit numbers. Pathfinder will skip the product mapping lookup."
+    };
+  }
+  return {
+    title: "Look up the generated key in this route's output product map",
+    body:
+      "Recommended. The destination system remains the product source of truth; Pathfinder stores only the customer and route-specific crosswalk from generated keys to approved product identifiers."
+  };
+}
+
+function valueAsString(value: unknown, fallback = "") {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+  const normalized = String(value).trim();
+  return normalized.length ? normalized : fallback;
+}
+
+function normalizeProductKey(value: string) {
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/&/g, " AND ")
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_{2,}/g, "_");
+}
+
+function buildCompositeProductKey(row: SourceGrid["rows"][number] | undefined, columns: string[]) {
+  if (!row) {
+    return "";
+  }
+  return normalizeProductKey(columns.map((column) => valueAsString(row[column])).filter(Boolean).join("__"));
+}
+
+function findProductExampleRow(config: ProductResolutionConfig, rows: SourceGrid["rows"]) {
+  const sourceColumn =
+    config.strategy === "direct_lift_unit_number"
+      ? config.direct_unit_number_column ?? config.source_column
+      : config.source_column;
+  return (
+    rows.find((row) => {
+      if (config.strategy === "composite_key") {
+        return config.composite_columns.some((column) => valueAsString(row[column]));
+      }
+      return valueAsString(row[sourceColumn]);
+    }) ?? rows[0]
+  );
+}
+
+function buildProductResolutionExample(
+  config: ProductResolutionConfig,
+  rows: SourceGrid["rows"],
+  productMappings: CustomerProductMapping[],
+  testValue: string
+) {
+  const testColumn =
+    config.strategy === "direct_lift_unit_number"
+      ? config.direct_unit_number_column ?? config.source_column
+      : config.source_column;
+  const trimmedTestValue = testValue.trim();
+  const sourceRow = findProductExampleRow(config, rows);
+  const row =
+    trimmedTestValue && config.strategy !== "composite_key"
+      ? { ...(sourceRow ?? {}), [testColumn]: trimmedTestValue }
+      : sourceRow;
+  if (!row) {
+    return {
+      sourceParts: [] as Array<{ label: string; value: string }>,
+      customerProductKey: "Upload or paste source rows to see an example.",
+      liftUnitNumber: "Waiting for source data",
+      resolutionStatus: "No source row"
+    };
+  }
+
+  const directColumn = config.direct_unit_number_column ?? config.source_column;
+  const sourceParts =
+    config.strategy === "composite_key"
+      ? config.composite_columns.map((column) => ({ label: column, value: valueAsString(row[column], "Blank") }))
+      : [
+          {
+            label: config.strategy === "direct_lift_unit_number" ? directColumn : config.source_column,
+            value: valueAsString(row[config.strategy === "direct_lift_unit_number" ? directColumn : config.source_column], "Blank")
+          }
+        ];
+  const derivedSourceKey = normalizeProductKey(valueAsString(row[config.source_column]));
+  const generatedKey =
+    config.strategy === "direct_lift_unit_number"
+      ? valueAsString(row[directColumn])
+      : config.strategy === "composite_key"
+        ? buildCompositeProductKey(row, config.composite_columns)
+        : derivedSourceKey
+          ? `${config.prefix ?? ""}${derivedSourceKey}${config.suffix ?? ""}`
+          : "";
+  const mappedProduct = productMappings.find(
+    (mapping) => mapping.customer_product_key === generatedKey && mapping.status === "Mapped"
+  );
+  const liftUnitNumber =
+    config.strategy === "direct_lift_unit_number" || config.mode === "send_derived_unit"
+      ? generatedKey || "No unit number generated"
+      : mappedProduct?.product_identifier_value ?? mappedProduct?.lift_unit_number ?? "Needs approved output product mapping";
+
+  return {
+    sourceParts,
+    customerProductKey: generatedKey || "No product key generated from this row",
+    liftUnitNumber,
+    resolutionStatus:
+      config.strategy === "direct_lift_unit_number"
+        ? generatedKey
+          ? "Ready from source"
+          : "Missing unit number"
+        : config.mode === "send_derived_unit"
+          ? "Generated key will be submitted directly"
+            : mappedProduct?.product_identifier_value ?? mappedProduct?.lift_unit_number
+              ? "Mapped"
+              : "Needs mapping"
+  };
+}
+
+function productResolutionExampleCards(
+  config: ProductResolutionConfig,
+  example: ReturnType<typeof buildProductResolutionExample>
+) {
+  if (config.strategy === "direct_lift_unit_number") {
+    return [
+      {
+        label: "Source unit_number",
+        value: example.sourceParts.map((part) => `${part.label}: ${part.value}`).join(" · ") || "No source sample"
+      },
+      {
+        label: "Submitted product identifier",
+        value: example.liftUnitNumber
+      }
+    ];
+  }
+
+  if (config.mode === "send_derived_unit") {
+    return [
+      {
+        label: "Generated key",
+        value: example.customerProductKey
+      },
+      {
+        label: "Submitted product identifier",
+        value: example.liftUnitNumber
+      }
+    ];
+  }
+
+  return [
+    {
+      label: "Generated customer key",
+      value: example.customerProductKey
+    },
+    {
+        label: "Output product map",
+      value: example.resolutionStatus
+    },
+    {
+      label: "Submitted product identifier",
+      value: example.liftUnitNumber
+    }
+  ];
+}
+
+function sourceTypeToMethodType(source: ImportMethodSource): ImportMethod["type"] {
+  if (source === "REST API") {
+    return "API import";
+  }
+  if (source === "Clipboard") {
+    return "Manual paste";
+  }
+  if (source === "SFTP" || source === "Google Sheet") {
+    return "Scheduled";
+  }
+  return "Manual upload";
+}
+
+function sampleParsedRows(sourceGrid: SourceGrid): ParsedSourceRow[] {
+  return sourceGrid.rows.map((values, index) => ({
+    sheet_name: "Sample",
+    row_number: index + 2,
+    row_type: "order",
+    values
+  }));
+}
+
+function sampleSourceSheets(sourceGrid: SourceGrid): ParsedWorkbookSheet[] {
+  return [
+    {
+      sheet_name: "Sample",
+      columns: sourceGrid.columns,
+      order_row_count: sourceGrid.rows.length,
+      reference_row_count: 0,
+      parsed_rows: sampleParsedRows(sourceGrid)
+    }
+  ];
+}
+
+function mappingIdFromKey(key: string) {
+  return `product_${key.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "unmapped"}`;
+}
+
+function productMappingDraftKey(outputRouteId: string, customerProductKey: string) {
+  return `${outputRouteId}::${customerProductKey}`;
+}
+
+function sampleValuesForColumn(rows: SourceGrid["rows"], column: string) {
+  return Array.from(
+    new Set(
+      rows
+        .map((row) => row[column])
+        .filter((value) => value !== null && value !== undefined && String(value).trim() !== "")
+        .map((value) => String(value).trim())
+    )
+  )
+    .slice(0, 3)
+    .join(" · ");
+}
+
+function productMappingSeenCount(mapping: CustomerProductMapping) {
+  return mapping.last_seen_examples.length;
+}
+
+function productMappingLastSeen(mapping: CustomerProductMapping) {
+  const lastExample = mapping.last_seen_examples[0];
+  return lastExample ? `${lastExample.sheet_name} · Row ${lastExample.row_number}` : "Not seen in preview yet";
+}
+
+function productMappingStatusClass(status: ProductMappingStatus) {
+  if (status === "Mapped") {
+    return "mini-pill mini-pill-success";
+  }
+  if (status === "Ambiguous") {
+    return "mini-pill mini-pill-warning";
+  }
+  if (status === "Inactive") {
+    return "mini-pill mini-pill-neutral";
+  }
+  return "mini-pill mini-pill-danger";
 }
 
 export function App() {
@@ -365,6 +1239,9 @@ export function App() {
   const [activeGlobalView, setActiveGlobalView] = useState<GlobalView>("Customers");
   const [activeCustomerView, setActiveCustomerView] = useState<CustomerView>("Overview");
   const [sourceGrid, setSourceGrid] = useState<SourceGrid>(sampleSourceGrid);
+  const [sourceSheets, setSourceSheets] = useState<ParsedWorkbookSheet[]>(() => sampleSourceSheets(sampleSourceGrid));
+  const [parsedOrderRows, setParsedOrderRows] = useState<ParsedSourceRow[]>(() => sampleParsedRows(sampleSourceGrid));
+  const [referenceRows, setReferenceRows] = useState<ParsedSourceRow[]>([]);
   const [mappings, setMappings] = useState<FieldMapping[]>(() => buildDefaultMappings(sampleSourceGrid.columns));
   const [sourceName, setSourceName] = useState("Sample workbook");
   const [sheetName, setSheetName] = useState("Sample");
@@ -382,11 +1259,24 @@ export function App() {
   const [customerImportState, setCustomerImportState] = useState<"idle" | "loading">("idle");
   const [workspace, setWorkspace] = useState<PathfinderCustomerWorkspace | null>(null);
   const [targets, setTargets] = useState<TargetConfig[]>([]);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const [activeTargetsView, setActiveTargetsView] = useState<TargetDetailView>("Environments");
+  const [activeOutputTemplateId, setActiveOutputTemplateId] = useState<string | null>(null);
   const [globalJobs, setGlobalJobs] = useState<ProcessingJobPreview[]>([]);
   const [activeMethodId, setActiveMethodId] = useState("manual-xlsx");
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("idle");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
   const [lastPreviewJob, setLastPreviewJob] = useState<ProcessingJobPreview | null>(null);
+  const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("live-customer");
+  const [productMappingDrafts, setProductMappingDrafts] = useState<Record<string, { unit: string; product: string }>>({});
+  const [compositeColumnToAdd, setCompositeColumnToAdd] = useState("");
+  const [productExampleTestValue, setProductExampleTestValue] = useState("");
+  const [unitMapSearch, setUnitMapSearch] = useState("");
+  const [unitMapStatusFilter, setUnitMapStatusFilter] = useState<ProductMappingStatus | "All">("All");
+  const [outputMapRouteFilter, setOutputMapRouteFilter] = useState("All");
+  const [selectedUnitMapIds, setSelectedUnitMapIds] = useState<string[]>([]);
+  const [bulkUnitNumber, setBulkUnitNumber] = useState("");
+  const [bulkProductName, setBulkProductName] = useState("");
 
   async function loadCustomers(refresh = false) {
     setCustomerImportState("loading");
@@ -425,7 +1315,9 @@ export function App() {
       const response = await fetch(`${apiBaseUrl}/api/customers/${liftCustomerId}/workspace`);
       const loadedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       setWorkspace(loadedWorkspace);
-      setActiveMethodId(loadedWorkspace.import_methods[0]?.import_method_id ?? "manual-xlsx");
+      setActiveMethodId(
+        loadedWorkspace.import_methods.find((method) => method.status !== "Archived")?.import_method_id ?? "manual-xlsx"
+      );
       setWorkspaceMessage(null);
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Workspace load failed.");
@@ -478,6 +1370,10 @@ export function App() {
       setWorkspaceMessage("Choose an import method before generating a preview job.");
       return;
     }
+    if (method.status !== "Active") {
+      setWorkspaceMessage("Activate this import method before generating a preview job.");
+      return;
+    }
 
     setWorkspaceState("saving");
     try {
@@ -489,7 +1385,12 @@ export function App() {
           source_file_name: sourceName,
           sheet_name: sheetName,
           source_grid: sourceGrid,
-          mappings
+          source_sheets: sourceSheets,
+          parsed_order_rows: parsedOrderRows,
+          reference_rows: referenceRows,
+          mappings,
+          submit_profile_id: selectedSubmitProfile.profile_id,
+          product_resolution_config: method.product_resolution_config
         })
       });
       const payload = await readJsonResponse<{ job: ProcessingJobPreview; workspace: PathfinderCustomerWorkspace }>(response);
@@ -498,7 +1399,9 @@ export function App() {
       setWorkspaceMessage(
         payload.job.state === "Ready"
           ? "Preview job created and ready for Lift submit review."
-          : "Preview job created with blocking validation failures."
+          : payload.job.state === "Needs Mapping"
+            ? "Preview job created. Resolve product mappings before Lift submit review."
+            : "Preview job created with blocking validation failures."
       );
       await loadTargetsAndJobs();
       setWorkspaceState("idle");
@@ -563,14 +1466,201 @@ export function App() {
   const customerComboboxValue = isCustomerPickerOpen
     ? customerSearch
     : `${selectedCustomer.customer_name} · ${selectedCustomer.lift_customer_id}`;
-  const importMethods = workspace?.import_methods.length ? workspace.import_methods : fallbackImportMethods;
+  const allImportMethods = workspace?.import_methods.length ? workspace.import_methods : fallbackImportMethods;
+  const importMethods = allImportMethods.filter((method) => method.status !== "Archived");
   const activeImportMethod =
-    importMethods.find((method) => method.import_method_id === activeMethodId) ?? importMethods[0];
+    importMethods.find((method) => method.import_method_id === activeMethodId) ?? importMethods[0] ?? allImportMethods[0];
+  const activeProductConfig = activeImportMethod?.product_resolution_config ?? defaultProductResolutionConfig;
+  const activeResolverCopy = productResolverCopy(activeProductConfig.strategy);
+  const activeResolutionModeCopy = resolutionModeCopy(activeProductConfig.mode);
+  const productExampleTestColumn =
+    activeProductConfig.strategy === "direct_lift_unit_number"
+      ? activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column
+      : activeProductConfig.source_column;
+  const availableInputColumns = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [
+            ...sourceGrid.columns,
+            activeProductConfig.source_column,
+            activeProductConfig.direct_unit_number_column,
+            ...activeProductConfig.composite_columns
+          ].filter((column): column is string => Boolean(column))
+        )
+      ),
+    [activeProductConfig, sourceGrid.columns]
+  );
+  const addableCompositeColumns = availableInputColumns.filter(
+    (column) => !activeProductConfig.composite_columns.includes(column)
+  );
   const customerJobs = workspace?.jobs ?? [];
   const overviewJobs = customerJobs.slice(0, 5);
   const allJobs = globalJobs.length ? globalJobs : customerJobs;
   const primaryTarget = workspace?.primary_target ?? targets[0];
   const targetRows = targets.length ? targets : primaryTarget ? [primaryTarget] : [];
+  const outputRoutes = workspace?.output_routes?.length ? workspace.output_routes : [defaultOutputRoute];
+  const primaryOutputRoute =
+    outputRoutes.find((route) => route.output_route_id === workspace?.primary_output_route_id) ??
+    outputRoutes[0] ??
+    defaultOutputRoute;
+  const primaryRouteTarget =
+    targetRows.find((target) => target.target_id === primaryOutputRoute.target_id) ?? primaryTarget ?? null;
+  const primaryRouteEnvironment =
+    primaryRouteTarget?.environments.find((environment) => environment.environment_id === primaryOutputRoute.environment_id) ??
+    primaryRouteTarget?.environments.find((environment) => environment.name === primaryRouteTarget.lift.active_environment) ??
+    null;
+  const primaryRouteTemplate =
+    primaryRouteTarget?.output_templates.find((template) => template.output_template_id === primaryOutputRoute.output_template_id) ??
+    primaryRouteTarget?.output_templates.find((template) => template.name === primaryOutputRoute.output_template) ??
+    null;
+  const primaryRouteCompanyId =
+    primaryOutputRoute.company_id ?? primaryRouteEnvironment?.headers.Company ?? primaryRouteTarget?.lift.headers.Company;
+  const primaryRouteAuth =
+    primaryRouteEnvironment?.auth_method && primaryRouteEnvironment.auth_method !== "None"
+      ? primaryRouteEnvironment.auth_method
+      : primaryRouteEnvironment?.credentials.User || primaryRouteEnvironment?.credentials.Password
+        ? "Header credentials"
+        : "None";
+  const selectedTarget = selectedTargetId
+    ? targetRows.find((target) => target.target_id === selectedTargetId) ?? null
+    : null;
+  const targetEnvironments = selectedTarget?.environments ?? [];
+  const targetOutputTemplates = selectedTarget?.output_templates ?? [];
+  const selectedTargetRoutes = selectedTarget
+    ? outputRoutes.filter((route) => route.target_id === selectedTarget.target_id)
+    : [];
+  const selectedTargetTestRoute = selectedTargetRoutes[0] ?? null;
+  const selectedTargetTestEnvironment =
+    selectedTarget && selectedTargetTestRoute
+      ? selectedTarget.environments.find((environment) => environment.environment_id === selectedTargetTestRoute.environment_id) ??
+        selectedTarget.environments.find((environment) => environment.name === selectedTarget.lift.active_environment) ??
+        null
+      : null;
+  const selectedTargetTestTemplate =
+    selectedTarget && selectedTargetTestRoute
+      ? selectedTarget.output_templates.find((template) => template.output_template_id === selectedTargetTestRoute.output_template_id) ??
+        selectedTarget.output_templates.find((template) => template.name === selectedTargetTestRoute.output_template) ??
+        selectedTarget.output_templates[0] ??
+        null
+      : null;
+  const selectedOutputTemplate =
+    targetOutputTemplates.find((template) => template.output_template_id === activeOutputTemplateId) ??
+    targetOutputTemplates[0] ??
+    null;
+  const targetRowIds = targetRows.map((target) => target.target_id).join("|");
+  const targetTemplateIds = targetOutputTemplates.map((template) => template.output_template_id).join("|");
+
+  useEffect(() => {
+    if (selectedTargetId && !targetRows.some((target) => target.target_id === selectedTargetId)) {
+      setSelectedTargetId(null);
+    }
+  }, [selectedTargetId, targetRowIds]);
+
+  useEffect(() => {
+    if (!selectedTarget) {
+      setActiveOutputTemplateId(null);
+      return;
+    }
+    if (targetOutputTemplates.length && !targetOutputTemplates.some((template) => template.output_template_id === activeOutputTemplateId)) {
+      setActiveOutputTemplateId(targetOutputTemplates[0].output_template_id);
+    }
+  }, [selectedTarget?.target_id, activeOutputTemplateId, targetTemplateIds]);
+
+  const activeOutputRoute =
+    activeImportMethod
+      ? outputRouteForMethod(activeImportMethod, outputRoutes)
+      : primaryOutputRoute;
+  const selectedSubmitProfile = submitProfileForRoute(activeOutputRoute, selectedSubmitProfileId);
+  const submitCustomer = submitCustomerForProfile(selectedCustomer, selectedSubmitProfile);
+
+  useEffect(() => {
+    if (!activeOutputRoute.submit_profiles.some((profile) => profile.profile_id === selectedSubmitProfileId && profile.enabled)) {
+      setSelectedSubmitProfileId(submitProfileForRoute(activeOutputRoute).profile_id);
+    }
+  }, [activeOutputRoute.output_route_id, selectedSubmitProfileId]);
+
+  const selectedOutputMapRouteId =
+    outputMapRouteFilter === "All" ? activeOutputRoute.output_route_id : outputMapRouteFilter;
+  const selectedOutputMapRoute =
+    outputRoutes.find((route) => route.output_route_id === selectedOutputMapRouteId) ?? activeOutputRoute;
+  const selectedOutputMapTarget =
+    targetRows.find((target) => target.target_id === selectedOutputMapRoute.target_id) ?? primaryTarget ?? null;
+  const selectedOutputMapEnvironment =
+    selectedOutputMapTarget?.environments.find(
+      (environment) => environment.environment_id === selectedOutputMapRoute.environment_id
+    ) ??
+    selectedOutputMapTarget?.environments.find((environment) => environment.name === selectedOutputMapTarget.lift.active_environment) ??
+    null;
+  const selectedOutputMapTemplate =
+    selectedOutputMapTarget?.output_templates.find(
+      (template) => template.output_template_id === selectedOutputMapRoute.output_template_id
+    ) ??
+    selectedOutputMapTarget?.output_templates.find((template) => template.name === selectedOutputMapRoute.output_template) ??
+    null;
+  const productMappings = workspace?.product_mappings ?? [];
+  const filteredProductMappings = useMemo(() => {
+    const query = unitMapSearch.trim().toLowerCase();
+    return productMappings
+      .filter((mapping) => mapping.output_route_id === selectedOutputMapRouteId)
+      .filter((mapping) => unitMapStatusFilter === "All" || mapping.status === unitMapStatusFilter)
+      .filter((mapping) => {
+        if (!query) {
+          return true;
+        }
+        return [
+          mapping.customer_product_key,
+          mapping.display_label,
+          mapping.product_identifier_value ?? "",
+          mapping.lift_unit_number ?? "",
+          mapping.product_name ?? "",
+          mapping.source_columns.join(" ")
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+      })
+      .sort((first, second) => {
+        const statusWeight: Record<ProductMappingStatus, number> = {
+          Unmapped: 0,
+          Ambiguous: 1,
+          Mapped: 2,
+          Inactive: 3
+        };
+        return (
+          statusWeight[first.status] - statusWeight[second.status] ||
+          second.updated_at.localeCompare(first.updated_at)
+        );
+      });
+  }, [productMappings, selectedOutputMapRouteId, unitMapSearch, unitMapStatusFilter]);
+  const selectedUnitMappings = productMappings.filter(
+    (mapping) => mapping.output_route_id === selectedOutputMapRouteId && selectedUnitMapIds.includes(mapping.mapping_id)
+  );
+  const routeProductMappings = productMappings.filter((mapping) => mapping.output_route_id === selectedOutputMapRouteId);
+  const routeMappedCount = routeProductMappings.filter((mapping) => mapping.status === "Mapped").length;
+  const routeUnmappedCount = routeProductMappings.filter((mapping) => mapping.status === "Unmapped").length;
+  const routeBlockingCount = routeProductMappings.filter(
+    (mapping) => mapping.status === "Unmapped" || mapping.status === "Ambiguous"
+  ).length;
+  const routeSeenExampleCount = routeProductMappings.reduce((total, mapping) => total + productMappingSeenCount(mapping), 0);
+  const productResolutionExample = buildProductResolutionExample(
+    activeProductConfig,
+    sourceGrid.rows,
+    routeProductMappings,
+    productExampleTestValue
+  );
+  const productResolutionCards = productResolutionExampleCards(activeProductConfig, productResolutionExample);
+  const unmappedProductCount = routeProductMappings.filter((mapping) => mapping.status !== "Mapped").length;
+  const productResolutionRows = lastPreviewJob?.product_resolution_results ?? [];
+  const referenceRowCount = sourceSheets.reduce((total, sheet) => total + sheet.reference_row_count, 0);
+  const foundInputElements = useMemo(
+    () =>
+      sourceGrid.columns.map((column) => ({
+        column,
+        sample: sampleValuesForColumn(sourceGrid.rows, column)
+      })),
+    [sourceGrid.columns, sourceGrid.rows]
+  );
 
   useEffect(() => {
     if (activeImportMethod?.mappings.length) {
@@ -578,18 +1668,22 @@ export function App() {
     }
   }, [activeImportMethod?.import_method_id, workspace?.updated_at]);
 
+  useEffect(() => {
+    setSelectedUnitMapIds([]);
+  }, [selectedOutputMapRouteId]);
+
   const canonicalOrder = useMemo(
     () =>
       mapSourceRowsToCanonicalOrder(sourceGrid.rows, mappings, {
         customerId: `lift:${selectedCustomer.lift_customer_id}`,
-        customerName: selectedCustomer.customer_name,
-        destinationCustomerId: selectedCustomer.lift_customer_id,
+        customerName: submitCustomer.customer_name,
+        destinationCustomerId: submitCustomer.lift_customer_id,
         sourceSystem: sourceName === "Sample workbook" ? "Manual Upload" : "XLSX Upload",
         sourceCustomer: selectedCustomer.customer_name,
         sourceTemplate: sourceName,
         targetSystem: "Lift Standard Graphics"
       }),
-    [mappings, selectedCustomer, sourceGrid.rows, sourceName]
+    [mappings, selectedCustomer, sourceGrid.rows, sourceName, submitCustomer.customer_name, submitCustomer.lift_customer_id]
   );
 
   const canonicalMessages = validateCanonicalOrder(canonicalOrder);
@@ -598,24 +1692,38 @@ export function App() {
     canonicalOrderId: "co_preview"
   });
   const liftMessages = validateLiftPayload(liftPayload);
-  const submitRequest = maskLiftSubmitRequest(buildLiftSubmitRequest(liftPayload, primaryTarget?.lift));
-  const allMessages = [...canonicalMessages, ...liftMessages];
+  const submitRequest = maskLiftSubmitRequest(buildLiftSubmitRequest(liftPayload, primaryRouteTarget?.lift));
+  const displayedCanonicalOrder = lastPreviewJob?.canonical_order ?? canonicalOrder;
+  const displayedLiftPayload = lastPreviewJob?.lift_payload ?? liftPayload;
+  const displayedSubmitRequest = lastPreviewJob?.submit_request_masked ?? submitRequest;
+  const allMessages = lastPreviewJob
+    ? [...lastPreviewJob.canonical_validation, ...lastPreviewJob.lift_validation]
+    : [...canonicalMessages, ...liftMessages];
   const hasBlockingFailure = allMessages.some((message) => message.severity === "FAIL");
   const mappedColumnCount = sourceGrid.columns.filter((column) =>
     mappings.some((mapping) => mapping.sourceColumn === column)
   ).length;
   const customerOrderCount = customerJobs.reduce((total, job) => total + jobOrderCount(job), 0);
-  const readyJobCount = customerJobs.filter((job) => !isFailureState(job.state)).length;
+  const readyJobCount = customerJobs.filter((job) => job.state === "Ready" || job.state === "Completed").length;
   const failedJobCount = customerJobs.filter((job) => isFailureState(job.state)).length;
   const validationRate = customerJobs.length ? Math.round((readyJobCount / customerJobs.length) * 1000) / 10 : 0;
+  const notificationCount = failedJobCount + routeBlockingCount;
+  const activeTargetCount = targetRows.filter((target) => target.status === "Ready" || target.status === "Configured").length;
+  const scheduledMethodCount = importMethods.filter(
+    (method) => method.type === "Scheduled" || method.source === "REST API" || method.source === "SFTP" || method.source === "Google Sheet"
+  ).length;
 
   async function importWorkbook(file: File) {
     try {
       const parsed = parseWorkbookArrayBuffer(await file.arrayBuffer());
       setSourceGrid({ columns: parsed.columns, rows: parsed.rows });
+      setSourceSheets(parsed.source_sheets);
+      setParsedOrderRows(parsed.parsed_order_rows);
+      setReferenceRows(parsed.reference_rows);
       setMappings(buildDefaultMappings(parsed.columns));
       setSourceName(file.name);
       setSheetName(parsed.sheetName);
+      setLastPreviewJob(null);
       setImportError(null);
       setActiveGlobalView("Customers");
       setActiveCustomerView("Manual Import");
@@ -634,9 +1742,13 @@ export function App() {
 
   function resetSample() {
     setSourceGrid(sampleSourceGrid);
+    setSourceSheets(sampleSourceSheets(sampleSourceGrid));
+    setParsedOrderRows(sampleParsedRows(sampleSourceGrid));
+    setReferenceRows([]);
     setMappings(buildDefaultMappings(sampleSourceGrid.columns));
     setSourceName("Sample workbook");
     setSheetName("Sample");
+    setLastPreviewJob(null);
     setImportError(null);
   }
 
@@ -655,6 +1767,132 @@ export function App() {
     });
   }
 
+  async function saveProductMapping(mapping: CustomerProductMapping | ProductResolutionResult) {
+    const customerProductKey = mapping.customer_product_key;
+    const mappingId = "mapping_id" in mapping ? mapping.mapping_id : mappingIdFromKey(customerProductKey);
+    const routeId = "output_route_id" in mapping ? mapping.output_route_id : selectedOutputMapRouteId;
+    const mappingRoute =
+      outputRoutes.find((route) => route.output_route_id === routeId) ??
+      outputRoutes.find((route) => route.output_route_id === selectedOutputMapRouteId) ??
+      activeOutputRoute;
+    const draft = productMappingDrafts[productMappingDraftKey(mappingRoute.output_route_id, customerProductKey)];
+    const currentUnit =
+      draft?.unit ??
+      ("resolved_unit_number" in mapping
+        ? mapping.resolved_unit_number
+        : mapping.product_identifier_value ?? mapping.lift_unit_number) ??
+      "";
+    const currentProduct = draft?.product ?? mapping.product_name ?? mapping.display_label;
+
+    if (!currentUnit.trim()) {
+      setWorkspaceMessage(`Enter a ${mappingRoute.product_identifier_label} before approving the product mapping.`);
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/product-mappings/${mappingId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            output_route_id: mappingRoute.output_route_id,
+            target_id: mappingRoute.target_id,
+            target_template: mappingRoute.output_template,
+            customer_product_key: customerProductKey,
+            display_label: mapping.display_label,
+            source_columns: mapping.source_columns,
+            product_identifier_type: mappingRoute.product_identifier_type,
+            product_identifier_value: currentUnit.trim(),
+            lift_unit_number: mappingRoute.product_identifier_type === "lift_unit_number" ? currentUnit.trim() : null,
+            product_name: currentProduct.trim() || mapping.display_label,
+            status: "Mapped"
+          })
+        }
+      );
+      const payload = await readJsonResponse<{ product_mappings: CustomerProductMapping[] }>(response);
+      setWorkspace((current) => (current ? { ...current, product_mappings: payload.product_mappings } : current));
+      setWorkspaceMessage("Output product mapping approved. Regenerate preview to apply it.");
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Product mapping save failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  function toggleUnitMapping(mappingId: string) {
+    setSelectedUnitMapIds((current) =>
+      current.includes(mappingId) ? current.filter((id) => id !== mappingId) : [...current, mappingId]
+    );
+  }
+
+  function toggleAllVisibleUnitMappings() {
+    const visibleIds = filteredProductMappings.map((mapping) => mapping.mapping_id);
+    const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedUnitMapIds.includes(id));
+    setSelectedUnitMapIds((current) =>
+      allVisibleSelected
+        ? current.filter((id) => !visibleIds.includes(id))
+        : Array.from(new Set([...current, ...visibleIds]))
+    );
+  }
+
+  async function bulkUpdateProductMappings(patch: Partial<CustomerProductMapping>, successMessage: string) {
+    if (selectedUnitMappings.length === 0) {
+      setWorkspaceMessage("Select one or more customer keys before applying a bulk action.");
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/product-mappings/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_mappings: selectedUnitMappings.map((mapping) => ({
+            ...mapping,
+            ...patch,
+            status:
+              patch.status ??
+              (patch.product_identifier_value || patch.lift_unit_number || mapping.product_identifier_value || mapping.lift_unit_number
+                ? "Mapped"
+                : mapping.status)
+          }))
+        })
+      });
+      const payload = await readJsonResponse<{ product_mappings: CustomerProductMapping[] }>(response);
+      setWorkspace((current) => (current ? { ...current, product_mappings: payload.product_mappings } : current));
+      setSelectedUnitMapIds([]);
+      setBulkUnitNumber("");
+      setBulkProductName("");
+      setWorkspaceMessage(successMessage);
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Bulk product mapping save failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  async function bulkAssignUnitNumber() {
+    if (!bulkUnitNumber.trim()) {
+      setWorkspaceMessage(`Enter a ${selectedOutputMapRoute.product_identifier_label} before assigning selected customer keys.`);
+      return;
+    }
+    await bulkUpdateProductMappings(
+      {
+        output_route_id: selectedOutputMapRouteId,
+        target_id: selectedOutputMapRoute.target_id,
+        target_template: selectedOutputMapRoute.output_template,
+        product_identifier_type: selectedOutputMapRoute.product_identifier_type,
+        product_identifier_value: bulkUnitNumber.trim(),
+        lift_unit_number: selectedOutputMapRoute.product_identifier_type === "lift_unit_number" ? bulkUnitNumber.trim() : null,
+        product_name: bulkProductName.trim() || selectedUnitMappings[0]?.product_name || null,
+        status: "Mapped"
+      },
+      `${selectedUnitMappings.length} customer key${selectedUnitMappings.length === 1 ? "" : "s"} mapped to ${bulkUnitNumber.trim()}.`
+    );
+  }
+
   function createDraftImportMethod() {
     if (!workspace) {
       setWorkspaceMessage("Workspace is still loading. Try again in a moment.");
@@ -668,10 +1906,14 @@ export function App() {
       type: "Manual upload",
       source: "XLSX",
       status: "Draft",
-      target_id: workspace.primary_target_id,
-      target_template: workspace.primary_target.template,
+      output_route_id: activeOutputRoute.output_route_id,
+      target_id: activeOutputRoute.target_id,
+      target_template: activeOutputRoute.output_template,
       template_id: `template-${Date.now()}`,
       mappings: buildDefaultMappings(sourceGrid.columns),
+      source_config: {},
+      workbook_sheet_policy: "rows_with_quantity",
+      product_resolution_config: defaultProductResolutionConfig,
       last_run_at: null,
       success_rate: null,
       created_at: timestamp,
@@ -686,6 +1928,57 @@ export function App() {
     setActiveCustomerView("Import Methods");
   }
 
+  async function duplicateImportMethod(method: ImportMethod) {
+    if (!workspace) {
+      return;
+    }
+
+    const timestamp = new Date().toISOString();
+    const methodId = `method-${Date.now()}`;
+    const duplicate: ImportMethod = {
+      ...method,
+      import_method_id: methodId,
+      name: `${method.name} Copy`,
+      status: "Draft",
+      template_id: `template-${Date.now()}`,
+      last_run_at: null,
+      success_rate: null,
+      created_at: timestamp,
+      updated_at: timestamp
+    };
+
+    setWorkspace({
+      ...workspace,
+      import_methods: [duplicate, ...workspace.import_methods]
+    });
+    setActiveMethodId(methodId);
+    await saveImportMethod(duplicate, duplicate.mappings);
+  }
+
+  async function deleteImportMethod(method: ImportMethod) {
+    if (!workspace || importMethods.length <= 1) {
+      setWorkspaceMessage("Keep at least one import method for this customer.");
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/import-methods/${method.import_method_id}`,
+        { method: "DELETE" }
+      );
+      const nextWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      const nextMethod = nextWorkspace.import_methods.find((candidate) => candidate.status !== "Archived");
+      setWorkspace(nextWorkspace);
+      setActiveMethodId(nextMethod?.import_method_id ?? "manual-xlsx");
+      setWorkspaceMessage("Import method archived.");
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Import method delete failed.");
+      setWorkspaceState("error");
+    }
+  }
+
   function updateTargetDraft(targetId: string, updater: (target: TargetConfig) => TargetConfig) {
     setTargets((current) => current.map((target) => (target.target_id === targetId ? updater(target) : target)));
     setWorkspace((current) =>
@@ -693,6 +1986,199 @@ export function App() {
         ? { ...current, primary_target: updater(current.primary_target) }
         : current
     );
+  }
+
+  function updateTargetEnvironmentDraft(
+    targetId: string,
+    environmentId: string,
+    updater: (environment: TargetEnvironment) => TargetEnvironment
+  ) {
+    updateTargetDraft(targetId, (target) => {
+      const nextEnvironments = target.environments.map((environment) =>
+        environment.environment_id === environmentId ? updater(environment) : environment
+      );
+      const qaEnvironment = nextEnvironments.find((environment) => environment.name === "QA1");
+      const prodEnvironment = nextEnvironments.find((environment) => environment.name === "PROD");
+      const activeEnvironment = nextEnvironments.find((environment) => environment.name === target.lift.active_environment);
+
+      return {
+        ...target,
+        environments: nextEnvironments,
+        lift: {
+          ...target.lift,
+          environments: {
+            QA1: { endpoint_url: qaEnvironment?.endpoint_url ?? target.lift.environments.QA1.endpoint_url },
+            PROD: { endpoint_url: prodEnvironment?.endpoint_url ?? target.lift.environments.PROD.endpoint_url }
+          },
+          credentials: {
+            ...target.lift.credentials,
+            ...(activeEnvironment?.credentials ?? {})
+          },
+          headers: {
+            ...target.lift.headers,
+            Company: activeEnvironment?.headers.Company ?? target.lift.headers.Company
+          }
+        }
+      };
+    });
+  }
+
+  function updateOutputTemplateDraft(
+    targetId: string,
+    templateId: string,
+    updater: (template: OutputTemplate) => OutputTemplate
+  ) {
+    updateTargetDraft(targetId, (target) => ({
+      ...target,
+      output_templates: target.output_templates.map((template) =>
+        template.output_template_id === templateId ? updater(template) : template
+      )
+    }));
+  }
+
+  function createDraftEnvironment(targetSlug: string): TargetEnvironment {
+    return {
+      environment_id: `env-${targetSlug}-qa1`,
+      name: "QA1",
+      role: "DEV",
+      endpoint_url: "",
+      auth_method: "None",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: {},
+      status: "Draft",
+      last_test_at: null,
+      last_test_status: "Not tested"
+    };
+  }
+
+  function createDraftOutputTemplate(targetSlug: string): OutputTemplate {
+    const timestamp = new Date().toISOString();
+    return {
+      output_template_id: `template-${targetSlug}-${Date.now()}`,
+      name: "New Output Template",
+      destination_method: "HTTP POST",
+      output_format: "JSON",
+      body_template: JSON.stringify(
+        {
+          order_id: "example-order-id",
+          customer_name: "Example Customer",
+          lines: [
+            {
+              unit_number: "EXAMPLE-UNIT",
+              quantity: 1
+            }
+          ]
+        },
+        null,
+        2
+      ),
+      header_template: JSON.stringify(
+        {
+          "Content-Type": "application/json",
+          Ext_ID: "example-order-id"
+        },
+        null,
+        2
+      ),
+      canonical_mappings: [],
+      filename_format: "orders-%y-%m-%d-%h-%i-%s.json",
+      status: "Draft",
+      updated_at: timestamp
+    };
+  }
+
+  function addTargetDraft() {
+    const timestamp = new Date().toISOString();
+    const targetSlug = `new-target-${Date.now()}`;
+    const template = createDraftOutputTemplate(targetSlug);
+    const target: TargetConfig = {
+      target_id: targetSlug,
+      name: "New Target",
+      target_type: "Custom",
+      adapter: "lift-standard-graphics",
+      format: "JSON",
+      template: template.name,
+      status: "Draft",
+      health_status: "Untested",
+      environments: [createDraftEnvironment(targetSlug)],
+      output_templates: [template],
+      lift: {
+        destination_adapter: "lift-standard-graphics",
+        active_environment: "QA1",
+        environments: {
+          QA1: { endpoint_url: "" },
+          PROD: { endpoint_url: "" }
+        },
+        headers: {
+          "Content-Type": "application/json",
+          Company: "",
+          Ext_ID: {
+            strategy: "field",
+            field: "order.ext_id",
+            body_field: "order.ext_id",
+            must_match_body: true,
+            default_source_field: "canonical.order.external_order_id",
+            fallback_fields: []
+          }
+        },
+        credentials: {
+          User: "",
+          Password: ""
+        }
+      },
+      last_test_at: null,
+      updated_at: timestamp
+    };
+
+    setTargets((current) => [target, ...current]);
+    setSelectedTargetId(target.target_id);
+    setActiveTargetsView("Environments");
+    setActiveOutputTemplateId(template.output_template_id);
+    setWorkspaceMessage("Draft target created. Save target details when ready.");
+  }
+
+  function selectTargetForEdit(target: TargetConfig) {
+    setSelectedTargetId(target.target_id);
+    setActiveTargetsView("Environments");
+    setActiveOutputTemplateId(target.output_templates[0]?.output_template_id ?? null);
+  }
+
+  function addOutputTemplateDraft(target: TargetConfig) {
+    const targetSlug = slugify(target.name) || target.target_id;
+    const template = createDraftOutputTemplate(targetSlug);
+    updateTargetDraft(target.target_id, (current) => ({
+      ...current,
+      output_templates: [template, ...current.output_templates],
+      template: current.output_templates.length ? current.template : template.name,
+      updated_at: new Date().toISOString()
+    }));
+    setActiveOutputTemplateId(template.output_template_id);
+  }
+
+  function updateOutputTemplateMapping(targetId: string, templateId: string, field: TemplateFieldReference, targetField: string) {
+    updateOutputTemplateDraft(targetId, templateId, (template) => {
+      const existing = template.canonical_mappings.filter(
+        (mapping) =>
+          mapping.sourceColumn !== field.key &&
+          mapping.sourceColumn !== field.path &&
+          (field.token ? mapping.sourceColumn !== field.token : true)
+      );
+      const body_template =
+        field.section === "body" ? applyTemplateMappingToJson(template.body_template, field.path, targetField) : template.body_template;
+      const header_template =
+        field.section === "header" ? applyTemplateMappingToJson(template.header_template, field.path, targetField) : template.header_template;
+      return {
+        ...template,
+        body_template,
+        header_template,
+        canonical_mappings: targetField
+          ? [...existing, { sourceColumn: field.key, targetField, required: field.section === "body" && field.path === "order.ext_id" }]
+          : existing,
+        updated_at: new Date().toISOString()
+      };
+    });
   }
 
   return (
@@ -813,7 +2299,7 @@ export function App() {
               <div className="title-block">
                 <div className="headline-row">
                   <h1>{selectedCustomer.customer_name}</h1>
-                  <span className="active-tag">Active</span>
+                  <span className="active-tag">{selectedCustomer.customer_status ?? "Active"}</span>
                 </div>
                 <p className="meta-line">
                   Lift CustomerID: {selectedCustomer.lift_customer_id}
@@ -824,12 +2310,12 @@ export function App() {
               <div className="topbar-actions">
                 <button className="environment-select">
                   <span>Environment</span>
-                  <strong>{primaryTarget?.lift.active_environment ?? "QA1"}</strong>
+                  <strong>{primaryRouteEnvironment?.name ?? primaryRouteTarget?.lift.active_environment ?? "QA1"}</strong>
                   <ChevronDown size={16} />
                 </button>
                 <button className="notification-button" aria-label="Notifications">
                   <Bell size={20} />
-                  <span>2</span>
+                  <span>{notificationCount}</span>
                 </button>
                 <button className="primary-button actions-button">
                   Actions
@@ -856,20 +2342,23 @@ export function App() {
                   </div>
 
                   <div className="panel target-summary-panel">
-                    <PanelHeader icon={Database} title="Primary Target" detail="Output template" />
+                    <PanelHeader icon={Database} title="Primary Target" detail={primaryOutputRoute.name} />
                     <div className="primary-target-body">
                       <div className="target-identity">
-                        <div className="target-logo">LIFT</div>
+                        <div className="target-logo">{targetLogoText(primaryRouteTarget)}</div>
                         <div>
-                          <strong>{primaryTarget?.name ?? "Lift ERP"}</strong>
-                          <span>{primaryTarget?.template ?? "Lift Standard Graphics Order"}</span>
+                          <strong>{primaryRouteTarget?.name ?? primaryOutputRoute.target_system}</strong>
+                          <span>{primaryRouteTemplate?.name ?? primaryOutputRoute.output_template}</span>
                         </div>
-                        <span className="target-env">{primaryTarget?.lift.active_environment ?? "QA1"}</span>
+                        <span className="target-env">{primaryRouteEnvironment?.name ?? "No environment"}</span>
                       </div>
                       <dl className="target-summary">
-                        <DetailItem label="Endpoint" value={submitRequest.endpoint_url} />
-                        <DetailItem label="Company ID" value={submitRequest.headers.Company} />
-                        <DetailItem label="Auth" value="Header (User / Password)" />
+                        <DetailItem label="Endpoint" value={primaryRouteEnvironment?.endpoint_url ?? submitRequest.endpoint_url} />
+                        <DetailItem label="Company ID" value={primaryRouteCompanyId} />
+                        <DetailItem label="Auth" value={primaryRouteAuth} />
+                        <DetailItem label="Destination" value={`${primaryOutputRoute.destination_account_name}${primaryOutputRoute.destination_account_id ? ` / ${primaryOutputRoute.destination_account_id}` : ""}`} />
+                        <DetailItem label="Format" value={`${primaryRouteTemplate?.destination_method ?? "HTTP POST"} · ${primaryRouteTemplate?.output_format ?? "JSON"}`} />
+                        <DetailItem label="Product ID" value={primaryOutputRoute.product_identifier_label} />
                       </dl>
                     </div>
                   </div>
@@ -879,9 +2368,9 @@ export function App() {
                   {[
                     { value: String(customerOrderCount), label: "Previewed Orders", trend: customerJobs.length ? "Persisted locally" : "No jobs yet", intent: "good", icon: FileText },
                     { value: `${validationRate}%`, label: "Validation Pass Rate", trend: `Ready previews: ${readyJobCount}`, intent: "good", icon: Check },
-                    { value: String(readyJobCount), label: "Ready For Submit", trend: "QA1 submit gated", intent: "good", icon: Send },
+                    { value: String(readyJobCount), label: "Ready For Submit", trend: `${primaryRouteEnvironment?.name ?? "Selected"} submit gated`, intent: "good", icon: Send },
                     { value: workspaceState === "loading" ? "Syncing" : "Local", label: "Workspace State", trend: workspace?.updated_at ? displayTimestamp(workspace.updated_at) : "Seeded defaults", intent: "good", icon: Clock3 },
-                    { value: String(failedJobCount), label: "Failed Previews", trend: failedJobCount ? "Needs mapping review" : "No blocking failures", intent: failedJobCount ? "bad" : "good", icon: AlertTriangle }
+                    { value: String(unmappedProductCount), label: "Product Mapping Gaps", trend: unmappedProductCount ? `Needs ${activeOutputRoute.product_identifier_label}` : "No unresolved products", intent: unmappedProductCount ? "bad" : "good", icon: AlertTriangle }
                   ].map(({ value, label, trend, intent, icon: Icon }) => (
                     <div className="metric-card" key={label}>
                       <div className="metric-icon">
@@ -911,24 +2400,31 @@ export function App() {
                           <th>Method Name</th>
                           <th>Type</th>
                           <th>Source</th>
+                          <th>Product Maps</th>
                           <th>Status</th>
                           <th>Last Run</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {importMethods.map((method) => (
-                          <tr key={method.import_method_id} onClick={() => setActiveCustomerView("Import Methods")}>
-                            <td>{method.name}</td>
-                            <td>{method.type}</td>
-                            <td>{method.source}</td>
-                            <td>
-                              <span className={method.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
-                                {method.status}
-                              </span>
-                            </td>
-                            <td>{methodLastRun(method)}</td>
-                          </tr>
-                        ))}
+                        {importMethods.map((method) => {
+                          const methodUnmappedCount = productMappings.filter(
+                            (mapping) => mapping.output_route_id === method.output_route_id && mapping.status !== "Mapped"
+                          ).length;
+                          return (
+                            <tr key={method.import_method_id} onClick={() => setActiveCustomerView("Import Methods")}>
+                              <td>{method.name}</td>
+                              <td>{method.type}</td>
+                              <td>{method.source}</td>
+                              <td>{methodUnmappedCount ? `${methodUnmappedCount} unmapped` : "Clean"}</td>
+                              <td>
+                                <span className={method.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                                  {method.status}
+                                </span>
+                              </td>
+                              <td>{methodLastRun(method)}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                     <button className="table-footer-link" onClick={() => setActiveCustomerView("Import Methods")}>
@@ -947,7 +2443,7 @@ export function App() {
                           <th>Status</th>
                           <th>Orders</th>
                           <th>Started</th>
-                          <th>Duration</th>
+                          <th>Route</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -960,7 +2456,7 @@ export function App() {
                             </td>
                             <td>{jobOrderCount(job)}</td>
                             <td>{displayTimestamp(job.created_at)}</td>
-                            <td>Preview</td>
+                            <td>{job.output_route_name ?? activeOutputRoute.name}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -998,19 +2494,32 @@ export function App() {
                   </div>
                   <div className="method-table">
                     {importMethods.map((method) => (
-                      <button
+                      <div
                         className={activeMethodId === method.import_method_id ? "method-row method-row-active" : "method-row"}
                         key={method.import_method_id}
-                        onClick={() => setActiveMethodId(method.import_method_id)}
                       >
-                        <div>
-                          <strong>{method.name}</strong>
-                          <span>{method.type}</span>
+                        <button className="method-select-area" onClick={() => setActiveMethodId(method.import_method_id)}>
+                          <div>
+                            <strong>{method.name}</strong>
+                            <span>{method.type}</span>
+                          </div>
+                          <span>{methodTargetLabel(method, outputRoutes)}</span>
+                          <span>{sourceTypeLabel(method.source)}</span>
+                          <MethodStatusPill status={method.status} />
+                          <span>{methodLastRun(method)}</span>
+                        </button>
+                        <div className="method-row-actions">
+                          <button title="Edit import method" onClick={() => setActiveMethodId(method.import_method_id)}>
+                            <Edit3 size={15} />
+                          </button>
+                          <button title="Duplicate import method" onClick={() => void duplicateImportMethod(method)}>
+                            <Copy size={15} />
+                          </button>
+                          <button title="Delete import method" onClick={() => void deleteImportMethod(method)}>
+                            <Trash2 size={15} />
+                          </button>
                         </div>
-                        <span>{methodTargetLabel(method)}</span>
-                        <StatePill state={method.status === "Active" ? "Ready" : "Waiting"} />
-                        <span>{methodLastRun(method)}</span>
-                      </button>
+                      </div>
                     ))}
                   </div>
                 </section>
@@ -1041,12 +2550,17 @@ export function App() {
                         <span>Source</span>
                         <select
                           value={activeImportMethod.source}
-                          onChange={(event) => updateActiveMethodDraft({ source: event.target.value as ImportMethod["source"] })}
+                          onChange={(event) => {
+                            const source = event.target.value as ImportMethodSource;
+                            updateActiveMethodDraft({
+                              source,
+                              type: sourceTypeToMethodType(source)
+                            });
+                          }}
                         >
-                          <option>XLSX</option>
-                          <option>REST API</option>
-                          <option>Clipboard</option>
-                          <option>SFTP</option>
+                          {importMethodSourceOptions.map((source) => (
+                            <option key={source}>{source}</option>
+                          ))}
                         </select>
                       </label>
                       <label className="setup-control">
@@ -1055,18 +2569,145 @@ export function App() {
                           value={activeImportMethod.status}
                           onChange={(event) => updateActiveMethodDraft({ status: event.target.value as ImportMethodStatus })}
                         >
-                          <option>Active</option>
-                          <option>Draft</option>
-                          <option>Paused</option>
+                          {importMethodStatusOptions.map((status) => (
+                            <option key={status}>{status}</option>
+                          ))}
                         </select>
                       </label>
-                      <label className="setup-control">
-                        <span>Output Template</span>
-                        <input
-                          value={activeImportMethod.target_template}
-                          onChange={(event) => updateActiveMethodDraft({ target_template: event.target.value })}
-                        />
+                      <label className="setup-control setup-control-wide">
+                        <span>Output Route</span>
+                        <select
+                          value={activeImportMethod.output_route_id}
+                          onChange={(event) => {
+                            const route =
+                              outputRoutes.find((candidate) => candidate.output_route_id === event.target.value) ??
+                              defaultOutputRoute;
+                            updateActiveMethodDraft({
+                              output_route_id: route.output_route_id,
+                              target_id: route.target_id,
+                              target_template: route.output_template
+                            });
+                            setOutputMapRouteFilter(route.output_route_id);
+                          }}
+                        >
+                          {outputRoutes.map((route) => (
+                            <option key={route.output_route_id} value={route.output_route_id}>
+                              {route.name}
+                            </option>
+                          ))}
+                        </select>
                       </label>
+                      <div className="source-note setup-control-wide">
+                        {activeOutputRoute.target_system} sends to {activeOutputRoute.destination_account_name}
+                        {activeOutputRoute.company_id ? ` / Company ${activeOutputRoute.company_id}` : ""} using {activeOutputRoute.output_template}.
+                      </div>
+                      {activeImportMethod.source === "Google Sheet" ? (
+                        <>
+                          <label className="setup-control setup-control-wide">
+                            <span>Google Sheet URL</span>
+                            <input
+                              value={activeImportMethod.source_config.google_sheet_url ?? ""}
+                              placeholder="https://docs.google.com/spreadsheets/d/..."
+                              onChange={(event) =>
+                                updateActiveMethodDraft({
+                                  source_config: {
+                                    ...activeImportMethod.source_config,
+                                    google_sheet_url: event.target.value
+                                  }
+                                })
+                              }
+                            />
+                          </label>
+                          <label className="setup-control">
+                            <span>Tab Name</span>
+                            <input
+                              value={activeImportMethod.source_config.google_sheet_tab ?? ""}
+                              placeholder="Order Form"
+                              onChange={(event) =>
+                                updateActiveMethodDraft({
+                                  source_config: {
+                                    ...activeImportMethod.source_config,
+                                    google_sheet_tab: event.target.value
+                                  }
+                                })
+                              }
+                            />
+                          </label>
+                          <label className="setup-control">
+                            <span>Range</span>
+                            <input
+                              value={activeImportMethod.source_config.google_sheet_range ?? ""}
+                              placeholder="A:Q"
+                              onChange={(event) =>
+                                updateActiveMethodDraft({
+                                  source_config: {
+                                    ...activeImportMethod.source_config,
+                                    google_sheet_range: event.target.value
+                                  }
+                                })
+                              }
+                            />
+                          </label>
+                        </>
+                      ) : null}
+                      {activeImportMethod.source === "PDF PO" ? (
+                        <>
+                          <label className="setup-control">
+                            <span>PDF Review Mode</span>
+                            <select
+                              value={activeImportMethod.source_config.pdf_review_mode ?? "manual_review"}
+                              onChange={(event) =>
+                                updateActiveMethodDraft({
+                                  source_config: {
+                                    ...activeImportMethod.source_config,
+                                    pdf_review_mode: event.target.value as "manual_review" | "assisted_extract"
+                                  }
+                                })
+                              }
+                            >
+                              <option value="manual_review">Manual review</option>
+                              <option value="assisted_extract">Assisted extract</option>
+                            </select>
+                          </label>
+                          <div className="source-note setup-control-wide">
+                            PDF POs will enter a review grid first. Parsed fields can be corrected before canonical validation.
+                          </div>
+                        </>
+                      ) : null}
+                      {activeImportMethod.source === "REST API" ? (
+                        <label className="setup-control setup-control-wide">
+                          <span>Source Endpoint</span>
+                          <input
+                            value={activeImportMethod.source_config.api_endpoint_url ?? ""}
+                            placeholder="https://example.com/orders"
+                            onChange={(event) =>
+                              updateActiveMethodDraft({
+                                source_config: {
+                                  ...activeImportMethod.source_config,
+                                  api_endpoint_url: event.target.value
+                                }
+                              })
+                            }
+                          />
+                        </label>
+                      ) : null}
+                      {activeImportMethod.source === "SFTP" ? (
+                        <label className="setup-control setup-control-wide">
+                          <span>SFTP Path</span>
+                          <input
+                            value={activeImportMethod.source_config.sftp_path ?? ""}
+                            placeholder="/inbound/orders/*.csv"
+                            onChange={(event) =>
+                              updateActiveMethodDraft({
+                                source_config: {
+                                  ...activeImportMethod.source_config,
+                                  sftp_path: event.target.value
+                                }
+                              })
+                            }
+                          />
+                        </label>
+                      ) : null}
                       <div className="setup-actions">
                         <button className="secondary-button" onClick={() => setActiveCustomerView("Manual Import")}>
                           Open Manual Import
@@ -1078,28 +2719,299 @@ export function App() {
                     </div>
                   </section>
                 ) : null}
-                <section className="panel mapping-panel">
-                  <PanelHeader icon={Map} title="Field Mapping" detail="Manual XLSX to canonical order" />
-                  <div className="mapping-grid">
-                    {sourceGrid.columns.map((column) => {
-                      const selected = mappings.find((mapping) => mapping.sourceColumn === column)?.targetField ?? "";
-                      return (
-                        <label className="mapping-control" key={column}>
-                          <span>{column}</span>
+                {activeImportMethod ? (
+                  <section className="panel setup-panel product-resolution-setup">
+                    <PanelHeader icon={Database} title="Product Resolution" detail="Customer key to route product" />
+                    <div className="resolver-strategy-row">
+                      <label className="setup-control resolver-strategy-control">
+                        <span>Resolver Strategy</span>
+                        <select
+                          value={activeProductConfig.strategy}
+                          onChange={(event) => {
+                            setProductExampleTestValue("");
+                            updateActiveMethodDraft({
+                              product_resolution_config: {
+                                ...activeProductConfig,
+                                strategy: event.target.value as ProductResolverStrategy,
+                                fallback_strategy: "none"
+                              }
+                            });
+                          }}
+                        >
+                          <option value="derived_key">Derived key</option>
+                          <option value="composite_key">Composite key</option>
+                          <option value="direct_lift_unit_number">Direct Lift unit number</option>
+                        </select>
+                      </label>
+                      <div className="resolver-explainer">
+                        <strong>{activeResolverCopy.title}</strong>
+                        <p>{activeResolverCopy.body}</p>
+                      </div>
+                    </div>
+                    <div className="resolver-section-break" />
+                    <div className="resolver-subsection-heading">
+                      <h3>Configure Strategy Settings</h3>
+                      <span>
+                        {activeProductConfig.strategy === "direct_lift_unit_number"
+                          ? "Choose the source field that already contains the Lift unit number."
+                          : activeProductConfig.strategy === "composite_key"
+                            ? "Choose the source fields Pathfinder should combine into one product key."
+                            : "Choose the source field and optional text added around the generated key."}
+                      </span>
+                    </div>
+                    <div className="setup-grid product-resolution-grid">
+                      {activeProductConfig.strategy === "derived_key" ? (
+                        <>
+                          <label className="setup-control">
+                            <span>Source Column</span>
+                            <select
+                              value={activeProductConfig.source_column}
+                              onChange={(event) =>
+                                updateActiveMethodDraft({
+                                  product_resolution_config: {
+                                    ...activeProductConfig,
+                                    source_column: event.target.value
+                                  }
+                                })
+                              }
+                            >
+                              {availableInputColumns.map((column) => (
+                                <option key={column} value={column}>
+                                  {column}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="setup-control">
+                            <span>Prefix</span>
+                            <input
+                              value={activeProductConfig.prefix}
+                              onChange={(event) =>
+                                updateActiveMethodDraft({
+                                  product_resolution_config: {
+                                    ...activeProductConfig,
+                                    prefix: event.target.value
+                                  }
+                                })
+                              }
+                            />
+                          </label>
+                          <label className="setup-control">
+                            <span>Suffix</span>
+                            <input
+                              value={activeProductConfig.suffix}
+                              onChange={(event) =>
+                                updateActiveMethodDraft({
+                                  product_resolution_config: {
+                                    ...activeProductConfig,
+                                    suffix: event.target.value
+                                  }
+                                })
+                              }
+                            />
+                          </label>
+                        </>
+                      ) : null}
+                      {activeProductConfig.strategy === "direct_lift_unit_number" ? (
+                        <label className="setup-control setup-control-wide">
+                          <span>Unit Number Column</span>
                           <select
-                            value={selected}
-                            onChange={(event) => setMappings((current) => updateMapping(current, column, event.target.value))}
+                            value={activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column}
+                            onChange={(event) =>
+                              updateActiveMethodDraft({
+                                product_resolution_config: {
+                                  ...activeProductConfig,
+                                  direct_unit_number_column: event.target.value,
+                                  source_column: event.target.value
+                                }
+                              })
+                            }
                           >
-                            <option value="">Ignore</option>
-                            {canonicalTargetFields.map((field) => (
-                              <option key={field} value={field}>
-                                {field}
+                            {availableInputColumns.map((column) => (
+                              <option key={column} value={column}>
+                                {column}
                               </option>
                             ))}
                           </select>
                         </label>
+                      ) : null}
+                      {activeProductConfig.strategy === "composite_key" ? (
+                        <div className="setup-control setup-control-wide composite-builder">
+                          <span>
+                            Composite Columns
+                          </span>
+                          <div className="chip-list">
+                            {activeProductConfig.composite_columns.map((column) => (
+                              <button
+                                type="button"
+                                className="column-chip"
+                                key={column}
+                                onClick={() =>
+                                  updateActiveMethodDraft({
+                                    product_resolution_config: {
+                                      ...activeProductConfig,
+                                      composite_columns: activeProductConfig.composite_columns.filter(
+                                        (candidate) => candidate !== column
+                                      )
+                                    }
+                                  })
+                                }
+                                title={`Remove ${column}`}
+                              >
+                                {column}
+                                <span>X</span>
+                              </button>
+                            ))}
+                            {activeProductConfig.composite_columns.length === 0 ? (
+                              <em>No columns selected</em>
+                            ) : null}
+                          </div>
+                          <div className="chip-add-row">
+                            <select
+                              value={compositeColumnToAdd}
+                              onChange={(event) => setCompositeColumnToAdd(event.target.value)}
+                            >
+                              <option value="">Choose column</option>
+                              {addableCompositeColumns.map((column) => (
+                                <option key={column} value={column}>
+                                  {column}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={!compositeColumnToAdd}
+                              onClick={() => {
+                                if (!compositeColumnToAdd) {
+                                  return;
+                                }
+                                updateActiveMethodDraft({
+                                  product_resolution_config: {
+                                    ...activeProductConfig,
+                                    composite_columns: [...activeProductConfig.composite_columns, compositeColumnToAdd]
+                                  }
+                                });
+                                setCompositeColumnToAdd("");
+                              }}
+                            >
+                              <Plus size={14} />
+                              Add
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    {activeProductConfig.strategy !== "direct_lift_unit_number" ? (
+                      <>
+                        <div className="resolver-section-break" />
+                        <div className="resolver-mode-row">
+                          <label className="setup-control">
+                            <span>Resolution Mode</span>
+                            <select
+                              value={activeProductConfig.mode}
+                              onChange={(event) =>
+                                updateActiveMethodDraft({
+                                  product_resolution_config: {
+                                    ...activeProductConfig,
+                                    mode: event.target.value as ProductResolutionMode
+                                  }
+                                })
+                              }
+                            >
+                              <option value="map_to_lift_unit">Look up key in output product map</option>
+                              <option value="send_derived_unit">Use generated key as Lift unit number</option>
+                            </select>
+                          </label>
+                          <div className="resolver-explainer resolver-mode-explainer">
+                            <strong>{activeResolutionModeCopy.title}</strong>
+                            <p>{activeResolutionModeCopy.body}</p>
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+                    <div className="resolver-section-break" />
+                    <div className="resolver-example">
+                      <div className="resolver-subsection-heading resolver-example-heading">
+                        <h3>Example Output</h3>
+                        <span>Type a test value or use the current source sample.</span>
+                      </div>
+                      {activeProductConfig.strategy !== "composite_key" ? (
+                        <label className="setup-control resolver-test-value">
+                          <span>
+                            Test {productExampleTestColumn}
+                            {activeProductConfig.strategy === "direct_lift_unit_number" ? " unit number" : " value"}
+                          </span>
+                          <input
+                            value={productExampleTestValue}
+                            placeholder={
+                              activeProductConfig.strategy === "direct_lift_unit_number" ? "LIFT-UNIT-123" : "2 Sheet Poster"
+                            }
+                            onChange={(event) => setProductExampleTestValue(event.target.value)}
+                          />
+                        </label>
+                      ) : (
+                        <div className="resolver-example-note">
+                          Composite examples use the current source sample values from the selected columns.
+                        </div>
+                      )}
+                      <div className="resolver-example-grid">
+                        {productResolutionCards.map((card) => (
+                          <div key={card.label}>
+                            <span>{card.label}</span>
+                            <strong>{card.value}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="resolver-action-row">
+                      <div className="setup-actions">
+                        <button className="primary-button" onClick={() => void saveImportMethod(activeImportMethod)}>
+                          Save Resolver
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+                <section className="panel mapping-panel">
+                  <PanelHeader icon={Map} title="Field Mapping" detail="All found input elements can map to any canonical target" />
+                  <div className="mapping-table-wrap">
+                    <table className="mapping-table">
+                      <thead>
+                        <tr>
+                          <th>Found Input Element</th>
+                          <th>Sample Values</th>
+                          <th>Canonical Target</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {foundInputElements.map(({ column, sample }) => {
+                      const selected = mappings.find((mapping) => mapping.sourceColumn === column)?.targetField ?? "";
+                      return (
+                        <tr key={column}>
+                          <td>
+                            <strong>{column}</strong>
+                            <span className="cell-meta">Source field</span>
+                          </td>
+                          <td>{sample || "No sample value found"}</td>
+                          <td>
+                            <select
+                              value={selected}
+                              onChange={(event) => setMappings((current) => updateMapping(current, column, event.target.value))}
+                            >
+                              <option value="">Ignore</option>
+                              {canonicalTargetFields.map((field) => (
+                                <option key={field} value={field}>
+                                  {field}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        </tr>
                       );
-                    })}
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                   <div className="panel-action-footer">
                     <span>{mappedColumnCount} of {sourceGrid.columns.length} source columns mapped</span>
@@ -1107,6 +3019,260 @@ export function App() {
                       <button className="primary-button" onClick={() => void saveImportMethod(activeImportMethod)}>
                         Save Field Mapping
                       </button>
+                    ) : null}
+                  </div>
+                </section>
+              </>
+            ) : null}
+
+            {activeCustomerView === "Output Product Map" ? (
+              <>
+                <section className="metric-strip unit-map-metrics" aria-label="Output product map metrics">
+                  {[
+                    {
+                      value: selectedOutputMapRoute.status,
+                      label: "Output Route",
+                      trend: selectedOutputMapRoute.name,
+                      intent: selectedOutputMapRoute.status === "Active" ? "good" : "bad",
+                      icon: Workflow
+                    },
+                    {
+                      value: selectedOutputMapTarget?.name ?? "Target",
+                      label: selectedOutputMapTarget?.target_type ?? "Target",
+                      trend: `${selectedOutputMapTarget?.health_status ?? "Untested"} · ${selectedOutputMapTarget?.adapter ?? selectedOutputMapRoute.target_system}`,
+                      intent: selectedOutputMapTarget?.status === "Draft" ? "bad" : "good",
+                      icon: Database
+                    },
+                    {
+                      value: selectedOutputMapEnvironment?.name ?? "None",
+                      label: selectedOutputMapEnvironment?.role ?? "Environment",
+                      trend: selectedOutputMapEnvironment?.endpoint_url ? "Endpoint configured" : "Endpoint missing",
+                      intent: selectedOutputMapEnvironment?.endpoint_url ? "good" : "bad",
+                      icon: Gauge
+                    },
+                    {
+                      value: selectedOutputMapTemplate?.output_format ?? "Template",
+                      label: selectedOutputMapTemplate?.destination_method ?? "Output Template",
+                      trend: selectedOutputMapTemplate?.name ?? selectedOutputMapRoute.output_template,
+                      intent: selectedOutputMapTemplate?.status === "Active" ? "good" : "bad",
+                      icon: Braces
+                    },
+                    {
+                      value: `${routeMappedCount}/${routeProductMappings.length}`,
+                      label: "Mapped Keys",
+                      trend: routeBlockingCount
+                        ? `${routeBlockingCount} need ${selectedOutputMapRoute.product_identifier_label}`
+                        : `${routeSeenExampleCount} seen example${routeSeenExampleCount === 1 ? "" : "s"}`,
+                      intent: routeBlockingCount ? "bad" : "good",
+                      icon: routeBlockingCount ? AlertTriangle : CheckCircle2
+                    }
+                  ].map(({ value, label, trend, intent, icon: Icon }) => (
+                    <div className="metric-card" key={label}>
+                      <div className="metric-icon">
+                        <Icon size={20} />
+                      </div>
+                      <div>
+                        <strong>{value}</strong>
+                        <span>{label}</span>
+                        <small className={intent === "bad" ? "trend-bad" : "trend-good"}>{trend}</small>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+
+                <section className="panel unit-map-panel">
+                  <PanelHeader icon={Database} title="Output Product Map" detail="Customer keys resolved per output route" />
+                  <div className="unit-map-toolbar">
+                    <label className="unit-map-search">
+                      <Search size={16} />
+                      <input
+                        value={unitMapSearch}
+                        placeholder="Search key, source value, unit number, or product"
+                        onChange={(event) => setUnitMapSearch(event.target.value)}
+                      />
+                    </label>
+                    <label className="setup-control unit-map-filter">
+                      <span>Output Route</span>
+                      <select
+                        value={outputMapRouteFilter}
+                        onChange={(event) => setOutputMapRouteFilter(event.target.value)}
+                      >
+                        <option value="All">Active method route</option>
+                        {outputRoutes.map((route) => (
+                          <option key={route.output_route_id} value={route.output_route_id}>
+                            {route.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="setup-control unit-map-filter">
+                      <span>Status</span>
+                      <select
+                        value={unitMapStatusFilter}
+                        onChange={(event) => setUnitMapStatusFilter(event.target.value as ProductMappingStatus | "All")}
+                      >
+                        <option value="All">All statuses</option>
+                        <option value="Unmapped">Unmapped</option>
+                        <option value="Mapped">Mapped</option>
+                        <option value="Ambiguous">Ambiguous</option>
+                        <option value="Inactive">Inactive</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="output-route-context">
+                    <div>
+                      <span>Route</span>
+                      <strong>{selectedOutputMapRoute.name}</strong>
+                    </div>
+                    <div>
+                      <span>Destination</span>
+                      <strong>
+                        {selectedOutputMapRoute.target_system} · {selectedOutputMapRoute.destination_account_name}
+                        {selectedOutputMapRoute.company_id ? ` / ${selectedOutputMapRoute.company_id}` : ""}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Environment</span>
+                      <strong>
+                        {selectedOutputMapEnvironment?.name ?? "Not selected"}
+                        {selectedOutputMapEnvironment?.role ? ` · ${selectedOutputMapEnvironment.role}` : ""}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Output Template</span>
+                      <strong>{selectedOutputMapTemplate?.name ?? selectedOutputMapRoute.output_template}</strong>
+                    </div>
+                    <div>
+                      <span>Product Identifier</span>
+                      <strong>{selectedOutputMapRoute.product_identifier_label}</strong>
+                    </div>
+                  </div>
+
+                  <div className="unit-map-bulkbar">
+                    <div>
+                      <strong>{selectedUnitMappings.length} selected</strong>
+                      <span>Assign several customer values to one route-specific product identifier.</span>
+                    </div>
+                    <input
+                      value={bulkUnitNumber}
+                      placeholder={outputIdentifierPlaceholder(selectedOutputMapRoute)}
+                      onChange={(event) => setBulkUnitNumber(event.target.value)}
+                    />
+                    <input
+                      value={bulkProductName}
+                      placeholder="Product name optional"
+                      onChange={(event) => setBulkProductName(event.target.value)}
+                    />
+                    <button className="primary-button" onClick={() => void bulkAssignUnitNumber()} disabled={workspaceState === "saving"}>
+                      Bulk Assign
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => void bulkUpdateProductMappings({ status: "Inactive" }, "Selected customer keys marked inactive.")}
+                      disabled={workspaceState === "saving"}
+                    >
+                      Mark Inactive
+                    </button>
+                  </div>
+
+                  <div className="unit-map-table-wrap">
+                    <table className="unit-map-table">
+                      <thead>
+                        <tr>
+                          <th>
+                            <input
+                              type="checkbox"
+                              checked={
+                                filteredProductMappings.length > 0 &&
+                                filteredProductMappings.every((mapping) => selectedUnitMapIds.includes(mapping.mapping_id))
+                              }
+                              onChange={toggleAllVisibleUnitMappings}
+                              aria-label="Select all visible unit mappings"
+                            />
+                          </th>
+                          <th>Status</th>
+                          <th>Customer Value / Key</th>
+                          <th>{selectedOutputMapRoute.product_identifier_label}</th>
+                          <th>Product Name</th>
+                          <th>Seen</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredProductMappings.map((mapping) => {
+                          const draftKey = productMappingDraftKey(mapping.output_route_id, mapping.customer_product_key);
+                          const draft = productMappingDrafts[draftKey] ?? {
+                            unit: mapping.product_identifier_value ?? mapping.lift_unit_number ?? "",
+                            product: mapping.product_name ?? ""
+                          };
+                          return (
+                            <tr key={mapping.mapping_id}>
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  checked={selectedUnitMapIds.includes(mapping.mapping_id)}
+                                  onChange={() => toggleUnitMapping(mapping.mapping_id)}
+                                  aria-label={`Select ${mapping.customer_product_key}`}
+                                />
+                              </td>
+                              <td>
+                                <span className={productMappingStatusClass(mapping.status)}>{mapping.status}</span>
+                              </td>
+                              <td>
+                                <strong>{mapping.customer_product_key}</strong>
+                                <span className="cell-meta">{mapping.display_label}</span>
+                                <span className="cell-meta">Source: {mapping.source_columns.join(", ") || "Detected key"}</span>
+                              </td>
+                              <td>
+                                <input
+                                  className="table-input"
+                                  value={draft.unit}
+                                  placeholder={outputIdentifierPlaceholder(selectedOutputMapRoute)}
+                                  onChange={(event) =>
+                                    setProductMappingDrafts((current) => ({
+                                      ...current,
+                                      [draftKey]: {
+                                        unit: event.target.value,
+                                        product: draft.product
+                                      }
+                                    }))
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  className="table-input"
+                                  value={draft.product}
+                                  placeholder="Lift product name"
+                                  onChange={(event) =>
+                                    setProductMappingDrafts((current) => ({
+                                      ...current,
+                                      [draftKey]: {
+                                        unit: draft.unit,
+                                        product: event.target.value
+                                      }
+                                    }))
+                                  }
+                                />
+                              </td>
+                              <td>
+                                <strong>{productMappingSeenCount(mapping)}</strong>
+                                <span className="cell-meta">{productMappingLastSeen(mapping)}</span>
+                              </td>
+                              <td>
+                                <button className="secondary-button table-inline-button" onClick={() => void saveProductMapping(mapping)}>
+                                  Save
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {filteredProductMappings.length === 0 ? (
+                      <p className="empty-state">
+                        No customer keys match this view. Generate a preview job to capture source values, or clear the filters.
+                      </p>
                     ) : null}
                   </div>
                 </section>
@@ -1142,7 +3308,53 @@ export function App() {
                         onChange={handleFileChange}
                       />
                     </label>
+                    <div className="sheet-summary">
+                      {sourceSheets.map((sheet) => (
+                        <div key={sheet.sheet_name}>
+                          <strong>{sheet.sheet_name}</strong>
+                          <span>{sheet.order_row_count} order rows · {sheet.reference_row_count} reference rows</span>
+                        </div>
+                      ))}
+                    </div>
                     {importError ? <p className="import-error">{importError}</p> : null}
+                    <div className="submit-profile-panel">
+                      <div className="submit-profile-heading">
+                        <div>
+                          <strong>Submit Profile</strong>
+                          <span>Choose whether this preview submits under the customer or the internal demo account.</span>
+                        </div>
+                        <span className={selectedSubmitProfile.mode === "sandbox_customer" ? "mini-pill mini-pill-warning" : "mini-pill mini-pill-success"}>
+                          {selectedSubmitProfile.mode === "sandbox_customer" ? "Sandbox" : "Customer"}
+                        </span>
+                      </div>
+                      <div className="submit-profile-grid">
+                        <label className="setup-control">
+                          <span>Mode</span>
+                          <select
+                            value={selectedSubmitProfile.profile_id}
+                            onChange={(event) => setSelectedSubmitProfileId(event.target.value)}
+                          >
+                            {activeOutputRoute.submit_profiles
+                              .filter((profile) => profile.enabled)
+                              .map((profile) => (
+                                <option key={profile.profile_id} value={profile.profile_id}>
+                                  {profile.name}
+                                </option>
+                              ))}
+                          </select>
+                        </label>
+                        <div>
+                          <span>Source Customer</span>
+                          <strong>{selectedCustomer.customer_name}</strong>
+                          <em>Lift CustomerID {selectedCustomer.lift_customer_id}</em>
+                        </div>
+                        <div>
+                          <span>Submit Customer</span>
+                          <strong>{submitCustomer.customer_name}</strong>
+                          <em>Lift CustomerID {submitCustomer.lift_customer_id}</em>
+                        </div>
+                      </div>
+                    </div>
                     <div className="action-row">
                       <button className="primary-button" onClick={() => fileInputRef.current?.click()}>
                         Upload XLSX
@@ -1179,12 +3391,19 @@ export function App() {
                   </div>
 
                   <div className="panel request-panel">
-                    <PanelHeader icon={Database} title="Lift Target" detail="QA1 submit request" />
+                    <PanelHeader
+                      icon={Database}
+                      title="Lift Target"
+                      detail={selectedSubmitProfile.mode === "sandbox_customer" ? "Sandbox submit preview" : "Customer submit preview"}
+                    />
                     <dl>
-                      <DetailItem label="Ext_ID" value={submitRequest.headers.Ext_ID} />
-                      <DetailItem label="Company" value={submitRequest.headers.Company} />
-                      <DetailItem label="Lift CustomerID" value={liftPayload.customer.lift_customer_id} />
-                      <DetailItem label="Endpoint" value={submitRequest.endpoint_url} />
+                      <DetailItem label="Submit Profile" value={lastPreviewJob?.submit_profile_name ?? selectedSubmitProfile.name} />
+                      <DetailItem label="Source Customer" value={lastPreviewJob?.source_customer_name ?? selectedCustomer.customer_name} />
+                      <DetailItem label="Submit Customer" value={lastPreviewJob?.submit_customer_name ?? submitCustomer.customer_name} />
+                      <DetailItem label="Ext_ID" value={displayedSubmitRequest.headers.Ext_ID} />
+                      <DetailItem label="Company" value={displayedSubmitRequest.headers.Company} />
+                      <DetailItem label="Lift CustomerID" value={displayedLiftPayload.customer.lift_customer_id} />
+                      <DetailItem label="Endpoint" value={displayedSubmitRequest.endpoint_url} />
                     </dl>
                     <div className="request-actions">
                       <button className="secondary-button" disabled>
@@ -1196,27 +3415,44 @@ export function App() {
                 </section>
 
                 <section className="panel mapping-panel">
-                  <PanelHeader icon={Map} title="Field Mapping" detail={`${mappedColumnCount} columns mapped`} />
-                  <div className="mapping-grid">
-                    {sourceGrid.columns.map((column) => {
+                  <PanelHeader icon={Map} title="Field Mapping" detail={`${mappedColumnCount} input elements mapped`} />
+                  <div className="mapping-table-wrap">
+                    <table className="mapping-table">
+                      <thead>
+                        <tr>
+                          <th>Found Input Element</th>
+                          <th>Sample Values</th>
+                          <th>Canonical Target</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {foundInputElements.map(({ column, sample }) => {
                       const selected = mappings.find((mapping) => mapping.sourceColumn === column)?.targetField ?? "";
                       return (
-                        <label className="mapping-control" key={column}>
-                          <span>{column}</span>
-                          <select
-                            value={selected}
-                            onChange={(event) => setMappings((current) => updateMapping(current, column, event.target.value))}
-                          >
-                            <option value="">Ignore</option>
-                            {canonicalTargetFields.map((field) => (
-                              <option key={field} value={field}>
-                                {field}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
+                        <tr key={column}>
+                          <td>
+                            <strong>{column}</strong>
+                            <span className="cell-meta">Source field</span>
+                          </td>
+                          <td>{sample || "No sample value found"}</td>
+                          <td>
+                            <select
+                              value={selected}
+                              onChange={(event) => setMappings((current) => updateMapping(current, column, event.target.value))}
+                            >
+                              <option value="">Ignore</option>
+                              {canonicalTargetFields.map((field) => (
+                                <option key={field} value={field}>
+                                  {field}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+                        </tr>
                       );
-                    })}
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                   <div className="panel-action-footer">
                     <span>{hasBlockingFailure ? "Blocking validation failures present" : "Current mapping passes preview validation"}</span>
@@ -1224,6 +3460,125 @@ export function App() {
                       Persist Preview Job
                     </button>
                   </div>
+                </section>
+
+                <section className="panel jobs-panel product-resolution-panel">
+                  <PanelHeader
+                    icon={Database}
+                    title="Product Resolution Review"
+                    detail={`${productResolutionRows.length || parsedOrderRows.length} order rows · ${referenceRowCount} reference rows`}
+                  />
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Source</th>
+                        <th>Generated Key</th>
+                        <th>Status</th>
+                        <th>{activeOutputRoute.product_identifier_label}</th>
+                        <th>Product Name</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(productResolutionRows.length
+                        ? productResolutionRows
+                        : parsedOrderRows.slice(0, 8).map((row, index) => ({
+                            source_sheet_name: row.sheet_name,
+                            source_row_number: row.row_number,
+                            output_route_id: activeOutputRoute.output_route_id,
+                            line_number: index + 1,
+                            strategy: activeProductConfig.strategy,
+                            mode: activeProductConfig.mode,
+                            customer_product_key: "Generate preview to resolve",
+                            display_label: String(row.values.DESCRIPTION ?? row.values["SIGN TYPE"] ?? `Row ${row.row_number}`),
+                            source_columns: [activeProductConfig.source_column],
+                            resolved_unit_number: null,
+                            product_name: String(row.values.DESCRIPTION ?? ""),
+                            status: "Unmapped" as ProductMappingStatus,
+                            message: "Generate a preview job to create product resolution results."
+                          }))
+                      ).map((result) => {
+                        const savedMapping = productMappings.find(
+                          (mapping) =>
+                            mapping.output_route_id === result.output_route_id &&
+                            mapping.customer_product_key === result.customer_product_key
+                        );
+                        const draftKey = productMappingDraftKey(result.output_route_id, result.customer_product_key);
+                        const draft = productMappingDrafts[draftKey] ?? {
+                          unit: savedMapping?.product_identifier_value ?? savedMapping?.lift_unit_number ?? result.resolved_unit_number ?? "",
+                          product: savedMapping?.product_name ?? result.product_name ?? result.display_label
+                        };
+                        return (
+                          <tr key={`${result.source_sheet_name}-${result.source_row_number}-${result.customer_product_key}`}>
+                            <td>
+                              <strong>{result.source_sheet_name}</strong>
+                              <span className="cell-meta">Row {result.source_row_number}</span>
+                            </td>
+                            <td>
+                              <strong>{result.customer_product_key}</strong>
+                              <span className="cell-meta">{result.display_label}</span>
+                            </td>
+                            <td>
+                              <span
+                                className={
+                                  result.status === "Mapped"
+                                    ? "mini-pill mini-pill-success"
+                                    : result.status === "Ambiguous"
+                                      ? "mini-pill mini-pill-warning"
+                                      : "mini-pill mini-pill-neutral"
+                                }
+                              >
+                                {result.status}
+                              </span>
+                            </td>
+                            <td>
+                              <input
+                                className="table-input"
+                                value={draft.unit}
+                                placeholder={outputIdentifierPlaceholder(activeOutputRoute)}
+                                onChange={(event) =>
+                                  setProductMappingDrafts((current) => ({
+                                    ...current,
+                                    [draftKey]: {
+                                      unit: event.target.value,
+                                      product: draft.product
+                                    }
+                                  }))
+                                }
+                              />
+                            </td>
+                            <td>
+                              <input
+                                className="table-input"
+                                value={draft.product}
+                                placeholder="Product name"
+                                onChange={(event) =>
+                                  setProductMappingDrafts((current) => ({
+                                    ...current,
+                                    [draftKey]: {
+                                      unit: draft.unit,
+                                      product: event.target.value
+                                    }
+                                  }))
+                                }
+                              />
+                            </td>
+                            <td>
+                              <button
+                                className="secondary-button table-inline-button"
+                                onClick={() => void saveProductMapping(savedMapping ?? result)}
+                              >
+                                Approve
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {productResolutionRows.length === 0 ? (
+                    <p className="empty-state">Generate a preview job to create durable product keys and mapping results.</p>
+                  ) : null}
                 </section>
 
                 <section className="workbench">
@@ -1257,12 +3612,12 @@ export function App() {
 
                   <div className="panel code-panel">
                     <PanelHeader icon={Braces} title="Canonical Order" detail="Platform contract" />
-                    <pre>{formatJson(canonicalOrder)}</pre>
+                    <pre>{formatJson(displayedCanonicalOrder)}</pre>
                   </div>
 
                   <div className="panel code-panel">
                     <PanelHeader icon={Braces} title="Lift Payload" detail="Body + headers" />
-                    <pre>{formatJson({ headers: submitRequest.headers, body: liftPayload })}</pre>
+                    <pre>{formatJson({ headers: displayedSubmitRequest.headers, body: displayedLiftPayload })}</pre>
                   </div>
                 </section>
               </>
@@ -1305,10 +3660,11 @@ export function App() {
                   <PanelHeader icon={Settings} title="Customer Settings" detail="Defaults" />
                   <dl className="customer-details">
                     <DetailItem label="Lift CustomerID" value={selectedCustomer.lift_customer_id} />
-                    <DetailItem label="Default target" value="Lift ERP" />
-                    <DetailItem label="Default template" value="Standard Graphics Order" />
-                    <DetailItem label="Manual import" value="Enabled" />
-                    <DetailItem label="Automation" value="Draft" />
+                    <DetailItem label="Default target" value={primaryRouteTarget?.name ?? primaryOutputRoute.target_system} />
+                    <DetailItem label="Default output route" value={primaryOutputRoute.name} />
+                    <DetailItem label="Default template" value={primaryRouteTemplate?.name ?? primaryOutputRoute.output_template} />
+                    <DetailItem label="Manual import" value={importMethods.some((method) => method.type === "Manual upload" && method.status === "Active") ? "Enabled" : "Not active"} />
+                    <DetailItem label="Automation" value={scheduledMethodCount ? `${scheduledMethodCount} configured` : "None configured"} />
                   </dl>
                 </div>
               </section>
@@ -1327,8 +3683,8 @@ export function App() {
             <section className="status-strip">
               {[
                 ["Customers", `${customers.length} imported`],
-                ["Targets", "1 active"],
-                ["Jobs Today", `${allJobs.length} previewed`],
+                ["Targets", `${activeTargetCount} active · ${targetRows.length} total`],
+                ["Jobs", `${allJobs.length} persisted preview${allJobs.length === 1 ? "" : "s"}`],
                 ["Failures", `${allJobs.filter((job) => isFailureState(job.state)).length} needs review`]
               ].map(([label, detail]) => (
                 <div className="status-step" key={label}>
@@ -1375,158 +3731,685 @@ export function App() {
 
         {activeGlobalView === "Targets" ? (
           <>
-            <header className="topbar">
-              <div>
-                <p className="eyebrow">Targets</p>
-                <h1>Destination platforms and reusable output templates.</h1>
-              </div>
-              {primaryTarget ? (
-                <button className="primary-button" onClick={() => void saveTarget(primaryTarget)} disabled={workspaceState === "saving"}>
-                  {workspaceState === "saving" ? "Saving" : "Save Target"}
-                </button>
-              ) : null}
-            </header>
-            <section className="panel jobs-panel">
-              <PanelHeader icon={Database} title="Target Templates" detail="Global output definitions" />
-              <table>
-                <thead>
-                  <tr>
-                    <th>Target</th>
-                    <th>Template</th>
-                    <th>Environment</th>
-                    <th>Format</th>
-                    <th>Headers</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {targetRows.map((target) => (
-                    <tr key={target.target_id}>
-                      <td>{target.name}</td>
-                      <td>{target.template}</td>
-                      <td>{target.lift.active_environment}</td>
-                      <td>{target.format}</td>
-                      <td>Content-Type, Ext_ID, User, Password, Company</td>
-                      <td>
-                        <StatePill state={target.status === "Ready" ? "Ready" : "Validated"} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-            {primaryTarget ? (
-              <section className="panel setup-panel">
-                <PanelHeader icon={SlidersHorizontal} title="Lift Target Settings" detail="Preview configuration" />
-                <div className="setup-grid target-settings-grid">
-                  <label className="setup-control">
-                    <span>Active Environment</span>
-                    <select
-                      value={primaryTarget.lift.active_environment}
-                      onChange={(event) =>
-                        updateTargetDraft(primaryTarget.target_id, (target) => ({
-                          ...target,
-                          lift: { ...target.lift, active_environment: event.target.value as "QA1" | "PROD" }
-                        }))
-                      }
-                    >
-                      <option>QA1</option>
-                      <option>PROD</option>
-                    </select>
-                  </label>
-                  <label className="setup-control">
-                    <span>Company ID</span>
-                    <input
-                      value={primaryTarget.lift.headers.Company}
-                      onChange={(event) =>
-                        updateTargetDraft(primaryTarget.target_id, (target) => ({
-                          ...target,
-                          lift: {
-                            ...target.lift,
-                            headers: { ...target.lift.headers, Company: event.target.value }
-                          }
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="setup-control">
-                    <span>Import User</span>
-                    <input
-                      value={primaryTarget.lift.credentials.User}
-                      onChange={(event) =>
-                        updateTargetDraft(primaryTarget.target_id, (target) => ({
-                          ...target,
-                          lift: {
-                            ...target.lift,
-                            credentials: { ...target.lift.credentials, User: event.target.value }
-                          }
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="setup-control">
-                    <span>Password Secret</span>
-                    <input
-                      value={primaryTarget.lift.credentials.Password}
-                      onChange={(event) =>
-                        updateTargetDraft(primaryTarget.target_id, (target) => ({
-                          ...target,
-                          lift: {
-                            ...target.lift,
-                            credentials: { ...target.lift.credentials, Password: event.target.value }
-                          }
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="setup-control setup-control-wide">
-                    <span>QA1 Endpoint</span>
-                    <input
-                      value={primaryTarget.lift.environments.QA1.endpoint_url}
-                      onChange={(event) =>
-                        updateTargetDraft(primaryTarget.target_id, (target) => ({
-                          ...target,
-                          lift: {
-                            ...target.lift,
-                            environments: {
-                              ...target.lift.environments,
-                              QA1: { endpoint_url: event.target.value }
-                            }
-                          }
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="setup-control setup-control-wide">
-                    <span>PROD Endpoint</span>
-                    <input
-                      value={primaryTarget.lift.environments.PROD.endpoint_url}
-                      onChange={(event) =>
-                        updateTargetDraft(primaryTarget.target_id, (target) => ({
-                          ...target,
-                          lift: {
-                            ...target.lift,
-                            environments: {
-                              ...target.lift.environments,
-                              PROD: { endpoint_url: event.target.value }
-                            }
-                          }
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="setup-control setup-control-wide">
-                    <span>Ext_ID Strategy</span>
-                    <input value="Header Ext_ID must match body order.ext_id" readOnly />
-                  </label>
-                  <div className="setup-actions">
-                    <button className="primary-button" onClick={() => void saveTarget(primaryTarget)} disabled={workspaceState === "saving"}>
-                      Save Target Settings
-                    </button>
+            {!selectedTarget ? (
+              <>
+                <header className="topbar targets-overview-header">
+                  <div>
+                    <p className="eyebrow">Targets</p>
+                    <h1>Destination platforms</h1>
+                    <p className="page-intro">
+                      Configure the systems Pathfinder can send orders to, then combine environments and templates into reusable output routes.
+                    </p>
                   </div>
-                </div>
-              </section>
-            ) : null}
+                  <button className="primary-button" onClick={addTargetDraft}>
+                    <Plus size={16} />
+                    Add Target
+                  </button>
+                </header>
+
+                <section className="status-strip target-status-strip">
+                  <div className="status-step">
+                    <CheckCircle2 size={18} />
+                    <div>
+                      <strong>Targets</strong>
+                      <span>{targetRows.length} configured</span>
+                    </div>
+                  </div>
+                  <div className="status-step">
+                    <CheckCircle2 size={18} />
+                    <div>
+                      <strong>Active</strong>
+                      <span>{targetRows.filter((target) => target.status !== "Draft").length} ready or configured</span>
+                    </div>
+                  </div>
+                  <div className="status-step">
+                    <CheckCircle2 size={18} />
+                    <div>
+                      <strong>Templates</strong>
+                      <span>{targetRows.reduce((sum, target) => sum + target.output_templates.length, 0)} reusable</span>
+                    </div>
+                  </div>
+                  <div className="status-step">
+                    <CheckCircle2 size={18} />
+                    <div>
+                      <strong>Routes</strong>
+                      <span>{outputRoutes.length} customer route{outputRoutes.length === 1 ? "" : "s"}</span>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="panel jobs-panel">
+                  <PanelHeader icon={Database} title="Targets" detail="Reusable destination platforms" />
+                  <table className="targets-overview-table">
+                    <thead>
+                      <tr>
+                        <th>Target</th>
+                        <th>Type</th>
+                        <th>Adapter</th>
+                        <th>Health</th>
+                        <th>Setup</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {targetRows.map((target) => {
+                        const routeCount = outputRoutes.filter((route) => route.target_id === target.target_id).length;
+                        return (
+                          <tr key={target.target_id}>
+                            <td>
+                              <strong>{target.name}</strong>
+                              <span className="cell-meta">{target.template}</span>
+                            </td>
+                            <td>{target.target_type}</td>
+                            <td>{target.adapter}</td>
+                            <td>{target.health_status}</td>
+                            <td>
+                              {target.environments.length} env · {target.output_templates.length} template{target.output_templates.length === 1 ? "" : "s"} · {routeCount} route{routeCount === 1 ? "" : "s"}
+                            </td>
+                            <td>
+                              <span className={target.status === "Ready" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                                {target.status}
+                              </span>
+                            </td>
+                            <td>
+                              <button className="secondary-button table-inline-button" onClick={() => selectTargetForEdit(target)}>
+                                <Edit3 size={14} />
+                                Edit
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </section>
+              </>
+            ) : (
+              <>
+                <header className="target-detail-header">
+                  <button className="secondary-button" onClick={() => setSelectedTargetId(null)}>
+                    <ArrowLeft size={16} />
+                    All targets
+                  </button>
+                  <div>
+                    <p className="eyebrow">Target setup</p>
+                    <h1>{selectedTarget.name}</h1>
+                    <span>{selectedTarget.target_type} · {selectedTarget.status} · {selectedTarget.health_status}</span>
+                  </div>
+                  <button className="primary-button" onClick={() => void saveTarget(selectedTarget)} disabled={workspaceState === "saving"}>
+                    {workspaceState === "saving" ? "Saving" : "Save Target"}
+                  </button>
+                </header>
+
+                <nav className="target-tabs" aria-label="Selected target setup sections">
+                  {targetDetailTabs.map((tab) => (
+                    <button
+                      className={activeTargetsView === tab ? "target-tab target-tab-active" : "target-tab"}
+                      key={tab}
+                      onClick={() => setActiveTargetsView(tab)}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </nav>
+
+                {activeTargetsView === "Environments" ? (
+                  <section className="panel setup-panel">
+                    <PanelHeader icon={SlidersHorizontal} title="Target Environments" detail="Endpoint, auth, and headers" />
+                    <div className="target-card-stack">
+                      <div className="setup-grid target-settings-grid">
+                        <label className="setup-control">
+                          <span>Target Name</span>
+                          <input
+                            value={selectedTarget.name}
+                            onChange={(event) =>
+                              updateTargetDraft(selectedTarget.target_id, (target) => ({
+                                ...target,
+                                name: event.target.value
+                              }))
+                            }
+                          />
+                        </label>
+                        <label className="setup-control">
+                          <span>Active Environment</span>
+                          <select
+                            value={selectedTarget.lift.active_environment}
+                            onChange={(event) =>
+                              updateTargetDraft(selectedTarget.target_id, (target) => ({
+                                ...target,
+                                lift: { ...target.lift, active_environment: event.target.value as "QA1" | "PROD" }
+                              }))
+                            }
+                          >
+                            {targetEnvironments.map((environment) => (
+                              <option key={environment.environment_id}>{environment.name}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Target Type</span>
+                          <select
+                            value={selectedTarget.target_type}
+                            onChange={(event) =>
+                              updateTargetDraft(selectedTarget.target_id, (target) => ({
+                                ...target,
+                                target_type: event.target.value as TargetType
+                              }))
+                            }
+                          >
+                            {["ERP", "Ecommerce", "Print Factory", "SFTP", "Webhook", "Custom"].map((type) => (
+                              <option key={type}>{type}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Status</span>
+                          <select
+                            value={selectedTarget.status}
+                            onChange={(event) =>
+                              updateTargetDraft(selectedTarget.target_id, (target) => ({
+                                ...target,
+                                status: event.target.value as TargetConfig["status"]
+                              }))
+                            }
+                          >
+                            {["Ready", "Configured", "Draft"].map((status) => (
+                              <option key={status}>{status}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Health</span>
+                          <input value={selectedTarget.health_status} readOnly />
+                        </label>
+                      </div>
+                      {targetEnvironments.map((environment) => (
+                        <div className="target-config-card" key={environment.environment_id}>
+                          <div className="target-card-heading">
+                            <div>
+                              <strong>{environment.name}</strong>
+                              <span>{environment.role} · {environment.auth_method}</span>
+                            </div>
+                            <span className={environment.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                              {environment.status}
+                            </span>
+                          </div>
+                          <div className="setup-grid target-settings-grid">
+                            <label className="setup-control">
+                              <span>Role</span>
+                              <select
+                                value={environment.role}
+                                onChange={(event) =>
+                                  updateTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id, (current) => ({
+                                    ...current,
+                                    role: event.target.value as TargetEnvironmentRole
+                                  }))
+                                }
+                              >
+                                {["PROD", "QA", "DEV", "Sandbox", "Custom"].map((role) => (
+                                  <option key={role}>{role}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="setup-control">
+                              <span>Auth Method</span>
+                              <select
+                                value={environment.auth_method}
+                                onChange={(event) =>
+                                  updateTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id, (current) => ({
+                                    ...current,
+                                    auth_method: event.target.value as TargetAuthMethod
+                                  }))
+                                }
+                              >
+                                {["Header credentials", "Bearer token", "API key", "None"].map((method) => (
+                                  <option key={method}>{method}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="setup-control">
+                              <span>Company ID</span>
+                              <input
+                                value={environment.headers.Company ?? ""}
+                                onChange={(event) =>
+                                  updateTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id, (current) => ({
+                                    ...current,
+                                    headers: { ...current.headers, Company: event.target.value }
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="setup-control">
+                              <span>Import User</span>
+                              <input
+                                value={environment.credentials.User ?? ""}
+                                onChange={(event) =>
+                                  updateTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id, (current) => ({
+                                    ...current,
+                                    credentials: { ...current.credentials, User: event.target.value },
+                                    headers: { ...current.headers, User: event.target.value }
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="setup-control setup-control-wide">
+                              <span>Endpoint URL</span>
+                              <input
+                                value={environment.endpoint_url}
+                                onChange={(event) =>
+                                  updateTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id, (current) => ({
+                                    ...current,
+                                    endpoint_url: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="setup-control">
+                              <span>Password Secret</span>
+                              <input
+                                value={environment.credentials.Password ?? ""}
+                                onChange={(event) =>
+                                  updateTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id, (current) => ({
+                                    ...current,
+                                    credentials: { ...current.credentials, Password: event.target.value },
+                                    headers: { ...current.headers, Password: event.target.value }
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="setup-control">
+                              <span>Header Ext_ID</span>
+                              <input
+                                value={environment.headers.Ext_ID ?? ""}
+                                onChange={(event) =>
+                                  updateTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id, (current) => ({
+                                    ...current,
+                                    headers: { ...current.headers, Ext_ID: event.target.value }
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="panel-action-footer">
+                      <span>Secrets are saved locally and returned masked by the API.</span>
+                      <button className="primary-button" onClick={() => void saveTarget(selectedTarget)} disabled={workspaceState === "saving"}>
+                        Save Environments
+                      </button>
+                    </div>
+                  </section>
+                ) : null}
+
+                {activeTargetsView === "Output Templates" ? (
+                  <section className="panel setup-panel">
+                    <PanelHeader icon={Braces} title="Output Templates" detail="Select a template, then map pasted fields to Canonical Order" />
+                    <div className="template-workspace">
+                      <aside className="template-list-panel">
+                        <div className="template-list-header">
+                          <strong>Templates</strong>
+                          <button className="secondary-button table-inline-button" onClick={() => addOutputTemplateDraft(selectedTarget)}>
+                            <Plus size={14} />
+                            Add
+                          </button>
+                        </div>
+                        {targetOutputTemplates.map((template) => (
+                          <button
+                            className={
+                              selectedOutputTemplate?.output_template_id === template.output_template_id
+                                ? "template-list-item template-list-item-active"
+                                : "template-list-item"
+                            }
+                            key={template.output_template_id}
+                            onClick={() => setActiveOutputTemplateId(template.output_template_id)}
+                          >
+                            <strong>{template.name}</strong>
+                            <span>{template.destination_method} · {template.output_format}</span>
+                            <em className={template.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                              {template.status}
+                            </em>
+                          </button>
+                        ))}
+                      </aside>
+
+                      {selectedOutputTemplate ? (
+                        <div className="template-detail-panel">
+                          <div className="target-card-heading">
+                            <div>
+                              <strong>{selectedOutputTemplate.name}</strong>
+                              <span>{selectedOutputTemplate.destination_method} · {selectedOutputTemplate.output_format}</span>
+                            </div>
+                            <span className={selectedOutputTemplate.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                              {selectedOutputTemplate.status}
+                            </span>
+                          </div>
+                          <div className="setup-grid target-settings-grid">
+                            <label className="setup-control">
+                              <span>Template Name</span>
+                              <input
+                                value={selectedOutputTemplate.name}
+                                onChange={(event) =>
+                                  updateOutputTemplateDraft(selectedTarget.target_id, selectedOutputTemplate.output_template_id, (current) => ({
+                                    ...current,
+                                    name: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="setup-control">
+                              <span>Destination Method</span>
+                              <select
+                                value={selectedOutputTemplate.destination_method}
+                                onChange={(event) =>
+                                  updateOutputTemplateDraft(selectedTarget.target_id, selectedOutputTemplate.output_template_id, (current) => ({
+                                    ...current,
+                                    destination_method: event.target.value as OutputDestinationMethod
+                                  }))
+                                }
+                              >
+                                {["HTTP POST", "SFTP file", "Email attachment", "Manual download"].map((method) => (
+                                  <option key={method}>{method}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="setup-control">
+                              <span>Output Format</span>
+                              <select
+                                value={selectedOutputTemplate.output_format}
+                                onChange={(event) =>
+                                  updateOutputTemplateDraft(selectedTarget.target_id, selectedOutputTemplate.output_template_id, (current) => ({
+                                    ...current,
+                                    output_format: event.target.value as OutputFormat
+                                  }))
+                                }
+                              >
+                                {["JSON", "XML", "CSV", "XLSX"].map((format) => (
+                                  <option key={format}>{format}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="setup-control">
+                              <span>Status</span>
+                              <select
+                                value={selectedOutputTemplate.status}
+                                onChange={(event) =>
+                                  updateOutputTemplateDraft(selectedTarget.target_id, selectedOutputTemplate.output_template_id, (current) => ({
+                                    ...current,
+                                    status: event.target.value as OutputTemplate["status"]
+                                  }))
+                                }
+                              >
+                                {["Active", "Draft", "Inactive"].map((status) => (
+                                  <option key={status}>{status}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="setup-control setup-control-wide">
+                              <span>Filename Format</span>
+                              <input
+                                value={selectedOutputTemplate.filename_format}
+                                onChange={(event) =>
+                                  updateOutputTemplateDraft(selectedTarget.target_id, selectedOutputTemplate.output_template_id, (current) => ({
+                                    ...current,
+                                    filename_format: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                            <div className="filename-tags setup-control-wide">
+                              <span>Supported tags</span>
+                              <div>
+                                {filenameTags.map((tag) => (
+                                  <code key={tag}>{tag}</code>
+                                ))}
+                              </div>
+                            </div>
+                            <label className="setup-control template-editor">
+                              <span>Body Template</span>
+                              <textarea
+                                value={selectedOutputTemplate.body_template}
+                                onChange={(event) =>
+                                  updateOutputTemplateDraft(selectedTarget.target_id, selectedOutputTemplate.output_template_id, (current) => ({
+                                    ...current,
+                                    body_template: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                            <label className="setup-control template-editor">
+                              <span>Header Template</span>
+                              <textarea
+                                value={selectedOutputTemplate.header_template}
+                                onChange={(event) =>
+                                  updateOutputTemplateDraft(selectedTarget.target_id, selectedOutputTemplate.output_template_id, (current) => ({
+                                    ...current,
+                                    header_template: event.target.value
+                                  }))
+                                }
+                              />
+                            </label>
+                          </div>
+
+                          <div className="template-mapping-builder">
+                            <div className="resolver-subsection-heading">
+                              <h3>Template Field Mapping</h3>
+                              <span>Paste normal JSON, then choose where each detected field should get its value.</span>
+                            </div>
+                            {templateFields(selectedOutputTemplate).length ? (
+                              <table className="mapping-table">
+                                <thead>
+                                  <tr>
+                                    <th>Area</th>
+                                    <th>Template field</th>
+                                    <th>Value source</th>
+                                    <th>Preview token</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {templateFields(selectedOutputTemplate).map((field) => {
+                                    const mappedValue = templateMappingValue(selectedOutputTemplate, field);
+                                    return (
+                                      <tr key={field.key}>
+                                        <td>
+                                          <span className={field.section === "body" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                                            {field.section === "body" ? "Body" : "Header"}
+                                          </span>
+                                        </td>
+                                        <td>
+                                          <strong>{field.path}</strong>
+                                          <span className="cell-meta">{field.sample || "Blank value"}</span>
+                                        </td>
+                                        <td>
+                                          <select
+                                            value={mappedValue}
+                                            onChange={(event) =>
+                                              updateOutputTemplateMapping(
+                                                selectedTarget.target_id,
+                                                selectedOutputTemplate.output_template_id,
+                                                field,
+                                                event.target.value
+                                              )
+                                            }
+                                          >
+                                            <option value="">Keep pasted/static value</option>
+                                            <optgroup label="Canonical Order">
+                                              {canonicalOrderOptions.map((option) => (
+                                                <option key={option} value={option}>
+                                                  {option}
+                                                </option>
+                                              ))}
+                                            </optgroup>
+                                            <optgroup label="Environment">
+                                              {environmentTemplateOptions.map((option) => (
+                                                <option key={option} value={option}>
+                                                  {option}
+                                                </option>
+                                              ))}
+                                            </optgroup>
+                                            <optgroup label="Output Route">
+                                              {routeTemplateOptions.map((option) => (
+                                                <option key={option} value={option}>
+                                                  {option}
+                                                </option>
+                                              ))}
+                                            </optgroup>
+                                            <optgroup label="Generated Values">
+                                              {generatedTemplateOptions.map((option) => (
+                                                <option key={option} value={option}>
+                                                  {option}
+                                                </option>
+                                              ))}
+                                            </optgroup>
+                                          </select>
+                                        </td>
+                                        <td>
+                                          <strong>{mappedValue ? `{{${mappedValue}}}` : "Static"}</strong>
+                                          <span className="cell-meta">{mappingSourceLabel(mappedValue)}</span>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <p className="empty-state">Paste a JSON body or header object to detect fields for mapping.</p>
+                            )}
+                          </div>
+
+                          <div className="template-preview-grid">
+                            <div className="code-panel">
+                              <PanelHeader icon={FileText} title="Mapped Body Preview" detail="Shows selected value tokens" />
+                              <pre>{mappedTemplatePreview(selectedOutputTemplate, "body")}</pre>
+                            </div>
+                            <div className="code-panel">
+                              <PanelHeader icon={FileText} title="Mapped Header Preview" detail="Shows selected value tokens" />
+                              <pre>{mappedTemplatePreview(selectedOutputTemplate, "header")}</pre>
+                            </div>
+                          </div>
+
+                          <div className="template-mapping-summary">
+                            <strong>{effectiveTemplateMappings(selectedOutputTemplate).length} mapped fields</strong>
+                            <span>Template fields stay readable while Pathfinder stores the Canonical Order selections.</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="empty-state">Add an output template to configure this target.</div>
+                      )}
+                    </div>
+                    <div className="panel-action-footer">
+                      <span>Template edits update preview configuration only in this slice.</span>
+                      <button className="primary-button" onClick={() => void saveTarget(selectedTarget)} disabled={workspaceState === "saving"}>
+                        Save Output Templates
+                      </button>
+                    </div>
+                  </section>
+                ) : null}
+
+                {activeTargetsView === "Output Routes" ? (
+                  <section className="panel jobs-panel">
+                    <PanelHeader icon={Workflow} title="Output Routes" detail="Target + environment + account + template" />
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Route</th>
+                          <th>Target</th>
+                          <th>Environment</th>
+                          <th>Destination Account</th>
+                          <th>Template</th>
+                          <th>Product ID</th>
+                          <th>Submit Profiles</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedTargetRoutes.map((route) => {
+                          const environment = targetEnvironments.find((candidate) => candidate.environment_id === route.environment_id);
+                          return (
+                            <tr key={route.output_route_id}>
+                              <td>{route.name}</td>
+                              <td>{route.target_system}</td>
+                              <td>{environment?.name ?? route.environment_id}</td>
+                              <td>{route.destination_account_name}{route.company_id ? ` / ${route.company_id}` : ""}</td>
+                              <td>{route.output_template}</td>
+                              <td>{route.product_identifier_label}</td>
+                              <td>
+                                {route.submit_profiles.map((profile) => (
+                                  <span
+                                    className={
+                                      profile.mode === "sandbox_customer"
+                                        ? "mini-pill mini-pill-warning"
+                                        : "mini-pill mini-pill-neutral"
+                                    }
+                                    key={profile.profile_id}
+                                  >
+                                    {profile.name}
+                                  </span>
+                                ))}
+                              </td>
+                              <td>
+                                <span className={route.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                                  {route.status}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {selectedTargetRoutes.length === 0 ? (
+                      <p className="empty-state">No customer output routes currently point to this target.</p>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                {activeTargetsView === "Test & Health" ? (
+                  <section className="panel setup-panel">
+                    <PanelHeader icon={Activity} title="Test & Health" detail="Local preview checks only" />
+                    <div className="target-health-grid">
+                      <div>
+                        <span>Current Status</span>
+                        <strong>{selectedTarget.health_status}</strong>
+                      </div>
+                      <div>
+                        <span>Last Test</span>
+                        <strong>{selectedTarget.last_test_at ? displayTimestamp(selectedTarget.last_test_at) : "Not tested"}</strong>
+                      </div>
+                      <div>
+                        <span>Submit Behavior</span>
+                        <strong>
+                          {selectedTarget.target_type === "ERP"
+                            ? `${selectedTargetTestEnvironment?.name ?? selectedTarget.lift.active_environment} submit gated`
+                            : "Local test gated"}
+                        </strong>
+                      </div>
+                    </div>
+                    <div className="code-panel target-test-preview">
+                      <PanelHeader icon={FileText} title="Local Test Preview" detail="No external request is sent" />
+                      <pre>{JSON.stringify({
+                        target: selectedTarget.name,
+                        route: selectedTargetTestRoute?.name ?? "No route configured",
+                        environment: selectedTargetTestEnvironment?.name ?? selectedTarget.lift.active_environment,
+                        endpoint_url: selectedTargetTestEnvironment?.endpoint_url ?? null,
+                        template: selectedTargetTestTemplate?.name ?? selectedTarget.output_templates[0]?.name,
+                        destination_method: selectedTargetTestTemplate?.destination_method ?? null,
+                        output_format: selectedTargetTestTemplate?.output_format ?? null,
+                        destination_account: selectedTargetTestRoute?.destination_account_name ?? null,
+                        company_id: selectedTargetTestRoute?.company_id ?? selectedTargetTestEnvironment?.headers.Company ?? selectedTarget.lift.headers.Company,
+                        ext_id_rule: "headers.Ext_ID === body.order.ext_id",
+                      }, null, 2)}</pre>
+                    </div>
+                    <div className="panel-action-footer">
+                      <span>Connection testing will be enabled after credentials and submission rules are finalized.</span>
+                      <button className="secondary-button" disabled>
+                        Test Output gated
+                      </button>
+                    </div>
+                  </section>
+                ) : null}
+              </>
+            )}
           </>
         ) : null}
 
@@ -1572,7 +4455,8 @@ export function App() {
             />
             <dl className="customer-details">
               <DetailItem label="Scope" value="Global" />
-              <DetailItem label="Status" value="Ready for next build pass" />
+              <DetailItem label="Targets" value={`${activeTargetCount}/${targetRows.length} active`} />
+              <DetailItem label="Jobs" value={`${allJobs.length} persisted`} />
               <DetailItem label="Customer context" value={selectedCustomer.customer_name} />
             </dl>
           </section>

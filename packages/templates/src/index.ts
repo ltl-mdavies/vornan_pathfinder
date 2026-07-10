@@ -6,6 +6,21 @@ export interface SourceGrid {
   rows: Array<Record<string, string | number | boolean | null>>;
 }
 
+export interface ParsedSourceRow {
+  sheet_name: string;
+  row_number: number;
+  row_type: "order" | "reference";
+  values: Record<string, string | number | boolean | null>;
+}
+
+export interface ParsedWorkbookSheet {
+  sheet_name: string;
+  columns: string[];
+  order_row_count: number;
+  reference_row_count: number;
+  parsed_rows: ParsedSourceRow[];
+}
+
 export interface FieldMapping {
   sourceColumn: string;
   targetField: string;
@@ -28,6 +43,7 @@ export const canonicalTargetFields = [
   "order.order_title",
   "order.ship_date",
   "order.shipping.method",
+  "order.shipping.account_number",
   "order.shipping.attention_to",
   "order.shipping.company",
   "order.shipping.address_1",
@@ -36,11 +52,15 @@ export const canonicalTargetFields = [
   "order.shipping.state",
   "order.shipping.postal_code",
   "order.shipping.country",
+  "order.shipping.phone",
+  "order.shipping.email",
+  "order.shipping.instructions",
   "lines[].unit_number",
   "lines[].customer_sku",
   "lines[].description",
   "lines[].product_name",
   "lines[].quantity",
+  "lines[].line_number",
   "lines[].dimensions.final_width",
   "lines[].dimensions.final_height",
   "lines[].dimensions.live_width",
@@ -48,11 +68,28 @@ export const canonicalTargetFields = [
   "lines[].dimensions.bleed",
   "lines[].artwork.file_name",
   "lines[].artwork.file_url",
+  "lines[].artwork.checksum",
   "lines[].production.material",
   "lines[].production.laminate",
   "lines[].production.coating",
   "lines[].production.premask",
   "lines[].production.ink",
+  "lines[].production.cut_type",
+  "lines[].production.hem",
+  "lines[].production.grommets",
+  "lines[].shipping.method",
+  "lines[].shipping.account_number",
+  "lines[].shipping.attention_to",
+  "lines[].shipping.company",
+  "lines[].shipping.address_1",
+  "lines[].shipping.address_2",
+  "lines[].shipping.city",
+  "lines[].shipping.state",
+  "lines[].shipping.postal_code",
+  "lines[].shipping.country",
+  "lines[].shipping.phone",
+  "lines[].shipping.email",
+  "lines[].shipping.instructions",
   "lines[].line_note"
 ] as const;
 
@@ -76,6 +113,9 @@ export const momentaraTemplateSeed: InputTemplate = {
 export interface ParsedWorkbook extends SourceGrid {
   sheetName: string;
   sheetNames: string[];
+  source_sheets: ParsedWorkbookSheet[];
+  parsed_order_rows: ParsedSourceRow[];
+  reference_rows: ParsedSourceRow[];
 }
 
 export interface CanonicalBuildOptions {
@@ -127,10 +167,15 @@ const sourceColumnAliases: Record<string, CanonicalTargetField> = {
   product: "lines[].product_name",
   quantity: "lines[].quantity",
   qty: "lines[].quantity",
+  "print qty": "lines[].quantity",
   width: "lines[].dimensions.final_width",
   "final width": "lines[].dimensions.final_width",
+  "final size width": "lines[].dimensions.final_width",
   height: "lines[].dimensions.final_height",
   "final height": "lines[].dimensions.final_height",
+  length: "lines[].dimensions.final_height",
+  "final length": "lines[].dimensions.final_height",
+  "final size length": "lines[].dimensions.final_height",
   "live width": "lines[].dimensions.live_width",
   "live height": "lines[].dimensions.live_height",
   bleed: "lines[].dimensions.bleed",
@@ -139,11 +184,15 @@ const sourceColumnAliases: Record<string, CanonicalTargetField> = {
   "art url": "lines[].artwork.file_url",
   "artwork url": "lines[].artwork.file_url",
   material: "lines[].production.material",
+  stock: "lines[].production.material",
+  print: "lines[].production.ink",
   laminate: "lines[].production.laminate",
   coating: "lines[].production.coating",
   premask: "lines[].production.premask",
   ink: "lines[].production.ink",
+  finishing: "lines[].line_note",
   note: "lines[].line_note",
+  notes: "lines[].line_note",
   "line note": "lines[].line_note"
 };
 
@@ -206,14 +255,45 @@ function hasAnyValue(row: Record<string, string | number | boolean | null>) {
   return Object.values(row).some((value) => value !== null && String(value).trim() !== "");
 }
 
-export function parseWorkbookArrayBuffer(buffer: ArrayBuffer, preferredSheetName?: string): ParsedWorkbook {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-  const sheetName = preferredSheetName && workbook.Sheets[preferredSheetName] ? preferredSheetName : workbook.SheetNames[0];
+function isLikelyRepeatedHeader(row: Record<string, string | number | boolean | null>) {
+  let matches = 0;
+  Object.entries(row).forEach(([column, value]) => {
+    if (valueAsString(value).toLowerCase() === column.toLowerCase()) {
+      matches += 1;
+    }
+  });
+  return matches >= 2;
+}
 
-  if (!sheetName) {
-    return { sheetName: "Empty workbook", sheetNames: [], columns: [], rows: [] };
+function isValidQuantity(value: unknown) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0;
   }
 
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.toLowerCase().includes("qty")) {
+      return false;
+    }
+    const parsed = Number.parseFloat(trimmed.replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(parsed) && parsed > 0;
+  }
+
+  return false;
+}
+
+function findQuantityColumn(columns: string[]) {
+  return (
+    columns.find((column) => normalizeAlias(column) === "print qty") ??
+    columns.find((column) => ["quantity", "qty"].includes(normalizeAlias(column))) ??
+    null
+  );
+}
+
+function parseWorksheetRows(
+  workbook: XLSX.WorkBook,
+  sheetName: string
+): { columns: string[]; rows: ParsedSourceRow[] } {
   const worksheet = workbook.Sheets[sheetName];
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
     header: 1,
@@ -222,18 +302,82 @@ export function parseWorkbookArrayBuffer(buffer: ArrayBuffer, preferredSheetName
     raw: false
   });
   const headerRow = matrix.find((row) => row.some((cell) => cellToPrimitive(cell) !== null)) ?? [];
+  const headerIndex = matrix.indexOf(headerRow);
   const columns = headerRow.map((cell, index) => normalizeColumnName(String(cellToPrimitive(cell) ?? `Column ${index + 1}`)));
-  const dataRows = matrix.slice(matrix.indexOf(headerRow) + 1);
-  const rows = dataRows
-    .map((row) =>
-      columns.reduce<Record<string, string | number | boolean | null>>((record, column, index) => {
-        record[column] = cellToPrimitive(row[index]);
-        return record;
-      }, {})
-    )
-    .filter(hasAnyValue);
+  const quantityColumn = findQuantityColumn(columns);
 
-  return { sheetName, sheetNames: workbook.SheetNames, columns, rows };
+  const rows = matrix
+    .slice(headerIndex + 1)
+    .map((row, index) => {
+      const values = columns.reduce<Record<string, string | number | boolean | null>>((record, column, columnIndex) => {
+        record[column] = cellToPrimitive(row[columnIndex]);
+        return record;
+      }, {});
+      const rowNumber = headerIndex + index + 2;
+      const hasQuantity = quantityColumn ? isValidQuantity(values[quantityColumn]) : false;
+
+      return {
+        sheet_name: sheetName,
+        row_number: rowNumber,
+        row_type: hasQuantity ? "order" : "reference",
+        values
+      } satisfies ParsedSourceRow;
+    })
+    .filter((row) => hasAnyValue(row.values) && !isLikelyRepeatedHeader(row.values));
+
+  return { columns, rows };
+}
+
+export function parseWorkbookArrayBuffer(buffer: ArrayBuffer, preferredSheetName?: string): ParsedWorkbook {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const allSheetRows = workbook.SheetNames.map((candidateSheetName) => {
+    const { columns, rows } = parseWorksheetRows(workbook, candidateSheetName);
+    return {
+      sheet_name: candidateSheetName,
+      columns,
+      order_row_count: rows.filter((row) => row.row_type === "order").length,
+      reference_row_count: rows.filter((row) => row.row_type === "reference").length,
+      parsed_rows: rows
+    } satisfies ParsedWorkbookSheet;
+  });
+  const parsedOrderRows = allSheetRows.flatMap((sheet) => sheet.parsed_rows.filter((row) => row.row_type === "order"));
+  const referenceRows = allSheetRows.flatMap((sheet) => sheet.parsed_rows.filter((row) => row.row_type === "reference"));
+  const preferredSheet = preferredSheetName && workbook.Sheets[preferredSheetName] ? preferredSheetName : null;
+  const firstOrderSheet = allSheetRows.find((sheet) => sheet.order_row_count > 0)?.sheet_name ?? null;
+  const sheetName = preferredSheet ?? firstOrderSheet ?? workbook.SheetNames[0];
+
+  if (!sheetName) {
+    return {
+      sheetName: "Empty workbook",
+      sheetNames: [],
+      columns: [],
+      rows: [],
+      source_sheets: [],
+      parsed_order_rows: [],
+      reference_rows: []
+    };
+  }
+
+  const selectedSheet = allSheetRows.find((sheet) => sheet.sheet_name === sheetName);
+  const selectedRows = preferredSheet
+    ? (selectedSheet?.parsed_rows ?? [])
+    : parsedOrderRows.length
+      ? parsedOrderRows
+      : (selectedSheet?.parsed_rows ?? []);
+  const columns = Array.from(
+    new Set((preferredSheet ? selectedSheet?.columns : allSheetRows.flatMap((sheet) => sheet.columns)) ?? [])
+  );
+  const rows = selectedRows.map((row) => row.values);
+
+  return {
+    sheetName,
+    sheetNames: workbook.SheetNames,
+    columns,
+    rows,
+    source_sheets: allSheetRows,
+    parsed_order_rows: parsedOrderRows,
+    reference_rows: referenceRows
+  };
 }
 
 export function buildDefaultMappings(columns: string[]): FieldMapping[] {

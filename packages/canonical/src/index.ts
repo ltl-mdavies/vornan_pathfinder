@@ -5,6 +5,7 @@ export type ProcessingState =
   | "Canonical Created"
   | "Validated"
   | "Resolved"
+  | "Needs Mapping"
   | "Ready"
   | "Submitted"
   | "Completed"
