@@ -240,6 +240,7 @@ export interface ProcessingJobPreview {
   import_method_name: string;
   output_route_id: string;
   output_route_name: string;
+  target_order_number?: string | null;
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;
@@ -1063,6 +1064,7 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
   const submitJobState: ProcessingState | null =
     attempt.state === "Submitted" ? "Submitted" : attempt.state === "Failed" ? "Submit Failed" : null;
+  const targetOrderNumber = attempt.response.lift_order_id ?? null;
   const timestamp = attempt.updated_at;
 
   store.submit_attempts = [
@@ -1075,6 +1077,7 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
         ? {
             ...job,
             state: submitJobState,
+            target_order_number: targetOrderNumber ?? job.target_order_number ?? null,
             updated_at: timestamp
           }
         : job

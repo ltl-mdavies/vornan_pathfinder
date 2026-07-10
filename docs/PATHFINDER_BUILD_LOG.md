@@ -332,12 +332,28 @@ This is the living implementation record for Pathfinder. It tracks completed mil
   - prior attempts remain available in history
 - Added `order_lookup_url` to Output Routes and the Output Routes UI as the future home for Lift flush/order lookup configuration.
 
+### 20. Lift Order Number and Lookup Endpoint Groundwork
+
+- Expanded Lift submit response normalization to detect Lift-style order number fields, including:
+  - `ORDER_NUMBER`
+  - `order_number`
+  - `orderNumber`
+  - `lift_order_number`
+  - nested response objects such as `rowset`
+- Added `target_order_number` to persisted preview jobs.
+- Accepted submit attempts now promote the returned Lift order number onto the Pathfinder job.
+- Jobs tables and Job Detail now display the Lift order number when available.
+- Added `docs/LIFT_ORDER_LOOKUP_ENDPOINTS.md` to record the AS360 Orders, AS360 Proof Report, and Package Details endpoints, filters, returned data, and shared `ORDER_NUMBER` / `ORDER_LINE_ID` join model.
+
 ## Current Verification
 
-Most recent verification for the Job Detail and Replay Controls slice:
+Most recent verification for the Lift order number and lookup endpoint groundwork slice:
 
 - `npm run check` passed.
 - `npm run build` passed.
+- Adapter smoke check passed:
+  - direct `ORDER_NUMBER` response detected as the Lift order id
+  - nested `rowset[0].ORDER_NUMBER` response detected as the Lift order id
 
 Previous verification for the actionable certification / gated submit slice:
 

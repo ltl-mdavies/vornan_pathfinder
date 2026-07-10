@@ -281,6 +281,7 @@ interface ProcessingJobPreview {
   import_method_name: string;
   output_route_id: string;
   output_route_name: string;
+  target_order_number?: string | null;
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;
@@ -4382,6 +4383,7 @@ export function App() {
                       <th>Job</th>
                       <th>Source</th>
                       <th>Ext ID</th>
+                      <th>Lift Order</th>
                       <th>State</th>
                       <th>Updated</th>
                     </tr>
@@ -4396,6 +4398,7 @@ export function App() {
                         </td>
                         <td>{job.import_method_name}</td>
                         <td>{jobExtId(job)}</td>
+                        <td>{job.target_order_number ?? "—"}</td>
                         <td>
                           <StatePill state={job.state} />
                         </td>
@@ -4459,6 +4462,7 @@ export function App() {
                     <th>Customer</th>
                     <th>Source</th>
                     <th>Ext ID</th>
+                    <th>Lift Order</th>
                     <th>State</th>
                     <th>Updated</th>
                   </tr>
@@ -4474,6 +4478,7 @@ export function App() {
                       <td>{job.customer_name}</td>
                       <td>{job.import_method_name}</td>
                       <td>{jobExtId(job)}</td>
+                      <td>{job.target_order_number ?? "—"}</td>
                       <td>
                         <StatePill state={job.state} />
                       </td>
@@ -5289,6 +5294,7 @@ export function App() {
                   <th>Customer</th>
                   <th>Source</th>
                   <th>Ext ID</th>
+                  <th>Lift Order</th>
                   <th>State</th>
                   <th>Updated</th>
                 </tr>
@@ -5304,6 +5310,7 @@ export function App() {
                     <td>{job.customer_name}</td>
                     <td>{job.import_method_name}</td>
                     <td>{jobExtId(job)}</td>
+                    <td>{job.target_order_number ?? "—"}</td>
                     <td>
                       <StatePill state={job.state} />
                     </td>
@@ -5351,6 +5358,7 @@ export function App() {
                 <DetailItem label="Submit profile" value={selectedJobDetail.submit_profile_name} />
                 <DetailItem label="Submit customer" value={`${selectedJobDetail.submit_customer_name} / ${selectedJobDetail.submit_customer_id}`} />
                 <DetailItem label="Output route" value={selectedJobDetail.output_route_name} />
+                <DetailItem label="Lift order number" value={selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id ?? "Pending"} />
                 <DetailItem label="Lines" value={`${selectedJobDetail.lift_payload.lines.length}`} />
                 <DetailItem label="Created" value={displayTimestamp(selectedJobDetail.created_at)} />
                 <DetailItem label="Updated" value={displayTimestamp(selectedJobDetail.updated_at)} />

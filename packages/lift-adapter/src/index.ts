@@ -297,12 +297,7 @@ export function maskLiftSubmitRequest(request: LiftSubmitRequest) {
   };
 }
 
-function valueFromBody(body: unknown, keys: string[]): string | null {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return null;
-  }
-
-  const record = body as Record<string, unknown>;
+function valueFromRecord(record: Record<string, unknown>, keys: string[]): string | null {
   for (const key of keys) {
     const value = record[key];
     if (typeof value === "string" && value.trim()) {
@@ -310,6 +305,51 @@ function valueFromBody(body: unknown, keys: string[]): string | null {
     }
     if (typeof value === "number") {
       return String(value);
+    }
+  }
+
+  return null;
+}
+
+function valueFromBody(body: unknown, keys: string[], depth = 0): string | null {
+  if (!body || typeof body !== "object" || depth > 3) {
+    return null;
+  }
+
+  if (Array.isArray(body)) {
+    for (const item of body) {
+      const nestedValue = valueFromBody(item, keys, depth + 1);
+      if (nestedValue) {
+        return nestedValue;
+      }
+    }
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+  const directValue = valueFromRecord(record, keys);
+  if (directValue) {
+    return directValue;
+  }
+
+  for (const key of keys) {
+    const lowerKey = key.toLowerCase();
+    const matchingKey = Object.keys(record).find((candidate) => candidate.toLowerCase() === lowerKey);
+    if (matchingKey) {
+      const value = record[matchingKey];
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+      if (typeof value === "number") {
+        return String(value);
+      }
+    }
+  }
+
+  for (const nested of Object.values(record)) {
+    const nestedValue = valueFromBody(nested, keys, depth + 1);
+    if (nestedValue) {
+      return nestedValue;
     }
   }
 
@@ -454,7 +494,19 @@ export function translateLiftSubmitError(args: {
 export function normalizeLiftSubmitResponse(httpStatus: number, rawBody: unknown): LiftSubmitTransportResult {
   const acceptedHttpStatus = httpStatus >= 200 && httpStatus < 300;
   const failureSignal = bodyHasFailureSignal(rawBody);
-  const liftOrderId = valueFromBody(rawBody, ["lift_order_id", "liftOrderId", "order_id", "orderId", "id"]);
+  const liftOrderId = valueFromBody(rawBody, [
+    "lift_order_id",
+    "liftOrderId",
+    "lift_order_number",
+    "liftOrderNumber",
+    "order_number",
+    "orderNumber",
+    "ORDER_NUMBER",
+    "order_id",
+    "orderId",
+    "ORDER_ID",
+    "id"
+  ]);
   const bodyMessage = messageFromBody(rawBody);
   const status = acceptedHttpStatus && !failureSignal ? "accepted" : "rejected";
 
