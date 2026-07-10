@@ -187,9 +187,43 @@ This is the living implementation record for Pathfinder. It tracks completed mil
   - `Company` maps to environment/header settings
 - Seeded Lift Standard Graphics template now uses a normal example body/header shape plus saved field mappings, matching the intended paste-and-map workflow.
 
+### 13. Route-Aware Submit Readiness
+
+- Added route-aware Lift submit request generation for preview jobs.
+- Preview now derives endpoint, Company header, and credentials from the selected Output Route and Target Environment instead of only target-level defaults.
+- Added submit-readiness validation messages for:
+  - missing endpoint
+  - `Ext_ID` header/body mismatch
+  - missing Company header
+  - placeholder import username/password
+  - selected submit profile
+  - selected output route
+- Confirmed the intended first external-test path is supported structurally:
+  - Target Environment: `PROD`
+  - Submit Profile: `Sandbox · LTL Demo`
+  - Submit Customer: `LTL Demo / 1249`
+  - Destination account: `Larger Than Life / 91`
+- Added editable Output Route controls for environment, destination account, company id, output template, and route status.
+- Added an API endpoint to persist customer output route edits:
+  - `PUT /api/customers/:liftCustomerId/output-routes/:routeId`
+- Updated Manual Import target preview so it displays the active import method route/environment/template rather than assuming the primary QA1 route.
+
 ## Current Verification
 
-Most recent verification for the output template field detection slice:
+Most recent verification for the route-aware submit readiness slice:
+
+- `npm run check` passed.
+- `npm run build` passed.
+- API smoke check passed:
+  - switched the customer output route to the `PROD` Lift environment
+  - generated a preview with `Sandbox · LTL Demo`
+  - confirmed submit customer `1249`
+  - confirmed endpoint `http://prod-lifterp/lifterp/ords/lifterp/lift/erp/api/create_order`
+  - confirmed Company header `91`
+  - confirmed password remains masked
+  - restored the local route to QA1 after the smoke test
+
+Previous verification for the output template field detection slice:
 
 - `npm run check` passed.
 - `npm run build` passed.

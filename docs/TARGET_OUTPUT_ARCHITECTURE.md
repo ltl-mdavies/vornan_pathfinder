@@ -81,6 +81,12 @@ The current seeded route is:
 - Product identifier: `Lift unit_number`
 - Submit profiles: `Live Customer`, `Sandbox · LTL Demo`
 
+The route environment can be changed to `PROD` while keeping the `Sandbox · LTL Demo` submit profile. This supports the first planned production-endpoint test path:
+
+`Lift ERP / PROD -> Larger Than Life Company 91 -> Sandbox · LTL Demo customer 1249`
+
+This is intentionally different from a QA1 test. `PROD` describes the Lift infrastructure endpoint; `Sandbox · LTL Demo` describes the customer identity submitted in the payload.
+
 ## Rules
 
 - Import methods select Output Routes, not raw targets or raw templates.
@@ -89,4 +95,4 @@ The current seeded route is:
 - Submit Profiles provide submit customer identity.
 - Template body/header fields should be mapped through the template editor, not hand-authored by non-technical users where possible.
 - Lift `Ext_ID` header must match `body.order.ext_id`.
-- Real external submit remains gated until QA1 credentials, response handling, and Ready-state validation are finalized.
+- Real external submit remains gated until target credentials, response handling, and Ready-state validation are finalized.

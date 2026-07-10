@@ -917,6 +917,46 @@ export async function archiveImportMethod(customer: LiftCustomer, methodId: stri
   return updateImportMethod(customer, methodId, { status: "Archived" });
 }
 
+export async function updateOutputRoute(customer: LiftCustomer, routeId: string, routePatch: Partial<OutputRoute>) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const timestamp = now();
+  const existingRoute =
+    workspace.output_routes.find((route) => route.output_route_id === routeId) ?? createSeedOutputRoute(timestamp);
+  const nextRoute: OutputRoute = {
+    ...existingRoute,
+    ...routePatch,
+    output_route_id: routeId,
+    submit_profiles: normalizeSubmitProfiles({
+      ...existingRoute,
+      ...routePatch
+    } as OutputRoute),
+    updated_at: timestamp
+  };
+
+  workspace.output_routes = [
+    nextRoute,
+    ...workspace.output_routes.filter((route) => route.output_route_id !== routeId)
+  ];
+  workspace.import_methods = workspace.import_methods.map((method) =>
+    method.output_route_id === routeId
+      ? {
+          ...method,
+          target_id: nextRoute.target_id,
+          target_template: nextRoute.output_template,
+          updated_at: timestamp
+        }
+      : method
+  );
+  workspace.primary_output_route_id =
+    workspace.primary_output_route_id === routeId ? nextRoute.output_route_id : workspace.primary_output_route_id;
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+
+  return workspace;
+}
+
 export async function listJobs() {
   const store = await readStore();
   return store.jobs;

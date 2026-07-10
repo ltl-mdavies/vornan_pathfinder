@@ -1092,6 +1092,46 @@ function submitCustomerForProfile(customer: LiftCustomer, profile: SubmitProfile
   };
 }
 
+function environmentRoleKey(environmentName: string, role?: string): LiftTargetConfig["active_environment"] {
+  const normalized = `${role ?? ""} ${environmentName}`.toUpperCase();
+  return normalized.includes("PROD") ? "PROD" : "QA1";
+}
+
+function liftConfigForRoute(target: TargetConfig | null | undefined, route: OutputRoute): LiftTargetConfig | undefined {
+  if (!target) {
+    return undefined;
+  }
+
+  const environment =
+    target.environments.find((candidate) => candidate.environment_id === route.environment_id) ??
+    target.environments.find((candidate) => candidate.name === target.lift.active_environment) ??
+    target.environments[0];
+  const activeEnvironment = environment
+    ? environmentRoleKey(environment.name, environment.role)
+    : target.lift.active_environment;
+  const endpointUrl = environment?.endpoint_url ?? target.lift.environments[activeEnvironment].endpoint_url;
+  const companyId = route.company_id ?? environment?.headers.Company ?? target.lift.headers.Company;
+
+  return {
+    ...target.lift,
+    active_environment: activeEnvironment,
+    environments: {
+      ...target.lift.environments,
+      [activeEnvironment]: {
+        endpoint_url: endpointUrl
+      }
+    },
+    headers: {
+      ...target.lift.headers,
+      Company: companyId
+    },
+    credentials: {
+      User: environment?.credentials.User ?? target.lift.credentials.User,
+      Password: environment?.credentials.Password ?? target.lift.credentials.Password
+    }
+  };
+}
+
 function outputIdentifierPlaceholder(route: OutputRoute) {
   if (route.product_identifier_type === "sku") {
     return "SKU";
@@ -1719,6 +1759,20 @@ export function App() {
     activeImportMethod
       ? outputRouteForMethod(activeImportMethod, outputRoutes)
       : primaryOutputRoute;
+  const activeRouteTarget =
+    targetRows.find((target) => target.target_id === activeOutputRoute.target_id) ?? primaryRouteTarget ?? null;
+  const activeRouteEnvironment =
+    activeRouteTarget?.environments.find((environment) => environment.environment_id === activeOutputRoute.environment_id) ??
+    activeRouteTarget?.environments.find((environment) => environment.name === activeRouteTarget.lift.active_environment) ??
+    null;
+  const activeRouteTemplate =
+    activeRouteTarget?.output_templates.find((template) => template.output_template_id === activeOutputRoute.output_template_id) ??
+    activeRouteTarget?.output_templates.find((template) => template.name === activeOutputRoute.output_template) ??
+    null;
+  const activeRouteCompanyId =
+    activeOutputRoute.company_id ?? activeRouteEnvironment?.headers.Company ?? activeRouteTarget?.lift.headers.Company;
+  const activeRouteEnvironmentLabel =
+    activeRouteEnvironment?.name ?? (activeRouteTarget ? activeRouteTarget.lift.active_environment : "Not configured");
   const selectedSubmitProfile = submitProfileForRoute(activeOutputRoute, selectedSubmitProfileId);
   const submitCustomer = submitCustomerForProfile(selectedCustomer, selectedSubmitProfile);
 
@@ -1829,9 +1883,17 @@ export function App() {
         sourceSystem: sourceName === "Sample workbook" ? "Manual Upload" : "XLSX Upload",
         sourceCustomer: selectedCustomer.customer_name,
         sourceTemplate: sourceName,
-        targetSystem: "Lift Standard Graphics"
+        targetSystem: activeOutputRoute.target_system
       }),
-    [mappings, selectedCustomer, sourceGrid.rows, sourceName, submitCustomer.customer_name, submitCustomer.lift_customer_id]
+    [
+      activeOutputRoute.target_system,
+      mappings,
+      selectedCustomer,
+      sourceGrid.rows,
+      sourceName,
+      submitCustomer.customer_name,
+      submitCustomer.lift_customer_id
+    ]
   );
 
   const canonicalMessages = validateCanonicalOrder(canonicalOrder);
@@ -1840,7 +1902,7 @@ export function App() {
     canonicalOrderId: "co_preview"
   });
   const liftMessages = validateLiftPayload(liftPayload);
-  const submitRequest = maskLiftSubmitRequest(buildLiftSubmitRequest(liftPayload, primaryRouteTarget?.lift));
+  const submitRequest = maskLiftSubmitRequest(buildLiftSubmitRequest(liftPayload, liftConfigForRoute(activeRouteTarget, activeOutputRoute)));
   const displayedCanonicalOrder = lastPreviewJob?.canonical_order ?? canonicalOrder;
   const displayedLiftPayload = lastPreviewJob?.lift_payload ?? liftPayload;
   const displayedSubmitRequest = lastPreviewJob?.submit_request_masked ?? submitRequest;
@@ -1913,6 +1975,42 @@ export function App() {
         )
       };
     });
+  }
+
+  function updateOutputRouteDraft(routeId: string, patch: Partial<OutputRoute>) {
+    setWorkspace((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        output_routes: current.output_routes.map((route) =>
+          route.output_route_id === routeId ? { ...route, ...patch } : route
+        )
+      };
+    });
+  }
+
+  async function saveOutputRoute(route: OutputRoute) {
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/output-routes/${route.output_route_id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(route)
+        }
+      );
+      const nextWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      setWorkspace(nextWorkspace);
+      setWorkspaceMessage("Output route saved.");
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Output route save failed.");
+      setWorkspaceState("error");
+    }
   }
 
   async function saveProductMapping(mapping: CustomerProductMapping | ProductResolutionResult) {
@@ -3561,10 +3659,13 @@ export function App() {
                     />
                     <dl>
                       <DetailItem label="Submit Profile" value={lastPreviewJob?.submit_profile_name ?? selectedSubmitProfile.name} />
+                      <DetailItem label="Output Route" value={lastPreviewJob?.output_route_name ?? activeOutputRoute.name} />
+                      <DetailItem label="Environment" value={activeRouteEnvironmentLabel} />
+                      <DetailItem label="Template" value={activeRouteTemplate?.name ?? activeOutputRoute.output_template} />
                       <DetailItem label="Source Customer" value={lastPreviewJob?.source_customer_name ?? selectedCustomer.customer_name} />
                       <DetailItem label="Submit Customer" value={lastPreviewJob?.submit_customer_name ?? submitCustomer.customer_name} />
                       <DetailItem label="Ext_ID" value={displayedSubmitRequest.headers.Ext_ID} />
-                      <DetailItem label="Company" value={displayedSubmitRequest.headers.Company} />
+                      <DetailItem label="Company" value={displayedSubmitRequest.headers.Company || activeRouteCompanyId} />
                       <DetailItem label="Lift CustomerID" value={displayedLiftPayload.customer.lift_customer_id} />
                       <DetailItem label="Endpoint" value={displayedSubmitRequest.endpoint_url} />
                     </dl>
@@ -3572,7 +3673,11 @@ export function App() {
                       <button className="secondary-button" disabled>
                         Submit to Lift gated
                       </button>
-                      <span>{lastPreviewJob ? `${displayJobId(lastPreviewJob.job_id)} saved as ${lastPreviewJob.state}` : "Generate a preview job before QA1 submission."}</span>
+                      <span>
+                        {lastPreviewJob
+                          ? `${displayJobId(lastPreviewJob.job_id)} saved as ${lastPreviewJob.state}`
+                          : `Generate a preview job before ${activeRouteEnvironmentLabel} submission.`}
+                      </span>
                     </div>
                   </div>
                 </section>
@@ -4505,13 +4610,14 @@ export function App() {
                       <thead>
                         <tr>
                           <th>Route</th>
-                          <th>Target</th>
                           <th>Environment</th>
                           <th>Destination Account</th>
+                          <th>Company</th>
                           <th>Template</th>
                           <th>Product ID</th>
                           <th>Submit Profiles</th>
                           <th>Status</th>
+                          <th>Action</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -4519,11 +4625,64 @@ export function App() {
                           const environment = targetEnvironments.find((candidate) => candidate.environment_id === route.environment_id);
                           return (
                             <tr key={route.output_route_id}>
-                              <td>{route.name}</td>
-                              <td>{route.target_system}</td>
-                              <td>{environment?.name ?? route.environment_id}</td>
-                              <td>{route.destination_account_name}{route.company_id ? ` / ${route.company_id}` : ""}</td>
-                              <td>{route.output_template}</td>
+                              <td>
+                                <strong>{route.name}</strong>
+                                <span className="cell-meta">{route.target_system}</span>
+                              </td>
+                              <td>
+                                <select
+                                  value={route.environment_id}
+                                  onChange={(event) => updateOutputRouteDraft(route.output_route_id, { environment_id: event.target.value })}
+                                >
+                                  {targetEnvironments.map((candidate) => (
+                                    <option key={candidate.environment_id} value={candidate.environment_id}>
+                                      {candidate.name} · {candidate.role}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="cell-meta">{environment?.endpoint_url || "Endpoint not configured"}</span>
+                              </td>
+                              <td>
+                                <input
+                                  value={route.destination_account_name}
+                                  onChange={(event) =>
+                                    updateOutputRouteDraft(route.output_route_id, { destination_account_name: event.target.value })
+                                  }
+                                />
+                                <span className="cell-meta">Destination account name</span>
+                              </td>
+                              <td>
+                                <input
+                                  value={route.company_id ?? ""}
+                                  onChange={(event) =>
+                                    updateOutputRouteDraft(route.output_route_id, {
+                                      company_id: event.target.value,
+                                      destination_account_id: event.target.value
+                                    })
+                                  }
+                                />
+                                <span className="cell-meta">Lift Company ID / account</span>
+                              </td>
+                              <td>
+                                <select
+                                  value={route.output_template_id}
+                                  onChange={(event) => {
+                                    const template = targetOutputTemplates.find(
+                                      (candidate) => candidate.output_template_id === event.target.value
+                                    );
+                                    updateOutputRouteDraft(route.output_route_id, {
+                                      output_template_id: event.target.value,
+                                      output_template: template?.name ?? route.output_template
+                                    });
+                                  }}
+                                >
+                                  {targetOutputTemplates.map((template) => (
+                                    <option key={template.output_template_id} value={template.output_template_id}>
+                                      {template.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
                               <td>{route.product_identifier_label}</td>
                               <td>
                                 {route.submit_profiles.map((profile) => (
@@ -4540,9 +4699,27 @@ export function App() {
                                 ))}
                               </td>
                               <td>
-                                <span className={route.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
-                                  {route.status}
-                                </span>
+                                <select
+                                  value={route.status}
+                                  onChange={(event) =>
+                                    updateOutputRouteDraft(route.output_route_id, {
+                                      status: event.target.value as OutputRoute["status"]
+                                    })
+                                  }
+                                >
+                                  {["Active", "Draft", "Inactive"].map((status) => (
+                                    <option key={status}>{status}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td>
+                                <button
+                                  className="secondary-button table-inline-button"
+                                  onClick={() => void saveOutputRoute(route)}
+                                  disabled={workspaceState === "saving"}
+                                >
+                                  Save
+                                </button>
                               </td>
                             </tr>
                           );

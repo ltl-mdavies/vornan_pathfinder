@@ -2,12 +2,15 @@ import cors from "cors";
 import express from "express";
 import { readFile } from "node:fs/promises";
 import { parseLiftCustomerCsv, type LiftCustomer, type LiftCustomerDirectory } from "@pathfinder/customer-directory";
-import { sampleCanonicalOrder, validateCanonicalOrder } from "@pathfinder/canonical";
+import { sampleCanonicalOrder, validateCanonicalOrder, type ValidationMessage } from "@pathfinder/canonical";
 import {
   buildLiftSubmitRequest,
   generateLiftPayload,
   maskLiftSubmitRequest,
-  validateLiftPayload
+  validateLiftPayload,
+  type LiftOrderPayload,
+  type LiftSubmitRequest,
+  type LiftTargetConfig
 } from "@pathfinder/lift-adapter";
 import {
   mapSourceRowsToCanonicalOrder,
@@ -30,6 +33,7 @@ import {
   persistPreviewJob,
   updateProductMapping,
   updateImportMethod,
+  updateOutputRoute,
   updateTarget,
   type CustomerProductMapping,
   type ImportMethod,
@@ -302,6 +306,138 @@ function submitCustomerForProfile(customer: LiftCustomer, profile: SubmitProfile
   };
 }
 
+function isPlaceholderSecret(value?: string | null) {
+  if (!value) {
+    return true;
+  }
+  return /TBD|SECRET|REFERENCE|^\*+$/i.test(value);
+}
+
+function environmentRoleKey(environmentName: string, role?: string): LiftTargetConfig["active_environment"] {
+  const normalized = `${role ?? ""} ${environmentName}`.toUpperCase();
+  return normalized.includes("PROD") ? "PROD" : "QA1";
+}
+
+function liftConfigForRoute(target: TargetConfig, route: OutputRoute): LiftTargetConfig {
+  const environment =
+    target.environments.find((candidate) => candidate.environment_id === route.environment_id) ??
+    target.environments.find((candidate) => candidate.name === target.lift.active_environment) ??
+    target.environments[0];
+  const activeEnvironment = environment
+    ? environmentRoleKey(environment.name, environment.role)
+    : target.lift.active_environment;
+  const endpointUrl = environment?.endpoint_url ?? target.lift.environments[activeEnvironment].endpoint_url;
+  const companyId = route.company_id ?? environment?.headers.Company ?? target.lift.headers.Company;
+
+  return {
+    ...target.lift,
+    active_environment: activeEnvironment,
+    environments: {
+      ...target.lift.environments,
+      [activeEnvironment]: {
+        endpoint_url: endpointUrl
+      }
+    },
+    headers: {
+      ...target.lift.headers,
+      Company: companyId
+    },
+    credentials: {
+      User: environment?.credentials.User ?? target.lift.credentials.User,
+      Password: environment?.credentials.Password ?? target.lift.credentials.Password
+    }
+  };
+}
+
+function validateSubmitReadiness(
+  request: LiftSubmitRequest,
+  payload: LiftOrderPayload,
+  profile: SubmitProfile,
+  route: OutputRoute
+): ValidationMessage[] {
+  const messages: ValidationMessage[] = [];
+
+  if (!request.endpoint_url?.trim()) {
+    messages.push({
+      severity: "FAIL",
+      code: "SUBMIT-ENDPOINT",
+      object: "submit.request",
+      field: "endpoint_url",
+      message: "Output route has no endpoint URL for the selected environment.",
+      suggested_action: "Open Targets, choose the route target, and configure the selected environment endpoint."
+    });
+  }
+
+  if (request.headers.Ext_ID !== payload.order.ext_id) {
+    messages.push({
+      severity: "FAIL",
+      code: "SUBMIT-EXT-ID",
+      object: "submit.headers",
+      field: "headers.Ext_ID",
+      message: "Submit header Ext_ID must match body.order.ext_id.",
+      suggested_action: "Map the header Ext_ID and body order.ext_id to the same canonical order field."
+    });
+  }
+
+  if (!request.headers.Company?.trim()) {
+    messages.push({
+      severity: "FAIL",
+      code: "SUBMIT-COMPANY",
+      object: "submit.headers",
+      field: "headers.Company",
+      message: "Lift Company header is required for this output route.",
+      suggested_action: "Set the route Company ID or environment Company header."
+    });
+  }
+
+  if (!request.headers.User?.trim() || isPlaceholderSecret(request.headers.User)) {
+    messages.push({
+      severity: "WARNING",
+      code: "SUBMIT-USER",
+      object: "submit.headers",
+      field: "headers.User",
+      message: "Submit username is still a placeholder.",
+      suggested_action: "Add the Lift import username before enabling real submission."
+    });
+  }
+
+  if (!request.headers.Password?.trim() || isPlaceholderSecret(request.headers.Password)) {
+    messages.push({
+      severity: "WARNING",
+      code: "SUBMIT-PASSWORD",
+      object: "submit.headers",
+      field: "headers.Password",
+      message: "Submit password is still a placeholder or masked value.",
+      suggested_action: "Add the Lift import password before enabling real submission."
+    });
+  }
+
+  messages.push({
+    severity: "PASS",
+    code: profile.mode === "sandbox_customer" ? "SUBMIT-SANDBOX" : "SUBMIT-CUSTOMER",
+    object: "submit.profile",
+    field: "submit_profile",
+    message:
+      profile.mode === "sandbox_customer"
+        ? `Sandbox submit will use ${profile.customer_override?.customer_name ?? "the sandbox customer"} while preserving the source customer in audit fields.`
+        : "Submit preview will use the selected customer identity.",
+    suggested_action:
+      profile.mode === "sandbox_customer"
+        ? "Use this for test orders even when targeting the production Lift endpoint."
+        : "Use sandbox submit profile for non-customer-facing test orders."
+  });
+
+  messages.push({
+    severity: "PASS",
+    code: "SUBMIT-ROUTE",
+    object: "submit.route",
+    field: "output_route_id",
+    message: `Submit preview uses output route ${route.name}.`
+  });
+
+  return messages;
+}
+
 async function fetchLiftCustomerDirectory(): Promise<LiftCustomerDirectory> {
   const response = await fetch(liftCustomerListEndpoint, {
     headers: { Accept: "text/csv,*/*" },
@@ -409,6 +545,23 @@ app.delete("/api/customers/:liftCustomerId/import-methods/:methodId", async (req
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Import method delete failed."
+    });
+  }
+});
+
+app.put("/api/customers/:liftCustomerId/output-routes/:routeId", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const workspace = await updateOutputRoute(customer, req.params.routeId, req.body as Partial<OutputRoute>);
+    const target = await getTarget(workspace.primary_target_id);
+
+    res.json({
+      ...workspace,
+      primary_target: target
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Output route save failed."
     });
   }
 });
@@ -555,8 +708,11 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     const canonicalValidation = validateCanonicalOrder(canonicalOrder);
     const liftPayload = generateLiftPayload(canonicalOrder);
     const liftValidation = validateLiftPayload(liftPayload);
-    const submitRequest = maskLiftSubmitRequest(buildLiftSubmitRequest(liftPayload, target.lift));
-    const allMessages = [...canonicalValidation, ...liftValidation];
+    const routeLiftConfig = liftConfigForRoute(target, outputRoute);
+    const unmaskedSubmitRequest = buildLiftSubmitRequest(liftPayload, routeLiftConfig);
+    const submitValidation = validateSubmitReadiness(unmaskedSubmitRequest, liftPayload, submitProfile, outputRoute);
+    const submitRequest = maskLiftSubmitRequest(unmaskedSubmitRequest);
+    const allMessages = [...canonicalValidation, ...liftValidation, ...submitValidation];
     const job: ProcessingJobPreview = {
       job_id: `job_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}`,
       customer_id: customer.lift_customer_id,
@@ -590,7 +746,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       canonical_order: canonicalOrder,
       canonical_validation: canonicalValidation,
       lift_payload: liftPayload,
-      lift_validation: liftValidation,
+      lift_validation: [...liftValidation, ...submitValidation],
       submit_request_masked: submitRequest,
       created_at: timestamp,
       updated_at: timestamp
