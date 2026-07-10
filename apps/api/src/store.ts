@@ -190,6 +190,7 @@ export interface OutputRoute {
   product_identifier_type: OutputProductIdentifierType;
   product_identifier_label: string;
   submit_profiles: SubmitProfile[];
+  order_lookup_url?: string | null;
   status: "Active" | "Draft" | "Inactive";
   updated_at: string;
 }
@@ -675,6 +676,7 @@ function createSeedOutputRoute(timestamp = now()): OutputRoute {
     product_identifier_type: "lift_unit_number",
     product_identifier_label: "Lift unit_number",
     submit_profiles: createDefaultSubmitProfiles(),
+    order_lookup_url: null,
     status: "Active",
     updated_at: timestamp
   };
@@ -868,7 +870,8 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
     ...candidate,
     environment_id: candidate.environment_id ?? route.environment_id,
     output_template_id: candidate.output_template_id ?? route.output_template_id,
-    submit_profiles: normalizeSubmitProfiles(candidate)
+    submit_profiles: normalizeSubmitProfiles(candidate),
+    order_lookup_url: candidate.order_lookup_url ?? route.order_lookup_url ?? null
   }));
   const primaryOutputRouteId = workspace.primary_output_route_id ?? outputRoutes[0]?.output_route_id ?? route.output_route_id;
 
@@ -1002,6 +1005,7 @@ export async function updateOutputRoute(customer: LiftCustomer, routeId: string,
       ...existingRoute,
       ...routePatch
     } as OutputRoute),
+    order_lookup_url: routePatch.order_lookup_url ?? existingRoute.order_lookup_url ?? null,
     updated_at: timestamp
   };
 
@@ -1044,6 +1048,13 @@ export async function getSubmitAttemptByIdempotencyKey(customer: LiftCustomer, i
     store.submit_attempts.find(
       (attempt) => attempt.customer_id === customer.lift_customer_id && attempt.idempotency_key === idempotencyKey
     ) ?? null
+  );
+}
+
+export async function listSubmitAttemptsForJob(customer: LiftCustomer, jobId: string) {
+  const store = await readStore();
+  return store.submit_attempts.filter(
+    (attempt) => attempt.customer_id === customer.lift_customer_id && attempt.job_id === jobId
   );
 }
 

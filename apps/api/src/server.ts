@@ -30,6 +30,7 @@ import {
   getTarget,
   listProductMappings,
   listJobs,
+  listSubmitAttemptsForJob,
   listTargets,
   getJob,
   getSubmitAttemptByIdempotencyKey,
@@ -1022,6 +1023,29 @@ app.get("/api/jobs", async (_req, res) => {
   res.json({
     jobs: await listJobs()
   });
+});
+
+app.get("/api/customers/:liftCustomerId/jobs/:jobId", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const job = await getJob(customer, req.params.jobId);
+
+    if (!job) {
+      res.status(404).json({
+        error: "Preview job not found."
+      });
+      return;
+    }
+
+    res.json({
+      job,
+      submit_attempts: await listSubmitAttemptsForJob(customer, req.params.jobId)
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Job detail failed."
+    });
+  }
 });
 
 app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) => {

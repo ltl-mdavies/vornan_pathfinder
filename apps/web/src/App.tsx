@@ -231,6 +231,7 @@ interface OutputRoute {
   product_identifier_type: OutputProductIdentifierType;
   product_identifier_label: string;
   submit_profiles: SubmitProfile[];
+  order_lookup_url?: string | null;
   status: "Active" | "Draft" | "Inactive";
   updated_at: string;
 }
@@ -425,6 +426,7 @@ const defaultOutputRoute: OutputRoute = {
       description: "Submit test orders under the internal LTL Demo Lift customer."
     }
   ],
+  order_lookup_url: null,
   status: "Active",
   updated_at: seedTimestamp
 };
@@ -1681,6 +1683,9 @@ export function App() {
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
   const [lastPreviewJob, setLastPreviewJob] = useState<ProcessingJobPreview | null>(null);
   const [lastSubmitAttempt, setLastSubmitAttempt] = useState<SubmitAttempt | null>(null);
+  const [selectedJobDetail, setSelectedJobDetail] = useState<ProcessingJobPreview | null>(null);
+  const [selectedJobAttempts, setSelectedJobAttempts] = useState<SubmitAttempt[]>([]);
+  const [jobDetailState, setJobDetailState] = useState<"idle" | "loading" | "error">("idle");
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("live-customer");
   const [productMappingDrafts, setProductMappingDrafts] = useState<Record<string, { unit: string; product: string }>>({});
   const [compositeColumnToAdd, setCompositeColumnToAdd] = useState("");
@@ -1755,6 +1760,23 @@ export function App() {
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Target/job load failed.");
     }
+  }
+
+  async function openJobDetail(job: ProcessingJobPreview) {
+    setSelectedJobDetail(job);
+    setSelectedJobAttempts([]);
+    setJobDetailState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
+      const payload = await readJsonResponse<{ job: ProcessingJobPreview; submit_attempts: SubmitAttempt[] }>(response);
+      setSelectedJobDetail(payload.job);
+      setSelectedJobAttempts(payload.submit_attempts);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Job detail load failed.");
+      setJobDetailState("error");
+      return;
+    }
+    setJobDetailState("idle");
   }
 
   async function saveImportMethod(method: ImportMethod, nextMappings = mappings) {
@@ -1913,6 +1935,12 @@ export function App() {
   const customerJobs = workspace?.jobs ?? [];
   const overviewJobs = customerJobs.slice(0, 5);
   const allJobs = globalJobs.length ? globalJobs : customerJobs;
+  const visibleJobDetailAttempts = selectedJobAttempts.length
+    ? selectedJobAttempts
+    : (workspace?.submit_attempts ?? []).filter((attempt) => attempt.job_id === selectedJobDetail?.job_id);
+  const latestJobAttempt = visibleJobDetailAttempts[0] ?? null;
+  const canRetrySelectedJob =
+    selectedJobDetail?.state === "Ready" || selectedJobDetail?.state === "Submit Failed";
   const primaryTarget = workspace?.primary_target ?? targets[0];
   const targetRows = targets.length ? targets : primaryTarget ? [primaryTarget] : [];
   const outputRoutes = workspace?.output_routes?.length ? workspace.output_routes : [defaultOutputRoute];
@@ -2344,8 +2372,9 @@ export function App() {
     }
   }
 
-  async function requestLiftSubmit() {
-    if (!lastPreviewJob) {
+  async function requestLiftSubmit(jobOverride?: ProcessingJobPreview, forceNewAttempt = false) {
+    const submitJob = jobOverride ?? lastPreviewJob;
+    if (!submitJob) {
       setWorkspaceMessage("Generate a persisted preview job before requesting Lift submit.");
       return;
     }
@@ -2353,10 +2382,17 @@ export function App() {
     setWorkspaceState("saving");
     try {
       const response = await fetch(
-        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/jobs/${lastPreviewJob.job_id}/submit`,
+        `${apiBaseUrl}/api/customers/${submitJob.customer_id}/jobs/${submitJob.job_id}/submit`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" }
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            forceNewAttempt
+              ? {
+                  idempotency_key: `retry:${submitJob.job_id}:${Date.now()}`
+                }
+              : {}
+          )
         }
       );
       const payload = (await response.json()) as {
@@ -2369,12 +2405,30 @@ export function App() {
         submit_request_masked?: ProcessingJobPreview["submit_request_masked"];
       };
       if (payload.attempt) {
-        setLastSubmitAttempt(payload.attempt);
+        const submitAttempt = payload.attempt;
+        setLastSubmitAttempt(submitAttempt);
+        if ((selectedJobDetail?.job_id ?? submitJob.job_id) === submitAttempt.job_id) {
+          setSelectedJobAttempts((current) => [
+            submitAttempt,
+            ...current.filter((attempt) => attempt.attempt_id !== submitAttempt.attempt_id)
+          ]);
+        }
       }
       if (payload.job) {
         const submittedJob = payload.job;
         const submitAttempt = payload.attempt;
-        setLastPreviewJob(submittedJob);
+        if (lastPreviewJob?.job_id === submittedJob.job_id || submitJob.job_id === lastPreviewJob?.job_id) {
+          setLastPreviewJob(submittedJob);
+        }
+        if (selectedJobDetail?.job_id === submittedJob.job_id || submitJob.job_id === selectedJobDetail?.job_id) {
+          setSelectedJobDetail(submittedJob);
+          if (submitAttempt) {
+            setSelectedJobAttempts((current) => [
+              submitAttempt,
+              ...current.filter((attempt) => attempt.attempt_id !== submitAttempt.attempt_id)
+            ]);
+          }
+        }
         setWorkspace((current) =>
           current
             ? {
@@ -3037,10 +3091,14 @@ export function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {overviewJobs.map((job) => (
-                          <tr key={job.job_id}>
-                            <td>{displayJobId(job.job_id)}</td>
-                            <td>{job.import_method_name}</td>
+                    {overviewJobs.map((job) => (
+                      <tr key={job.job_id}>
+                        <td>
+                          <button className="link-button" onClick={() => void openJobDetail(job)}>
+                            {displayJobId(job.job_id)}
+                          </button>
+                        </td>
+                        <td>{job.import_method_name}</td>
                             <td>
                               <StatePill state={job.state} />
                             </td>
@@ -4331,7 +4389,11 @@ export function App() {
                   <tbody>
                     {customerJobs.map((job) => (
                       <tr key={job.job_id}>
-                        <td>{displayJobId(job.job_id)}</td>
+                        <td>
+                          <button className="link-button" onClick={() => void openJobDetail(job)}>
+                            {displayJobId(job.job_id)}
+                          </button>
+                        </td>
                         <td>{job.import_method_name}</td>
                         <td>{jobExtId(job)}</td>
                         <td>
@@ -4404,7 +4466,11 @@ export function App() {
                 <tbody>
                   {allJobs.map((job) => (
                     <tr key={job.job_id}>
-                      <td>{displayJobId(job.job_id)}</td>
+                      <td>
+                        <button className="link-button" onClick={() => void openJobDetail(job)}>
+                          {displayJobId(job.job_id)}
+                        </button>
+                      </td>
                       <td>{job.customer_name}</td>
                       <td>{job.import_method_name}</td>
                       <td>{jobExtId(job)}</td>
@@ -5052,6 +5118,14 @@ export function App() {
                               <td>
                                 <strong>{route.name}</strong>
                                 <span className="cell-meta">{route.target_system}</span>
+                                <input
+                                  className="route-lookup-input"
+                                  value={route.order_lookup_url ?? ""}
+                                  placeholder="Lift order lookup URL"
+                                  onChange={(event) =>
+                                    updateOutputRouteDraft(route.output_route_id, { order_lookup_url: event.target.value })
+                                  }
+                                />
                               </td>
                               <td>
                                 <select
@@ -5222,7 +5296,11 @@ export function App() {
               <tbody>
                 {allJobs.map((job) => (
                   <tr key={job.job_id}>
-                    <td>{displayJobId(job.job_id)}</td>
+                    <td>
+                      <button className="link-button" onClick={() => void openJobDetail(job)}>
+                        {displayJobId(job.job_id)}
+                      </button>
+                    </td>
                     <td>{job.customer_name}</td>
                     <td>{job.import_method_name}</td>
                     <td>{jobExtId(job)}</td>
@@ -5235,6 +5313,179 @@ export function App() {
               </tbody>
             </table>
             {allJobs.length === 0 ? <p className="empty-state">No persisted jobs yet.</p> : null}
+          </section>
+        ) : null}
+
+        {selectedJobDetail && ["Customers", "Dashboard", "Jobs"].includes(activeGlobalView) ? (
+          <section className="job-detail-layout">
+            <div className="panel job-detail-panel">
+              <PanelHeader
+                icon={ClipboardList}
+                title={`${displayJobId(selectedJobDetail.job_id)} Detail`}
+                detail={jobDetailState === "loading" ? "Loading attempts" : selectedJobDetail.output_route_name}
+              />
+              <div className="job-detail-header">
+                <div>
+                  <p className="eyebrow">Job Detail</p>
+                  <h2>{selectedJobDetail.customer_name}</h2>
+                  <span>
+                    {selectedJobDetail.import_method_name} · {selectedJobDetail.source_file_name} · {jobExtId(selectedJobDetail)}
+                  </span>
+                </div>
+                <div className="job-detail-actions">
+                  <StatePill state={selectedJobDetail.state} />
+                  <button
+                    className="primary-button"
+                    onClick={() => void requestLiftSubmit(selectedJobDetail, true)}
+                    disabled={!canRetrySelectedJob || workspaceState === "saving"}
+                  >
+                    <Send size={16} />
+                    Retry Submit
+                  </button>
+                  <button className="secondary-button" onClick={() => setSelectedJobDetail(null)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+              <dl className="customer-details job-detail-summary">
+                <DetailItem label="Submit profile" value={selectedJobDetail.submit_profile_name} />
+                <DetailItem label="Submit customer" value={`${selectedJobDetail.submit_customer_name} / ${selectedJobDetail.submit_customer_id}`} />
+                <DetailItem label="Output route" value={selectedJobDetail.output_route_name} />
+                <DetailItem label="Lines" value={`${selectedJobDetail.lift_payload.lines.length}`} />
+                <DetailItem label="Created" value={displayTimestamp(selectedJobDetail.created_at)} />
+                <DetailItem label="Updated" value={displayTimestamp(selectedJobDetail.updated_at)} />
+              </dl>
+              {latestJobAttempt ? (
+                <div className="latest-attempt-callout">
+                  <div>
+                    <span>Latest submit attempt</span>
+                    <strong>{latestJobAttempt.state}</strong>
+                    <em>{latestJobAttempt.response.message}</em>
+                  </div>
+                  {latestJobAttempt.response.error_translation ? (
+                    <div>
+                      <span>{latestJobAttempt.response.error_translation.category}</span>
+                      <strong>{latestJobAttempt.response.error_translation.operator_message}</strong>
+                      <em>{latestJobAttempt.response.error_translation.suggested_action}</em>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="empty-state">No submit attempts have been recorded for this job yet.</p>
+              )}
+            </div>
+
+            <section className="panel jobs-panel">
+              <PanelHeader icon={History} title="Submit Attempt History" detail={`${visibleJobDetailAttempts.length} attempt${visibleJobDetailAttempts.length === 1 ? "" : "s"}`} />
+              <table>
+                <thead>
+                  <tr>
+                    <th>Attempt</th>
+                    <th>State</th>
+                    <th>Ext ID</th>
+                    <th>Company</th>
+                    <th>Response</th>
+                    <th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleJobDetailAttempts.map((attempt) => (
+                    <tr key={attempt.attempt_id}>
+                      <td>
+                        <strong>{attempt.attempt_id}</strong>
+                        <span className="cell-meta">{attempt.idempotency_key}</span>
+                      </td>
+                      <td>
+                        <span className={attempt.state === "Failed" ? "mini-pill mini-pill-danger" : attempt.state === "Submitted" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                          {attempt.state}
+                        </span>
+                      </td>
+                      <td>{attempt.ext_id}</td>
+                      <td>{attempt.company_id}</td>
+                      <td>
+                        <strong>{attempt.response.error_translation?.operator_message ?? attempt.response.message}</strong>
+                        <span className="cell-meta">{attempt.response.error_translation?.source_message ?? attempt.response.status}</span>
+                      </td>
+                      <td>{displayTimestamp(attempt.updated_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {visibleJobDetailAttempts.length === 0 ? <p className="empty-state">Attempts will appear here after a submit request.</p> : null}
+            </section>
+
+            <section className="job-detail-grid">
+              <div className="panel jobs-panel">
+                <PanelHeader icon={ShieldCheck} title="Certification Snapshot" detail={selectedJobDetail.submit_certification?.can_submit ? "Certified" : "Blocked"} />
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th>Status</th>
+                      <th>Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(selectedJobDetail.submit_certification?.items ?? []).map((item) => (
+                      <tr key={item.item_id}>
+                        <td>{item.label}</td>
+                        <td>{item.status}</td>
+                        <td>{item.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="panel jobs-panel">
+                <PanelHeader icon={Database} title="Product Resolution" detail={`${selectedJobDetail.unresolved_products.length} unresolved`} />
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Line</th>
+                      <th>Customer Key</th>
+                      <th>Unit</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedJobDetail.product_resolution_results.map((result) => (
+                      <tr key={`${result.source_sheet_name}-${result.source_row_number}-${result.line_number}`}>
+                        <td>{result.line_number}</td>
+                        <td>{result.customer_product_key || "No key"}</td>
+                        <td>{result.resolved_unit_number ?? "Needs mapping"}</td>
+                        <td>{result.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="preview-grid job-detail-code-grid">
+              <div className="panel code-panel">
+                <PanelHeader icon={FileSpreadsheet} title="Source Rows" detail={`${selectedJobDetail.parsed_order_rows.length} order rows`} />
+                <pre>{formatJson({
+                  sheets: selectedJobDetail.source_sheets.map((sheet) => ({
+                    sheet_name: sheet.sheet_name,
+                    row_count: sheet.parsed_rows.length,
+                    order_row_count: sheet.order_row_count,
+                    reference_row_count: sheet.reference_row_count
+                  })),
+                  order_rows: selectedJobDetail.parsed_order_rows.slice(0, 10)
+                })}</pre>
+              </div>
+              <div className="panel code-panel">
+                <PanelHeader icon={Braces} title="Canonical Order" detail="Persisted preview" />
+                <pre>{formatJson(selectedJobDetail.canonical_order)}</pre>
+              </div>
+              <div className="panel code-panel">
+                <PanelHeader icon={Braces} title="Lift Payload" detail="Rendered target body" />
+                <pre>{formatJson({
+                  headers: selectedJobDetail.submit_request_masked.headers,
+                  body: selectedJobDetail.lift_payload
+                })}</pre>
+              </div>
+            </section>
           </section>
         ) : null}
 

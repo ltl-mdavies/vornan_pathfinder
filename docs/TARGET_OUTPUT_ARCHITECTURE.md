@@ -59,6 +59,8 @@ Example:
 
 Routes are what customer import methods select. Product mapping is scoped to routes because the same customer-provided value may resolve differently for different factories, Lift companies, ecommerce shops, or output templates.
 
+Output Routes may also carry target-side lookup configuration, such as a Lift order lookup/flush report URL. That lookup belongs on the route because order retrieval depends on the selected target environment, destination account/company, and output template context.
+
 ### Submit Profile
 
 A Submit Profile controls submit-time customer identity for a route.

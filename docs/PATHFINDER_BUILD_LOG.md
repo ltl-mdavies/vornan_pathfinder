@@ -306,16 +306,38 @@ This is the living implementation record for Pathfinder. It tracks completed mil
   - surface `Submit Failed` jobs for manual correction and replay
   - add optional outbound callbacks later for `received`, `submit_failed`, `submitted`, and `completed`
 
+### 19. Job Detail and Replay Controls
+
+- Added a job detail API endpoint:
+  - `GET /api/customers/:liftCustomerId/jobs/:jobId`
+- Job detail returns the persisted preview job and submit attempts for that job.
+- Job IDs are now clickable from:
+  - Customer Overview recent jobs
+  - Customer Jobs
+  - Dashboard recent jobs
+  - Global Jobs
+- Added an in-app Job Detail panel showing:
+  - job/customer/source summary
+  - submit profile and submit customer
+  - latest submit attempt
+  - submit attempt history
+  - submit certification snapshot
+  - product resolution results
+  - source sheet/row summary
+  - Canonical Order JSON
+  - Lift payload and masked headers
+- Added deliberate retry behavior from Job Detail:
+  - retry is enabled for `Ready` and `Submit Failed` jobs
+  - retry sends a fresh idempotency key so it records a new attempt
+  - prior attempts remain available in history
+- Added `order_lookup_url` to Output Routes and the Output Routes UI as the future home for Lift flush/order lookup configuration.
+
 ## Current Verification
 
-Most recent verification for the Lift transport dry-run adapter slice:
+Most recent verification for the Job Detail and Replay Controls slice:
 
 - `npm run check` passed.
 - `npm run build` passed.
-- Adapter smoke check passed:
-  - called `submitLiftOrder` with no live transport mode
-  - confirmed the result is `not_sent`
-  - confirmed the message states that the external Lift request was not sent
 
 Previous verification for the actionable certification / gated submit slice:
 
