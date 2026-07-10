@@ -24,6 +24,7 @@ import {
   Search,
   Send,
   Settings,
+  ShieldCheck,
   SlidersHorizontal,
   Trash2,
   Upload,
@@ -70,6 +71,7 @@ type OutputFormat = "JSON" | "XML" | "CSV" | "XLSX";
 type TargetsView = "Overview" | "Environments" | "Output Templates" | "Output Routes" | "Test & Health";
 type TargetDetailView = Exclude<TargetsView, "Overview">;
 type SubmitProfileMode = "live_customer" | "sandbox_customer";
+type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
 
 interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
@@ -235,6 +237,22 @@ interface SubmitProfile {
   description?: string | null;
 }
 
+interface SubmitCertificationItem {
+  item_id: string;
+  label: string;
+  status: SubmitCertificationStatus;
+  blocking: boolean;
+  message: string;
+  suggested_action?: string;
+}
+
+interface SubmitCertification {
+  can_submit: boolean;
+  external_submit_enabled: boolean;
+  summary: string;
+  items: SubmitCertificationItem[];
+}
+
 interface ProcessingJobPreview {
   job_id: string;
   customer_id: string;
@@ -265,6 +283,7 @@ interface ProcessingJobPreview {
   canonical_validation: ValidationMessage[];
   lift_payload: LiftOrderPayload;
   lift_validation: ValidationMessage[];
+  submit_certification?: SubmitCertification;
   submit_request_masked: Omit<LiftSubmitRequest, "headers"> & {
     headers: Omit<LiftSubmitRequest["headers"], "Password"> & { Password: string };
   };
@@ -1132,6 +1151,149 @@ function liftConfigForRoute(target: TargetConfig | null | undefined, route: Outp
   };
 }
 
+function isPlaceholderSecret(value?: string | null) {
+  if (!value) {
+    return true;
+  }
+  return /TBD|SECRET|REFERENCE|^\*+$/i.test(value);
+}
+
+function submitCertificationItem(
+  item_id: string,
+  label: string,
+  passed: boolean,
+  blockedMessage: string,
+  passedMessage: string,
+  suggested_action?: string
+): SubmitCertificationItem {
+  return {
+    item_id,
+    label,
+    status: passed ? "Passed" : "Blocked",
+    blocking: !passed,
+    message: passed ? passedMessage : blockedMessage,
+    suggested_action: passed ? undefined : suggested_action
+  };
+}
+
+function buildLocalSubmitCertification(args: {
+  state: ProcessingState;
+  canonicalValidation: ValidationMessage[];
+  liftValidation: ValidationMessage[];
+  request: LiftSubmitRequest;
+  payload: LiftOrderPayload;
+  profile: SubmitProfile;
+  route: OutputRoute;
+  unresolvedProductCount: number;
+}): SubmitCertification {
+  const canonicalFailures = args.canonicalValidation.filter((message) => message.severity === "FAIL");
+  const liftFailures = args.liftValidation.filter((message) => message.severity === "FAIL");
+  const items: SubmitCertificationItem[] = [
+    submitCertificationItem(
+      "preview-state",
+      "Preview state",
+      args.state === "Ready",
+      `Preview is ${args.state}, not Ready.`,
+      "Preview job is Ready.",
+      "Generate a Ready preview before external submit."
+    ),
+    submitCertificationItem(
+      "canonical-validation",
+      "Canonical Order validation",
+      canonicalFailures.length === 0,
+      `${canonicalFailures.length} Canonical Order failure${canonicalFailures.length === 1 ? "" : "s"} must be resolved.`,
+      "Canonical Order has no blocking failures.",
+      canonicalFailures[0]?.suggested_action
+    ),
+    submitCertificationItem(
+      "lift-validation",
+      "Lift payload validation",
+      liftFailures.length === 0,
+      `${liftFailures.length} Lift payload failure${liftFailures.length === 1 ? "" : "s"} must be resolved.`,
+      "Lift payload has no blocking failures.",
+      liftFailures[0]?.suggested_action
+    ),
+    submitCertificationItem(
+      "product-resolution",
+      "Product resolution",
+      args.unresolvedProductCount === 0,
+      `${args.unresolvedProductCount} product key${args.unresolvedProductCount === 1 ? "" : "s"} need mapping.`,
+      "Every order line has an approved product identifier.",
+      "Approve unresolved product keys in Output Product Map."
+    ),
+    submitCertificationItem(
+      "route-status",
+      "Output route status",
+      args.route.status === "Active",
+      `Output route is ${args.route.status}.`,
+      "Output route is Active.",
+      "Set the route status to Active before submitting."
+    ),
+    submitCertificationItem(
+      "endpoint",
+      "Endpoint configured",
+      Boolean(args.request.endpoint_url?.trim()),
+      "Selected route environment has no endpoint URL.",
+      `Endpoint is ${args.request.endpoint_url}.`,
+      "Configure the selected Target Environment endpoint."
+    ),
+    submitCertificationItem(
+      "ext-id",
+      "Ext_ID equality",
+      args.request.headers.Ext_ID === args.payload.order.ext_id && Boolean(args.payload.order.ext_id?.trim()),
+      "Header Ext_ID must match body.order.ext_id.",
+      "Header Ext_ID matches body.order.ext_id.",
+      "Map both values to the same canonical order id."
+    ),
+    submitCertificationItem(
+      "company",
+      "Company header",
+      Boolean(args.request.headers.Company?.trim()),
+      "Company header is missing.",
+      `Company header is ${args.request.headers.Company}.`,
+      "Set the route Company ID or environment Company header."
+    ),
+    submitCertificationItem(
+      "credentials",
+      "Lift credentials",
+      !isPlaceholderSecret(args.request.headers.User) && !isPlaceholderSecret(args.request.headers.Password),
+      "Lift import credentials are placeholders or masked values.",
+      "Lift import credentials are configured.",
+      "Enter the Lift import username and password in Target Environment settings."
+    ),
+    {
+      item_id: "submit-profile",
+      label: "Submit profile",
+      status: "Passed",
+      blocking: false,
+      message:
+        args.profile.mode === "sandbox_customer"
+          ? `Sandbox profile selected: ${args.profile.customer_override?.customer_name ?? args.profile.name}.`
+          : `Live customer profile selected: ${args.profile.name}.`,
+      suggested_action:
+        args.profile.mode === "sandbox_customer"
+          ? "This is the preferred profile for first production-endpoint tests."
+          : "Use Sandbox · LTL Demo for non-customer-facing tests."
+    },
+    {
+      item_id: "external-submit-gate",
+      label: "External submit feature gate",
+      status: "Blocked",
+      blocking: true,
+      message: "External Lift submit is still disabled in Pathfinder.",
+      suggested_action: "Enable the explicit submit gate only after credentials and response handling are approved."
+    }
+  ];
+  const blockingCount = items.filter((item) => item.blocking).length;
+
+  return {
+    can_submit: blockingCount === 0,
+    external_submit_enabled: false,
+    summary: `${blockingCount} submit certification item${blockingCount === 1 ? "" : "s"} blocking external submit.`,
+    items
+  };
+}
+
 function outputIdentifierPlaceholder(route: OutputRoute) {
   if (route.product_identifier_type === "sku") {
     return "SKU";
@@ -1910,6 +2072,20 @@ export function App() {
     ? [...lastPreviewJob.canonical_validation, ...lastPreviewJob.lift_validation]
     : [...canonicalMessages, ...liftMessages];
   const hasBlockingFailure = allMessages.some((message) => message.severity === "FAIL");
+  const localCertificationState: ProcessingState = lastPreviewJob?.state ?? (hasBlockingFailure ? "Failed" : routeBlockingCount ? "Needs Mapping" : "Ready");
+  const submitCertification =
+    lastPreviewJob?.submit_certification ??
+    buildLocalSubmitCertification({
+      state: localCertificationState,
+      canonicalValidation: lastPreviewJob?.canonical_validation ?? canonicalMessages,
+      liftValidation: lastPreviewJob?.lift_validation ?? liftMessages,
+      request: displayedSubmitRequest,
+      payload: displayedLiftPayload,
+      profile: selectedSubmitProfile,
+      route: activeOutputRoute,
+      unresolvedProductCount: lastPreviewJob?.unresolved_products.length ?? routeBlockingCount
+    });
+  const submitCertificationBlockingCount = submitCertification.items.filter((item) => item.blocking).length;
   const mappedColumnCount = sourceGrid.columns.filter((column) =>
     mappings.some((mapping) => mapping.sourceColumn === column)
   ).length;
@@ -3641,7 +3817,15 @@ export function App() {
                     <div className="validation-list">
                       {allMessages.map((message) => (
                         <div className="validation-row" key={`${message.code}-${message.field}`}>
-                          <span className={message.severity === "PASS" ? "dot dot-success" : "dot dot-danger"} />
+                          <span
+                            className={
+                              message.severity === "PASS"
+                                ? "dot dot-success"
+                                : message.severity === "WARNING"
+                                  ? "dot dot-warning"
+                                  : "dot dot-danger"
+                            }
+                          />
                           <div>
                             <strong>{message.code}</strong>
                             <span>{message.message}</span>
@@ -3677,6 +3861,48 @@ export function App() {
                         {lastPreviewJob
                           ? `${displayJobId(lastPreviewJob.job_id)} saved as ${lastPreviewJob.state}`
                           : `Generate a preview job before ${activeRouteEnvironmentLabel} submission.`}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="panel certification-panel">
+                    <PanelHeader
+                      icon={ShieldCheck}
+                      title="Submit Certification"
+                      detail={submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`}
+                    />
+                    <div className="certification-summary">
+                      <strong>{submitCertification.can_submit ? "Ready for external submit" : "Submit still gated"}</strong>
+                      <span>{submitCertification.summary}</span>
+                    </div>
+                    <div className="certification-list">
+                      {submitCertification.items.map((item) => (
+                        <div className="certification-row" key={item.item_id}>
+                          <span
+                            className={
+                              item.status === "Passed"
+                                ? "dot dot-success"
+                                : item.status === "Warning"
+                                  ? "dot dot-warning"
+                                  : "dot dot-danger"
+                            }
+                          />
+                          <div>
+                            <strong>{item.label}</strong>
+                            <span>{item.message}</span>
+                            {item.suggested_action ? <em>{item.suggested_action}</em> : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="request-actions">
+                      <button className={submitCertification.can_submit ? "primary-button" : "secondary-button"} disabled>
+                        {submitCertification.external_submit_enabled ? "Submit to Lift" : "Submit gate locked"}
+                      </button>
+                      <span>
+                        {submitCertification.external_submit_enabled
+                          ? "External submit is controlled by certification status."
+                          : "External submit requires an explicit Pathfinder feature gate."}
                       </span>
                     </div>
                   </div>

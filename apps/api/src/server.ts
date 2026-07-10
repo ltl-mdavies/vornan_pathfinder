@@ -42,6 +42,8 @@ import {
   type ProductResolutionConfig,
   type ProductResolutionResult,
   type ProcessingJobPreview,
+  type SubmitCertification,
+  type SubmitCertificationItem,
   type SubmitProfile,
   type TargetConfig
 } from "./store.js";
@@ -51,6 +53,7 @@ const port = Number(process.env.PORT || 3000);
 const liftCustomerListEndpoint =
   process.env.LIFT_CUSTOMER_LIST_URL ??
   "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerContactLIst/LTL-Customer-List?offset=0";
+const externalLiftSubmitEnabled = process.env.PATHFINDER_ENABLE_LIFT_SUBMIT === "true";
 const localCustomerSeedUrl = new URL("../../../data/lift-customers.sample.csv", import.meta.url);
 
 app.use(cors({ origin: ["http://127.0.0.1:5173", "http://localhost:5173"] }));
@@ -438,6 +441,153 @@ function validateSubmitReadiness(
   return messages;
 }
 
+function certificationItem(
+  item_id: string,
+  label: string,
+  passed: boolean,
+  blockedMessage: string,
+  passedMessage: string,
+  suggested_action?: string
+): SubmitCertificationItem {
+  return {
+    item_id,
+    label,
+    status: passed ? "Passed" : "Blocked",
+    blocking: !passed,
+    message: passed ? passedMessage : blockedMessage,
+    suggested_action: passed ? undefined : suggested_action
+  };
+}
+
+function buildSubmitCertification(args: {
+  state: ProcessingJobPreview["state"];
+  canonicalValidation: ValidationMessage[];
+  liftValidation: ValidationMessage[];
+  submitValidation: ValidationMessage[];
+  unresolvedProducts: CustomerProductMapping[];
+  request: LiftSubmitRequest;
+  payload: LiftOrderPayload;
+  profile: SubmitProfile;
+  route: OutputRoute;
+}): SubmitCertification {
+  const canonicalFailures = args.canonicalValidation.filter((message) => message.severity === "FAIL");
+  const liftFailures = args.liftValidation.filter((message) => message.severity === "FAIL");
+  const placeholderCredentialWarnings = args.submitValidation.filter((message) =>
+    ["SUBMIT-USER", "SUBMIT-PASSWORD"].includes(message.code)
+  );
+  const items: SubmitCertificationItem[] = [
+    certificationItem(
+      "preview-state",
+      "Preview state",
+      args.state === "Ready",
+      `Preview is ${args.state}, not Ready.`,
+      "Preview job is Ready.",
+      "Resolve blocking preview validation or product mapping issues."
+    ),
+    certificationItem(
+      "canonical-validation",
+      "Canonical Order validation",
+      canonicalFailures.length === 0,
+      `${canonicalFailures.length} Canonical Order failure${canonicalFailures.length === 1 ? "" : "s"} must be resolved.`,
+      "Canonical Order has no blocking failures.",
+      canonicalFailures[0]?.suggested_action
+    ),
+    certificationItem(
+      "lift-validation",
+      "Lift payload validation",
+      liftFailures.length === 0,
+      `${liftFailures.length} Lift payload failure${liftFailures.length === 1 ? "" : "s"} must be resolved.`,
+      "Lift payload has no blocking failures.",
+      liftFailures[0]?.suggested_action
+    ),
+    certificationItem(
+      "product-resolution",
+      "Product resolution",
+      args.unresolvedProducts.length === 0,
+      `${args.unresolvedProducts.length} product key${args.unresolvedProducts.length === 1 ? "" : "s"} need mapping.`,
+      "Every order line has an approved product identifier.",
+      "Approve unresolved product keys in Output Product Map."
+    ),
+    certificationItem(
+      "route-status",
+      "Output route status",
+      args.route.status === "Active",
+      `Output route is ${args.route.status}.`,
+      "Output route is Active.",
+      "Set the route status to Active before submitting."
+    ),
+    certificationItem(
+      "endpoint",
+      "Endpoint configured",
+      Boolean(args.request.endpoint_url?.trim()),
+      "Selected route environment has no endpoint URL.",
+      `Endpoint is ${args.request.endpoint_url}.`,
+      "Configure the selected Target Environment endpoint."
+    ),
+    certificationItem(
+      "ext-id",
+      "Ext_ID equality",
+      args.request.headers.Ext_ID === args.payload.order.ext_id && Boolean(args.payload.order.ext_id?.trim()),
+      "Header Ext_ID must match body.order.ext_id.",
+      "Header Ext_ID matches body.order.ext_id.",
+      "Map both values to the same canonical order id."
+    ),
+    certificationItem(
+      "company",
+      "Company header",
+      Boolean(args.request.headers.Company?.trim()),
+      "Company header is missing.",
+      `Company header is ${args.request.headers.Company}.`,
+      "Set the route Company ID or environment Company header."
+    ),
+    certificationItem(
+      "credentials",
+      "Lift credentials",
+      placeholderCredentialWarnings.length === 0,
+      "Lift import credentials are placeholders or masked values.",
+      "Lift import credentials are configured.",
+      "Enter the Lift import username and password in Target Environment settings."
+    ),
+    {
+      item_id: "submit-profile",
+      label: "Submit profile",
+      status: "Passed",
+      blocking: false,
+      message:
+        args.profile.mode === "sandbox_customer"
+          ? `Sandbox profile selected: ${args.profile.customer_override?.customer_name ?? args.profile.name}.`
+          : `Live customer profile selected: ${args.profile.name}.`,
+      suggested_action:
+        args.profile.mode === "sandbox_customer"
+          ? "This is the preferred profile for first production-endpoint tests."
+          : "Use Sandbox · LTL Demo for non-customer-facing tests."
+    },
+    {
+      item_id: "external-submit-gate",
+      label: "External submit feature gate",
+      status: externalLiftSubmitEnabled ? "Passed" : "Blocked",
+      blocking: !externalLiftSubmitEnabled,
+      message: externalLiftSubmitEnabled
+        ? "External Lift submit is enabled for this environment."
+        : "External Lift submit is still disabled in Pathfinder.",
+      suggested_action: externalLiftSubmitEnabled
+        ? undefined
+        : "Enable the explicit submit gate only after credentials and response handling are approved."
+    }
+  ];
+  const blockingCount = items.filter((item) => item.blocking).length;
+  const canSubmit = blockingCount === 0;
+
+  return {
+    can_submit: canSubmit,
+    external_submit_enabled: externalLiftSubmitEnabled,
+    summary: canSubmit
+      ? "Certified for external Lift submit."
+      : `${blockingCount} submit certification item${blockingCount === 1 ? "" : "s"} blocking external submit.`,
+    items
+  };
+}
+
 async function fetchLiftCustomerDirectory(): Promise<LiftCustomerDirectory> {
   const response = await fetch(liftCustomerListEndpoint, {
     headers: { Accept: "text/csv,*/*" },
@@ -713,6 +863,22 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     const submitValidation = validateSubmitReadiness(unmaskedSubmitRequest, liftPayload, submitProfile, outputRoute);
     const submitRequest = maskLiftSubmitRequest(unmaskedSubmitRequest);
     const allMessages = [...canonicalValidation, ...liftValidation, ...submitValidation];
+    const jobState: ProcessingJobPreview["state"] = unresolvedProducts.length
+      ? "Needs Mapping"
+      : allMessages.some((message) => message.severity === "FAIL")
+        ? "Failed"
+        : "Ready";
+    const submitCertification = buildSubmitCertification({
+      state: jobState,
+      canonicalValidation,
+      liftValidation,
+      submitValidation,
+      unresolvedProducts,
+      request: unmaskedSubmitRequest,
+      payload: liftPayload,
+      profile: submitProfile,
+      route: outputRoute
+    });
     const job: ProcessingJobPreview = {
       job_id: `job_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}`,
       customer_id: customer.lift_customer_id,
@@ -729,11 +895,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       import_method_name: method.name,
       output_route_id: outputRoute.output_route_id,
       output_route_name: outputRoute.name,
-      state: unresolvedProducts.length
-        ? "Needs Mapping"
-        : allMessages.some((message) => message.severity === "FAIL")
-          ? "Failed"
-          : "Ready",
+      state: jobState,
       source_file_name: sourceFileName,
       sheet_name: sheetName,
       source_grid: sourceGrid,
@@ -747,6 +909,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       canonical_validation: canonicalValidation,
       lift_payload: liftPayload,
       lift_validation: [...liftValidation, ...submitValidation],
+      submit_certification: submitCertification,
       submit_request_masked: submitRequest,
       created_at: timestamp,
       updated_at: timestamp

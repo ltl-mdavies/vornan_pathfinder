@@ -93,6 +93,7 @@ This is intentionally different from a QA1 test. `PROD` describes the Lift infra
 - Product mappings are scoped to Output Routes.
 - Environment settings provide connection details and credentials.
 - Submit Profiles provide submit customer identity.
+- Submit Certification is separate from preview job state; a preview may be `Ready` but still blocked from real external submit by credentials, product mapping, route configuration, or the explicit external-submit gate.
 - Template body/header fields should be mapped through the template editor, not hand-authored by non-technical users where possible.
 - Lift `Ext_ID` header must match `body.order.ext_id`.
-- Real external submit remains gated until target credentials, response handling, and Ready-state validation are finalized.
+- Real external submit remains gated until target credentials, response handling, Ready-state validation, and `PATHFINDER_ENABLE_LIFT_SUBMIT=true` are finalized.

@@ -208,9 +208,38 @@ This is the living implementation record for Pathfinder. It tracks completed mil
   - `PUT /api/customers/:liftCustomerId/output-routes/:routeId`
 - Updated Manual Import target preview so it displays the active import method route/environment/template rather than assuming the primary QA1 route.
 
+### 14. Submit Certification Checklist
+
+- Added a submit certification model to preview jobs.
+- Certification is separate from preview state so a job can be payload-ready while still blocked from real external submission.
+- Certification checklist currently evaluates:
+  - preview state
+  - Canonical Order validation
+  - Lift payload validation
+  - product resolution completeness
+  - output route status
+  - selected endpoint
+  - `Ext_ID` header/body equality
+  - Company header
+  - Lift import credentials
+  - submit profile
+  - explicit external-submit feature gate
+- External Lift submit remains disabled unless `PATHFINDER_ENABLE_LIFT_SUBMIT=true`.
+- Added a Manual Import `Submit Certification` panel with pass/blocking checklist rows and submit-gate status.
+- Updated validation rows so warnings no longer look like hard failures.
+
 ## Current Verification
 
-Most recent verification for the route-aware submit readiness slice:
+Most recent verification for the submit certification checklist slice:
+
+- `npm run check` passed.
+- API smoke check passed:
+  - generated a preview job
+  - confirmed `submit_certification.can_submit = false`
+  - confirmed route-level endpoint, `Ext_ID`, and Company checks pass
+  - confirmed unresolved preview/product/credential/gate blockers are visible
+
+Previous verification for the route-aware submit readiness slice:
 
 - `npm run check` passed.
 - `npm run build` passed.

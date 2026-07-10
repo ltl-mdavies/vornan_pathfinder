@@ -2017,7 +2017,8 @@ h1 {
   padding: 16px;
 }
 
-.validation-row {
+.validation-row,
+.certification-row {
   display: grid;
   grid-template-columns: 10px 1fr;
   gap: 10px;
@@ -2025,19 +2026,33 @@ h1 {
 }
 
 .validation-row strong,
-.validation-row span {
+.validation-row span,
+.certification-row strong,
+.certification-row span,
+.certification-row em {
   display: block;
 }
 
-.validation-row strong {
+.validation-row strong,
+.certification-row strong {
   font-size: 12px;
 }
 
-.validation-row span {
+.validation-row span,
+.certification-row span {
   margin-top: 2px;
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.certification-row em {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .dot {
@@ -2053,6 +2068,40 @@ h1 {
 
 .dot-danger {
   background: var(--danger);
+}
+
+.dot-warning {
+  background: #b8791d;
+}
+
+.certification-summary {
+  display: grid;
+  gap: 4px;
+  padding: 16px 16px 12px;
+}
+
+.certification-summary strong,
+.certification-summary span {
+  display: block;
+}
+
+.certification-summary strong {
+  font-size: 14px;
+  font-weight: 850;
+}
+
+.certification-summary span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.certification-list {
+  display: grid;
+  max-height: 260px;
+  gap: 10px;
+  padding: 0 16px 16px;
+  overflow: auto;
 }
 
 .request-panel dl {

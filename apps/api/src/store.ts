@@ -30,6 +30,7 @@ export type TargetAuthMethod = "Header credentials" | "Bearer token" | "API key"
 export type OutputDestinationMethod = "HTTP POST" | "SFTP file" | "Email attachment" | "Manual download";
 export type OutputFormat = "JSON" | "XML" | "CSV" | "XLSX";
 export type SubmitProfileMode = "live_customer" | "sandbox_customer";
+export type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
 
 export interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
@@ -195,6 +196,22 @@ export interface SubmitProfile {
   description?: string | null;
 }
 
+export interface SubmitCertificationItem {
+  item_id: string;
+  label: string;
+  status: SubmitCertificationStatus;
+  blocking: boolean;
+  message: string;
+  suggested_action?: string;
+}
+
+export interface SubmitCertification {
+  can_submit: boolean;
+  external_submit_enabled: boolean;
+  summary: string;
+  items: SubmitCertificationItem[];
+}
+
 export interface ProcessingJobPreview {
   job_id: string;
   customer_id: string;
@@ -225,6 +242,7 @@ export interface ProcessingJobPreview {
   canonical_validation: ValidationMessage[];
   lift_payload: LiftOrderPayload;
   lift_validation: ValidationMessage[];
+  submit_certification?: SubmitCertification;
   submit_request_masked: Omit<LiftSubmitRequest, "headers"> & {
     headers: Omit<LiftSubmitRequest["headers"], "Password"> & { Password: string };
   };
