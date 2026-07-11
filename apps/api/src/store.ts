@@ -80,6 +80,18 @@ export interface CustomerProductMapping {
   updated_at: string;
 }
 
+export interface LiftUnitCatalogItem {
+  unit_number: string;
+  product_name: string;
+  company_id: string;
+  target_id: string;
+  status: "Active" | "Inactive";
+  category?: string | null;
+  description?: string | null;
+  source?: "Local seed" | "Lift import" | "Manual";
+  updated_at: string;
+}
+
 export interface ProductResolutionResult {
   output_route_id: string;
   source_sheet_name: string;
@@ -322,6 +334,7 @@ export interface PathfinderStore {
   workspaces: Record<string, PathfinderCustomerWorkspace>;
   jobs: ProcessingJobPreview[];
   submit_attempts: SubmitAttempt[];
+  lift_unit_catalog: LiftUnitCatalogItem[];
 }
 
 const storePath = fileURLToPath(new URL("../../../data/pathfinder-store.local.json", import.meta.url));
@@ -688,6 +701,44 @@ function createSeedOutputRoute(timestamp = now()): OutputRoute {
   };
 }
 
+function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
+  return [
+    {
+      unit_number: "2SHEET_46x60_48PT",
+      product_name: "2 Sheet Poster",
+      company_id: "91",
+      target_id: targetId,
+      status: "Active",
+      category: "OOH Poster",
+      description: "46x60 48pt poster product for standard graphics order testing.",
+      source: "Local seed",
+      updated_at: timestamp
+    },
+    {
+      unit_number: "BANNER_36x96_13OZ",
+      product_name: "13oz Vinyl Banner",
+      company_id: "91",
+      target_id: targetId,
+      status: "Active",
+      category: "Banner",
+      description: "36x96 13oz vinyl banner product for standard graphics order testing.",
+      source: "Local seed",
+      updated_at: timestamp
+    },
+    {
+      unit_number: "SANDBOX_SMOKE_POSTER",
+      product_name: "Sandbox smoke poster",
+      company_id: "91",
+      target_id: targetId,
+      status: "Active",
+      category: "Sandbox",
+      description: "Internal sandbox product used for non-customer-facing Lift submit checks.",
+      source: "Local seed",
+      updated_at: timestamp
+    }
+  ];
+}
+
 function createSeedMethod(timestamp: string): ImportMethod {
   const mappings = buildDefaultMappings(sampleSourceGrid.columns);
   const route = createSeedOutputRoute(timestamp);
@@ -742,6 +793,7 @@ function createWorkspace(customer: LiftCustomer): PathfinderCustomerWorkspace {
 }
 
 function createSeedStore(): PathfinderStore {
+  const timestamp = now();
   return {
     version: 1,
     targets: {
@@ -750,7 +802,8 @@ function createSeedStore(): PathfinderStore {
     },
     workspaces: {},
     jobs: [],
-    submit_attempts: []
+    submit_attempts: [],
+    lift_unit_catalog: createSeedLiftUnitCatalog(timestamp)
   };
 }
 
@@ -856,6 +909,42 @@ function normalizeProductMapping(mapping: CustomerProductMapping): CustomerProdu
   };
 }
 
+function normalizeLiftUnitCatalog(catalog: LiftUnitCatalogItem[] | undefined): LiftUnitCatalogItem[] {
+  const timestamp = now();
+  const seededByUnit = new Map(createSeedLiftUnitCatalog(timestamp).map((item) => [item.unit_number, item]));
+
+  (catalog ?? []).forEach((item) => {
+    seededByUnit.set(item.unit_number, {
+      ...item,
+      company_id: item.company_id ?? "91",
+      target_id: item.target_id ?? targetId,
+      status: item.status ?? "Active",
+      category: item.category ?? null,
+      description: item.description ?? null,
+      source: item.source ?? "Manual",
+      updated_at: item.updated_at ?? timestamp
+    });
+  });
+
+  return Array.from(seededByUnit.values());
+}
+
+function matchesSearch(item: LiftUnitCatalogItem, query: string) {
+  if (!query) {
+    return true;
+  }
+
+  return [
+    item.unit_number,
+    item.product_name,
+    item.category ?? "",
+    item.description ?? ""
+  ]
+    .join(" ")
+    .toLowerCase()
+    .includes(query);
+}
+
 function normalizeSubmitProfiles(route: OutputRoute): SubmitProfile[] {
   const defaults = createDefaultSubmitProfiles();
   const existingProfiles = route.submit_profiles ?? [];
@@ -921,7 +1010,8 @@ export async function readStore(): Promise<PathfinderStore> {
         ])
       ),
       jobs: parsed.jobs ?? [],
-      submit_attempts: parsed.submit_attempts ?? []
+      submit_attempts: parsed.submit_attempts ?? [],
+      lift_unit_catalog: normalizeLiftUnitCatalog(parsed.lift_unit_catalog)
     };
   } catch {
     const seed = createSeedStore();
@@ -1105,6 +1195,22 @@ export async function listProductMappings(customer: LiftCustomer) {
   store.workspaces[customer.lift_customer_id] = workspace;
   await writeStore(store);
   return workspace.product_mappings;
+}
+
+export async function listLiftUnitCatalog(filters: {
+  target_id?: string;
+  company_id?: string;
+  q?: string;
+  include_inactive?: boolean;
+} = {}) {
+  const store = await readStore();
+  const query = filters.q?.trim().toLowerCase() ?? "";
+  return store.lift_unit_catalog
+    .filter((item) => !filters.target_id || item.target_id === filters.target_id)
+    .filter((item) => !filters.company_id || item.company_id === filters.company_id)
+    .filter((item) => filters.include_inactive || item.status === "Active")
+    .filter((item) => matchesSearch(item, query))
+    .sort((first, second) => first.product_name.localeCompare(second.product_name) || first.unit_number.localeCompare(second.unit_number));
 }
 
 export async function updateProductMapping(

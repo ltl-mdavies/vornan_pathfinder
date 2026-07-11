@@ -595,3 +595,28 @@ Verification:
 Next useful enhancement:
 
 - Add a searchable Lift unit-number picker so preloaded rows can be assigned from an approved Lift product catalog instead of typed manually.
+
+## 2026-07-11 - Approved Lift Unit Catalog Picker
+
+Implemented a route-aware approved Lift unit picker for Output Product Map.
+
+What changed:
+
+- Added a local-file-backed `LiftUnitCatalogItem` model.
+- Seeded the first approved unit catalog entries for Lift company `91`.
+- Added `GET /api/lift/unit-catalog` with target, company, search, and active/inactive filters.
+- Output Product Map now includes an **Approved Lift Unit Catalog** search panel.
+- Operators can:
+  - search approved unit numbers by unit, product name, category, or description
+  - fill the bulk assignment fields from a catalog item
+  - assign a catalog item directly to selected customer keys
+  - use a catalog item as the preload default identifier
+
+Verification:
+
+- `npm run check`
+- `npm run build`
+
+Next useful enhancement:
+
+- Replace or augment the local catalog seed with a Lift-backed unit/product endpoint once available.

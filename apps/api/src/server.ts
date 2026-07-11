@@ -29,6 +29,7 @@ import {
   getOrCreateWorkspace,
   getTarget,
   listProductMappings,
+  listLiftUnitCatalog,
   listJobs,
   listSubmitAttemptsForJob,
   listTargets,
@@ -887,6 +888,23 @@ app.get("/api/customers/:liftCustomerId/product-mappings", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Product mapping load failed."
+    });
+  }
+});
+
+app.get("/api/lift/unit-catalog", async (req, res) => {
+  try {
+    res.json({
+      units: await listLiftUnitCatalog({
+        target_id: req.query.target_id ? String(req.query.target_id) : undefined,
+        company_id: req.query.company_id ? String(req.query.company_id) : undefined,
+        q: req.query.q ? String(req.query.q) : undefined,
+        include_inactive: req.query.include_inactive === "1" || req.query.include_inactive === "true"
+      })
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Lift unit catalog load failed."
     });
   }
 });

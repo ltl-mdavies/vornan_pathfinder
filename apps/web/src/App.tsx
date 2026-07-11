@@ -121,6 +121,18 @@ interface CustomerProductMapping {
   updated_at: string;
 }
 
+interface LiftUnitCatalogItem {
+  unit_number: string;
+  product_name: string;
+  company_id: string;
+  target_id: string;
+  status: "Active" | "Inactive";
+  category?: string | null;
+  description?: string | null;
+  source?: "Local seed" | "Lift import" | "Manual";
+  updated_at: string;
+}
+
 interface ProductResolutionResult {
   output_route_id: string;
   source_sheet_name: string;
@@ -1829,6 +1841,9 @@ export function App() {
   const [preloadUnitColumn, setPreloadUnitColumn] = useState("");
   const [preloadDefaultUnit, setPreloadDefaultUnit] = useState("");
   const [preloadSelectedIds, setPreloadSelectedIds] = useState<string[]>([]);
+  const [liftUnitCatalog, setLiftUnitCatalog] = useState<LiftUnitCatalogItem[]>([]);
+  const [unitCatalogSearch, setUnitCatalogSearch] = useState("");
+  const [unitCatalogState, setUnitCatalogState] = useState<"idle" | "loading" | "error">("idle");
 
   async function loadCustomers(refresh = false) {
     setCustomerImportState("loading");
@@ -1892,6 +1907,28 @@ export function App() {
       setGlobalJobs(jobsPayload.jobs);
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Target/job load failed.");
+    }
+  }
+
+  async function loadLiftUnitCatalog(route: OutputRoute) {
+    setUnitCatalogState("loading");
+    try {
+      const params = new URLSearchParams({
+        target_id: route.target_id
+      });
+      if (route.company_id) {
+        params.set("company_id", route.company_id);
+      }
+      if (unitCatalogSearch.trim()) {
+        params.set("q", unitCatalogSearch.trim());
+      }
+      const response = await fetch(`${apiBaseUrl}/api/lift/unit-catalog?${params.toString()}`);
+      const payload = await readJsonResponse<{ units: LiftUnitCatalogItem[] }>(response);
+      setLiftUnitCatalog(payload.units);
+      setUnitCatalogState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Lift unit catalog load failed.");
+      setUnitCatalogState("error");
     }
   }
 
@@ -2176,6 +2213,11 @@ export function App() {
     outputMapRouteFilter === "All" ? activeOutputRoute.output_route_id : outputMapRouteFilter;
   const selectedOutputMapRoute =
     outputRoutes.find((route) => route.output_route_id === selectedOutputMapRouteId) ?? activeOutputRoute;
+
+  useEffect(() => {
+    void loadLiftUnitCatalog(selectedOutputMapRoute);
+  }, [selectedOutputMapRoute.output_route_id, selectedOutputMapRoute.company_id, selectedOutputMapRoute.target_id, unitCatalogSearch]);
+
   const selectedOutputMapTarget =
     targetRows.find((target) => target.target_id === selectedOutputMapRoute.target_id) ?? primaryTarget ?? null;
   const selectedOutputMapEnvironment =
@@ -2744,6 +2786,41 @@ export function App() {
       },
       `${selectedUnitMappings.length} customer key${selectedUnitMappings.length === 1 ? "" : "s"} mapped to ${bulkUnitNumber.trim()}.`
     );
+  }
+
+  function setBulkValueFromCatalog(item: LiftUnitCatalogItem) {
+    setBulkUnitNumber(item.unit_number);
+    setBulkProductName(item.product_name);
+    setWorkspaceMessage(`${item.unit_number} selected for bulk assignment.`);
+  }
+
+  async function assignCatalogItemToSelectedMappings(item: LiftUnitCatalogItem) {
+    if (!selectedUnitMappings.length) {
+      setBulkValueFromCatalog(item);
+      return;
+    }
+
+    await bulkUpdateProductMappings(
+      {
+        output_route_id: selectedOutputMapRouteId,
+        target_id: selectedOutputMapRoute.target_id,
+        target_template: selectedOutputMapRoute.output_template,
+        product_identifier_type: selectedOutputMapRoute.product_identifier_type,
+        product_identifier_value: item.unit_number,
+        lift_unit_number: selectedOutputMapRoute.product_identifier_type === "lift_unit_number" ? item.unit_number : null,
+        product_name: item.product_name,
+        status: "Mapped"
+      },
+      `${selectedUnitMappings.length} customer key${selectedUnitMappings.length === 1 ? "" : "s"} mapped to ${item.unit_number}.`
+    );
+  }
+
+  function setPreloadDefaultFromCatalog(item: LiftUnitCatalogItem) {
+    setPreloadDefaultUnit(item.unit_number);
+    if (!preloadSourceName.trim()) {
+      setPreloadSourceName("Customer product list");
+    }
+    setWorkspaceMessage(`${item.unit_number} selected as the preload default identifier.`);
   }
 
   function parsePreloadProductList() {
@@ -4399,6 +4476,57 @@ export function App() {
                           <p className="empty-state">Showing first 12 rows. Saving applies to all valid rows unless specific rows are selected.</p>
                         ) : null}
                       </div>
+                    ) : null}
+                  </section>
+
+                  <section className="unit-catalog-panel">
+                    <div className="unit-catalog-header">
+                      <div>
+                        <strong>Approved Lift Unit Catalog</strong>
+                        <span>Search approved Lift unit_numbers for company {selectedOutputMapRoute.company_id ?? "account"}.</span>
+                      </div>
+                      <label className="unit-map-search unit-catalog-search">
+                        <Search size={16} />
+                        <input
+                          value={unitCatalogSearch}
+                          placeholder="Search unit number, product name, category"
+                          onChange={(event) => setUnitCatalogSearch(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                    <div className="unit-catalog-results">
+                      {liftUnitCatalog.map((item) => (
+                        <article className="unit-catalog-card" key={item.unit_number}>
+                          <div>
+                            <strong>{item.unit_number}</strong>
+                            <span>{item.product_name}</span>
+                            <small>
+                              {item.category ?? "Approved unit"} · {item.source ?? "Catalog"}
+                            </small>
+                          </div>
+                          <div className="unit-catalog-actions">
+                            <button className="secondary-button" onClick={() => setBulkValueFromCatalog(item)}>
+                              Use Value
+                            </button>
+                            <button
+                              className="primary-button"
+                              onClick={() => void assignCatalogItemToSelectedMappings(item)}
+                              disabled={workspaceState === "saving"}
+                            >
+                              {selectedUnitMappings.length ? `Assign ${selectedUnitMappings.length}` : "Set Bulk"}
+                            </button>
+                            <button className="secondary-button" onClick={() => setPreloadDefaultFromCatalog(item)}>
+                              Preload Default
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    {unitCatalogState === "loading" ? (
+                      <p className="empty-state">Loading approved Lift units...</p>
+                    ) : null}
+                    {unitCatalogState !== "loading" && liftUnitCatalog.length === 0 ? (
+                      <p className="empty-state">No approved Lift units match this route and search.</p>
                     ) : null}
                   </section>
 
