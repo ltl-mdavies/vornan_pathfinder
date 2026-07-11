@@ -261,6 +261,8 @@ interface SubmitCertificationItem {
 interface SubmitCertification {
   can_submit: boolean;
   external_submit_enabled: boolean;
+  live_transport_enabled?: boolean;
+  live_customer_submit_allowed?: boolean;
   summary: string;
   items: SubmitCertificationItem[];
 }
@@ -1329,17 +1331,35 @@ function buildLocalSubmitCertification(args: {
     {
       item_id: "submit-profile",
       label: "Submit profile",
-      status: "Passed",
-      blocking: false,
+      status: args.profile.mode === "sandbox_customer" ? "Passed" : "Blocked",
+      blocking: args.profile.mode !== "sandbox_customer",
       message:
         args.profile.mode === "sandbox_customer"
           ? `Sandbox profile selected: ${args.profile.customer_override?.customer_name ?? args.profile.name}.`
-          : `Live customer profile selected: ${args.profile.name}.`,
+          : `Live customer profile selected: ${args.profile.name}. Sandbox submit is required by default.`,
       suggested_action:
         args.profile.mode === "sandbox_customer"
           ? "This is the preferred profile for first production-endpoint tests."
           : "Use Sandbox · LTL Demo for non-customer-facing tests.",
-      action_key: "manual-import"
+      action_key: args.profile.mode === "sandbox_customer" ? undefined : "manual-import"
+    },
+    submitCertificationItem(
+      "submit-profile-enabled",
+      "Submit profile enabled",
+      args.profile.enabled,
+      `Submit profile ${args.profile.name} is disabled on this output route.`,
+      `Submit profile ${args.profile.name} is enabled.`,
+      "Enable this submit profile on the Output Route or choose another profile.",
+      "target-output-routes"
+    ),
+    {
+      item_id: "lift-transport-mode",
+      label: "Lift transport mode",
+      status: "Blocked",
+      blocking: true,
+      message: "Lift transport mode is dry_run; Pathfinder will not call Lift until the API is started in live transport mode.",
+      suggested_action: "Set PATHFINDER_LIFT_TRANSPORT_MODE=live for the first real sandbox-lane submit.",
+      action_key: "target-health"
     },
     {
       item_id: "external-submit-gate",
@@ -1356,6 +1376,8 @@ function buildLocalSubmitCertification(args: {
   return {
     can_submit: blockingCount === 0,
     external_submit_enabled: false,
+    live_transport_enabled: false,
+    live_customer_submit_allowed: false,
     summary: `${blockingCount} submit certification item${blockingCount === 1 ? "" : "s"} blocking external submit.`,
     items
   };

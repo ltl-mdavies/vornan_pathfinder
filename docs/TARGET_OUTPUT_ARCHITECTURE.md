@@ -104,5 +104,6 @@ This is intentionally different from a QA1 test. `PROD` describes the Lift infra
 - External submit has two switches:
   - `PATHFINDER_ENABLE_LIFT_SUBMIT=true` unlocks the submit gate after certification passes.
   - `PATHFINDER_LIFT_TRANSPORT_MODE=live` allows the adapter to make the external Lift POST.
-- If the submit gate is unlocked but transport mode is not `live`, Pathfinder records a certified dry-run submit attempt and does not call Lift.
-- Live submit rebuilds the unmasked request from the selected Output Route and Target Environment at submit time. Persisted preview jobs and submit attempts remain masked.
+- If transport mode is not `live`, certification is blocked so operators cannot mistake a dry-run setup for a real Lift submit.
+- Sandbox submit profiles are required by default for real external submit. Live customer submit requires the explicit `PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT=true` opt-in.
+- Live submit rebuilds the unmasked request, route environment, and certification from the selected Output Route and Target Environment at submit time. Persisted preview jobs and submit attempts remain masked.

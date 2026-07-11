@@ -220,6 +220,8 @@ export interface SubmitCertificationItem {
 export interface SubmitCertification {
   can_submit: boolean;
   external_submit_enabled: boolean;
+  live_transport_enabled?: boolean;
+  live_customer_submit_allowed?: boolean;
   summary: string;
   items: SubmitCertificationItem[];
 }

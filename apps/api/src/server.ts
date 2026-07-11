@@ -54,7 +54,8 @@ import {
   type SubmitAttempt,
   type SubmitAttemptStatus,
   type SubmitProfile,
-  type TargetConfig
+  type TargetConfig,
+  type TargetEnvironment
 } from "./store.js";
 
 const app = express();
@@ -65,6 +66,7 @@ const liftCustomerListEndpoint =
 const externalLiftSubmitEnabled = process.env.PATHFINDER_ENABLE_LIFT_SUBMIT === "true";
 const liftSubmitTransportMode: LiftSubmitTransportMode =
   process.env.PATHFINDER_LIFT_TRANSPORT_MODE === "live" ? "live" : "dry_run";
+const liveCustomerSubmitAllowed = process.env.PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT === "true";
 const localCustomerSeedUrl = new URL("../../../data/lift-customers.sample.csv", import.meta.url);
 
 app.use(cors({ origin: ["http://127.0.0.1:5173", "http://localhost:5173"] }));
@@ -320,6 +322,30 @@ function submitCustomerForProfile(customer: LiftCustomer, profile: SubmitProfile
   };
 }
 
+function routeEnvironmentForTarget(target: TargetConfig, route: OutputRoute) {
+  return target.environments.find((candidate) => candidate.environment_id === route.environment_id) ?? null;
+}
+
+function submitProfileFromJob(route: OutputRoute, job: ProcessingJobPreview): SubmitProfile {
+  const profile = route.submit_profiles.find((candidate) => candidate.profile_id === job.submit_profile_id);
+  if (profile) {
+    return profile;
+  }
+
+  return {
+    profile_id: job.submit_profile_id,
+    name: job.submit_profile_name,
+    mode: job.submit_mode,
+    enabled: true,
+    customer_override: job.sandbox
+      ? {
+          lift_customer_id: job.submit_customer_id,
+          customer_name: job.submit_customer_name
+        }
+      : null
+  };
+}
+
 function isPlaceholderSecret(value?: string | null) {
   if (!value) {
     return true;
@@ -482,12 +508,14 @@ function buildSubmitCertification(args: {
   payload: LiftOrderPayload;
   profile: SubmitProfile;
   route: OutputRoute;
+  environment: TargetEnvironment | null;
 }): SubmitCertification {
   const canonicalFailures = args.canonicalValidation.filter((message) => message.severity === "FAIL");
   const liftFailures = args.liftValidation.filter((message) => message.severity === "FAIL");
   const placeholderCredentialWarnings = args.submitValidation.filter((message) =>
     ["SUBMIT-USER", "SUBMIT-PASSWORD"].includes(message.code)
   );
+  const sandboxSubmitAllowed = args.profile.mode === "sandbox_customer" || liveCustomerSubmitAllowed;
   const items: SubmitCertificationItem[] = [
     certificationItem(
       "preview-state",
@@ -535,6 +563,17 @@ function buildSubmitCertification(args: {
       "target-output-routes"
     ),
     certificationItem(
+      "environment-status",
+      "Target environment status",
+      args.environment?.status === "Active",
+      args.environment
+        ? `Target environment ${args.environment.name} is ${args.environment.status}.`
+        : "Output route target environment could not be found.",
+      args.environment ? `Target environment ${args.environment.name} is Active.` : "Target environment is Active.",
+      "Set the selected Target Environment to Active before submitting.",
+      "target-environments"
+    ),
+    certificationItem(
       "endpoint",
       "Endpoint configured",
       Boolean(args.request.endpoint_url?.trim()),
@@ -573,17 +612,43 @@ function buildSubmitCertification(args: {
     {
       item_id: "submit-profile",
       label: "Submit profile",
-      status: "Passed",
-      blocking: false,
+      status: sandboxSubmitAllowed ? "Passed" : "Blocked",
+      blocking: !sandboxSubmitAllowed,
       message:
         args.profile.mode === "sandbox_customer"
           ? `Sandbox profile selected: ${args.profile.customer_override?.customer_name ?? args.profile.name}.`
-          : `Live customer profile selected: ${args.profile.name}.`,
+          : liveCustomerSubmitAllowed
+            ? `Live customer profile selected: ${args.profile.name}; live customer submits are explicitly allowed.`
+            : `Live customer profile selected: ${args.profile.name}. Sandbox submit is required by default.`,
       suggested_action:
         args.profile.mode === "sandbox_customer"
           ? "This is the preferred profile for first production-endpoint tests."
-          : "Use Sandbox · LTL Demo for non-customer-facing tests.",
-      action_key: "manual-import"
+          : liveCustomerSubmitAllowed
+            ? undefined
+            : "Choose Sandbox · LTL Demo for first production-endpoint tests, or explicitly allow live customer submits.",
+      action_key: args.profile.mode === "sandbox_customer" || liveCustomerSubmitAllowed ? undefined : "manual-import"
+    },
+    certificationItem(
+      "submit-profile-enabled",
+      "Submit profile enabled",
+      args.profile.enabled,
+      `Submit profile ${args.profile.name} is disabled on this output route.`,
+      `Submit profile ${args.profile.name} is enabled.`,
+      "Enable this submit profile on the Output Route or choose another profile.",
+      "target-output-routes"
+    ),
+    {
+      item_id: "lift-transport-mode",
+      label: "Lift transport mode",
+      status: liftSubmitTransportMode === "live" ? "Passed" : "Blocked",
+      blocking: liftSubmitTransportMode !== "live",
+      message:
+        liftSubmitTransportMode === "live"
+          ? "Lift transport mode is live; Pathfinder will make the external POST when all other gates pass."
+          : "Lift transport mode is dry_run; Pathfinder will record a dry run instead of calling Lift.",
+      suggested_action:
+        liftSubmitTransportMode === "live" ? undefined : "Set PATHFINDER_LIFT_TRANSPORT_MODE=live for the first real sandbox-lane submit.",
+      action_key: liftSubmitTransportMode === "live" ? undefined : "target-health"
     },
     {
       item_id: "external-submit-gate",
@@ -605,6 +670,8 @@ function buildSubmitCertification(args: {
   return {
     can_submit: canSubmit,
     external_submit_enabled: externalLiftSubmitEnabled,
+    live_transport_enabled: liftSubmitTransportMode === "live",
+    live_customer_submit_allowed: liveCustomerSubmitAllowed,
     summary: canSubmit
       ? "Certified for external Lift submit."
       : `${blockingCount} submit certification item${blockingCount === 1 ? "" : "s"} blocking external submit.`,
@@ -631,15 +698,19 @@ function createSubmitAttempt(args: {
   state: SubmitAttemptStatus;
   blockingItems: SubmitCertificationItem[];
   message: string;
+  certification?: SubmitCertification;
   response?: SubmitAttempt["response"];
   submitRequestMasked?: ProcessingJobPreview["submit_request_masked"];
 }): SubmitAttempt {
   const timestamp = new Date().toISOString();
   const certification =
+    args.certification ??
     args.job.submit_certification ??
     ({
       can_submit: false,
       external_submit_enabled: externalLiftSubmitEnabled,
+      live_transport_enabled: liftSubmitTransportMode === "live",
+      live_customer_submit_allowed: liveCustomerSubmitAllowed,
       summary: "Preview job has no submit certification.",
       items: []
     } satisfies SubmitCertification);
@@ -948,6 +1019,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     const liftPayload = generateLiftPayload(canonicalOrder);
     const liftValidation = validateLiftPayload(liftPayload);
     const routeLiftConfig = liftConfigForRoute(target, outputRoute);
+    const routeEnvironment = routeEnvironmentForTarget(target, outputRoute);
     const unmaskedSubmitRequest = buildLiftSubmitRequest(liftPayload, routeLiftConfig);
     const submitValidation = validateSubmitReadiness(unmaskedSubmitRequest, liftPayload, submitProfile, outputRoute);
     const submitRequest = maskLiftSubmitRequest(unmaskedSubmitRequest);
@@ -966,7 +1038,8 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       request: unmaskedSubmitRequest,
       payload: liftPayload,
       profile: submitProfile,
-      route: outputRoute
+      route: outputRoute,
+      environment: routeEnvironment
     });
     const job: ProcessingJobPreview = {
       job_id: `job_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}`,
@@ -1072,88 +1145,6 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
       return;
     }
 
-    const certification = job.submit_certification;
-    if (!certification) {
-      const attempt = await persistSubmitAttempt(
-        customer,
-        createSubmitAttempt({
-          job,
-          idempotencyKey,
-          state: "Blocked",
-          blockingItems: [],
-          message: "Preview job has no submit certification. Regenerate the preview before submitting."
-        })
-      );
-      res.status(409).json({
-        error: "Preview job has no submit certification. Regenerate the preview before submitting.",
-        attempt,
-        job
-      });
-      return;
-    }
-
-    const blockingItems = certification.items.filter((item) => item.blocking);
-    const nonGateBlockers = blockingItems.filter((item) => item.item_id !== "external-submit-gate");
-    if (nonGateBlockers.length) {
-      const attempt = await persistSubmitAttempt(
-        customer,
-        createSubmitAttempt({
-          job,
-          idempotencyKey,
-          state: "Blocked",
-          blockingItems: nonGateBlockers,
-          message: "Preview job is not certified for Lift submit."
-        })
-      );
-      res.status(409).json({
-        error: "Preview job is not certified for Lift submit.",
-        attempt,
-        certification,
-        blocking_items: nonGateBlockers
-      });
-      return;
-    }
-
-    if (!externalLiftSubmitEnabled) {
-      const attempt = await persistSubmitAttempt(
-        customer,
-        createSubmitAttempt({
-          job,
-          idempotencyKey,
-          state: "Gate Locked",
-          blockingItems,
-          message: "External Lift submit is disabled by Pathfinder feature gate."
-        })
-      );
-      res.status(423).json({
-        error: "External Lift submit is disabled by Pathfinder feature gate.",
-        attempt,
-        certification,
-        submit_request_masked: job.submit_request_masked
-      });
-      return;
-    }
-
-    if (!certification.can_submit) {
-      const attempt = await persistSubmitAttempt(
-        customer,
-        createSubmitAttempt({
-          job,
-          idempotencyKey,
-          state: "Blocked",
-          blockingItems,
-          message: "Preview job is not certified for Lift submit."
-        })
-      );
-      res.status(409).json({
-        error: "Preview job is not certified for Lift submit.",
-        attempt,
-        certification,
-        blocking_items: blockingItems
-      });
-      return;
-    }
-
     const workspace = await getOrCreateWorkspace(customer);
     const outputRoute = workspace.output_routes.find((route) => route.output_route_id === job.output_route_id);
 
@@ -1171,7 +1162,7 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
       res.status(409).json({
         error: "Preview job output route could not be found.",
         attempt,
-        certification
+        certification: job.submit_certification
       });
       return;
     }
@@ -1191,13 +1182,99 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
       res.status(409).json({
         error: "Preview job target could not be found.",
         attempt,
-        certification
+        certification: job.submit_certification
       });
       return;
     }
 
+    const submitProfile = submitProfileFromJob(outputRoute, job);
+    const routeEnvironment = routeEnvironmentForTarget(target, outputRoute);
     const unmaskedSubmitRequest = buildLiftSubmitRequest(job.lift_payload, liftConfigForRoute(target, outputRoute));
     const submitRequestMasked = maskLiftSubmitRequest(unmaskedSubmitRequest);
+    const submitValidation = validateSubmitReadiness(unmaskedSubmitRequest, job.lift_payload, submitProfile, outputRoute);
+    const certification = buildSubmitCertification({
+      state: job.state,
+      canonicalValidation: job.canonical_validation,
+      liftValidation: job.lift_validation,
+      submitValidation,
+      unresolvedProducts: job.unresolved_products,
+      request: unmaskedSubmitRequest,
+      payload: job.lift_payload,
+      profile: submitProfile,
+      route: outputRoute,
+      environment: routeEnvironment
+    });
+
+    const blockingItems = certification.items.filter((item) => item.blocking);
+    const nonGateBlockers = blockingItems.filter((item) => item.item_id !== "external-submit-gate");
+    if (nonGateBlockers.length) {
+      const attempt = await persistSubmitAttempt(
+        customer,
+        createSubmitAttempt({
+          job,
+          idempotencyKey,
+          state: "Blocked",
+          blockingItems,
+          certification,
+          submitRequestMasked,
+          message: "Preview job is not certified for Lift submit."
+        })
+      );
+      res.status(409).json({
+        error: "Preview job is not certified for Lift submit.",
+        attempt,
+        certification,
+        blocking_items: nonGateBlockers,
+        submit_request_masked: submitRequestMasked
+      });
+      return;
+    }
+
+    if (!externalLiftSubmitEnabled) {
+      const attempt = await persistSubmitAttempt(
+        customer,
+        createSubmitAttempt({
+          job,
+          idempotencyKey,
+          state: "Gate Locked",
+          blockingItems,
+          certification,
+          submitRequestMasked,
+          message: "External Lift submit is disabled by Pathfinder feature gate."
+        })
+      );
+      res.status(423).json({
+        error: "External Lift submit is disabled by Pathfinder feature gate.",
+        attempt,
+        certification,
+        submit_request_masked: submitRequestMasked
+      });
+      return;
+    }
+
+    if (!certification.can_submit) {
+      const attempt = await persistSubmitAttempt(
+        customer,
+        createSubmitAttempt({
+          job,
+          idempotencyKey,
+          state: "Blocked",
+          blockingItems,
+          certification,
+          submitRequestMasked,
+          message: "Preview job is not certified for Lift submit."
+        })
+      );
+      res.status(409).json({
+        error: "Preview job is not certified for Lift submit.",
+        attempt,
+        certification,
+        blocking_items: blockingItems,
+        submit_request_masked: submitRequestMasked
+      });
+      return;
+    }
+
     const transportResult = await submitLiftOrder(unmaskedSubmitRequest, { mode: liftSubmitTransportMode });
     const attemptState: SubmitAttemptStatus =
       transportResult.status === "accepted"
@@ -1212,6 +1289,7 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
         idempotencyKey,
         state: attemptState,
         blockingItems: [],
+        certification,
         message: transportResult.message,
         response: transportResult,
         submitRequestMasked
