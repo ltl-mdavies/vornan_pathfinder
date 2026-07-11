@@ -4598,11 +4598,17 @@ export function App() {
                   <div>
                     <p className="eyebrow">Target setup</p>
                     <h1>{selectedTarget.name}</h1>
-                    <span>{selectedTarget.target_type} · {selectedTarget.status} · {selectedTarget.health_status}</span>
+                    <span>{selectedTarget.target_type} · {selectedTarget.status}</span>
                   </div>
-                  <button className="primary-button" onClick={() => void saveTarget(selectedTarget)} disabled={workspaceState === "saving"}>
-                    {workspaceState === "saving" ? "Saving" : "Save Target"}
-                  </button>
+                  <div className="target-header-status">
+                    <span className={`health-chip health-chip-${selectedTarget.health_status.toLowerCase()}`}>
+                      <i />
+                      {selectedTarget.health_status}
+                    </span>
+                    <button className="primary-button" onClick={() => void saveTarget(selectedTarget)} disabled={workspaceState === "saving"}>
+                      {workspaceState === "saving" ? "Saving" : "Save Target"}
+                    </button>
+                  </div>
                 </header>
 
                 <nav className="target-tabs" aria-label="Selected target setup sections">
@@ -4681,10 +4687,6 @@ export function App() {
                               <option key={status}>{status}</option>
                             ))}
                           </select>
-                        </label>
-                        <label className="setup-control">
-                          <span>Health</span>
-                          <input value={selectedTarget.health_status} readOnly />
                         </label>
                       </div>
                       {targetEnvironments.map((environment) => (
@@ -5099,40 +5101,36 @@ export function App() {
                 ) : null}
 
                 {activeTargetsView === "Output Routes" ? (
-                  <section className="panel jobs-panel">
+                  <section className="panel setup-panel output-routes-panel">
                     <PanelHeader icon={Workflow} title="Output Routes" detail="Target + environment + account + template" />
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Route</th>
-                          <th>Environment</th>
-                          <th>Destination Account</th>
-                          <th>Company</th>
-                          <th>Template</th>
-                          <th>Product ID</th>
-                          <th>Submit Profiles</th>
-                          <th>Status</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedTargetRoutes.map((route) => {
-                          const environment = targetEnvironments.find((candidate) => candidate.environment_id === route.environment_id);
-                          return (
-                            <tr key={route.output_route_id}>
-                              <td>
+                    <div className="output-route-stack">
+                      {selectedTargetRoutes.map((route) => {
+                        const environment = targetEnvironments.find((candidate) => candidate.environment_id === route.environment_id);
+                        return (
+                          <article className="output-route-card" key={route.output_route_id}>
+                            <div className="output-route-heading">
+                              <div>
                                 <strong>{route.name}</strong>
-                                <span className="cell-meta">{route.target_system}</span>
+                                <span>{route.target_system} · {route.destination_account_name || "No destination account"}</span>
+                              </div>
+                              <div className="output-route-chips">
+                                <span className={route.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                                  {route.status}
+                                </span>
+                                <span className="mini-pill mini-pill-neutral">{route.product_identifier_label}</span>
+                              </div>
+                            </div>
+
+                            <div className="output-route-grid">
+                              <label className="setup-control setup-control-wide">
+                                <span>Route Name</span>
                                 <input
-                                  className="route-lookup-input"
-                                  value={route.order_lookup_url ?? ""}
-                                  placeholder="Lift order lookup URL"
-                                  onChange={(event) =>
-                                    updateOutputRouteDraft(route.output_route_id, { order_lookup_url: event.target.value })
-                                  }
+                                  value={route.name}
+                                  onChange={(event) => updateOutputRouteDraft(route.output_route_id, { name: event.target.value })}
                                 />
-                              </td>
-                              <td>
+                              </label>
+                              <label className="setup-control">
+                                <span>Environment</span>
                                 <select
                                   value={route.environment_id}
                                   onChange={(event) => updateOutputRouteDraft(route.output_route_id, { environment_id: event.target.value })}
@@ -5143,18 +5141,33 @@ export function App() {
                                     </option>
                                   ))}
                                 </select>
-                                <span className="cell-meta">{environment?.endpoint_url || "Endpoint not configured"}</span>
-                              </td>
-                              <td>
+                              </label>
+                              <label className="setup-control">
+                                <span>Status</span>
+                                <select
+                                  value={route.status}
+                                  onChange={(event) =>
+                                    updateOutputRouteDraft(route.output_route_id, {
+                                      status: event.target.value as OutputRoute["status"]
+                                    })
+                                  }
+                                >
+                                  {["Active", "Draft", "Inactive"].map((status) => (
+                                    <option key={status}>{status}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label className="setup-control">
+                                <span>Destination Account</span>
                                 <input
                                   value={route.destination_account_name}
                                   onChange={(event) =>
                                     updateOutputRouteDraft(route.output_route_id, { destination_account_name: event.target.value })
                                   }
                                 />
-                                <span className="cell-meta">Destination account name</span>
-                              </td>
-                              <td>
+                              </label>
+                              <label className="setup-control">
+                                <span>Company ID</span>
                                 <input
                                   value={route.company_id ?? ""}
                                   onChange={(event) =>
@@ -5164,9 +5177,9 @@ export function App() {
                                     })
                                   }
                                 />
-                                <span className="cell-meta">Lift Company ID / account</span>
-                              </td>
-                              <td>
+                              </label>
+                              <label className="setup-control setup-control-wide">
+                                <span>Output Template</span>
                                 <select
                                   value={route.output_template_id}
                                   onChange={(event) => {
@@ -5185,50 +5198,53 @@ export function App() {
                                     </option>
                                   ))}
                                 </select>
-                              </td>
-                              <td>{route.product_identifier_label}</td>
-                              <td>
-                                {route.submit_profiles.map((profile) => (
-                                  <span
-                                    className={
-                                      profile.mode === "sandbox_customer"
-                                        ? "mini-pill mini-pill-warning"
-                                        : "mini-pill mini-pill-neutral"
-                                    }
-                                    key={profile.profile_id}
-                                  >
-                                    {profile.name}
-                                  </span>
-                                ))}
-                              </td>
-                              <td>
-                                <select
-                                  value={route.status}
+                              </label>
+                              <label className="setup-control setup-control-wide">
+                                <span>Lift Order Lookup URL</span>
+                                <input
+                                  value={route.order_lookup_url ?? ""}
+                                  placeholder="Optional endpoint for AS360/Lift order lookup"
                                   onChange={(event) =>
-                                    updateOutputRouteDraft(route.output_route_id, {
-                                      status: event.target.value as OutputRoute["status"]
-                                    })
+                                    updateOutputRouteDraft(route.output_route_id, { order_lookup_url: event.target.value })
                                   }
-                                >
-                                  {["Active", "Draft", "Inactive"].map((status) => (
-                                    <option key={status}>{status}</option>
+                                />
+                              </label>
+                            </div>
+
+                            <div className="output-route-footer">
+                              <div>
+                                <span>Endpoint</span>
+                                <strong>{environment?.endpoint_url || "Endpoint not configured"}</strong>
+                              </div>
+                              <div>
+                                <span>Submit Profiles</span>
+                                <div className="output-route-profile-list">
+                                  {route.submit_profiles.map((profile) => (
+                                    <span
+                                      className={
+                                        profile.mode === "sandbox_customer"
+                                          ? "mini-pill mini-pill-warning"
+                                          : "mini-pill mini-pill-neutral"
+                                      }
+                                      key={profile.profile_id}
+                                    >
+                                      {profile.name}
+                                    </span>
                                   ))}
-                                </select>
-                              </td>
-                              <td>
-                                <button
-                                  className="secondary-button table-inline-button"
-                                  onClick={() => void saveOutputRoute(route)}
-                                  disabled={workspaceState === "saving"}
-                                >
-                                  Save
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                                </div>
+                              </div>
+                              <button
+                                className="primary-button"
+                                onClick={() => void saveOutputRoute(route)}
+                                disabled={workspaceState === "saving"}
+                              >
+                                Save Route
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
                     {selectedTargetRoutes.length === 0 ? (
                       <p className="empty-state">No customer output routes currently point to this target.</p>
                     ) : null}

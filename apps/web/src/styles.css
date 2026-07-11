@@ -1180,11 +1180,15 @@ h1 {
 .mini-pill {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 24px;
   padding: 0 10px;
   border-radius: 999px;
   font-size: 11px;
   font-weight: 800;
+  line-height: 1;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 .mini-pill-success {
@@ -1416,6 +1420,72 @@ h1 {
   font-weight: 700;
 }
 
+.target-header-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.health-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.health-chip i {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 4px rgba(118, 128, 112, 0.13);
+}
+
+.health-chip-healthy {
+  color: var(--vornan-forest);
+  border-color: rgba(57, 82, 59, 0.18);
+  background: rgba(171, 198, 95, 0.18);
+}
+
+.health-chip-healthy i {
+  background: var(--vornan-lime);
+  box-shadow: 0 0 0 4px rgba(171, 198, 95, 0.22);
+}
+
+.health-chip-untested,
+.health-chip-warning {
+  color: #73540f;
+  border-color: rgba(168, 121, 33, 0.22);
+  background: rgba(168, 121, 33, 0.1);
+}
+
+.health-chip-untested i,
+.health-chip-warning i {
+  background: var(--warning);
+  box-shadow: 0 0 0 4px rgba(168, 121, 33, 0.16);
+}
+
+.health-chip-error {
+  color: var(--danger);
+  border-color: rgba(177, 59, 51, 0.22);
+  background: rgba(177, 59, 51, 0.1);
+}
+
+.health-chip-error i {
+  background: var(--danger);
+  box-shadow: 0 0 0 4px rgba(177, 59, 51, 0.16);
+}
+
 .targets-overview-table {
   table-layout: fixed;
 }
@@ -1458,6 +1528,15 @@ h1 {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.target-card-heading > div {
+  min-width: 0;
+}
+
+.target-card-heading > .mini-pill {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
 .target-card-heading strong,
 .target-card-heading span {
   display: block;
@@ -1473,6 +1552,114 @@ h1 {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
+}
+
+.output-routes-panel {
+  overflow: hidden;
+}
+
+.output-route-stack {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.output-route-card {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.output-route-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.output-route-heading > div:first-child {
+  min-width: 0;
+}
+
+.output-route-heading strong,
+.output-route-heading span {
+  display: block;
+}
+
+.output-route-heading strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-family: "Plus Jakarta Sans", Inter, sans-serif;
+  font-size: 15px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.output-route-heading span:not(.mini-pill) {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.output-route-chips,
+.output-route-profile-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+.output-route-chips {
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+
+.output-route-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.output-route-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.8fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 16px;
+  background: rgba(243, 247, 241, 0.68);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.output-route-footer > div {
+  min-width: 0;
+}
+
+.output-route-footer span,
+.output-route-footer strong {
+  display: block;
+}
+
+.output-route-footer > div > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.output-route-footer strong {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .template-editor {
