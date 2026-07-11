@@ -29,7 +29,8 @@ import {
   Trash2,
   Upload,
   Users,
-  Workflow
+  Workflow,
+  X
 } from "lucide-react";
 import type { LiftCustomer, LiftCustomerDirectory } from "@pathfinder/customer-directory";
 import { validateCanonicalOrder, type CanonicalOrder, type ProcessingState, type ValidationMessage } from "@pathfinder/canonical";
@@ -1845,6 +1846,7 @@ export function App() {
   const [unitCatalogSearch, setUnitCatalogSearch] = useState("");
   const [unitCatalogState, setUnitCatalogState] = useState<"idle" | "loading" | "error">("idle");
   const [openTopbarMenu, setOpenTopbarMenu] = useState<"environment" | "notifications" | "actions" | null>(null);
+  const [openProductMapTool, setOpenProductMapTool] = useState<"preload" | "unit-library" | null>(null);
 
   async function loadCustomers(refresh = false) {
     setCustomerImportState("loading");
@@ -4447,7 +4449,23 @@ export function App() {
                 </section>
 
                 <section className="panel unit-map-panel">
-                  <PanelHeader icon={Database} title="Output Product Map" detail="Customer keys resolved per output route" />
+                  <div className="panel-header unit-map-panel-header">
+                    <div className="panel-title">
+                      <Database size={18} strokeWidth={2.2} />
+                      <h2>Output Product Map</h2>
+                    </div>
+                    <div className="unit-map-header-actions">
+                      <span>Customer keys resolved per output route</span>
+                      <button className="secondary-button" onClick={() => setOpenProductMapTool("unit-library")}>
+                        <Database size={15} />
+                        Unit Library
+                      </button>
+                      <button className="primary-button" onClick={() => setOpenProductMapTool("preload")}>
+                        <Upload size={15} />
+                        Preload List
+                      </button>
+                    </div>
+                  </div>
                   <div className="unit-map-toolbar">
                     <label className="unit-map-search">
                       <Search size={16} />
@@ -4514,7 +4532,15 @@ export function App() {
                     </div>
                   </div>
 
-                  <section className="product-preload-panel">
+                  {openProductMapTool === "preload" ? (
+                    <div className="product-map-modal-backdrop" role="presentation" onClick={() => setOpenProductMapTool(null)}>
+                      <section
+                        className="product-preload-panel product-map-modal product-map-modal-wide"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Preload Customer Product List"
+                        onClick={(event) => event.stopPropagation()}
+                      >
                     <div className="product-preload-header">
                       <div>
                         <strong>Preload Customer Product List</strong>
@@ -4526,6 +4552,9 @@ export function App() {
                         <span>{preloadPreviewRows.length} parsed</span>
                         <span>{preloadMappedCount} with {selectedOutputMapRoute.product_identifier_label}</span>
                         <span>{preloadDuplicateCount + preloadMissingCount} need review</span>
+                        <button className="modal-close-button" onClick={() => setOpenProductMapTool(null)} aria-label="Close preload product list">
+                          <X size={17} />
+                        </button>
                       </div>
                     </div>
 
@@ -4696,13 +4725,25 @@ export function App() {
                         ) : null}
                       </div>
                     ) : null}
-                  </section>
+                      </section>
+                    </div>
+                  ) : null}
 
-                  <section className="unit-catalog-panel">
+                  {openProductMapTool === "unit-library" ? (
+                    <div className="product-map-modal-backdrop" role="presentation" onClick={() => setOpenProductMapTool(null)}>
+                      <section
+                        className="unit-catalog-panel product-map-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Local Unit Number Library"
+                        onClick={(event) => event.stopPropagation()}
+                      >
                     <div className="unit-catalog-header">
                       <div>
                         <strong>Local Unit Number Library</strong>
-                        <span>Search manually maintained unit_numbers for company {selectedOutputMapRoute.company_id ?? "account"}.</span>
+                        <span>
+                          Manually maintained approved values for this route/account. Use this to fill bulk assignment or preload defaults.
+                        </span>
                       </div>
                       <label className="unit-map-search unit-catalog-search">
                         <Search size={16} />
@@ -4712,6 +4753,9 @@ export function App() {
                           onChange={(event) => setUnitCatalogSearch(event.target.value)}
                         />
                       </label>
+                      <button className="modal-close-button" onClick={() => setOpenProductMapTool(null)} aria-label="Close local unit number library">
+                        <X size={17} />
+                      </button>
                     </div>
                     <div className="unit-catalog-results">
                       {liftUnitCatalog.map((item) => (
@@ -4747,7 +4791,9 @@ export function App() {
                     {unitCatalogState !== "loading" && liftUnitCatalog.length === 0 ? (
                       <p className="empty-state">No local unit numbers match this route and search.</p>
                     ) : null}
-                  </section>
+                      </section>
+                    </div>
+                  ) : null}
 
                   <div className="unit-map-bulkbar">
                     <div>

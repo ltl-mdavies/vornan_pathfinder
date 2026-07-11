@@ -564,7 +564,6 @@ Verification:
 
 - `npm run check`
 - `npm run build`
-- `npm run build`
 
 Known readiness note:
 
@@ -661,3 +660,21 @@ What changed:
 Verification:
 
 - `npm run check`
+- `npm run build`
+
+## 2026-07-11 - Output Product Map Declutter Pass
+
+Refocused the Output Product Map page around the core mapping rows and search workflow.
+
+What changed:
+
+- Moved **Preload Customer Product List** out of the default page flow into a modal launched from the product map header.
+- Moved **Local Unit Number Library** into a modal launched from the product map header.
+- Kept the unit library functional for filling bulk assignment values, assigning selected rows, and setting preload defaults.
+- Kept preload parsing, previewing, selection, and save behavior intact while removing it from the default mapping workspace.
+- Added compact header actions so the primary visible surface is now search/filter, route context, bulk assignment, and the product mapping table.
+
+Verification:
+
+- `npm run check`
+- `npm run build`
