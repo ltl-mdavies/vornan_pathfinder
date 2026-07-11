@@ -564,6 +564,7 @@ Verification:
 
 - `npm run check`
 - `npm run build`
+- `npm run build`
 
 Known readiness note:
 
@@ -643,3 +644,20 @@ Verification:
 Remaining known concern:
 
 - Output Template body rendering is still not the submit engine; Lift submit uses the generated Lift Standard Graphics payload. Confirm the generated payload remains aligned with the Lift integrator's mapped body before first live sandbox-lane submit.
+
+## 2026-07-11 - Customer Overview Header Controls
+
+Wired the customer overview header controls so the polished shell now performs useful workspace actions.
+
+What changed:
+
+- Renamed **Recent Processing Jobs** to **Recent Jobs** on the customer overview.
+- Routed **View all jobs** to the selected customer's Jobs tab.
+- Turned the header Environment control into a primary output-route environment selector.
+- Environment changes persist to the selected customer's primary route and prompt the operator to regenerate previews.
+- Added a workspace notifications popover with actionable items for product mapping gaps, failed jobs, submit gate blockers, missing endpoint setup, and workspace messages.
+- Added a customer Actions menu for Manual Import, Preview Job generation, Product Map, Import Methods, Customer Jobs, and Output Route management.
+
+Verification:
+
+- `npm run check`

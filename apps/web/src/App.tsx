@@ -1844,6 +1844,7 @@ export function App() {
   const [liftUnitCatalog, setLiftUnitCatalog] = useState<LiftUnitCatalogItem[]>([]);
   const [unitCatalogSearch, setUnitCatalogSearch] = useState("");
   const [unitCatalogState, setUnitCatalogState] = useState<"idle" | "loading" | "error">("idle");
+  const [openTopbarMenu, setOpenTopbarMenu] = useState<"environment" | "notifications" | "actions" | null>(null);
 
   async function loadCustomers(refresh = false) {
     setCustomerImportState("loading");
@@ -2440,11 +2441,120 @@ export function App() {
   const readyJobCount = customerJobs.filter((job) => job.state === "Ready" || job.state === "Completed").length;
   const failedJobCount = customerJobs.filter((job) => isFailureState(job.state)).length;
   const validationRate = customerJobs.length ? Math.round((readyJobCount / customerJobs.length) * 1000) / 10 : 0;
-  const notificationCount = failedJobCount + routeBlockingCount;
+  const notificationItems = [
+    ...(routeBlockingCount
+      ? [
+          {
+            title: `${routeBlockingCount} product mapping gap${routeBlockingCount === 1 ? "" : "s"}`,
+            detail: `Resolve ${activeOutputRoute.product_identifier_label} mappings before submit.`,
+            action: () => {
+              setActiveCustomerView("Output Product Map");
+              setOpenTopbarMenu(null);
+            }
+          }
+        ]
+      : []),
+    ...(failedJobCount
+      ? [
+          {
+            title: `${failedJobCount} job${failedJobCount === 1 ? "" : "s"} need review`,
+            detail: "Open customer jobs to inspect validation or submit failures.",
+            action: () => {
+              setActiveCustomerView("Jobs");
+              setOpenTopbarMenu(null);
+            }
+          }
+        ]
+      : []),
+    ...(submitCertificationBlockingCount
+      ? [
+          {
+            title: `${submitCertificationBlockingCount} submit gate${submitCertificationBlockingCount === 1 ? "" : "s"} blocked`,
+            detail: submitCertification.summary,
+            action: () => {
+              setActiveCustomerView(lastPreviewJob ? "Manual Import" : "Output Product Map");
+              setOpenTopbarMenu(null);
+            }
+          }
+        ]
+      : []),
+    ...(!primaryRouteEnvironment?.endpoint_url
+      ? [
+          {
+            title: "Primary environment endpoint missing",
+            detail: "Configure the target environment before external submit.",
+            action: () => {
+              setActiveGlobalView("Targets");
+              setSelectedTargetId(primaryOutputRoute.target_id);
+              setActiveTargetsView("Environments");
+              setOpenTopbarMenu(null);
+            }
+          }
+        ]
+      : []),
+    ...(workspaceMessage
+      ? [
+          {
+            title: workspaceState === "error" ? "Workspace error" : "Workspace note",
+            detail: workspaceMessage,
+            action: () => setOpenTopbarMenu(null)
+          }
+        ]
+      : [])
+  ];
+  const notificationCount = notificationItems.length;
   const activeTargetCount = targetRows.filter((target) => target.status === "Ready" || target.status === "Configured").length;
   const scheduledMethodCount = importMethods.filter(
     (method) => method.type === "Scheduled" || method.source === "REST API" || method.source === "SFTP" || method.source === "Google Sheet"
   ).length;
+
+  async function changePrimaryRouteEnvironment(environmentId: string) {
+    const environment = primaryRouteTarget?.environments.find((candidate) => candidate.environment_id === environmentId);
+    if (!environment) {
+      setWorkspaceMessage("Choose a valid target environment.");
+      setWorkspaceState("error");
+      return;
+    }
+
+    const nextRoute = {
+      ...primaryOutputRoute,
+      environment_id: environment.environment_id
+    };
+    setOpenTopbarMenu(null);
+    await saveOutputRoute(nextRoute);
+    setWorkspaceMessage(`Primary route environment set to ${environment.name}. Regenerate preview jobs to apply it.`);
+  }
+
+  function runHeaderAction(action: "manual-import" | "preview" | "product-map" | "import-methods" | "jobs" | "target") {
+    setOpenTopbarMenu(null);
+    setActiveGlobalView("Customers");
+
+    if (action === "manual-import") {
+      setActiveCustomerView("Manual Import");
+      return;
+    }
+    if (action === "preview") {
+      setActiveCustomerView("Manual Import");
+      void createPreviewJob();
+      return;
+    }
+    if (action === "product-map") {
+      setActiveCustomerView("Output Product Map");
+      return;
+    }
+    if (action === "import-methods") {
+      setActiveCustomerView("Import Methods");
+      return;
+    }
+    if (action === "jobs") {
+      setActiveCustomerView("Jobs");
+      return;
+    }
+
+    setActiveGlobalView("Targets");
+    setSelectedTargetId(primaryOutputRoute.target_id);
+    setActiveTargetsView("Output Routes");
+  }
 
   async function importWorkbook(file: File) {
     try {
@@ -3451,19 +3561,116 @@ export function App() {
                 </p>
               </div>
               <div className="topbar-actions">
-                <button className="environment-select">
-                  <span>Environment</span>
-                  <strong>{primaryRouteEnvironment?.name ?? primaryRouteTarget?.lift.active_environment ?? "QA1"}</strong>
-                  <ChevronDown size={16} />
-                </button>
-                <button className="notification-button" aria-label="Notifications">
-                  <Bell size={20} />
-                  <span>{notificationCount}</span>
-                </button>
-                <button className="primary-button actions-button">
-                  Actions
-                  <ChevronDown size={16} />
-                </button>
+                <div className="topbar-menu-wrap">
+                  <button
+                    className="environment-select"
+                    onClick={() => setOpenTopbarMenu(openTopbarMenu === "environment" ? null : "environment")}
+                    aria-expanded={openTopbarMenu === "environment"}
+                  >
+                    <span>Environment</span>
+                    <strong>{primaryRouteEnvironment?.name ?? primaryRouteTarget?.lift.active_environment ?? "QA1"}</strong>
+                    <ChevronDown size={16} />
+                  </button>
+                  {openTopbarMenu === "environment" ? (
+                    <div className="topbar-popover environment-popover">
+                      <strong>Primary Route Environment</strong>
+                      <p>{primaryOutputRoute.name}</p>
+                      <div className="topbar-menu-list">
+                        {(primaryRouteTarget?.environments ?? []).map((environment) => (
+                          <button
+                            key={environment.environment_id}
+                            className={environment.environment_id === primaryOutputRoute.environment_id ? "topbar-menu-item topbar-menu-item-active" : "topbar-menu-item"}
+                            onClick={() => void changePrimaryRouteEnvironment(environment.environment_id)}
+                          >
+                            <span>
+                              <strong>{environment.name}</strong>
+                              <small>{environment.role} · {environment.status}</small>
+                            </span>
+                            {environment.environment_id === primaryOutputRoute.environment_id ? <Check size={16} /> : null}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        className="topbar-popover-link"
+                        onClick={() => {
+                          setOpenTopbarMenu(null);
+                          setActiveGlobalView("Targets");
+                          setSelectedTargetId(primaryOutputRoute.target_id);
+                          setActiveTargetsView("Environments");
+                        }}
+                      >
+                        Manage environments
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="topbar-menu-wrap">
+                  <button
+                    className="notification-button"
+                    aria-label="Notifications"
+                    onClick={() => setOpenTopbarMenu(openTopbarMenu === "notifications" ? null : "notifications")}
+                    aria-expanded={openTopbarMenu === "notifications"}
+                  >
+                    <Bell size={20} />
+                    {notificationCount ? <span>{notificationCount}</span> : null}
+                  </button>
+                  {openTopbarMenu === "notifications" ? (
+                    <div className="topbar-popover notifications-popover">
+                      <strong>Workspace Notifications</strong>
+                      {notificationItems.length ? (
+                        <div className="topbar-menu-list">
+                          {notificationItems.map((item) => (
+                            <button className="topbar-menu-item" key={`${item.title}-${item.detail}`} onClick={item.action}>
+                              <span>
+                                <strong>{item.title}</strong>
+                                <small>{item.detail}</small>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p>No blocking workspace notifications.</p>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="topbar-menu-wrap">
+                  <button
+                    className="primary-button actions-button"
+                    onClick={() => setOpenTopbarMenu(openTopbarMenu === "actions" ? null : "actions")}
+                    aria-expanded={openTopbarMenu === "actions"}
+                  >
+                    Actions
+                    <ChevronDown size={16} />
+                  </button>
+                  {openTopbarMenu === "actions" ? (
+                    <div className="topbar-popover actions-popover">
+                      <strong>Customer Actions</strong>
+                      <div className="topbar-menu-list">
+                        <button className="topbar-menu-item" onClick={() => runHeaderAction("manual-import")}>
+                          <span><strong>Open Manual Import</strong><small>Upload, validate, and preview an order.</small></span>
+                        </button>
+                        <button className="topbar-menu-item" onClick={() => runHeaderAction("preview")}>
+                          <span><strong>Generate Preview Job</strong><small>Use the current manual import grid and mappings.</small></span>
+                        </button>
+                        <button className="topbar-menu-item" onClick={() => runHeaderAction("product-map")}>
+                          <span><strong>Resolve Product Map</strong><small>Assign customer keys to local unit numbers.</small></span>
+                        </button>
+                        <button className="topbar-menu-item" onClick={() => runHeaderAction("import-methods")}>
+                          <span><strong>Edit Import Methods</strong><small>Source, mapping, product resolution, and route.</small></span>
+                        </button>
+                        <button className="topbar-menu-item" onClick={() => runHeaderAction("jobs")}>
+                          <span><strong>View Customer Jobs</strong><small>Open persisted previews and submit attempts.</small></span>
+                        </button>
+                        <button className="topbar-menu-item" onClick={() => runHeaderAction("target")}>
+                          <span><strong>Manage Output Route</strong><small>Target, environment, template, and submit profiles.</small></span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </header>
 
@@ -3577,7 +3784,19 @@ export function App() {
                   </div>
 
                   <div className="panel jobs-panel">
-                    <PanelHeader icon={Archive} title="Recent Processing Jobs" detail="View all jobs →" />
+                    <div className="table-panel-header">
+                      <PanelHeader icon={Archive} title="Recent Jobs" detail="" />
+                      <button
+                        className="table-header-link"
+                        onClick={() => {
+                          setActiveGlobalView("Customers");
+                          setActiveCustomerView("Jobs");
+                        }}
+                      >
+                        View all jobs
+                        <ArrowGlyph />
+                      </button>
+                    </div>
                     <table>
                       <thead>
                         <tr>
