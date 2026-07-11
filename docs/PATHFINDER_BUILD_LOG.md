@@ -345,9 +345,40 @@ This is the living implementation record for Pathfinder. It tracks completed mil
 - Jobs tables and Job Detail now display the Lift order number when available.
 - Added `docs/LIFT_ORDER_LOOKUP_ENDPOINTS.md` to record the AS360 Orders, AS360 Proof Report, and Package Details endpoints, filters, returned data, and shared `ORDER_NUMBER` / `ORDER_LINE_ID` join model.
 
+### 21. July 11 Submit Path Audit
+
+- Audited the Manual Import path from uploaded/source grid data through preview, product resolution, submit certification, and guarded Lift submit.
+- Changed the submit profile fallback to prefer an enabled sandbox profile before a live customer profile.
+  - This makes `Sandbox · LTL Demo / 1249` the default for Monday's first real submit path.
+  - Live customer submits remain blocked unless explicitly enabled with `PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT=true`.
+- Local API smoke results:
+  - preview defaults to submit profile `Sandbox · LTL Demo`
+  - generated Lift payload uses `customer.lift_customer_id = 1249`
+  - `Ext_ID` header equals body `order.ext_id`
+  - `Company` header remains `91`
+  - passwords remain masked in API responses
+  - unmapped product keys keep preview state at `Needs Mapping`
+  - approved product keys allow preview state to reach `Ready`
+  - guarded submit refuses to call Lift until credentials, live transport mode, and the external submit gate are enabled
+- Documented the Monday test checklist in `docs/FIRST_LIFT_SANDBOX_SUBMIT_READINESS.md`.
+
 ## Current Verification
 
-Most recent verification for the Lift order number and lookup endpoint groundwork slice:
+Most recent verification for the July 11 submit path audit:
+
+- `npm run check` passed.
+- `npm run build` passed.
+- API smoke check passed:
+  - generated a preview job with the sandbox submit profile fallback
+  - confirmed submit customer and Lift payload customer `1249`
+  - confirmed `Ext_ID` header equals body `order.ext_id`
+  - confirmed Company header `91`
+  - confirmed password masking
+  - confirmed unresolved product mappings block submit readiness
+  - approved a generated Momentara product key and regenerated a `Ready` preview
+  - confirmed the guarded submit endpoint still blocks without credentials/live transport/feature gate
+
+Previous verification for the Lift order number and lookup endpoint groundwork slice:
 
 - `npm run check` passed.
 - `npm run build` passed.

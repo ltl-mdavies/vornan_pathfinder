@@ -1193,6 +1193,7 @@ function submitProfileForRoute(route: OutputRoute, profileId?: string | null) {
   const enabledProfiles = route.submit_profiles.filter((profile) => profile.enabled);
   return (
     enabledProfiles.find((profile) => profile.profile_id === profileId) ??
+    enabledProfiles.find((profile) => profile.mode === "sandbox_customer") ??
     enabledProfiles.find((profile) => profile.mode === "live_customer") ??
     route.submit_profiles[0] ??
     defaultOutputRoute.submit_profiles[0]
@@ -1854,7 +1855,7 @@ export function App() {
   const [selectedJobDetail, setSelectedJobDetail] = useState<ProcessingJobPreview | null>(null);
   const [selectedJobAttempts, setSelectedJobAttempts] = useState<SubmitAttempt[]>([]);
   const [jobDetailState, setJobDetailState] = useState<"idle" | "loading" | "error">("idle");
-  const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("live-customer");
+  const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("sandbox-ltl-demo-1249");
   const [productMappingDrafts, setProductMappingDrafts] = useState<Record<string, { unit: string; product: string }>>({});
   const [compositeColumnToAdd, setCompositeColumnToAdd] = useState("");
   const [productExampleTestValue, setProductExampleTestValue] = useState("");

@@ -316,6 +316,7 @@ function submitProfileForRoute(route: OutputRoute, requestedProfileId?: string):
   const enabledProfiles = route.submit_profiles.filter((profile) => profile.enabled);
   return (
     enabledProfiles.find((profile) => profile.profile_id === requestedProfileId) ??
+    enabledProfiles.find((profile) => profile.mode === "sandbox_customer") ??
     enabledProfiles.find((profile) => profile.mode === "live_customer") ??
     route.submit_profiles[0]
   );
