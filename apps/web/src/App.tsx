@@ -2683,6 +2683,45 @@ export function App() {
     });
   }
 
+  function removeTargetEnvironmentDraft(targetId: string, environmentId: string) {
+    updateTargetDraft(targetId, (target) => {
+      if (target.environments.length <= 1) {
+        setWorkspaceMessage("A target needs at least one environment.");
+        setWorkspaceState("error");
+        return target;
+      }
+
+      const environment = target.environments.find((candidate) => candidate.environment_id === environmentId);
+      if (environment?.name === target.lift.active_environment) {
+        setWorkspaceMessage("Choose a different active environment before removing this one.");
+        setWorkspaceState("error");
+        return target;
+      }
+
+      const nextEnvironments = target.environments.filter((candidate) => candidate.environment_id !== environmentId);
+      const fallbackEnvironmentId = nextEnvironments[0]?.environment_id;
+      setWorkspace((current) =>
+        current
+          ? {
+              ...current,
+              output_routes: current.output_routes.map((route) =>
+                route.target_id === targetId && route.environment_id === environmentId && fallbackEnvironmentId
+                  ? { ...route, environment_id: fallbackEnvironmentId }
+                  : route
+              )
+            }
+          : current
+      );
+      setWorkspaceMessage(`${environment?.name ?? "Environment"} removed from draft target setup. Save Target to persist.`);
+      setWorkspaceState("idle");
+
+      return {
+        ...target,
+        environments: nextEnvironments
+      };
+    });
+  }
+
   function updateOutputTemplateDraft(
     targetId: string,
     templateId: string,
@@ -4732,9 +4771,25 @@ export function App() {
                               <strong>{environment.name}</strong>
                               <span>{environment.role} · {environment.auth_method}</span>
                             </div>
-                            <span className={environment.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
-                              {environment.status}
-                            </span>
+                            <div className="target-card-actions">
+                              <span className={environment.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                                {environment.status}
+                              </span>
+                              <button
+                                className="icon-button-danger"
+                                title={
+                                  targetEnvironments.length <= 1
+                                    ? "A target needs at least one environment"
+                                    : environment.name === selectedTarget.lift.active_environment
+                                      ? "Choose a different active environment before removing this one"
+                                      : `Remove ${environment.name}`
+                                }
+                                onClick={() => removeTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id)}
+                                disabled={targetEnvironments.length <= 1 || environment.name === selectedTarget.lift.active_environment}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
                           </div>
                           <div className="setup-grid target-settings-grid">
                             <label className="setup-control">
