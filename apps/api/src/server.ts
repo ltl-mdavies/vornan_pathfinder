@@ -199,13 +199,17 @@ function buildMappingFromRow(
     display_label: buildDisplayLabel(row, config),
     source_columns: sourceColumns.filter(Boolean),
     product_identifier_type: route.product_identifier_type,
-    product_identifier_value: config.mode === "send_derived_unit" ? customerProductKey : null,
+    product_identifier_value:
+      config.mode === "send_derived_unit" || config.strategy === "direct_lift_unit_number" ? customerProductKey : null,
     lift_unit_number:
-      route.product_identifier_type === "lift_unit_number" && config.mode === "send_derived_unit"
+      route.product_identifier_type === "lift_unit_number" &&
+      (config.mode === "send_derived_unit" || config.strategy === "direct_lift_unit_number")
         ? customerProductKey
         : null,
     product_name: valueAsString(rowValue(row, "DESCRIPTION")) || valueAsString(rowValue(row, "SIGN TYPE")) || null,
-    status: (config.mode === "send_derived_unit" && customerProductKey ? "Mapped" : "Unmapped") as ProductMappingStatus,
+    status: ((config.mode === "send_derived_unit" || config.strategy === "direct_lift_unit_number") && customerProductKey
+      ? "Mapped"
+      : "Unmapped") as ProductMappingStatus,
     mapping_source: "Observed order",
     source_file_name: null,
     last_seen_examples: [
@@ -268,7 +272,13 @@ function resolveProducts(
     let resolvedUnitNumber = mapping.product_identifier_value ?? mapping.lift_unit_number;
     let message = `Resolved to approved ${route.product_identifier_label}.`;
 
-    if (config.mode === "send_derived_unit") {
+    if (config.strategy === "direct_lift_unit_number") {
+      resolvedUnitNumber = directUnitNumber;
+      status = resolvedUnitNumber ? "Mapped" : "Unmapped";
+      message = resolvedUnitNumber
+        ? `Using source value as ${route.product_identifier_label}.`
+        : "Source unit number is blank.";
+    } else if (config.mode === "send_derived_unit") {
       resolvedUnitNumber = directUnitNumber;
       status = resolvedUnitNumber ? "Mapped" : "Unmapped";
       message = resolvedUnitNumber
@@ -455,6 +465,21 @@ function validateSubmitReadiness(
     });
   }
 
+  if (
+    profile.mode === "sandbox_customer" &&
+    profile.customer_override?.lift_customer_id &&
+    payload.customer.lift_customer_id !== profile.customer_override.lift_customer_id
+  ) {
+    messages.push({
+      severity: "FAIL",
+      code: "SUBMIT-CUSTOMER-MISMATCH",
+      object: "submit.profile",
+      field: "customer.lift_customer_id",
+      message: "Lift payload customer does not match the selected sandbox submit profile.",
+      suggested_action: "Regenerate the preview after choosing the correct submit profile."
+    });
+  }
+
   messages.push({
     severity: "PASS",
     code: profile.mode === "sandbox_customer" ? "SUBMIT-SANDBOX" : "SUBMIT-CUSTOMER",
@@ -515,6 +540,7 @@ function buildSubmitCertification(args: {
 }): SubmitCertification {
   const canonicalFailures = args.canonicalValidation.filter((message) => message.severity === "FAIL");
   const liftFailures = args.liftValidation.filter((message) => message.severity === "FAIL");
+  const submitFailures = args.submitValidation.filter((message) => message.severity === "FAIL");
   const placeholderCredentialWarnings = args.submitValidation.filter((message) =>
     ["SUBMIT-USER", "SUBMIT-PASSWORD"].includes(message.code)
   );
@@ -546,6 +572,15 @@ function buildSubmitCertification(args: {
       "Lift payload has no blocking failures.",
       liftFailures[0]?.suggested_action,
       liftFailures.some((message) => message.code === "LIFT-UNIT") ? "product-map" : "manual-import"
+    ),
+    certificationItem(
+      "submit-readiness",
+      "Submit request validation",
+      submitFailures.length === 0,
+      `${submitFailures.length} submit request failure${submitFailures.length === 1 ? "" : "s"} must be resolved.`,
+      "Submit request has no blocking failures.",
+      submitFailures[0]?.suggested_action,
+      submitFailures.some((message) => message.code === "SUBMIT-CUSTOMER-MISMATCH") ? "manual-import" : "target-environments"
     ),
     certificationItem(
       "product-resolution",
@@ -941,9 +976,11 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     const workspace = await getOrCreateWorkspace(customer);
     const sourceGrid = (req.body?.source_grid ?? sampleSourceGrid) as SourceGrid;
     const sourceSheets = (req.body?.source_sheets ?? sourceSheetsFromGrid(sourceGrid)) as ParsedWorkbookSheet[];
-    const parsedOrderRows = ((req.body?.parsed_order_rows as ParsedSourceRow[] | undefined) ?? synthesizeParsedRows(sourceGrid)).filter(
-      (row) => row.row_type === "order"
-    );
+    const requestIncludedParsedRows = Array.isArray(req.body?.parsed_order_rows);
+    const parsedOrderRows = (requestIncludedParsedRows
+      ? ((req.body.parsed_order_rows as ParsedSourceRow[]) ?? [])
+      : synthesizeParsedRows(sourceGrid)
+    ).filter((row) => row.row_type === "order");
     const referenceRows = ((req.body?.reference_rows as ParsedSourceRow[] | undefined) ?? []) as ParsedSourceRow[];
     const sourceFileName = String(req.body?.source_file_name ?? "Sample workbook");
     const sheetName = req.body?.sheet_name ? String(req.body.sheet_name) : null;
@@ -970,7 +1007,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     }
     const submitProfile = submitProfileForRoute(outputRoute, req.body?.submit_profile_id ? String(req.body.submit_profile_id) : undefined);
     const submitCustomer = submitCustomerForProfile(customer, submitProfile);
-    const orderRows = parsedOrderRows.length ? parsedOrderRows : synthesizeParsedRows(sourceGrid);
+    const orderRows = parsedOrderRows.length || requestIncludedParsedRows ? parsedOrderRows : synthesizeParsedRows(sourceGrid);
     const mappingRows = orderRows.map((row) => row.values);
     const existingProductMappings = await listProductMappings(customer);
     const productResolutionResults = resolveProducts(
@@ -980,6 +1017,8 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       outputRoute
     );
     const timestamp = new Date().toISOString();
+    const jobId = `job_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}`;
+    const canonicalOrderId = `co_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}`;
     const seenMappings = productResolutionResults.map((result, index) => {
       const row = orderRows[index];
       const existing = existingProductMappings.find(
@@ -987,6 +1026,13 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
           mapping.output_route_id === outputRoute.output_route_id &&
           mapping.customer_product_key === result.customer_product_key
       );
+      const nextSeenExample = {
+        sheet_name: result.source_sheet_name,
+        row_number: result.source_row_number,
+        description: valueAsString(rowValue(row, "DESCRIPTION")) || null,
+        sign_type: valueAsString(rowValue(row, "SIGN TYPE")) || null,
+        media_type: valueAsString(rowValue(row, "Media Type")) || null
+      };
       return {
         ...(existing ?? buildMappingFromRow(row, method.product_resolution_config, timestamp, outputRoute)),
         output_route_id: outputRoute.output_route_id,
@@ -1001,14 +1047,12 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
             : existing?.lift_unit_number ?? null,
         product_name: result.product_name,
         last_seen_examples: [
-          {
-            sheet_name: result.source_sheet_name,
-            row_number: result.source_row_number,
-            description: valueAsString(rowValue(row, "DESCRIPTION")) || null,
-            sign_type: valueAsString(rowValue(row, "SIGN TYPE")) || null,
-            media_type: valueAsString(rowValue(row, "Media Type")) || null
-          }
-        ],
+          nextSeenExample,
+          ...(existing?.last_seen_examples ?? []).filter(
+            (example) =>
+              example.sheet_name !== nextSeenExample.sheet_name || example.row_number !== nextSeenExample.row_number
+          )
+        ].slice(0, 8),
         updated_at: timestamp
       } satisfies CustomerProductMapping;
     });
@@ -1019,7 +1063,10 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
         productResolutionResults.some((result) => result.customer_product_key === mapping.customer_product_key) &&
         mapping.status !== "Mapped"
     );
-    const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig;
+    const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
+    if (!target) {
+      throw new Error(`Output route target ${outputRoute.target_id} could not be found.`);
+    }
     const canonicalOrder = mapSourceRowsToCanonicalOrder(mappingRows, mappings, {
       customerId: `lift:${customer.lift_customer_id}`,
       customerName: submitCustomer.customer_name,
@@ -1036,7 +1083,10 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       customer_sku: productResolutionResults[index]?.customer_product_key ?? line.customer_sku
     }));
     const canonicalValidation = validateCanonicalOrder(canonicalOrder);
-    const liftPayload = generateLiftPayload(canonicalOrder);
+    const liftPayload = generateLiftPayload(canonicalOrder, {
+      jobId,
+      canonicalOrderId
+    });
     const liftValidation = validateLiftPayload(liftPayload);
     const routeLiftConfig = liftConfigForRoute(target, outputRoute);
     const routeEnvironment = routeEnvironmentForTarget(target, outputRoute);
@@ -1062,7 +1112,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       environment: routeEnvironment
     });
     const job: ProcessingJobPreview = {
-      job_id: `job_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}`,
+      job_id: jobId,
       customer_id: customer.lift_customer_id,
       customer_name: customer.customer_name,
       source_customer_id: customer.lift_customer_id,

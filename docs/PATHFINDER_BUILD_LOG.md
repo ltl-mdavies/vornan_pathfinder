@@ -620,3 +620,26 @@ Verification:
 Next useful enhancement:
 
 - Replace or augment the local catalog seed with a Lift-backed unit/product endpoint once available.
+
+## 2026-07-11 - Manual Import To Submit Plumbing Audit
+
+Audited the path from Manual Import through product resolution, route-scoped product mapping, Canonical Order, Lift payload generation, submit request construction, and submit certification.
+
+Fixes made:
+
+- Workbook previews now respect parser output when no valid order rows are detected. If the workbook parser sends an empty `parsed_order_rows` array, the API no longer falls back to treating all grid rows as order rows.
+- Lift payload generation now receives the real persisted `job_id` and canonical order id instead of defaulting to `job_preview` / `co_preview`.
+- `direct_lift_unit_number` product resolution now uses the source value directly as the route product identifier instead of requiring an unnecessary product-map approval.
+- Product map observation history now preserves existing examples and prepends the newest seen order row, instead of replacing preload/manual history.
+- Submit certification now includes a generic submit request validation gate.
+- Sandbox submit certification now blocks if the current sandbox submit profile customer does not match the customer in the stored Lift payload.
+- Operator-facing copy now describes the unit picker as a local unit-number library rather than implying a live Lift-verified catalog.
+
+Verification:
+
+- `npm run check`
+- `npm run build`
+
+Remaining known concern:
+
+- Output Template body rendering is still not the submit engine; Lift submit uses the generated Lift Standard Graphics payload. Confirm the generated payload remains aligned with the Lift integrator's mapped body before first live sandbox-lane submit.

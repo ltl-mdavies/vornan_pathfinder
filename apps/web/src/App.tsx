@@ -1927,7 +1927,7 @@ export function App() {
       setLiftUnitCatalog(payload.units);
       setUnitCatalogState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Lift unit catalog load failed.");
+      setWorkspaceMessage(error instanceof Error ? error.message : "Local unit number library load failed.");
       setUnitCatalogState("error");
     }
   }
@@ -4482,8 +4482,8 @@ export function App() {
                   <section className="unit-catalog-panel">
                     <div className="unit-catalog-header">
                       <div>
-                        <strong>Approved Lift Unit Catalog</strong>
-                        <span>Search approved Lift unit_numbers for company {selectedOutputMapRoute.company_id ?? "account"}.</span>
+                        <strong>Local Unit Number Library</strong>
+                        <span>Search manually maintained unit_numbers for company {selectedOutputMapRoute.company_id ?? "account"}.</span>
                       </div>
                       <label className="unit-map-search unit-catalog-search">
                         <Search size={16} />
@@ -4523,10 +4523,10 @@ export function App() {
                       ))}
                     </div>
                     {unitCatalogState === "loading" ? (
-                      <p className="empty-state">Loading approved Lift units...</p>
+                      <p className="empty-state">Loading local unit numbers...</p>
                     ) : null}
                     {unitCatalogState !== "loading" && liftUnitCatalog.length === 0 ? (
-                      <p className="empty-state">No approved Lift units match this route and search.</p>
+                      <p className="empty-state">No local unit numbers match this route and search.</p>
                     ) : null}
                   </section>
 
