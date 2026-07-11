@@ -205,6 +205,8 @@ function buildMappingFromRow(
         : null,
     product_name: valueAsString(rowValue(row, "DESCRIPTION")) || valueAsString(rowValue(row, "SIGN TYPE")) || null,
     status: (config.mode === "send_derived_unit" && customerProductKey ? "Mapped" : "Unmapped") as ProductMappingStatus,
+    mapping_source: "Observed order",
+    source_file_name: null,
     last_seen_examples: [
       {
         sheet_name: row.sheet_name,

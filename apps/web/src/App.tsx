@@ -63,6 +63,7 @@ type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Cli
 type ProductResolverStrategy = "derived_key" | "composite_key" | "direct_lift_unit_number";
 type ProductResolutionMode = "map_to_lift_unit" | "send_derived_unit";
 type ProductMappingStatus = "Mapped" | "Unmapped" | "Ambiguous" | "Inactive";
+type ProductMappingSource = "Observed order" | "Preloaded catalog" | "Manual entry";
 type OutputProductIdentifierType = "lift_unit_number" | "sku" | "variant_id" | "catalog_item_id" | "custom";
 type TargetType = "ERP" | "Ecommerce" | "Print Factory" | "SFTP" | "Webhook" | "Custom";
 type TargetEnvironmentRole = "PROD" | "QA" | "DEV" | "Sandbox" | "Custom";
@@ -107,6 +108,8 @@ interface CustomerProductMapping {
   lift_unit_number: string | null;
   product_name: string | null;
   status: ProductMappingStatus;
+  mapping_source?: ProductMappingSource;
+  source_file_name?: string | null;
   last_seen_examples: Array<{
     sheet_name: string;
     row_number: number;
@@ -1672,8 +1675,107 @@ function productMappingStatusClass(status: ProductMappingStatus) {
   return "mini-pill mini-pill-danger";
 }
 
+interface ProductMapPreloadRow {
+  row_id: string;
+  row_number: number;
+  source_value: string;
+  customer_product_key: string;
+  display_label: string;
+  product_identifier_value: string;
+  product_name: string;
+  source_columns: string[];
+  status: ProductMappingStatus;
+  action: "New" | "Update" | "Duplicate" | "Missing key";
+  existing_mapping?: CustomerProductMapping;
+  values: Record<string, string>;
+}
+
+function splitDelimitedLine(line: string, delimiter: string) {
+  const cells: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    const nextCharacter = line[index + 1];
+
+    if (character === "\"" && inQuotes && nextCharacter === "\"") {
+      cell += "\"";
+      index += 1;
+      continue;
+    }
+
+    if (character === "\"") {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (character === delimiter && !inQuotes) {
+      cells.push(cell.trim());
+      cell = "";
+      continue;
+    }
+
+    cell += character;
+  }
+
+  cells.push(cell.trim());
+  return cells;
+}
+
+function detectDelimiter(text: string) {
+  const firstLine = text.split(/\r?\n/).find((line) => line.trim()) ?? "";
+  const candidates = ["\t", ",", ";", "|"];
+  return candidates
+    .map((delimiter) => ({ delimiter, count: splitDelimitedLine(firstLine, delimiter).length }))
+    .sort((first, second) => second.count - first.count)[0]?.delimiter ?? "\t";
+}
+
+function parseDelimitedProductList(text: string): SourceGrid {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    return { columns: [], rows: [] };
+  }
+
+  const delimiter = detectDelimiter(text);
+  const columns = splitDelimitedLine(lines[0], delimiter).map((column, index) => column || `Column ${index + 1}`);
+  const rows = lines.slice(1).map((line) => {
+    const cells = splitDelimitedLine(line, delimiter);
+    return Object.fromEntries(columns.map((column, index) => [column, cells[index] ?? ""]));
+  });
+
+  return { columns, rows };
+}
+
+function productKeyFromCatalogRow(
+  row: Record<string, string>,
+  config: ProductResolutionConfig,
+  sourceColumn: string,
+  compositeColumns: string[]
+) {
+  if (config.strategy === "direct_lift_unit_number") {
+    return valueAsString(row[sourceColumn]);
+  }
+
+  if (config.strategy === "composite_key") {
+    return normalizeProductKey(compositeColumns.map((column) => valueAsString(row[column])).filter(Boolean).join("__"));
+  }
+
+  const sourceKey = normalizeProductKey(valueAsString(row[sourceColumn]));
+  return sourceKey ? `${config.prefix ?? ""}${sourceKey}${config.suffix ?? ""}` : "";
+}
+
+function productMappingSourceLabel(mapping: CustomerProductMapping) {
+  return mapping.mapping_source ?? (mapping.last_seen_examples.length ? "Observed order" : "Manual entry");
+}
+
 export function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const productPreloadFileRef = useRef<HTMLInputElement>(null);
   const [activeGlobalView, setActiveGlobalView] = useState<GlobalView>("Customers");
   const [activeCustomerView, setActiveCustomerView] = useState<CustomerView>("Overview");
   const [sourceGrid, setSourceGrid] = useState<SourceGrid>(sampleSourceGrid);
@@ -1719,6 +1821,14 @@ export function App() {
   const [selectedUnitMapIds, setSelectedUnitMapIds] = useState<string[]>([]);
   const [bulkUnitNumber, setBulkUnitNumber] = useState("");
   const [bulkProductName, setBulkProductName] = useState("");
+  const [preloadText, setPreloadText] = useState("");
+  const [preloadSourceName, setPreloadSourceName] = useState("Customer product list");
+  const [preloadGrid, setPreloadGrid] = useState<SourceGrid>({ columns: [], rows: [] });
+  const [preloadSourceColumn, setPreloadSourceColumn] = useState("");
+  const [preloadProductNameColumn, setPreloadProductNameColumn] = useState("");
+  const [preloadUnitColumn, setPreloadUnitColumn] = useState("");
+  const [preloadDefaultUnit, setPreloadDefaultUnit] = useState("");
+  const [preloadSelectedIds, setPreloadSelectedIds] = useState<string[]>([]);
 
   async function loadCustomers(refresh = false) {
     setCustomerImportState("loading");
@@ -2080,6 +2190,11 @@ export function App() {
     ) ??
     selectedOutputMapTarget?.output_templates.find((template) => template.name === selectedOutputMapRoute.output_template) ??
     null;
+  const selectedOutputMapMethod =
+    importMethods.find((method) => method.output_route_id === selectedOutputMapRouteId && method.status !== "Archived") ??
+    activeImportMethod;
+  const selectedOutputMapProductConfig =
+    selectedOutputMapMethod?.product_resolution_config ?? activeProductConfig;
   const productMappings = workspace?.product_mappings ?? [];
   const filteredProductMappings = useMemo(() => {
     const query = unitMapSearch.trim().toLowerCase();
@@ -2096,6 +2211,8 @@ export function App() {
           mapping.product_identifier_value ?? "",
           mapping.lift_unit_number ?? "",
           mapping.product_name ?? "",
+          productMappingSourceLabel(mapping),
+          mapping.source_file_name ?? "",
           mapping.source_columns.join(" ")
         ]
           .join(" ")
@@ -2125,6 +2242,76 @@ export function App() {
     (mapping) => mapping.status === "Unmapped" || mapping.status === "Ambiguous"
   ).length;
   const routeSeenExampleCount = routeProductMappings.reduce((total, mapping) => total + productMappingSeenCount(mapping), 0);
+  const routePreloadedCount = routeProductMappings.filter((mapping) => productMappingSourceLabel(mapping) === "Preloaded catalog").length;
+  const preloadColumns = preloadGrid.columns;
+  const preloadSourceColumnOptions = preloadColumns.length ? preloadColumns : sourceGrid.columns;
+  const effectivePreloadSourceColumn =
+    preloadSourceColumn ||
+    (preloadSourceColumnOptions.includes(selectedOutputMapProductConfig.source_column)
+      ? selectedOutputMapProductConfig.source_column
+      : preloadSourceColumnOptions[0] ?? "");
+  const effectivePreloadCompositeColumns = selectedOutputMapProductConfig.composite_columns.filter((column) =>
+    preloadSourceColumnOptions.includes(column)
+  );
+  const preloadPreviewRows = useMemo<ProductMapPreloadRow[]>(() => {
+    const seenKeys = new Set<string>();
+    return preloadGrid.rows.map((row, index) => {
+      const key = productKeyFromCatalogRow(
+        row as Record<string, string>,
+        selectedOutputMapProductConfig,
+        effectivePreloadSourceColumn,
+        effectivePreloadCompositeColumns.length ? effectivePreloadCompositeColumns : selectedOutputMapProductConfig.composite_columns
+      );
+      const existing = routeProductMappings.find((mapping) => mapping.customer_product_key === key);
+      const duplicate = key ? seenKeys.has(key) : false;
+      if (key) {
+        seenKeys.add(key);
+      }
+      const unitValue = valueAsString(row[preloadUnitColumn]) || preloadDefaultUnit.trim();
+      const productName =
+        valueAsString(row[preloadProductNameColumn]) ||
+        valueAsString(row.DESCRIPTION) ||
+        valueAsString(row.Description) ||
+        valueAsString(row["Product Name"]) ||
+        valueAsString(row[effectivePreloadSourceColumn]);
+      const status: ProductMappingStatus = unitValue ? "Mapped" : "Unmapped";
+
+      return {
+        row_id: `${index + 2}-${key || "missing"}`,
+        row_number: index + 2,
+        source_value:
+          selectedOutputMapProductConfig.strategy === "composite_key"
+            ? selectedOutputMapProductConfig.composite_columns.map((column) => valueAsString(row[column])).filter(Boolean).join(" / ")
+            : valueAsString(row[effectivePreloadSourceColumn]),
+        customer_product_key: key,
+        display_label: productName || key || `Catalog row ${index + 2}`,
+        product_identifier_value: unitValue,
+        product_name: productName,
+        source_columns:
+          selectedOutputMapProductConfig.strategy === "composite_key"
+            ? selectedOutputMapProductConfig.composite_columns
+            : [effectivePreloadSourceColumn].filter(Boolean),
+        status,
+        action: !key ? "Missing key" : duplicate ? "Duplicate" : existing ? "Update" : "New",
+        existing_mapping: existing,
+        values: row as Record<string, string>
+      };
+    });
+  }, [
+    effectivePreloadCompositeColumns,
+    effectivePreloadSourceColumn,
+    preloadDefaultUnit,
+    preloadGrid.rows,
+    preloadProductNameColumn,
+    preloadUnitColumn,
+    routeProductMappings,
+    selectedOutputMapProductConfig
+  ]);
+  const validPreloadRows = preloadPreviewRows.filter((row) => row.customer_product_key && row.action !== "Duplicate");
+  const selectedPreloadRows = preloadPreviewRows.filter((row) => preloadSelectedIds.includes(row.row_id));
+  const preloadMappedCount = preloadPreviewRows.filter((row) => row.status === "Mapped").length;
+  const preloadDuplicateCount = preloadPreviewRows.filter((row) => row.action === "Duplicate").length;
+  const preloadMissingCount = preloadPreviewRows.filter((row) => row.action === "Missing key").length;
   const productResolutionExample = buildProductResolutionExample(
     activeProductConfig,
     sourceGrid.rows,
@@ -2349,7 +2536,21 @@ export function App() {
             product_identifier_value: currentUnit.trim(),
             lift_unit_number: mappingRoute.product_identifier_type === "lift_unit_number" ? currentUnit.trim() : null,
             product_name: currentProduct.trim() || mapping.display_label,
-            status: "Mapped"
+            status: "Mapped",
+            mapping_source: "mapping_id" in mapping ? mapping.mapping_source ?? "Manual entry" : "Observed order",
+            source_file_name: "mapping_id" in mapping ? mapping.source_file_name ?? null : sourceName,
+            last_seen_examples:
+              "mapping_id" in mapping
+                ? mapping.last_seen_examples
+                : [
+                    {
+                      sheet_name: mapping.source_sheet_name,
+                      row_number: mapping.source_row_number,
+                      description: mapping.display_label,
+                      sign_type: mapping.customer_product_key,
+                      media_type: null
+                    }
+                  ]
           })
         }
       );
@@ -2543,6 +2744,135 @@ export function App() {
       },
       `${selectedUnitMappings.length} customer key${selectedUnitMappings.length === 1 ? "" : "s"} mapped to ${bulkUnitNumber.trim()}.`
     );
+  }
+
+  function parsePreloadProductList() {
+    const parsed = parseDelimitedProductList(preloadText);
+    if (!parsed.columns.length || !parsed.rows.length) {
+      setWorkspaceMessage("Paste a product list with a header row and at least one product row.");
+      return;
+    }
+
+    const defaultSourceColumn = parsed.columns.includes(selectedOutputMapProductConfig.source_column)
+      ? selectedOutputMapProductConfig.source_column
+      : parsed.columns[0];
+    const guessedProductColumn =
+      parsed.columns.find((column) => /product|description|label|name/i.test(column)) ?? "";
+    const guessedUnitColumn =
+      parsed.columns.find((column) => /unit|lift|sku|identifier/i.test(column)) ?? "";
+
+    setPreloadGrid(parsed);
+    setPreloadSourceColumn(defaultSourceColumn);
+    setPreloadProductNameColumn(guessedProductColumn);
+    setPreloadUnitColumn(guessedUnitColumn === defaultSourceColumn ? "" : guessedUnitColumn);
+    setPreloadSelectedIds([]);
+    setWorkspaceMessage(`${parsed.rows.length} customer product row${parsed.rows.length === 1 ? "" : "s"} parsed for review.`);
+  }
+
+  async function importPreloadCatalogFile(file: File) {
+    try {
+      const parsed = parseWorkbookArrayBuffer(await file.arrayBuffer());
+      const grid = { columns: parsed.columns, rows: parsed.rows };
+      const defaultSourceColumn = grid.columns.includes(selectedOutputMapProductConfig.source_column)
+        ? selectedOutputMapProductConfig.source_column
+        : grid.columns[0] ?? "";
+      const guessedProductColumn =
+        grid.columns.find((column) => /product|description|label|name/i.test(column)) ?? "";
+      const guessedUnitColumn =
+        grid.columns.find((column) => /unit|lift|sku|identifier/i.test(column)) ?? "";
+
+      setPreloadGrid(grid);
+      setPreloadSourceName(file.name);
+      setPreloadSourceColumn(defaultSourceColumn);
+      setPreloadProductNameColumn(guessedProductColumn);
+      setPreloadUnitColumn(guessedUnitColumn === defaultSourceColumn ? "" : guessedUnitColumn);
+      setPreloadSelectedIds([]);
+      setWorkspaceMessage(`${grid.rows.length} product row${grid.rows.length === 1 ? "" : "s"} loaded from ${file.name}.`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Product list upload failed.");
+    }
+  }
+
+  function togglePreloadRow(rowId: string) {
+    setPreloadSelectedIds((current) =>
+      current.includes(rowId) ? current.filter((id) => id !== rowId) : [...current, rowId]
+    );
+  }
+
+  function toggleAllPreloadRows() {
+    const validIds = validPreloadRows.map((row) => row.row_id);
+    const allSelected = validIds.length > 0 && validIds.every((id) => preloadSelectedIds.includes(id));
+    setPreloadSelectedIds((current) =>
+      allSelected ? current.filter((id) => !validIds.includes(id)) : Array.from(new Set([...current, ...validIds]))
+    );
+  }
+
+  async function savePreloadedProductMappings(scope: "selected" | "all") {
+    const rowsToSave = scope === "selected" ? selectedPreloadRows : validPreloadRows;
+    const saveableRows = rowsToSave.filter((row) => row.customer_product_key && row.action !== "Duplicate");
+
+    if (!saveableRows.length) {
+      setWorkspaceMessage("No valid preloaded product rows are ready to save.");
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/product-mappings/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          product_mappings: saveableRows.map((row) => {
+            const productIdentifierValue =
+              row.product_identifier_value || row.existing_mapping?.product_identifier_value || null;
+            const liftUnitNumber =
+              selectedOutputMapRoute.product_identifier_type === "lift_unit_number"
+                ? row.product_identifier_value || row.existing_mapping?.lift_unit_number || null
+                : row.existing_mapping?.lift_unit_number ?? null;
+            const productName = row.product_name || row.existing_mapping?.product_name || row.display_label;
+
+            return {
+              ...(row.existing_mapping ?? {}),
+              mapping_id: row.existing_mapping?.mapping_id ?? mappingIdFromKey(row.customer_product_key),
+              output_route_id: selectedOutputMapRoute.output_route_id,
+              target_id: selectedOutputMapRoute.target_id,
+              target_template: selectedOutputMapRoute.output_template,
+              customer_product_key: row.customer_product_key,
+              display_label: row.display_label,
+              source_columns: row.source_columns,
+              product_identifier_type: selectedOutputMapRoute.product_identifier_type,
+              product_identifier_value: productIdentifierValue,
+              lift_unit_number: liftUnitNumber,
+              product_name: productName,
+              status: productIdentifierValue || liftUnitNumber ? "Mapped" : "Unmapped",
+              mapping_source: "Preloaded catalog",
+              source_file_name: preloadSourceName.trim() || "Customer product list",
+              last_seen_examples: row.existing_mapping?.last_seen_examples?.length
+                ? row.existing_mapping.last_seen_examples
+                : [
+                    {
+                      sheet_name: preloadSourceName.trim() || "Preloaded catalog",
+                      row_number: row.row_number,
+                      description: row.product_name || row.display_label,
+                      sign_type: row.source_value || null,
+                      media_type: null
+                    }
+                  ]
+            };
+          })
+        })
+      });
+      const payload = await readJsonResponse<{ product_mappings: CustomerProductMapping[] }>(response);
+      setWorkspace((current) => (current ? { ...current, product_mappings: payload.product_mappings } : current));
+      setPreloadSelectedIds([]);
+      setWorkspaceMessage(
+        `${saveableRows.length} preloaded product key${saveableRows.length === 1 ? "" : "s"} saved to ${selectedOutputMapRoute.name}.`
+      );
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Preloaded product map save failed.");
+      setWorkspaceState("error");
+    }
   }
 
   function createDraftImportMethod() {
@@ -3802,7 +4132,7 @@ export function App() {
                       label: "Mapped Keys",
                       trend: routeBlockingCount
                         ? `${routeBlockingCount} need ${selectedOutputMapRoute.product_identifier_label}`
-                        : `${routeSeenExampleCount} seen example${routeSeenExampleCount === 1 ? "" : "s"}`,
+                        : `${routePreloadedCount} preloaded · ${routeSeenExampleCount} seen`,
                       intent: routeBlockingCount ? "bad" : "good",
                       icon: routeBlockingCount ? AlertTriangle : CheckCircle2
                     }
@@ -3888,6 +4218,190 @@ export function App() {
                     </div>
                   </div>
 
+                  <section className="product-preload-panel">
+                    <div className="product-preload-header">
+                      <div>
+                        <strong>Preload Customer Product List</strong>
+                        <span>
+                          Front-load expected customer values into this route's product map before an order arrives.
+                        </span>
+                      </div>
+                      <div className="product-preload-stats">
+                        <span>{preloadPreviewRows.length} parsed</span>
+                        <span>{preloadMappedCount} with {selectedOutputMapRoute.product_identifier_label}</span>
+                        <span>{preloadDuplicateCount + preloadMissingCount} need review</span>
+                      </div>
+                    </div>
+
+                    <div className="product-preload-grid">
+                      <label className="setup-control product-preload-source">
+                        <span>Paste Product List</span>
+                        <textarea
+                          value={preloadText}
+                          placeholder={"SIGN TYPE\tDESCRIPTION\tLift unit_number\n2 Sheet Poster\t2 Sheet Poster\t2SHEET_46x60_48PT"}
+                          onChange={(event) => setPreloadText(event.target.value)}
+                        />
+                      </label>
+                      <div className="product-preload-controls">
+                        <label className="setup-control">
+                          <span>Source Name</span>
+                          <input
+                            value={preloadSourceName}
+                            onChange={(event) => setPreloadSourceName(event.target.value)}
+                          />
+                        </label>
+                        <label className="setup-control">
+                          <span>Key Source Column</span>
+                          <select
+                            value={effectivePreloadSourceColumn}
+                            onChange={(event) => setPreloadSourceColumn(event.target.value)}
+                          >
+                            {preloadSourceColumnOptions.map((column) => (
+                              <option key={column} value={column}>
+                                {column}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Product Name Column</span>
+                          <select
+                            value={preloadProductNameColumn}
+                            onChange={(event) => setPreloadProductNameColumn(event.target.value)}
+                          >
+                            <option value="">Use generated label</option>
+                            {preloadColumns.map((column) => (
+                              <option key={column} value={column}>
+                                {column}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>{selectedOutputMapRoute.product_identifier_label} Column</span>
+                          <select
+                            value={preloadUnitColumn}
+                            onChange={(event) => setPreloadUnitColumn(event.target.value)}
+                          >
+                            <option value="">No column</option>
+                            {preloadColumns.map((column) => (
+                              <option key={column} value={column}>
+                                {column}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Default Identifier</span>
+                          <input
+                            value={preloadDefaultUnit}
+                            placeholder="Optional bulk value"
+                            onChange={(event) => setPreloadDefaultUnit(event.target.value)}
+                          />
+                        </label>
+                        <div className="product-preload-actions">
+                          <input
+                            ref={productPreloadFileRef}
+                            type="file"
+                            accept=".xlsx,.xls,.csv"
+                            hidden
+                            onChange={(event) => {
+                              const [file] = Array.from(event.target.files ?? []);
+                              if (file) {
+                                void importPreloadCatalogFile(file);
+                              }
+                              event.target.value = "";
+                            }}
+                          />
+                          <button className="secondary-button" onClick={() => productPreloadFileRef.current?.click()}>
+                            <Upload size={15} />
+                            Upload List
+                          </button>
+                          <button className="secondary-button" onClick={parsePreloadProductList}>
+                            <FileSpreadsheet size={15} />
+                            Preview List
+                          </button>
+                          <button
+                            className="primary-button"
+                            onClick={() => void savePreloadedProductMappings(preloadSelectedIds.length ? "selected" : "all")}
+                            disabled={workspaceState === "saving" || validPreloadRows.length === 0}
+                          >
+                            <Upload size={15} />
+                            Save {preloadSelectedIds.length ? `${preloadSelectedIds.length} Selected` : "Valid Rows"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {preloadPreviewRows.length ? (
+                      <div className="product-preload-preview">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    validPreloadRows.length > 0 &&
+                                    validPreloadRows.every((row) => preloadSelectedIds.includes(row.row_id))
+                                  }
+                                  onChange={toggleAllPreloadRows}
+                                  aria-label="Select all valid preloaded product rows"
+                                />
+                              </th>
+                              <th>Action</th>
+                              <th>Customer Value</th>
+                              <th>Generated Key</th>
+                              <th>{selectedOutputMapRoute.product_identifier_label}</th>
+                              <th>Product</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {preloadPreviewRows.slice(0, 12).map((row) => (
+                              <tr key={row.row_id}>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    checked={preloadSelectedIds.includes(row.row_id)}
+                                    disabled={!row.customer_product_key || row.action === "Duplicate"}
+                                    onChange={() => togglePreloadRow(row.row_id)}
+                                    aria-label={`Select preloaded row ${row.row_number}`}
+                                  />
+                                </td>
+                                <td>
+                                  <span
+                                    className={
+                                      row.action === "New"
+                                        ? "mini-pill mini-pill-success"
+                                        : row.action === "Update"
+                                          ? "mini-pill mini-pill-neutral"
+                                          : "mini-pill mini-pill-warning"
+                                    }
+                                  >
+                                    {row.action}
+                                  </span>
+                                </td>
+                                <td>
+                                  <strong>{row.source_value || "Blank"}</strong>
+                                  <span className="cell-meta">Row {row.row_number}</span>
+                                </td>
+                                <td>
+                                  <strong>{row.customer_product_key || "No key generated"}</strong>
+                                  <span className="cell-meta">{row.source_columns.join(", ") || "No source column"}</span>
+                                </td>
+                                <td>{row.product_identifier_value || "Needs mapping"}</td>
+                                <td>{row.product_name || row.display_label}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {preloadPreviewRows.length > 12 ? (
+                          <p className="empty-state">Showing first 12 rows. Saving applies to all valid rows unless specific rows are selected.</p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </section>
+
                   <div className="unit-map-bulkbar">
                     <div>
                       <strong>{selectedUnitMappings.length} selected</strong>
@@ -3931,6 +4445,7 @@ export function App() {
                             />
                           </th>
                           <th>Status</th>
+                          <th>Source</th>
                           <th>Customer Value / Key</th>
                           <th>{selectedOutputMapRoute.product_identifier_label}</th>
                           <th>Product Name</th>
@@ -3957,6 +4472,10 @@ export function App() {
                               </td>
                               <td>
                                 <span className={productMappingStatusClass(mapping.status)}>{mapping.status}</span>
+                              </td>
+                              <td>
+                                <strong>{productMappingSourceLabel(mapping)}</strong>
+                                <span className="cell-meta">{mapping.source_file_name ?? "Product map"}</span>
                               </td>
                               <td>
                                 <strong>{mapping.customer_product_key}</strong>

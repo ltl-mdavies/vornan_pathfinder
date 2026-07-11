@@ -24,6 +24,7 @@ export type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API"
 export type ProductResolverStrategy = "derived_key" | "composite_key" | "direct_lift_unit_number";
 export type ProductResolutionMode = "map_to_lift_unit" | "send_derived_unit";
 export type ProductMappingStatus = "Mapped" | "Unmapped" | "Ambiguous" | "Inactive";
+export type ProductMappingSource = "Observed order" | "Preloaded catalog" | "Manual entry";
 export type OutputProductIdentifierType = "lift_unit_number" | "sku" | "variant_id" | "catalog_item_id" | "custom";
 export type TargetType = "ERP" | "Ecommerce" | "Print Factory" | "SFTP" | "Webhook" | "Custom";
 export type TargetEnvironmentRole = "PROD" | "QA" | "DEV" | "Sandbox" | "Custom";
@@ -66,6 +67,8 @@ export interface CustomerProductMapping {
   lift_unit_number: string | null;
   product_name: string | null;
   status: ProductMappingStatus;
+  mapping_source?: ProductMappingSource;
+  source_file_name?: string | null;
   last_seen_examples: Array<{
     sheet_name: string;
     row_number: number;
@@ -847,6 +850,8 @@ function normalizeProductMapping(mapping: CustomerProductMapping): CustomerProdu
       productIdentifierType === "lift_unit_number"
         ? mapping.lift_unit_number ?? productIdentifierValue
         : mapping.lift_unit_number ?? null,
+    mapping_source: mapping.mapping_source ?? (mapping.last_seen_examples?.length ? "Observed order" : "Manual entry"),
+    source_file_name: mapping.source_file_name ?? null,
     last_seen_examples: mapping.last_seen_examples ?? []
   };
 }
