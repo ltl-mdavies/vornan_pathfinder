@@ -485,6 +485,8 @@ const generatedTemplateOptions = [
   "generated.pathfinder_canonical_order_id",
   "generated.filename"
 ];
+const pathfinderSystemTemplateOptions = ["system.pathfinder.platform"];
+const headerPresetTemplateOptions = ["preset.content_type.application_json"];
 
 const liftStandardGraphicsBodyTemplateText = JSON.stringify(
   {
@@ -718,6 +720,7 @@ function defaultCanonicalForTemplateField(field: TemplateFieldReference) {
     "customer.name": "customer.name",
     "customer.customer_name": "customer.name",
     "customer.lift_customer_id": "customer.lift_customer_id",
+    "source.platform": "system.pathfinder.platform",
     "source.pathfinder_customer_id": "customer.id",
     "source.source_customer": "source.source_customer",
     "source.source_system": "source.source_system",
@@ -739,6 +742,7 @@ function defaultCanonicalForTemplateField(field: TemplateFieldReference) {
   }
   if (field.section === "header") {
     const headerDefaults: Record<string, string> = {
+      "Content-Type": "preset.content_type.application_json",
       Ext_ID: "order.external_order_id",
       User: "environment.credentials.User",
       Password: "environment.credentials.Password",
@@ -807,14 +811,24 @@ function setTemplateValueAtPath(current: unknown, segments: string[], replacemen
   };
 }
 
+function templateReplacementForTargetField(targetField: string) {
+  if (targetField === "system.pathfinder.platform") {
+    return "Pathfinder";
+  }
+  if (targetField === "preset.content_type.application_json") {
+    return "application/json";
+  }
+  return targetField ? `{{${targetField}}}` : "";
+}
+
 function applyTemplateMappingToJson(templateText: string, fieldPath: string, targetField: string) {
   try {
     const parsed = JSON.parse(templateText);
-    const replacement = targetField ? `{{${targetField}}}` : "";
+    const replacement = templateReplacementForTargetField(targetField);
     return JSON.stringify(setTemplateValueAtPath(parsed, pathSegments(fieldPath), replacement), null, 2);
   } catch {
     return templateText.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (match, placeholder: string) =>
-      placeholder.trim() === fieldPath ? (targetField ? `{{${targetField}}}` : "") : match
+      placeholder.trim() === fieldPath ? templateReplacementForTargetField(targetField) : match
     );
   }
 }
@@ -832,6 +846,12 @@ function mappingSourceLabel(value: string) {
   if (!value) {
     return "Static/example value";
   }
+  if (pathfinderSystemTemplateOptions.includes(value)) {
+    return "Pathfinder system";
+  }
+  if (headerPresetTemplateOptions.includes(value)) {
+    return "Header preset";
+  }
   if (environmentTemplateOptions.includes(value)) {
     return "Environment";
   }
@@ -842,6 +862,16 @@ function mappingSourceLabel(value: string) {
     return "Generated";
   }
   return "Canonical Order";
+}
+
+function mappingPreviewValue(value: string) {
+  if (!value) {
+    return "Static";
+  }
+  if (pathfinderSystemTemplateOptions.includes(value) || headerPresetTemplateOptions.includes(value)) {
+    return templateReplacementForTargetField(value);
+  }
+  return `{{${value}}}`;
 }
 
 function isExpectedStaticTemplateField(field: TemplateFieldReference) {
@@ -2436,6 +2466,10 @@ export function App() {
       unresolvedProductCount: lastPreviewJob?.unresolved_products.length ?? routeBlockingCount
     });
   const submitCertificationBlockingCount = submitCertification.items.filter((item) => item.blocking).length;
+  const manualSourceReady = sourceGrid.rows.length > 0;
+  const manualPreviewReady = Boolean(lastPreviewJob);
+  const manualFixesNeeded = submitCertificationBlockingCount > 0 || routeBlockingCount > 0;
+  const manualSubmitReady = Boolean(lastPreviewJob && submitCertification.can_submit && submitCertification.external_submit_enabled);
   const mappedColumnCount = sourceGrid.columns.filter((column) =>
     mappings.some((mapping) => mapping.sourceColumn === column)
   ).length;
@@ -4933,9 +4967,46 @@ export function App() {
 
             {activeCustomerView === "Manual Import" ? (
               <>
-                <section className="overview-grid">
+                <section className="manual-flow-guide" aria-label="Manual import workflow">
+                  {[
+                    {
+                      number: "1",
+                      title: "Load order source",
+                      detail: manualSourceReady ? `${sourceGrid.rows.length} source rows loaded` : "Upload XLSX or use the sample",
+                      state: manualSourceReady ? "done" : "active"
+                    },
+                    {
+                      number: "2",
+                      title: "Generate preview",
+                      detail: manualPreviewReady ? `${displayJobId(lastPreviewJob?.job_id ?? "")} saved as ${lastPreviewJob?.state}` : "Create the canonical order and Lift payload",
+                      state: manualPreviewReady ? "done" : manualSourceReady ? "active" : "idle"
+                    },
+                    {
+                      number: "3",
+                      title: "Fix blockers",
+                      detail: manualFixesNeeded ? `${submitCertificationBlockingCount} submit gates blocking` : "Validation and product mapping are clear",
+                      state: manualFixesNeeded ? "warning" : manualPreviewReady ? "done" : "idle"
+                    },
+                    {
+                      number: "4",
+                      title: "Submit to Lift",
+                      detail: manualSubmitReady ? "Certified for external submit" : "Locked until preview is certified",
+                      state: manualSubmitReady ? "active" : "idle"
+                    }
+                  ].map((step) => (
+                    <div className={`manual-flow-step manual-flow-step-${step.state}`} key={step.number}>
+                      <span>{step.number}</span>
+                      <div>
+                        <strong>{step.title}</strong>
+                        <small>{step.detail}</small>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+
+                <section className="manual-import-grid">
                   <div className="panel upload-panel">
-                    <PanelHeader icon={FileSpreadsheet} title="Manual XLSX Import" detail={sheetName} />
+                    <PanelHeader icon={FileSpreadsheet} title="1. Upload Order Source" detail={sheetName} />
                     <label
                       className="drop-zone"
                       onDragOver={(event) => event.preventDefault()}
@@ -5028,7 +5099,7 @@ export function App() {
                   </div>
 
                   <div className="panel validation-panel">
-                    <PanelHeader icon={Activity} title="Validation" detail="Canonical + Lift checks" />
+                    <PanelHeader icon={Activity} title="2. Preview Validation" detail="Canonical + Lift checks" />
                     <div className="validation-list">
                       {allMessages.map((message) => (
                         <div className="validation-row" key={`${message.code}-${message.field}`}>
@@ -5053,7 +5124,7 @@ export function App() {
                   <div className="panel request-panel">
                     <PanelHeader
                       icon={Database}
-                      title="Lift Target"
+                      title="Lift Submit Target"
                       detail={selectedSubmitProfile.mode === "sandbox_customer" ? "Sandbox submit preview" : "Customer submit preview"}
                     />
                     <dl>
@@ -5083,7 +5154,7 @@ export function App() {
                   <div className="panel certification-panel">
                     <PanelHeader
                       icon={ShieldCheck}
-                      title="Submit Certification"
+                      title="3. Submit Certification"
                       detail={submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`}
                     />
                     <div className="certification-summary">
@@ -6060,6 +6131,16 @@ export function App() {
                                             }
                                           >
                                             <option value="">Keep pasted/static value</option>
+                                            {field.section === "body" && field.path === "source.platform" ? (
+                                              <optgroup label="Pathfinder System">
+                                                <option value="system.pathfinder.platform">Pathfinder platform</option>
+                                              </optgroup>
+                                            ) : null}
+                                            {field.section === "header" && field.path === "Content-Type" ? (
+                                              <optgroup label="Header Presets">
+                                                <option value="preset.content_type.application_json">application/json</option>
+                                              </optgroup>
+                                            ) : null}
                                             <optgroup label="Canonical Order">
                                               {canonicalOrderOptions.map((option) => (
                                                 <option key={option} value={option}>
@@ -6091,7 +6172,7 @@ export function App() {
                                           </select>
                                         </td>
                                         <td>
-                                          <strong>{mappedValue ? `{{${mappedValue}}}` : "Static"}</strong>
+                                          <strong>{mappingPreviewValue(mappedValue)}</strong>
                                           <span
                                             className={
                                               !mappedValue && !isExpectedStaticTemplateField(field)

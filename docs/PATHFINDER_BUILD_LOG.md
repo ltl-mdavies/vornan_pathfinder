@@ -678,3 +678,20 @@ Verification:
 
 - `npm run check`
 - `npm run build`
+
+## 2026-07-11 - Template Constants And Manual Import Flow
+
+Clarified two operator-facing areas that were creating unnecessary uncertainty.
+
+What changed:
+
+- `source.platform` now maps to an explicit **Pathfinder platform** system value instead of looking like an unresolved pasted/static value.
+- Header `Content-Type` now maps to an explicit `application/json` header preset.
+- Template previews render those constants as literal values, not `{{...}}` dynamic tokens.
+- Manual Import now starts with a four-step workflow guide: load source, generate preview, fix blockers, submit to Lift.
+- Manual Import cards now use a dedicated layout that gives the upload/preview action the lead role and treats validation, certification, and Lift target as supporting readiness context.
+
+Verification:
+
+- `npm run check`
+- `npm run build`

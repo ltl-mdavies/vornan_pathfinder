@@ -790,6 +790,104 @@ h1 {
   grid-template-columns: minmax(500px, 0.95fr) minmax(0, 1.05fr);
 }
 
+.manual-flow-guide {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.manual-flow-step {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 11px;
+  align-items: center;
+  min-height: 76px;
+  padding: 13px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(25, 24, 24, 0.04);
+}
+
+.manual-flow-step > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  color: var(--text-secondary);
+  background: var(--vornan-mist);
+  border-radius: 999px;
+  font-weight: 850;
+}
+
+.manual-flow-step strong,
+.manual-flow-step small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.manual-flow-step strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.manual-flow-step small {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.manual-flow-step-done > span,
+.manual-flow-step-active > span {
+  color: #fff;
+  background: var(--vornan-forest);
+}
+
+.manual-flow-step-active {
+  border-color: rgba(57, 82, 59, 0.24);
+}
+
+.manual-flow-step-warning > span {
+  color: #fff;
+  background: #b8791d;
+}
+
+.manual-flow-step-warning {
+  border-color: rgba(184, 121, 29, 0.24);
+}
+
+.manual-import-grid {
+  display: grid;
+  grid-template-columns: minmax(440px, 1.25fr) minmax(360px, 0.95fr) minmax(320px, 0.75fr);
+  grid-template-areas:
+    "upload validation target"
+    "upload certification target";
+  align-items: start;
+  gap: 18px;
+}
+
+.manual-import-grid .upload-panel {
+  grid-area: upload;
+}
+
+.manual-import-grid .validation-panel {
+  grid-area: validation;
+}
+
+.manual-import-grid .certification-panel {
+  grid-area: certification;
+}
+
+.manual-import-grid .request-panel {
+  grid-area: target;
+}
+
 .panel {
   min-width: 0;
   background: rgba(255, 255, 255, 0.88);
@@ -3695,9 +3793,19 @@ td {
   .setup-grid,
   .mapping-grid,
   .overview-grid,
+  .manual-flow-guide,
+  .manual-import-grid,
   .status-strip,
   .workbench {
     grid-template-columns: 1fr;
+  }
+
+  .manual-import-grid {
+    grid-template-areas:
+      "upload"
+      "validation"
+      "certification"
+      "target";
   }
 
   .topbar {
