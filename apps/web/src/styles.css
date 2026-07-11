@@ -1486,6 +1486,66 @@ h1 {
   box-shadow: 0 0 0 4px rgba(177, 59, 51, 0.16);
 }
 
+.target-header-status .health-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+.target-header-status .health-chip i {
+  flex: 0 0 auto;
+}
+
+.target-card-heading .mini-pill,
+.output-route-heading .mini-pill,
+.output-route-profile-list .mini-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.target-header-status .health-chip-healthy {
+  color: var(--vornan-forest);
+}
+
+.target-header-status .health-chip-untested,
+.target-header-status .health-chip-warning {
+  color: #73540f;
+}
+
+.target-header-status .health-chip-error {
+  color: var(--danger);
+}
+
+.target-card-heading .mini-pill-success,
+.output-route-heading .mini-pill-success,
+.output-route-profile-list .mini-pill-success {
+  color: var(--vornan-forest);
+  background: rgba(171, 198, 95, 0.25);
+}
+
+.target-card-heading .mini-pill-neutral,
+.output-route-heading .mini-pill-neutral,
+.output-route-profile-list .mini-pill-neutral {
+  color: var(--text-secondary);
+  background: rgba(118, 128, 112, 0.13);
+}
+
+.target-card-heading .mini-pill-warning,
+.output-route-heading .mini-pill-warning,
+.output-route-profile-list .mini-pill-warning {
+  color: #73540f;
+  background: rgba(168, 121, 33, 0.16);
+}
+
 .targets-overview-table {
   table-layout: fixed;
 }

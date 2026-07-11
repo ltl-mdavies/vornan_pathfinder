@@ -2653,6 +2653,36 @@ export function App() {
     });
   }
 
+  function addTargetEnvironmentDraft(targetId: string) {
+    updateTargetDraft(targetId, (target) => {
+      const timestamp = Date.now();
+      const nextEnvironment: TargetEnvironment = {
+        environment_id: `env-${target.target_id}-${timestamp}`,
+        name: `ENV ${target.environments.length + 1}`,
+        role: "Custom",
+        endpoint_url: "",
+        auth_method: "Header credentials",
+        headers: {
+          "Content-Type": "application/json",
+          Company: target.lift.headers.Company,
+          Ext_ID: "body.order.ext_id"
+        },
+        credentials: {
+          User: target.lift.credentials.User,
+          Password: target.lift.credentials.Password
+        },
+        status: "Draft",
+        last_test_at: null,
+        last_test_status: "Not tested"
+      };
+
+      return {
+        ...target,
+        environments: [...target.environments, nextEnvironment]
+      };
+    });
+  }
+
   function updateOutputTemplateDraft(
     targetId: string,
     templateId: string,
@@ -4625,7 +4655,13 @@ export function App() {
 
                 {activeTargetsView === "Environments" ? (
                   <section className="panel setup-panel">
-                    <PanelHeader icon={SlidersHorizontal} title="Target Environments" detail="Endpoint, auth, and headers" />
+                    <div className="table-panel-header">
+                      <PanelHeader icon={SlidersHorizontal} title="Target Environments" detail="Endpoint, auth, and headers" />
+                      <button className="secondary-button table-header-action" onClick={() => addTargetEnvironmentDraft(selectedTarget.target_id)}>
+                        <Plus size={15} />
+                        Add Environment
+                      </button>
+                    </div>
                     <div className="target-card-stack">
                       <div className="setup-grid target-settings-grid">
                         <label className="setup-control">
@@ -4714,6 +4750,22 @@ export function App() {
                               >
                                 {["PROD", "QA", "DEV", "Sandbox", "Custom"].map((role) => (
                                   <option key={role}>{role}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="setup-control">
+                              <span>Status</span>
+                              <select
+                                value={environment.status}
+                                onChange={(event) =>
+                                  updateTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id, (current) => ({
+                                    ...current,
+                                    status: event.target.value as TargetEnvironment["status"]
+                                  }))
+                                }
+                              >
+                                {["Active", "Draft", "Inactive"].map((status) => (
+                                  <option key={status}>{status}</option>
                                 ))}
                               </select>
                             </label>
