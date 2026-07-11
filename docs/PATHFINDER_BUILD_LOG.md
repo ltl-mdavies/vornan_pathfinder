@@ -695,3 +695,18 @@ Verification:
 
 - `npm run check`
 - `npm run build`
+
+## 2026-07-11 - Manual Import Visual Polish
+
+Tightened the Manual Import flow layout after reviewing the working page.
+
+What changed:
+
+- Upload Order Source, Preview Validation, and Lift Submit Target now share the same top-row visual height.
+- Submit Certification now sits below as the next readiness section instead of creating a staggered card rhythm.
+- Fixed the Submit Profile status chip so the Customer/Sandbox label is vertically centered and keeps its proper status color.
+
+Verification:
+
+- `npm run check`
+- `npm run build`

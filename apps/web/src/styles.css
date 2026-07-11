@@ -867,8 +867,8 @@ h1 {
   grid-template-columns: minmax(440px, 1.25fr) minmax(360px, 0.95fr) minmax(320px, 0.75fr);
   grid-template-areas:
     "upload validation target"
-    "upload certification target";
-  align-items: start;
+    "certification certification certification";
+  align-items: stretch;
   gap: 18px;
 }
 
@@ -886,6 +886,12 @@ h1 {
 
 .manual-import-grid .request-panel {
   grid-area: target;
+}
+
+.manual-import-grid .upload-panel,
+.manual-import-grid .validation-panel,
+.manual-import-grid .request-panel {
+  height: 100%;
 }
 
 .panel {
@@ -3070,6 +3076,20 @@ td {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 700;
+}
+
+.submit-profile-heading .mini-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  margin-top: 0;
+  color: var(--vornan-forest);
+  line-height: 1;
+}
+
+.submit-profile-heading .mini-pill-warning {
+  color: #73540f;
 }
 
 .submit-profile-grid {
