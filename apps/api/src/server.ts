@@ -1,7 +1,13 @@
 import cors from "cors";
 import express from "express";
 import { readFile } from "node:fs/promises";
-import { parseLiftCustomerCsv, type LiftCustomer, type LiftCustomerDirectory } from "@pathfinder/customer-directory";
+import {
+  enrichLiftCustomers,
+  parseLiftCustomerCsv,
+  parseLiftCustomerStatusJson,
+  type LiftCustomer,
+  type LiftCustomerDirectory
+} from "@pathfinder/customer-directory";
 import { sampleCanonicalOrder, validateCanonicalOrder, type ValidationMessage } from "@pathfinder/canonical";
 import {
   buildLiftSubmitRequest,
@@ -65,6 +71,9 @@ const port = Number(process.env.PORT || 3000);
 const liftCustomerListEndpoint =
   process.env.LIFT_CUSTOMER_LIST_URL ??
   "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerContactLIst/LTL-Customer-List?offset=0";
+const liftCustomerStatusEndpoint =
+  process.env.LIFT_CUSTOMER_STATUS_URL ??
+  "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerStatusJSON/CustomerStatusJSON?";
 const externalLiftSubmitEnabled = process.env.PATHFINDER_ENABLE_LIFT_SUBMIT === "true";
 const liftSubmitTransportMode: LiftSubmitTransportMode =
   process.env.PATHFINDER_LIFT_TRANSPORT_MODE === "live" ? "live" : "dry_run";
@@ -80,6 +89,7 @@ async function readLocalCustomerSeed(): Promise<LiftCustomerDirectory> {
     customers: parseLiftCustomerCsv(csv),
     source: "local-seed",
     endpoint_url: liftCustomerListEndpoint,
+    status_endpoint_url: liftCustomerStatusEndpoint,
     loaded_at: new Date().toISOString()
   };
 }
@@ -95,7 +105,14 @@ async function findLiftCustomer(liftCustomerId: string) {
       customer_status: "Regular",
       sales_rep: null,
       default_invoice_email_address: null,
-      created_date: null
+      created_date: null,
+      crm_id: null,
+      terms: null,
+      terms_status: null,
+      credit_limit: null,
+      credit_hold: null,
+      unpaid_total: null,
+      available_credit: null
     }
   );
 }
@@ -839,11 +856,33 @@ async function fetchLiftCustomerDirectory(): Promise<LiftCustomerDirectory> {
   }
 
   const csv = await response.text();
+  const customers = parseLiftCustomerCsv(csv);
+  let warning: string | undefined;
+  let enrichedCustomers = customers;
+
+  try {
+    const statusResponse = await fetch(liftCustomerStatusEndpoint, {
+      headers: { Accept: "application/json,*/*" },
+      signal: AbortSignal.timeout(10000)
+    });
+
+    if (!statusResponse.ok) {
+      throw new Error(`Lift customer status import failed with HTTP ${statusResponse.status}.`);
+    }
+
+    const statusPayload = await statusResponse.json();
+    enrichedCustomers = enrichLiftCustomers(customers, parseLiftCustomerStatusJson(statusPayload));
+  } catch (error) {
+    warning = error instanceof Error ? error.message : "Lift customer status import failed.";
+  }
+
   return {
-    customers: parseLiftCustomerCsv(csv),
+    customers: enrichedCustomers,
     source: "lift-endpoint",
     endpoint_url: liftCustomerListEndpoint,
-    loaded_at: new Date().toISOString()
+    status_endpoint_url: liftCustomerStatusEndpoint,
+    loaded_at: new Date().toISOString(),
+    warning
   };
 }
 
@@ -1112,6 +1151,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     const canonicalOrder = mapSourceRowsToCanonicalOrder(mappingRows, mappings, {
       customerId: `lift:${customer.lift_customer_id}`,
       customerName: submitCustomer.customer_name,
+      customerCrmId: customer.crm_id ?? null,
       destinationCustomerId: submitCustomer.lift_customer_id,
       sourceSystem: method.source === "XLSX" ? "Manual XLSX Upload" : method.source,
       sourceCustomer: customer.customer_name,

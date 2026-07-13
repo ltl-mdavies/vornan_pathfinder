@@ -763,3 +763,16 @@ Verification:
 - `npm run build`
 - Local payload smoke confirmed the new fields are present in the generated Lift payload.
 - Local target-template smoke confirmed the existing standard template exposes the new fields and mappings.
+
+## 2026-07-13 - Lift Customer Status Enrichment
+
+Added the Lift CustomerStatusJSON endpoint as a second customer-directory enrichment source.
+
+What changed:
+
+- Customer refresh now merges Lift customer status data into the existing customer list by Customer ID or customer number.
+- Added CRM ID, terms, terms status, credit limit, credit hold, unpaid total, and available credit to the customer model.
+- Normalized the endpoint's `AVILABLE_CREDIT` field spelling into Pathfinder's `available_credit`.
+- Customer Overview now surfaces the enriched values, and customer search includes CRM/terms fields.
+- Canonical order generation can now populate `customer.crm_id` from the enriched selected customer when the source file does not provide it.
+- The enrichment endpoint is non-blocking; if it fails, the customer list still loads with a warning.

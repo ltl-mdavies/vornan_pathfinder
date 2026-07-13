@@ -1025,6 +1025,13 @@ const fallbackCustomer: LiftCustomer = {
   customer_number: "0000000960",
   customer_type: "Standard",
   customer_status: "Regular",
+  crm_id: null,
+  terms: "Due on receipt",
+  terms_status: "PENDING",
+  credit_limit: null,
+  credit_hold: null,
+  unpaid_total: null,
+  available_credit: null,
   sales_rep: "Alex Hay",
   default_invoice_email_address: "michael@empirical-inc.com",
   created_date: "2026-06-25"
@@ -1049,6 +1056,18 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 
 function formatJson(value: unknown) {
   return JSON.stringify(value, null, 2);
+}
+
+function displayCurrency(value?: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "Unassigned";
+  }
+
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2
+  }).format(value);
 }
 
 function StatePill({ state }: { state: ProcessingState }) {
@@ -1837,6 +1856,7 @@ export function App() {
   const [customerDirectory, setCustomerDirectory] = useState<Omit<LiftCustomerDirectory, "customers">>({
     source: "local-seed",
     endpoint_url: "",
+    status_endpoint_url: "",
     loaded_at: "",
     warning: undefined
   });
@@ -1890,6 +1910,7 @@ export function App() {
       setCustomerDirectory({
         source: directory.source,
         endpoint_url: directory.endpoint_url,
+        status_endpoint_url: directory.status_endpoint_url,
         loaded_at: directory.loaded_at,
         warning: directory.warning
       });
@@ -2140,7 +2161,10 @@ export function App() {
       (customer) =>
         customer.customer_name.toLowerCase().includes(query) ||
         customer.lift_customer_id.includes(query) ||
-        (customer.customer_number ?? "").includes(query)
+        (customer.customer_number ?? "").includes(query) ||
+        (customer.crm_id ?? "").toLowerCase().includes(query) ||
+        (customer.terms ?? "").toLowerCase().includes(query) ||
+        (customer.terms_status ?? "").toLowerCase().includes(query)
     );
   }, [customerSearch, customers]);
   const customerSelectOptions = useMemo(() => {
@@ -2467,6 +2491,7 @@ export function App() {
       mapSourceRowsToCanonicalOrder(sourceGrid.rows, mappings, {
         customerId: `lift:${selectedCustomer.lift_customer_id}`,
         customerName: submitCustomer.customer_name,
+        customerCrmId: selectedCustomer.crm_id ?? null,
         destinationCustomerId: submitCustomer.lift_customer_id,
         sourceSystem: sourceName === "Sample workbook" ? "Manual Upload" : "XLSX Upload",
         sourceCustomer: selectedCustomer.customer_name,
@@ -2477,6 +2502,7 @@ export function App() {
       activeOutputRoute.target_system,
       mappings,
       selectedCustomer,
+      selectedCustomer.crm_id,
       sourceGrid.rows,
       sourceName,
       submitCustomer.customer_name,
@@ -3784,6 +3810,13 @@ export function App() {
                       <DetailItem label="Sales Rep" value={selectedCustomer.sales_rep} />
                       <DetailItem label="Customer Number" value={selectedCustomer.customer_number} />
                       <DetailItem label="Default Invoice Email" value={selectedCustomer.default_invoice_email_address} />
+                      <DetailItem label="CRM ID" value={selectedCustomer.crm_id} />
+                      <DetailItem label="Terms" value={selectedCustomer.terms} />
+                      <DetailItem label="Terms Status" value={selectedCustomer.terms_status} />
+                      <DetailItem label="Credit Limit" value={displayCurrency(selectedCustomer.credit_limit)} />
+                      <DetailItem label="Credit Hold" value={selectedCustomer.credit_hold} />
+                      <DetailItem label="Unpaid Total" value={displayCurrency(selectedCustomer.unpaid_total)} />
+                      <DetailItem label="Available Credit" value={displayCurrency(selectedCustomer.available_credit)} />
                     </dl>
                     {customerDirectory.warning ? <p className="import-warning">{customerDirectory.warning}</p> : null}
                     {workspaceMessage ? <p className={workspaceState === "error" ? "import-error" : "import-warning"}>{workspaceMessage}</p> : null}

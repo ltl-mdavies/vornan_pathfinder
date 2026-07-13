@@ -138,6 +138,7 @@ export interface ParsedWorkbook extends SourceGrid {
 export interface CanonicalBuildOptions {
   customerId: string;
   customerName: string;
+  customerCrmId?: string | null;
   destinationCustomerId?: string;
   sourceSystem: string;
   sourceCustomer: string;
@@ -606,7 +607,7 @@ export function mapSourceRowsToCanonicalOrder(
       customer_id: options.customerId,
       customer_name: options.customerName,
       destination_customer_id: options.destinationCustomerId,
-      crm_id: firstMappedValue(rows, mappings, "customer.crm_id", "") || null
+      crm_id: firstMappedValue(rows, mappings, "customer.crm_id", options.customerCrmId ?? "") || null
     },
     contacts: buildContact(rows, mappings),
     source: {
