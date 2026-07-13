@@ -868,20 +868,8 @@ function createDefaultValueNormalizationRules(): ValueNormalizationRule[] {
   return [
     {
       ...base,
-      value_rule_id: "value-rule-shipping-ups-ground-self",
-      input_value: "UPS Ground",
-      normalized_value: "UPS Ground"
-    },
-    {
-      ...base,
-      value_rule_id: "value-rule-shipping-ground",
-      input_value: "Ground",
-      normalized_value: "UPS Ground"
-    },
-    {
-      ...base,
-      value_rule_id: "value-rule-shipping-ups-gnd",
-      input_value: "UPS GND",
+      value_rule_id: "value-rule-shipping-ups-ground",
+      input_value: "UPS Ground, Ground, UPS GND",
       normalized_value: "UPS Ground"
     }
   ];

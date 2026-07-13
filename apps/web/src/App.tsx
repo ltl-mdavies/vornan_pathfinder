@@ -416,37 +416,15 @@ const defaultProductResolutionConfig: ProductResolutionConfig = {
 
 const defaultValueNormalizationRules: ValueNormalizationRule[] = [
   {
-    value_rule_id: "value-rule-shipping-ups-ground-self",
+    value_rule_id: "value-rule-shipping-ups-ground",
     canonical_field: "order.shipping.method",
     output_field: "order.shipping.method",
     match_mode: "case_insensitive",
-    input_value: "UPS Ground",
+    input_value: "UPS Ground, Ground, UPS GND",
     normalized_value: "UPS Ground",
     fallback_behavior: "block_submit",
     status: "Active",
     notes: "Lift requires the shipping method to match the configured Lift value exactly."
-  },
-  {
-    value_rule_id: "value-rule-shipping-ground",
-    canonical_field: "order.shipping.method",
-    output_field: "order.shipping.method",
-    match_mode: "case_insensitive",
-    input_value: "Ground",
-    normalized_value: "UPS Ground",
-    fallback_behavior: "block_submit",
-    status: "Active",
-    notes: "Common customer alias for UPS Ground."
-  },
-  {
-    value_rule_id: "value-rule-shipping-ups-gnd",
-    canonical_field: "order.shipping.method",
-    output_field: "order.shipping.method",
-    match_mode: "case_insensitive",
-    input_value: "UPS GND",
-    normalized_value: "UPS Ground",
-    fallback_behavior: "block_submit",
-    status: "Active",
-    notes: "Abbreviated customer alias for UPS Ground."
   }
 ];
 
@@ -6612,9 +6590,8 @@ export function App() {
                             <table className="mapping-table value-rule-table">
                               <thead>
                                 <tr>
-                                  <th>Canonical field</th>
-                                  <th>Output field</th>
-                                  <th>Customer value</th>
+                                  <th>Field</th>
+                                  <th>Customer values</th>
                                   <th>Lift value</th>
                                   <th>Match</th>
                                   <th>Fallback</th>
@@ -6630,22 +6607,7 @@ export function App() {
                                         value={rule.canonical_field}
                                         onChange={(event) =>
                                           updateValueRuleDraft(route.output_route_id, rule.value_rule_id, {
-                                            canonical_field: event.target.value
-                                          })
-                                        }
-                                      >
-                                        {canonicalOrderOptions.map((option) => (
-                                          <option key={option} value={option}>
-                                            {option}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </td>
-                                    <td>
-                                      <select
-                                        value={rule.output_field}
-                                        onChange={(event) =>
-                                          updateValueRuleDraft(route.output_route_id, rule.value_rule_id, {
+                                            canonical_field: event.target.value,
                                             output_field: event.target.value
                                           })
                                         }
@@ -6660,7 +6622,7 @@ export function App() {
                                     <td>
                                       <input
                                         value={rule.input_value}
-                                        placeholder="Ground"
+                                        placeholder="UPS Ground, Ground, UPS GND"
                                         onChange={(event) =>
                                           updateValueRuleDraft(route.output_route_id, rule.value_rule_id, {
                                             input_value: event.target.value

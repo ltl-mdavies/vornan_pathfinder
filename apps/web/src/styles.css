@@ -3047,21 +3047,31 @@ h1 {
 }
 
 .value-rule-table th:nth-child(1),
-.value-rule-table td:nth-child(1),
+.value-rule-table td:nth-child(1) {
+  min-width: 300px;
+}
+
 .value-rule-table th:nth-child(2),
 .value-rule-table td:nth-child(2) {
-  min-width: 190px;
+  min-width: 420px;
 }
 
 .value-rule-table th:nth-child(3),
-.value-rule-table td:nth-child(3),
-.value-rule-table th:nth-child(4),
-.value-rule-table td:nth-child(4) {
-  min-width: 150px;
+.value-rule-table td:nth-child(3) {
+  min-width: 180px;
 }
 
-.value-rule-table th:nth-child(8),
-.value-rule-table td:nth-child(8) {
+.value-rule-table th:nth-child(4),
+.value-rule-table td:nth-child(4),
+.value-rule-table th:nth-child(5),
+.value-rule-table td:nth-child(5),
+.value-rule-table th:nth-child(6),
+.value-rule-table td:nth-child(6) {
+  min-width: 118px;
+}
+
+.value-rule-table th:nth-child(7),
+.value-rule-table td:nth-child(7) {
   width: 60px;
   text-align: center;
 }

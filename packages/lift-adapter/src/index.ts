@@ -274,25 +274,30 @@ function setPayloadValue(payload: LiftOrderPayload, field: string, value: unknow
 }
 
 function matchesNormalizationRule(value: string, rule: ValueNormalizationRule) {
-  const input = rule.input_value.trim();
-  if (!input) {
+  const inputs = rule.input_value
+    .split(",")
+    .map((input) => input.trim())
+    .filter(Boolean);
+  if (!inputs.length) {
     return false;
   }
 
-  if (rule.match_mode === "case_insensitive") {
-    return value.trim().toLowerCase() === input.toLowerCase();
-  }
-  if (rule.match_mode === "contains") {
-    return value.toLowerCase().includes(input.toLowerCase());
-  }
-  if (rule.match_mode === "regex") {
-    try {
-      return new RegExp(input, "i").test(value);
-    } catch {
-      return false;
+  return inputs.some((input) => {
+    if (rule.match_mode === "case_insensitive") {
+      return value.trim().toLowerCase() === input.toLowerCase();
     }
-  }
-  return value.trim() === input;
+    if (rule.match_mode === "contains") {
+      return value.toLowerCase().includes(input.toLowerCase());
+    }
+    if (rule.match_mode === "regex") {
+      try {
+        return new RegExp(input, "i").test(value);
+      } catch {
+        return false;
+      }
+    }
+    return value.trim() === input;
+  });
 }
 
 export function applyValueNormalizationToLiftPayload(
