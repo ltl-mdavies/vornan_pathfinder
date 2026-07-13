@@ -53,6 +53,7 @@ Company ID: {company_id}
 | Section | Purpose |
 | --- | --- |
 | `customer` | Customer identity used by Pathfinder and Lift. |
+| `contacts[]` | Order/customer contact details available for Lift-side mapping. |
 | `source` | Immutable Pathfinder/source metadata for traceability. |
 | `order` | Order-level header, PO, requested ship date, notes, and default shipping. |
 | `lines[]` | Production line items to create in Lift Standard Graphics. |
@@ -63,6 +64,16 @@ Company ID: {company_id}
 | --- | --- | --- |
 | `customer.lift_customer_id` | Yes | Lift-specific customer/account identifier. This is the value Lift should use to attach the order to the correct Lift customer. |
 | `customer.customer_name` | Recommended | Human-readable customer name for review/debugging. Lift may ignore this if `lift_customer_id` is authoritative. |
+| `customer.crm_id` | Optional | Customer CRM/reference ID when provided by the source or customer setup. |
+| `contacts[].first_name` | Optional | Contact first name. |
+| `contacts[].last_name` | Optional | Contact last name. |
+| `contacts[].title` | Optional | Contact title/role. |
+| `contacts[].email` | Optional | Contact email. |
+| `contacts[].mobile_phone` | Optional | Contact mobile phone. |
+| `contacts[].office_phone` | Optional | Contact office phone. |
+| `contacts[].home_phone` | Optional | Contact home phone. |
+| `contacts[].slack` | Optional | Contact Slack handle or identifier. |
+| `contacts[].fax` | Optional | Contact fax number. |
 | `source.platform` | Yes | Always `Pathfinder`. |
 | `source.pathfinder_customer_id` | Yes | Internal Pathfinder customer/configuration ID for audit and replay. This is not intended to be mapped as the Lift customer ID. |
 | `source.source_system` | Yes | Manual Upload, Wrike, Excel Upload, API, etc. |
@@ -73,7 +84,11 @@ Company ID: {company_id}
 | `order.contract_number` | Optional | Campaign, contract, or reference number. |
 | `order.order_title` | Optional | Human-readable order title. |
 | `order.requested_ship_date` | Customer policy | ISO date, `YYYY-MM-DD`. |
+| `order.due_date` | Customer policy | Due date requested for the order, distinct from requested ship date when needed. |
+| `order.order_attachment` | Optional | Link/reference to the imported source file that generated the order. |
 | `order.shipping` | Customer policy | Default ship-to inherited by lines unless line shipping is supplied. |
+| `order.shipping.acct_billing_zip` | Optional | Billing ZIP/postal code associated with the shipping account. |
+| `order.shipping.acct_billing_country` | Optional | Billing country associated with the shipping account. |
 
 ## Line Fields
 
@@ -83,6 +98,7 @@ Company ID: {company_id}
 | `lines[].unit_number` | Yes | Product/unit identifier sent to Lift. Pathfinder product mapping should resolve to this value before payload generation. |
 | `lines[].customer_sku` | Recommended | Original customer SKU or product code. |
 | `lines[].description` | Recommended | Product description. |
+| `lines[].product_id` | Optional | Product/catalog identifier separate from unit number, customer SKU, and display name. |
 | `lines[].product_name` | Recommended | Product display name. Often same as `description`, but available separately if Lift maps name and description differently. |
 | `lines[].quantity` | Yes | Positive integer. |
 | `lines[].artwork.file_name` | Customer policy | Artwork filename. |

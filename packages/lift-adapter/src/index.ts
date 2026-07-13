@@ -1,4 +1,4 @@
-import type { CanonicalOrder, ShippingAddress, ValidationMessage } from "@pathfinder/canonical";
+import type { CanonicalOrder, Contact, ShippingAddress, ValidationMessage } from "@pathfinder/canonical";
 
 export interface LiftTargetConfig {
   destination_adapter: "lift-standard-graphics";
@@ -29,7 +29,9 @@ export interface LiftOrderPayload {
   customer: {
     lift_customer_id?: string;
     customer_name: string;
+    crm_id?: string | null;
   };
+  contacts?: Contact[];
   source: {
     platform: "Pathfinder";
     pathfinder_customer_id: string;
@@ -49,6 +51,8 @@ export interface LiftOrderPayload {
     order_title?: string | null;
     order_note?: string | null;
     requested_ship_date?: string | null;
+    due_date?: string | null;
+    order_attachment?: string | null;
     shipping?: ShippingAddress | null;
   };
   lines: Array<{
@@ -56,6 +60,7 @@ export interface LiftOrderPayload {
     unit_number: string;
     customer_sku?: string | null;
     description?: string | null;
+    product_id?: string | null;
     product_name?: string | null;
     quantity: number;
     artwork?: {
@@ -169,8 +174,10 @@ export function generateLiftPayload(
   return {
     customer: {
       lift_customer_id: canonicalOrder.customer.destination_customer_id,
-      customer_name: canonicalOrder.customer.customer_name
+      customer_name: canonicalOrder.customer.customer_name,
+      crm_id: canonicalOrder.customer.crm_id ?? null
     },
+    contacts: canonicalOrder.contacts ?? [],
     source: {
       platform: "Pathfinder",
       pathfinder_customer_id: canonicalOrder.customer.customer_id,
@@ -190,6 +197,8 @@ export function generateLiftPayload(
       order_title: canonicalOrder.order.order_title ?? null,
       order_note: canonicalOrder.order.order_note ?? null,
       requested_ship_date: canonicalOrder.order.ship_date ?? null,
+      due_date: canonicalOrder.order.due_date ?? null,
+      order_attachment: canonicalOrder.order.order_attachment ?? null,
       shipping: canonicalOrder.order.shipping ?? null
     },
     lines: canonicalOrder.lines.map((line) => ({
@@ -197,6 +206,7 @@ export function generateLiftPayload(
       unit_number: line.unit_number,
       customer_sku: line.customer_sku ?? null,
       description: line.description ?? null,
+      product_id: line.product_id ?? null,
       product_name: line.product_name ?? line.description ?? null,
       quantity: line.quantity,
       artwork: line.artwork,

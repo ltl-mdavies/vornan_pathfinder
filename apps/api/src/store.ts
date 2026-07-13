@@ -402,8 +402,22 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
       {
         customer: {
           lift_customer_id: "LIFT_CUSTOMER_ID_TBD",
-          customer_name: "Momentara"
+          customer_name: "Momentara",
+          crm_id: "CRM-EXAMPLE-001"
         },
+        contacts: [
+          {
+            first_name: "Jane",
+            last_name: "Smith",
+            title: "Marketing Manager",
+            email: "jane.smith@example.com",
+            mobile_phone: "555-555-0101",
+            office_phone: "555-555-0100",
+            home_phone: null,
+            slack: "@jane.smith",
+            fax: null
+          }
+        ],
         source: {
           platform: "Pathfinder",
           pathfinder_customer_id: "customer_momentara",
@@ -423,9 +437,13 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
           order_title: "Campaign",
           order_note: "Optional order-level production note.",
           requested_ship_date: "2026-06-23",
+          due_date: "2026-06-24",
+          order_attachment: "https://example.com/imports/momentara-order.xlsx",
           shipping: {
             method: "UPS Ground",
             account_number: null,
+            acct_billing_zip: "45202",
+            acct_billing_country: "US",
             attention_to: "Jane Smith",
             company: "Example Company",
             address_1: "123 Main St",
@@ -445,6 +463,7 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
             unit_number: "2SHEET_46x60_48PT",
             customer_sku: "OOH-2SHEET-46X60",
             description: "2 Sheet Poster",
+            product_id: "PROD-2SHEET-POSTER",
             product_name: "2 Sheet Poster",
             quantity: 1,
             artwork: {
@@ -467,7 +486,23 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
               ink: "4CP/0",
               cut_type: "Square Cut"
             },
-            shipping: null,
+            shipping: {
+              method: "UPS Ground",
+              account_number: null,
+              acct_billing_zip: "45202",
+              acct_billing_country: "US",
+              attention_to: "Jane Smith",
+              company: "Example Company",
+              address_1: "123 Main St",
+              address_2: "Suite 200",
+              city: "Cincinnati",
+              state: "OH",
+              postal_code: "45202",
+              country: "US",
+              phone: "555-555-0100",
+              email: "jane.smith@example.com",
+              instructions: "Line-level ship-to override."
+            },
             line_note: "Optional line-level production note."
           }
         ]
@@ -489,6 +524,16 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
     canonical_mappings: [
       { sourceColumn: "body:customer.lift_customer_id", targetField: "customer.lift_customer_id", required: true },
       { sourceColumn: "body:customer.customer_name", targetField: "customer.name", required: false },
+      { sourceColumn: "body:customer.crm_id", targetField: "customer.crm_id", required: false },
+      { sourceColumn: "body:contacts[].first_name", targetField: "contacts[].first_name", required: false },
+      { sourceColumn: "body:contacts[].last_name", targetField: "contacts[].last_name", required: false },
+      { sourceColumn: "body:contacts[].title", targetField: "contacts[].title", required: false },
+      { sourceColumn: "body:contacts[].email", targetField: "contacts[].email", required: false },
+      { sourceColumn: "body:contacts[].mobile_phone", targetField: "contacts[].mobile_phone", required: false },
+      { sourceColumn: "body:contacts[].office_phone", targetField: "contacts[].office_phone", required: false },
+      { sourceColumn: "body:contacts[].home_phone", targetField: "contacts[].home_phone", required: false },
+      { sourceColumn: "body:contacts[].slack", targetField: "contacts[].slack", required: false },
+      { sourceColumn: "body:contacts[].fax", targetField: "contacts[].fax", required: false },
       { sourceColumn: "body:source.pathfinder_customer_id", targetField: "customer.id", required: false },
       { sourceColumn: "body:source.source_customer", targetField: "source.source_customer", required: false },
       { sourceColumn: "body:source.source_record_id", targetField: "source.source_record_id", required: false },
@@ -502,11 +547,16 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
       { sourceColumn: "body:order.order_title", targetField: "order.order_title", required: false },
       { sourceColumn: "body:order.order_note", targetField: "order.order_note", required: false },
       { sourceColumn: "body:order.requested_ship_date", targetField: "order.ship_date", required: false },
+      { sourceColumn: "body:order.due_date", targetField: "order.due_date", required: false },
+      { sourceColumn: "body:order.order_attachment", targetField: "order.order_attachment", required: false },
       { sourceColumn: "body:order.shipping.method", targetField: "order.shipping.method", required: false },
+      { sourceColumn: "body:order.shipping.acct_billing_zip", targetField: "order.shipping.acct_billing_zip", required: false },
+      { sourceColumn: "body:order.shipping.acct_billing_country", targetField: "order.shipping.acct_billing_country", required: false },
       { sourceColumn: "body:lines[].line_number", targetField: "lines[].line_number", required: false },
       { sourceColumn: "body:lines[].unit_number", targetField: "lines[].unit_number", required: true },
       { sourceColumn: "body:lines[].customer_sku", targetField: "lines[].customer_sku", required: false },
       { sourceColumn: "body:lines[].description", targetField: "lines[].description", required: false },
+      { sourceColumn: "body:lines[].product_id", targetField: "lines[].product_id", required: false },
       { sourceColumn: "body:lines[].product_name", targetField: "lines[].product_name", required: false },
       { sourceColumn: "body:lines[].quantity", targetField: "lines[].quantity", required: true },
       { sourceColumn: "body:lines[].artwork.file_name", targetField: "lines[].artwork.file_name", required: false },
@@ -522,6 +572,8 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
       { sourceColumn: "body:lines[].production.coating", targetField: "lines[].production.coating", required: false },
       { sourceColumn: "body:lines[].production.premask", targetField: "lines[].production.premask", required: false },
       { sourceColumn: "body:lines[].production.ink", targetField: "lines[].production.ink", required: false },
+      { sourceColumn: "body:lines[].shipping.acct_billing_zip", targetField: "lines[].shipping.acct_billing_zip", required: false },
+      { sourceColumn: "body:lines[].shipping.acct_billing_country", targetField: "lines[].shipping.acct_billing_country", required: false },
       { sourceColumn: "body:lines[].line_note", targetField: "lines[].line_note", required: false },
       { sourceColumn: "header:Ext_ID", targetField: "order.external_order_id", required: true },
       { sourceColumn: "header:User", targetField: "environment.credentials.User", required: true },
@@ -652,6 +704,87 @@ function createSeedEcommerceTarget(): TargetConfig {
     lift,
     last_test_at: null,
     updated_at: timestamp
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function setMissing(record: Record<string, unknown>, key: string, value: unknown) {
+  if (!(key in record)) {
+    record[key] = value;
+  }
+}
+
+function normalizeStandardOutputTemplate(template: OutputTemplate): OutputTemplate {
+  if (template.output_template_id !== "template-lift-standard-graphics") {
+    return template;
+  }
+
+  const seedTemplate = createSeedOutputTemplate(template.updated_at);
+  const sourceColumns = new Set(template.canonical_mappings.map((mapping) => mapping.sourceColumn));
+  const canonical_mappings = [
+    ...template.canonical_mappings,
+    ...seedTemplate.canonical_mappings.filter((mapping) => !sourceColumns.has(mapping.sourceColumn))
+  ];
+  let body_template = template.body_template;
+
+  try {
+    const body = asRecord(JSON.parse(template.body_template));
+    const customer = asRecord(body.customer);
+    setMissing(customer, "crm_id", "{{customer.crm_id}}");
+    body.customer = customer;
+
+    if (!Array.isArray(body.contacts)) {
+      body.contacts = [
+        {
+          first_name: "{{contacts[].first_name}}",
+          last_name: "{{contacts[].last_name}}",
+          title: "{{contacts[].title}}",
+          email: "{{contacts[].email}}",
+          mobile_phone: "{{contacts[].mobile_phone}}",
+          office_phone: "{{contacts[].office_phone}}",
+          home_phone: "{{contacts[].home_phone}}",
+          slack: "{{contacts[].slack}}",
+          fax: "{{contacts[].fax}}"
+        }
+      ];
+    }
+
+    const order = asRecord(body.order);
+    setMissing(order, "due_date", "{{order.due_date}}");
+    setMissing(order, "order_attachment", "{{order.order_attachment}}");
+    const orderShipping = asRecord(order.shipping);
+    setMissing(orderShipping, "acct_billing_zip", "{{order.shipping.acct_billing_zip}}");
+    setMissing(orderShipping, "acct_billing_country", "{{order.shipping.acct_billing_country}}");
+    if (Object.keys(orderShipping).length) {
+      order.shipping = orderShipping;
+    }
+    body.order = order;
+
+    const lines = Array.isArray(body.lines) ? body.lines : [];
+    const firstLine = asRecord(lines[0]);
+    if (Object.keys(firstLine).length) {
+      setMissing(firstLine, "product_id", "{{lines[].product_id}}");
+      const lineShipping = asRecord(firstLine.shipping);
+      setMissing(lineShipping, "acct_billing_zip", "{{lines[].shipping.acct_billing_zip}}");
+      setMissing(lineShipping, "acct_billing_country", "{{lines[].shipping.acct_billing_country}}");
+      if (Object.keys(lineShipping).length) {
+        firstLine.shipping = lineShipping;
+      }
+      body.lines = [firstLine, ...lines.slice(1)];
+    }
+
+    body_template = JSON.stringify(body, null, 2);
+  } catch {
+    body_template = template.body_template;
+  }
+
+  return {
+    ...template,
+    body_template,
+    canonical_mappings
   };
 }
 
@@ -862,9 +995,10 @@ function normalizeTarget(target: TargetConfig): TargetConfig {
     target_type: target.target_type ?? seed.target_type,
     health_status: target.health_status ?? "Untested",
     environments: target.environments?.length ? target.environments : createSeedEnvironments(lift),
-    output_templates: target.output_templates?.length
+    output_templates: (target.output_templates?.length
       ? target.output_templates
-      : [createSeedOutputTemplate(target.updated_at ?? now())],
+      : [createSeedOutputTemplate(target.updated_at ?? now())]
+    ).map(normalizeStandardOutputTemplate),
     lift,
     last_test_at: target.last_test_at ?? null
   };

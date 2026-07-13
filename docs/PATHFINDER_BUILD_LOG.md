@@ -741,3 +741,25 @@ Verification:
 
 - `npm run check`
 - `npm run build`
+
+## 2026-07-13 - Canonical And Lift Field Expansion
+
+Added the fields identified with the Lift integration team as additive canonical and Lift Standard Graphics payload fields.
+
+What changed:
+
+- Added top-level `contacts[]` with first name, last name, title, email, mobile, office, home, Slack, and fax fields.
+- Added `customer.crm_id`.
+- Added `order.due_date` and `order.order_attachment`.
+- Added shipping account billing ZIP/country fields on the shared shipping shape.
+- Added `lines[].product_id`.
+- Extended the manual field mapping target list and source-column aliases so these fields can be mapped from imports.
+- Extended Lift Standard Graphics payload generation and examples so the fields are sent to Lift.
+- Added a standard-template normalization pass so existing local Lift Standard Graphics templates pick up missing fields/mappings without replacing configured template values.
+
+Verification:
+
+- `npm run check`
+- `npm run build`
+- Local payload smoke confirmed the new fields are present in the generated Lift payload.
+- Local target-template smoke confirmed the existing standard template exposes the new fields and mappings.

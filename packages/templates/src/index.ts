@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import type { CanonicalOrder, CanonicalOrderLine, ShippingAddress } from "@pathfinder/canonical";
+import type { CanonicalOrder, CanonicalOrderLine, Contact, ShippingAddress } from "@pathfinder/canonical";
 
 export interface SourceGrid {
   columns: string[];
@@ -37,13 +37,27 @@ export interface InputTemplate {
 }
 
 export const canonicalTargetFields = [
+  "contacts[].first_name",
+  "contacts[].last_name",
+  "contacts[].title",
+  "contacts[].email",
+  "contacts[].mobile_phone",
+  "contacts[].office_phone",
+  "contacts[].home_phone",
+  "contacts[].slack",
+  "contacts[].fax",
+  "customer.crm_id",
   "order.external_order_id",
   "order.po_number",
   "order.contract_number",
   "order.order_title",
+  "order.due_date",
+  "order.order_attachment",
   "order.ship_date",
   "order.shipping.method",
   "order.shipping.account_number",
+  "order.shipping.acct_billing_zip",
+  "order.shipping.acct_billing_country",
   "order.shipping.attention_to",
   "order.shipping.company",
   "order.shipping.address_1",
@@ -58,6 +72,7 @@ export const canonicalTargetFields = [
   "lines[].unit_number",
   "lines[].customer_sku",
   "lines[].description",
+  "lines[].product_id",
   "lines[].product_name",
   "lines[].quantity",
   "lines[].line_number",
@@ -79,6 +94,8 @@ export const canonicalTargetFields = [
   "lines[].production.grommets",
   "lines[].shipping.method",
   "lines[].shipping.account_number",
+  "lines[].shipping.acct_billing_zip",
+  "lines[].shipping.acct_billing_country",
   "lines[].shipping.attention_to",
   "lines[].shipping.company",
   "lines[].shipping.address_1",
@@ -130,6 +147,25 @@ export interface CanonicalBuildOptions {
 }
 
 const sourceColumnAliases: Record<string, CanonicalTargetField> = {
+  "first name": "contacts[].first_name",
+  firstname: "contacts[].first_name",
+  "last name": "contacts[].last_name",
+  lastname: "contacts[].last_name",
+  title: "contacts[].title",
+  "contact title": "contacts[].title",
+  email: "contacts[].email",
+  "email address": "contacts[].email",
+  "mobile phone": "contacts[].mobile_phone",
+  mobile: "contacts[].mobile_phone",
+  "cell phone": "contacts[].mobile_phone",
+  "office phone": "contacts[].office_phone",
+  "work phone": "contacts[].office_phone",
+  "home phone": "contacts[].home_phone",
+  slack: "contacts[].slack",
+  fax: "contacts[].fax",
+  "crm id": "customer.crm_id",
+  crmid: "customer.crm_id",
+  "customer crm id": "customer.crm_id",
   "order number": "order.external_order_id",
   "order #": "order.external_order_id",
   "external order id": "order.external_order_id",
@@ -141,10 +177,22 @@ const sourceColumnAliases: Record<string, CanonicalTargetField> = {
   "contract #": "order.contract_number",
   "order title": "order.order_title",
   campaign: "order.order_title",
+  "due date": "order.due_date",
+  due: "order.due_date",
+  "order attachment": "order.order_attachment",
+  attachment: "order.order_attachment",
+  "source attachment": "order.order_attachment",
+  "import file": "order.order_attachment",
   "ship date": "order.ship_date",
   "requested ship date": "order.ship_date",
   "ship method": "order.shipping.method",
   "shipping method": "order.shipping.method",
+  "billing zip": "order.shipping.acct_billing_zip",
+  "account billing zip": "order.shipping.acct_billing_zip",
+  "acct billing zip": "order.shipping.acct_billing_zip",
+  "billing country": "order.shipping.acct_billing_country",
+  "account billing country": "order.shipping.acct_billing_country",
+  "acct billing country": "order.shipping.acct_billing_country",
   attention: "order.shipping.attention_to",
   "attention to": "order.shipping.attention_to",
   "ship to company": "order.shipping.company",
@@ -163,6 +211,8 @@ const sourceColumnAliases: Record<string, CanonicalTargetField> = {
   "unit number": "lines[].unit_number",
   unit: "lines[].unit_number",
   description: "lines[].description",
+  "product id": "lines[].product_id",
+  productid: "lines[].product_id",
   "product name": "lines[].product_name",
   product: "lines[].product_name",
   quantity: "lines[].quantity",
@@ -443,6 +493,9 @@ function firstMappedValue(
 function buildShipping(rows: SourceGrid["rows"], mappings: FieldMapping[]): ShippingAddress | null {
   const shipping: ShippingAddress = {
     method: firstMappedValue(rows, mappings, "order.shipping.method", "") || null,
+    account_number: firstMappedValue(rows, mappings, "order.shipping.account_number", "") || null,
+    acct_billing_zip: firstMappedValue(rows, mappings, "order.shipping.acct_billing_zip", "") || null,
+    acct_billing_country: firstMappedValue(rows, mappings, "order.shipping.acct_billing_country", "") || null,
     attention_to: firstMappedValue(rows, mappings, "order.shipping.attention_to", "") || null,
     company: firstMappedValue(rows, mappings, "order.shipping.company", "") || null,
     address_1: firstMappedValue(rows, mappings, "order.shipping.address_1", "") || null,
@@ -450,7 +503,48 @@ function buildShipping(rows: SourceGrid["rows"], mappings: FieldMapping[]): Ship
     city: firstMappedValue(rows, mappings, "order.shipping.city", "") || null,
     state: firstMappedValue(rows, mappings, "order.shipping.state", "") || null,
     postal_code: firstMappedValue(rows, mappings, "order.shipping.postal_code", "") || null,
-    country: firstMappedValue(rows, mappings, "order.shipping.country", "US") || null
+    country: firstMappedValue(rows, mappings, "order.shipping.country", "US") || null,
+    phone: firstMappedValue(rows, mappings, "order.shipping.phone", "") || null,
+    email: firstMappedValue(rows, mappings, "order.shipping.email", "") || null,
+    instructions: firstMappedValue(rows, mappings, "order.shipping.instructions", "") || null
+  };
+
+  return Object.values(shipping).some(Boolean) ? shipping : null;
+}
+
+function buildContact(rows: SourceGrid["rows"], mappings: FieldMapping[]): Contact[] {
+  const contact: Contact = {
+    first_name: firstMappedValue(rows, mappings, "contacts[].first_name", "") || null,
+    last_name: firstMappedValue(rows, mappings, "contacts[].last_name", "") || null,
+    title: firstMappedValue(rows, mappings, "contacts[].title", "") || null,
+    email: firstMappedValue(rows, mappings, "contacts[].email", "") || null,
+    mobile_phone: firstMappedValue(rows, mappings, "contacts[].mobile_phone", "") || null,
+    office_phone: firstMappedValue(rows, mappings, "contacts[].office_phone", "") || null,
+    home_phone: firstMappedValue(rows, mappings, "contacts[].home_phone", "") || null,
+    slack: firstMappedValue(rows, mappings, "contacts[].slack", "") || null,
+    fax: firstMappedValue(rows, mappings, "contacts[].fax", "") || null
+  };
+
+  return Object.values(contact).some(Boolean) ? [contact] : [];
+}
+
+function buildLineShipping(row: Record<string, string | number | boolean | null>, mappings: FieldMapping[]): ShippingAddress | null {
+  const shipping: ShippingAddress = {
+    method: valueAsString(getMappedValue(row, mappings, "lines[].shipping.method")) || null,
+    account_number: valueAsString(getMappedValue(row, mappings, "lines[].shipping.account_number")) || null,
+    acct_billing_zip: valueAsString(getMappedValue(row, mappings, "lines[].shipping.acct_billing_zip")) || null,
+    acct_billing_country: valueAsString(getMappedValue(row, mappings, "lines[].shipping.acct_billing_country")) || null,
+    attention_to: valueAsString(getMappedValue(row, mappings, "lines[].shipping.attention_to")) || null,
+    company: valueAsString(getMappedValue(row, mappings, "lines[].shipping.company")) || null,
+    address_1: valueAsString(getMappedValue(row, mappings, "lines[].shipping.address_1")) || null,
+    address_2: valueAsString(getMappedValue(row, mappings, "lines[].shipping.address_2")) || null,
+    city: valueAsString(getMappedValue(row, mappings, "lines[].shipping.city")) || null,
+    state: valueAsString(getMappedValue(row, mappings, "lines[].shipping.state")) || null,
+    postal_code: valueAsString(getMappedValue(row, mappings, "lines[].shipping.postal_code")) || null,
+    country: valueAsString(getMappedValue(row, mappings, "lines[].shipping.country")) || null,
+    phone: valueAsString(getMappedValue(row, mappings, "lines[].shipping.phone")) || null,
+    email: valueAsString(getMappedValue(row, mappings, "lines[].shipping.email")) || null,
+    instructions: valueAsString(getMappedValue(row, mappings, "lines[].shipping.instructions")) || null
   };
 
   return Object.values(shipping).some(Boolean) ? shipping : null;
@@ -471,6 +565,7 @@ function buildLine(
     unit_number: unitNumber,
     customer_sku: sku || null,
     description: description || null,
+    product_id: valueAsString(getMappedValue(row, mappings, "lines[].product_id")) || null,
     product_name: productName || description || null,
     quantity: Math.max(1, Math.round(valueAsNumber(getMappedValue(row, mappings, "lines[].quantity"), 1))),
     artwork: {
@@ -492,7 +587,7 @@ function buildLine(
       premask: valueAsString(getMappedValue(row, mappings, "lines[].production.premask")) || null,
       ink: valueAsString(getMappedValue(row, mappings, "lines[].production.ink")) || null
     },
-    shipping: null,
+    shipping: buildLineShipping(row, mappings),
     line_note: valueAsString(getMappedValue(row, mappings, "lines[].line_note")) || null
   };
 }
@@ -510,8 +605,10 @@ export function mapSourceRowsToCanonicalOrder(
     customer: {
       customer_id: options.customerId,
       customer_name: options.customerName,
-      destination_customer_id: options.destinationCustomerId
+      destination_customer_id: options.destinationCustomerId,
+      crm_id: firstMappedValue(rows, mappings, "customer.crm_id", "") || null
     },
+    contacts: buildContact(rows, mappings),
     source: {
       source_system: options.sourceSystem,
       source_customer: options.sourceCustomer,
@@ -528,6 +625,8 @@ export function mapSourceRowsToCanonicalOrder(
       po_number: poNumber || null,
       contract_number: contractNumber || null,
       order_title: firstMappedValue(rows, mappings, "order.order_title", "") || null,
+      due_date: firstMappedValue(rows, mappings, "order.due_date", "") || null,
+      order_attachment: firstMappedValue(rows, mappings, "order.order_attachment", "") || null,
       ship_date: firstMappedValue(rows, mappings, "order.ship_date", "") || null,
       shipping: buildShipping(rows, mappings)
     },

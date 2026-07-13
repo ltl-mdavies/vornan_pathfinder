@@ -30,6 +30,8 @@ export interface ValidationMessage {
 export interface ShippingAddress {
   method?: string | null;
   account_number?: string | null;
+  acct_billing_zip?: string | null;
+  acct_billing_country?: string | null;
   attention_to?: string | null;
   company?: string | null;
   address_1?: string | null;
@@ -43,11 +45,24 @@ export interface ShippingAddress {
   instructions?: string | null;
 }
 
+export interface Contact {
+  first_name?: string | null;
+  last_name?: string | null;
+  title?: string | null;
+  email?: string | null;
+  mobile_phone?: string | null;
+  office_phone?: string | null;
+  home_phone?: string | null;
+  slack?: string | null;
+  fax?: string | null;
+}
+
 export interface CanonicalOrderLine {
   line_number: number;
   unit_number: string;
   customer_sku?: string | null;
   description?: string | null;
+  product_id?: string | null;
   product_name?: string | null;
   quantity: number;
   artwork?: {
@@ -72,7 +87,9 @@ export interface CanonicalOrder {
     customer_id: string;
     customer_name: string;
     destination_customer_id?: string;
+    crm_id?: string | null;
   };
+  contacts?: Contact[];
   source: {
     source_system: string;
     source_customer: string;
@@ -91,6 +108,8 @@ export interface CanonicalOrder {
     order_title?: string | null;
     order_note?: string | null;
     ship_date?: string | null;
+    due_date?: string | null;
+    order_attachment?: string | null;
     shipping?: ShippingAddress | null;
   };
   lines: CanonicalOrderLine[];
@@ -195,8 +214,22 @@ export const sampleCanonicalOrder: CanonicalOrder = {
   customer: {
     customer_id: "customer_momentara",
     customer_name: "Momentara",
-    destination_customer_id: "LIFT_CUSTOMER_ID_TBD"
+    destination_customer_id: "LIFT_CUSTOMER_ID_TBD",
+    crm_id: "CRM-EXAMPLE-001"
   },
+  contacts: [
+    {
+      first_name: "Jane",
+      last_name: "Smith",
+      title: "Marketing Manager",
+      email: "jane.smith@example.com",
+      mobile_phone: "555-555-0101",
+      office_phone: "555-555-0100",
+      home_phone: null,
+      slack: "@jane.smith",
+      fax: null
+    }
+  ],
   source: {
     source_system: "Manual Upload",
     source_customer: "Momentara",
@@ -215,9 +248,13 @@ export const sampleCanonicalOrder: CanonicalOrder = {
     order_title: "Campaign",
     order_note: "Optional order-level production note.",
     ship_date: "2026-06-23",
+    due_date: "2026-06-24",
+    order_attachment: "https://example.com/imports/momentara-order.xlsx",
     shipping: {
       method: "UPS Ground",
       account_number: null,
+      acct_billing_zip: "45202",
+      acct_billing_country: "US",
       attention_to: "Jane Smith",
       company: "Example Company",
       address_1: "123 Main St",
@@ -237,6 +274,7 @@ export const sampleCanonicalOrder: CanonicalOrder = {
       unit_number: "2SHEET_46x60_48PT",
       customer_sku: "OOH-2SHEET-46X60",
       description: "2 Sheet Poster",
+      product_id: "PROD-2SHEET-POSTER",
       product_name: "2 Sheet Poster",
       quantity: 1,
       artwork: {
