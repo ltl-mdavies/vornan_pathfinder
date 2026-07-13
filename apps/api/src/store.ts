@@ -1140,6 +1140,28 @@ export async function getJob(customer: LiftCustomer, jobId: string) {
   return store.jobs.find((job) => job.customer_id === customer.lift_customer_id && job.job_id === jobId) ?? null;
 }
 
+export async function persistJobSnapshot(customer: LiftCustomer, job: ProcessingJobPreview) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const nextJob = {
+    ...job,
+    updated_at: now()
+  };
+
+  store.jobs = [
+    nextJob,
+    ...store.jobs.filter(
+      (candidate) => candidate.customer_id !== customer.lift_customer_id || candidate.job_id !== job.job_id
+    )
+  ];
+  workspace.jobs = store.jobs.filter((candidate) => candidate.customer_id === customer.lift_customer_id);
+  workspace.updated_at = nextJob.updated_at;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+
+  return nextJob;
+}
+
 export async function getSubmitAttemptByIdempotencyKey(customer: LiftCustomer, idempotencyKey: string) {
   const store = await readStore();
   return (

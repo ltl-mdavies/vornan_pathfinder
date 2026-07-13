@@ -36,6 +36,7 @@ import {
   getJob,
   getSubmitAttemptByIdempotencyKey,
   maskTargetConfig,
+  persistJobSnapshot,
   persistPreviewJob,
   persistSubmitAttempt,
   updateProductMapping,
@@ -358,6 +359,46 @@ function submitProfileFromJob(route: OutputRoute, job: ProcessingJobPreview): Su
         }
       : null
   };
+}
+
+async function refreshJobSubmitCertification(customer: LiftCustomer, job: ProcessingJobPreview) {
+  const workspace = await getOrCreateWorkspace(customer);
+  const outputRoute = workspace.output_routes.find((route) => route.output_route_id === job.output_route_id);
+
+  if (!outputRoute) {
+    throw new Error("Preview job output route could not be found.");
+  }
+
+  const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
+  if (!target) {
+    throw new Error("Preview job target could not be found.");
+  }
+
+  const submitProfile = submitProfileFromJob(outputRoute, job);
+  const routeEnvironment = routeEnvironmentForTarget(target, outputRoute);
+  const unmaskedSubmitRequest = buildLiftSubmitRequest(job.lift_payload, liftConfigForRoute(target, outputRoute));
+  const submitRequestMasked = maskLiftSubmitRequest(unmaskedSubmitRequest);
+  const submitValidation = validateSubmitReadiness(unmaskedSubmitRequest, job.lift_payload, submitProfile, outputRoute);
+  const liftPayloadValidation = job.lift_validation.filter((message) => !message.code.startsWith("SUBMIT-"));
+  const certification = buildSubmitCertification({
+    state: job.state,
+    canonicalValidation: job.canonical_validation,
+    liftValidation: liftPayloadValidation,
+    submitValidation,
+    unresolvedProducts: job.unresolved_products,
+    request: unmaskedSubmitRequest,
+    payload: job.lift_payload,
+    profile: submitProfile,
+    route: outputRoute,
+    environment: routeEnvironment
+  });
+
+  return persistJobSnapshot(customer, {
+    ...job,
+    lift_validation: [...liftPayloadValidation, ...submitValidation],
+    submit_certification: certification,
+    submit_request_masked: submitRequestMasked
+  });
 }
 
 function isPlaceholderSecret(value?: string | null) {
@@ -1189,6 +1230,31 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Job detail failed."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/jobs/:jobId/certification", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const job = await getJob(customer, req.params.jobId);
+
+    if (!job) {
+      res.status(404).json({
+        error: "Preview job not found."
+      });
+      return;
+    }
+
+    const refreshedJob = await refreshJobSubmitCertification(customer, job);
+    res.json({
+      job: refreshedJob,
+      certification: refreshedJob.submit_certification,
+      submit_request_masked: refreshedJob.submit_request_masked
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Submit certification refresh failed."
     });
   }
 });

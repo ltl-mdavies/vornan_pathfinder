@@ -1855,6 +1855,8 @@ export function App() {
   const [selectedJobDetail, setSelectedJobDetail] = useState<ProcessingJobPreview | null>(null);
   const [selectedJobAttempts, setSelectedJobAttempts] = useState<SubmitAttempt[]>([]);
   const [jobDetailState, setJobDetailState] = useState<"idle" | "loading" | "error">("idle");
+  const [certificationRefreshState, setCertificationRefreshState] = useState<"idle" | "loading" | "error">("idle");
+  const certificationRefreshKeyRef = useRef("");
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("sandbox-ltl-demo-1249");
   const [productMappingDrafts, setProductMappingDrafts] = useState<Record<string, { unit: string; product: string }>>({});
   const [compositeColumnToAdd, setCompositeColumnToAdd] = useState("");
@@ -2053,6 +2055,35 @@ export function App() {
     }
   }
 
+  async function refreshSubmitCertification(job: ProcessingJobPreview, showMessage = false) {
+    setCertificationRefreshState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/certification`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const payload = await readJsonResponse<{ job: ProcessingJobPreview }>(response);
+      setLastPreviewJob((current) => (current?.job_id === payload.job.job_id ? payload.job : current));
+      setSelectedJobDetail((current) => (current?.job_id === payload.job.job_id ? payload.job : current));
+      setWorkspace((current) => (current ? { ...current, jobs: upsertJob(current.jobs, payload.job) } : current));
+      setGlobalJobs((current) => upsertJob(current, payload.job));
+      if (showMessage) {
+        const blockingCount = payload.job.submit_certification?.items.filter((item) => item.blocking).length ?? 0;
+        setWorkspaceMessage(
+          blockingCount
+            ? `Submit certification refreshed. ${blockingCount} item${blockingCount === 1 ? "" : "s"} still blocking.`
+            : "Submit certification refreshed. This preview is certified for submit."
+        );
+      }
+      setCertificationRefreshState("idle");
+    } catch (error) {
+      if (showMessage) {
+        setWorkspaceMessage(error instanceof Error ? error.message : "Submit certification refresh failed.");
+      }
+      setCertificationRefreshState("error");
+    }
+  }
+
   async function saveTarget(target: TargetConfig) {
     setWorkspaceState("saving");
     try {
@@ -2085,6 +2116,20 @@ export function App() {
   useEffect(() => {
     void loadWorkspace(selectedCustomer.lift_customer_id);
   }, [selectedCustomer.lift_customer_id]);
+
+  useEffect(() => {
+    if (!lastPreviewJob || activeGlobalView !== "Customers" || activeCustomerView !== "Manual Import") {
+      return;
+    }
+
+    const refreshKey = `${lastPreviewJob.job_id}:${activeGlobalView}:${activeCustomerView}`;
+    if (certificationRefreshKeyRef.current === refreshKey) {
+      return;
+    }
+
+    certificationRefreshKeyRef.current = refreshKey;
+    void refreshSubmitCertification(lastPreviewJob);
+  }, [activeCustomerView, activeGlobalView, lastPreviewJob?.job_id]);
 
   const filteredCustomers = useMemo(() => {
     const query = customerSearch.trim().toLowerCase();
@@ -2817,6 +2862,22 @@ export function App() {
         certification?: SubmitCertification;
         submit_request_masked?: ProcessingJobPreview["submit_request_masked"];
       };
+      if (!payload.job && payload.certification) {
+        const refreshedSubmitJob = {
+          ...submitJob,
+          submit_certification: payload.certification,
+          submit_request_masked: payload.submit_request_masked ?? submitJob.submit_request_masked,
+          updated_at: new Date().toISOString()
+        };
+        if (lastPreviewJob?.job_id === refreshedSubmitJob.job_id || submitJob.job_id === lastPreviewJob?.job_id) {
+          setLastPreviewJob(refreshedSubmitJob);
+        }
+        if (selectedJobDetail?.job_id === refreshedSubmitJob.job_id || submitJob.job_id === selectedJobDetail?.job_id) {
+          setSelectedJobDetail(refreshedSubmitJob);
+        }
+        setWorkspace((current) => (current ? { ...current, jobs: upsertJob(current.jobs, refreshedSubmitJob) } : current));
+        setGlobalJobs((current) => upsertJob(current, refreshedSubmitJob));
+      }
       if (payload.attempt) {
         const submitAttempt = payload.attempt;
         setLastSubmitAttempt(submitAttempt);
@@ -5161,6 +5222,17 @@ export function App() {
                     <div className="certification-summary">
                       <strong>{submitCertification.can_submit ? "Ready for external submit" : "Submit still gated"}</strong>
                       <span>{submitCertification.summary}</span>
+                      {lastPreviewJob ? (
+                        <button
+                          className="secondary-button compact-button"
+                          onClick={() => void refreshSubmitCertification(lastPreviewJob, true)}
+                          disabled={certificationRefreshState === "loading"}
+                          type="button"
+                        >
+                          <RefreshCw size={16} />
+                          {certificationRefreshState === "loading" ? "Checking" : "Refresh certification"}
+                        </button>
+                      ) : null}
                     </div>
                     {lastSubmitAttempt ? (
                       <div className="submit-attempt-summary">

@@ -2604,6 +2604,14 @@ h1 {
   padding: 16px 16px 12px;
 }
 
+.certification-summary .compact-button {
+  justify-self: start;
+  min-height: 32px;
+  margin-top: 8px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 .certification-summary strong,
 .certification-summary span {
   display: block;
