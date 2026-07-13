@@ -776,3 +776,14 @@ What changed:
 - Customer Overview now surfaces the enriched values, and customer search includes CRM/terms fields.
 - Canonical order generation can now populate `customer.crm_id` from the enriched selected customer when the source file does not provide it.
 - The enrichment endpoint is non-blocking; if it fails, the customer list still loads with a warning.
+
+## 2026-07-13 - Lift Standard Graphics Body Shape Cleanup
+
+Aligned the Lift Standard Graphics output body with the current Momentara/Lift mapping expectations.
+
+What changed:
+
+- Standard body template order is now `customer`, `contacts`, `source`, `order`, `lines`.
+- `order.due_date` and `order.order_attachment` now sit inside `order` before `order.shipping`.
+- Removed `lines[].shipping` from the Standard Graphics body template, sample payload, template mappings, and generated Lift payload.
+- Existing saved Standard Graphics templates are normalized into the cleaned hierarchy when loaded.

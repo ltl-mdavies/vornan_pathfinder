@@ -486,23 +486,6 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
               ink: "4CP/0",
               cut_type: "Square Cut"
             },
-            shipping: {
-              method: "UPS Ground",
-              account_number: null,
-              acct_billing_zip: "45202",
-              acct_billing_country: "US",
-              attention_to: "Jane Smith",
-              company: "Example Company",
-              address_1: "123 Main St",
-              address_2: "Suite 200",
-              city: "Cincinnati",
-              state: "OH",
-              postal_code: "45202",
-              country: "US",
-              phone: "555-555-0100",
-              email: "jane.smith@example.com",
-              instructions: "Line-level ship-to override."
-            },
             line_note: "Optional line-level production note."
           }
         ]
@@ -572,8 +555,6 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
       { sourceColumn: "body:lines[].production.coating", targetField: "lines[].production.coating", required: false },
       { sourceColumn: "body:lines[].production.premask", targetField: "lines[].production.premask", required: false },
       { sourceColumn: "body:lines[].production.ink", targetField: "lines[].production.ink", required: false },
-      { sourceColumn: "body:lines[].shipping.acct_billing_zip", targetField: "lines[].shipping.acct_billing_zip", required: false },
-      { sourceColumn: "body:lines[].shipping.acct_billing_country", targetField: "lines[].shipping.acct_billing_country", required: false },
       { sourceColumn: "body:lines[].line_note", targetField: "lines[].line_note", required: false },
       { sourceColumn: "header:Ext_ID", targetField: "order.external_order_id", required: true },
       { sourceColumn: "header:User", targetField: "environment.credentials.User", required: true },
@@ -717,15 +698,80 @@ function setMissing(record: Record<string, unknown>, key: string, value: unknown
   }
 }
 
+const lineShippingTemplateFields = new Set([
+  "body:lines[].shipping.method",
+  "body:lines[].shipping.account_number",
+  "body:lines[].shipping.acct_billing_zip",
+  "body:lines[].shipping.acct_billing_country",
+  "body:lines[].shipping.attention_to",
+  "body:lines[].shipping.company",
+  "body:lines[].shipping.address_1",
+  "body:lines[].shipping.address_2",
+  "body:lines[].shipping.city",
+  "body:lines[].shipping.state",
+  "body:lines[].shipping.postal_code",
+  "body:lines[].shipping.country",
+  "body:lines[].shipping.phone",
+  "body:lines[].shipping.email",
+  "body:lines[].shipping.instructions"
+]);
+
+function reorderStandardBody(body: Record<string, unknown>) {
+  const order = asRecord(body.order);
+  const orderedOrder: Record<string, unknown> = {};
+  for (const key of [
+    "ext_id",
+    "po_number",
+    "contract_number",
+    "order_title",
+    "order_note",
+    "requested_ship_date",
+    "due_date",
+    "order_attachment",
+    "shipping"
+  ]) {
+    if (key in order) {
+      orderedOrder[key] = order[key];
+    }
+  }
+  for (const [key, value] of Object.entries(order)) {
+    if (!(key in orderedOrder)) {
+      orderedOrder[key] = value;
+    }
+  }
+
+  const orderedBody: Record<string, unknown> = {};
+  const orderedBodyEntries: Array<[string, unknown]> = [
+    ["customer", body.customer],
+    ["contacts", body.contacts],
+    ["source", body.source],
+    ["order", orderedOrder],
+    ["lines", body.lines]
+  ];
+  for (const [key, value] of orderedBodyEntries) {
+    if (value !== undefined) {
+      orderedBody[key] = value;
+    }
+  }
+  for (const [key, value] of Object.entries(body)) {
+    if (!(key in orderedBody)) {
+      orderedBody[key] = value;
+    }
+  }
+
+  return orderedBody;
+}
+
 function normalizeStandardOutputTemplate(template: OutputTemplate): OutputTemplate {
   if (template.output_template_id !== "template-lift-standard-graphics") {
     return template;
   }
 
   const seedTemplate = createSeedOutputTemplate(template.updated_at);
-  const sourceColumns = new Set(template.canonical_mappings.map((mapping) => mapping.sourceColumn));
+  const currentMappings = template.canonical_mappings.filter((mapping) => !lineShippingTemplateFields.has(mapping.sourceColumn));
+  const sourceColumns = new Set(currentMappings.map((mapping) => mapping.sourceColumn));
   const canonical_mappings = [
-    ...template.canonical_mappings,
+    ...currentMappings,
     ...seedTemplate.canonical_mappings.filter((mapping) => !sourceColumns.has(mapping.sourceColumn))
   ];
   let body_template = template.body_template;
@@ -767,16 +813,11 @@ function normalizeStandardOutputTemplate(template: OutputTemplate): OutputTempla
     const firstLine = asRecord(lines[0]);
     if (Object.keys(firstLine).length) {
       setMissing(firstLine, "product_id", "{{lines[].product_id}}");
-      const lineShipping = asRecord(firstLine.shipping);
-      setMissing(lineShipping, "acct_billing_zip", "{{lines[].shipping.acct_billing_zip}}");
-      setMissing(lineShipping, "acct_billing_country", "{{lines[].shipping.acct_billing_country}}");
-      if (Object.keys(lineShipping).length) {
-        firstLine.shipping = lineShipping;
-      }
+      delete firstLine.shipping;
       body.lines = [firstLine, ...lines.slice(1)];
     }
 
-    body_template = JSON.stringify(body, null, 2);
+    body_template = JSON.stringify(reorderStandardBody(body), null, 2);
   } catch {
     body_template = template.body_template;
   }

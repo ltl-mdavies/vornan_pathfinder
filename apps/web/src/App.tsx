@@ -492,8 +492,22 @@ const liftStandardGraphicsBodyTemplateText = JSON.stringify(
   {
     customer: {
       lift_customer_id: "{{customer.lift_customer_id}}",
-      customer_name: "{{customer.name}}"
+      customer_name: "{{customer.name}}",
+      crm_id: "{{customer.crm_id}}"
     },
+    contacts: [
+      {
+        first_name: "{{contacts[].first_name}}",
+        last_name: "{{contacts[].last_name}}",
+        title: "{{contacts[].title}}",
+        email: "{{contacts[].email}}",
+        mobile_phone: "{{contacts[].mobile_phone}}",
+        office_phone: "{{contacts[].office_phone}}",
+        home_phone: "{{contacts[].home_phone}}",
+        slack: "{{contacts[].slack}}",
+        fax: "{{contacts[].fax}}"
+      }
+    ],
     source: {
       platform: "Pathfinder",
       pathfinder_customer_id: "{{customer.id}}",
@@ -513,9 +527,13 @@ const liftStandardGraphicsBodyTemplateText = JSON.stringify(
       order_title: "{{order.order_title}}",
       order_note: "{{order.order_note}}",
       requested_ship_date: "{{order.ship_date}}",
+      due_date: "{{order.due_date}}",
+      order_attachment: "{{order.order_attachment}}",
       shipping: {
         method: "{{order.shipping.method}}",
         account_number: "{{order.shipping.account_number}}",
+        acct_billing_zip: "{{order.shipping.acct_billing_zip}}",
+        acct_billing_country: "{{order.shipping.acct_billing_country}}",
         attention_to: "{{order.shipping.attention_to}}",
         company: "{{order.shipping.company}}",
         address_1: "{{order.shipping.address_1}}",
@@ -535,6 +553,7 @@ const liftStandardGraphicsBodyTemplateText = JSON.stringify(
         unit_number: "{{lines[].unit_number}}",
         customer_sku: "{{lines[].customer_sku}}",
         description: "{{lines[].description}}",
+        product_id: "{{lines[].product_id}}",
         product_name: "{{lines[].product_name}}",
         quantity: "{{lines[].quantity}}",
         artwork: {
@@ -558,21 +577,6 @@ const liftStandardGraphicsBodyTemplateText = JSON.stringify(
           cut_type: "{{lines[].production.cut_type}}",
           hem: "{{lines[].production.hem}}",
           grommets: "{{lines[].production.grommets}}"
-        },
-        shipping: {
-          method: "{{lines[].shipping.method}}",
-          account_number: "{{lines[].shipping.account_number}}",
-          attention_to: "{{lines[].shipping.attention_to}}",
-          company: "{{lines[].shipping.company}}",
-          address_1: "{{lines[].shipping.address_1}}",
-          address_2: "{{lines[].shipping.address_2}}",
-          city: "{{lines[].shipping.city}}",
-          state: "{{lines[].shipping.state}}",
-          postal_code: "{{lines[].shipping.postal_code}}",
-          country: "{{lines[].shipping.country}}",
-          phone: "{{lines[].shipping.phone}}",
-          email: "{{lines[].shipping.email}}",
-          instructions: "{{lines[].shipping.instructions}}"
         },
         line_note: "{{lines[].line_note}}"
       }

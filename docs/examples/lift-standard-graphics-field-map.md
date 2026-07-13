@@ -111,7 +111,6 @@ Company ID: {company_id}
 | `lines[].production.premask` | Customer policy | Example default: `N`. |
 | `lines[].production.ink` | Customer policy | Example: `4CP/0`. |
 | `lines[].production.cut_type` | Customer policy | Example: `Square Cut`. |
-| `lines[].shipping` | Optional | Line-level ship-to override. `null` means use `order.shipping`. |
 | `lines[].line_note` | Optional | Line-specific note. |
 
 ## Questions For Lift Mapping Review

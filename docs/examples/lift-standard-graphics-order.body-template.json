@@ -87,23 +87,6 @@
         "hem": "{{lines[].production.hem}}",
         "grommets": "{{lines[].production.grommets}}"
       },
-      "shipping": {
-        "method": "{{lines[].shipping.method}}",
-        "account_number": "{{lines[].shipping.account_number}}",
-        "acct_billing_zip": "{{lines[].shipping.acct_billing_zip}}",
-        "acct_billing_country": "{{lines[].shipping.acct_billing_country}}",
-        "attention_to": "{{lines[].shipping.attention_to}}",
-        "company": "{{lines[].shipping.company}}",
-        "address_1": "{{lines[].shipping.address_1}}",
-        "address_2": "{{lines[].shipping.address_2}}",
-        "city": "{{lines[].shipping.city}}",
-        "state": "{{lines[].shipping.state}}",
-        "postal_code": "{{lines[].shipping.postal_code}}",
-        "country": "{{lines[].shipping.country}}",
-        "phone": "{{lines[].shipping.phone}}",
-        "email": "{{lines[].shipping.email}}",
-        "instructions": "{{lines[].shipping.instructions}}"
-      },
       "line_note": "{{lines[].line_note}}"
     }
   ]

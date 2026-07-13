@@ -85,7 +85,6 @@
         "ink": "4CP/0",
         "cut_type": "Square Cut"
       },
-      "shipping": null,
       "line_note": "Optional line-level production note."
     },
     {
@@ -117,23 +116,6 @@
         "cut_type": "Square Cut",
         "hem": true,
         "grommets": true
-      },
-      "shipping": {
-        "method": "UPS Ground",
-        "account_number": null,
-        "acct_billing_zip": "43215",
-        "acct_billing_country": "US",
-        "attention_to": "Store Manager",
-        "company": "Example Store 002",
-        "address_1": "456 Market Ave",
-        "address_2": null,
-        "city": "Columbus",
-        "state": "OH",
-        "postal_code": "43215",
-        "country": "US",
-        "phone": null,
-        "email": null,
-        "instructions": "Line-level ship-to override."
       },
       "line_note": null
     }

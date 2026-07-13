@@ -76,7 +76,6 @@ export interface LiftOrderPayload {
       bleed?: number | null;
     };
     production?: Record<string, string | number | boolean | null>;
-    shipping?: ShippingAddress | null;
     line_note?: string | null;
   }>;
 }
@@ -218,7 +217,6 @@ export function generateLiftPayload(
         bleed: line.dimensions.bleed ?? null
       },
       production: line.production,
-      shipping: line.shipping ?? null,
       line_note: line.line_note ?? null
     }))
   };
