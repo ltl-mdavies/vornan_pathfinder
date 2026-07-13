@@ -787,3 +787,15 @@ What changed:
 - `order.due_date` and `order.order_attachment` now sit inside `order` before `order.shipping`.
 - Removed `lines[].shipping` from the Standard Graphics body template, sample payload, template mappings, and generated Lift payload.
 - Existing saved Standard Graphics templates are normalized into the cleaned hierarchy when loaded.
+
+## 2026-07-13 - Output Route Value Normalization
+
+Added route-scoped value rules for controlled Lift field values.
+
+What changed:
+
+- Output routes now store `value_normalization_rules`.
+- Seeded Lift / 91 Standard Graphics with shipping method aliases: `Ground` and `UPS GND` normalize to `UPS Ground`.
+- Added a Target setup **Value Rules** tab for editing route-specific canonical field, output field, customer value, Lift value, match mode, fallback behavior, and status.
+- Lift preview generation applies route value rules before validation, submit-request preview, job persistence, and external submit.
+- Strict value rules add blocking validation messages when an unmapped controlled value would be sent to Lift.

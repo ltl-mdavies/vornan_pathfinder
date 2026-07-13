@@ -10,6 +10,7 @@ import {
 } from "@pathfinder/customer-directory";
 import { sampleCanonicalOrder, validateCanonicalOrder, type ValidationMessage } from "@pathfinder/canonical";
 import {
+  applyValueNormalizationToLiftPayload,
   buildLiftSubmitRequest,
   generateLiftPayload,
   maskLiftSubmitRequest,
@@ -1165,11 +1166,19 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       customer_sku: productResolutionResults[index]?.customer_product_key ?? line.customer_sku
     }));
     const canonicalValidation = validateCanonicalOrder(canonicalOrder);
-    const liftPayload = generateLiftPayload(canonicalOrder, {
+    const rawLiftPayload = generateLiftPayload(canonicalOrder, {
       jobId,
       canonicalOrderId
     });
-    const liftValidation = validateLiftPayload(liftPayload);
+    const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, outputRoute.value_normalization_rules);
+    const liftPayload = normalizedLift.payload;
+    const baseLiftValidation = validateLiftPayload(liftPayload);
+    const liftValidation = [
+      ...(normalizedLift.validation.length
+        ? baseLiftValidation.filter((message) => message.severity !== "PASS")
+        : baseLiftValidation),
+      ...normalizedLift.validation
+    ];
     const routeLiftConfig = liftConfigForRoute(target, outputRoute);
     const routeEnvironment = routeEnvironmentForTarget(target, outputRoute);
     const unmaskedSubmitRequest = buildLiftSubmitRequest(liftPayload, routeLiftConfig);

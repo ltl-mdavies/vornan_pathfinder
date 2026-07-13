@@ -3018,6 +3018,72 @@ h1 {
   font-size: 12px;
 }
 
+.value-rule-stack {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.value-rule-table {
+  table-layout: auto;
+}
+
+.value-rule-table th,
+.value-rule-table td {
+  width: auto;
+  vertical-align: middle;
+}
+
+.value-rule-table input,
+.value-rule-table select {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--text-primary);
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.value-rule-table th:nth-child(1),
+.value-rule-table td:nth-child(1),
+.value-rule-table th:nth-child(2),
+.value-rule-table td:nth-child(2) {
+  min-width: 190px;
+}
+
+.value-rule-table th:nth-child(3),
+.value-rule-table td:nth-child(3),
+.value-rule-table th:nth-child(4),
+.value-rule-table td:nth-child(4) {
+  min-width: 150px;
+}
+
+.value-rule-table th:nth-child(8),
+.value-rule-table td:nth-child(8) {
+  width: 60px;
+  text-align: center;
+}
+
+.value-rule-table .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.compact-button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
 th,
 td {
   padding: 13px 14px;

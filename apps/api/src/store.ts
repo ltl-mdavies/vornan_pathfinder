@@ -8,7 +8,8 @@ import {
   type LiftSubmitErrorTranslation,
   type LiftOrderPayload,
   type LiftSubmitRequest,
-  type LiftTargetConfig
+  type LiftTargetConfig,
+  type ValueNormalizationRule
 } from "@pathfinder/lift-adapter";
 import {
   buildDefaultMappings,
@@ -205,6 +206,7 @@ export interface OutputRoute {
   product_identifier_type: OutputProductIdentifierType;
   product_identifier_label: string;
   submit_profiles: SubmitProfile[];
+  value_normalization_rules: ValueNormalizationRule[];
   order_lookup_url?: string | null;
   status: "Active" | "Draft" | "Inactive";
   updated_at: string;
@@ -853,6 +855,38 @@ function createDefaultSubmitProfiles(): SubmitProfile[] {
   ];
 }
 
+function createDefaultValueNormalizationRules(): ValueNormalizationRule[] {
+  const base = {
+    canonical_field: "order.shipping.method",
+    output_field: "order.shipping.method",
+    match_mode: "case_insensitive" as const,
+    fallback_behavior: "block_submit" as const,
+    status: "Active" as const,
+    notes: "Lift requires the shipping method to match the configured Lift value exactly."
+  };
+
+  return [
+    {
+      ...base,
+      value_rule_id: "value-rule-shipping-ups-ground-self",
+      input_value: "UPS Ground",
+      normalized_value: "UPS Ground"
+    },
+    {
+      ...base,
+      value_rule_id: "value-rule-shipping-ground",
+      input_value: "Ground",
+      normalized_value: "UPS Ground"
+    },
+    {
+      ...base,
+      value_rule_id: "value-rule-shipping-ups-gnd",
+      input_value: "UPS GND",
+      normalized_value: "UPS Ground"
+    }
+  ];
+}
+
 function createSeedOutputRoute(timestamp = now()): OutputRoute {
   const lift = cloneDefaultLiftConfig();
   return {
@@ -869,6 +903,7 @@ function createSeedOutputRoute(timestamp = now()): OutputRoute {
     product_identifier_type: "lift_unit_number",
     product_identifier_label: "Lift unit_number",
     submit_profiles: createDefaultSubmitProfiles(),
+    value_normalization_rules: createDefaultValueNormalizationRules(),
     order_lookup_url: null,
     status: "Active",
     updated_at: timestamp
@@ -1143,6 +1178,9 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
     environment_id: candidate.environment_id ?? route.environment_id,
     output_template_id: candidate.output_template_id ?? route.output_template_id,
     submit_profiles: normalizeSubmitProfiles(candidate),
+    value_normalization_rules: candidate.value_normalization_rules?.length
+      ? candidate.value_normalization_rules
+      : route.value_normalization_rules,
     order_lookup_url: candidate.order_lookup_url ?? route.order_lookup_url ?? null
   }));
   const primaryOutputRouteId = workspace.primary_output_route_id ?? outputRoutes[0]?.output_route_id ?? route.output_route_id;
@@ -1278,6 +1316,8 @@ export async function updateOutputRoute(customer: LiftCustomer, routeId: string,
       ...existingRoute,
       ...routePatch
     } as OutputRoute),
+    value_normalization_rules:
+      routePatch.value_normalization_rules ?? existingRoute.value_normalization_rules ?? createDefaultValueNormalizationRules(),
     order_lookup_url: routePatch.order_lookup_url ?? existingRoute.order_lookup_url ?? null,
     updated_at: timestamp
   };

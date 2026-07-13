@@ -35,6 +35,7 @@ import {
 import type { LiftCustomer, LiftCustomerDirectory } from "@pathfinder/customer-directory";
 import { validateCanonicalOrder, type CanonicalOrder, type ProcessingState, type ValidationMessage } from "@pathfinder/canonical";
 import {
+  applyValueNormalizationToLiftPayload,
   buildLiftSubmitRequest,
   generateLiftPayload,
   maskLiftSubmitRequest,
@@ -42,7 +43,8 @@ import {
   type LiftOrderPayload,
   type LiftSubmitErrorTranslation,
   type LiftSubmitRequest,
-  type LiftTargetConfig
+  type LiftTargetConfig,
+  type ValueNormalizationRule
 } from "@pathfinder/lift-adapter";
 import {
   buildDefaultMappings,
@@ -71,7 +73,7 @@ type TargetEnvironmentRole = "PROD" | "QA" | "DEV" | "Sandbox" | "Custom";
 type TargetAuthMethod = "Header credentials" | "Bearer token" | "API key" | "None";
 type OutputDestinationMethod = "HTTP POST" | "SFTP file" | "Email attachment" | "Manual download";
 type OutputFormat = "JSON" | "XML" | "CSV" | "XLSX";
-type TargetsView = "Overview" | "Environments" | "Output Templates" | "Output Routes" | "Test & Health";
+type TargetsView = "Overview" | "Environments" | "Output Templates" | "Output Routes" | "Value Rules" | "Test & Health";
 type TargetDetailView = Exclude<TargetsView, "Overview">;
 type SubmitProfileMode = "live_customer" | "sandbox_customer";
 type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
@@ -247,6 +249,7 @@ interface OutputRoute {
   product_identifier_type: OutputProductIdentifierType;
   product_identifier_label: string;
   submit_profiles: SubmitProfile[];
+  value_normalization_rules: ValueNormalizationRule[];
   order_lookup_url?: string | null;
   status: "Active" | "Draft" | "Inactive";
   updated_at: string;
@@ -411,6 +414,42 @@ const defaultProductResolutionConfig: ProductResolutionConfig = {
   direct_unit_number_column: null
 };
 
+const defaultValueNormalizationRules: ValueNormalizationRule[] = [
+  {
+    value_rule_id: "value-rule-shipping-ups-ground-self",
+    canonical_field: "order.shipping.method",
+    output_field: "order.shipping.method",
+    match_mode: "case_insensitive",
+    input_value: "UPS Ground",
+    normalized_value: "UPS Ground",
+    fallback_behavior: "block_submit",
+    status: "Active",
+    notes: "Lift requires the shipping method to match the configured Lift value exactly."
+  },
+  {
+    value_rule_id: "value-rule-shipping-ground",
+    canonical_field: "order.shipping.method",
+    output_field: "order.shipping.method",
+    match_mode: "case_insensitive",
+    input_value: "Ground",
+    normalized_value: "UPS Ground",
+    fallback_behavior: "block_submit",
+    status: "Active",
+    notes: "Common customer alias for UPS Ground."
+  },
+  {
+    value_rule_id: "value-rule-shipping-ups-gnd",
+    canonical_field: "order.shipping.method",
+    output_field: "order.shipping.method",
+    match_mode: "case_insensitive",
+    input_value: "UPS GND",
+    normalized_value: "UPS Ground",
+    fallback_behavior: "block_submit",
+    status: "Active",
+    notes: "Abbreviated customer alias for UPS Ground."
+  }
+];
+
 const defaultOutputRoute: OutputRoute = {
   output_route_id: "route-ltl-lift-91-standard-graphics",
   name: "Larger Than Life · Lift / 91 · Standard Graphics",
@@ -445,12 +484,13 @@ const defaultOutputRoute: OutputRoute = {
       description: "Submit test orders under the internal LTL Demo Lift customer."
     }
   ],
+  value_normalization_rules: defaultValueNormalizationRules,
   order_lookup_url: null,
   status: "Active",
   updated_at: seedTimestamp
 };
 
-const targetDetailTabs: TargetDetailView[] = ["Environments", "Output Templates", "Output Routes", "Test & Health"];
+const targetDetailTabs: TargetDetailView[] = ["Environments", "Output Templates", "Output Routes", "Value Rules", "Test & Health"];
 const filenameTags = ["%y", "%m", "%d", "%h", "%i", "%s", "{{order.ext_id}}", "{{customer.name}}"];
 const canonicalOrderOptions = Array.from(new Set([
   "order.ext_id",
@@ -2515,11 +2555,19 @@ export function App() {
   );
 
   const canonicalMessages = validateCanonicalOrder(canonicalOrder);
-  const liftPayload = generateLiftPayload(canonicalOrder, {
+  const rawLiftPayload = generateLiftPayload(canonicalOrder, {
     jobId: "job_preview",
     canonicalOrderId: "co_preview"
   });
-  const liftMessages = validateLiftPayload(liftPayload);
+  const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, activeOutputRoute.value_normalization_rules ?? []);
+  const liftPayload = normalizedLift.payload;
+  const baseLiftMessages = validateLiftPayload(liftPayload);
+  const liftMessages = [
+    ...(normalizedLift.validation.length
+      ? baseLiftMessages.filter((message) => message.severity !== "PASS")
+      : baseLiftMessages),
+    ...normalizedLift.validation
+  ];
   const submitRequest = maskLiftSubmitRequest(buildLiftSubmitRequest(liftPayload, liftConfigForRoute(activeRouteTarget, activeOutputRoute)));
   const displayedCanonicalOrder = lastPreviewJob?.canonical_order ?? canonicalOrder;
   const displayedLiftPayload = lastPreviewJob?.lift_payload ?? liftPayload;
@@ -2736,6 +2784,58 @@ export function App() {
           route.output_route_id === routeId ? { ...route, ...patch } : route
         )
       };
+    });
+  }
+
+  function updateValueRuleDraft(routeId: string, ruleId: string, patch: Partial<ValueNormalizationRule>) {
+    setWorkspace((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        output_routes: current.output_routes.map((route) =>
+          route.output_route_id === routeId
+            ? {
+                ...route,
+                value_normalization_rules: (route.value_normalization_rules ?? []).map((rule) =>
+                  rule.value_rule_id === ruleId ? { ...rule, ...patch } : rule
+                )
+              }
+            : route
+        )
+      };
+    });
+  }
+
+  function addValueRuleDraft(route: OutputRoute) {
+    const timestamp = Date.now();
+    updateOutputRouteDraft(route.output_route_id, {
+      value_normalization_rules: [
+        ...(route.value_normalization_rules ?? []),
+        {
+          value_rule_id: `value-rule-${timestamp}`,
+          canonical_field: "order.shipping.method",
+          output_field: "order.shipping.method",
+          match_mode: "case_insensitive",
+          input_value: "",
+          normalized_value: "",
+          fallback_behavior: "block_submit",
+          status: "Draft",
+          notes: ""
+        }
+      ]
+    });
+  }
+
+  function removeValueRuleDraft(routeId: string, ruleId: string) {
+    const route = outputRoutes.find((candidate) => candidate.output_route_id === routeId);
+    if (!route) {
+      return;
+    }
+    updateOutputRouteDraft(routeId, {
+      value_normalization_rules: (route.value_normalization_rules ?? []).filter((rule) => rule.value_rule_id !== ruleId)
     });
   }
 
@@ -6484,6 +6584,172 @@ export function App() {
                           </article>
                         );
                       })}
+                    </div>
+                    {selectedTargetRoutes.length === 0 ? (
+                      <p className="empty-state">No customer output routes currently point to this target.</p>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                {activeTargetsView === "Value Rules" ? (
+                  <section className="panel setup-panel value-rules-panel">
+                    <PanelHeader icon={SlidersHorizontal} title="Value Rules" detail="Route-specific controlled values" />
+                    <div className="value-rule-stack">
+                      {selectedTargetRoutes.map((route) => (
+                        <article className="output-route-card value-rule-card" key={route.output_route_id}>
+                          <div className="output-route-heading">
+                            <div>
+                              <strong>{route.name}</strong>
+                              <span>
+                                Normalize controlled values before Pathfinder builds the {route.output_template} payload.
+                              </span>
+                            </div>
+                            <button className="secondary-button compact-button" onClick={() => addValueRuleDraft(route)}>
+                              <Plus size={16} /> Add Rule
+                            </button>
+                          </div>
+                          {(route.value_normalization_rules ?? []).length ? (
+                            <table className="mapping-table value-rule-table">
+                              <thead>
+                                <tr>
+                                  <th>Canonical field</th>
+                                  <th>Output field</th>
+                                  <th>Customer value</th>
+                                  <th>Lift value</th>
+                                  <th>Match</th>
+                                  <th>Fallback</th>
+                                  <th>Status</th>
+                                  <th>Action</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(route.value_normalization_rules ?? []).map((rule) => (
+                                  <tr key={rule.value_rule_id}>
+                                    <td>
+                                      <select
+                                        value={rule.canonical_field}
+                                        onChange={(event) =>
+                                          updateValueRuleDraft(route.output_route_id, rule.value_rule_id, {
+                                            canonical_field: event.target.value
+                                          })
+                                        }
+                                      >
+                                        {canonicalOrderOptions.map((option) => (
+                                          <option key={option} value={option}>
+                                            {option}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td>
+                                      <select
+                                        value={rule.output_field}
+                                        onChange={(event) =>
+                                          updateValueRuleDraft(route.output_route_id, rule.value_rule_id, {
+                                            output_field: event.target.value
+                                          })
+                                        }
+                                      >
+                                        {canonicalOrderOptions.map((option) => (
+                                          <option key={option} value={option}>
+                                            {option}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td>
+                                      <input
+                                        value={rule.input_value}
+                                        placeholder="Ground"
+                                        onChange={(event) =>
+                                          updateValueRuleDraft(route.output_route_id, rule.value_rule_id, {
+                                            input_value: event.target.value
+                                          })
+                                        }
+                                      />
+                                    </td>
+                                    <td>
+                                      <input
+                                        value={rule.normalized_value}
+                                        placeholder="UPS Ground"
+                                        onChange={(event) =>
+                                          updateValueRuleDraft(route.output_route_id, rule.value_rule_id, {
+                                            normalized_value: event.target.value
+                                          })
+                                        }
+                                      />
+                                    </td>
+                                    <td>
+                                      <select
+                                        value={rule.match_mode}
+                                        onChange={(event) =>
+                                          updateValueRuleDraft(route.output_route_id, rule.value_rule_id, {
+                                            match_mode: event.target.value as ValueNormalizationRule["match_mode"]
+                                          })
+                                        }
+                                      >
+                                        <option value="case_insensitive">Case insensitive</option>
+                                        <option value="exact">Exact</option>
+                                        <option value="contains">Contains</option>
+                                        <option value="regex">Regex</option>
+                                      </select>
+                                    </td>
+                                    <td>
+                                      <select
+                                        value={rule.fallback_behavior}
+                                        onChange={(event) =>
+                                          updateValueRuleDraft(route.output_route_id, rule.value_rule_id, {
+                                            fallback_behavior: event.target.value as ValueNormalizationRule["fallback_behavior"]
+                                          })
+                                        }
+                                      >
+                                        <option value="block_submit">Block submit</option>
+                                        <option value="pass_through">Pass through</option>
+                                        <option value="use_default">Use default</option>
+                                      </select>
+                                    </td>
+                                    <td>
+                                      <select
+                                        value={rule.status}
+                                        onChange={(event) =>
+                                          updateValueRuleDraft(route.output_route_id, rule.value_rule_id, {
+                                            status: event.target.value as ValueNormalizationRule["status"]
+                                          })
+                                        }
+                                      >
+                                        <option>Active</option>
+                                        <option>Draft</option>
+                                        <option>Inactive</option>
+                                      </select>
+                                    </td>
+                                    <td>
+                                      <button
+                                        className="icon-button"
+                                        aria-label="Remove value rule"
+                                        onClick={() => removeValueRuleDraft(route.output_route_id, rule.value_rule_id)}
+                                      >
+                                        <Trash2 size={16} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <p className="empty-state">No value rules are configured for this output route.</p>
+                          )}
+                          <div className="panel-action-footer">
+                            <span>Strict rules can block submit when Lift requires an exact controlled value.</span>
+                            <button
+                              className="primary-button"
+                              onClick={() => void saveOutputRoute(route)}
+                              disabled={workspaceState === "saving"}
+                            >
+                              Save Value Rules
+                            </button>
+                          </div>
+                        </article>
+                      ))}
                     </div>
                     {selectedTargetRoutes.length === 0 ? (
                       <p className="empty-state">No customer output routes currently point to this target.</p>

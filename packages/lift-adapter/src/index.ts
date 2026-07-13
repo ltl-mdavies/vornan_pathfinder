@@ -80,6 +80,31 @@ export interface LiftOrderPayload {
   }>;
 }
 
+export type ValueNormalizationMatchMode = "exact" | "case_insensitive" | "contains" | "regex";
+export type ValueNormalizationFallbackBehavior = "pass_through" | "block_submit" | "use_default";
+
+export interface ValueNormalizationRule {
+  value_rule_id: string;
+  canonical_field: string;
+  output_field: string;
+  match_mode: ValueNormalizationMatchMode;
+  input_value: string;
+  normalized_value: string;
+  fallback_behavior: ValueNormalizationFallbackBehavior;
+  default_value?: string | null;
+  status: "Active" | "Draft" | "Inactive";
+  notes?: string | null;
+}
+
+export interface ValueNormalizationResult {
+  rule_id?: string | null;
+  field: string;
+  original_value: string;
+  normalized_value: string;
+  status: "Normalized" | "Pass Through" | "Defaulted" | "Blocked";
+  message: string;
+}
+
 export interface LiftSubmitRequest {
   endpoint_url: string;
   headers: {
@@ -220,6 +245,135 @@ export function generateLiftPayload(
       line_note: line.line_note ?? null
     }))
   };
+}
+
+function getPayloadValue(payload: LiftOrderPayload, field: string): unknown {
+  return field.split(".").reduce<unknown>((current, segment) => {
+    if (!current || typeof current !== "object") {
+      return undefined;
+    }
+    return (current as Record<string, unknown>)[segment];
+  }, payload);
+}
+
+function setPayloadValue(payload: LiftOrderPayload, field: string, value: unknown) {
+  const segments = field.split(".");
+  const finalSegment = segments.pop();
+  if (!finalSegment) {
+    return;
+  }
+
+  const parent = segments.reduce<Record<string, unknown>>((current, segment) => {
+    if (!current[segment] || typeof current[segment] !== "object") {
+      current[segment] = {};
+    }
+    return current[segment] as Record<string, unknown>;
+  }, payload as unknown as Record<string, unknown>);
+
+  parent[finalSegment] = value;
+}
+
+function matchesNormalizationRule(value: string, rule: ValueNormalizationRule) {
+  const input = rule.input_value.trim();
+  if (!input) {
+    return false;
+  }
+
+  if (rule.match_mode === "case_insensitive") {
+    return value.trim().toLowerCase() === input.toLowerCase();
+  }
+  if (rule.match_mode === "contains") {
+    return value.toLowerCase().includes(input.toLowerCase());
+  }
+  if (rule.match_mode === "regex") {
+    try {
+      return new RegExp(input, "i").test(value);
+    } catch {
+      return false;
+    }
+  }
+  return value.trim() === input;
+}
+
+export function applyValueNormalizationToLiftPayload(
+  payload: LiftOrderPayload,
+  rules: ValueNormalizationRule[] = []
+): { payload: LiftOrderPayload; results: ValueNormalizationResult[]; validation: ValidationMessage[] } {
+  const nextPayload = JSON.parse(JSON.stringify(payload)) as LiftOrderPayload;
+  const activeRules = rules.filter((rule) => rule.status === "Active" && rule.output_field.trim());
+  const fields = [...new Set(activeRules.map((rule) => rule.output_field))];
+  const results: ValueNormalizationResult[] = [];
+  const validation: ValidationMessage[] = [];
+
+  for (const field of fields) {
+    const fieldRules = activeRules.filter((rule) => rule.output_field === field);
+    const rawValue = getPayloadValue(nextPayload, field);
+
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      continue;
+    }
+
+    const originalValue = String(rawValue);
+    const matchedRule = fieldRules.find((rule) => matchesNormalizationRule(originalValue, rule));
+
+    if (matchedRule) {
+      setPayloadValue(nextPayload, field, matchedRule.normalized_value);
+      results.push({
+        rule_id: matchedRule.value_rule_id,
+        field,
+        original_value: originalValue,
+        normalized_value: matchedRule.normalized_value,
+        status: "Normalized",
+        message: `${field} normalized from "${originalValue}" to "${matchedRule.normalized_value}".`
+      });
+      continue;
+    }
+
+    const fallbackRule = fieldRules.find((rule) => rule.fallback_behavior === "block_submit") ?? fieldRules[0];
+    if (fallbackRule?.fallback_behavior === "use_default" && fallbackRule.default_value) {
+      setPayloadValue(nextPayload, field, fallbackRule.default_value);
+      results.push({
+        rule_id: fallbackRule.value_rule_id,
+        field,
+        original_value: originalValue,
+        normalized_value: fallbackRule.default_value,
+        status: "Defaulted",
+        message: `${field} defaulted to "${fallbackRule.default_value}".`
+      });
+      continue;
+    }
+
+    if (fallbackRule?.fallback_behavior === "block_submit") {
+      results.push({
+        rule_id: null,
+        field,
+        original_value: originalValue,
+        normalized_value: originalValue,
+        status: "Blocked",
+        message: `${field} value "${originalValue}" does not match an approved output value.`
+      });
+      validation.push({
+        severity: "FAIL",
+        code: "LIFT-VALUE-NORMALIZATION",
+        object: "lift.payload",
+        field,
+        message: `${field} value "${originalValue}" is not approved for this output route.`,
+        suggested_action: "Add a value normalization rule or update the source mapping before submitting."
+      });
+      continue;
+    }
+
+    results.push({
+      rule_id: null,
+      field,
+      original_value: originalValue,
+      normalized_value: originalValue,
+      status: "Pass Through",
+      message: `${field} passed through without normalization.`
+    });
+  }
+
+  return { payload: nextPayload, results, validation };
 }
 
 export function validateLiftPayload(payload: LiftOrderPayload): ValidationMessage[] {
