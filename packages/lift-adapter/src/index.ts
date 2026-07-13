@@ -381,8 +381,16 @@ export function applyValueNormalizationToLiftPayload(
   return { payload: nextPayload, results, validation };
 }
 
-export function validateLiftPayload(payload: LiftOrderPayload): ValidationMessage[] {
+export interface LiftPayloadValidationOptions {
+  product_identifier_type?: "lift_unit_number" | "lift_product_id" | string;
+  product_identifier_label?: string;
+}
+
+export function validateLiftPayload(payload: LiftOrderPayload, options: LiftPayloadValidationOptions = {}): ValidationMessage[] {
   const messages: ValidationMessage[] = [];
+  const productIdentifierType = options.product_identifier_type ?? "lift_unit_number";
+  const productIdentifierLabel =
+    options.product_identifier_label ?? (productIdentifierType === "lift_product_id" ? "Lift product_id" : "Lift unit_number");
 
   if (!payload.order.ext_id?.trim()) {
     messages.push({
@@ -407,14 +415,23 @@ export function validateLiftPayload(payload: LiftOrderPayload): ValidationMessag
   }
 
   payload.lines.forEach((line, index) => {
-    if (!line.unit_number.trim()) {
+    if (productIdentifierType === "lift_product_id" && !line.product_id?.trim()) {
+      messages.push({
+        severity: "FAIL",
+        code: "LIFT-PRODUCT-ID",
+        object: "lift.line",
+        field: `lines[${index}].product_id`,
+        message: "Lift line product_id is required for this output route.",
+        suggested_action: `Resolve product mapping to an approved ${productIdentifierLabel} before generating the Lift payload.`
+      });
+    } else if (productIdentifierType !== "lift_product_id" && !line.unit_number.trim()) {
       messages.push({
         severity: "FAIL",
         code: "LIFT-UNIT",
         object: "lift.line",
         field: `lines[${index}].unit_number`,
-        message: "Lift line unit_number is required.",
-        suggested_action: "Resolve product mapping before generating the Lift payload."
+        message: "Lift line unit_number is required for this output route.",
+        suggested_action: `Resolve product mapping to an approved ${productIdentifierLabel} before generating the Lift payload.`
       });
     }
   });
@@ -613,7 +630,7 @@ export function translateLiftSubmitError(args: {
     return {
       category: "unit_number",
       operator_message: "Lift could not resolve one or more submitted product identifiers.",
-      suggested_action: "Review the Output Product Map for this route and confirm each customer key maps to an approved Lift unit_number.",
+      suggested_action: "Review the Output Product Map for this route and confirm each customer key maps to an approved Lift product identifier.",
       retryable: false,
       source_message: sourceMessage
     };

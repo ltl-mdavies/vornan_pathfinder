@@ -67,7 +67,13 @@ type ProductResolverStrategy = "derived_key" | "composite_key" | "direct_lift_un
 type ProductResolutionMode = "map_to_lift_unit" | "send_derived_unit";
 type ProductMappingStatus = "Mapped" | "Unmapped" | "Ambiguous" | "Inactive";
 type ProductMappingSource = "Observed order" | "Preloaded catalog" | "Manual entry";
-type OutputProductIdentifierType = "lift_unit_number" | "sku" | "variant_id" | "catalog_item_id" | "custom";
+type OutputProductIdentifierType =
+  | "lift_unit_number"
+  | "lift_product_id"
+  | "sku"
+  | "variant_id"
+  | "catalog_item_id"
+  | "custom";
 type TargetType = "ERP" | "Ecommerce" | "Print Factory" | "SFTP" | "Webhook" | "Custom";
 type TargetEnvironmentRole = "PROD" | "QA" | "DEV" | "Sandbox" | "Custom";
 type TargetAuthMethod = "Header credentials" | "Bearer token" | "API key" | "None";
@@ -109,6 +115,7 @@ interface CustomerProductMapping {
   product_identifier_type: OutputProductIdentifierType;
   product_identifier_value: string | null;
   lift_unit_number: string | null;
+  lift_product_id?: string | null;
   product_name: string | null;
   status: ProductMappingStatus;
   mapping_source?: ProductMappingSource;
@@ -146,7 +153,9 @@ interface ProductResolutionResult {
   customer_product_key: string;
   display_label: string;
   source_columns: string[];
+  resolved_product_identifier?: string | null;
   resolved_unit_number: string | null;
+  resolved_product_id?: string | null;
   product_name: string | null;
   status: ProductMappingStatus;
   message: string;
@@ -1472,6 +1481,9 @@ function buildLocalSubmitCertification(args: {
 }
 
 function outputIdentifierPlaceholder(route: OutputRoute) {
+  if (route.product_identifier_type === "lift_product_id") {
+    return "Lift product_id";
+  }
   if (route.product_identifier_type === "sku") {
     return "SKU";
   }
@@ -1487,6 +1499,25 @@ function outputIdentifierPlaceholder(route: OutputRoute) {
   return "Lift unit_number";
 }
 
+function outputIdentifierLabel(type: OutputProductIdentifierType) {
+  if (type === "lift_product_id") {
+    return "Lift product_id";
+  }
+  if (type === "lift_unit_number") {
+    return "Lift unit_number";
+  }
+  if (type === "sku") {
+    return "SKU";
+  }
+  if (type === "variant_id") {
+    return "Variant ID";
+  }
+  if (type === "catalog_item_id") {
+    return "Catalog item ID";
+  }
+  return "Custom product identifier";
+}
+
 function sourceTypeLabel(source: ImportMethodSource) {
   return source;
 }
@@ -1494,31 +1525,31 @@ function sourceTypeLabel(source: ImportMethodSource) {
 function productResolverCopy(strategy: ProductResolverStrategy) {
   if (strategy === "direct_lift_unit_number") {
     return {
-      title: "Use a Lift unit number already in the file",
+      title: "Use a product identifier already in the file",
       body:
-        "Choose this when the incoming sheet or source already provides the exact Lift unit number for each order line."
+        "Choose this when the incoming sheet or source already provides the exact identifier the selected output route expects."
     };
   }
   if (strategy === "composite_key") {
     return {
       title: "Build a product key from several columns",
       body:
-        "Choose this when one field is not reliable enough. Pathfinder joins the selected columns into a customer product key, then maps that key to one Lift unit."
+        "Choose this when one field is not reliable enough. Pathfinder joins the selected columns into a customer product key, then maps that key to the selected route's product identifier."
     };
   }
   return {
     title: "Create a product key from one source column",
     body:
-      "Choose this when a field like SIGN TYPE identifies the product. Prefixes and suffixes can make the key unique before it maps to a Lift unit."
+      "Choose this when a field like SIGN TYPE identifies the product. Prefixes and suffixes can make the key unique before it maps to the selected route's product identifier."
   };
 }
 
 function resolutionModeCopy(mode: ProductResolutionMode) {
   if (mode === "send_derived_unit") {
     return {
-      title: "Use the generated key as the Lift unit number",
+      title: "Use the generated key as the submitted product identifier",
       body:
-        "Only use this when the generated key is intentionally formatted to match real Lift unit numbers. Pathfinder will skip the product mapping lookup."
+        "Only use this when the generated key is intentionally formatted to match the identifier required by the selected output route. Pathfinder will skip the product mapping lookup."
     };
   }
   return {
@@ -1617,8 +1648,11 @@ function buildProductResolutionExample(
   );
   const liftUnitNumber =
     config.strategy === "direct_lift_unit_number" || config.mode === "send_derived_unit"
-      ? generatedKey || "No unit number generated"
-      : mappedProduct?.product_identifier_value ?? mappedProduct?.lift_unit_number ?? "Needs approved output product mapping";
+      ? generatedKey || "No product identifier generated"
+      : mappedProduct?.product_identifier_value ??
+        mappedProduct?.lift_unit_number ??
+        mappedProduct?.lift_product_id ??
+        "Needs approved output product mapping";
 
   return {
     sourceParts,
@@ -1628,10 +1662,10 @@ function buildProductResolutionExample(
       config.strategy === "direct_lift_unit_number"
         ? generatedKey
           ? "Ready from source"
-          : "Missing unit number"
+          : "Missing product identifier"
         : config.mode === "send_derived_unit"
           ? "Generated key will be submitted directly"
-            : mappedProduct?.product_identifier_value ?? mappedProduct?.lift_unit_number
+            : mappedProduct?.product_identifier_value ?? mappedProduct?.lift_unit_number ?? mappedProduct?.lift_product_id
               ? "Mapped"
               : "Needs mapping"
   };
@@ -2206,6 +2240,12 @@ export function App() {
   const activeProductConfig = activeImportMethod?.product_resolution_config ?? defaultProductResolutionConfig;
   const activeResolverCopy = productResolverCopy(activeProductConfig.strategy);
   const activeResolutionModeCopy = resolutionModeCopy(activeProductConfig.mode);
+  const activeResolverSummary =
+    activeProductConfig.strategy === "direct_lift_unit_number"
+      ? `Direct from ${activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column}`
+      : activeProductConfig.strategy === "composite_key"
+        ? `Composite key from ${activeProductConfig.composite_columns.length} columns`
+        : `Derived key from ${activeProductConfig.source_column}`;
   const productExampleTestColumn =
     activeProductConfig.strategy === "direct_lift_unit_number"
       ? activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column
@@ -2377,6 +2417,7 @@ export function App() {
           mapping.display_label,
           mapping.product_identifier_value ?? "",
           mapping.lift_unit_number ?? "",
+          mapping.lift_product_id ?? "",
           mapping.product_name ?? "",
           productMappingSourceLabel(mapping),
           mapping.source_file_name ?? "",
@@ -2532,14 +2573,19 @@ export function App() {
     ]
   );
 
-  const canonicalMessages = validateCanonicalOrder(canonicalOrder);
+  const canonicalMessages = validateCanonicalOrder(canonicalOrder, {
+    product_identifier_type: activeOutputRoute.product_identifier_type
+  });
   const rawLiftPayload = generateLiftPayload(canonicalOrder, {
     jobId: "job_preview",
     canonicalOrderId: "co_preview"
   });
   const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, activeOutputRoute.value_normalization_rules ?? []);
   const liftPayload = normalizedLift.payload;
-  const baseLiftMessages = validateLiftPayload(liftPayload);
+  const baseLiftMessages = validateLiftPayload(liftPayload, {
+    product_identifier_type: activeOutputRoute.product_identifier_type,
+    product_identifier_label: activeOutputRoute.product_identifier_label
+  });
   const liftMessages = [
     ...(normalizedLift.validation.length
       ? baseLiftMessages.filter((message) => message.severity !== "PASS")
@@ -2849,9 +2895,9 @@ export function App() {
     const draft = productMappingDrafts[productMappingDraftKey(mappingRoute.output_route_id, customerProductKey)];
     const currentUnit =
       draft?.unit ??
-      ("resolved_unit_number" in mapping
-        ? mapping.resolved_unit_number
-        : mapping.product_identifier_value ?? mapping.lift_unit_number) ??
+      ("mapping_id" in mapping
+        ? mapping.product_identifier_value ?? mapping.lift_unit_number ?? mapping.lift_product_id
+        : mapping.resolved_product_identifier ?? mapping.resolved_unit_number ?? mapping.resolved_product_id) ??
       "";
     const currentProduct = draft?.product ?? mapping.product_name ?? mapping.display_label;
 
@@ -2877,6 +2923,7 @@ export function App() {
             product_identifier_type: mappingRoute.product_identifier_type,
             product_identifier_value: currentUnit.trim(),
             lift_unit_number: mappingRoute.product_identifier_type === "lift_unit_number" ? currentUnit.trim() : null,
+            lift_product_id: mappingRoute.product_identifier_type === "lift_product_id" ? currentUnit.trim() : null,
             product_name: currentProduct.trim() || mapping.display_label,
             status: "Mapped",
             mapping_source: "mapping_id" in mapping ? mapping.mapping_source ?? "Manual entry" : "Observed order",
@@ -3065,7 +3112,12 @@ export function App() {
             ...patch,
             status:
               patch.status ??
-              (patch.product_identifier_value || patch.lift_unit_number || mapping.product_identifier_value || mapping.lift_unit_number
+              (patch.product_identifier_value ||
+              patch.lift_unit_number ||
+              patch.lift_product_id ||
+              mapping.product_identifier_value ||
+              mapping.lift_unit_number ||
+              mapping.lift_product_id
                 ? "Mapped"
                 : mapping.status)
           }))
@@ -3097,6 +3149,7 @@ export function App() {
         product_identifier_type: selectedOutputMapRoute.product_identifier_type,
         product_identifier_value: bulkUnitNumber.trim(),
         lift_unit_number: selectedOutputMapRoute.product_identifier_type === "lift_unit_number" ? bulkUnitNumber.trim() : null,
+        lift_product_id: selectedOutputMapRoute.product_identifier_type === "lift_product_id" ? bulkUnitNumber.trim() : null,
         product_name: bulkProductName.trim() || selectedUnitMappings[0]?.product_name || null,
         status: "Mapped"
       },
@@ -3124,6 +3177,7 @@ export function App() {
         product_identifier_type: selectedOutputMapRoute.product_identifier_type,
         product_identifier_value: item.unit_number,
         lift_unit_number: selectedOutputMapRoute.product_identifier_type === "lift_unit_number" ? item.unit_number : null,
+        lift_product_id: selectedOutputMapRoute.product_identifier_type === "lift_product_id" ? item.unit_number : null,
         product_name: item.product_name,
         status: "Mapped"
       },
@@ -3222,6 +3276,10 @@ export function App() {
               selectedOutputMapRoute.product_identifier_type === "lift_unit_number"
                 ? row.product_identifier_value || row.existing_mapping?.lift_unit_number || null
                 : row.existing_mapping?.lift_unit_number ?? null;
+            const liftProductId =
+              selectedOutputMapRoute.product_identifier_type === "lift_product_id"
+                ? row.product_identifier_value || row.existing_mapping?.lift_product_id || null
+                : row.existing_mapping?.lift_product_id ?? null;
             const productName = row.product_name || row.existing_mapping?.product_name || row.display_label;
 
             return {
@@ -3236,8 +3294,9 @@ export function App() {
               product_identifier_type: selectedOutputMapRoute.product_identifier_type,
               product_identifier_value: productIdentifierValue,
               lift_unit_number: liftUnitNumber,
+              lift_product_id: liftProductId,
               product_name: productName,
-              status: productIdentifierValue || liftUnitNumber ? "Mapped" : "Unmapped",
+              status: productIdentifierValue || liftUnitNumber || liftProductId ? "Mapped" : "Unmapped",
               mapping_source: "Preloaded catalog",
               source_file_name: preloadSourceName.trim() || "Customer product list",
               last_seen_examples: row.existing_mapping?.last_seen_examples?.length
@@ -3862,7 +3921,7 @@ export function App() {
                           <span><strong>Generate Preview Job</strong><small>Use the current manual import grid and mappings.</small></span>
                         </button>
                         <button className="topbar-menu-item" onClick={() => runHeaderAction("product-map")}>
-                          <span><strong>Resolve Product Map</strong><small>Assign customer keys to local unit numbers.</small></span>
+                          <span><strong>Resolve Product Map</strong><small>Assign customer keys to route product identifiers.</small></span>
                         </button>
                         <button className="topbar-menu-item" onClick={() => runHeaderAction("import-methods")}>
                           <span><strong>Edit Import Methods</strong><small>Source, mapping, product resolution, and route.</small></span>
@@ -3929,7 +3988,8 @@ export function App() {
                         <DetailItem label="Auth" value={primaryRouteAuth} />
                         <DetailItem label="Destination" value={`${primaryOutputRoute.destination_account_name}${primaryOutputRoute.destination_account_id ? ` / ${primaryOutputRoute.destination_account_id}` : ""}`} />
                         <DetailItem label="Format" value={`${primaryRouteTemplate?.destination_method ?? "HTTP POST"} · ${primaryRouteTemplate?.output_format ?? "JSON"}`} />
-                        <DetailItem label="Product ID" value={primaryOutputRoute.product_identifier_label} />
+                        <DetailItem label="Product Mapping Strategy" value={primaryOutputRoute.product_identifier_label} />
+                        <DetailItem label="Product Key Resolver" value={activeResolverSummary} />
                       </dl>
                     </div>
                   </div>
@@ -4327,7 +4387,7 @@ export function App() {
                         >
                           <option value="derived_key">Derived key</option>
                           <option value="composite_key">Composite key</option>
-                          <option value="direct_lift_unit_number">Direct Lift unit number</option>
+                          <option value="direct_lift_unit_number">Direct product identifier</option>
                         </select>
                       </label>
                       <div className="resolver-explainer">
@@ -4340,7 +4400,7 @@ export function App() {
                       <h3>Configure Strategy Settings</h3>
                       <span>
                         {activeProductConfig.strategy === "direct_lift_unit_number"
-                          ? "Choose the source field that already contains the Lift unit number."
+                          ? "Choose the source field that already contains the route product identifier."
                           : activeProductConfig.strategy === "composite_key"
                             ? "Choose the source fields Pathfinder should combine into one product key."
                             : "Choose the source field and optional text added around the generated key."}
@@ -4507,7 +4567,7 @@ export function App() {
                               }
                             >
                               <option value="map_to_lift_unit">Look up key in output product map</option>
-                              <option value="send_derived_unit">Use generated key as Lift unit number</option>
+                              <option value="send_derived_unit">Use generated key as submitted product identifier</option>
                             </select>
                           </label>
                           <div className="resolver-explainer resolver-mode-explainer">
@@ -4527,7 +4587,7 @@ export function App() {
                         <label className="setup-control resolver-test-value">
                           <span>
                             Test {productExampleTestColumn}
-                            {activeProductConfig.strategy === "direct_lift_unit_number" ? " unit number" : " value"}
+                            {activeProductConfig.strategy === "direct_lift_unit_number" ? " product identifier" : " value"}
                           </span>
                           <input
                             value={productExampleTestValue}
@@ -5069,7 +5129,7 @@ export function App() {
                         {filteredProductMappings.map((mapping) => {
                           const draftKey = productMappingDraftKey(mapping.output_route_id, mapping.customer_product_key);
                           const draft = productMappingDrafts[draftKey] ?? {
-                            unit: mapping.product_identifier_value ?? mapping.lift_unit_number ?? "",
+                            unit: mapping.product_identifier_value ?? mapping.lift_unit_number ?? mapping.lift_product_id ?? "",
                             product: mapping.product_name ?? ""
                           };
                           return (
@@ -5513,7 +5573,9 @@ export function App() {
                             customer_product_key: "Generate preview to resolve",
                             display_label: String(row.values.DESCRIPTION ?? row.values["SIGN TYPE"] ?? `Row ${row.row_number}`),
                             source_columns: [activeProductConfig.source_column],
+                            resolved_product_identifier: null,
                             resolved_unit_number: null,
+                            resolved_product_id: null,
                             product_name: String(row.values.DESCRIPTION ?? ""),
                             status: "Unmapped" as ProductMappingStatus,
                             message: "Generate a preview job to create product resolution results."
@@ -5526,7 +5588,14 @@ export function App() {
                         );
                         const draftKey = productMappingDraftKey(result.output_route_id, result.customer_product_key);
                         const draft = productMappingDrafts[draftKey] ?? {
-                          unit: savedMapping?.product_identifier_value ?? savedMapping?.lift_unit_number ?? result.resolved_unit_number ?? "",
+                          unit:
+                            savedMapping?.product_identifier_value ??
+                            savedMapping?.lift_unit_number ??
+                            savedMapping?.lift_product_id ??
+                            result.resolved_product_identifier ??
+                            result.resolved_unit_number ??
+                            result.resolved_product_id ??
+                            "",
                           product: savedMapping?.product_name ?? result.product_name ?? result.display_label
                         };
                         return (
@@ -6476,6 +6545,22 @@ export function App() {
                                 </select>
                               </label>
                               <label className="setup-control">
+                                <span>Product Mapping Strategy</span>
+                                <select
+                                  value={route.product_identifier_type}
+                                  onChange={(event) => {
+                                    const nextType = event.target.value as OutputProductIdentifierType;
+                                    updateOutputRouteDraft(route.output_route_id, {
+                                      product_identifier_type: nextType,
+                                      product_identifier_label: outputIdentifierLabel(nextType)
+                                    });
+                                  }}
+                                >
+                                  <option value="lift_unit_number">Lift unit_number</option>
+                                  <option value="lift_product_id">Lift product_id</option>
+                                </select>
+                              </label>
+                              <label className="setup-control">
                                 <span>Destination Account</span>
                                 <input
                                   value={route.destination_account_name}
@@ -6935,7 +7020,7 @@ export function App() {
                     <tr>
                       <th>Line</th>
                       <th>Customer Key</th>
-                      <th>Unit</th>
+                      <th>Resolved Identifier</th>
                       <th>Status</th>
                     </tr>
                   </thead>
@@ -6944,7 +7029,7 @@ export function App() {
                       <tr key={`${result.source_sheet_name}-${result.source_row_number}-${result.line_number}`}>
                         <td>{result.line_number}</td>
                         <td>{result.customer_product_key || "No key"}</td>
-                        <td>{result.resolved_unit_number ?? "Needs mapping"}</td>
+                        <td>{result.resolved_product_identifier ?? result.resolved_unit_number ?? result.resolved_product_id ?? "Needs mapping"}</td>
                         <td>{result.status}</td>
                       </tr>
                     ))}

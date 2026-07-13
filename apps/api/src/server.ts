@@ -202,6 +202,7 @@ function buildMappingFromRow(
   route: OutputRoute
 ) {
   const customerProductKey = productKeyForRow(row, config);
+  const sendsGeneratedIdentifier = config.mode === "send_derived_unit" || config.strategy === "direct_lift_unit_number";
   const sourceColumns =
     config.strategy === "composite_key"
       ? config.composite_columns
@@ -218,13 +219,11 @@ function buildMappingFromRow(
     display_label: buildDisplayLabel(row, config),
     source_columns: sourceColumns.filter(Boolean),
     product_identifier_type: route.product_identifier_type,
-    product_identifier_value:
-      config.mode === "send_derived_unit" || config.strategy === "direct_lift_unit_number" ? customerProductKey : null,
+    product_identifier_value: sendsGeneratedIdentifier ? customerProductKey : null,
     lift_unit_number:
-      route.product_identifier_type === "lift_unit_number" &&
-      (config.mode === "send_derived_unit" || config.strategy === "direct_lift_unit_number")
-        ? customerProductKey
-        : null,
+      route.product_identifier_type === "lift_unit_number" && sendsGeneratedIdentifier ? customerProductKey : null,
+    lift_product_id:
+      route.product_identifier_type === "lift_product_id" && sendsGeneratedIdentifier ? customerProductKey : null,
     product_name: valueAsString(rowValue(row, "DESCRIPTION")) || valueAsString(rowValue(row, "SIGN TYPE")) || null,
     status: ((config.mode === "send_derived_unit" || config.strategy === "direct_lift_unit_number") && customerProductKey
       ? "Mapped"
@@ -243,6 +242,16 @@ function buildMappingFromRow(
     created_at: timestamp,
     updated_at: timestamp
   } satisfies CustomerProductMapping;
+}
+
+function resolvedIdentifierForRoute(mapping: CustomerProductMapping, route: OutputRoute) {
+  if (route.product_identifier_type === "lift_product_id") {
+    return mapping.product_identifier_value ?? mapping.lift_product_id ?? null;
+  }
+  if (route.product_identifier_type === "lift_unit_number") {
+    return mapping.product_identifier_value ?? mapping.lift_unit_number ?? null;
+  }
+  return mapping.product_identifier_value ?? mapping.lift_unit_number ?? mapping.lift_product_id ?? null;
 }
 
 function detectAmbiguousKeys(rows: ParsedSourceRow[], config: ProductResolutionConfig) {
@@ -288,28 +297,28 @@ function resolveProducts(
         ? valueAsString(rowValue(row, config.direct_unit_number_column ?? config.source_column))
         : key;
     let status: ProductMappingStatus = mapping.status;
-    let resolvedUnitNumber = mapping.product_identifier_value ?? mapping.lift_unit_number;
+    let resolvedProductIdentifier = resolvedIdentifierForRoute(mapping, route);
     let message = `Resolved to approved ${route.product_identifier_label}.`;
 
     if (config.strategy === "direct_lift_unit_number") {
-      resolvedUnitNumber = directUnitNumber;
-      status = resolvedUnitNumber ? "Mapped" : "Unmapped";
-      message = resolvedUnitNumber
+      resolvedProductIdentifier = directUnitNumber;
+      status = resolvedProductIdentifier ? "Mapped" : "Unmapped";
+      message = resolvedProductIdentifier
         ? `Using source value as ${route.product_identifier_label}.`
-        : "Source unit number is blank.";
+        : "Source product identifier is blank.";
     } else if (config.mode === "send_derived_unit") {
-      resolvedUnitNumber = directUnitNumber;
-      status = resolvedUnitNumber ? "Mapped" : "Unmapped";
-      message = resolvedUnitNumber
+      resolvedProductIdentifier = directUnitNumber;
+      status = resolvedProductIdentifier ? "Mapped" : "Unmapped";
+      message = resolvedProductIdentifier
         ? `Using generated value as ${route.product_identifier_label}.`
         : "Generated product identifier is blank.";
-    } else if (ambiguousKeys.has(key) && !(mapping.product_identifier_value ?? mapping.lift_unit_number)) {
+    } else if (ambiguousKeys.has(key) && !resolvedIdentifierForRoute(mapping, route)) {
       status = "Ambiguous";
-      resolvedUnitNumber = null;
+      resolvedProductIdentifier = null;
       message = "Generated key matches multiple product signatures; use composite fallback or approve a mapping.";
-    } else if (!(mapping.product_identifier_value ?? mapping.lift_unit_number) || mapping.status !== "Mapped") {
+    } else if (!resolvedIdentifierForRoute(mapping, route) || mapping.status !== "Mapped") {
       status = key ? "Unmapped" : "Unmapped";
-      resolvedUnitNumber = null;
+      resolvedProductIdentifier = null;
       message = `Product key needs a ${route.product_identifier_label} mapping for this output route.`;
     }
 
@@ -323,7 +332,15 @@ function resolveProducts(
       customer_product_key: key,
       display_label: mapping.display_label,
       source_columns: mapping.source_columns,
-      resolved_unit_number: resolvedUnitNumber,
+      resolved_product_identifier: resolvedProductIdentifier,
+      resolved_unit_number:
+        route.product_identifier_type === "lift_unit_number"
+          ? resolvedProductIdentifier
+          : mapping.lift_unit_number ?? null,
+      resolved_product_id:
+        route.product_identifier_type === "lift_product_id"
+          ? resolvedProductIdentifier
+          : mapping.lift_product_id ?? null,
       product_name: mapping.product_name,
       status,
       message
@@ -1121,12 +1138,16 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
         target_id: outputRoute.target_id,
         target_template: outputRoute.output_template,
         product_identifier_type: outputRoute.product_identifier_type,
-        product_identifier_value: result.resolved_unit_number,
+        product_identifier_value: result.resolved_product_identifier,
         status: result.status,
         lift_unit_number:
           outputRoute.product_identifier_type === "lift_unit_number"
-            ? result.resolved_unit_number
+            ? result.resolved_product_identifier
             : existing?.lift_unit_number ?? null,
+        lift_product_id:
+          outputRoute.product_identifier_type === "lift_product_id"
+            ? result.resolved_product_identifier
+            : existing?.lift_product_id ?? null,
         product_name: result.product_name,
         last_seen_examples: [
           nextSeenExample,
@@ -1161,18 +1182,30 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     });
     canonicalOrder.lines = canonicalOrder.lines.map((line, index) => ({
       ...line,
-      unit_number: productResolutionResults[index]?.resolved_unit_number ?? "",
+      unit_number:
+        outputRoute.product_identifier_type === "lift_unit_number"
+          ? productResolutionResults[index]?.resolved_product_identifier ?? ""
+          : line.unit_number ?? "",
+      product_id:
+        outputRoute.product_identifier_type === "lift_product_id"
+          ? productResolutionResults[index]?.resolved_product_identifier ?? line.product_id ?? null
+          : line.product_id ?? null,
       product_name: productResolutionResults[index]?.product_name ?? line.product_name,
       customer_sku: productResolutionResults[index]?.customer_product_key ?? line.customer_sku
     }));
-    const canonicalValidation = validateCanonicalOrder(canonicalOrder);
+    const canonicalValidation = validateCanonicalOrder(canonicalOrder, {
+      product_identifier_type: outputRoute.product_identifier_type
+    });
     const rawLiftPayload = generateLiftPayload(canonicalOrder, {
       jobId,
       canonicalOrderId
     });
     const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, outputRoute.value_normalization_rules);
     const liftPayload = normalizedLift.payload;
-    const baseLiftValidation = validateLiftPayload(liftPayload);
+    const baseLiftValidation = validateLiftPayload(liftPayload, {
+      product_identifier_type: outputRoute.product_identifier_type,
+      product_identifier_label: outputRoute.product_identifier_label
+    });
     const liftValidation = [
       ...(normalizedLift.validation.length
         ? baseLiftValidation.filter((message) => message.severity !== "PASS")

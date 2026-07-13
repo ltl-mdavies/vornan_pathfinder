@@ -125,8 +125,15 @@ export interface ProcessingJob {
   validation_messages: ValidationMessage[];
 }
 
-export function validateCanonicalOrder(order: CanonicalOrder): ValidationMessage[] {
+export type CanonicalProductIdentifierType = "lift_unit_number" | "lift_product_id" | string;
+
+export interface CanonicalValidationOptions {
+  product_identifier_type?: CanonicalProductIdentifierType;
+}
+
+export function validateCanonicalOrder(order: CanonicalOrder, options: CanonicalValidationOptions = {}): ValidationMessage[] {
   const messages: ValidationMessage[] = [];
+  const productIdentifierType = options.product_identifier_type ?? "lift_unit_number";
 
   const requireString = (value: unknown, field: string, object = "order") => {
     if (typeof value !== "string" || !value.trim()) {
@@ -161,7 +168,11 @@ export function validateCanonicalOrder(order: CanonicalOrder): ValidationMessage
 
   order.lines.forEach((line, index) => {
     const prefix = `lines[${index}]`;
-    requireString(line.unit_number, `${prefix}.unit_number`, "line");
+    if (productIdentifierType === "lift_product_id") {
+      requireString(line.product_id, `${prefix}.product_id`, "line");
+    } else {
+      requireString(line.unit_number, `${prefix}.unit_number`, "line");
+    }
 
     if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
       messages.push({
