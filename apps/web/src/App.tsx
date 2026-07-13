@@ -3811,13 +3811,21 @@ export function App() {
                       <DetailItem label="Customer Number" value={selectedCustomer.customer_number} />
                       <DetailItem label="Default Invoice Email" value={selectedCustomer.default_invoice_email_address} />
                       <DetailItem label="CRM ID" value={selectedCustomer.crm_id} />
-                      <DetailItem label="Terms" value={selectedCustomer.terms} />
-                      <DetailItem label="Terms Status" value={selectedCustomer.terms_status} />
-                      <DetailItem label="Credit Limit" value={displayCurrency(selectedCustomer.credit_limit)} />
-                      <DetailItem label="Credit Hold" value={selectedCustomer.credit_hold} />
-                      <DetailItem label="Unpaid Total" value={displayCurrency(selectedCustomer.unpaid_total)} />
-                      <DetailItem label="Available Credit" value={displayCurrency(selectedCustomer.available_credit)} />
                     </dl>
+                    <details className="account-status-details">
+                      <summary>
+                        <span>Account Status</span>
+                        <span>{selectedCustomer.credit_hold ?? selectedCustomer.terms_status ?? "No account flags"}</span>
+                      </summary>
+                      <dl className="account-status-grid">
+                        <DetailItem label="Terms" value={selectedCustomer.terms} />
+                        <DetailItem label="Terms Status" value={selectedCustomer.terms_status} />
+                        <DetailItem label="Credit Hold" value={selectedCustomer.credit_hold} />
+                        <DetailItem label="Credit Limit" value={displayCurrency(selectedCustomer.credit_limit)} />
+                        <DetailItem label="Available Credit" value={displayCurrency(selectedCustomer.available_credit)} />
+                        <DetailItem label="Unpaid Total" value={displayCurrency(selectedCustomer.unpaid_total)} />
+                      </dl>
+                    </details>
                     {customerDirectory.warning ? <p className="import-warning">{customerDirectory.warning}</p> : null}
                     {workspaceMessage ? <p className={workspaceState === "error" ? "import-error" : "import-warning"}>{workspaceMessage}</p> : null}
                   </div>

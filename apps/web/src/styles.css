@@ -1078,6 +1078,76 @@ h1 {
   white-space: nowrap;
 }
 
+.account-status-details {
+  margin: -8px 24px 24px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: rgba(247, 250, 244, 0.64);
+}
+
+.account-status-details summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  list-style: none;
+}
+
+.account-status-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.account-status-details summary span:first-child {
+  color: var(--text-primary);
+  font-family: "Plus Jakarta Sans", Inter, sans-serif;
+  font-size: 13px;
+}
+
+.account-status-details summary span:last-child {
+  overflow: hidden;
+  max-width: 220px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-status-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0 14px 14px;
+}
+
+.account-status-grid div {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.account-status-grid dt {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.account-status-grid dd {
+  margin: 5px 0 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .metric-strip {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
