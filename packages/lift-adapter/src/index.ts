@@ -117,7 +117,14 @@ export interface LiftSubmitRequest {
   body: LiftOrderPayload;
 }
 
-export type LiftSubmitTransportMode = "dry_run" | "live";
+export type LiftSubmitTransportMode = "dry_run" | "mock" | "live";
+export type LiftSubmitMockScenario =
+  | "accepted"
+  | "auth_error"
+  | "product_error"
+  | "payload_error"
+  | "duplicate_ext_id"
+  | "endpoint_error";
 
 export function buildLiftOrderLookupUrl(orderLookupUrl: string | null | undefined, orderNumber: string | null | undefined) {
   const baseUrl = orderLookupUrl?.trim();
@@ -733,11 +740,71 @@ export function normalizeLiftSubmitResponse(httpStatus: number, rawBody: unknown
   };
 }
 
+function mockLiftSubmitResponse(request: LiftSubmitRequest, scenario: LiftSubmitMockScenario = "accepted"): LiftSubmitTransportResult {
+  const receivedAt = new Date().toISOString();
+  const extId = request.body.order.ext_id || request.headers.Ext_ID || "UNKNOWN";
+  const mockOrderNumber = `MOCK-${extId.replace(/[^A-Za-z0-9]/g, "").slice(-8) || Date.now().toString().slice(-8)}`;
+
+  if (scenario === "accepted") {
+    return normalizeLiftSubmitResponse(202, {
+      status: "accepted",
+      order_number: mockOrderNumber,
+      message: `Mock Lift accepted order ${extId}.`
+    });
+  }
+
+  const scenarios: Record<Exclude<LiftSubmitMockScenario, "accepted">, { status: number; body: Record<string, unknown> }> = {
+    auth_error: {
+      status: 401,
+      body: {
+        error: "Unauthorized import user/password for Lift order import.",
+        ext_id: extId
+      }
+    },
+    product_error: {
+      status: 422,
+      body: {
+        error: "Invalid unit_number or product_id on one or more order lines.",
+        ext_id: extId
+      }
+    },
+    payload_error: {
+      status: 400,
+      body: {
+        error: "Missing required order field in JSON payload.",
+        ext_id: extId
+      }
+    },
+    duplicate_ext_id: {
+      status: 409,
+      body: {
+        error: `Order with Ext_ID ${extId} already exists.`,
+        ext_id: extId
+      }
+    },
+    endpoint_error: {
+      status: 503,
+      body: {
+        error: "Lift create_order endpoint unavailable in mock scenario.",
+        ext_id: extId
+      }
+    }
+  };
+  const selected = scenarios[scenario] ?? scenarios.payload_error;
+  return {
+    ...normalizeLiftSubmitResponse(selected.status, selected.body),
+    received_at: receivedAt
+  };
+}
+
 export async function submitLiftOrder(
   request: LiftSubmitRequest,
-  options: { mode?: LiftSubmitTransportMode; timeoutMs?: number } = {}
+  options: { mode?: LiftSubmitTransportMode; mockScenario?: LiftSubmitMockScenario; timeoutMs?: number } = {}
 ): Promise<LiftSubmitTransportResult> {
   const mode = options.mode ?? "dry_run";
+  if (mode === "mock") {
+    return mockLiftSubmitResponse(request, options.mockScenario);
+  }
   if (mode !== "live") {
     return {
       status: "not_sent",

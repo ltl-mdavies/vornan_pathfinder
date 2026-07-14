@@ -17,6 +17,7 @@ import {
   submitLiftOrder,
   validateLiftPayload,
   type LiftOrderPayload,
+  type LiftSubmitMockScenario,
   type LiftSubmitRequest,
   type LiftSubmitTransportMode,
   type LiftTargetConfig
@@ -81,7 +82,19 @@ const liftProductCatalogBaseUrl =
   process.env.LIFT_PRODUCT_CATALOG_BASE_URL ?? "https://ltlco.lifterp.com/ords/api/lift/erp";
 const externalLiftSubmitEnabled = process.env.PATHFINDER_ENABLE_LIFT_SUBMIT === "true";
 const liftSubmitTransportMode: LiftSubmitTransportMode =
-  process.env.PATHFINDER_LIFT_TRANSPORT_MODE === "live" ? "live" : "dry_run";
+  process.env.PATHFINDER_LIFT_TRANSPORT_MODE === "live"
+    ? "live"
+    : process.env.PATHFINDER_LIFT_TRANSPORT_MODE === "mock"
+      ? "mock"
+      : "dry_run";
+const liftMockScenario: LiftSubmitMockScenario =
+  process.env.PATHFINDER_LIFT_MOCK_SCENARIO === "auth_error" ||
+  process.env.PATHFINDER_LIFT_MOCK_SCENARIO === "product_error" ||
+  process.env.PATHFINDER_LIFT_MOCK_SCENARIO === "payload_error" ||
+  process.env.PATHFINDER_LIFT_MOCK_SCENARIO === "duplicate_ext_id" ||
+  process.env.PATHFINDER_LIFT_MOCK_SCENARIO === "endpoint_error"
+    ? process.env.PATHFINDER_LIFT_MOCK_SCENARIO
+    : "accepted";
 const liveCustomerSubmitAllowed = process.env.PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT === "true";
 const localCustomerSeedUrl = new URL("../../../data/lift-customers.sample.csv", import.meta.url);
 
@@ -882,15 +895,19 @@ function buildSubmitCertification(args: {
     {
       item_id: "lift-transport-mode",
       label: "Lift transport mode",
-      status: liftSubmitTransportMode === "live" ? "Passed" : "Blocked",
-      blocking: liftSubmitTransportMode !== "live",
+      status: liftSubmitTransportMode === "dry_run" ? "Blocked" : "Passed",
+      blocking: liftSubmitTransportMode === "dry_run",
       message:
         liftSubmitTransportMode === "live"
           ? "Lift transport mode is live; Pathfinder will make the external POST when all other gates pass."
-          : "Lift transport mode is dry_run; Pathfinder will record a dry run instead of calling Lift.",
+          : liftSubmitTransportMode === "mock"
+            ? `Lift transport mode is mock; Pathfinder will simulate Lift response scenario ${liftMockScenario}.`
+            : "Lift transport mode is dry_run; Pathfinder will record a dry run instead of calling Lift.",
       suggested_action:
-        liftSubmitTransportMode === "live" ? undefined : "Set PATHFINDER_LIFT_TRANSPORT_MODE=live for the first real sandbox-lane submit.",
-      action_key: liftSubmitTransportMode === "live" ? undefined : "target-health"
+        liftSubmitTransportMode === "dry_run"
+          ? "Set PATHFINDER_LIFT_TRANSPORT_MODE=mock for submit rehearsal or live for the first real sandbox-lane submit."
+          : undefined,
+      action_key: liftSubmitTransportMode === "dry_run" ? "target-health" : undefined
     },
     {
       item_id: "external-submit-gate",
@@ -912,7 +929,7 @@ function buildSubmitCertification(args: {
   return {
     can_submit: canSubmit,
     external_submit_enabled: externalLiftSubmitEnabled,
-    live_transport_enabled: liftSubmitTransportMode === "live",
+    live_transport_enabled: liftSubmitTransportMode !== "dry_run",
     live_customer_submit_allowed: liveCustomerSubmitAllowed,
     summary: canSubmit
       ? "Certified for external Lift submit."
@@ -951,7 +968,7 @@ function createSubmitAttempt(args: {
     ({
       can_submit: false,
       external_submit_enabled: externalLiftSubmitEnabled,
-      live_transport_enabled: liftSubmitTransportMode === "live",
+      live_transport_enabled: liftSubmitTransportMode !== "dry_run",
       live_customer_submit_allowed: liveCustomerSubmitAllowed,
       summary: "Preview job has no submit certification.",
       items: []
@@ -1626,7 +1643,10 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
       return;
     }
 
-    const transportResult = await submitLiftOrder(unmaskedSubmitRequest, { mode: liftSubmitTransportMode });
+    const transportResult = await submitLiftOrder(unmaskedSubmitRequest, {
+      mode: liftSubmitTransportMode,
+      mockScenario: liftMockScenario
+    });
     const attemptState: SubmitAttemptStatus =
       transportResult.status === "accepted"
         ? "Submitted"
