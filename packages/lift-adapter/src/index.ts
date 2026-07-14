@@ -119,6 +119,23 @@ export interface LiftSubmitRequest {
 
 export type LiftSubmitTransportMode = "dry_run" | "live";
 
+export function buildLiftOrderLookupUrl(orderLookupUrl: string | null | undefined, orderNumber: string | null | undefined) {
+  const baseUrl = orderLookupUrl?.trim();
+  const trimmedOrderNumber = orderNumber?.trim();
+
+  if (!baseUrl || !trimmedOrderNumber) {
+    return null;
+  }
+
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set("p0", trimmedOrderNumber);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export interface LiftSubmitTransportResult {
   status: "not_sent" | "accepted" | "rejected" | "error";
   http_status?: number | null;

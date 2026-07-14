@@ -1252,6 +1252,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       output_route_id: outputRoute.output_route_id,
       output_route_name: outputRoute.name,
       target_order_number: null,
+      target_order_lookup_url: null,
       state: jobState,
       source_file_name: sourceFileName,
       sheet_name: sheetName,

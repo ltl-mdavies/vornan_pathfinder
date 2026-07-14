@@ -85,7 +85,7 @@ button:disabled {
   text-align: center;
 }
 
-.brand-block img {
+.brand-block .vornan-wordmark {
   width: 154px;
   filter: invert(1);
 }
@@ -105,31 +105,10 @@ button:disabled {
   line-height: 1.4;
 }
 
-.product-lockup {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  width: fit-content;
-  color: var(--vornan-lime);
-  font-family: "Plus Jakarta Sans", Inter, sans-serif;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.product-lockup svg {
-  color: var(--vornan-lime);
-  fill: rgba(171, 198, 95, 0.16);
-  transform: rotate(-12deg);
-}
-
-.product-lockup span {
-  display: inline;
-  margin: 0;
-  color: var(--vornan-lime);
-  font-size: inherit;
-  line-height: 1;
+.pathfinder-product-lockup {
+  display: block;
+  width: 164px;
+  height: auto;
 }
 
 .nav-list {
@@ -2876,6 +2855,19 @@ h1 {
 
 .job-detail-summary {
   padding: 16px 18px 18px;
+}
+
+.detail-link {
+  display: inline-flex;
+  width: fit-content;
+  margin: 0 18px 18px;
+  color: var(--vornan-forest);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.detail-link:hover {
+  text-decoration: underline;
 }
 
 .latest-attempt-callout {

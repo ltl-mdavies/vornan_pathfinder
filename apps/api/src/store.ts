@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { CanonicalOrder, ProcessingState, ValidationMessage } from "@pathfinder/canonical";
 import type { LiftCustomer } from "@pathfinder/customer-directory";
 import {
+  buildLiftOrderLookupUrl,
   defaultLiftTargetConfig,
   type LiftSubmitErrorTranslation,
   type LiftOrderPayload,
@@ -269,6 +270,7 @@ export interface ProcessingJobPreview {
   output_route_id: string;
   output_route_name: string;
   target_order_number?: string | null;
+  target_order_lookup_url?: string | null;
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;
@@ -1406,6 +1408,13 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
     attempt.state === "Submitted" ? "Submitted" : attempt.state === "Failed" ? "Submit Failed" : null;
   const targetOrderNumber = attempt.response.lift_order_id ?? null;
   const timestamp = attempt.updated_at;
+  const submittedJob = store.jobs.find(
+    (job) => job.job_id === attempt.job_id && job.customer_id === customer.lift_customer_id
+  );
+  const submittedRoute = submittedJob
+    ? workspace.output_routes.find((route) => route.output_route_id === submittedJob.output_route_id)
+    : null;
+  const targetOrderLookupUrl = buildLiftOrderLookupUrl(submittedRoute?.order_lookup_url, targetOrderNumber);
 
   store.submit_attempts = [
     attempt,
@@ -1418,6 +1427,7 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
             ...job,
             state: submitJobState,
             target_order_number: targetOrderNumber ?? job.target_order_number ?? null,
+            target_order_lookup_url: targetOrderLookupUrl ?? job.target_order_lookup_url ?? null,
             updated_at: timestamp
           }
         : job

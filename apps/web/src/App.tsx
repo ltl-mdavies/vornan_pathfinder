@@ -312,6 +312,7 @@ interface ProcessingJobPreview {
   output_route_id: string;
   output_route_name: string;
   target_order_number?: string | null;
+  target_order_lookup_url?: string | null;
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;
@@ -3703,11 +3704,12 @@ export function App() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand-block">
-          <img src="/brand/vornan-wordmark.png" alt="Vornan" />
-          <div className="product-lockup">
-            <Send size={18} />
-            <span>Pathfinder</span>
-          </div>
+          <img className="vornan-wordmark" src="/brand/vornan-wordmark.png" alt="Vornan" />
+          <img
+            className="pathfinder-product-lockup"
+            src="/brand/pathfinder-lockup-zinnia.svg"
+            alt="Pathfinder"
+          />
         </div>
 
         <nav className="nav-list" aria-label="Primary">
@@ -6932,6 +6934,16 @@ export function App() {
                 <DetailItem label="Created" value={displayTimestamp(selectedJobDetail.created_at)} />
                 <DetailItem label="Updated" value={displayTimestamp(selectedJobDetail.updated_at)} />
               </dl>
+              {selectedJobDetail.target_order_lookup_url ? (
+                <a
+                  className="detail-link"
+                  href={selectedJobDetail.target_order_lookup_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open Lift order lookup
+                </a>
+              ) : null}
               {latestJobAttempt ? (
                 <div className="latest-attempt-callout">
                   <div>
