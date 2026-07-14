@@ -4633,10 +4633,25 @@ td {
   gap: 6px;
 }
 
+.canonical-registry-table th:nth-child(7),
+.canonical-registry-table td:nth-child(7) {
+  width: 128px;
+}
+
 .canonical-registry-table strong {
   display: block;
   color: var(--text-primary);
   font-weight: 850;
+}
+
+.canonical-field-edit-stack,
+.canonical-registry-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.canonical-registry-actions {
+  align-items: start;
 }
 
 .unit-map-table th:nth-child(1),

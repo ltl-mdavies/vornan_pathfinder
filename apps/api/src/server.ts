@@ -13,6 +13,7 @@ import {
   canonicalRegistryMetadata,
   sampleCanonicalOrder,
   validateCanonicalOrder,
+  type CanonicalFieldDefinition,
   type ValidationMessage
 } from "@pathfinder/canonical";
 import {
@@ -43,6 +44,7 @@ import {
   archiveImportMethod,
   bulkUpsertProductMappings,
   createDefaultProductResolutionConfig,
+  getCanonicalRegistryOverrides,
   getOrCreateWorkspace,
   getTarget,
   listProductMappings,
@@ -58,10 +60,12 @@ import {
   persistSubmitAttempt,
   updateProductMapping,
   updateImportMethod,
+  updateCanonicalRegistryFieldOverride,
   updateOutputRoute,
   updateTarget,
   upsertLiftProductCatalog,
   type CustomerProductMapping,
+  type CanonicalFieldOverride,
   type ImportMethod,
   type LiftUnitCatalogItem,
   type OutputRoute,
@@ -1564,13 +1568,81 @@ app.get("/api/sample-order", (_req, res) => {
   });
 });
 
-app.get("/api/canonical-registry", (_req, res) => {
-  res.json({
-    ...canonicalRegistryMetadata,
-    fields: canonicalFieldRegistry,
-    sections: Array.from(new Set(canonicalFieldRegistry.map((field) => field.section))),
-    field_count: canonicalFieldRegistry.length
+function applyCanonicalRegistryOverrides(
+  overrides: Record<string, CanonicalFieldOverride>
+): CanonicalFieldDefinition[] {
+  return canonicalFieldRegistry.map((field) => {
+    const override = overrides[field.field_id];
+    if (!override) {
+      return field;
+    }
+
+    return {
+      ...field,
+      label: override.label ?? field.label,
+      aliases: override.aliases ?? field.aliases,
+      status: override.status ?? field.status,
+      description: override.description ?? field.description
+    };
   });
+}
+
+async function buildCanonicalRegistryResponse() {
+  const registry = await getCanonicalRegistryOverrides();
+  const fields = applyCanonicalRegistryOverrides(registry.overrides);
+
+  return {
+    ...canonicalRegistryMetadata,
+    updated_at: registry.updated_at ?? canonicalRegistryMetadata.updated_at,
+    fields,
+    sections: Array.from(new Set(fields.map((field) => field.section))),
+    field_count: fields.length
+  };
+}
+
+app.get("/api/canonical-registry", async (_req, res) => {
+  res.json(await buildCanonicalRegistryResponse());
+});
+
+app.put("/api/canonical-registry/fields/:fieldId", async (req, res) => {
+  const field = canonicalFieldRegistry.find((candidate) => candidate.field_id === req.params.fieldId);
+  if (!field) {
+    res.status(404).json({ error: "Canonical field not found." });
+    return;
+  }
+
+  const rawStatus = req.body?.status;
+  if (rawStatus && !["Active", "Draft", "Deprecated"].includes(rawStatus)) {
+    res.status(400).json({ error: "Status must be Active, Draft, or Deprecated." });
+    return;
+  }
+
+  const rawAliases = req.body?.aliases;
+  const aliases =
+    Array.isArray(rawAliases)
+      ? rawAliases.map((alias) => String(alias).trim()).filter(Boolean)
+      : typeof rawAliases === "string"
+        ? rawAliases.split(",").map((alias) => alias.trim()).filter(Boolean)
+        : undefined;
+  const label = typeof req.body?.label === "string" ? req.body.label.trim() : field.label;
+  const description =
+    typeof req.body?.description === "string"
+      ? req.body.description.trim() || null
+      : undefined;
+
+  if (!label) {
+    res.status(400).json({ error: "Label is required." });
+    return;
+  }
+
+  await updateCanonicalRegistryFieldOverride(field.field_id, {
+    label,
+    aliases,
+    status: rawStatus,
+    description
+  });
+
+  res.json(await buildCanonicalRegistryResponse());
 });
 
 app.get("/api/lift/customers", async (req, res) => {

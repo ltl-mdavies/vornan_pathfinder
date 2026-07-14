@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CanonicalOrder, ProcessingState, ValidationMessage } from "@pathfinder/canonical";
+import type { CanonicalFieldDefinition, CanonicalOrder, ProcessingState, ValidationMessage } from "@pathfinder/canonical";
 import type { LiftCustomer } from "@pathfinder/customer-directory";
 import {
   buildLiftOrderLookupUrl,
@@ -362,6 +362,19 @@ export interface PathfinderStore {
   jobs: ProcessingJobPreview[];
   submit_attempts: SubmitAttempt[];
   lift_unit_catalog: LiftUnitCatalogItem[];
+  canonical_registry?: {
+    overrides: Record<string, CanonicalFieldOverride>;
+    updated_at: string;
+  };
+}
+
+export interface CanonicalFieldOverride {
+  field_id: string;
+  label?: string;
+  aliases?: string[];
+  status?: CanonicalFieldDefinition["status"];
+  description?: string | null;
+  updated_at: string;
 }
 
 const storePath = fileURLToPath(new URL("../../../data/pathfinder-store.local.json", import.meta.url));
@@ -1063,7 +1076,11 @@ function createSeedStore(): PathfinderStore {
     workspaces: {},
     jobs: [],
     submit_attempts: [],
-    lift_unit_catalog: createSeedLiftUnitCatalog(timestamp)
+    lift_unit_catalog: createSeedLiftUnitCatalog(timestamp),
+    canonical_registry: {
+      overrides: {},
+      updated_at: timestamp
+    }
   };
 }
 
@@ -1267,6 +1284,28 @@ function normalizeSubmitProfiles(route: OutputRoute): SubmitProfile[] {
   return Array.from(profilesById.values());
 }
 
+function normalizeCanonicalRegistry(
+  registry: PathfinderStore["canonical_registry"] | undefined
+): NonNullable<PathfinderStore["canonical_registry"]> {
+  const timestamp = now();
+  return {
+    overrides: Object.fromEntries(
+      Object.entries(registry?.overrides ?? {}).map(([fieldId, override]) => [
+        fieldId,
+        {
+          field_id: override.field_id ?? fieldId,
+          label: override.label,
+          aliases: Array.isArray(override.aliases) ? override.aliases : undefined,
+          status: override.status,
+          description: override.description ?? undefined,
+          updated_at: override.updated_at ?? timestamp
+        }
+      ])
+    ),
+    updated_at: registry?.updated_at ?? timestamp
+  };
+}
+
 function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderCustomerWorkspace {
   const route = createSeedOutputRoute();
   const outputRoutes = (workspace.output_routes?.length ? workspace.output_routes : [route]).map((candidate) => ({
@@ -1323,7 +1362,8 @@ export async function readStore(): Promise<PathfinderStore> {
       ),
       jobs: parsed.jobs ?? [],
       submit_attempts: parsed.submit_attempts ?? [],
-      lift_unit_catalog: normalizeLiftUnitCatalog(parsed.lift_unit_catalog)
+      lift_unit_catalog: normalizeLiftUnitCatalog(parsed.lift_unit_catalog),
+      canonical_registry: normalizeCanonicalRegistry(parsed.canonical_registry)
     };
   } catch {
     const seed = createSeedStore();
@@ -1350,6 +1390,47 @@ export async function getOrCreateWorkspace(customer: LiftCustomer) {
   store.workspaces[customer.lift_customer_id] = workspace;
   await writeStore(store);
   return workspace;
+}
+
+export async function getCanonicalRegistryOverrides() {
+  const store = await readStore();
+  return normalizeCanonicalRegistry(store.canonical_registry);
+}
+
+export async function updateCanonicalRegistryFieldOverride(
+  fieldId: string,
+  patch: Partial<Pick<CanonicalFieldOverride, "label" | "aliases" | "status" | "description">>
+) {
+  const store = await readStore();
+  const registry = normalizeCanonicalRegistry(store.canonical_registry);
+  const timestamp = now();
+  const existing = registry.overrides[fieldId] ?? {
+    field_id: fieldId,
+    updated_at: timestamp
+  };
+  const next: CanonicalFieldOverride = {
+    ...existing,
+    updated_at: timestamp
+  };
+
+  if ("label" in patch) {
+    next.label = patch.label;
+  }
+  if ("aliases" in patch) {
+    next.aliases = patch.aliases;
+  }
+  if ("status" in patch) {
+    next.status = patch.status;
+  }
+  if ("description" in patch) {
+    next.description = patch.description;
+  }
+
+  registry.overrides[fieldId] = next;
+  registry.updated_at = timestamp;
+  store.canonical_registry = registry;
+  await writeStore(store);
+  return registry;
 }
 
 export async function updateImportMethod(customer: LiftCustomer, methodId: string, methodPatch: Partial<ImportMethod>) {

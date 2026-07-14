@@ -2420,6 +2420,18 @@ export function App() {
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
   const [canonicalRegistrySearch, setCanonicalRegistrySearch] = useState("");
   const [canonicalRegistrySectionFilter, setCanonicalRegistrySectionFilter] = useState("All");
+  const [editingCanonicalFieldId, setEditingCanonicalFieldId] = useState<string | null>(null);
+  const [canonicalFieldDraft, setCanonicalFieldDraft] = useState<{
+    label: string;
+    description: string;
+    aliases: string;
+    status: CanonicalFieldDefinition["status"];
+  }>({
+    label: "",
+    description: "",
+    aliases: "",
+    status: "Active"
+  });
   const [lastPreviewJob, setLastPreviewJob] = useState<ProcessingJobPreview | null>(null);
   const [lastSubmitAttempt, setLastSubmitAttempt] = useState<SubmitAttempt | null>(null);
   const [selectedJobDetail, setSelectedJobDetail] = useState<ProcessingJobPreview | null>(null);
@@ -2699,6 +2711,40 @@ export function App() {
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Pathfinder order snapshot failed.");
       setOrderSnapshotState("error");
+    }
+  }
+
+  function startCanonicalFieldEdit(field: CanonicalFieldDefinition) {
+    setEditingCanonicalFieldId(field.field_id);
+    setCanonicalFieldDraft({
+      label: field.label,
+      description: field.description ?? "",
+      aliases: field.aliases.join(", "),
+      status: field.status
+    });
+  }
+
+  async function saveCanonicalFieldEdit(field: CanonicalFieldDefinition) {
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: canonicalFieldDraft.label,
+          description: canonicalFieldDraft.description,
+          aliases: canonicalFieldDraft.aliases,
+          status: canonicalFieldDraft.status
+        })
+      });
+      const registry = await readJsonResponse<CanonicalRegistryPayload>(response);
+      setCanonicalRegistry(registry);
+      setEditingCanonicalFieldId(null);
+      setWorkspaceMessage(`Canonical field saved: ${canonicalFieldDraft.label.trim() || field.label}.`);
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field save failed.");
+      setWorkspaceState("error");
     }
   }
 
@@ -8613,7 +8659,7 @@ export function App() {
                 </p>
               </div>
               <button className="secondary-button" disabled>
-                Schema editing queued
+                Stable paths locked
               </button>
             </header>
 
@@ -8715,32 +8761,126 @@ export function App() {
                       <th>Rules</th>
                       <th>Aliases</th>
                       <th>Status</th>
+                      <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredCanonicalRegistryFields.map((field) => (
-                      <tr key={field.field_id}>
-                        <td>
-                          <strong>{field.label}</strong>
-                          <span className="cell-meta">{field.path}</span>
-                          <span className="cell-meta">{field.field_id}</span>
-                        </td>
-                        <td>{field.section}</td>
-                        <td>{field.data_type}</td>
-                        <td>
-                          <span className={field.required ? "mini-pill mini-pill-warning" : "mini-pill mini-pill-neutral"}>
-                            {field.required ? "Required" : "Optional"}
-                          </span>
-                          {field.repeatable ? <span className="mini-pill mini-pill-neutral">Repeatable</span> : null}
-                        </td>
-                        <td>{field.aliases.length ? field.aliases.join(", ") : "—"}</td>
-                        <td>
-                          <span className={field.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
-                            {field.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredCanonicalRegistryFields.map((field) => {
+                      const isEditing = editingCanonicalFieldId === field.field_id;
+                      return (
+                        <tr key={field.field_id}>
+                          <td>
+                            {isEditing ? (
+                              <div className="canonical-field-edit-stack">
+                                <input
+                                  className="table-input"
+                                  value={canonicalFieldDraft.label}
+                                  placeholder="Field label"
+                                  onChange={(event) =>
+                                    setCanonicalFieldDraft((current) => ({
+                                      ...current,
+                                      label: event.target.value
+                                    }))
+                                  }
+                                />
+                                <input
+                                  className="table-input"
+                                  value={canonicalFieldDraft.description}
+                                  placeholder="Description"
+                                  onChange={(event) =>
+                                    setCanonicalFieldDraft((current) => ({
+                                      ...current,
+                                      description: event.target.value
+                                    }))
+                                  }
+                                />
+                              </div>
+                            ) : (
+                              <>
+                                <strong>{field.label}</strong>
+                                <span className="cell-meta">{field.description}</span>
+                              </>
+                            )}
+                            <span className="cell-meta">{field.path}</span>
+                            <span className="cell-meta">{field.field_id}</span>
+                          </td>
+                          <td>{field.section}</td>
+                          <td>{field.data_type}</td>
+                          <td>
+                            <span className={field.required ? "mini-pill mini-pill-warning" : "mini-pill mini-pill-neutral"}>
+                              {field.required ? "Required" : "Optional"}
+                            </span>
+                            {field.repeatable ? <span className="mini-pill mini-pill-neutral">Repeatable</span> : null}
+                          </td>
+                          <td>
+                            {isEditing ? (
+                              <input
+                                className="table-input"
+                                value={canonicalFieldDraft.aliases}
+                                placeholder="Comma-separated aliases"
+                                onChange={(event) =>
+                                  setCanonicalFieldDraft((current) => ({
+                                    ...current,
+                                    aliases: event.target.value
+                                  }))
+                                }
+                              />
+                            ) : field.aliases.length ? (
+                              field.aliases.join(", ")
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td>
+                            {isEditing ? (
+                              <select
+                                className="table-input"
+                                value={canonicalFieldDraft.status}
+                                onChange={(event) =>
+                                  setCanonicalFieldDraft((current) => ({
+                                    ...current,
+                                    status: event.target.value as CanonicalFieldDefinition["status"]
+                                  }))
+                                }
+                              >
+                                <option value="Active">Active</option>
+                                <option value="Draft">Draft</option>
+                                <option value="Deprecated">Deprecated</option>
+                              </select>
+                            ) : (
+                              <span
+                                className={field.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}
+                              >
+                                {field.status}
+                              </span>
+                            )}
+                          </td>
+                          <td>
+                            {isEditing ? (
+                              <div className="canonical-registry-actions">
+                                <button
+                                  className="primary-button table-inline-button"
+                                  onClick={() => void saveCanonicalFieldEdit(field)}
+                                  disabled={workspaceState === "saving"}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  className="secondary-button table-inline-button"
+                                  onClick={() => setEditingCanonicalFieldId(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button className="secondary-button table-inline-button" onClick={() => startCanonicalFieldEdit(field)}>
+                                Edit
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
                 {filteredCanonicalRegistryFields.length === 0 ? (

@@ -897,3 +897,15 @@ What changed:
 - Output Template field mapping now shows canonical registry fields with readable labels while retaining compatibility tokens for existing template mappings.
 - Value Rule canonical field selection now uses the same grouped registry options.
 - This keeps existing stored mapping values intact while improving usability for non-technical setup work.
+
+## 2026-07-14 - Canonical Registry Draft Field Edits
+
+Added the first safe editing layer for canonical field metadata.
+
+What changed:
+
+- Added local JSON persistence for Canonical Registry field overrides.
+- Added `PUT /api/canonical-registry/fields/:fieldId` for label, description, aliases, and status updates.
+- Updated the Global Settings Canonical Order registry table with inline edit controls.
+- Kept canonical field IDs and paths locked so existing input mappings, output template mappings, and value rules continue to resolve without breaking.
+- This establishes the editable registry pattern before moving into higher-risk schema operations such as add, rename path, reorder, deprecate, and remove.
