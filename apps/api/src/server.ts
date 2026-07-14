@@ -11,6 +11,7 @@ import {
 import { sampleCanonicalOrder, validateCanonicalOrder, type ValidationMessage } from "@pathfinder/canonical";
 import {
   applyValueNormalizationToLiftPayload,
+  buildLiftOrderLookupUrl,
   buildLiftSubmitRequest,
   generateLiftPayload,
   maskLiftSubmitRequest,
@@ -312,6 +313,45 @@ async function fetchLiftProductsFromTarget(target: TargetConfig, route: OutputRo
       companyId: route.company_id ?? environment?.headers.Company ?? target.lift.headers.Company
     })
   );
+}
+
+async function fetchLiftOrderLookup(args: {
+  target: TargetConfig;
+  route: OutputRoute;
+  orderNumber: string;
+}) {
+  const environment = routeEnvironmentForTarget(args.target, args.route);
+  const lookupUrl = buildLiftOrderLookupUrl(args.route.order_lookup_url, args.orderNumber);
+
+  if (!lookupUrl) {
+    throw new Error("This output route does not have a valid Lift order lookup URL for the selected order number.");
+  }
+
+  const user = environment?.credentials.User ?? args.target.lift.credentials.User;
+  const password = environment?.credentials.Password ?? args.target.lift.credentials.Password;
+  const headers: Record<string, string> = {
+    Accept: "application/json"
+  };
+
+  if (user && password && password !== "********") {
+    headers.Authorization = `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`;
+  }
+
+  const response = await fetch(lookupUrl, {
+    headers,
+    signal: AbortSignal.timeout(15000)
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text();
+
+  return {
+    order_number: args.orderNumber,
+    lookup_url: lookupUrl,
+    http_status: response.status,
+    ok: response.ok,
+    payload: body,
+    fetched_at: new Date().toISOString()
+  };
 }
 
 function synthesizeParsedRows(sourceGrid: SourceGrid): ParsedSourceRow[] {
@@ -1461,6 +1501,55 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Job detail failed."
+    });
+  }
+});
+
+app.get("/api/customers/:liftCustomerId/jobs/:jobId/order-lookup", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const job = await getJob(customer, req.params.jobId);
+
+    if (!job) {
+      res.status(404).json({
+        error: "Preview job not found."
+      });
+      return;
+    }
+
+    const workspace = await getOrCreateWorkspace(customer);
+    const route = workspace.output_routes.find((candidate) => candidate.output_route_id === job.output_route_id);
+    const target = route ? ((await getTarget(route.target_id, false)) as TargetConfig | null) : null;
+    const attempts = await listSubmitAttemptsForJob(customer, req.params.jobId);
+    const orderNumber =
+      job.target_order_number ??
+      attempts.find((attempt) => attempt.response.lift_order_id)?.response.lift_order_id ??
+      null;
+
+    if (!route || !target) {
+      res.status(409).json({
+        error: "Job output route or target could not be found."
+      });
+      return;
+    }
+
+    if (!orderNumber) {
+      res.status(409).json({
+        error: "No Lift order number is available for this job yet."
+      });
+      return;
+    }
+
+    const lookup = await fetchLiftOrderLookup({
+      target,
+      route,
+      orderNumber
+    });
+
+    res.status(lookup.ok ? 200 : 502).json({ lookup });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Lift order lookup failed."
     });
   }
 });

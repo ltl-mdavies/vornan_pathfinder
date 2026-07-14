@@ -396,6 +396,15 @@ interface PathfinderCustomerWorkspace {
   updated_at: string;
 }
 
+interface LiftOrderLookupResult {
+  order_number: string;
+  lookup_url: string;
+  http_status: number;
+  ok: boolean;
+  payload: unknown;
+  fetched_at: string;
+}
+
 const globalNavItems: Array<{ label: GlobalView; icon: typeof Gauge }> = [
   { label: "Dashboard", icon: Gauge },
   { label: "Customers", icon: Users },
@@ -1944,6 +1953,8 @@ export function App() {
   const [selectedJobDetail, setSelectedJobDetail] = useState<ProcessingJobPreview | null>(null);
   const [selectedJobAttempts, setSelectedJobAttempts] = useState<SubmitAttempt[]>([]);
   const [jobDetailState, setJobDetailState] = useState<"idle" | "loading" | "error">("idle");
+  const [orderLookupState, setOrderLookupState] = useState<"idle" | "loading" | "error">("idle");
+  const [orderLookupResult, setOrderLookupResult] = useState<LiftOrderLookupResult | null>(null);
   const [certificationRefreshState, setCertificationRefreshState] = useState<"idle" | "loading" | "error">("idle");
   const certificationRefreshKeyRef = useRef("");
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("sandbox-ltl-demo-1249");
@@ -2099,6 +2110,8 @@ export function App() {
   async function openJobDetail(job: ProcessingJobPreview) {
     setSelectedJobDetail(job);
     setSelectedJobAttempts([]);
+    setOrderLookupResult(null);
+    setOrderLookupState("idle");
     setJobDetailState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
@@ -2111,6 +2124,20 @@ export function App() {
       return;
     }
     setJobDetailState("idle");
+  }
+
+  async function lookupLiftOrder(job: ProcessingJobPreview) {
+    setOrderLookupState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/order-lookup`);
+      const payload = await readJsonResponse<{ lookup: LiftOrderLookupResult }>(response);
+      setOrderLookupResult(payload.lookup);
+      setWorkspaceMessage(`Lift order lookup loaded for ${payload.lookup.order_number}.`);
+      setOrderLookupState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Lift order lookup failed.");
+      setOrderLookupState("error");
+    }
   }
 
   async function saveImportMethod(method: ImportMethod, nextMappings = mappings) {
@@ -7355,7 +7382,25 @@ export function App() {
                     <Send size={16} />
                     Retry Submit
                   </button>
-                  <button className="secondary-button" onClick={() => setSelectedJobDetail(null)}>
+                  <button
+                    className="secondary-button"
+                    onClick={() => void lookupLiftOrder(selectedJobDetail)}
+                    disabled={
+                      orderLookupState === "loading" ||
+                      !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
+                    }
+                  >
+                    <Search size={16} />
+                    {orderLookupState === "loading" ? "Looking up" : "Lookup Lift Order"}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setSelectedJobDetail(null);
+                      setOrderLookupResult(null);
+                      setOrderLookupState("idle");
+                    }}
+                  >
                     Close
                   </button>
                 </div>
@@ -7378,6 +7423,16 @@ export function App() {
                 >
                   Open Lift order lookup
                 </a>
+              ) : null}
+              {orderLookupResult ? (
+                <div className="code-panel order-lookup-panel">
+                  <PanelHeader
+                    icon={Search}
+                    title="Lift Order Lookup"
+                    detail={`${orderLookupResult.order_number} · HTTP ${orderLookupResult.http_status}`}
+                  />
+                  <pre>{formatJson(orderLookupResult.payload)}</pre>
+                </div>
               ) : null}
               {latestJobAttempt ? (
                 <div className="latest-attempt-callout">
