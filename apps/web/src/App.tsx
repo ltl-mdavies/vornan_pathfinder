@@ -2692,6 +2692,154 @@ export function App() {
   const scheduledMethodCount = importMethods.filter(
     (method) => method.type === "Scheduled" || method.source === "REST API" || method.source === "SFTP" || method.source === "Google Sheet"
   ).length;
+  const dashboardJobs = [...allJobs].sort((first, second) => {
+    const firstDate = new Date(first.updated_at).getTime();
+    const secondDate = new Date(second.updated_at).getTime();
+    return (Number.isFinite(secondDate) ? secondDate : 0) - (Number.isFinite(firstDate) ? firstDate : 0);
+  });
+  const dashboardRecentJobs = dashboardJobs.slice(0, 6);
+  const dashboardFailedJobs = dashboardJobs.filter((job) => isFailureState(job.state));
+  const dashboardNeedsMappingJobs = dashboardJobs.filter((job) => job.state === "Needs Mapping");
+  const dashboardReadyJobs = dashboardJobs.filter((job) => job.state === "Ready");
+  const dashboardSubmittedJobs = dashboardJobs.filter(
+    (job) => job.state === "Submitted" || job.state === "Completed" || Boolean(job.target_order_number)
+  );
+  const dashboardOrderCount = dashboardJobs.length;
+  const dashboardLineCount = dashboardJobs.reduce((total, job) => total + jobOrderCount(job), 0);
+  const dashboardSuccessRate = dashboardJobs.length
+    ? Math.round((dashboardSubmittedJobs.length / dashboardJobs.length) * 100)
+    : 0;
+  const dashboardTargetIssueCount = targetRows.filter(
+    (target) => target.status === "Draft" || target.health_status === "Error" || target.health_status === "Warning"
+  ).length;
+  const dashboardActiveEnvironmentCount = targetRows.reduce(
+    (total, target) => total + target.environments.filter((environment) => environment.status === "Active").length,
+    0
+  );
+  const dashboardCredentialReady =
+    selectedOutputMapEnvironment?.auth_method === "None" ||
+    Boolean(
+      selectedOutputMapEnvironment?.credentials.User &&
+        selectedOutputMapEnvironment.credentials.Password &&
+        selectedOutputMapEnvironment.credentials.Password !== ""
+    ) ||
+    Boolean(selectedOutputMapEnvironment?.credentials.token || selectedOutputMapEnvironment?.credentials.api_key);
+  const dashboardRouteReady =
+    selectedOutputMapRoute.status === "Active" && Boolean(selectedOutputMapEnvironment?.endpoint_url) && Boolean(selectedOutputMapTemplate);
+  const dashboardWorkItems: Array<{
+    id: string;
+    priority: string;
+    title: string;
+    detail: string;
+    status: ProcessingState | "Open" | "Ready";
+    owner: string;
+    actionLabel: string;
+    action: () => void;
+  }> = [];
+  if (routeBlockingCount) {
+    dashboardWorkItems.push({
+      id: "product-map-gaps",
+      priority: "P1",
+      title: `${routeBlockingCount} product mapping gap${routeBlockingCount === 1 ? "" : "s"}`,
+      detail: `${selectedOutputMapRoute.name} needs ${selectedOutputMapRoute.product_identifier_label} assignments before submit.`,
+      status: "Needs Mapping",
+      owner: selectedCustomer.customer_name,
+      actionLabel: "Resolve map",
+      action: () => {
+        setActiveGlobalView("Customers");
+        setActiveCustomerView("Output Product Map");
+      }
+    });
+  }
+  if (dashboardFailedJobs.length) {
+    const failedJob = dashboardFailedJobs[0];
+    dashboardWorkItems.push({
+      id: `failed-${failedJob.job_id}`,
+      priority: "P1",
+      title: `${displayJobId(failedJob.job_id)} needs review`,
+      detail: `${failedJob.import_method_name} failed for ${failedJob.customer_name}.`,
+      status: failedJob.state,
+      owner: failedJob.customer_name,
+      actionLabel: "Open job",
+      action: () => void openJobDetail(failedJob)
+    });
+  }
+  if (dashboardNeedsMappingJobs.length) {
+    const mappingJob = dashboardNeedsMappingJobs[0];
+    dashboardWorkItems.push({
+      id: `mapping-${mappingJob.job_id}`,
+      priority: "P2",
+      title: `${displayJobId(mappingJob.job_id)} is waiting on product resolution`,
+      detail: `${jobOrderCount(mappingJob)} order line${jobOrderCount(mappingJob) === 1 ? "" : "s"} in ${mappingJob.output_route_name}.`,
+      status: mappingJob.state,
+      owner: mappingJob.customer_name,
+      actionLabel: "Review mappings",
+      action: () => {
+        setActiveGlobalView("Customers");
+        setActiveCustomerView("Output Product Map");
+      }
+    });
+  }
+  if (dashboardReadyJobs.length) {
+    const readyJob = dashboardReadyJobs[0];
+    dashboardWorkItems.push({
+      id: `ready-${readyJob.job_id}`,
+      priority: "P3",
+      title: `${displayJobId(readyJob.job_id)} is ready for submit review`,
+      detail: `${readyJob.output_route_name} has passed preview checks.`,
+      status: readyJob.state,
+      owner: readyJob.customer_name,
+      actionLabel: "Open manual import",
+      action: () => {
+        setActiveGlobalView("Customers");
+        setActiveCustomerView("Manual Import");
+      }
+    });
+  }
+  if (!dashboardRouteReady || dashboardTargetIssueCount) {
+    dashboardWorkItems.push({
+      id: "target-health",
+      priority: "P2",
+      title: dashboardRouteReady ? `${dashboardTargetIssueCount} target setup item${dashboardTargetIssueCount === 1 ? "" : "s"}` : "Primary output route is not submit-ready",
+      detail: selectedOutputMapEnvironment?.endpoint_url
+        ? `${selectedOutputMapRoute.name} is configured, but target health needs attention.`
+        : "Configure an active environment endpoint before external submit.",
+      status: "Open",
+      owner: selectedOutputMapTarget?.name ?? "Targets",
+      actionLabel: "Open target",
+      action: () => {
+        setActiveGlobalView("Targets");
+        setSelectedTargetId(selectedOutputMapRoute.target_id);
+        setActiveTargetsView(selectedOutputMapEnvironment?.endpoint_url ? "Test & Health" : "Environments");
+      }
+    });
+  }
+  const dashboardHealthRows = [
+    {
+      label: "Selected route",
+      value: selectedOutputMapRoute.name,
+      detail: dashboardRouteReady ? "Active route with endpoint and template" : "Needs route setup",
+      status: dashboardRouteReady ? "Healthy" : "Warning"
+    },
+    {
+      label: "Active environment",
+      value: selectedOutputMapEnvironment?.name ?? "Not configured",
+      detail: selectedOutputMapEnvironment?.endpoint_url ? selectedOutputMapEnvironment.endpoint_url : "Endpoint missing",
+      status: selectedOutputMapEnvironment?.endpoint_url ? "Healthy" : "Error"
+    },
+    {
+      label: "Credentials",
+      value: dashboardCredentialReady ? "Configured" : "Missing",
+      detail: selectedOutputMapEnvironment?.auth_method ?? primaryRouteAuth,
+      status: dashboardCredentialReady ? "Healthy" : "Error"
+    },
+    {
+      label: "Product map",
+      value: routeBlockingCount ? `${routeBlockingCount} open` : "Ready",
+      detail: `${routeMappedCount}/${routeProductMappings.length} keys mapped for selected route`,
+      status: routeBlockingCount ? "Warning" : "Healthy"
+    }
+  ];
 
   async function changePrimaryRouteEnvironment(environmentId: string) {
     const environment = primaryRouteTarget?.environments.find((candidate) => candidate.environment_id === environmentId);
@@ -5772,63 +5920,225 @@ export function App() {
 
         {activeGlobalView === "Dashboard" ? (
           <>
-            <header className="topbar">
+            <header className="topbar dashboard-topbar">
               <div>
-                <p className="eyebrow">Pathfinder Dashboard</p>
-                <h1>Order translation health across all customers.</h1>
+                <p className="eyebrow">Pathfinder Command Center</p>
+                <h1>Order intake, translation, and submit health.</h1>
+                <p className="page-intro">
+                  Track the work that needs attention before customer orders can move cleanly into destination systems.
+                </p>
+              </div>
+              <div className="dashboard-topbar-actions">
+                <label className="dashboard-scope-control">
+                  <span>Route scope</span>
+                  <select value={selectedOutputMapRoute.output_route_id} onChange={(event) => setOutputMapRouteFilter(event.target.value)}>
+                    {outputRoutes.map((route) => (
+                      <option key={route.output_route_id} value={route.output_route_id}>
+                        {route.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="dashboard-scope-control dashboard-time-control">
+                  <span>Window</span>
+                  <select defaultValue="all">
+                    <option value="all">All local jobs</option>
+                    <option value="today">Today</option>
+                    <option value="7-days">Last 7 days</option>
+                  </select>
+                </label>
+                <button
+                  className="primary-button"
+                  onClick={() => {
+                    setActiveGlobalView("Customers");
+                    setActiveCustomerView("Manual Import");
+                  }}
+                >
+                  <Upload size={16} />
+                  Manual Import
+                </button>
               </div>
             </header>
-            <section className="status-strip">
+            <section className="dashboard-kpi-grid" aria-label="Pathfinder operating metrics">
               {[
-                ["Customers", `${customers.length} imported`],
-                ["Targets", `${activeTargetCount} active · ${targetRows.length} total`],
-                ["Jobs", `${allJobs.length} persisted preview${allJobs.length === 1 ? "" : "s"}`],
-                ["Failures", `${allJobs.filter((job) => isFailureState(job.state)).length} needs review`]
-              ].map(([label, detail]) => (
-                <div className="status-step" key={label}>
-                  <CheckCircle2 size={18} />
+                {
+                  label: "Orders Received",
+                  value: dashboardOrderCount,
+                  detail: `${dashboardLineCount} line${dashboardLineCount === 1 ? "" : "s"} parsed locally`,
+                  intent: "neutral",
+                  icon: ClipboardList
+                },
+                {
+                  label: "Ready for Submit",
+                  value: dashboardReadyJobs.length,
+                  detail: dashboardReadyJobs.length ? "Awaiting final submit action" : "No certified previews waiting",
+                  intent: "good",
+                  icon: CheckCircle2
+                },
+                {
+                  label: "Needs Mapping",
+                  value: dashboardNeedsMappingJobs.length + routeBlockingCount,
+                  detail: routeBlockingCount
+                    ? `${routeBlockingCount} ${selectedOutputMapRoute.product_identifier_label} gap${routeBlockingCount === 1 ? "" : "s"}`
+                    : "Product map is clear for selected route",
+                  intent: routeBlockingCount || dashboardNeedsMappingJobs.length ? "warning" : "good",
+                  icon: Map
+                },
+                {
+                  label: "Submit Failed",
+                  value: dashboardFailedJobs.length,
+                  detail: dashboardFailedJobs.length ? "Review Lift/API response details" : "No failed submits in view",
+                  intent: dashboardFailedJobs.length ? "bad" : "good",
+                  icon: AlertTriangle
+                },
+                {
+                  label: "Submitted to Lift",
+                  value: dashboardSubmittedJobs.length,
+                  detail: `${dashboardSuccessRate}% of local jobs have target order signal`,
+                  intent: dashboardSubmittedJobs.length ? "good" : "neutral",
+                  icon: Send
+                }
+              ].map(({ label, value, detail, intent, icon: Icon }) => (
+                <div className={`dashboard-kpi-card dashboard-kpi-${intent}`} key={label}>
+                  <div className="dashboard-kpi-icon">
+                    <Icon size={20} />
+                  </div>
                   <div>
-                    <strong>{label}</strong>
-                    <span>{detail}</span>
+                    <strong>{value}</strong>
+                    <span>{label}</span>
+                    <small>{detail}</small>
                   </div>
                 </div>
               ))}
             </section>
-            <section className="panel jobs-panel">
-              <PanelHeader icon={ClipboardList} title="Recent Processing Jobs" detail="All customers" />
-              <table>
-                <thead>
-                  <tr>
-                    <th>Job</th>
-                    <th>Customer</th>
-                    <th>Source</th>
-                    <th>Ext ID</th>
-                    <th>Lift Order</th>
-                    <th>State</th>
-                    <th>Updated</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allJobs.map((job) => (
-                    <tr key={job.job_id}>
-                      <td>
-                        <button className="link-button" onClick={() => void openJobDetail(job)}>
-                          {displayJobId(job.job_id)}
-                        </button>
-                      </td>
-                      <td>{job.customer_name}</td>
-                      <td>{job.import_method_name}</td>
-                      <td>{jobExtId(job)}</td>
-                      <td>{job.target_order_number ?? "—"}</td>
-                      <td>
-                        <StatePill state={job.state} />
-                      </td>
-                      <td>{displayTimestamp(job.updated_at)}</td>
-                    </tr>
+            <section className="dashboard-main-grid">
+              <div className="panel dashboard-work-queue">
+                <PanelHeader icon={Activity} title="Work Queue" detail="Highest-priority operational blockers" />
+                <div className="dashboard-work-list">
+                  {dashboardWorkItems.slice(0, 5).map((item) => (
+                    <div className="dashboard-work-item" key={item.id}>
+                      <span className={item.priority === "P1" ? "mini-pill mini-pill-danger" : "mini-pill mini-pill-warning"}>
+                        {item.priority}
+                      </span>
+                      <div>
+                        <strong>{item.title}</strong>
+                        <span>{item.detail}</span>
+                      </div>
+                      <div className="dashboard-work-meta">
+                        {item.status === "Open" ? <span className="pill pill-warning">Open</span> : <StatePill state={item.status} />}
+                        <small>{item.owner}</small>
+                      </div>
+                      <button className="secondary-button" onClick={item.action}>
+                        {item.actionLabel}
+                      </button>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-              {allJobs.length === 0 ? <p className="empty-state">No persisted jobs yet. Generate a preview job from Manual Import.</p> : null}
+                  {dashboardWorkItems.length === 0 ? (
+                    <div className="dashboard-empty-state">
+                      <CheckCircle2 size={22} />
+                      <div>
+                        <strong>No blocking work in the selected scope.</strong>
+                        <span>Generate a preview job or refresh target health to keep this queue current.</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <div className="panel dashboard-health-panel">
+                <PanelHeader icon={ShieldCheck} title="System Health" detail={`${activeTargetCount}/${targetRows.length} targets active`} />
+                <div className="dashboard-health-list">
+                  {dashboardHealthRows.map((row) => (
+                    <div className="dashboard-health-row" key={row.label}>
+                      <span className={`health-dot health-dot-${row.status.toLowerCase()}`} />
+                      <div>
+                        <strong>{row.label}</strong>
+                        <small>{row.detail}</small>
+                      </div>
+                      <span>{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="dashboard-health-footer">
+                  <div>
+                    <strong>{dashboardActiveEnvironmentCount}</strong>
+                    <span>active environments</span>
+                  </div>
+                  <div>
+                    <strong>{targetRows.reduce((sum, target) => sum + target.output_templates.filter((template) => template.status === "Active").length, 0)}</strong>
+                    <span>active templates</span>
+                  </div>
+                  <div>
+                    <strong>{outputRoutes.filter((route) => route.status === "Active").length}</strong>
+                    <span>active routes</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section className="dashboard-secondary-grid">
+              <div className="panel dashboard-customer-health">
+                <PanelHeader icon={Users} title="Customer Health" detail="Selected customer" />
+                <div className="dashboard-customer-card">
+                  <div>
+                    <strong>{selectedCustomer.customer_name}</strong>
+                    <span>Lift CustomerID {selectedCustomer.lift_customer_id}</span>
+                  </div>
+                  <span className="mini-pill mini-pill-success">{selectedCustomer.customer_status ?? "Active"}</span>
+                </div>
+                <dl className="dashboard-detail-grid">
+                  <DetailItem label="Previewed jobs" value={`${customerJobs.length}`} />
+                  <DetailItem label="Validation pass rate" value={`${validationRate}%`} />
+                  <DetailItem label="Import methods" value={`${importMethods.filter((method) => method.status === "Active").length} active`} />
+                  <DetailItem label="Product map gaps" value={`${routeBlockingCount}`} />
+                </dl>
+              </div>
+              <div className="panel dashboard-customer-health">
+                <PanelHeader icon={Map} title="Product Mapping Gaps" detail={selectedOutputMapRoute.product_identifier_label} />
+                <div className="dashboard-map-summary">
+                  <strong>{routeMappedCount}/{routeProductMappings.length}</strong>
+                  <span>keys mapped for {selectedOutputMapRoute.name}</span>
+                </div>
+                <button
+                  className="secondary-button dashboard-full-button"
+                  onClick={() => {
+                    setActiveGlobalView("Customers");
+                    setActiveCustomerView("Output Product Map");
+                  }}
+                >
+                  Open Output Product Map
+                </button>
+              </div>
+              <div className="panel jobs-panel dashboard-recent-jobs">
+                <PanelHeader icon={ClipboardList} title="Recent Jobs" detail="All customers" />
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Job</th>
+                      <th>Customer</th>
+                      <th>State</th>
+                      <th>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dashboardRecentJobs.map((job) => (
+                      <tr key={job.job_id}>
+                        <td>
+                          <button className="link-button" onClick={() => void openJobDetail(job)}>
+                            {displayJobId(job.job_id)}
+                          </button>
+                        </td>
+                        <td>{job.customer_name}</td>
+                        <td>
+                          <StatePill state={job.state} />
+                        </td>
+                        <td>{displayTimestamp(job.updated_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {dashboardRecentJobs.length === 0 ? (
+                  <p className="empty-state">No persisted jobs yet. Generate a preview job from Manual Import.</p>
+                ) : null}
+              </div>
             </section>
           </>
         ) : null}
