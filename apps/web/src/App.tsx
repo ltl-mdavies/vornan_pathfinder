@@ -477,6 +477,68 @@ interface LiftPackageDetailsResult {
   fetched_at: string;
 }
 
+interface PathfinderOrderSnapshot {
+  snapshot_id: string;
+  order_number: string;
+  source_order_id: string;
+  customer: {
+    source_customer_id: string;
+    source_customer_name: string;
+    submit_customer_id: string;
+    submit_customer_name: string;
+  };
+  job: {
+    job_id: string;
+    state: ProcessingState;
+    import_method_name: string;
+    source_file_name: string;
+    created_at: string;
+    updated_at: string;
+  };
+  route: {
+    output_route_id: string;
+    name: string;
+    target: string;
+    environment_id: string;
+    template: string;
+  };
+  header: LiftOrderPayload["order"];
+  lines: Array<{
+    line_number: number;
+    order_line_id: string | number | null;
+    product_name?: string | null;
+    description?: string | null;
+    quantity: number;
+    unit_number?: string | null;
+    product_id?: string | number | null;
+    proof_count: number;
+    package_count: number;
+    latest_proof_status: string | null;
+    latest_tracking_message: string | null;
+    proofs: LiftProofReportProof[];
+    packages: LiftPackageDetail[];
+  }>;
+  proofs: LiftProofReportProof[];
+  packages: LiftPackageDetail[];
+  submit_history: SubmitAttempt[];
+  lookups: {
+    order: { ok: boolean; http_status: number; fetched_at: string; payload: unknown } | null;
+    proofs: { ok: boolean; http_status: number; fetched_at: string } | null;
+    packages: { ok: boolean; http_status: number; fetched_at: string; redacted_fields: string[] } | null;
+  };
+  visibility_policy: {
+    audience: string;
+    redacted_fields: string[];
+    public_status_ready: boolean;
+  };
+  issues: Array<{
+    source: string;
+    severity: "warning" | "error";
+    message: string;
+  }>;
+  refreshed_at: string;
+}
+
 interface RouteDiagnosticItem {
   item_id: string;
   label: string;
@@ -2306,6 +2368,8 @@ export function App() {
   const [proofReportResult, setProofReportResult] = useState<LiftProofReportResult | null>(null);
   const [packageDetailsState, setPackageDetailsState] = useState<"idle" | "loading" | "error">("idle");
   const [packageDetailsResult, setPackageDetailsResult] = useState<LiftPackageDetailsResult | null>(null);
+  const [orderSnapshotState, setOrderSnapshotState] = useState<"idle" | "loading" | "error">("idle");
+  const [orderSnapshotResult, setOrderSnapshotResult] = useState<PathfinderOrderSnapshot | null>(null);
   const [certificationRefreshState, setCertificationRefreshState] = useState<"idle" | "loading" | "error">("idle");
   const certificationRefreshKeyRef = useRef("");
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("sandbox-ltl-demo-1249");
@@ -2467,6 +2531,8 @@ export function App() {
     setProofReportState("idle");
     setPackageDetailsResult(null);
     setPackageDetailsState("idle");
+    setOrderSnapshotResult(null);
+    setOrderSnapshotState("idle");
     setJobDetailState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
@@ -2520,6 +2586,20 @@ export function App() {
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Lift package details lookup failed.");
       setPackageDetailsState("error");
+    }
+  }
+
+  async function loadOrderSnapshot(job: ProcessingJobPreview) {
+    setOrderSnapshotState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/order-snapshot`);
+      const payload = await readJsonResponse<{ snapshot: PathfinderOrderSnapshot }>(response);
+      setOrderSnapshotResult(payload.snapshot);
+      setWorkspaceMessage(`Order snapshot loaded for ${payload.snapshot.order_number}.`);
+      setOrderSnapshotState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Pathfinder order snapshot failed.");
+      setOrderSnapshotState("error");
     }
   }
 
@@ -7902,6 +7982,17 @@ export function App() {
                   </button>
                   <button
                     className="secondary-button"
+                    onClick={() => void loadOrderSnapshot(selectedJobDetail)}
+                    disabled={
+                      orderSnapshotState === "loading" ||
+                      !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
+                    }
+                  >
+                    <ClipboardList size={16} />
+                    {orderSnapshotState === "loading" ? "Building snapshot" : "Order Snapshot"}
+                  </button>
+                  <button
+                    className="secondary-button"
                     onClick={() => void lookupLiftProofs(selectedJobDetail)}
                     disabled={
                       proofReportState === "loading" ||
@@ -7932,6 +8023,8 @@ export function App() {
                       setProofReportState("idle");
                       setPackageDetailsResult(null);
                       setPackageDetailsState("idle");
+                      setOrderSnapshotResult(null);
+                      setOrderSnapshotState("idle");
                     }}
                   >
                     Close
@@ -7956,6 +8049,63 @@ export function App() {
                 >
                   Open Lift order lookup
                 </a>
+              ) : null}
+              {orderSnapshotResult ? (
+                <div className="code-panel order-lookup-panel order-snapshot-panel">
+                  <PanelHeader
+                    icon={ClipboardList}
+                    title="Pathfinder Order Snapshot"
+                    detail={`${orderSnapshotResult.order_number} · ${orderSnapshotResult.lines.length} line${orderSnapshotResult.lines.length === 1 ? "" : "s"} · ${orderSnapshotResult.packages.length} package${orderSnapshotResult.packages.length === 1 ? "" : "s"}`}
+                  />
+                  <dl className="customer-details job-detail-summary">
+                    <DetailItem label="Source Order" value={orderSnapshotResult.source_order_id} />
+                    <DetailItem label="Submit Customer" value={`${orderSnapshotResult.customer.submit_customer_name} / ${orderSnapshotResult.customer.submit_customer_id}`} />
+                    <DetailItem label="Route" value={orderSnapshotResult.route.name} />
+                    <DetailItem label="Proofs" value={`${orderSnapshotResult.proofs.length}`} />
+                    <DetailItem label="Packages" value={`${orderSnapshotResult.packages.length}`} />
+                    <DetailItem label="Redacted" value={orderSnapshotResult.visibility_policy.redacted_fields.join(", ") || "None"} />
+                  </dl>
+                  {orderSnapshotResult.issues.length ? (
+                    <div className="template-warning-strip">
+                      <AlertTriangle size={16} />
+                      <span>
+                        {orderSnapshotResult.issues.length} snapshot issue{orderSnapshotResult.issues.length === 1 ? "" : "s"}:
+                        {" "}
+                        {orderSnapshotResult.issues.map((issue) => issue.message).join(" ")}
+                      </span>
+                    </div>
+                  ) : null}
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Line</th>
+                        <th>Product</th>
+                        <th>Qty</th>
+                        <th>Proofs</th>
+                        <th>Packages</th>
+                        <th>Latest Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {orderSnapshotResult.lines.map((line) => (
+                        <tr key={`${line.line_number}-${line.order_line_id ?? "line"}`}>
+                          <td>{line.line_number}</td>
+                          <td>
+                            <strong>{line.product_name ?? line.description ?? "Unknown product"}</strong>
+                            <span className="cell-meta">
+                              {line.product_id ? `Product ID ${line.product_id}` : line.unit_number ? `Unit ${line.unit_number}` : "No product identifier"}
+                            </span>
+                          </td>
+                          <td>{line.quantity}</td>
+                          <td>{line.proof_count}</td>
+                          <td>{line.package_count}</td>
+                          <td>{line.latest_tracking_message ?? line.latest_proof_status ?? "No external status yet"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <pre>{formatJson(orderSnapshotResult)}</pre>
+                </div>
               ) : null}
               {orderLookupResult ? (
                 <div className="code-panel order-lookup-panel">

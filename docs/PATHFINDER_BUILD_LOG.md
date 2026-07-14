@@ -838,3 +838,16 @@ What changed:
 - `NEGOTIATED_RATE` is redacted server-side from both normalized package rows and the debug/raw payload returned to the UI.
 - Job detail now includes a **Lookup Packages** action and displays line, box, product, tracking number, ship method, and tracker message.
 - Route diagnostics now warn when the Package Details URL is missing or invalid.
+
+## 2026-07-14 - Internal Order Snapshot
+
+Added a unified internal order snapshot for submitted/submit-ready jobs.
+
+What changed:
+
+- Added `GET /api/customers/:liftCustomerId/jobs/:jobId/order-snapshot` to combine the Pathfinder preview job, submit history, Lift order lookup, proof report, and package details into one payload.
+- Snapshot lines now summarize product identifiers, quantities, proof counts, package counts, latest proof status, and latest tracking message.
+- Missing or failed lookup sources are returned as structured snapshot issues instead of blocking the full snapshot when partial data is still useful.
+- Package data continues to redact internal `NEGOTIATED_RATE` values before it reaches the UI or snapshot payload.
+- Job detail now includes an **Order Snapshot** action with a compact summary and full internal JSON payload.
+- The snapshot includes an explicit visibility policy marking it internal-only while public customer order status remains a future phase.

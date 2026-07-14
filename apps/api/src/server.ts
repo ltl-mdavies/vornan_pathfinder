@@ -639,6 +639,159 @@ async function fetchLiftPackageDetails(args: {
   };
 }
 
+async function getJobLiftContext(customer: LiftCustomer, jobId: string) {
+  const job = await getJob(customer, jobId);
+
+  if (!job) {
+    return {
+      errorStatus: 404,
+      error: "Preview job not found."
+    } as const;
+  }
+
+  const workspace = await getOrCreateWorkspace(customer);
+  const route = workspace.output_routes.find((candidate) => candidate.output_route_id === job.output_route_id);
+  const target = route ? ((await getTarget(route.target_id, false)) as TargetConfig | null) : null;
+  const attempts = await listSubmitAttemptsForJob(customer, jobId);
+  const orderNumber =
+    job.target_order_number ??
+    attempts.find((attempt) => attempt.response.lift_order_id)?.response.lift_order_id ??
+    null;
+
+  if (!route || !target) {
+    return {
+      errorStatus: 409,
+      error: "Job output route or target could not be found."
+    } as const;
+  }
+
+  if (!orderNumber) {
+    return {
+      errorStatus: 409,
+      error: "No Lift order number is available for this job yet."
+    } as const;
+  }
+
+  return {
+    job,
+    workspace,
+    route,
+    target,
+    attempts,
+    orderNumber
+  };
+}
+
+function lineMatchesRecord(
+  line: LiftOrderPayload["lines"][number],
+  index: number,
+  record: { line_number?: string | number | null; order_line_id?: string | number | null }
+) {
+  if (record.line_number != null && Number(record.line_number) === line.line_number) {
+    return true;
+  }
+  return record.order_line_id != null && String(record.order_line_id) === String(line.line_number ?? index + 1);
+}
+
+function buildOrderSnapshot(args: {
+  customer: LiftCustomer;
+  job: ProcessingJobPreview;
+  route: OutputRoute;
+  target: TargetConfig;
+  attempts: SubmitAttempt[];
+  orderNumber: string;
+  orderLookup: Awaited<ReturnType<typeof fetchLiftOrderLookup>> | null;
+  proofReport: Awaited<ReturnType<typeof fetchLiftProofReport>> | null;
+  packageDetails: Awaited<ReturnType<typeof fetchLiftPackageDetails>> | null;
+  issues: Array<{ source: string; severity: "warning" | "error"; message: string }>;
+}) {
+  const proofs = args.proofReport?.proofs ?? [];
+  const packages = args.packageDetails?.packages ?? [];
+  const lines = args.job.lift_payload.lines.map((line, index) => {
+    const lineProofs = proofs.filter((proof) => lineMatchesRecord(line, index, proof));
+    const linePackages = packages.filter((pkg) => lineMatchesRecord(line, index, pkg));
+    return {
+      line_number: line.line_number,
+      order_line_id: lineProofs[0]?.order_line_id ?? linePackages[0]?.order_line_id ?? null,
+      product_name: line.product_name,
+      description: line.description,
+      quantity: line.quantity,
+      unit_number: line.unit_number,
+      product_id: line.product_id,
+      proof_count: lineProofs.length,
+      package_count: linePackages.length,
+      latest_proof_status: lineProofs[0]?.proof_approval_status ?? null,
+      latest_tracking_message: linePackages[0]?.tracker_message ?? null,
+      proofs: lineProofs,
+      packages: linePackages
+    };
+  });
+
+  return {
+    snapshot_id: `snapshot-${args.job.job_id}`,
+    order_number: args.orderNumber,
+    source_order_id: args.job.lift_payload.order.ext_id,
+    customer: {
+      source_customer_id: args.job.source_customer_id,
+      source_customer_name: args.job.source_customer_name,
+      submit_customer_id: args.job.submit_customer_id,
+      submit_customer_name: args.job.submit_customer_name
+    },
+    job: {
+      job_id: args.job.job_id,
+      state: args.job.state,
+      import_method_name: args.job.import_method_name,
+      source_file_name: args.job.source_file_name,
+      created_at: args.job.created_at,
+      updated_at: args.job.updated_at
+    },
+    route: {
+      output_route_id: args.route.output_route_id,
+      name: args.route.name,
+      target: args.target.name,
+      environment_id: args.route.environment_id,
+      template: args.route.output_template
+    },
+    header: args.job.lift_payload.order,
+    lines,
+    proofs,
+    packages,
+    submit_history: args.attempts,
+    lookups: {
+      order: args.orderLookup
+        ? {
+            ok: args.orderLookup.ok,
+            http_status: args.orderLookup.http_status,
+            fetched_at: args.orderLookup.fetched_at,
+            payload: args.orderLookup.payload
+          }
+        : null,
+      proofs: args.proofReport
+        ? {
+            ok: args.proofReport.ok,
+            http_status: args.proofReport.http_status,
+            fetched_at: args.proofReport.fetched_at
+          }
+        : null,
+      packages: args.packageDetails
+        ? {
+            ok: args.packageDetails.ok,
+            http_status: args.packageDetails.http_status,
+            fetched_at: args.packageDetails.fetched_at,
+            redacted_fields: args.packageDetails.redacted_fields
+          }
+        : null
+    },
+    visibility_policy: {
+      audience: "internal",
+      redacted_fields: ["NEGOTIATED_RATE"],
+      public_status_ready: false
+    },
+    issues: args.issues,
+    refreshed_at: new Date().toISOString()
+  };
+}
+
 function synthesizeParsedRows(sourceGrid: SourceGrid): ParsedSourceRow[] {
   return sourceGrid.rows.map((values, index) => ({
     sheet_name: "Imported Grid",
@@ -1937,6 +2090,117 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId/package-details", async (req
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Lift package details lookup failed."
+    });
+  }
+});
+
+app.get("/api/customers/:liftCustomerId/jobs/:jobId/order-snapshot", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const context = await getJobLiftContext(customer, req.params.jobId);
+
+    if ("error" in context) {
+      res.status(context.errorStatus ?? 500).json({
+        error: context.error
+      });
+      return;
+    }
+
+    const issues: Array<{ source: string; severity: "warning" | "error"; message: string }> = [];
+    const [orderLookupResult, proofReportResult, packageDetailsResult] = await Promise.allSettled([
+      context.route.order_lookup_url
+        ? fetchLiftOrderLookup({
+            target: context.target,
+            route: context.route,
+            orderNumber: context.orderNumber
+          })
+        : Promise.resolve(null),
+      context.route.proof_report_url
+        ? fetchLiftProofReport({
+            target: context.target,
+            route: context.route,
+            orderNumber: context.orderNumber
+          })
+        : Promise.resolve(null),
+      context.route.package_details_url
+        ? fetchLiftPackageDetails({
+            target: context.target,
+            route: context.route,
+            orderNumber: context.orderNumber
+          })
+        : Promise.resolve(null)
+    ]);
+
+    if (!context.route.order_lookup_url) {
+      issues.push({
+        source: "order_lookup",
+        severity: "warning",
+        message: "Output route has no Lift order lookup URL configured."
+      });
+    }
+    if (!context.route.proof_report_url) {
+      issues.push({
+        source: "proof_report",
+        severity: "warning",
+        message: "Output route has no Lift proof report URL configured."
+      });
+    }
+    if (!context.route.package_details_url) {
+      issues.push({
+        source: "package_details",
+        severity: "warning",
+        message: "Output route has no Lift package details URL configured."
+      });
+    }
+
+    const orderLookup =
+      orderLookupResult.status === "fulfilled"
+        ? orderLookupResult.value
+        : (issues.push({
+            source: "order_lookup",
+            severity: "error",
+            message: orderLookupResult.reason instanceof Error ? orderLookupResult.reason.message : "Lift order lookup failed."
+          }),
+          null);
+    const proofReport =
+      proofReportResult.status === "fulfilled"
+        ? proofReportResult.value
+        : (issues.push({
+            source: "proof_report",
+            severity: "error",
+            message: proofReportResult.reason instanceof Error ? proofReportResult.reason.message : "Lift proof report lookup failed."
+          }),
+          null);
+    const packageDetails =
+      packageDetailsResult.status === "fulfilled"
+        ? packageDetailsResult.value
+        : (issues.push({
+            source: "package_details",
+            severity: "error",
+            message:
+              packageDetailsResult.reason instanceof Error
+                ? packageDetailsResult.reason.message
+                : "Lift package details lookup failed."
+          }),
+          null);
+
+    const snapshot = buildOrderSnapshot({
+      customer,
+      job: context.job,
+      route: context.route,
+      target: context.target,
+      attempts: context.attempts,
+      orderNumber: context.orderNumber,
+      orderLookup,
+      proofReport,
+      packageDetails,
+      issues
+    });
+
+    res.json({ snapshot });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Pathfinder order snapshot failed."
     });
   }
 });
