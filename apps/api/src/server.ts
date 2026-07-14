@@ -49,6 +49,7 @@ import {
   createDefaultProductResolutionConfig,
   deleteCanonicalRegistryCustomField,
   getCanonicalRegistryOverrides,
+  getCanonicalRegistryUsageByPath,
   getOrCreateWorkspace,
   getTarget,
   listProductMappings,
@@ -67,9 +68,11 @@ import {
   updateCanonicalRegistryFieldOverride,
   updateOutputRoute,
   updateTarget,
+  renameCanonicalRegistryCustomField,
   upsertLiftProductCatalog,
   type CustomerProductMapping,
   type CanonicalFieldOverride,
+  type CanonicalFieldUsageSummary,
   type ImportMethod,
   type LiftUnitCatalogItem,
   type OutputRoute,
@@ -1573,14 +1576,23 @@ app.get("/api/sample-order", (_req, res) => {
 });
 
 function applyCanonicalRegistryOverrides(
-  overrides: Record<string, CanonicalFieldOverride>
-): Array<CanonicalFieldDefinition & { origin: "core" | "custom" }> {
+  overrides: Record<string, CanonicalFieldOverride>,
+  usageByPath: Record<string, CanonicalFieldUsageSummary>
+): Array<CanonicalFieldDefinition & { origin: "core" | "custom"; usage: CanonicalFieldUsageSummary }> {
   return canonicalFieldRegistry.map((field) => {
     const override = overrides[field.field_id];
     if (!override) {
       return {
         ...field,
-        origin: "core"
+        origin: "core",
+        usage: usageByPath[field.path] ?? {
+          import_method_mappings: 0,
+          saved_mapping_templates: 0,
+          output_template_mappings: 0,
+          output_template_tokens: 0,
+          value_rules: 0,
+          total: 0
+        }
       };
     }
 
@@ -1590,20 +1602,37 @@ function applyCanonicalRegistryOverrides(
       aliases: override.aliases ?? field.aliases,
       status: override.status ?? field.status,
       description: override.description ?? field.description,
-      origin: "core"
+      origin: "core",
+      usage: usageByPath[field.path] ?? {
+        import_method_mappings: 0,
+        saved_mapping_templates: 0,
+        output_template_mappings: 0,
+        output_template_tokens: 0,
+        value_rules: 0,
+        total: 0
+      }
     };
   });
 }
 
 async function buildCanonicalRegistryResponse() {
   const registry = await getCanonicalRegistryOverrides();
-  const baseFields = applyCanonicalRegistryOverrides(registry.overrides);
+  const usageByPath = await getCanonicalRegistryUsageByPath();
+  const baseFields = applyCanonicalRegistryOverrides(registry.overrides, usageByPath);
   const fieldMap = new Map(baseFields.map((field) => [field.field_id, field]));
   registry.custom_fields.forEach((field) => {
     const override = registry.overrides[field.field_id];
     fieldMap.set(field.field_id, {
       ...field,
       origin: "custom",
+      usage: usageByPath[field.path] ?? {
+        import_method_mappings: 0,
+        saved_mapping_templates: 0,
+        output_template_mappings: 0,
+        output_template_tokens: 0,
+        value_rules: 0,
+        total: 0
+      },
       ...(override
         ? {
             label: override.label ?? field.label,
@@ -1671,6 +1700,50 @@ app.put("/api/canonical-registry/fields/:fieldId", async (req, res) => {
   });
 
   res.json(await buildCanonicalRegistryResponse());
+});
+
+app.patch("/api/canonical-registry/fields/:fieldId/path", async (req, res) => {
+  const registry = await getCanonicalRegistryOverrides();
+  const field = registry.custom_fields.find((candidate) => candidate.field_id === req.params.fieldId);
+  const newPath = typeof req.body?.path === "string" ? req.body.path.trim() : "";
+
+  if (!field) {
+    res.status(404).json({ error: "Only custom canonical fields can be renamed." });
+    return;
+  }
+  if (!newPath) {
+    res.status(400).json({ error: "New path is required." });
+    return;
+  }
+  if (!/^[a-z][a-z0-9_]*(\[\])?(\.[a-z][a-z0-9_]*(\[\])?)*$/.test(newPath)) {
+    res.status(400).json({ error: "Path must use dot notation, lowercase words, underscores, and optional [] arrays." });
+    return;
+  }
+  if (newPath === field.path) {
+    res.json(await buildCanonicalRegistryResponse());
+    return;
+  }
+
+  const existingFields = [...canonicalFieldRegistry, ...registry.custom_fields];
+  if (existingFields.some((candidate) => candidate.path === newPath && candidate.field_id !== field.field_id)) {
+    res.status(409).json({ error: "A canonical field with this path already exists." });
+    return;
+  }
+
+  const result = await renameCanonicalRegistryCustomField(field.field_id, newPath);
+  if (!result) {
+    res.status(404).json({ error: "Custom canonical field not found." });
+    return;
+  }
+
+  res.json({
+    ...(await buildCanonicalRegistryResponse()),
+    migration: {
+      old_path: result.old_path,
+      new_path: result.new_path,
+      usage: result.usage
+    }
+  });
 });
 
 app.post("/api/canonical-registry/fields", async (req, res) => {

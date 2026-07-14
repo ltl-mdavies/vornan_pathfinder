@@ -397,6 +397,15 @@ export interface CanonicalFieldCreateInput {
   description?: string;
 }
 
+export interface CanonicalFieldUsageSummary {
+  import_method_mappings: number;
+  saved_mapping_templates: number;
+  output_template_mappings: number;
+  output_template_tokens: number;
+  value_rules: number;
+  total: number;
+}
+
 const storePath = fileURLToPath(new URL("../../../data/pathfinder-store.local.json", import.meta.url));
 const targetId = "lift-standard-graphics";
 const ecommerceTargetId = "thinkdifferentprint-ecommerce";
@@ -1508,6 +1517,183 @@ export async function deleteCanonicalRegistryCustomField(fieldId: string) {
   store.canonical_registry = registry;
   await writeStore(store);
   return registry;
+}
+
+function emptyCanonicalFieldUsage(): CanonicalFieldUsageSummary {
+  return {
+    import_method_mappings: 0,
+    saved_mapping_templates: 0,
+    output_template_mappings: 0,
+    output_template_tokens: 0,
+    value_rules: 0,
+    total: 0
+  };
+}
+
+function countTemplateTokens(templateText: string, fieldPath: string) {
+  const escaped = fieldPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return Array.from(templateText.matchAll(new RegExp(`{{\\s*${escaped}\\s*}}`, "g"))).length;
+}
+
+function finalizeCanonicalFieldUsage(usage: CanonicalFieldUsageSummary) {
+  usage.total =
+    usage.import_method_mappings +
+    usage.saved_mapping_templates +
+    usage.output_template_mappings +
+    usage.output_template_tokens +
+    usage.value_rules;
+  return usage;
+}
+
+function canonicalFieldUsageForStore(store: PathfinderStore, fieldPath: string): CanonicalFieldUsageSummary {
+  const usage = emptyCanonicalFieldUsage();
+
+  Object.values(store.workspaces ?? {}).forEach((workspace) => {
+    workspace.import_methods?.forEach((method) => {
+      usage.import_method_mappings += (method.mappings ?? []).filter((mapping) => mapping.targetField === fieldPath).length;
+    });
+    workspace.templates?.forEach((template) => {
+      usage.saved_mapping_templates += (template.mappings ?? []).filter((mapping) => mapping.targetField === fieldPath).length;
+    });
+    workspace.output_routes?.forEach((route) => {
+      usage.value_rules += (route.value_normalization_rules ?? []).filter(
+        (rule) => rule.canonical_field === fieldPath || rule.output_field === fieldPath
+      ).length;
+    });
+  });
+
+  Object.values(store.targets ?? {}).forEach((target) => {
+    target.output_templates?.forEach((template) => {
+      usage.output_template_mappings += (template.canonical_mappings ?? []).filter(
+        (mapping) => mapping.targetField === fieldPath
+      ).length;
+      usage.output_template_tokens +=
+        countTemplateTokens(template.body_template ?? "", fieldPath) +
+        countTemplateTokens(template.header_template ?? "", fieldPath);
+    });
+  });
+
+  return finalizeCanonicalFieldUsage(usage);
+}
+
+export async function getCanonicalRegistryUsageByPath() {
+  const store = await readStore();
+  const registry = normalizeCanonicalRegistry(store.canonical_registry);
+  const paths = new Set<string>([
+    ...registry.custom_fields.map((field) => field.path),
+    ...Object.values(registry.overrides).map((override) => override.field_id)
+  ]);
+
+  Object.values(store.workspaces ?? {}).forEach((workspace) => {
+    workspace.import_methods?.forEach((method) =>
+      method.mappings?.forEach((mapping) => paths.add(mapping.targetField))
+    );
+    workspace.templates?.forEach((template) =>
+      template.mappings?.forEach((mapping) => paths.add(mapping.targetField))
+    );
+    workspace.output_routes?.forEach((route) =>
+      route.value_normalization_rules?.forEach((rule) => {
+        paths.add(rule.canonical_field);
+        paths.add(rule.output_field);
+      })
+    );
+  });
+  Object.values(store.targets ?? {}).forEach((target) =>
+    target.output_templates?.forEach((template) =>
+      template.canonical_mappings?.forEach((mapping) => paths.add(mapping.targetField))
+    )
+  );
+
+  return Object.fromEntries(Array.from(paths).map((path) => [path, canonicalFieldUsageForStore(store, path)]));
+}
+
+function replaceTemplateToken(templateText: string, oldPath: string, newPath: string) {
+  const escaped = oldPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return templateText.replace(new RegExp(`{{\\s*${escaped}\\s*}}`, "g"), `{{${newPath}}}`);
+}
+
+function renameFieldMappings(mappings: FieldMapping[] = [], oldPath: string, newPath: string) {
+  return mappings.map((mapping) =>
+    mapping.targetField === oldPath
+      ? {
+          ...mapping,
+          targetField: newPath
+        }
+      : mapping
+  );
+}
+
+export async function renameCanonicalRegistryCustomField(fieldId: string, newPath: string) {
+  const store = await readStore();
+  const registry = normalizeCanonicalRegistry(store.canonical_registry);
+  const existingField = registry.custom_fields.find((field) => field.field_id === fieldId);
+
+  if (!existingField) {
+    return null;
+  }
+
+  const oldPath = existingField.path;
+  const timestamp = now();
+  registry.custom_fields = registry.custom_fields.map((field) =>
+    field.field_id === fieldId
+      ? {
+          ...field,
+          path: newPath,
+          aliases: Array.from(new Set([...(field.aliases ?? []), oldPath])),
+          repeatable: field.repeatable || newPath.includes("[]")
+        }
+      : field
+  );
+  registry.updated_at = timestamp;
+
+  Object.values(store.workspaces ?? {}).forEach((workspace) => {
+    workspace.import_methods = (workspace.import_methods ?? []).map((method) => ({
+      ...method,
+      mappings: renameFieldMappings(method.mappings, oldPath, newPath),
+      updated_at: timestamp
+    }));
+    workspace.templates = (workspace.templates ?? []).map((template) => ({
+      ...template,
+      mappings: renameFieldMappings(template.mappings, oldPath, newPath),
+      updated_at: timestamp
+    }));
+    workspace.output_routes = (workspace.output_routes ?? []).map((route) => ({
+      ...route,
+      value_normalization_rules: (route.value_normalization_rules ?? []).map((rule) => ({
+        ...rule,
+        canonical_field: rule.canonical_field === oldPath ? newPath : rule.canonical_field,
+        output_field: rule.output_field === oldPath ? newPath : rule.output_field
+      })),
+      updated_at: timestamp
+    }));
+    workspace.updated_at = timestamp;
+  });
+
+  store.targets = Object.fromEntries(
+    Object.entries(store.targets ?? {}).map(([id, target]) => [
+      id,
+      {
+        ...target,
+        output_templates: (target.output_templates ?? []).map((template) => ({
+          ...template,
+          canonical_mappings: renameFieldMappings(template.canonical_mappings, oldPath, newPath),
+          body_template: replaceTemplateToken(template.body_template ?? "", oldPath, newPath),
+          header_template: replaceTemplateToken(template.header_template ?? "", oldPath, newPath),
+          updated_at: timestamp
+        })),
+        updated_at: timestamp
+      }
+    ])
+  );
+
+  store.canonical_registry = registry;
+  await writeStore(store);
+  return {
+    registry,
+    old_path: oldPath,
+    new_path: newPath,
+    usage: canonicalFieldUsageForStore(store, newPath)
+  };
 }
 
 export async function updateImportMethod(customer: LiftCustomer, methodId: string, methodPatch: Partial<ImportMethod>) {

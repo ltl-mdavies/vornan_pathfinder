@@ -565,6 +565,14 @@ interface RouteDiagnostics {
 
 type CanonicalRegistryField = CanonicalFieldDefinition & {
   origin?: "core" | "custom";
+  usage?: {
+    import_method_mappings: number;
+    saved_mapping_templates: number;
+    output_template_mappings: number;
+    output_template_tokens: number;
+    value_rules: number;
+    total: number;
+  };
 };
 
 interface CanonicalRegistryPayload {
@@ -2427,11 +2435,13 @@ export function App() {
   const [editingCanonicalFieldId, setEditingCanonicalFieldId] = useState<string | null>(null);
   const [isCreatingCanonicalField, setIsCreatingCanonicalField] = useState(false);
   const [canonicalFieldDraft, setCanonicalFieldDraft] = useState<{
+    path: string;
     label: string;
     description: string;
     aliases: string;
     status: CanonicalFieldDefinition["status"];
   }>({
+    path: "",
     label: "",
     description: "",
     aliases: "",
@@ -2741,6 +2751,7 @@ export function App() {
   function startCanonicalFieldEdit(field: CanonicalFieldDefinition) {
     setEditingCanonicalFieldId(field.field_id);
     setCanonicalFieldDraft({
+      path: field.path,
       label: field.label,
       description: field.description ?? "",
       aliases: field.aliases.join(", "),
@@ -2827,6 +2838,40 @@ export function App() {
       setWorkspaceState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field removal failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  async function renameCanonicalRegistryFieldPath(field: CanonicalRegistryField) {
+    const nextPath = canonicalFieldDraft.path.trim();
+    if (field.origin !== "custom") {
+      setWorkspaceMessage("Only custom canonical fields can be renamed.");
+      return;
+    }
+    if (!nextPath || nextPath === field.path) {
+      return;
+    }
+    if (!window.confirm(`Rename "${field.path}" to "${nextPath}" and migrate saved mappings?`)) {
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}/path`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: nextPath })
+      });
+      const registry = await readJsonResponse<CanonicalRegistryPayload & { migration?: { usage?: CanonicalRegistryField["usage"] } }>(
+        response
+      );
+      setCanonicalRegistry(registry);
+      setEditingCanonicalFieldId(null);
+      setCanonicalRegistrySearch(nextPath);
+      setWorkspaceMessage(`Canonical path renamed to ${nextPath}. ${registry.migration?.usage?.total ?? 0} saved references migrated.`);
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical path rename failed.");
       setWorkspaceState("error");
     }
   }
@@ -8995,6 +9040,19 @@ export function App() {
                           <td>
                             {isEditing ? (
                               <div className="canonical-field-edit-stack">
+                                {field.origin === "custom" ? (
+                                  <input
+                                    className="table-input"
+                                    value={canonicalFieldDraft.path}
+                                    placeholder="field.path"
+                                    onChange={(event) =>
+                                      setCanonicalFieldDraft((current) => ({
+                                        ...current,
+                                        path: event.target.value
+                                      }))
+                                    }
+                                  />
+                                ) : null}
                                 <input
                                   className="table-input"
                                   value={canonicalFieldDraft.label}
@@ -9031,6 +9089,9 @@ export function App() {
                             )}
                             <span className="cell-meta">{field.path}</span>
                             <span className="cell-meta">{field.field_id}</span>
+                            <span className="cell-meta">
+                              Used in {field.usage?.total ?? 0} saved reference{(field.usage?.total ?? 0) === 1 ? "" : "s"}
+                            </span>
                           </td>
                           <td>{field.section}</td>
                           <td>{field.data_type}</td>
@@ -9099,6 +9160,15 @@ export function App() {
                                 >
                                   Cancel
                                 </button>
+                                {field.origin === "custom" && canonicalFieldDraft.path.trim() !== field.path ? (
+                                  <button
+                                    className="secondary-button table-inline-button"
+                                    onClick={() => void renameCanonicalRegistryFieldPath(field)}
+                                    disabled={workspaceState === "saving"}
+                                  >
+                                    Rename Path
+                                  </button>
+                                ) : null}
                               </div>
                             ) : (
                               <div className="canonical-registry-actions">

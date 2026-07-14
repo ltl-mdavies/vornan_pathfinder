@@ -943,3 +943,15 @@ What changed:
 - Added `DELETE /api/canonical-registry/fields/:fieldId` for safe removal of Draft custom fields only.
 - Protected source-defined Core fields from deletion through the API and UI.
 - Added a Remove action only when a custom field is still Draft; active fields should be deprecated instead of removed.
+
+## 2026-07-14 - Canonical Registry Rename Safety
+
+Added usage visibility and guarded custom field path renaming.
+
+What changed:
+
+- Added usage counts to Canonical Registry API responses for import method mappings, saved mapping templates, output template mappings/tokens, and value rules.
+- Added a custom-field path rename endpoint that migrates saved mapping references from the old path to the new path.
+- Kept historical preview/submission job snapshots unchanged for audit accuracy.
+- Added inline path rename controls for custom fields in the Settings registry table.
+- Preserved the old path as an alias on renamed custom fields so users can still search by the previous name.
