@@ -563,12 +563,16 @@ interface RouteDiagnostics {
   items: RouteDiagnosticItem[];
 }
 
+type CanonicalRegistryField = CanonicalFieldDefinition & {
+  origin?: "core" | "custom";
+};
+
 interface CanonicalRegistryPayload {
   registry_id: string;
   version: string;
   status: string;
   updated_at: string;
-  fields: CanonicalFieldDefinition[];
+  fields: CanonicalRegistryField[];
   sections: string[];
   field_count: number;
 }
@@ -2798,6 +2802,31 @@ export function App() {
       setWorkspaceState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field creation failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  async function deleteCanonicalRegistryField(field: CanonicalRegistryField) {
+    if (field.origin !== "custom" || field.status !== "Draft") {
+      setWorkspaceMessage("Only Draft custom canonical fields can be removed.");
+      return;
+    }
+    if (!window.confirm(`Remove the draft canonical field "${field.label}"?`)) {
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}`, {
+        method: "DELETE"
+      });
+      const registry = await readJsonResponse<CanonicalRegistryPayload>(response);
+      setCanonicalRegistry(registry);
+      setEditingCanonicalFieldId(null);
+      setWorkspaceMessage(`Draft canonical field removed: ${field.label}.`);
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field removal failed.");
       setWorkspaceState("error");
     }
   }
@@ -8991,7 +9020,12 @@ export function App() {
                               </div>
                             ) : (
                               <>
-                                <strong>{field.label}</strong>
+                                <div className="canonical-field-heading">
+                                  <strong>{field.label}</strong>
+                                  <span className={field.origin === "custom" ? "mini-pill mini-pill-warning" : "mini-pill mini-pill-neutral"}>
+                                    {field.origin === "custom" ? "Custom" : "Core"}
+                                  </span>
+                                </div>
                                 <span className="cell-meta">{field.description}</span>
                               </>
                             )}
@@ -9067,9 +9101,20 @@ export function App() {
                                 </button>
                               </div>
                             ) : (
-                              <button className="secondary-button table-inline-button" onClick={() => startCanonicalFieldEdit(field)}>
-                                Edit
-                              </button>
+                              <div className="canonical-registry-actions">
+                                <button className="secondary-button table-inline-button" onClick={() => startCanonicalFieldEdit(field)}>
+                                  Edit
+                                </button>
+                                {field.origin === "custom" && field.status === "Draft" ? (
+                                  <button
+                                    className="secondary-button table-inline-button"
+                                    onClick={() => void deleteCanonicalRegistryField(field)}
+                                    disabled={workspaceState === "saving"}
+                                  >
+                                    Remove
+                                  </button>
+                                ) : null}
+                              </div>
                             )}
                           </td>
                         </tr>

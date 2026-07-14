@@ -932,3 +932,14 @@ What changed:
 - Updated manual import and preload catalog upload flows to await the async parser.
 - Reduced the initial web JavaScript chunk from roughly 764 KB to roughly 429 KB.
 - Split the XLSX parser into a separate on-demand chunk, keeping dashboard and setup pages lighter on first load.
+
+## 2026-07-14 - Canonical Registry Field Lifecycle Guardrails
+
+Added guarded lifecycle controls for custom canonical fields.
+
+What changed:
+
+- Marked registry fields as Core or Custom in API responses and the Settings registry table.
+- Added `DELETE /api/canonical-registry/fields/:fieldId` for safe removal of Draft custom fields only.
+- Protected source-defined Core fields from deletion through the API and UI.
+- Added a Remove action only when a custom field is still Draft; active fields should be deprecated instead of removed.

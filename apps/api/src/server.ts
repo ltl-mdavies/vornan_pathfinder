@@ -47,6 +47,7 @@ import {
   addCanonicalRegistryCustomField,
   bulkUpsertProductMappings,
   createDefaultProductResolutionConfig,
+  deleteCanonicalRegistryCustomField,
   getCanonicalRegistryOverrides,
   getOrCreateWorkspace,
   getTarget,
@@ -1573,11 +1574,14 @@ app.get("/api/sample-order", (_req, res) => {
 
 function applyCanonicalRegistryOverrides(
   overrides: Record<string, CanonicalFieldOverride>
-): CanonicalFieldDefinition[] {
+): Array<CanonicalFieldDefinition & { origin: "core" | "custom" }> {
   return canonicalFieldRegistry.map((field) => {
     const override = overrides[field.field_id];
     if (!override) {
-      return field;
+      return {
+        ...field,
+        origin: "core"
+      };
     }
 
     return {
@@ -1585,7 +1589,8 @@ function applyCanonicalRegistryOverrides(
       label: override.label ?? field.label,
       aliases: override.aliases ?? field.aliases,
       status: override.status ?? field.status,
-      description: override.description ?? field.description
+      description: override.description ?? field.description,
+      origin: "core"
     };
   });
 }
@@ -1598,6 +1603,7 @@ async function buildCanonicalRegistryResponse() {
     const override = registry.overrides[field.field_id];
     fieldMap.set(field.field_id, {
       ...field,
+      origin: "custom",
       ...(override
         ? {
             label: override.label ?? field.label,
@@ -1719,6 +1725,31 @@ app.post("/api/canonical-registry/fields", async (req, res) => {
   });
 
   res.status(201).json(await buildCanonicalRegistryResponse());
+});
+
+app.delete("/api/canonical-registry/fields/:fieldId", async (req, res) => {
+  const registry = await getCanonicalRegistryOverrides();
+  const field = registry.custom_fields.find((candidate) => candidate.field_id === req.params.fieldId);
+
+  if (!field) {
+    res.status(404).json({ error: "Only custom canonical fields can be removed." });
+    return;
+  }
+
+  const override = registry.overrides[field.field_id];
+  const effectiveStatus = override?.status ?? field.status;
+  if (effectiveStatus !== "Draft") {
+    res.status(409).json({ error: "Only Draft custom fields can be removed. Deprecate active fields instead." });
+    return;
+  }
+
+  const nextRegistry = await deleteCanonicalRegistryCustomField(field.field_id);
+  if (!nextRegistry) {
+    res.status(404).json({ error: "Custom canonical field not found." });
+    return;
+  }
+
+  res.json(await buildCanonicalRegistryResponse());
 });
 
 app.get("/api/lift/customers", async (req, res) => {

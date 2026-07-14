@@ -4701,6 +4701,16 @@ td {
   font-weight: 850;
 }
 
+.canonical-field-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.canonical-field-heading strong {
+  display: inline;
+}
+
 .canonical-field-edit-stack,
 .canonical-registry-actions {
   display: grid;

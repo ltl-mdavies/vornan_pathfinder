@@ -1492,6 +1492,24 @@ export async function addCanonicalRegistryCustomField(input: CanonicalFieldCreat
   return registry;
 }
 
+export async function deleteCanonicalRegistryCustomField(fieldId: string) {
+  const store = await readStore();
+  const registry = normalizeCanonicalRegistry(store.canonical_registry);
+  const existingField = registry.custom_fields.find((field) => field.field_id === fieldId);
+
+  if (!existingField) {
+    return null;
+  }
+
+  const timestamp = now();
+  registry.custom_fields = registry.custom_fields.filter((field) => field.field_id !== fieldId);
+  delete registry.overrides[fieldId];
+  registry.updated_at = timestamp;
+  store.canonical_registry = registry;
+  await writeStore(store);
+  return registry;
+}
+
 export async function updateImportMethod(customer: LiftCustomer, methodId: string, methodPatch: Partial<ImportMethod>) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
