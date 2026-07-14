@@ -886,3 +886,14 @@ What changed:
 - Added `GET /api/canonical-registry` for registry metadata, sections, field count, and field definitions.
 - Replaced the placeholder Global Settings panel with a Canonical Order registry screen showing metrics, section chips, search, filters, and field rows.
 - Kept schema editing disabled in this slice while establishing the stable read model needed for future add/rename/reorder/remove workflows.
+
+## 2026-07-14 - Canonical Registry Dropdown Consumers
+
+Connected mapping dropdowns to the Canonical Field Registry.
+
+What changed:
+
+- Import Method field mapping and Manual Import mapping now show grouped canonical field options by registry section.
+- Output Template field mapping now shows canonical registry fields with readable labels while retaining compatibility tokens for existing template mappings.
+- Value Rule canonical field selection now uses the same grouped registry options.
+- This keeps existing stored mapping values intact while improving usability for non-technical setup work.

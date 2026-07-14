@@ -573,6 +573,49 @@ interface CanonicalRegistryPayload {
   field_count: number;
 }
 
+const canonicalSectionLabels: Record<string, string> = {
+  customer: "Customer",
+  contacts: "Contacts",
+  source: "Source",
+  target: "Target",
+  order: "Order",
+  shipping: "Order Shipping",
+  lines: "Lines"
+};
+
+function CanonicalFieldOptionGroups({ fields }: { fields: CanonicalFieldDefinition[] }) {
+  if (!fields.length) {
+    return (
+      <optgroup label="Canonical Order">
+        {canonicalTargetFields.map((field) => (
+          <option key={field} value={field}>
+            {field}
+          </option>
+        ))}
+      </optgroup>
+    );
+  }
+
+  const groupedFields = fields.reduce<Record<string, CanonicalFieldDefinition[]>>((groups, field) => {
+    groups[field.section] = [...(groups[field.section] ?? []), field];
+    return groups;
+  }, {});
+
+  return (
+    <>
+      {Object.entries(groupedFields).map(([section, sectionFields]) => (
+        <optgroup key={section} label={canonicalSectionLabels[section] ?? section}>
+          {sectionFields.map((field) => (
+            <option key={field.field_id} value={field.path}>
+              {field.label} · {field.path}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </>
+  );
+}
+
 const globalNavItems: Array<{ label: GlobalView; icon: typeof Gauge }> = [
   { label: "Dashboard", icon: Gauge },
   { label: "Customers", icon: Users },
@@ -3019,6 +3062,10 @@ export function App() {
   const submitCustomer = submitCustomerForProfile(selectedCustomer, selectedSubmitProfile);
   const canonicalRegistryFields = canonicalRegistry?.fields ?? [];
   const canonicalRegistrySections = canonicalRegistry?.sections ?? [];
+  const canonicalRegistryPaths = new Set(canonicalRegistryFields.map((field) => field.path));
+  const canonicalCompatibilityOptions = canonicalOrderOptions.filter(
+    (option) => !canonicalRegistryPaths.has(option) && !generatedTemplateOptions.includes(option)
+  );
   const canonicalRequiredCount = canonicalRegistryFields.filter((field) => field.required).length;
   const canonicalRepeatableCount = canonicalRegistryFields.filter((field) => field.repeatable).length;
   const canonicalRegistrySectionCounts = canonicalRegistryFields.reduce<Record<string, number>>((counts, field) => {
@@ -5533,11 +5580,7 @@ export function App() {
                               onChange={(event) => setMappings((current) => updateMapping(current, column, event.target.value))}
                             >
                               <option value="">Ignore</option>
-                              {canonicalTargetFields.map((field) => (
-                                <option key={field} value={field}>
-                                  {field}
-                                </option>
-                              ))}
+                              <CanonicalFieldOptionGroups fields={canonicalRegistryFields} />
                             </select>
                           </td>
                         </tr>
@@ -6503,11 +6546,7 @@ export function App() {
                               onChange={(event) => setMappings((current) => updateMapping(current, column, event.target.value))}
                             >
                               <option value="">Ignore</option>
-                              {canonicalTargetFields.map((field) => (
-                                <option key={field} value={field}>
-                                  {field}
-                                </option>
-                              ))}
+                              <CanonicalFieldOptionGroups fields={canonicalRegistryFields} />
                             </select>
                           </td>
                         </tr>
@@ -7571,8 +7610,18 @@ export function App() {
                                                 <option value="preset.content_type.application_json">application/json</option>
                                               </optgroup>
                                             ) : null}
-                                            <optgroup label="Canonical Order">
-                                              {canonicalOrderOptions.map((option) => (
+                                            <CanonicalFieldOptionGroups fields={canonicalRegistryFields} />
+                                            {canonicalCompatibilityOptions.length ? (
+                                              <optgroup label="Compatibility Tokens">
+                                                {canonicalCompatibilityOptions.map((option) => (
+                                                  <option key={option} value={option}>
+                                                    {option}
+                                                  </option>
+                                                ))}
+                                              </optgroup>
+                                            ) : null}
+                                            <optgroup label="Legacy Generated Tokens">
+                                              {canonicalOrderOptions.filter((option) => generatedTemplateOptions.includes(option)).map((option) => (
                                                 <option key={option} value={option}>
                                                   {option}
                                                 </option>
@@ -7937,11 +7986,7 @@ export function App() {
                                           })
                                         }
                                       >
-                                        {canonicalOrderOptions.map((option) => (
-                                          <option key={option} value={option}>
-                                            {option}
-                                          </option>
-                                        ))}
+                                        <CanonicalFieldOptionGroups fields={canonicalRegistryFields} />
                                       </select>
                                     </td>
                                     <td>
