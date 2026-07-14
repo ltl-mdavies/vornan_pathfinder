@@ -1,4 +1,3 @@
-import * as XLSX from "xlsx";
 import {
   canonicalFieldPaths,
   type CanonicalFieldPath,
@@ -7,6 +6,7 @@ import {
   type Contact,
   type ShippingAddress
 } from "@pathfinder/canonical";
+import type * as XLSX from "xlsx";
 
 export interface SourceGrid {
   columns: string[];
@@ -277,11 +277,12 @@ function findQuantityColumn(columns: string[]) {
 }
 
 function parseWorksheetRows(
+  xlsx: typeof XLSX,
   workbook: XLSX.WorkBook,
   sheetName: string
 ): { columns: string[]; rows: ParsedSourceRow[] } {
   const worksheet = workbook.Sheets[sheetName];
-  const matrix = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
+  const matrix = xlsx.utils.sheet_to_json<unknown[]>(worksheet, {
     header: 1,
     blankrows: false,
     defval: null,
@@ -314,10 +315,11 @@ function parseWorksheetRows(
   return { columns, rows };
 }
 
-export function parseWorkbookArrayBuffer(buffer: ArrayBuffer, preferredSheetName?: string): ParsedWorkbook {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+export async function parseWorkbookArrayBuffer(buffer: ArrayBuffer, preferredSheetName?: string): Promise<ParsedWorkbook> {
+  const xlsx = await import("xlsx");
+  const workbook = xlsx.read(buffer, { type: "array", cellDates: true });
   const allSheetRows = workbook.SheetNames.map((candidateSheetName) => {
-    const { columns, rows } = parseWorksheetRows(workbook, candidateSheetName);
+    const { columns, rows } = parseWorksheetRows(xlsx, workbook, candidateSheetName);
     return {
       sheet_name: candidateSheetName,
       columns,

@@ -921,3 +921,14 @@ What changed:
 - Updated the Settings registry screen with a compact Create Draft Field panel.
 - Returned custom fields through the same registry API used by mapping dropdowns, so newly created fields become selectable mapping targets.
 - Added supplemental canonical order mapping support so custom mapped paths are preserved in generated canonical order previews without changing the typed core schema.
+
+## 2026-07-14 - Web Bundle Chunk Split
+
+Removed the Vite production chunk-size warning by lazy-loading workbook parsing.
+
+What changed:
+
+- Changed workbook parsing in `@pathfinder/templates` to dynamically import `xlsx` only when a workbook is uploaded.
+- Updated manual import and preload catalog upload flows to await the async parser.
+- Reduced the initial web JavaScript chunk from roughly 764 KB to roughly 429 KB.
+- Split the XLSX parser into a separate on-demand chunk, keeping dashboard and setup pages lighter on first load.

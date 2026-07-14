@@ -3735,7 +3735,7 @@ export function App() {
 
   async function importWorkbook(file: File) {
     try {
-      const parsed = parseWorkbookArrayBuffer(await file.arrayBuffer());
+      const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer());
       setSourceGrid({ columns: parsed.columns, rows: parsed.rows });
       setSourceSheets(parsed.source_sheets);
       setParsedOrderRows(parsed.parsed_order_rows);
@@ -4244,7 +4244,7 @@ export function App() {
 
   async function importPreloadCatalogFile(file: File) {
     try {
-      const parsed = parseWorkbookArrayBuffer(await file.arrayBuffer());
+      const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer());
       const grid = { columns: parsed.columns, rows: parsed.rows };
       const defaultSourceColumn = grid.columns.includes(selectedOutputMapProductConfig.source_column)
         ? selectedOutputMapProductConfig.source_column
