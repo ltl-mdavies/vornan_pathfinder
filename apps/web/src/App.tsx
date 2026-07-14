@@ -5947,16 +5947,6 @@ export function App() {
                     <option value="7-days">Last 7 days</option>
                   </select>
                 </label>
-                <button
-                  className="primary-button"
-                  onClick={() => {
-                    setActiveGlobalView("Customers");
-                    setActiveCustomerView("Manual Import");
-                  }}
-                >
-                  <Upload size={16} />
-                  Manual Import
-                </button>
               </div>
             </header>
             <section className="dashboard-kpi-grid" aria-label="Pathfinder operating metrics">
