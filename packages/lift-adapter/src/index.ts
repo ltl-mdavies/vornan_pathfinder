@@ -168,6 +168,31 @@ export function buildLiftProofReportUrl(
   }
 }
 
+export function buildLiftPackageDetailsUrl(
+  packageDetailsUrl: string | null | undefined,
+  orderNumber: string | null | undefined,
+  orderLineId?: string | number | null
+) {
+  const baseUrl = packageDetailsUrl?.trim();
+  const trimmedOrderNumber = orderNumber?.trim();
+  const trimmedOrderLineId = orderLineId == null ? "" : String(orderLineId).trim();
+
+  if (!baseUrl || !trimmedOrderNumber) {
+    return null;
+  }
+
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set("p0", trimmedOrderNumber);
+    if (trimmedOrderLineId) {
+      url.searchParams.set("p1", trimmedOrderLineId);
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export interface LiftSubmitTransportResult {
   status: "not_sent" | "accepted" | "rejected" | "error";
   http_status?: number | null;

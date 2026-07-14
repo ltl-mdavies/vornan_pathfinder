@@ -11,6 +11,7 @@ import {
 import { sampleCanonicalOrder, validateCanonicalOrder, type ValidationMessage } from "@pathfinder/canonical";
 import {
   applyValueNormalizationToLiftPayload,
+  buildLiftPackageDetailsUrl,
   buildLiftOrderLookupUrl,
   buildLiftProofReportUrl,
   buildLiftSubmitRequest,
@@ -474,6 +475,166 @@ async function fetchLiftProofReport(args: {
     ok: response.ok,
     proofs: normalizeProofReportPayload(body),
     payload: body,
+    fetched_at: new Date().toISOString()
+  };
+}
+
+function packageDetailRows(payload: unknown) {
+  return Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === "object" && Array.isArray((payload as { rowset?: unknown }).rowset)
+      ? ((payload as { rowset: unknown[] }).rowset)
+      : [];
+}
+
+function redactPackageDetailRecord(record: Record<string, unknown>) {
+  const { NEGOTIATED_RATE: _negotiatedRate, negotiated_rate: _negotiatedRateLower, ...safeRecord } = record;
+  return safeRecord;
+}
+
+function normalizePackageDetailsPayload(payload: unknown) {
+  const rows = packageDetailRows(payload);
+  const packageGroups = new Map<string, {
+    header_id: string | number | null;
+    order_number: string | null;
+    order_line_id: string | number | null;
+    shipping_id: string | number | null;
+    line_number: string | number | null;
+    product: string | null;
+    material: string | null;
+    laminate: string | null;
+    height: string | number | null;
+    width: string | number | null;
+    quantity: string | number | null;
+    box_number: string | number | null;
+    package_type: string | null;
+    tracking_number: string | null;
+    dimensions: {
+      length: string | number | null;
+      width: string | number | null;
+      height: string | number | null;
+      weight: string | number | null;
+    };
+    tracker_message: string | null;
+    location_name: string | null;
+    ship_method: string | null;
+  }>();
+
+  rows.forEach((row) => {
+    if (!row || typeof row !== "object") {
+      return;
+    }
+
+    const record = row as Record<string, unknown>;
+    const key = [
+      record.ORDER_NUMBER,
+      record.ORDER_LINE_ID,
+      record.SHIPPING_ID,
+      record.BOX_NUMBER,
+      record.PACKAGE_TRACKING_NUMBER
+    ]
+      .map((value) => (value == null ? "" : String(value)))
+      .join("|");
+
+    if (packageGroups.has(key)) {
+      return;
+    }
+
+    packageGroups.set(key, {
+      header_id: (record.HEADER_ID as string | number | null | undefined) ?? null,
+      order_number: record.ORDER_NUMBER == null ? null : String(record.ORDER_NUMBER),
+      order_line_id: (record.ORDER_LINE_ID as string | number | null | undefined) ?? null,
+      shipping_id: (record.SHIPPING_ID as string | number | null | undefined) ?? null,
+      line_number: (record.LINE_NUMBER as string | number | null | undefined) ?? null,
+      product: typeof record.PRODUCT === "string" ? record.PRODUCT : null,
+      material: typeof record.MATERIAL === "string" ? record.MATERIAL : null,
+      laminate: typeof record.LAMINATE === "string" ? record.LAMINATE : null,
+      height: (record.HEIGHT as string | number | null | undefined) ?? null,
+      width: (record.WIDTH as string | number | null | undefined) ?? null,
+      quantity: (record.QUANTITY as string | number | null | undefined) ?? null,
+      box_number: (record.BOX_NUMBER as string | number | null | undefined) ?? null,
+      package_type: typeof record.PACKAGE_TYPE === "string" ? record.PACKAGE_TYPE : null,
+      tracking_number: typeof record.PACKAGE_TRACKING_NUMBER === "string" ? record.PACKAGE_TRACKING_NUMBER : null,
+      dimensions: {
+        length: (record.BOX_LENGTH as string | number | null | undefined) ?? null,
+        width: (record.BOX_WIDTH as string | number | null | undefined) ?? null,
+        height: (record.BOX_HEIGHT as string | number | null | undefined) ?? null,
+        weight: (record.BOX_WEIGHT as string | number | null | undefined) ?? null
+      },
+      tracker_message: typeof record.TRACKER_MESSAGE === "string" ? record.TRACKER_MESSAGE : null,
+      location_name: typeof record.LOCATION_NAME === "string" ? record.LOCATION_NAME : null,
+      ship_method: typeof record.SHIP_METHOD === "string" ? record.SHIP_METHOD : null
+    });
+  });
+
+  return Array.from(packageGroups.values()).sort((left, right) => {
+    const leftLine = Number(left.line_number ?? 0);
+    const rightLine = Number(right.line_number ?? 0);
+    if (leftLine !== rightLine) {
+      return leftLine - rightLine;
+    }
+    return Number(left.box_number ?? 0) - Number(right.box_number ?? 0);
+  });
+}
+
+function redactPackageDetailsPayload(payload: unknown) {
+  if (Array.isArray(payload)) {
+    return payload.map((row) =>
+      row && typeof row === "object" ? redactPackageDetailRecord(row as Record<string, unknown>) : row
+    );
+  }
+
+  if (payload && typeof payload === "object" && Array.isArray((payload as { rowset?: unknown }).rowset)) {
+    return {
+      ...(payload as Record<string, unknown>),
+      rowset: (payload as { rowset: unknown[] }).rowset.map((row) =>
+        row && typeof row === "object" ? redactPackageDetailRecord(row as Record<string, unknown>) : row
+      )
+    };
+  }
+
+  return payload;
+}
+
+async function fetchLiftPackageDetails(args: {
+  target: TargetConfig;
+  route: OutputRoute;
+  orderNumber: string;
+  orderLineId?: string | number | null;
+}) {
+  const environment = routeEnvironmentForTarget(args.target, args.route);
+  const packageDetailsUrl = buildLiftPackageDetailsUrl(args.route.package_details_url, args.orderNumber, args.orderLineId);
+
+  if (!packageDetailsUrl) {
+    throw new Error("This output route does not have a valid Lift package details URL for the selected order number.");
+  }
+
+  const user = environment?.credentials.User ?? args.target.lift.credentials.User;
+  const password = environment?.credentials.Password ?? args.target.lift.credentials.Password;
+  const headers: Record<string, string> = {
+    Accept: "application/json"
+  };
+
+  if (user && password && password !== "********") {
+    headers.Authorization = `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`;
+  }
+
+  const response = await fetch(packageDetailsUrl, {
+    headers,
+    signal: AbortSignal.timeout(15000)
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text();
+  const redactedPayload = redactPackageDetailsPayload(body);
+
+  return {
+    order_number: args.orderNumber,
+    package_details_url: packageDetailsUrl,
+    http_status: response.status,
+    ok: response.ok,
+    packages: normalizePackageDetailsPayload(redactedPayload),
+    payload: redactedPayload,
+    redacted_fields: ["NEGOTIATED_RATE"],
     fetched_at: new Date().toISOString()
   };
 }
@@ -1725,6 +1886,57 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId/proof-report", async (req, r
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Lift proof report lookup failed."
+    });
+  }
+});
+
+app.get("/api/customers/:liftCustomerId/jobs/:jobId/package-details", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const job = await getJob(customer, req.params.jobId);
+
+    if (!job) {
+      res.status(404).json({
+        error: "Preview job not found."
+      });
+      return;
+    }
+
+    const workspace = await getOrCreateWorkspace(customer);
+    const route = workspace.output_routes.find((candidate) => candidate.output_route_id === job.output_route_id);
+    const target = route ? ((await getTarget(route.target_id, false)) as TargetConfig | null) : null;
+    const attempts = await listSubmitAttemptsForJob(customer, req.params.jobId);
+    const orderNumber =
+      job.target_order_number ??
+      attempts.find((attempt) => attempt.response.lift_order_id)?.response.lift_order_id ??
+      null;
+    const orderLineId = typeof req.query.order_line_id === "string" ? req.query.order_line_id : null;
+
+    if (!route || !target) {
+      res.status(409).json({
+        error: "Job output route or target could not be found."
+      });
+      return;
+    }
+
+    if (!orderNumber) {
+      res.status(409).json({
+        error: "No Lift order number is available for this job yet."
+      });
+      return;
+    }
+
+    const packageDetails = await fetchLiftPackageDetails({
+      target,
+      route,
+      orderNumber,
+      orderLineId
+    });
+
+    res.status(packageDetails.ok ? 200 : 502).json({ package_details: packageDetails });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Lift package details lookup failed."
     });
   }
 });

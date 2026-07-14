@@ -274,6 +274,7 @@ interface OutputRoute {
   value_normalization_rules: ValueNormalizationRule[];
   order_lookup_url?: string | null;
   proof_report_url?: string | null;
+  package_details_url?: string | null;
   status: "Active" | "Draft" | "Inactive";
   updated_at: string;
 }
@@ -439,6 +440,43 @@ interface LiftProofReportResult {
   fetched_at: string;
 }
 
+interface LiftPackageDetail {
+  header_id: string | number | null;
+  order_number: string | null;
+  order_line_id: string | number | null;
+  shipping_id: string | number | null;
+  line_number: string | number | null;
+  product: string | null;
+  material: string | null;
+  laminate: string | null;
+  height: string | number | null;
+  width: string | number | null;
+  quantity: string | number | null;
+  box_number: string | number | null;
+  package_type: string | null;
+  tracking_number: string | null;
+  dimensions: {
+    length: string | number | null;
+    width: string | number | null;
+    height: string | number | null;
+    weight: string | number | null;
+  };
+  tracker_message: string | null;
+  location_name: string | null;
+  ship_method: string | null;
+}
+
+interface LiftPackageDetailsResult {
+  order_number: string;
+  package_details_url: string;
+  http_status: number;
+  ok: boolean;
+  packages: LiftPackageDetail[];
+  payload: unknown;
+  redacted_fields: string[];
+  fetched_at: string;
+}
+
 interface RouteDiagnosticItem {
   item_id: string;
   label: string;
@@ -548,6 +586,7 @@ const defaultOutputRoute: OutputRoute = {
   value_normalization_rules: defaultValueNormalizationRules,
   order_lookup_url: null,
   proof_report_url: null,
+  package_details_url: null,
   status: "Active",
   updated_at: seedTimestamp
 };
@@ -1053,6 +1092,7 @@ function buildRouteDiagnostics(args: {
   const hasSandboxProfile = enabledProfiles.some((profile) => profile.mode === "sandbox_customer");
   const hasOrderLookupUrl = validUrlWithParam(route.order_lookup_url, "p0");
   const hasProofReportUrl = validUrlWithParam(route.proof_report_url, "p1");
+  const hasPackageDetailsUrl = validUrlWithParam(route.package_details_url, "p0");
   const liftCatalogReady = target?.adapter === "lift-standard-graphics" && configuredSecret(user) && configuredSecret(password);
   const hasValueRuleIssues = (route.value_normalization_rules ?? []).some(
     (rule) =>
@@ -1188,6 +1228,18 @@ function buildRouteDiagnostics(args: {
         ? undefined
         : "Add the AS360 proof report URL when proof visibility is needed.",
       hasProofReportUrl ? undefined : "target-output-routes"
+    ),
+    routeDiagnosticItem(
+      "package-details",
+      "Package details URL",
+      hasPackageDetailsUrl ? "Passed" : "Warning",
+      hasPackageDetailsUrl
+        ? "Package details URL can be built with p0."
+        : "Package details URL is missing or invalid for p0.",
+      hasPackageDetailsUrl
+        ? undefined
+        : "Add the PackageDetails URL when shipment/package visibility is needed.",
+      hasPackageDetailsUrl ? undefined : "target-output-routes"
     ),
     routeDiagnosticItem(
       "product-catalog",
@@ -2252,6 +2304,8 @@ export function App() {
   const [orderLookupResult, setOrderLookupResult] = useState<LiftOrderLookupResult | null>(null);
   const [proofReportState, setProofReportState] = useState<"idle" | "loading" | "error">("idle");
   const [proofReportResult, setProofReportResult] = useState<LiftProofReportResult | null>(null);
+  const [packageDetailsState, setPackageDetailsState] = useState<"idle" | "loading" | "error">("idle");
+  const [packageDetailsResult, setPackageDetailsResult] = useState<LiftPackageDetailsResult | null>(null);
   const [certificationRefreshState, setCertificationRefreshState] = useState<"idle" | "loading" | "error">("idle");
   const certificationRefreshKeyRef = useRef("");
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("sandbox-ltl-demo-1249");
@@ -2411,6 +2465,8 @@ export function App() {
     setOrderLookupState("idle");
     setProofReportResult(null);
     setProofReportState("idle");
+    setPackageDetailsResult(null);
+    setPackageDetailsState("idle");
     setJobDetailState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
@@ -2450,6 +2506,20 @@ export function App() {
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Lift proof report lookup failed.");
       setProofReportState("error");
+    }
+  }
+
+  async function lookupLiftPackages(job: ProcessingJobPreview) {
+    setPackageDetailsState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/package-details`);
+      const payload = await readJsonResponse<{ package_details: LiftPackageDetailsResult }>(response);
+      setPackageDetailsResult(payload.package_details);
+      setWorkspaceMessage(`Lift package details loaded for ${payload.package_details.order_number}.`);
+      setPackageDetailsState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Lift package details lookup failed.");
+      setPackageDetailsState("error");
     }
   }
 
@@ -7460,6 +7530,16 @@ export function App() {
                                   }
                                 />
                               </label>
+                              <label className="setup-control setup-control-wide">
+                                <span>Lift Package Details URL</span>
+                                <input
+                                  value={route.package_details_url ?? ""}
+                                  placeholder="Optional endpoint for PackageDetails lookup"
+                                  onChange={(event) =>
+                                    updateOutputRouteDraft(route.output_route_id, { package_details_url: event.target.value })
+                                  }
+                                />
+                              </label>
                             </div>
 
                             <div className="route-diagnostics">
@@ -7833,12 +7913,25 @@ export function App() {
                   </button>
                   <button
                     className="secondary-button"
+                    onClick={() => void lookupLiftPackages(selectedJobDetail)}
+                    disabled={
+                      packageDetailsState === "loading" ||
+                      !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
+                    }
+                  >
+                    <Archive size={16} />
+                    {packageDetailsState === "loading" ? "Loading packages" : "Lookup Packages"}
+                  </button>
+                  <button
+                    className="secondary-button"
                     onClick={() => {
                       setSelectedJobDetail(null);
                       setOrderLookupResult(null);
                       setOrderLookupState("idle");
                       setProofReportResult(null);
                       setProofReportState("idle");
+                      setPackageDetailsResult(null);
+                      setPackageDetailsState("idle");
                     }}
                   >
                     Close
@@ -7923,6 +8016,56 @@ export function App() {
                     <p className="empty-state">No proof rows returned for this Lift order.</p>
                   )}
                   <pre>{formatJson({ proofs: proofReportResult.proofs, raw: proofReportResult.payload })}</pre>
+                </div>
+              ) : null}
+              {packageDetailsResult ? (
+                <div className="code-panel order-lookup-panel">
+                  <PanelHeader
+                    icon={Archive}
+                    title="Lift Package Details"
+                    detail={`${packageDetailsResult.order_number} · ${packageDetailsResult.packages.length} package${packageDetailsResult.packages.length === 1 ? "" : "s"} · HTTP ${packageDetailsResult.http_status}`}
+                  />
+                  <p className="import-warning">
+                    Internal shipping rate fields are redacted before this data reaches the UI.
+                  </p>
+                  {packageDetailsResult.packages.length ? (
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Line</th>
+                          <th>Box</th>
+                          <th>Product</th>
+                          <th>Tracking</th>
+                          <th>Method</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {packageDetailsResult.packages.map((pkg) => (
+                          <tr key={`${pkg.order_line_id ?? "line"}-${pkg.shipping_id ?? "ship"}-${pkg.box_number ?? "box"}-${pkg.tracking_number ?? "tracking"}`}>
+                            <td>{pkg.line_number ?? "Unknown"}</td>
+                            <td>{pkg.box_number ?? "Unknown"}</td>
+                            <td>
+                              <strong>{pkg.product ?? "Unknown product"}</strong>
+                              <span className="cell-meta">
+                                {[pkg.material, pkg.laminate].filter(Boolean).join(" · ") || "No material detail"}
+                              </span>
+                            </td>
+                            <td>{pkg.tracking_number ?? "No tracking"}</td>
+                            <td>{pkg.ship_method ?? "Unknown"}</td>
+                            <td>{pkg.tracker_message ?? "No tracker message"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="empty-state">No package rows returned for this Lift order.</p>
+                  )}
+                  <pre>{formatJson({
+                    redacted_fields: packageDetailsResult.redacted_fields,
+                    packages: packageDetailsResult.packages,
+                    raw: packageDetailsResult.payload
+                  })}</pre>
                 </div>
               ) : null}
               {latestJobAttempt ? (

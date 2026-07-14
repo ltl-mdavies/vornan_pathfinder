@@ -824,3 +824,17 @@ What changed:
 - Customer Overview Primary Target and Manual Import Lift Submit Target now show compact route readiness details.
 - Dashboard route scope now uses the selected route diagnostics so route/environment changes are reflected consistently.
 - Masked saved credentials now count as configured for route diagnostics, avoiding false warnings after secrets are saved.
+
+## 2026-07-14 - Lift Package Details Lookup
+
+Added internal PackageDetails lookup plumbing for Lift orders and shipments.
+
+What changed:
+
+- Output routes now store an optional Lift Package Details URL alongside order lookup and proof report URLs.
+- Added a shared Lift adapter URL builder for the PackageDetails endpoint using `p0` for order number and optional `p1` for order line ID.
+- Added `GET /api/customers/:liftCustomerId/jobs/:jobId/package-details` to fetch package and tracking rows for a submitted Lift order.
+- Package rows are deduped by order, line, shipping id, box number, and tracking number.
+- `NEGOTIATED_RATE` is redacted server-side from both normalized package rows and the debug/raw payload returned to the UI.
+- Job detail now includes a **Lookup Packages** action and displays line, box, product, tracking number, ship method, and tracker message.
+- Route diagnostics now warn when the Package Details URL is missing or invalid.

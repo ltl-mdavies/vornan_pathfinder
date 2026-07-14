@@ -231,6 +231,7 @@ export interface OutputRoute {
   value_normalization_rules: ValueNormalizationRule[];
   order_lookup_url?: string | null;
   proof_report_url?: string | null;
+  package_details_url?: string | null;
   status: "Active" | "Draft" | "Inactive";
   updated_at: string;
 }
@@ -918,6 +919,7 @@ function createSeedOutputRoute(timestamp = now()): OutputRoute {
     value_normalization_rules: createDefaultValueNormalizationRules(),
     order_lookup_url: null,
     proof_report_url: null,
+    package_details_url: null,
     status: "Active",
     updated_at: timestamp
   };
@@ -1277,7 +1279,8 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
       ? candidate.value_normalization_rules
       : route.value_normalization_rules,
     order_lookup_url: candidate.order_lookup_url ?? route.order_lookup_url ?? null,
-    proof_report_url: candidate.proof_report_url ?? route.proof_report_url ?? null
+    proof_report_url: candidate.proof_report_url ?? route.proof_report_url ?? null,
+    package_details_url: candidate.package_details_url ?? route.package_details_url ?? null
   }));
   const primaryOutputRouteId = workspace.primary_output_route_id ?? outputRoutes[0]?.output_route_id ?? route.output_route_id;
 
@@ -1416,6 +1419,7 @@ export async function updateOutputRoute(customer: LiftCustomer, routeId: string,
       routePatch.value_normalization_rules ?? existingRoute.value_normalization_rules ?? createDefaultValueNormalizationRules(),
     order_lookup_url: routePatch.order_lookup_url ?? existingRoute.order_lookup_url ?? null,
     proof_report_url: routePatch.proof_report_url ?? existingRoute.proof_report_url ?? null,
+    package_details_url: routePatch.package_details_url ?? existingRoute.package_details_url ?? null,
     updated_at: timestamp
   };
 
