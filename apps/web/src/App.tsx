@@ -2050,7 +2050,7 @@ function buildProductResolutionExample(
     return {
       sourceParts: [] as Array<{ label: string; value: string }>,
       customerProductKey: "Upload or paste source rows to see an example.",
-      liftUnitNumber: "Waiting for source data",
+      submittedIdentifier: "Waiting for source data",
       resolutionStatus: "No source row"
     };
   }
@@ -2088,7 +2088,7 @@ function buildProductResolutionExample(
   return {
     sourceParts,
     customerProductKey: generatedKey || "No product key generated from this row",
-    liftUnitNumber,
+    submittedIdentifier: liftUnitNumber,
     resolutionStatus:
       config.strategy === "direct_lift_unit_number"
         ? generatedKey
@@ -2104,17 +2104,18 @@ function buildProductResolutionExample(
 
 function productResolutionExampleCards(
   config: ProductResolutionConfig,
-  example: ReturnType<typeof buildProductResolutionExample>
+  example: ReturnType<typeof buildProductResolutionExample>,
+  productIdentifierLabel: string
 ) {
   if (config.strategy === "direct_lift_unit_number") {
     return [
       {
-        label: "Source unit_number",
+        label: `Source ${productIdentifierLabel}`,
         value: example.sourceParts.map((part) => `${part.label}: ${part.value}`).join(" · ") || "No source sample"
       },
       {
-        label: "Submitted product identifier",
-        value: example.liftUnitNumber
+        label: `Submitted ${productIdentifierLabel}`,
+        value: example.submittedIdentifier
       }
     ];
   }
@@ -2126,8 +2127,8 @@ function productResolutionExampleCards(
         value: example.customerProductKey
       },
       {
-        label: "Submitted product identifier",
-        value: example.liftUnitNumber
+        label: `Submitted ${productIdentifierLabel}`,
+        value: example.submittedIdentifier
       }
     ];
   }
@@ -2142,8 +2143,8 @@ function productResolutionExampleCards(
       value: example.resolutionStatus
     },
     {
-      label: "Submitted product identifier",
-      value: example.liftUnitNumber
+      label: `Submitted ${productIdentifierLabel}`,
+      value: example.submittedIdentifier
     }
   ];
 }
@@ -3172,7 +3173,11 @@ export function App() {
     routeProductMappings,
     productExampleTestValue
   );
-  const productResolutionCards = productResolutionExampleCards(activeProductConfig, productResolutionExample);
+  const productResolutionCards = productResolutionExampleCards(
+    activeProductConfig,
+    productResolutionExample,
+    activeOutputRoute.product_identifier_label
+  );
   const unmappedProductCount = routeProductMappings.filter((mapping) => mapping.status !== "Mapped").length;
   const productResolutionRows = lastPreviewJob?.product_resolution_results ?? [];
   const referenceRowCount = sourceSheets.reduce((total, sheet) => total + sheet.reference_row_count, 0);
@@ -5288,7 +5293,7 @@ export function App() {
                       ) : null}
                       {activeProductConfig.strategy === "direct_lift_unit_number" ? (
                         <label className="setup-control setup-control-wide">
-                          <span>Unit Number Column</span>
+                          <span>{activeOutputRoute.product_identifier_label} Column</span>
                           <select
                             value={activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column}
                             onChange={(event) =>
@@ -5419,7 +5424,9 @@ export function App() {
                           <input
                             value={productExampleTestValue}
                             placeholder={
-                              activeProductConfig.strategy === "direct_lift_unit_number" ? "LIFT-UNIT-123" : "2 Sheet Poster"
+                              activeProductConfig.strategy === "direct_lift_unit_number"
+                                ? outputIdentifierPlaceholder(activeOutputRoute)
+                                : "2 Sheet Poster"
                             }
                             onChange={(event) => setProductExampleTestValue(event.target.value)}
                           />
@@ -6916,7 +6923,7 @@ export function App() {
                   <DetailItem label="Target" value={selectedOutputMapTarget?.name ?? selectedOutputMapRoute.target_system} />
                   <DetailItem label="Route" value={selectedOutputMapRoute.name} />
                   <DetailItem label="Template" value={selectedOutputMapTemplate?.name ?? selectedOutputMapRoute.output_template} />
-                  <DetailItem label="Product ID" value={selectedOutputMapRoute.product_identifier_label} />
+                  <DetailItem label="Product Mapping Strategy" value={selectedOutputMapRoute.product_identifier_label} />
                   <DetailItem
                     label="Readiness"
                     value={`${selectedOutputMapDiagnostics.status} · ${selectedOutputMapDiagnostics.blocking_count} blocking`}

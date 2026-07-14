@@ -863,3 +863,14 @@ What changed:
 - Output Product Map's row-level **Map Product** action now opens the catalog picker in focused mode for that customer key.
 - The catalog picker now shows the mapping target, route-aware product identifier behavior, and filters for status, product type, and catalog.
 - Selecting a catalog item can map one focused customer key or continue to bulk-assign selected keys.
+
+## 2026-07-14 - Product Identifier Strategy Copy Cleanup
+
+Tightened product identifier language across customer setup and dashboards.
+
+What changed:
+
+- Product Resolution examples now label the submitted value using the active output route's product identifier strategy.
+- Direct product identifier setup now shows `Lift unit_number Column` or `Lift product_id Column` based on the selected route instead of always saying unit number.
+- Dashboard route scope now labels the route choice as **Product Mapping Strategy** rather than generic Product ID.
+- Placeholder text for direct identifier examples now follows the selected route strategy.
