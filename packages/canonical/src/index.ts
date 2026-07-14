@@ -115,6 +115,158 @@ export interface CanonicalOrder {
   lines: CanonicalOrderLine[];
 }
 
+export type CanonicalFieldSection = "customer" | "contacts" | "source" | "target" | "order" | "shipping" | "lines";
+export type CanonicalFieldDataType = "string" | "number" | "integer" | "boolean" | "datetime" | "url" | "object";
+export type CanonicalFieldStatus = "Active" | "Draft" | "Deprecated";
+
+export interface CanonicalFieldDefinition {
+  field_id: string;
+  path: string;
+  section: CanonicalFieldSection;
+  label: string;
+  data_type: CanonicalFieldDataType;
+  required: boolean;
+  repeatable: boolean;
+  status: CanonicalFieldStatus;
+  aliases: string[];
+  description?: string;
+}
+
+function canonicalField(
+  path: string,
+  section: CanonicalFieldSection,
+  label: string,
+  data_type: CanonicalFieldDataType,
+  options: Partial<Pick<CanonicalFieldDefinition, "required" | "repeatable" | "status" | "aliases" | "description">> = {}
+): CanonicalFieldDefinition {
+  return {
+    field_id: `canonical.${path.replace(/\[\]/g, ".items").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`,
+    path,
+    section,
+    label,
+    data_type,
+    required: options.required ?? false,
+    repeatable: options.repeatable ?? path.includes("[]"),
+    status: options.status ?? "Active",
+    aliases: options.aliases ?? [],
+    description: options.description
+  };
+}
+
+export const canonicalFieldRegistry = [
+  canonicalField("customer.customer_id", "customer", "Customer ID", "string", {
+    required: true,
+    aliases: ["Pathfinder customer ID", "Source customer ID"]
+  }),
+  canonicalField("customer.customer_name", "customer", "Customer Name", "string", {
+    required: true,
+    aliases: ["Customer name", "Source customer"]
+  }),
+  canonicalField("customer.destination_customer_id", "customer", "Destination Customer ID", "string", {
+    aliases: ["Lift customer ID", "Submit customer ID"]
+  }),
+  canonicalField("customer.crm_id", "customer", "CRM ID", "string", {
+    aliases: ["CRM customer ID", "Salesforce ID"]
+  }),
+  canonicalField("contacts[].first_name", "contacts", "Contact First Name", "string", { aliases: ["First name"] }),
+  canonicalField("contacts[].last_name", "contacts", "Contact Last Name", "string", { aliases: ["Last name"] }),
+  canonicalField("contacts[].title", "contacts", "Contact Title", "string"),
+  canonicalField("contacts[].email", "contacts", "Contact Email", "string"),
+  canonicalField("contacts[].mobile_phone", "contacts", "Contact Mobile Phone", "string", { aliases: ["Cell phone"] }),
+  canonicalField("contacts[].office_phone", "contacts", "Contact Office Phone", "string", { aliases: ["Work phone"] }),
+  canonicalField("contacts[].home_phone", "contacts", "Contact Home Phone", "string"),
+  canonicalField("contacts[].slack", "contacts", "Contact Slack", "string"),
+  canonicalField("contacts[].fax", "contacts", "Contact Fax", "string"),
+  canonicalField("source.source_system", "source", "Source System", "string", { required: true }),
+  canonicalField("source.source_customer", "source", "Source Customer", "string"),
+  canonicalField("source.source_record_id", "source", "Source Record ID", "string", {
+    required: true,
+    aliases: ["External record ID", "Order number"]
+  }),
+  canonicalField("source.source_record_url", "source", "Source Record URL", "url"),
+  canonicalField("source.source_template", "source", "Source Template", "string"),
+  canonicalField("source.submitted_at", "source", "Submitted At", "datetime"),
+  canonicalField("target.target_system", "target", "Target System", "string", { required: true }),
+  canonicalField("order.external_order_id", "order", "External Order ID", "string", {
+    required: true,
+    aliases: ["Ext ID", "Order number"]
+  }),
+  canonicalField("order.po_number", "order", "PO Number", "string", { aliases: ["Purchase order"] }),
+  canonicalField("order.contract_number", "order", "Contract Number", "string"),
+  canonicalField("order.order_title", "order", "Order Title", "string", { aliases: ["Campaign"] }),
+  canonicalField("order.order_note", "order", "Order Note", "string"),
+  canonicalField("order.ship_date", "order", "Requested Ship Date", "string", { aliases: ["Ship date"] }),
+  canonicalField("order.due_date", "order", "Due Date", "string"),
+  canonicalField("order.order_attachment", "order", "Order Attachment", "url", { aliases: ["Imported file"] }),
+  canonicalField("order.shipping.method", "shipping", "Shipping Method", "string"),
+  canonicalField("order.shipping.account_number", "shipping", "Shipping Account Number", "string"),
+  canonicalField("order.shipping.acct_billing_zip", "shipping", "Account Billing ZIP", "string"),
+  canonicalField("order.shipping.acct_billing_country", "shipping", "Account Billing Country", "string"),
+  canonicalField("order.shipping.attention_to", "shipping", "Attention To", "string"),
+  canonicalField("order.shipping.company", "shipping", "Ship-To Company", "string"),
+  canonicalField("order.shipping.address_1", "shipping", "Address 1", "string"),
+  canonicalField("order.shipping.address_2", "shipping", "Address 2", "string"),
+  canonicalField("order.shipping.city", "shipping", "City", "string"),
+  canonicalField("order.shipping.state", "shipping", "State", "string"),
+  canonicalField("order.shipping.postal_code", "shipping", "Postal Code", "string", { aliases: ["ZIP"] }),
+  canonicalField("order.shipping.country", "shipping", "Country", "string"),
+  canonicalField("order.shipping.phone", "shipping", "Phone", "string"),
+  canonicalField("order.shipping.email", "shipping", "Email", "string"),
+  canonicalField("order.shipping.instructions", "shipping", "Shipping Instructions", "string"),
+  canonicalField("lines[].line_number", "lines", "Line Number", "integer", { repeatable: true }),
+  canonicalField("lines[].unit_number", "lines", "Lift Unit Number", "string", { repeatable: true }),
+  canonicalField("lines[].product_id", "lines", "Lift Product ID", "string", { repeatable: true }),
+  canonicalField("lines[].customer_sku", "lines", "Customer SKU", "string", { repeatable: true }),
+  canonicalField("lines[].description", "lines", "Line Description", "string", { repeatable: true }),
+  canonicalField("lines[].product_name", "lines", "Product Name", "string", { repeatable: true }),
+  canonicalField("lines[].quantity", "lines", "Quantity", "integer", { required: true, repeatable: true }),
+  canonicalField("lines[].artwork.file_name", "lines", "Artwork File Name", "string", { repeatable: true }),
+  canonicalField("lines[].artwork.file_url", "lines", "Artwork File URL", "url", { repeatable: true }),
+  canonicalField("lines[].artwork.checksum", "lines", "Artwork Checksum", "string", { repeatable: true }),
+  canonicalField("lines[].dimensions.final_height", "lines", "Final Height", "number", { required: true, repeatable: true }),
+  canonicalField("lines[].dimensions.final_width", "lines", "Final Width", "number", { required: true, repeatable: true }),
+  canonicalField("lines[].dimensions.live_height", "lines", "Live Height", "number", { repeatable: true }),
+  canonicalField("lines[].dimensions.live_width", "lines", "Live Width", "number", { repeatable: true }),
+  canonicalField("lines[].dimensions.bleed", "lines", "Bleed", "number", { repeatable: true }),
+  canonicalField("lines[].production.material", "lines", "Production Material", "string", { repeatable: true }),
+  canonicalField("lines[].production.laminate", "lines", "Production Laminate", "string", { repeatable: true }),
+  canonicalField("lines[].production.coating", "lines", "Production Coating", "string", { repeatable: true }),
+  canonicalField("lines[].production.premask", "lines", "Production Premask", "string", { repeatable: true }),
+  canonicalField("lines[].production.ink", "lines", "Production Ink", "string", { repeatable: true }),
+  canonicalField("lines[].production.cut_type", "lines", "Production Cut Type", "string", { repeatable: true }),
+  canonicalField("lines[].production.hem", "lines", "Hem", "boolean", { repeatable: true }),
+  canonicalField("lines[].production.grommets", "lines", "Grommets", "boolean", { repeatable: true }),
+  canonicalField("lines[].shipping.method", "lines", "Line Shipping Method", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.account_number", "lines", "Line Shipping Account Number", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.acct_billing_zip", "lines", "Line Account Billing ZIP", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.acct_billing_country", "lines", "Line Account Billing Country", "string", {
+    repeatable: true
+  }),
+  canonicalField("lines[].shipping.attention_to", "lines", "Line Attention To", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.company", "lines", "Line Ship-To Company", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.address_1", "lines", "Line Address 1", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.address_2", "lines", "Line Address 2", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.city", "lines", "Line City", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.state", "lines", "Line State", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.postal_code", "lines", "Line Postal Code", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.country", "lines", "Line Country", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.phone", "lines", "Line Phone", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.email", "lines", "Line Email", "string", { repeatable: true }),
+  canonicalField("lines[].shipping.instructions", "lines", "Line Shipping Instructions", "string", { repeatable: true }),
+  canonicalField("lines[].line_note", "lines", "Line Note", "string", { repeatable: true })
+] as const satisfies CanonicalFieldDefinition[];
+
+export type CanonicalFieldPath = (typeof canonicalFieldRegistry)[number]["path"];
+
+export const canonicalFieldPaths = canonicalFieldRegistry.map((field) => field.path) as CanonicalFieldPath[];
+
+export const canonicalRegistryMetadata = {
+  registry_id: "canonical-order-v1",
+  version: "1.0.0",
+  status: "Active",
+  updated_at: "2026-07-14T00:00:00.000Z"
+} as const;
+
 export interface ProcessingJob {
   job_id: string;
   customer_id: string;

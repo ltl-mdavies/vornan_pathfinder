@@ -874,3 +874,15 @@ What changed:
 - Direct product identifier setup now shows `Lift unit_number Column` or `Lift product_id Column` based on the selected route instead of always saying unit number.
 - Dashboard route scope now labels the route choice as **Product Mapping Strategy** rather than generic Product ID.
 - Placeholder text for direct identifier examples now follows the selected route strategy.
+
+## 2026-07-14 - Canonical Registry Foundation
+
+Added the first production-grade foundation for canonical schema management.
+
+What changed:
+
+- Added a shared Canonical Field Registry to `@pathfinder/canonical` with stable field IDs, paths, labels, sections, data types, required/repeatable flags, statuses, and aliases.
+- Pointed template mapping field lists at the shared canonical registry field paths instead of maintaining a separate hardcoded list.
+- Added `GET /api/canonical-registry` for registry metadata, sections, field count, and field definitions.
+- Replaced the placeholder Global Settings panel with a Canonical Order registry screen showing metrics, section chips, search, filters, and field rows.
+- Kept schema editing disabled in this slice while establishing the stable read model needed for future add/rename/reorder/remove workflows.

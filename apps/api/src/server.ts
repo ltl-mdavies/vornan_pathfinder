@@ -8,7 +8,13 @@ import {
   type LiftCustomer,
   type LiftCustomerDirectory
 } from "@pathfinder/customer-directory";
-import { sampleCanonicalOrder, validateCanonicalOrder, type ValidationMessage } from "@pathfinder/canonical";
+import {
+  canonicalFieldRegistry,
+  canonicalRegistryMetadata,
+  sampleCanonicalOrder,
+  validateCanonicalOrder,
+  type ValidationMessage
+} from "@pathfinder/canonical";
 import {
   applyValueNormalizationToLiftPayload,
   buildLiftPackageDetailsUrl,
@@ -1555,6 +1561,15 @@ app.get("/api/sample-order", (_req, res) => {
     liftPayload,
     liftValidation,
     submitRequest
+  });
+});
+
+app.get("/api/canonical-registry", (_req, res) => {
+  res.json({
+    ...canonicalRegistryMetadata,
+    fields: canonicalFieldRegistry,
+    sections: Array.from(new Set(canonicalFieldRegistry.map((field) => field.section))),
+    field_count: canonicalFieldRegistry.length
   });
 });
 

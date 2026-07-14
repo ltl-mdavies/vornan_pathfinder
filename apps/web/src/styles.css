@@ -4564,6 +4564,81 @@ td {
   table-layout: fixed;
 }
 
+.settings-header {
+  align-items: center;
+}
+
+.canonical-registry-metrics {
+  margin-bottom: 18px;
+}
+
+.canonical-registry-panel {
+  overflow: hidden;
+}
+
+.canonical-registry-toolbar {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(220px, 320px);
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.canonical-section-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.column-chip.column-chip-muted {
+  background: #fff;
+}
+
+.canonical-registry-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.canonical-registry-table th,
+.canonical-registry-table td {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+
+.canonical-registry-table th {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.canonical-registry-table td {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.canonical-registry-table td:first-child {
+  width: 34%;
+}
+
+.canonical-registry-table td:nth-child(4) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.canonical-registry-table strong {
+  display: block;
+  color: var(--text-primary);
+  font-weight: 850;
+}
+
 .unit-map-table th:nth-child(1),
 .unit-map-table td:nth-child(1) {
   width: 44px;

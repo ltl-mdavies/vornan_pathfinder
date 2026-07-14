@@ -33,7 +33,13 @@ import {
   X
 } from "lucide-react";
 import type { LiftCustomer, LiftCustomerDirectory } from "@pathfinder/customer-directory";
-import { validateCanonicalOrder, type CanonicalOrder, type ProcessingState, type ValidationMessage } from "@pathfinder/canonical";
+import {
+  validateCanonicalOrder,
+  type CanonicalFieldDefinition,
+  type CanonicalOrder,
+  type ProcessingState,
+  type ValidationMessage
+} from "@pathfinder/canonical";
 import {
   applyValueNormalizationToLiftPayload,
   buildLiftSubmitRequest,
@@ -555,6 +561,16 @@ interface RouteDiagnostics {
   passed_count: number;
   summary: string;
   items: RouteDiagnosticItem[];
+}
+
+interface CanonicalRegistryPayload {
+  registry_id: string;
+  version: string;
+  status: string;
+  updated_at: string;
+  fields: CanonicalFieldDefinition[];
+  sections: string[];
+  field_count: number;
 }
 
 const globalNavItems: Array<{ label: GlobalView; icon: typeof Gauge }> = [
@@ -2351,6 +2367,7 @@ export function App() {
   const [customerImportState, setCustomerImportState] = useState<"idle" | "loading">("idle");
   const [workspace, setWorkspace] = useState<PathfinderCustomerWorkspace | null>(null);
   const [targets, setTargets] = useState<TargetConfig[]>([]);
+  const [canonicalRegistry, setCanonicalRegistry] = useState<CanonicalRegistryPayload | null>(null);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [activeTargetsView, setActiveTargetsView] = useState<TargetDetailView>("Environments");
   const [activeOutputTemplateId, setActiveOutputTemplateId] = useState<string | null>(null);
@@ -2358,6 +2375,8 @@ export function App() {
   const [activeMethodId, setActiveMethodId] = useState("manual-xlsx");
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("idle");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [canonicalRegistrySearch, setCanonicalRegistrySearch] = useState("");
+  const [canonicalRegistrySectionFilter, setCanonicalRegistrySectionFilter] = useState("All");
   const [lastPreviewJob, setLastPreviewJob] = useState<ProcessingJobPreview | null>(null);
   const [lastSubmitAttempt, setLastSubmitAttempt] = useState<SubmitAttempt | null>(null);
   const [selectedJobDetail, setSelectedJobDetail] = useState<ProcessingJobPreview | null>(null);
@@ -2464,6 +2483,16 @@ export function App() {
       setGlobalJobs(jobsPayload.jobs);
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Target/job load failed.");
+    }
+  }
+
+  async function loadCanonicalRegistry() {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/canonical-registry`);
+      const registry = await readJsonResponse<CanonicalRegistryPayload>(response);
+      setCanonicalRegistry(registry);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical registry load failed.");
     }
   }
 
@@ -2793,6 +2822,10 @@ export function App() {
     void loadTargetsAndJobs();
   }, []);
 
+  useEffect(() => {
+    void loadCanonicalRegistry();
+  }, []);
+
   const selectedCustomer =
     customers.find((customer) => customer.lift_customer_id === selectedCustomerId) ?? fallbackCustomer;
   useEffect(() => {
@@ -2984,6 +3017,25 @@ export function App() {
   });
   const selectedSubmitProfile = submitProfileForRoute(activeOutputRoute, selectedSubmitProfileId);
   const submitCustomer = submitCustomerForProfile(selectedCustomer, selectedSubmitProfile);
+  const canonicalRegistryFields = canonicalRegistry?.fields ?? [];
+  const canonicalRegistrySections = canonicalRegistry?.sections ?? [];
+  const canonicalRequiredCount = canonicalRegistryFields.filter((field) => field.required).length;
+  const canonicalRepeatableCount = canonicalRegistryFields.filter((field) => field.repeatable).length;
+  const canonicalRegistrySectionCounts = canonicalRegistryFields.reduce<Record<string, number>>((counts, field) => {
+    counts[field.section] = (counts[field.section] ?? 0) + 1;
+    return counts;
+  }, {});
+  const filteredCanonicalRegistryFields = canonicalRegistryFields.filter((field) => {
+    const query = canonicalRegistrySearch.trim().toLowerCase();
+    const matchesSection = canonicalRegistrySectionFilter === "All" || field.section === canonicalRegistrySectionFilter;
+    const matchesQuery =
+      !query ||
+      [field.path, field.label, field.data_type, field.aliases.join(" "), field.description ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    return matchesSection && matchesQuery;
+  });
 
   useEffect(() => {
     if (!activeOutputRoute.submit_profiles.some((profile) => profile.profile_id === selectedSubmitProfileId && profile.enabled)) {
@@ -8489,11 +8541,11 @@ export function App() {
           </section>
         ) : null}
 
-        {activeGlobalView === "Audit" || activeGlobalView === "Settings" ? (
+        {activeGlobalView === "Audit" ? (
           <section className="panel customer-panel">
             <PanelHeader
-              icon={activeGlobalView === "Audit" ? History : Settings}
-              title={activeGlobalView}
+              icon={History}
+              title="Audit"
               detail="Platform administration"
             />
             <dl className="customer-details">
@@ -8503,6 +8555,155 @@ export function App() {
               <DetailItem label="Customer context" value={selectedCustomer.customer_name} />
             </dl>
           </section>
+        ) : null}
+
+        {activeGlobalView === "Settings" ? (
+          <>
+            <header className="topbar settings-header">
+              <div>
+                <p className="eyebrow">Settings</p>
+                <h1>Canonical Order registry</h1>
+                <p className="page-intro">
+                  Review the field contract Pathfinder uses between customer inputs, canonical orders, and output templates.
+                </p>
+              </div>
+              <button className="secondary-button" disabled>
+                Schema editing queued
+              </button>
+            </header>
+
+            <section className="metric-strip canonical-registry-metrics" aria-label="Canonical registry metrics">
+              {[
+                {
+                  value: canonicalRegistry?.version ?? "Loading",
+                  label: "Registry Version",
+                  trend: canonicalRegistry?.status ?? "Waiting for API",
+                  icon: Braces
+                },
+                {
+                  value: String(canonicalRegistry?.field_count ?? canonicalRegistryFields.length),
+                  label: "Canonical Fields",
+                  trend: `${canonicalRequiredCount} required`,
+                  icon: Database
+                },
+                {
+                  value: String(canonicalRegistrySections.length),
+                  label: "Sections",
+                  trend: `${canonicalRepeatableCount} repeatable fields`,
+                  icon: Workflow
+                },
+                {
+                  value: canonicalRegistry?.updated_at ? displayTimestamp(canonicalRegistry.updated_at) : "Pending",
+                  label: "Last Updated",
+                  trend: canonicalRegistry?.registry_id ?? "canonical-order-v1",
+                  icon: History
+                }
+              ].map(({ value, label, trend, icon: Icon }) => (
+                <div className="metric-card" key={label}>
+                  <div className="metric-icon">
+                    <Icon size={20} />
+                  </div>
+                  <div>
+                    <strong>{value}</strong>
+                    <span>{label}</span>
+                    <small className="trend-good">{trend}</small>
+                  </div>
+                </div>
+              ))}
+            </section>
+
+            <section className="panel canonical-registry-panel">
+              <div className="panel-header unit-map-panel-header">
+                <div className="panel-title">
+                  <Braces size={18} strokeWidth={2.2} />
+                  <h2>Canonical Fields</h2>
+                </div>
+                <span>Stable field IDs, aliases, and paths for template mappings</span>
+              </div>
+
+              <div className="canonical-registry-toolbar">
+                <label className="unit-map-search">
+                  <Search size={16} />
+                  <input
+                    value={canonicalRegistrySearch}
+                    placeholder="Search path, label, alias, or type"
+                    onChange={(event) => setCanonicalRegistrySearch(event.target.value)}
+                  />
+                </label>
+                <label className="setup-control unit-map-filter">
+                  <span>Section</span>
+                  <select
+                    value={canonicalRegistrySectionFilter}
+                    onChange={(event) => setCanonicalRegistrySectionFilter(event.target.value)}
+                  >
+                    <option value="All">All sections</option>
+                    {canonicalRegistrySections.map((section) => (
+                      <option key={section} value={section}>
+                        {section} ({canonicalRegistrySectionCounts[section] ?? 0})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="canonical-section-strip">
+                {canonicalRegistrySections.map((section) => (
+                  <button
+                    className={canonicalRegistrySectionFilter === section ? "column-chip" : "column-chip column-chip-muted"}
+                    key={section}
+                    onClick={() => setCanonicalRegistrySectionFilter(section)}
+                    type="button"
+                  >
+                    {section}
+                    <span>{canonicalRegistrySectionCounts[section] ?? 0}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="unit-map-table-wrap">
+                <table className="canonical-registry-table">
+                  <thead>
+                    <tr>
+                      <th>Field</th>
+                      <th>Section</th>
+                      <th>Type</th>
+                      <th>Rules</th>
+                      <th>Aliases</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCanonicalRegistryFields.map((field) => (
+                      <tr key={field.field_id}>
+                        <td>
+                          <strong>{field.label}</strong>
+                          <span className="cell-meta">{field.path}</span>
+                          <span className="cell-meta">{field.field_id}</span>
+                        </td>
+                        <td>{field.section}</td>
+                        <td>{field.data_type}</td>
+                        <td>
+                          <span className={field.required ? "mini-pill mini-pill-warning" : "mini-pill mini-pill-neutral"}>
+                            {field.required ? "Required" : "Optional"}
+                          </span>
+                          {field.repeatable ? <span className="mini-pill mini-pill-neutral">Repeatable</span> : null}
+                        </td>
+                        <td>{field.aliases.length ? field.aliases.join(", ") : "—"}</td>
+                        <td>
+                          <span className={field.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                            {field.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {filteredCanonicalRegistryFields.length === 0 ? (
+                  <p className="empty-state">No canonical fields match this view.</p>
+                ) : null}
+              </div>
+            </section>
+          </>
         ) : null}
       </section>
     </main>

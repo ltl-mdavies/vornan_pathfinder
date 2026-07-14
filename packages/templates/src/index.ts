@@ -1,5 +1,12 @@
 import * as XLSX from "xlsx";
-import type { CanonicalOrder, CanonicalOrderLine, Contact, ShippingAddress } from "@pathfinder/canonical";
+import {
+  canonicalFieldPaths,
+  type CanonicalFieldPath,
+  type CanonicalOrder,
+  type CanonicalOrderLine,
+  type Contact,
+  type ShippingAddress
+} from "@pathfinder/canonical";
 
 export interface SourceGrid {
   columns: string[];
@@ -36,81 +43,9 @@ export interface InputTemplate {
   mappings: FieldMapping[];
 }
 
-export const canonicalTargetFields = [
-  "contacts[].first_name",
-  "contacts[].last_name",
-  "contacts[].title",
-  "contacts[].email",
-  "contacts[].mobile_phone",
-  "contacts[].office_phone",
-  "contacts[].home_phone",
-  "contacts[].slack",
-  "contacts[].fax",
-  "customer.crm_id",
-  "order.external_order_id",
-  "order.po_number",
-  "order.contract_number",
-  "order.order_title",
-  "order.due_date",
-  "order.order_attachment",
-  "order.ship_date",
-  "order.shipping.method",
-  "order.shipping.account_number",
-  "order.shipping.acct_billing_zip",
-  "order.shipping.acct_billing_country",
-  "order.shipping.attention_to",
-  "order.shipping.company",
-  "order.shipping.address_1",
-  "order.shipping.address_2",
-  "order.shipping.city",
-  "order.shipping.state",
-  "order.shipping.postal_code",
-  "order.shipping.country",
-  "order.shipping.phone",
-  "order.shipping.email",
-  "order.shipping.instructions",
-  "lines[].unit_number",
-  "lines[].customer_sku",
-  "lines[].description",
-  "lines[].product_id",
-  "lines[].product_name",
-  "lines[].quantity",
-  "lines[].line_number",
-  "lines[].dimensions.final_width",
-  "lines[].dimensions.final_height",
-  "lines[].dimensions.live_width",
-  "lines[].dimensions.live_height",
-  "lines[].dimensions.bleed",
-  "lines[].artwork.file_name",
-  "lines[].artwork.file_url",
-  "lines[].artwork.checksum",
-  "lines[].production.material",
-  "lines[].production.laminate",
-  "lines[].production.coating",
-  "lines[].production.premask",
-  "lines[].production.ink",
-  "lines[].production.cut_type",
-  "lines[].production.hem",
-  "lines[].production.grommets",
-  "lines[].shipping.method",
-  "lines[].shipping.account_number",
-  "lines[].shipping.acct_billing_zip",
-  "lines[].shipping.acct_billing_country",
-  "lines[].shipping.attention_to",
-  "lines[].shipping.company",
-  "lines[].shipping.address_1",
-  "lines[].shipping.address_2",
-  "lines[].shipping.city",
-  "lines[].shipping.state",
-  "lines[].shipping.postal_code",
-  "lines[].shipping.country",
-  "lines[].shipping.phone",
-  "lines[].shipping.email",
-  "lines[].shipping.instructions",
-  "lines[].line_note"
-] as const;
+export const canonicalTargetFields = canonicalFieldPaths;
 
-export type CanonicalTargetField = (typeof canonicalTargetFields)[number];
+export type CanonicalTargetField = CanonicalFieldPath;
 
 export const momentaraTemplateSeed: InputTemplate = {
   template_id: "template_momentara_xlsx_v1",
