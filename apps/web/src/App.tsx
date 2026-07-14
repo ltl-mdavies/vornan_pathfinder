@@ -2697,7 +2697,7 @@ export function App() {
     const secondDate = new Date(second.updated_at).getTime();
     return (Number.isFinite(secondDate) ? secondDate : 0) - (Number.isFinite(firstDate) ? firstDate : 0);
   });
-  const dashboardRecentJobs = dashboardJobs.slice(0, 6);
+  const dashboardRecentJobs = dashboardJobs.slice(0, 8);
   const dashboardFailedJobs = dashboardJobs.filter((job) => isFailureState(job.state));
   const dashboardNeedsMappingJobs = dashboardJobs.filter((job) => job.state === "Needs Mapping");
   const dashboardReadyJobs = dashboardJobs.filter((job) => job.state === "Ready");
@@ -6012,38 +6012,81 @@ export function App() {
               ))}
             </section>
             <section className="dashboard-main-grid">
-              <div className="panel dashboard-work-queue">
-                <PanelHeader icon={Activity} title="Work Queue" detail="Highest-priority operational blockers" />
-                <div className="dashboard-work-list">
-                  {dashboardWorkItems.slice(0, 5).map((item) => (
-                    <div className="dashboard-work-item" key={item.id}>
-                      <span className={item.priority === "P1" ? "mini-pill mini-pill-danger" : "mini-pill mini-pill-warning"}>
-                        {item.priority}
-                      </span>
-                      <div>
+              <div className="panel jobs-panel dashboard-recent-jobs dashboard-recent-jobs-primary">
+                <PanelHeader icon={ClipboardList} title="Recent Jobs" detail="All customers" />
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Job</th>
+                      <th>Customer</th>
+                      <th>Source</th>
+                      <th>Ext ID</th>
+                      <th>Route</th>
+                      <th>State</th>
+                      <th>Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dashboardRecentJobs.map((job) => (
+                      <tr key={job.job_id}>
+                        <td>
+                          <button className="link-button" onClick={() => void openJobDetail(job)}>
+                            {displayJobId(job.job_id)}
+                          </button>
+                          <span className="cell-meta">{job.target_order_number ?? "No Lift order"}</span>
+                        </td>
+                        <td>{job.customer_name}</td>
+                        <td>{job.import_method_name}</td>
+                        <td>{jobExtId(job)}</td>
+                        <td>{job.output_route_name}</td>
+                        <td>
+                          <StatePill state={job.state} />
+                        </td>
+                        <td>{displayTimestamp(job.updated_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {dashboardRecentJobs.length === 0 ? (
+                  <p className="empty-state">No persisted jobs yet. Generate a preview job from Manual Import.</p>
+                ) : null}
+              </div>
+              <div className="dashboard-right-rail">
+                <div className="panel dashboard-attention-panel">
+                  <PanelHeader icon={Activity} title="Needs Attention" detail="Next best actions" />
+                  <div className="dashboard-attention-list">
+                    {dashboardWorkItems.slice(0, 4).map((item) => (
+                      <div className="dashboard-attention-item" key={item.id}>
+                        <div className="dashboard-attention-heading">
+                          <span className={item.priority === "P1" ? "mini-pill mini-pill-danger" : "mini-pill mini-pill-warning"}>
+                            {item.priority}
+                          </span>
+                          {item.status === "Open" ? <span className="pill pill-warning">Open</span> : <StatePill state={item.status} />}
+                        </div>
                         <strong>{item.title}</strong>
                         <span>{item.detail}</span>
+                        <div className="dashboard-attention-footer">
+                          <small>{item.owner}</small>
+                          <button className="secondary-button" onClick={item.action}>
+                            {item.actionLabel}
+                          </button>
+                        </div>
                       </div>
-                      <div className="dashboard-work-meta">
-                        {item.status === "Open" ? <span className="pill pill-warning">Open</span> : <StatePill state={item.status} />}
-                        <small>{item.owner}</small>
+                    ))}
+                    {dashboardWorkItems.length === 0 ? (
+                      <div className="dashboard-empty-state dashboard-empty-state-compact">
+                        <CheckCircle2 size={20} />
+                        <div>
+                          <strong>No blocking work.</strong>
+                          <span>Generate a preview job or refresh target health to keep this current.</span>
+                        </div>
                       </div>
-                      <button className="secondary-button" onClick={item.action}>
-                        {item.actionLabel}
-                      </button>
-                    </div>
-                  ))}
-                  {dashboardWorkItems.length === 0 ? (
-                    <div className="dashboard-empty-state">
-                      <CheckCircle2 size={22} />
-                      <div>
-                        <strong>No blocking work in the selected scope.</strong>
-                        <span>Generate a preview job or refresh target health to keep this queue current.</span>
-                      </div>
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
                 </div>
               </div>
+            </section>
+            <section className="dashboard-secondary-grid">
               <div className="panel dashboard-health-panel">
                 <PanelHeader icon={ShieldCheck} title="System Health" detail={`${activeTargetCount}/${targetRows.length} targets active`} />
                 <div className="dashboard-health-list">
@@ -6073,8 +6116,6 @@ export function App() {
                   </div>
                 </div>
               </div>
-            </section>
-            <section className="dashboard-secondary-grid">
               <div className="panel dashboard-customer-health">
                 <PanelHeader icon={Users} title="Customer Health" detail="Selected customer" />
                 <div className="dashboard-customer-card">
@@ -6107,37 +6148,24 @@ export function App() {
                   Open Output Product Map
                 </button>
               </div>
-              <div className="panel jobs-panel dashboard-recent-jobs">
-                <PanelHeader icon={ClipboardList} title="Recent Jobs" detail="All customers" />
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Job</th>
-                      <th>Customer</th>
-                      <th>State</th>
-                      <th>Updated</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dashboardRecentJobs.map((job) => (
-                      <tr key={job.job_id}>
-                        <td>
-                          <button className="link-button" onClick={() => void openJobDetail(job)}>
-                            {displayJobId(job.job_id)}
-                          </button>
-                        </td>
-                        <td>{job.customer_name}</td>
-                        <td>
-                          <StatePill state={job.state} />
-                        </td>
-                        <td>{displayTimestamp(job.updated_at)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {dashboardRecentJobs.length === 0 ? (
-                  <p className="empty-state">No persisted jobs yet. Generate a preview job from Manual Import.</p>
-                ) : null}
+              <div className="panel dashboard-route-card">
+                <PanelHeader icon={Workflow} title="Route Scope" detail={selectedOutputMapEnvironment?.name ?? "Environment"} />
+                <dl className="dashboard-detail-grid">
+                  <DetailItem label="Target" value={selectedOutputMapTarget?.name ?? selectedOutputMapRoute.target_system} />
+                  <DetailItem label="Route" value={selectedOutputMapRoute.name} />
+                  <DetailItem label="Template" value={selectedOutputMapTemplate?.name ?? selectedOutputMapRoute.output_template} />
+                  <DetailItem label="Product ID" value={selectedOutputMapRoute.product_identifier_label} />
+                </dl>
+                <button
+                  className="secondary-button dashboard-full-button"
+                  onClick={() => {
+                    setActiveGlobalView("Targets");
+                    setSelectedTargetId(selectedOutputMapRoute.target_id);
+                    setActiveTargetsView("Output Routes");
+                  }}
+                >
+                  Open Target Setup
+                </button>
               </div>
             </section>
           </>
