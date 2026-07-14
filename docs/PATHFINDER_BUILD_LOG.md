@@ -812,3 +812,15 @@ What changed:
 - Proof report rows are grouped by order, line, attachment, and proof filename so repeated comment rows appear as comment history on a single proof.
 - Job detail now includes a **Lookup Proofs** action and displays proof filename, line, product, approval status, comment count, and low/high proof links.
 - The first implementation is internal-only; a public customer order status page remains a later phase.
+
+## 2026-07-14 - Output Route Diagnostics
+
+Added route-scoped readiness diagnostics for target/output-route setup.
+
+What changed:
+
+- Added a local route diagnostics model that evaluates route status, environment status, create-order endpoint, saved credentials, company/account value, output template state, template mappings, product identifier strategy, submit profiles, order lookup URL, proof report URL, product catalog readiness, and value rules.
+- Targets → Output Routes now shows a diagnostics summary, pass/warning/block counts, and actionable fix buttons per route.
+- Customer Overview Primary Target and Manual Import Lift Submit Target now show compact route readiness details.
+- Dashboard route scope now uses the selected route diagnostics so route/environment changes are reflected consistently.
+- Masked saved credentials now count as configured for route diagnostics, avoiding false warnings after secrets are saved.

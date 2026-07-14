@@ -83,6 +83,7 @@ type TargetsView = "Overview" | "Environments" | "Output Templates" | "Output Ro
 type TargetDetailView = Exclude<TargetsView, "Overview">;
 type SubmitProfileMode = "live_customer" | "sandbox_customer";
 type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
+type RouteDiagnosticStatus = "Passed" | "Warning" | "Blocked";
 type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
 type SubmitCertificationActionKey =
   | "manual-import"
@@ -436,6 +437,24 @@ interface LiftProofReportResult {
   proofs: LiftProofReportProof[];
   payload: unknown;
   fetched_at: string;
+}
+
+interface RouteDiagnosticItem {
+  item_id: string;
+  label: string;
+  status: RouteDiagnosticStatus;
+  message: string;
+  suggested_action?: string;
+  action_key?: SubmitCertificationActionKey;
+}
+
+interface RouteDiagnostics {
+  status: "Ready" | "Needs Attention" | "Blocked";
+  blocking_count: number;
+  warning_count: number;
+  passed_count: number;
+  summary: string;
+  items: RouteDiagnosticItem[];
 }
 
 const globalNavItems: Array<{ label: GlobalView; icon: typeof Gauge }> = [
@@ -980,6 +999,238 @@ function templateMappingStats(template: OutputTemplate) {
   };
 }
 
+function routeDiagnosticItem(
+  item_id: string,
+  label: string,
+  status: RouteDiagnosticStatus,
+  message: string,
+  suggested_action?: string,
+  action_key?: SubmitCertificationActionKey
+): RouteDiagnosticItem {
+  return {
+    item_id,
+    label,
+    status,
+    message,
+    suggested_action,
+    action_key
+  };
+}
+
+function configuredSecret(value?: string | null) {
+  if (!value?.trim()) {
+    return false;
+  }
+  return !/TBD|SECRET|REFERENCE/i.test(value);
+}
+
+function validUrlWithParam(urlValue: string | null | undefined, paramName: string) {
+  if (!urlValue?.trim()) {
+    return false;
+  }
+  try {
+    const url = new URL(urlValue);
+    url.searchParams.set(paramName, "A000000");
+    return Boolean(url.protocol && url.host);
+  } catch {
+    return false;
+  }
+}
+
+function buildRouteDiagnostics(args: {
+  target: TargetConfig | null | undefined;
+  route: OutputRoute;
+  environment: TargetEnvironment | null | undefined;
+  template: OutputTemplate | null | undefined;
+}): RouteDiagnostics {
+  const { target, route, environment, template } = args;
+  const templateStats = template ? templateMappingStats(template) : null;
+  const user = environment?.credentials.User ?? target?.lift.credentials.User;
+  const password = environment?.credentials.Password ?? target?.lift.credentials.Password;
+  const endpointUrl = environment?.endpoint_url ?? "";
+  const companyId = route.company_id ?? environment?.headers.Company ?? target?.lift.headers.Company ?? "";
+  const enabledProfiles = route.submit_profiles.filter((profile) => profile.enabled);
+  const hasSandboxProfile = enabledProfiles.some((profile) => profile.mode === "sandbox_customer");
+  const hasOrderLookupUrl = validUrlWithParam(route.order_lookup_url, "p0");
+  const hasProofReportUrl = validUrlWithParam(route.proof_report_url, "p1");
+  const liftCatalogReady = target?.adapter === "lift-standard-graphics" && configuredSecret(user) && configuredSecret(password);
+  const hasValueRuleIssues = (route.value_normalization_rules ?? []).some(
+    (rule) =>
+      rule.status === "Active" &&
+      (!rule.canonical_field.trim() || !rule.output_field.trim() || !rule.input_value.trim() || !rule.normalized_value.trim())
+  );
+
+  const items: RouteDiagnosticItem[] = [
+    routeDiagnosticItem(
+      "route-status",
+      "Route status",
+      route.status === "Active" ? "Passed" : "Blocked",
+      route.status === "Active" ? "Output route is Active." : `Output route is ${route.status}.`,
+      route.status === "Active" ? undefined : "Set this output route to Active before submit.",
+      route.status === "Active" ? undefined : "target-output-routes"
+    ),
+    routeDiagnosticItem(
+      "environment-status",
+      "Environment status",
+      environment?.status === "Active" ? "Passed" : "Blocked",
+      environment
+        ? environment.status === "Active"
+          ? `${environment.name} is Active.`
+          : `${environment.name} is ${environment.status}.`
+        : "Selected route environment could not be found.",
+      environment?.status === "Active" ? undefined : "Open Environments and activate or replace the selected environment.",
+      environment?.status === "Active" ? undefined : "target-environments"
+    ),
+    routeDiagnosticItem(
+      "endpoint",
+      "Create-order endpoint",
+      endpointUrl.trim() ? "Passed" : "Blocked",
+      endpointUrl.trim() ? "Selected environment has an endpoint URL." : "Selected environment has no endpoint URL.",
+      endpointUrl.trim() ? undefined : "Add the Lift create_order endpoint to the selected environment.",
+      endpointUrl.trim() ? undefined : "target-environments"
+    ),
+    routeDiagnosticItem(
+      "credentials",
+      "Credentials",
+      configuredSecret(user) && configuredSecret(password) ? "Passed" : "Warning",
+      configuredSecret(user) && configuredSecret(password)
+        ? "Import credentials are configured or saved/masked."
+        : "Import credentials appear missing or still use setup placeholders.",
+      configuredSecret(user) && configuredSecret(password)
+        ? undefined
+        : "Enter the selected environment's Lift import username and password.",
+      configuredSecret(user) && configuredSecret(password) ? undefined : "target-environments"
+    ),
+    routeDiagnosticItem(
+      "company",
+      "Destination account",
+      companyId.trim() ? "Passed" : "Blocked",
+      companyId.trim() ? `Company/account value is ${companyId}.` : "Company/account value is missing.",
+      companyId.trim() ? undefined : "Set the route Company ID or selected environment Company header.",
+      companyId.trim() ? undefined : "target-output-routes"
+    ),
+    routeDiagnosticItem(
+      "template",
+      "Output template",
+      template && template.status === "Active" ? "Passed" : "Blocked",
+      template
+        ? template.status === "Active"
+          ? `${template.name} is Active.`
+          : `${template.name} is ${template.status}.`
+        : "Selected output template could not be found.",
+      template?.status === "Active" ? undefined : "Select or activate the output template for this route.",
+      template?.status === "Active" ? undefined : "target-output-templates"
+    ),
+    routeDiagnosticItem(
+      "template-mapping",
+      "Template field mapping",
+      templateStats && templateStats.total > 0 && templateStats.warningFields.length === 0
+        ? "Passed"
+        : templateStats && templateStats.total > 0
+          ? "Warning"
+          : "Blocked",
+      templateStats && templateStats.total > 0
+        ? templateStats.warningFields.length
+          ? `${templateStats.warningFields.length} detected template field${templateStats.warningFields.length === 1 ? "" : "s"} still use unexpected static values.`
+          : `${templateStats.mapped} of ${templateStats.total} detected template fields are mapped or approved static values.`
+        : "No parseable template fields were found.",
+      templateStats && templateStats.total > 0 && templateStats.warningFields.length === 0
+        ? undefined
+        : "Open Output Templates and map unresolved body/header fields.",
+      templateStats && templateStats.total > 0 && templateStats.warningFields.length === 0
+        ? undefined
+        : "target-output-templates"
+    ),
+    routeDiagnosticItem(
+      "product-identifier",
+      "Product identifier strategy",
+      route.product_identifier_type && route.product_identifier_label ? "Passed" : "Blocked",
+      route.product_identifier_type && route.product_identifier_label
+        ? `Route expects ${route.product_identifier_label}.`
+        : "Product identifier strategy is missing.",
+      route.product_identifier_type && route.product_identifier_label
+        ? undefined
+        : "Choose whether this route maps by Lift unit_number, product_id, or another identifier.",
+      route.product_identifier_type && route.product_identifier_label ? undefined : "target-output-routes"
+    ),
+    routeDiagnosticItem(
+      "submit-profiles",
+      "Submit profiles",
+      enabledProfiles.length && hasSandboxProfile ? "Passed" : enabledProfiles.length ? "Warning" : "Blocked",
+      enabledProfiles.length
+        ? hasSandboxProfile
+          ? `${enabledProfiles.length} enabled submit profile${enabledProfiles.length === 1 ? "" : "s"}, including sandbox.`
+          : `${enabledProfiles.length} enabled submit profile${enabledProfiles.length === 1 ? "" : "s"}, but no sandbox profile.`
+        : "No enabled submit profiles are available for this route.",
+      enabledProfiles.length && hasSandboxProfile ? undefined : "Enable at least one submit profile, preferably the LTL Demo sandbox profile.",
+      enabledProfiles.length && hasSandboxProfile ? undefined : "target-output-routes"
+    ),
+    routeDiagnosticItem(
+      "order-lookup",
+      "Order lookup URL",
+      hasOrderLookupUrl ? "Passed" : "Warning",
+      hasOrderLookupUrl
+        ? "Order lookup URL can be built with p0."
+        : "Order lookup URL is missing or invalid for p0.",
+      hasOrderLookupUrl
+        ? undefined
+        : "Add the AS360 order lookup URL so submitted jobs can pull Lift order details.",
+      hasOrderLookupUrl ? undefined : "target-output-routes"
+    ),
+    routeDiagnosticItem(
+      "proof-report",
+      "Proof report URL",
+      hasProofReportUrl ? "Passed" : "Warning",
+      hasProofReportUrl
+        ? "Proof report URL can be built with p1."
+        : "Proof report URL is missing or invalid for p1.",
+      hasProofReportUrl
+        ? undefined
+        : "Add the AS360 proof report URL when proof visibility is needed.",
+      hasProofReportUrl ? undefined : "target-output-routes"
+    ),
+    routeDiagnosticItem(
+      "product-catalog",
+      "Product catalog lookup",
+      liftCatalogReady ? "Passed" : "Warning",
+      liftCatalogReady
+        ? "Lift product catalog lookup can use the selected environment credentials."
+        : "Product catalog lookup may not be available for this route yet.",
+      liftCatalogReady
+        ? undefined
+        : "Confirm the route uses the Lift adapter and has saved credentials.",
+      liftCatalogReady ? undefined : "target-environments"
+    ),
+    routeDiagnosticItem(
+      "value-rules",
+      "Value rules",
+      hasValueRuleIssues ? "Warning" : "Passed",
+      hasValueRuleIssues
+        ? "One or more active value rules is missing field or value information."
+        : `${route.value_normalization_rules.length} value rule${route.value_normalization_rules.length === 1 ? "" : "s"} configured.`,
+      hasValueRuleIssues ? "Open Value Rules and complete or deactivate incomplete rows." : undefined,
+      hasValueRuleIssues ? "target-output-routes" : undefined
+    )
+  ];
+  const blockingCount = items.filter((item) => item.status === "Blocked").length;
+  const warningCount = items.filter((item) => item.status === "Warning").length;
+  const passedCount = items.filter((item) => item.status === "Passed").length;
+  const status: RouteDiagnostics["status"] =
+    blockingCount > 0 ? "Blocked" : warningCount > 0 ? "Needs Attention" : "Ready";
+
+  return {
+    status,
+    blocking_count: blockingCount,
+    warning_count: warningCount,
+    passed_count: passedCount,
+    summary:
+      status === "Ready"
+        ? "Route is configured for the current workflow."
+        : `${blockingCount} blocking and ${warningCount} warning item${blockingCount + warningCount === 1 ? "" : "s"} found.`,
+    items
+  };
+}
+
 function liftStandardGraphicsTemplateMappings() {
   return templateFieldsFromText(liftStandardGraphicsBodyTemplateText, "body")
     .concat(templateFieldsFromText(liftStandardGraphicsHeaderTemplateText, "header"))
@@ -1178,6 +1429,16 @@ function MethodStatusPill({ status }: { status: ImportMethodStatus }) {
         : status === "Archived"
           ? "pill pill-danger"
           : "pill pill-warning";
+  return <span className={className}>{status}</span>;
+}
+
+function RouteDiagnosticPill({ status }: { status: RouteDiagnostics["status"] | RouteDiagnosticStatus }) {
+  const className =
+    status === "Ready" || status === "Passed"
+      ? "pill pill-success"
+      : status === "Blocked"
+        ? "pill pill-danger"
+        : "pill pill-warning";
   return <span className={className}>{status}</span>;
 }
 
@@ -2468,6 +2729,12 @@ export function App() {
       : primaryRouteEnvironment?.credentials.User || primaryRouteEnvironment?.credentials.Password
         ? "Header credentials"
         : "None";
+  const primaryRouteDiagnostics = buildRouteDiagnostics({
+    target: primaryRouteTarget,
+    route: primaryOutputRoute,
+    environment: primaryRouteEnvironment,
+    template: primaryRouteTemplate
+  });
   const selectedTarget = selectedTargetId
     ? targetRows.find((target) => target.target_id === selectedTargetId) ?? null
     : null;
@@ -2532,6 +2799,12 @@ export function App() {
     activeOutputRoute.company_id ?? activeRouteEnvironment?.headers.Company ?? activeRouteTarget?.lift.headers.Company;
   const activeRouteEnvironmentLabel =
     activeRouteEnvironment?.name ?? (activeRouteTarget ? activeRouteTarget.lift.active_environment : "Not configured");
+  const activeRouteDiagnostics = buildRouteDiagnostics({
+    target: activeRouteTarget,
+    route: activeOutputRoute,
+    environment: activeRouteEnvironment,
+    template: activeRouteTemplate
+  });
   const selectedSubmitProfile = submitProfileForRoute(activeOutputRoute, selectedSubmitProfileId);
   const submitCustomer = submitCustomerForProfile(selectedCustomer, selectedSubmitProfile);
 
@@ -2564,6 +2837,12 @@ export function App() {
     ) ??
     selectedOutputMapTarget?.output_templates.find((template) => template.name === selectedOutputMapRoute.output_template) ??
     null;
+  const selectedOutputMapDiagnostics = buildRouteDiagnostics({
+    target: selectedOutputMapTarget,
+    route: selectedOutputMapRoute,
+    environment: selectedOutputMapEnvironment,
+    template: selectedOutputMapTemplate
+  });
   const selectedOutputMapMethod =
     importMethods.find((method) => method.output_route_id === selectedOutputMapRouteId && method.status !== "Archived") ??
     activeImportMethod;
@@ -2884,14 +3163,10 @@ export function App() {
   );
   const dashboardCredentialReady =
     selectedOutputMapEnvironment?.auth_method === "None" ||
-    Boolean(
-      selectedOutputMapEnvironment?.credentials.User &&
-        selectedOutputMapEnvironment.credentials.Password &&
-        selectedOutputMapEnvironment.credentials.Password !== ""
-    ) ||
+    (configuredSecret(selectedOutputMapEnvironment?.credentials.User) &&
+      configuredSecret(selectedOutputMapEnvironment?.credentials.Password)) ||
     Boolean(selectedOutputMapEnvironment?.credentials.token || selectedOutputMapEnvironment?.credentials.api_key);
-  const dashboardRouteReady =
-    selectedOutputMapRoute.status === "Active" && Boolean(selectedOutputMapEnvironment?.endpoint_url) && Boolean(selectedOutputMapTemplate);
+  const dashboardRouteReady = selectedOutputMapDiagnostics.blocking_count === 0;
   const dashboardWorkItems: Array<{
     id: string;
     priority: string;
@@ -2963,20 +3238,19 @@ export function App() {
     });
   }
   if (!dashboardRouteReady || dashboardTargetIssueCount) {
+    const firstRouteIssue = selectedOutputMapDiagnostics.items.find((item) => item.status === "Blocked");
     dashboardWorkItems.push({
       id: "target-health",
       priority: "P2",
       title: dashboardRouteReady ? `${dashboardTargetIssueCount} target setup item${dashboardTargetIssueCount === 1 ? "" : "s"}` : "Primary output route is not submit-ready",
-      detail: selectedOutputMapEnvironment?.endpoint_url
-        ? `${selectedOutputMapRoute.name} is configured, but target health needs attention.`
-        : "Configure an active environment endpoint before external submit.",
+      detail: firstRouteIssue?.message ?? `${selectedOutputMapRoute.name} is configured, but target health needs attention.`,
       status: "Open",
       owner: selectedOutputMapTarget?.name ?? "Targets",
       actionLabel: "Open target",
       action: () => {
         setActiveGlobalView("Targets");
         setSelectedTargetId(selectedOutputMapRoute.target_id);
-        setActiveTargetsView(selectedOutputMapEnvironment?.endpoint_url ? "Test & Health" : "Environments");
+        setActiveTargetsView(firstRouteIssue?.action_key === "target-output-templates" ? "Output Templates" : firstRouteIssue?.action_key === "target-output-routes" ? "Output Routes" : "Environments");
       }
     });
   }
@@ -2984,8 +3258,8 @@ export function App() {
     {
       label: "Selected route",
       value: selectedOutputMapRoute.name,
-      detail: dashboardRouteReady ? "Active route with endpoint and template" : "Needs route setup",
-      status: dashboardRouteReady ? "Healthy" : "Warning"
+      detail: selectedOutputMapDiagnostics.summary,
+      status: selectedOutputMapDiagnostics.blocking_count ? "Error" : selectedOutputMapDiagnostics.warning_count ? "Warning" : "Healthy"
     },
     {
       label: "Active environment",
@@ -3290,6 +3564,30 @@ export function App() {
     } else {
       setActiveCustomerView("Import Methods");
     }
+  }
+
+  function handleRouteDiagnosticAction(route: OutputRoute, actionKey?: SubmitCertificationActionKey) {
+    if (!actionKey) {
+      return;
+    }
+
+    if (actionKey.startsWith("target-")) {
+      setActiveGlobalView("Targets");
+      setSelectedTargetId(route.target_id);
+      if (actionKey === "target-environments") {
+        setActiveTargetsView("Environments");
+      } else if (actionKey === "target-output-routes") {
+        setActiveTargetsView("Output Routes");
+      } else if (actionKey === "target-output-templates") {
+        setActiveTargetsView("Output Templates");
+        setActiveOutputTemplateId(route.output_template_id);
+      } else {
+        setActiveTargetsView("Test & Health");
+      }
+      return;
+    }
+
+    handleCertificationAction(actionKey);
   }
 
   async function requestLiftSubmit(jobOverride?: ProcessingJobPreview, forceNewAttempt = false) {
@@ -4310,6 +4608,10 @@ export function App() {
                         <DetailItem label="Format" value={`${primaryRouteTemplate?.destination_method ?? "HTTP POST"} · ${primaryRouteTemplate?.output_format ?? "JSON"}`} />
                         <DetailItem label="Product Mapping Strategy" value={primaryOutputRoute.product_identifier_label} />
                         <DetailItem label="Product Key Resolver" value={activeResolverSummary} />
+                        <DetailItem
+                          label="Route Readiness"
+                          value={`${primaryRouteDiagnostics.status} · ${primaryRouteDiagnostics.blocking_count} blocking / ${primaryRouteDiagnostics.warning_count} warning`}
+                        />
                       </dl>
                     </div>
                   </div>
@@ -5719,6 +6021,10 @@ export function App() {
                       <DetailItem label="Company" value={displayedSubmitRequest.headers.Company || activeRouteCompanyId} />
                       <DetailItem label="Lift CustomerID" value={displayedLiftPayload.customer.lift_customer_id} />
                       <DetailItem label="Endpoint" value={displayedSubmitRequest.endpoint_url} />
+                      <DetailItem
+                        label="Route Readiness"
+                        value={`${activeRouteDiagnostics.status} · ${activeRouteDiagnostics.summary}`}
+                      />
                     </dl>
                     <div className="request-actions">
                       <button className="secondary-button" disabled>
@@ -6331,6 +6637,10 @@ export function App() {
                   <DetailItem label="Route" value={selectedOutputMapRoute.name} />
                   <DetailItem label="Template" value={selectedOutputMapTemplate?.name ?? selectedOutputMapRoute.output_template} />
                   <DetailItem label="Product ID" value={selectedOutputMapRoute.product_identifier_label} />
+                  <DetailItem
+                    label="Readiness"
+                    value={`${selectedOutputMapDiagnostics.status} · ${selectedOutputMapDiagnostics.blocking_count} blocking`}
+                  />
                 </dl>
                 <button
                   className="secondary-button dashboard-full-button"
@@ -7009,6 +7319,17 @@ export function App() {
                     <div className="output-route-stack">
                       {selectedTargetRoutes.map((route) => {
                         const environment = targetEnvironments.find((candidate) => candidate.environment_id === route.environment_id);
+                        const routeTemplate =
+                          targetOutputTemplates.find((candidate) => candidate.output_template_id === route.output_template_id) ??
+                          targetOutputTemplates.find((candidate) => candidate.name === route.output_template) ??
+                          null;
+                        const routeDiagnostics = buildRouteDiagnostics({
+                          target: selectedTarget,
+                          route,
+                          environment,
+                          template: routeTemplate
+                        });
+                        const attentionItems = routeDiagnostics.items.filter((item) => item.status !== "Passed");
                         return (
                           <article className="output-route-card" key={route.output_route_id}>
                             <div className="output-route-heading">
@@ -7017,6 +7338,7 @@ export function App() {
                                 <span>{route.target_system} · {route.destination_account_name || "No destination account"}</span>
                               </div>
                               <div className="output-route-chips">
+                                <RouteDiagnosticPill status={routeDiagnostics.status} />
                                 <span className={route.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
                                   {route.status}
                                 </span>
@@ -7138,6 +7460,49 @@ export function App() {
                                   }
                                 />
                               </label>
+                            </div>
+
+                            <div className="route-diagnostics">
+                              <div className="route-diagnostics-summary">
+                                <div>
+                                  <span>Route Diagnostics</span>
+                                  <strong>{routeDiagnostics.summary}</strong>
+                                </div>
+                                <div className="route-diagnostics-counts">
+                                  <span>{routeDiagnostics.passed_count} passed</span>
+                                  <span>{routeDiagnostics.warning_count} warning</span>
+                                  <span>{routeDiagnostics.blocking_count} blocking</span>
+                                </div>
+                              </div>
+                              <div className="route-diagnostics-list">
+                                {(attentionItems.length ? attentionItems : routeDiagnostics.items.slice(0, 4)).map((item) => (
+                                  <div className="route-diagnostic-row" key={item.item_id}>
+                                    <span
+                                      className={
+                                        item.status === "Passed"
+                                          ? "dot dot-success"
+                                          : item.status === "Warning"
+                                            ? "dot dot-warning"
+                                            : "dot dot-danger"
+                                      }
+                                    />
+                                    <div>
+                                      <strong>{item.label}</strong>
+                                      <span>{item.message}</span>
+                                      {item.suggested_action ? <em>{item.suggested_action}</em> : null}
+                                    </div>
+                                    {item.action_key ? (
+                                      <button
+                                        className="certification-action"
+                                        type="button"
+                                        onClick={() => handleRouteDiagnosticAction(route, item.action_key)}
+                                      >
+                                        Fix
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
 
                             <div className="output-route-footer">

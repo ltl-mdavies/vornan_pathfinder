@@ -2540,6 +2540,107 @@ h1 {
   padding: 16px;
 }
 
+.route-diagnostics {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(247, 248, 245, 0.76);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.route-diagnostics-summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.route-diagnostics-summary span,
+.route-diagnostics-summary strong {
+  display: block;
+}
+
+.route-diagnostics-summary > div:first-child span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.route-diagnostics-summary > div:first-child strong {
+  margin-top: 3px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.route-diagnostics-counts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.route-diagnostics-counts span {
+  min-height: 24px;
+  padding: 6px 9px;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.route-diagnostics-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.route-diagnostic-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  min-height: 54px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+}
+
+.route-diagnostic-row strong,
+.route-diagnostic-row span,
+.route-diagnostic-row em {
+  display: block;
+}
+
+.route-diagnostic-row strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.route-diagnostic-row span:not(.dot) {
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.route-diagnostic-row em {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
 .output-route-footer {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.8fr) auto;
