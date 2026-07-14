@@ -272,6 +272,7 @@ interface OutputRoute {
   submit_profiles: SubmitProfile[];
   value_normalization_rules: ValueNormalizationRule[];
   order_lookup_url?: string | null;
+  proof_report_url?: string | null;
   status: "Active" | "Draft" | "Inactive";
   updated_at: string;
 }
@@ -405,6 +406,38 @@ interface LiftOrderLookupResult {
   fetched_at: string;
 }
 
+interface LiftProofReportProof {
+  order_number: string | null;
+  order_line_id: string | number | null;
+  line_number: string | number | null;
+  line_step_number: string | number | null;
+  product_name: string | null;
+  attachment_id: string | number | null;
+  creation_date: string | null;
+  proof_filename: string | null;
+  proof_link_low: string | null;
+  proof_link_high: string | null;
+  proof_approval_status: string | null;
+  proof_approved_by: string | null;
+  proof_approved_date: string | null;
+  comments: Array<{
+    proof_comment: string | null;
+    comment_ts: string | null;
+    comment_attachment: unknown;
+  }>;
+  detailed_report: unknown;
+}
+
+interface LiftProofReportResult {
+  order_number: string;
+  proof_report_url: string;
+  http_status: number;
+  ok: boolean;
+  proofs: LiftProofReportProof[];
+  payload: unknown;
+  fetched_at: string;
+}
+
 const globalNavItems: Array<{ label: GlobalView; icon: typeof Gauge }> = [
   { label: "Dashboard", icon: Gauge },
   { label: "Customers", icon: Users },
@@ -495,6 +528,7 @@ const defaultOutputRoute: OutputRoute = {
   ],
   value_normalization_rules: defaultValueNormalizationRules,
   order_lookup_url: null,
+  proof_report_url: null,
   status: "Active",
   updated_at: seedTimestamp
 };
@@ -1955,6 +1989,8 @@ export function App() {
   const [jobDetailState, setJobDetailState] = useState<"idle" | "loading" | "error">("idle");
   const [orderLookupState, setOrderLookupState] = useState<"idle" | "loading" | "error">("idle");
   const [orderLookupResult, setOrderLookupResult] = useState<LiftOrderLookupResult | null>(null);
+  const [proofReportState, setProofReportState] = useState<"idle" | "loading" | "error">("idle");
+  const [proofReportResult, setProofReportResult] = useState<LiftProofReportResult | null>(null);
   const [certificationRefreshState, setCertificationRefreshState] = useState<"idle" | "loading" | "error">("idle");
   const certificationRefreshKeyRef = useRef("");
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("sandbox-ltl-demo-1249");
@@ -2112,6 +2148,8 @@ export function App() {
     setSelectedJobAttempts([]);
     setOrderLookupResult(null);
     setOrderLookupState("idle");
+    setProofReportResult(null);
+    setProofReportState("idle");
     setJobDetailState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
@@ -2137,6 +2175,20 @@ export function App() {
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Lift order lookup failed.");
       setOrderLookupState("error");
+    }
+  }
+
+  async function lookupLiftProofs(job: ProcessingJobPreview) {
+    setProofReportState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/proof-report`);
+      const payload = await readJsonResponse<{ proof_report: LiftProofReportResult }>(response);
+      setProofReportResult(payload.proof_report);
+      setWorkspaceMessage(`Lift proof report loaded for ${payload.proof_report.order_number}.`);
+      setProofReportState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Lift proof report lookup failed.");
+      setProofReportState("error");
     }
   }
 
@@ -7076,6 +7128,16 @@ export function App() {
                                   }
                                 />
                               </label>
+                              <label className="setup-control setup-control-wide">
+                                <span>Lift Proof Report URL</span>
+                                <input
+                                  value={route.proof_report_url ?? ""}
+                                  placeholder="Optional endpoint for AS360 proof report lookup"
+                                  onChange={(event) =>
+                                    updateOutputRouteDraft(route.output_route_id, { proof_report_url: event.target.value })
+                                  }
+                                />
+                              </label>
                             </div>
 
                             <div className="output-route-footer">
@@ -7395,10 +7457,23 @@ export function App() {
                   </button>
                   <button
                     className="secondary-button"
+                    onClick={() => void lookupLiftProofs(selectedJobDetail)}
+                    disabled={
+                      proofReportState === "loading" ||
+                      !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
+                    }
+                  >
+                    <FileText size={16} />
+                    {proofReportState === "loading" ? "Loading proofs" : "Lookup Proofs"}
+                  </button>
+                  <button
+                    className="secondary-button"
                     onClick={() => {
                       setSelectedJobDetail(null);
                       setOrderLookupResult(null);
                       setOrderLookupState("idle");
+                      setProofReportResult(null);
+                      setProofReportState("idle");
                     }}
                   >
                     Close
@@ -7432,6 +7507,57 @@ export function App() {
                     detail={`${orderLookupResult.order_number} · HTTP ${orderLookupResult.http_status}`}
                   />
                   <pre>{formatJson(orderLookupResult.payload)}</pre>
+                </div>
+              ) : null}
+              {proofReportResult ? (
+                <div className="code-panel order-lookup-panel">
+                  <PanelHeader
+                    icon={FileText}
+                    title="Lift Proof Report"
+                    detail={`${proofReportResult.order_number} · ${proofReportResult.proofs.length} proof${proofReportResult.proofs.length === 1 ? "" : "s"} · HTTP ${proofReportResult.http_status}`}
+                  />
+                  {proofReportResult.proofs.length ? (
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Line</th>
+                          <th>Product</th>
+                          <th>Proof</th>
+                          <th>Status</th>
+                          <th>Comments</th>
+                          <th>Links</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {proofReportResult.proofs.map((proof) => (
+                          <tr key={`${proof.order_line_id ?? "line"}-${proof.attachment_id ?? proof.proof_filename}`}>
+                            <td>{proof.line_number ?? "Unknown"}</td>
+                            <td>{proof.product_name ?? "Unknown product"}</td>
+                            <td>{proof.proof_filename ?? `Attachment ${proof.attachment_id ?? "unknown"}`}</td>
+                            <td>{proof.proof_approval_status ?? "Unknown"}</td>
+                            <td>{proof.comments.length}</td>
+                            <td>
+                              <div className="row-actions">
+                                {proof.proof_link_low ? (
+                                  <a className="detail-link" href={proof.proof_link_low} target="_blank" rel="noreferrer">
+                                    Low
+                                  </a>
+                                ) : null}
+                                {proof.proof_link_high ? (
+                                  <a className="detail-link" href={proof.proof_link_high} target="_blank" rel="noreferrer">
+                                    High
+                                  </a>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="empty-state">No proof rows returned for this Lift order.</p>
+                  )}
+                  <pre>{formatJson({ proofs: proofReportResult.proofs, raw: proofReportResult.payload })}</pre>
                 </div>
               ) : null}
               {latestJobAttempt ? (

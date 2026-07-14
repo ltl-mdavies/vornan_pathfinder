@@ -12,6 +12,7 @@ import { sampleCanonicalOrder, validateCanonicalOrder, type ValidationMessage } 
 import {
   applyValueNormalizationToLiftPayload,
   buildLiftOrderLookupUrl,
+  buildLiftProofReportUrl,
   buildLiftSubmitRequest,
   generateLiftPayload,
   maskLiftSubmitRequest,
@@ -349,6 +350,129 @@ async function fetchLiftOrderLookup(args: {
     lookup_url: lookupUrl,
     http_status: response.status,
     ok: response.ok,
+    payload: body,
+    fetched_at: new Date().toISOString()
+  };
+}
+
+function normalizeProofReportPayload(payload: unknown) {
+  const rows = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === "object" && Array.isArray((payload as { rowset?: unknown }).rowset)
+      ? ((payload as { rowset: unknown[] }).rowset)
+      : [];
+  const proofGroups = new Map<string, {
+    order_number: string | null;
+    order_line_id: string | number | null;
+    line_number: string | number | null;
+    line_step_number: string | number | null;
+    product_name: string | null;
+    attachment_id: string | number | null;
+    creation_date: string | null;
+    proof_filename: string | null;
+    proof_link_low: string | null;
+    proof_link_high: string | null;
+    proof_approval_status: string | null;
+    proof_approved_by: string | null;
+    proof_approved_date: string | null;
+    comments: Array<{
+      proof_comment: string | null;
+      comment_ts: string | null;
+      comment_attachment: unknown;
+    }>;
+    detailed_report: unknown;
+  }>();
+
+  rows.forEach((row) => {
+    if (!row || typeof row !== "object") {
+      return;
+    }
+
+    const record = row as Record<string, unknown>;
+    const key = [
+      record.ORDER_NUMBER,
+      record.ORDER_LINE_ID,
+      record.ATTACHMENT_ID,
+      record.PROOF_FILENAME
+    ]
+      .map((value) => (value == null ? "" : String(value)))
+      .join("|");
+    const existing = proofGroups.get(key);
+    const comment = {
+      proof_comment: typeof record.PROOF_COMMENT === "string" ? record.PROOF_COMMENT : null,
+      comment_ts: typeof record.COMMENT_TS === "string" ? record.COMMENT_TS : null,
+      comment_attachment: record.COMMENT_ATTACHMENT ?? null
+    };
+
+    if (existing) {
+      if (comment.proof_comment || comment.comment_ts || comment.comment_attachment) {
+        existing.comments.push(comment);
+      }
+      return;
+    }
+
+    proofGroups.set(key, {
+      order_number: record.ORDER_NUMBER == null ? null : String(record.ORDER_NUMBER),
+      order_line_id: (record.ORDER_LINE_ID as string | number | null | undefined) ?? null,
+      line_number: (record.LINE_NUMBER as string | number | null | undefined) ?? null,
+      line_step_number: (record.LINE_STEP_NUMBER as string | number | null | undefined) ?? null,
+      product_name: typeof record.PRODUCT_NAME === "string" ? record.PRODUCT_NAME : null,
+      attachment_id: (record.ATTACHMENT_ID as string | number | null | undefined) ?? null,
+      creation_date: typeof record.CREATION_DATE === "string" ? record.CREATION_DATE : null,
+      proof_filename: typeof record.PROOF_FILENAME === "string" ? record.PROOF_FILENAME : null,
+      proof_link_low: typeof record.PROOF_LINK_LOW === "string" ? record.PROOF_LINK_LOW : null,
+      proof_link_high: typeof record.PROOF_LINK_HIGH === "string" ? record.PROOF_LINK_HIGH : null,
+      proof_approval_status: typeof record.PROOF_APPROVAL_STATUS === "string" ? record.PROOF_APPROVAL_STATUS : null,
+      proof_approved_by: typeof record.PROOF_APPROVED_BY === "string" ? record.PROOF_APPROVED_BY : null,
+      proof_approved_date: typeof record.PROOF_APPROVED_DATE === "string" ? record.PROOF_APPROVED_DATE : null,
+      comments: comment.proof_comment || comment.comment_ts || comment.comment_attachment ? [comment] : [],
+      detailed_report: record.DETAILED_REPORT ?? null
+    });
+  });
+
+  return Array.from(proofGroups.values()).sort((left, right) => {
+    const leftLine = Number(left.line_number ?? 0);
+    const rightLine = Number(right.line_number ?? 0);
+    return leftLine - rightLine;
+  });
+}
+
+async function fetchLiftProofReport(args: {
+  target: TargetConfig;
+  route: OutputRoute;
+  orderNumber: string;
+  orderLineId?: string | number | null;
+}) {
+  const environment = routeEnvironmentForTarget(args.target, args.route);
+  const proofReportUrl = buildLiftProofReportUrl(args.route.proof_report_url, args.orderNumber, args.orderLineId);
+
+  if (!proofReportUrl) {
+    throw new Error("This output route does not have a valid Lift proof report URL for the selected order number.");
+  }
+
+  const user = environment?.credentials.User ?? args.target.lift.credentials.User;
+  const password = environment?.credentials.Password ?? args.target.lift.credentials.Password;
+  const headers: Record<string, string> = {
+    Accept: "application/json"
+  };
+
+  if (user && password && password !== "********") {
+    headers.Authorization = `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`;
+  }
+
+  const response = await fetch(proofReportUrl, {
+    headers,
+    signal: AbortSignal.timeout(15000)
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text();
+
+  return {
+    order_number: args.orderNumber,
+    proof_report_url: proofReportUrl,
+    http_status: response.status,
+    ok: response.ok,
+    proofs: normalizeProofReportPayload(body),
     payload: body,
     fetched_at: new Date().toISOString()
   };
@@ -1550,6 +1674,57 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId/order-lookup", async (req, r
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Lift order lookup failed."
+    });
+  }
+});
+
+app.get("/api/customers/:liftCustomerId/jobs/:jobId/proof-report", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const job = await getJob(customer, req.params.jobId);
+
+    if (!job) {
+      res.status(404).json({
+        error: "Preview job not found."
+      });
+      return;
+    }
+
+    const workspace = await getOrCreateWorkspace(customer);
+    const route = workspace.output_routes.find((candidate) => candidate.output_route_id === job.output_route_id);
+    const target = route ? ((await getTarget(route.target_id, false)) as TargetConfig | null) : null;
+    const attempts = await listSubmitAttemptsForJob(customer, req.params.jobId);
+    const orderNumber =
+      job.target_order_number ??
+      attempts.find((attempt) => attempt.response.lift_order_id)?.response.lift_order_id ??
+      null;
+    const orderLineId = typeof req.query.order_line_id === "string" ? req.query.order_line_id : null;
+
+    if (!route || !target) {
+      res.status(409).json({
+        error: "Job output route or target could not be found."
+      });
+      return;
+    }
+
+    if (!orderNumber) {
+      res.status(409).json({
+        error: "No Lift order number is available for this job yet."
+      });
+      return;
+    }
+
+    const proofReport = await fetchLiftProofReport({
+      target,
+      route,
+      orderNumber,
+      orderLineId
+    });
+
+    res.status(proofReport.ok ? 200 : 502).json({ proof_report: proofReport });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Lift proof report lookup failed."
     });
   }
 });

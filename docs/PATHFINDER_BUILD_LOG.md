@@ -799,3 +799,16 @@ What changed:
 - Added a Target setup **Value Rules** tab for editing route-specific field, customer aliases, Lift value, match mode, fallback behavior, and status.
 - Lift preview generation applies route value rules before validation, submit-request preview, job persistence, and external submit.
 - Strict value rules add blocking validation messages when an unmapped controlled value would be sent to Lift.
+
+## 2026-07-14 - Lift Proof Report Lookup
+
+Added internal proof-report lookup plumbing for Lift orders.
+
+What changed:
+
+- Output routes now store an optional Lift Proof Report URL alongside the Lift Order Lookup URL.
+- Added a shared Lift adapter URL builder for the AS360 proof report endpoint using `p1` for order number and optional `p2` for order line ID.
+- Added `GET /api/customers/:liftCustomerId/jobs/:jobId/proof-report` to fetch proof records for a submitted Lift order.
+- Proof report rows are grouped by order, line, attachment, and proof filename so repeated comment rows appear as comment history on a single proof.
+- Job detail now includes a **Lookup Proofs** action and displays proof filename, line, product, approval status, comment count, and low/high proof links.
+- The first implementation is internal-only; a public customer order status page remains a later phase.
