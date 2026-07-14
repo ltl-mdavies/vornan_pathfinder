@@ -90,10 +90,22 @@ export interface CustomerProductMapping {
 }
 
 export interface LiftUnitCatalogItem {
-  unit_number: string;
+  catalog_item_id: string;
+  product_id: string | null;
+  unit_number: string | null;
   product_name: string;
   company_id: string;
   target_id: string;
+  environment_id?: string | null;
+  catalog_id?: string | null;
+  catalog_name?: string | null;
+  accounting_item_code?: string | null;
+  product_type?: string | null;
+  parent_product_id?: string | null;
+  unit_price?: number | null;
+  quantity?: number | null;
+  material_id?: string | null;
+  image_url?: string | null;
   status: "Active" | "Inactive";
   category?: string | null;
   description?: string | null;
@@ -912,10 +924,22 @@ function createSeedOutputRoute(timestamp = now()): OutputRoute {
 function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
   return [
     {
+      catalog_item_id: "local-unit-2sheet-46x60-48pt",
+      product_id: null,
       unit_number: "2SHEET_46x60_48PT",
       product_name: "2 Sheet Poster",
       company_id: "91",
       target_id: targetId,
+      environment_id: null,
+      catalog_id: null,
+      catalog_name: null,
+      accounting_item_code: null,
+      product_type: "REGULAR",
+      parent_product_id: null,
+      unit_price: null,
+      quantity: null,
+      material_id: null,
+      image_url: null,
       status: "Active",
       category: "OOH Poster",
       description: "46x60 48pt poster product for standard graphics order testing.",
@@ -923,10 +947,22 @@ function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
       updated_at: timestamp
     },
     {
+      catalog_item_id: "local-unit-banner-36x96-13oz",
+      product_id: null,
       unit_number: "BANNER_36x96_13OZ",
       product_name: "13oz Vinyl Banner",
       company_id: "91",
       target_id: targetId,
+      environment_id: null,
+      catalog_id: null,
+      catalog_name: null,
+      accounting_item_code: null,
+      product_type: "REGULAR",
+      parent_product_id: null,
+      unit_price: null,
+      quantity: null,
+      material_id: null,
+      image_url: null,
       status: "Active",
       category: "Banner",
       description: "36x96 13oz vinyl banner product for standard graphics order testing.",
@@ -934,10 +970,22 @@ function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
       updated_at: timestamp
     },
     {
+      catalog_item_id: "local-unit-sandbox-smoke-poster",
+      product_id: null,
       unit_number: "SANDBOX_SMOKE_POSTER",
       product_name: "Sandbox smoke poster",
       company_id: "91",
       target_id: targetId,
+      environment_id: null,
+      catalog_id: null,
+      catalog_name: null,
+      accounting_item_code: null,
+      product_type: "REGULAR",
+      parent_product_id: null,
+      unit_price: null,
+      quantity: null,
+      material_id: null,
+      image_url: null,
       status: "Active",
       category: "Sandbox",
       description: "Internal sandbox product used for non-customer-facing Lift submit checks.",
@@ -1127,21 +1175,53 @@ function normalizeProductMapping(mapping: CustomerProductMapping): CustomerProdu
   };
 }
 
+function normalizeLiftCatalogItem(item: Partial<LiftUnitCatalogItem>, timestamp = now()): LiftUnitCatalogItem {
+  const unitNumber = item.unit_number ?? null;
+  const productId = item.product_id ?? null;
+  return {
+    catalog_item_id:
+      item.catalog_item_id ??
+      [
+        item.target_id ?? targetId,
+        item.company_id ?? "91",
+        item.environment_id ?? "any-env",
+        productId ? `product-${productId}` : unitNumber ? `unit-${unitNumber}` : `catalog-${item.catalog_id ?? "unknown"}`,
+        item.product_name ?? "unnamed"
+      ]
+        .join("-")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, ""),
+    product_id: productId,
+    unit_number: unitNumber,
+    product_name: item.product_name ?? unitNumber ?? productId ?? "Unnamed Lift product",
+    company_id: item.company_id ?? "91",
+    target_id: item.target_id ?? targetId,
+    environment_id: item.environment_id ?? null,
+    catalog_id: item.catalog_id ?? null,
+    catalog_name: item.catalog_name ?? null,
+    accounting_item_code: item.accounting_item_code ?? null,
+    product_type: item.product_type ?? null,
+    parent_product_id: item.parent_product_id ?? null,
+    unit_price: item.unit_price ?? null,
+    quantity: item.quantity ?? null,
+    material_id: item.material_id ?? null,
+    image_url: item.image_url ?? null,
+    status: item.status ?? "Active",
+    category: item.category ?? item.catalog_name ?? item.product_type ?? null,
+    description: item.description ?? null,
+    source: item.source ?? "Manual",
+    updated_at: item.updated_at ?? timestamp
+  };
+}
+
 function normalizeLiftUnitCatalog(catalog: LiftUnitCatalogItem[] | undefined): LiftUnitCatalogItem[] {
   const timestamp = now();
-  const seededByUnit = new Map(createSeedLiftUnitCatalog(timestamp).map((item) => [item.unit_number, item]));
+  const seededByUnit = new Map(createSeedLiftUnitCatalog(timestamp).map((item) => [item.catalog_item_id, item]));
 
   (catalog ?? []).forEach((item) => {
-    seededByUnit.set(item.unit_number, {
-      ...item,
-      company_id: item.company_id ?? "91",
-      target_id: item.target_id ?? targetId,
-      status: item.status ?? "Active",
-      category: item.category ?? null,
-      description: item.description ?? null,
-      source: item.source ?? "Manual",
-      updated_at: item.updated_at ?? timestamp
-    });
+    const normalized = normalizeLiftCatalogItem(item, timestamp);
+    seededByUnit.set(normalized.catalog_item_id, normalized);
   });
 
   return Array.from(seededByUnit.values());
@@ -1154,7 +1234,12 @@ function matchesSearch(item: LiftUnitCatalogItem, query: string) {
 
   return [
     item.unit_number,
+    item.product_id ?? "",
     item.product_name,
+    item.catalog_id ?? "",
+    item.catalog_name ?? "",
+    item.accounting_item_code ?? "",
+    item.product_type ?? "",
     item.category ?? "",
     item.description ?? ""
   ]
@@ -1452,18 +1537,46 @@ export async function listProductMappings(customer: LiftCustomer) {
 
 export async function listLiftUnitCatalog(filters: {
   target_id?: string;
+  environment_id?: string;
   company_id?: string;
   q?: string;
+  product_id?: string;
+  catalog_id?: string;
+  status?: string;
   include_inactive?: boolean;
 } = {}) {
   const store = await readStore();
   const query = filters.q?.trim().toLowerCase() ?? "";
   return store.lift_unit_catalog
     .filter((item) => !filters.target_id || item.target_id === filters.target_id)
+    .filter((item) => !filters.environment_id || !item.environment_id || item.environment_id === filters.environment_id)
     .filter((item) => !filters.company_id || item.company_id === filters.company_id)
+    .filter((item) => !filters.product_id || item.product_id === filters.product_id)
+    .filter((item) => !filters.catalog_id || item.catalog_id === filters.catalog_id)
+    .filter((item) => !filters.status || item.status === filters.status)
     .filter((item) => filters.include_inactive || item.status === "Active")
     .filter((item) => matchesSearch(item, query))
-    .sort((first, second) => first.product_name.localeCompare(second.product_name) || first.unit_number.localeCompare(second.unit_number));
+    .sort(
+      (first, second) =>
+        first.product_name.localeCompare(second.product_name) ||
+        (first.unit_number ?? "").localeCompare(second.unit_number ?? "") ||
+        (first.product_id ?? "").localeCompare(second.product_id ?? "")
+    );
+}
+
+export async function upsertLiftProductCatalog(items: LiftUnitCatalogItem[]) {
+  const store = await readStore();
+  const timestamp = now();
+  const nextById = new Map(store.lift_unit_catalog.map((item) => [item.catalog_item_id, item]));
+
+  items.forEach((item) => {
+    const normalized = normalizeLiftCatalogItem({ ...item, updated_at: timestamp }, timestamp);
+    nextById.set(normalized.catalog_item_id, normalized);
+  });
+
+  store.lift_unit_catalog = Array.from(nextById.values());
+  await writeStore(store);
+  return store.lift_unit_catalog;
 }
 
 export async function updateProductMapping(

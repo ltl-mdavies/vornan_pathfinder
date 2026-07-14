@@ -50,8 +50,10 @@ import {
   updateImportMethod,
   updateOutputRoute,
   updateTarget,
+  upsertLiftProductCatalog,
   type CustomerProductMapping,
   type ImportMethod,
+  type LiftUnitCatalogItem,
   type OutputRoute,
   type ProductMappingStatus,
   type ProductResolutionConfig,
@@ -75,6 +77,8 @@ const liftCustomerListEndpoint =
 const liftCustomerStatusEndpoint =
   process.env.LIFT_CUSTOMER_STATUS_URL ??
   "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerStatusJSON/CustomerStatusJSON?";
+const liftProductCatalogBaseUrl =
+  process.env.LIFT_PRODUCT_CATALOG_BASE_URL ?? "https://ltlco.lifterp.com/ords/api/lift/erp";
 const externalLiftSubmitEnabled = process.env.PATHFINDER_ENABLE_LIFT_SUBMIT === "true";
 const liftSubmitTransportMode: LiftSubmitTransportMode =
   process.env.PATHFINDER_LIFT_TRANSPORT_MODE === "live" ? "live" : "dry_run";
@@ -172,6 +176,129 @@ function productKeyForRow(row: ParsedSourceRow, config: ProductResolutionConfig)
   }
 
   return "";
+}
+
+function liftProductValue(value: unknown) {
+  return value === null || value === undefined || value === "" ? null : String(value);
+}
+
+function liftProductNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function normalizeLiftProductPayloadItem(
+  item: Record<string, unknown>,
+  context: {
+    targetId: string;
+    environmentId?: string;
+    companyId?: string | null;
+  }
+): LiftUnitCatalogItem {
+  const productId = liftProductValue(item.productId ?? item.product_id);
+  const unitNumber = liftProductValue(item.unitNumber ?? item.unit_number);
+  const catalogId = liftProductValue(item.catalogId ?? item.catalog_id);
+  const productName = liftProductValue(item.productName ?? item.product_name) ?? productId ?? unitNumber ?? "Unnamed Lift product";
+  return {
+    catalog_item_id: [
+      context.targetId,
+      context.companyId ?? "91",
+      context.environmentId ?? "any-env",
+      productId ? `product-${productId}` : unitNumber ? `unit-${unitNumber}` : `catalog-${catalogId ?? "unknown"}`,
+      productName
+    ]
+      .join("-")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, ""),
+    product_id: productId,
+    unit_number: unitNumber,
+    product_name: productName,
+    company_id: context.companyId ?? "91",
+    target_id: context.targetId,
+    environment_id: context.environmentId ?? null,
+    catalog_id: catalogId,
+    catalog_name: liftProductValue(item.catalogName ?? item.catalog_name),
+    accounting_item_code: liftProductValue(item.accountingItemCode ?? item.accounting_item_code),
+    product_type: liftProductValue(item.productType ?? item.product_type),
+    parent_product_id: liftProductValue(item.parentProductId ?? item.parent_product_id),
+    unit_price: liftProductNumber(item.unitPrice ?? item.unit_price),
+    quantity: liftProductNumber(item.quantity),
+    material_id: liftProductValue(item.materialId ?? item.material_id),
+    image_url: liftProductValue(item.imageUrl ?? item.image_url),
+    status: liftProductValue(item.status) === "I" ? "Inactive" : "Active",
+    category: liftProductValue(item.catalogName ?? item.catalog_name ?? item.productType ?? item.product_type),
+    description: liftProductValue(item.productDescription ?? item.product_description),
+    source: "Lift import",
+    updated_at: new Date().toISOString()
+  };
+}
+
+function liftProductQueryParams(reqQuery: Record<string, unknown>) {
+  const allowedParams = [
+    "product_id",
+    "accounting_item_code",
+    "product_type",
+    "parent_product_id",
+    "status",
+    "catalog_id"
+  ];
+  const params = new URLSearchParams();
+
+  allowedParams.forEach((key) => {
+    const value = reqQuery[key];
+    if (typeof value === "string" && value.trim()) {
+      params.set(key, value.trim());
+    }
+  });
+
+  return params;
+}
+
+async function fetchLiftProductsFromTarget(target: TargetConfig, route: OutputRoute, query: Record<string, unknown>) {
+  const environment =
+    target.environments.find((candidate) => candidate.environment_id === route.environment_id) ??
+    target.environments.find((candidate) => candidate.name === target.lift.active_environment);
+  const user = environment?.credentials.User ?? target.lift.credentials.User;
+  const password = environment?.credentials.Password ?? target.lift.credentials.Password;
+
+  if (!user || !password || password === "********") {
+    throw new Error("Lift product catalog refresh requires saved import credentials for the selected environment.");
+  }
+
+  const url = new URL(`${liftProductCatalogBaseUrl.replace(/\/+$/, "")}/api/v1/product-management/products`);
+  const params = liftProductQueryParams(query);
+  params.forEach((value, key) => url.searchParams.set(key, value));
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      Authorization: `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`
+    }
+  });
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(`Lift product catalog refresh failed (${response.status}).`);
+  }
+
+  if (!Array.isArray(body)) {
+    throw new Error("Lift product catalog response was not an array.");
+  }
+
+  return body.map((item) =>
+    normalizeLiftProductPayloadItem(item as Record<string, unknown>, {
+      targetId: target.target_id,
+      environmentId: environment?.environment_id,
+      companyId: route.company_id ?? environment?.headers.Company ?? target.lift.headers.Company
+    })
+  );
 }
 
 function synthesizeParsedRows(sourceGrid: SourceGrid): ParsedSourceRow[] {
@@ -1031,8 +1158,12 @@ app.get("/api/lift/unit-catalog", async (req, res) => {
     res.json({
       units: await listLiftUnitCatalog({
         target_id: req.query.target_id ? String(req.query.target_id) : undefined,
+        environment_id: req.query.environment_id ? String(req.query.environment_id) : undefined,
         company_id: req.query.company_id ? String(req.query.company_id) : undefined,
         q: req.query.q ? String(req.query.q) : undefined,
+        product_id: req.query.product_id ? String(req.query.product_id) : undefined,
+        catalog_id: req.query.catalog_id ? String(req.query.catalog_id) : undefined,
+        status: req.query.status ? String(req.query.status) : undefined,
         include_inactive: req.query.include_inactive === "1" || req.query.include_inactive === "true"
       })
     });
@@ -1556,6 +1687,58 @@ app.put("/api/targets/:targetId", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Target save failed."
+    });
+  }
+});
+
+app.get("/api/lift/product-catalog", async (req, res) => {
+  try {
+    const targetId = req.query.target_id ? String(req.query.target_id) : undefined;
+    const routeId = req.query.output_route_id ? String(req.query.output_route_id) : undefined;
+    const companyId = req.query.company_id ? String(req.query.company_id) : undefined;
+    const customerId = req.query.customer_id ? String(req.query.customer_id) : undefined;
+    let refreshed = false;
+    let refreshedCount = 0;
+
+    if (req.query.refresh === "1" || req.query.refresh === "true") {
+      if (!targetId || !routeId || !customerId) {
+        throw new Error("Refresh requires target_id, output_route_id, and customer_id.");
+      }
+      const customer = await findLiftCustomer(customerId);
+      const workspace = await getOrCreateWorkspace(customer);
+      const route = workspace.output_routes.find((candidate) => candidate.output_route_id === routeId);
+      const target = (await getTarget(targetId, false)) as TargetConfig | null;
+
+      if (!route || !target) {
+        throw new Error("Could not find the selected target or output route for product catalog refresh.");
+      }
+
+      const liftedProducts = await fetchLiftProductsFromTarget(target, route, req.query);
+      await upsertLiftProductCatalog(liftedProducts);
+      refreshed = true;
+      refreshedCount = liftedProducts.length;
+    }
+
+    const products = await listLiftUnitCatalog({
+      target_id: targetId,
+      environment_id: req.query.environment_id ? String(req.query.environment_id) : undefined,
+      company_id: companyId,
+      q: req.query.q ? String(req.query.q) : undefined,
+      product_id: req.query.product_id ? String(req.query.product_id) : undefined,
+      catalog_id: req.query.catalog_id ? String(req.query.catalog_id) : undefined,
+      status: req.query.status ? String(req.query.status) : undefined,
+      include_inactive: req.query.include_inactive === "1" || req.query.include_inactive === "true"
+    });
+
+    res.json({
+      products,
+      refreshed,
+      refreshed_count: refreshedCount,
+      source: refreshed ? "lift-api" : "local-cache"
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Lift product catalog load failed."
     });
   }
 });

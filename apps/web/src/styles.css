@@ -4320,6 +4320,18 @@ td {
   gap: 4px;
 }
 
+.unit-catalog-header .unit-catalog-header-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.unit-catalog-header-actions .secondary-button {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
 .unit-catalog-header strong {
   color: var(--text-primary);
   font-size: 14px;
