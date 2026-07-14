@@ -2421,6 +2421,7 @@ export function App() {
   const [canonicalRegistrySearch, setCanonicalRegistrySearch] = useState("");
   const [canonicalRegistrySectionFilter, setCanonicalRegistrySectionFilter] = useState("All");
   const [editingCanonicalFieldId, setEditingCanonicalFieldId] = useState<string | null>(null);
+  const [isCreatingCanonicalField, setIsCreatingCanonicalField] = useState(false);
   const [canonicalFieldDraft, setCanonicalFieldDraft] = useState<{
     label: string;
     description: string;
@@ -2431,6 +2432,25 @@ export function App() {
     description: "",
     aliases: "",
     status: "Active"
+  });
+  const [newCanonicalFieldDraft, setNewCanonicalFieldDraft] = useState<{
+    path: string;
+    section: CanonicalFieldDefinition["section"];
+    label: string;
+    data_type: CanonicalFieldDefinition["data_type"];
+    description: string;
+    aliases: string;
+    required: boolean;
+    repeatable: boolean;
+  }>({
+    path: "",
+    section: "order",
+    label: "",
+    data_type: "string",
+    description: "",
+    aliases: "",
+    required: false,
+    repeatable: false
   });
   const [lastPreviewJob, setLastPreviewJob] = useState<ProcessingJobPreview | null>(null);
   const [lastSubmitAttempt, setLastSubmitAttempt] = useState<SubmitAttempt | null>(null);
@@ -2744,6 +2764,40 @@ export function App() {
       setWorkspaceState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field save failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  async function createCanonicalRegistryField() {
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newCanonicalFieldDraft,
+          status: "Draft"
+        })
+      });
+      const registry = await readJsonResponse<CanonicalRegistryPayload>(response);
+      setCanonicalRegistry(registry);
+      setCanonicalRegistrySectionFilter(newCanonicalFieldDraft.section);
+      setCanonicalRegistrySearch(newCanonicalFieldDraft.path);
+      setNewCanonicalFieldDraft({
+        path: "",
+        section: "order",
+        label: "",
+        data_type: "string",
+        description: "",
+        aliases: "",
+        required: false,
+        repeatable: false
+      });
+      setIsCreatingCanonicalField(false);
+      setWorkspaceMessage("Draft canonical field created.");
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field creation failed.");
       setWorkspaceState("error");
     }
   }
@@ -8658,8 +8712,11 @@ export function App() {
                   Review the field contract Pathfinder uses between customer inputs, canonical orders, and output templates.
                 </p>
               </div>
-              <button className="secondary-button" disabled>
-                Stable paths locked
+              <button
+                className="secondary-button"
+                onClick={() => setIsCreatingCanonicalField((current) => !current)}
+              >
+                {isCreatingCanonicalField ? "Close Field Draft" : "New Draft Field"}
               </button>
             </header>
 
@@ -8711,6 +8768,143 @@ export function App() {
                 </div>
                 <span>Stable field IDs, aliases, and paths for template mappings</span>
               </div>
+
+              {isCreatingCanonicalField ? (
+                <section className="canonical-field-create-panel" aria-label="Create canonical field">
+                  <div>
+                    <strong>Create Draft Field</strong>
+                    <span>
+                      Add a new canonical field without code changes. Field paths become mapping targets, so use stable
+                      lowercase dot notation.
+                    </span>
+                  </div>
+                  <div className="canonical-field-create-grid">
+                    <label className="setup-control">
+                      <span>Path</span>
+                      <input
+                        value={newCanonicalFieldDraft.path}
+                        placeholder="order.customer_reference"
+                        onChange={(event) =>
+                          setNewCanonicalFieldDraft((current) => ({
+                            ...current,
+                            path: event.target.value
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="setup-control">
+                      <span>Label</span>
+                      <input
+                        value={newCanonicalFieldDraft.label}
+                        placeholder="Customer Reference"
+                        onChange={(event) =>
+                          setNewCanonicalFieldDraft((current) => ({
+                            ...current,
+                            label: event.target.value
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="setup-control">
+                      <span>Section</span>
+                      <select
+                        value={newCanonicalFieldDraft.section}
+                        onChange={(event) =>
+                          setNewCanonicalFieldDraft((current) => ({
+                            ...current,
+                            section: event.target.value as CanonicalFieldDefinition["section"]
+                          }))
+                        }
+                      >
+                        {["customer", "contacts", "source", "target", "order", "shipping", "lines"].map((section) => (
+                          <option key={section} value={section}>
+                            {canonicalSectionLabels[section] ?? section}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="setup-control">
+                      <span>Data Type</span>
+                      <select
+                        value={newCanonicalFieldDraft.data_type}
+                        onChange={(event) =>
+                          setNewCanonicalFieldDraft((current) => ({
+                            ...current,
+                            data_type: event.target.value as CanonicalFieldDefinition["data_type"]
+                          }))
+                        }
+                      >
+                        {["string", "number", "integer", "boolean", "datetime", "url", "object"].map((dataType) => (
+                          <option key={dataType} value={dataType}>
+                            {dataType}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="setup-control canonical-field-create-wide">
+                      <span>Description</span>
+                      <input
+                        value={newCanonicalFieldDraft.description}
+                        placeholder="What this field means and when to use it"
+                        onChange={(event) =>
+                          setNewCanonicalFieldDraft((current) => ({
+                            ...current,
+                            description: event.target.value
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="setup-control">
+                      <span>Aliases</span>
+                      <input
+                        value={newCanonicalFieldDraft.aliases}
+                        placeholder="Comma-separated search names"
+                        onChange={(event) =>
+                          setNewCanonicalFieldDraft((current) => ({
+                            ...current,
+                            aliases: event.target.value
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="canonical-field-create-footer">
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={newCanonicalFieldDraft.required}
+                        onChange={(event) =>
+                          setNewCanonicalFieldDraft((current) => ({
+                            ...current,
+                            required: event.target.checked
+                          }))
+                        }
+                      />
+                      Required field
+                    </label>
+                    <label className="checkbox-row">
+                      <input
+                        type="checkbox"
+                        checked={newCanonicalFieldDraft.repeatable}
+                        onChange={(event) =>
+                          setNewCanonicalFieldDraft((current) => ({
+                            ...current,
+                            repeatable: event.target.checked
+                          }))
+                        }
+                      />
+                      Repeatable line/contact value
+                    </label>
+                    <button
+                      className="primary-button"
+                      onClick={() => void createCanonicalRegistryField()}
+                      disabled={workspaceState === "saving"}
+                    >
+                      Create Draft Field
+                    </button>
+                  </div>
+                </section>
+              ) : null}
 
               <div className="canonical-registry-toolbar">
                 <label className="unit-map-search">

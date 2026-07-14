@@ -426,6 +426,63 @@ function firstMappedValue(
   return fallback;
 }
 
+const builtInCanonicalTargetFields = new Set<string>(canonicalTargetFields);
+
+function setNestedValue(target: Record<string, unknown>, path: string, value: unknown) {
+  const segments = path.split(".").filter(Boolean);
+  let cursor: Record<string, unknown> = target;
+
+  segments.forEach((segment, index) => {
+    const isLast = index === segments.length - 1;
+    if (isLast) {
+      cursor[segment] = value;
+      return;
+    }
+
+    const existing = cursor[segment];
+    if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+      cursor[segment] = {};
+    }
+    cursor = cursor[segment] as Record<string, unknown>;
+  });
+}
+
+function applySupplementalMapping(
+  order: CanonicalOrder,
+  row: Record<string, string | number | boolean | null>,
+  rowIndex: number,
+  mapping: FieldMapping
+) {
+  if (builtInCanonicalTargetFields.has(mapping.targetField)) {
+    return;
+  }
+
+  const value = row[mapping.sourceColumn];
+  if (value === null || value === undefined || value === "") {
+    return;
+  }
+
+  if (mapping.targetField.startsWith("lines[].")) {
+    const line = order.lines[rowIndex] as unknown as Record<string, unknown> | undefined;
+    if (line) {
+      setNestedValue(line, mapping.targetField.replace("lines[].", ""), value);
+    }
+    return;
+  }
+
+  if (mapping.targetField.startsWith("contacts[].")) {
+    const contacts = (order.contacts ?? []) as Array<Record<string, unknown>>;
+    if (!contacts[0]) {
+      contacts[0] = {};
+    }
+    setNestedValue(contacts[0], mapping.targetField.replace("contacts[].", ""), value);
+    order.contacts = contacts as CanonicalOrder["contacts"];
+    return;
+  }
+
+  setNestedValue(order as unknown as Record<string, unknown>, mapping.targetField, value);
+}
+
 function buildShipping(rows: SourceGrid["rows"], mappings: FieldMapping[]): ShippingAddress | null {
   const shipping: ShippingAddress = {
     method: firstMappedValue(rows, mappings, "order.shipping.method", "") || null,
@@ -537,7 +594,7 @@ export function mapSourceRowsToCanonicalOrder(
   const poNumber = firstMappedValue(rows, mappings, "order.po_number", "");
   const contractNumber = firstMappedValue(rows, mappings, "order.contract_number", "");
 
-  return {
+  const order: CanonicalOrder = {
     customer: {
       customer_id: options.customerId,
       customer_name: options.customerName,
@@ -568,4 +625,10 @@ export function mapSourceRowsToCanonicalOrder(
     },
     lines: rows.map((row, index) => buildLine(row, mappings, index))
   };
+
+  rows.forEach((row, rowIndex) => {
+    mappings.forEach((mapping) => applySupplementalMapping(order, row, rowIndex, mapping));
+  });
+
+  return order;
 }

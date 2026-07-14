@@ -1,7 +1,14 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CanonicalFieldDefinition, CanonicalOrder, ProcessingState, ValidationMessage } from "@pathfinder/canonical";
+import type {
+  CanonicalFieldDataType,
+  CanonicalFieldDefinition,
+  CanonicalFieldSection,
+  CanonicalOrder,
+  ProcessingState,
+  ValidationMessage
+} from "@pathfinder/canonical";
 import type { LiftCustomer } from "@pathfinder/customer-directory";
 import {
   buildLiftOrderLookupUrl,
@@ -364,6 +371,7 @@ export interface PathfinderStore {
   lift_unit_catalog: LiftUnitCatalogItem[];
   canonical_registry?: {
     overrides: Record<string, CanonicalFieldOverride>;
+    custom_fields: CanonicalFieldDefinition[];
     updated_at: string;
   };
 }
@@ -375,6 +383,18 @@ export interface CanonicalFieldOverride {
   status?: CanonicalFieldDefinition["status"];
   description?: string | null;
   updated_at: string;
+}
+
+export interface CanonicalFieldCreateInput {
+  path: string;
+  section: CanonicalFieldSection;
+  label: string;
+  data_type: CanonicalFieldDataType;
+  required?: boolean;
+  repeatable?: boolean;
+  status?: CanonicalFieldDefinition["status"];
+  aliases?: string[];
+  description?: string;
 }
 
 const storePath = fileURLToPath(new URL("../../../data/pathfinder-store.local.json", import.meta.url));
@@ -1079,6 +1099,7 @@ function createSeedStore(): PathfinderStore {
     lift_unit_catalog: createSeedLiftUnitCatalog(timestamp),
     canonical_registry: {
       overrides: {},
+      custom_fields: [],
       updated_at: timestamp
     }
   };
@@ -1289,6 +1310,13 @@ function normalizeCanonicalRegistry(
 ): NonNullable<PathfinderStore["canonical_registry"]> {
   const timestamp = now();
   return {
+    custom_fields: (registry?.custom_fields ?? []).map((field) => ({
+      ...field,
+      status: field.status ?? "Draft",
+      aliases: Array.isArray(field.aliases) ? field.aliases : [],
+      repeatable: field.repeatable ?? field.path.includes("[]"),
+      required: field.required ?? false
+    })),
     overrides: Object.fromEntries(
       Object.entries(registry?.overrides ?? {}).map(([fieldId, override]) => [
         fieldId,
@@ -1427,6 +1455,37 @@ export async function updateCanonicalRegistryFieldOverride(
   }
 
   registry.overrides[fieldId] = next;
+  registry.updated_at = timestamp;
+  store.canonical_registry = registry;
+  await writeStore(store);
+  return registry;
+}
+
+function canonicalFieldIdFromPath(path: string) {
+  return `canonical.${path.replace(/\[\]/g, ".items").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}`;
+}
+
+export async function addCanonicalRegistryCustomField(input: CanonicalFieldCreateInput) {
+  const store = await readStore();
+  const registry = normalizeCanonicalRegistry(store.canonical_registry);
+  const timestamp = now();
+  const field: CanonicalFieldDefinition = {
+    field_id: canonicalFieldIdFromPath(input.path),
+    path: input.path,
+    section: input.section,
+    label: input.label,
+    data_type: input.data_type,
+    required: input.required ?? false,
+    repeatable: input.repeatable ?? input.path.includes("[]"),
+    status: input.status ?? "Draft",
+    aliases: input.aliases ?? [],
+    description: input.description
+  };
+
+  registry.custom_fields = [
+    ...registry.custom_fields.filter((candidate) => candidate.field_id !== field.field_id && candidate.path !== field.path),
+    field
+  ];
   registry.updated_at = timestamp;
   store.canonical_registry = registry;
   await writeStore(store);

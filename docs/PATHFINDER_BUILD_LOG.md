@@ -909,3 +909,15 @@ What changed:
 - Updated the Global Settings Canonical Order registry table with inline edit controls.
 - Kept canonical field IDs and paths locked so existing input mappings, output template mappings, and value rules continue to resolve without breaking.
 - This establishes the editable registry pattern before moving into higher-risk schema operations such as add, rename path, reorder, deprecate, and remove.
+
+## 2026-07-14 - Canonical Registry Custom Draft Fields
+
+Added local custom field creation for the Canonical Order registry.
+
+What changed:
+
+- Added custom canonical fields to the local registry store alongside source-defined fields.
+- Added `POST /api/canonical-registry/fields` for Draft field creation with path, section, data type, alias, required, and repeatable metadata.
+- Updated the Settings registry screen with a compact Create Draft Field panel.
+- Returned custom fields through the same registry API used by mapping dropdowns, so newly created fields become selectable mapping targets.
+- Added supplemental canonical order mapping support so custom mapped paths are preserved in generated canonical order previews without changing the typed core schema.

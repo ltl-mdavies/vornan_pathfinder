@@ -4592,6 +4592,63 @@ td {
   border-bottom: 1px solid var(--border-subtle);
 }
 
+.canonical-field-create-panel {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  background: rgba(247, 250, 245, 0.78);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.canonical-field-create-panel > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.canonical-field-create-panel strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.canonical-field-create-panel span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.canonical-field-create-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.canonical-field-create-wide {
+  grid-column: span 2;
+}
+
+.canonical-field-create-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+
+.checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.checkbox-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--vornan-forest);
+}
+
 .column-chip.column-chip-muted {
   background: #fff;
 }

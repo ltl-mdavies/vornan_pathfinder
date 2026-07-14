@@ -13,7 +13,9 @@ import {
   canonicalRegistryMetadata,
   sampleCanonicalOrder,
   validateCanonicalOrder,
+  type CanonicalFieldDataType,
   type CanonicalFieldDefinition,
+  type CanonicalFieldSection,
   type ValidationMessage
 } from "@pathfinder/canonical";
 import {
@@ -42,6 +44,7 @@ import {
 } from "@pathfinder/templates";
 import {
   archiveImportMethod,
+  addCanonicalRegistryCustomField,
   bulkUpsertProductMappings,
   createDefaultProductResolutionConfig,
   getCanonicalRegistryOverrides,
@@ -1589,14 +1592,30 @@ function applyCanonicalRegistryOverrides(
 
 async function buildCanonicalRegistryResponse() {
   const registry = await getCanonicalRegistryOverrides();
-  const fields = applyCanonicalRegistryOverrides(registry.overrides);
+  const baseFields = applyCanonicalRegistryOverrides(registry.overrides);
+  const fieldMap = new Map(baseFields.map((field) => [field.field_id, field]));
+  registry.custom_fields.forEach((field) => {
+    const override = registry.overrides[field.field_id];
+    fieldMap.set(field.field_id, {
+      ...field,
+      ...(override
+        ? {
+            label: override.label ?? field.label,
+            aliases: override.aliases ?? field.aliases,
+            status: override.status ?? field.status,
+            description: override.description ?? field.description
+          }
+        : {})
+    });
+  });
+  const mergedFields = Array.from(fieldMap.values());
 
   return {
     ...canonicalRegistryMetadata,
     updated_at: registry.updated_at ?? canonicalRegistryMetadata.updated_at,
-    fields,
-    sections: Array.from(new Set(fields.map((field) => field.section))),
-    field_count: fields.length
+    fields: mergedFields,
+    sections: Array.from(new Set(mergedFields.map((field) => field.section))),
+    field_count: mergedFields.length
   };
 }
 
@@ -1605,7 +1624,10 @@ app.get("/api/canonical-registry", async (_req, res) => {
 });
 
 app.put("/api/canonical-registry/fields/:fieldId", async (req, res) => {
-  const field = canonicalFieldRegistry.find((candidate) => candidate.field_id === req.params.fieldId);
+  const registry = await getCanonicalRegistryOverrides();
+  const field = [...canonicalFieldRegistry, ...registry.custom_fields].find(
+    (candidate) => candidate.field_id === req.params.fieldId
+  );
   if (!field) {
     res.status(404).json({ error: "Canonical field not found." });
     return;
@@ -1643,6 +1665,60 @@ app.put("/api/canonical-registry/fields/:fieldId", async (req, res) => {
   });
 
   res.json(await buildCanonicalRegistryResponse());
+});
+
+app.post("/api/canonical-registry/fields", async (req, res) => {
+  const allowedSections: CanonicalFieldSection[] = ["customer", "contacts", "source", "target", "order", "shipping", "lines"];
+  const allowedDataTypes: CanonicalFieldDataType[] = ["string", "number", "integer", "boolean", "datetime", "url", "object"];
+  const registry = await getCanonicalRegistryOverrides();
+  const existingFields = [...canonicalFieldRegistry, ...registry.custom_fields];
+  const path = typeof req.body?.path === "string" ? req.body.path.trim() : "";
+  const label = typeof req.body?.label === "string" ? req.body.label.trim() : "";
+  const section = req.body?.section as CanonicalFieldSection;
+  const dataType = req.body?.data_type as CanonicalFieldDataType;
+  const aliases =
+    typeof req.body?.aliases === "string"
+      ? req.body.aliases.split(",").map((alias: string) => alias.trim()).filter(Boolean)
+      : Array.isArray(req.body?.aliases)
+        ? req.body.aliases.map((alias: unknown) => String(alias).trim()).filter(Boolean)
+        : [];
+  const status = ["Active", "Draft", "Deprecated"].includes(req.body?.status) ? req.body.status : "Draft";
+  const description = typeof req.body?.description === "string" ? req.body.description.trim() : undefined;
+
+  if (!path || !label) {
+    res.status(400).json({ error: "Path and label are required." });
+    return;
+  }
+  if (!allowedSections.includes(section)) {
+    res.status(400).json({ error: "Choose a valid canonical section." });
+    return;
+  }
+  if (!allowedDataTypes.includes(dataType)) {
+    res.status(400).json({ error: "Choose a valid data type." });
+    return;
+  }
+  if (!/^[a-z][a-z0-9_]*(\[\])?(\.[a-z][a-z0-9_]*(\[\])?)*$/.test(path)) {
+    res.status(400).json({ error: "Path must use dot notation, lowercase words, underscores, and optional [] arrays." });
+    return;
+  }
+  if (existingFields.some((field) => field.path === path)) {
+    res.status(409).json({ error: "A canonical field with this path already exists." });
+    return;
+  }
+
+  await addCanonicalRegistryCustomField({
+    path,
+    label,
+    section,
+    data_type: dataType,
+    required: Boolean(req.body?.required),
+    repeatable: typeof req.body?.repeatable === "boolean" ? req.body.repeatable : path.includes("[]"),
+    status,
+    aliases,
+    description
+  });
+
+  res.status(201).json(await buildCanonicalRegistryResponse());
 });
 
 app.get("/api/lift/customers", async (req, res) => {
