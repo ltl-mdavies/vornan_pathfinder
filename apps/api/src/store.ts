@@ -1550,6 +1550,9 @@ export async function listLiftUnitCatalog(filters: {
   q?: string;
   product_id?: string;
   catalog_id?: string;
+  product_type?: string;
+  accounting_item_code?: string;
+  parent_product_id?: string;
   status?: string;
   include_inactive?: boolean;
 } = {}) {
@@ -1561,6 +1564,9 @@ export async function listLiftUnitCatalog(filters: {
     .filter((item) => !filters.company_id || item.company_id === filters.company_id)
     .filter((item) => !filters.product_id || item.product_id === filters.product_id)
     .filter((item) => !filters.catalog_id || item.catalog_id === filters.catalog_id)
+    .filter((item) => !filters.product_type || item.product_type === filters.product_type)
+    .filter((item) => !filters.accounting_item_code || item.accounting_item_code === filters.accounting_item_code)
+    .filter((item) => !filters.parent_product_id || item.parent_product_id === filters.parent_product_id)
     .filter((item) => !filters.status || item.status === filters.status)
     .filter((item) => filters.include_inactive || item.status === "Active")
     .filter((item) => matchesSearch(item, query))

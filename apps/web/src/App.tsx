@@ -2392,6 +2392,10 @@ export function App() {
   const [preloadSelectedIds, setPreloadSelectedIds] = useState<string[]>([]);
   const [liftUnitCatalog, setLiftUnitCatalog] = useState<LiftUnitCatalogItem[]>([]);
   const [unitCatalogSearch, setUnitCatalogSearch] = useState("");
+  const [unitCatalogStatusFilter, setUnitCatalogStatusFilter] = useState<"Active" | "Inactive" | "All">("Active");
+  const [unitCatalogProductTypeFilter, setUnitCatalogProductTypeFilter] = useState("All");
+  const [unitCatalogCatalogFilter, setUnitCatalogCatalogFilter] = useState("All");
+  const [activeCatalogMappingId, setActiveCatalogMappingId] = useState<string | null>(null);
   const [unitCatalogState, setUnitCatalogState] = useState<"idle" | "loading" | "error">("idle");
   const [openTopbarMenu, setOpenTopbarMenu] = useState<"environment" | "notifications" | "actions" | null>(null);
   const [openProductMapTool, setOpenProductMapTool] = useState<"preload" | "unit-library" | null>(null);
@@ -2479,6 +2483,17 @@ export function App() {
       if (unitCatalogSearch.trim()) {
         params.set("q", unitCatalogSearch.trim());
       }
+      if (unitCatalogStatusFilter === "All") {
+        params.set("include_inactive", "true");
+      } else {
+        params.set("status", unitCatalogStatusFilter);
+      }
+      if (unitCatalogProductTypeFilter !== "All") {
+        params.set("product_type", unitCatalogProductTypeFilter);
+      }
+      if (unitCatalogCatalogFilter !== "All") {
+        params.set("catalog_id", unitCatalogCatalogFilter);
+      }
       const response = await fetch(`${apiBaseUrl}/api/lift/product-catalog?${params.toString()}`);
       const payload = await readJsonResponse<{ products: LiftUnitCatalogItem[] }>(response);
       setLiftUnitCatalog(payload.products);
@@ -2506,6 +2521,17 @@ export function App() {
       }
       if (unitCatalogSearch.trim()) {
         params.set("q", unitCatalogSearch.trim());
+      }
+      if (unitCatalogStatusFilter === "All") {
+        params.set("include_inactive", "true");
+      } else {
+        params.set("status", unitCatalogStatusFilter);
+      }
+      if (unitCatalogProductTypeFilter !== "All") {
+        params.set("product_type", unitCatalogProductTypeFilter);
+      }
+      if (unitCatalogCatalogFilter !== "All") {
+        params.set("catalog_id", unitCatalogCatalogFilter);
       }
       const response = await fetch(`${apiBaseUrl}/api/lift/product-catalog?${params.toString()}`);
       const payload = await readJsonResponse<{
@@ -2971,7 +2997,15 @@ export function App() {
 
   useEffect(() => {
     void loadLiftUnitCatalog(selectedOutputMapRoute);
-  }, [selectedOutputMapRoute.output_route_id, selectedOutputMapRoute.company_id, selectedOutputMapRoute.target_id, unitCatalogSearch]);
+  }, [
+    selectedOutputMapRoute.output_route_id,
+    selectedOutputMapRoute.company_id,
+    selectedOutputMapRoute.target_id,
+    unitCatalogSearch,
+    unitCatalogStatusFilter,
+    unitCatalogProductTypeFilter,
+    unitCatalogCatalogFilter
+  ]);
 
   const selectedOutputMapTarget =
     targetRows.find((target) => target.target_id === selectedOutputMapRoute.target_id) ?? primaryTarget ?? null;
@@ -3038,6 +3072,22 @@ export function App() {
   }, [productMappings, selectedOutputMapRouteId, unitMapSearch, unitMapStatusFilter]);
   const selectedUnitMappings = productMappings.filter(
     (mapping) => mapping.output_route_id === selectedOutputMapRouteId && selectedUnitMapIds.includes(mapping.mapping_id)
+  );
+  const activeCatalogMapping =
+    productMappings.find(
+      (mapping) => mapping.output_route_id === selectedOutputMapRouteId && mapping.mapping_id === activeCatalogMappingId
+    ) ?? null;
+  const unitCatalogProductTypeOptions = Array.from(
+    new Set(liftUnitCatalog.map((item) => item.product_type).filter((value): value is string => Boolean(value)))
+  ).sort();
+  const unitCatalogCatalogsById = liftUnitCatalog.reduce<Record<string, string>>((catalogs, item) => {
+    if (item.catalog_id) {
+      catalogs[item.catalog_id] = item.catalog_name ?? item.catalog_id;
+    }
+    return catalogs;
+  }, {});
+  const unitCatalogCatalogOptions = Object.entries(unitCatalogCatalogsById).sort((first, second) =>
+    first[1].localeCompare(second[1])
   );
   const routeProductMappings = productMappings.filter((mapping) => mapping.output_route_id === selectedOutputMapRouteId);
   const routeMappedCount = routeProductMappings.filter((mapping) => mapping.status === "Mapped").length;
@@ -3950,6 +4000,11 @@ export function App() {
       },
       `${selectedUnitMappings.length} customer key${selectedUnitMappings.length === 1 ? "" : "s"} mapped to ${catalogIdentifierForRoute(item, selectedOutputMapRoute) || item.product_name}.`
     );
+    if (activeCatalogMappingId) {
+      setOpenProductMapTool(null);
+      setActiveCatalogMappingId(null);
+      setSelectedUnitMapIds([]);
+    }
   }
 
   function setPreloadDefaultFromCatalog(item: LiftUnitCatalogItem) {
@@ -5507,7 +5562,13 @@ export function App() {
                     </div>
                     <div className="unit-map-header-actions">
                       <span>Customer keys resolved per output route</span>
-                      <button className="secondary-button" onClick={() => setOpenProductMapTool("unit-library")}>
+                      <button
+                        className="secondary-button"
+                        onClick={() => {
+                          setActiveCatalogMappingId(null);
+                          setOpenProductMapTool("unit-library");
+                        }}
+                      >
                         <Database size={15} />
                         Lift Product Catalog
                       </button>
@@ -5584,7 +5645,14 @@ export function App() {
                   </div>
 
                   {openProductMapTool === "preload" ? (
-                    <div className="product-map-modal-backdrop" role="presentation" onClick={() => setOpenProductMapTool(null)}>
+                    <div
+                      className="product-map-modal-backdrop"
+                      role="presentation"
+                      onClick={() => {
+                        setOpenProductMapTool(null);
+                        setActiveCatalogMappingId(null);
+                      }}
+                    >
                       <section
                         className="product-preload-panel product-map-modal product-map-modal-wide"
                         role="dialog"
@@ -5793,7 +5861,9 @@ export function App() {
                       <div>
                         <strong>Lift Product Catalog</strong>
                         <span>
-                          Search cached Lift products, refresh from Lift, then map customer keys to product_id or unitNumber.
+                          {activeCatalogMapping
+                            ? `Map ${activeCatalogMapping.customer_product_key} to an approved Lift product.`
+                            : "Search cached Lift products, refresh from Lift, then map customer keys to product_id or unitNumber."}
                         </span>
                       </div>
                       <label className="unit-map-search unit-catalog-search">
@@ -5809,10 +5879,65 @@ export function App() {
                           <RefreshCw size={15} />
                           Refresh from Lift
                         </button>
-                        <button className="modal-close-button" onClick={() => setOpenProductMapTool(null)} aria-label="Close Lift product catalog">
+                        <button
+                          className="modal-close-button"
+                          onClick={() => {
+                            setOpenProductMapTool(null);
+                            setActiveCatalogMappingId(null);
+                          }}
+                          aria-label="Close Lift product catalog"
+                        >
                           <X size={17} />
                         </button>
                       </div>
+                    </div>
+                    {activeCatalogMapping ? (
+                      <div className="unit-catalog-focus">
+                        <span>Mapping target</span>
+                        <strong>{activeCatalogMapping.customer_product_key}</strong>
+                        <small>{activeCatalogMapping.display_label}</small>
+                      </div>
+                    ) : null}
+                    <div className="unit-catalog-filters">
+                      <label className="setup-control">
+                        <span>Status</span>
+                        <select
+                          value={unitCatalogStatusFilter}
+                          onChange={(event) => setUnitCatalogStatusFilter(event.target.value as "Active" | "Inactive" | "All")}
+                        >
+                          <option value="Active">Active products</option>
+                          <option value="Inactive">Inactive products</option>
+                          <option value="All">All products</option>
+                        </select>
+                      </label>
+                      <label className="setup-control">
+                        <span>Product Type</span>
+                        <select
+                          value={unitCatalogProductTypeFilter}
+                          onChange={(event) => setUnitCatalogProductTypeFilter(event.target.value)}
+                        >
+                          <option value="All">All product types</option>
+                          {unitCatalogProductTypeOptions.map((productType) => (
+                            <option key={productType} value={productType}>
+                              {productType}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="setup-control">
+                        <span>Catalog</span>
+                        <select
+                          value={unitCatalogCatalogFilter}
+                          onChange={(event) => setUnitCatalogCatalogFilter(event.target.value)}
+                        >
+                          <option value="All">All catalogs</option>
+                          {unitCatalogCatalogOptions.map(([catalogId, catalogName]) => (
+                            <option key={catalogId} value={catalogId}>
+                              {catalogName} / {catalogId}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                     </div>
                     <div className="unit-catalog-results">
                       {liftUnitCatalog.map((item) => (
@@ -5833,7 +5958,11 @@ export function App() {
                               onClick={() => void assignCatalogItemToSelectedMappings(item)}
                               disabled={workspaceState === "saving"}
                             >
-                              {selectedUnitMappings.length ? `Assign ${selectedUnitMappings.length}` : "Set Bulk"}
+                              {activeCatalogMapping
+                                ? "Map Product"
+                                : selectedUnitMappings.length
+                                  ? `Assign ${selectedUnitMappings.length}`
+                                  : "Set Bulk"}
                             </button>
                             <button className="secondary-button" onClick={() => setPreloadDefaultFromCatalog(item)}>
                               Preload Default
@@ -5973,6 +6102,7 @@ export function App() {
                                   className="secondary-button table-inline-button"
                                   onClick={() => {
                                     setSelectedUnitMapIds([mapping.mapping_id]);
+                                    setActiveCatalogMappingId(mapping.mapping_id);
                                     setUnitCatalogSearch(mapping.product_name ?? mapping.display_label ?? mapping.customer_product_key);
                                     setOpenProductMapTool("unit-library");
                                   }}

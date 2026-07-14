@@ -851,3 +851,15 @@ What changed:
 - Package data continues to redact internal `NEGOTIATED_RATE` values before it reaches the UI or snapshot payload.
 - Job detail now includes an **Order Snapshot** action with a compact summary and full internal JSON payload.
 - The snapshot includes an explicit visibility policy marking it internal-only while public customer order status remains a future phase.
+
+## 2026-07-14 - Lift Product Catalog Picker Polish
+
+Improved the Output Product Map workflow for mapping customer keys to Lift products.
+
+What changed:
+
+- Lift product catalog cache lookup now supports product type, accounting item code, parent product id, catalog id, product id, status, route, company, and text search filters.
+- Lift API refresh translates Pathfinder's `Active` / `Inactive` product filters to Lift's `A` / `I` status query values.
+- Output Product Map's row-level **Map Product** action now opens the catalog picker in focused mode for that customer key.
+- The catalog picker now shows the mapping target, route-aware product identifier behavior, and filters for status, product type, and catalog.
+- Selecting a catalog item can map one focused customer key or continue to bulk-assign selected keys.

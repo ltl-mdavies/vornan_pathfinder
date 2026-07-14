@@ -270,7 +270,13 @@ function liftProductQueryParams(reqQuery: Record<string, unknown>) {
   allowedParams.forEach((key) => {
     const value = reqQuery[key];
     if (typeof value === "string" && value.trim()) {
-      params.set(key, value.trim());
+      const normalizedValue =
+        key === "status" && value.trim() === "Active"
+          ? "A"
+          : key === "status" && value.trim() === "Inactive"
+            ? "I"
+            : value.trim();
+      params.set(key, normalizedValue);
     }
   });
 
@@ -2486,6 +2492,9 @@ app.get("/api/lift/product-catalog", async (req, res) => {
       q: req.query.q ? String(req.query.q) : undefined,
       product_id: req.query.product_id ? String(req.query.product_id) : undefined,
       catalog_id: req.query.catalog_id ? String(req.query.catalog_id) : undefined,
+      product_type: req.query.product_type ? String(req.query.product_type) : undefined,
+      accounting_item_code: req.query.accounting_item_code ? String(req.query.accounting_item_code) : undefined,
+      parent_product_id: req.query.parent_product_id ? String(req.query.parent_product_id) : undefined,
       status: req.query.status ? String(req.query.status) : undefined,
       include_inactive: req.query.include_inactive === "1" || req.query.include_inactive === "true"
     });
