@@ -2162,6 +2162,18 @@ export function App() {
     }
   }
 
+  async function persistOutputRoute(route: OutputRoute) {
+    const response = await fetch(
+      `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/output-routes/${route.output_route_id}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(route)
+      }
+    );
+    return readJsonResponse<PathfinderCustomerWorkspace>(response);
+  }
+
   async function saveTarget(target: TargetConfig) {
     setWorkspaceState("saving");
     try {
@@ -2171,9 +2183,34 @@ export function App() {
         body: JSON.stringify(target)
       });
       const savedTarget = await readJsonResponse<TargetConfig>(response);
+      const activeEnvironment = savedTarget.environments.find(
+        (environment) => environment.name === savedTarget.lift.active_environment
+      );
+      const routesToSync =
+        activeEnvironment && workspace?.output_routes
+          ? workspace.output_routes.filter(
+              (route) => route.target_id === savedTarget.target_id && route.environment_id !== activeEnvironment.environment_id
+            )
+          : [];
+      let syncedWorkspace: PathfinderCustomerWorkspace | null = null;
+
+      for (const route of routesToSync) {
+        syncedWorkspace = await persistOutputRoute({
+          ...route,
+          environment_id: activeEnvironment!.environment_id
+        });
+      }
+
       setTargets((current) => [savedTarget, ...current.filter((candidate) => candidate.target_id !== savedTarget.target_id)]);
-      setWorkspace((current) => (current ? { ...current, primary_target: savedTarget } : current));
-      setWorkspaceMessage("Target settings saved.");
+      setWorkspace((current) => {
+        const nextWorkspace = syncedWorkspace ?? current;
+        return nextWorkspace ? { ...nextWorkspace, primary_target: savedTarget } : nextWorkspace;
+      });
+      setWorkspaceMessage(
+        routesToSync.length
+          ? `Target settings saved. ${routesToSync.length} route${routesToSync.length === 1 ? "" : "s"} now use ${activeEnvironment?.name}.`
+          : "Target settings saved."
+      );
       setWorkspaceState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Target save failed.");
@@ -3015,15 +3052,7 @@ export function App() {
   async function saveOutputRoute(route: OutputRoute) {
     setWorkspaceState("saving");
     try {
-      const response = await fetch(
-        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/output-routes/${route.output_route_id}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(route)
-        }
-      );
-      const nextWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      const nextWorkspace = await persistOutputRoute(route);
       setWorkspace(nextWorkspace);
       setWorkspaceMessage("Output route saved.");
       setWorkspaceState("idle");
