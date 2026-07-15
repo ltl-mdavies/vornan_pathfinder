@@ -955,3 +955,15 @@ What changed:
 - Kept historical preview/submission job snapshots unchanged for audit accuracy.
 - Added inline path rename controls for custom fields in the Settings registry table.
 - Preserved the old path as an alias on renamed custom fields so users can still search by the previous name.
+
+## 2026-07-14 - Canonical Registry Versioning and Export
+
+Added a lightweight governance layer for canonical schema changes.
+
+What changed:
+
+- Added local registry change history for field metadata edits, custom field creation, draft removal, and custom path renames.
+- Added bounded local registry snapshots so each saved schema change records the effective field contract at that moment.
+- Added `GET /api/canonical-registry/export?format=json|csv` for downloadable registry exports.
+- Updated Settings with export actions and a Registry Governance panel showing the latest snapshot and recent schema changes.
+- Kept export responses focused on schema metadata and mapping usage; credentials and target secrets remain outside the registry export.

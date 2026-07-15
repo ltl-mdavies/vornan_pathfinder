@@ -583,6 +583,33 @@ interface CanonicalRegistryPayload {
   fields: CanonicalRegistryField[];
   sections: string[];
   field_count: number;
+  history?: CanonicalRegistryChangeEntry[];
+  snapshots?: CanonicalRegistrySnapshotSummary[];
+}
+
+interface CanonicalRegistryChangeEntry {
+  change_id: string;
+  action: "field_metadata_updated" | "custom_field_created" | "custom_field_removed" | "custom_field_renamed";
+  summary: string;
+  field_id?: string;
+  field_path?: string;
+  previous_path?: string;
+  next_path?: string;
+  usage_total?: number;
+  created_at: string;
+}
+
+interface CanonicalRegistrySnapshotSummary {
+  snapshot_id: string;
+  registry_id: string;
+  version: string;
+  status: string;
+  field_count: number;
+  custom_field_count: number;
+  change_id: string;
+  action: CanonicalRegistryChangeEntry["action"];
+  summary: string;
+  created_at: string;
 }
 
 const canonicalSectionLabels: Record<string, string> = {
@@ -1703,6 +1730,20 @@ function displayTimestamp(value?: string | null) {
   });
 }
 
+function canonicalRegistryActionLabel(action: CanonicalRegistryChangeEntry["action"]) {
+  switch (action) {
+    case "custom_field_created":
+      return "Created";
+    case "custom_field_removed":
+      return "Removed";
+    case "custom_field_renamed":
+      return "Renamed";
+    case "field_metadata_updated":
+    default:
+      return "Updated";
+  }
+}
+
 function displayJobId(jobId: string) {
   const digits = jobId.replace(/\D/g, "").slice(-6);
   return digits ? `JOB-${digits}` : jobId;
@@ -2585,6 +2626,10 @@ export function App() {
     }
   }
 
+  function downloadCanonicalRegistry(format: "json" | "csv") {
+    window.open(`${apiBaseUrl}/api/canonical-registry/export?format=${format}`, "_blank", "noopener,noreferrer");
+  }
+
   async function loadLiftUnitCatalog(route: OutputRoute) {
     setUnitCatalogState("loading");
     try {
@@ -3242,6 +3287,9 @@ export function App() {
   );
   const canonicalRequiredCount = canonicalRegistryFields.filter((field) => field.required).length;
   const canonicalRepeatableCount = canonicalRegistryFields.filter((field) => field.repeatable).length;
+  const canonicalRegistryHistory = canonicalRegistry?.history ?? [];
+  const canonicalRegistrySnapshots = canonicalRegistry?.snapshots ?? [];
+  const latestCanonicalSnapshot = canonicalRegistrySnapshots[0] ?? null;
   const canonicalRegistrySectionCounts = canonicalRegistryFields.reduce<Record<string, number>>((counts, field) => {
     counts[field.section] = (counts[field.section] ?? 0) + 1;
     return counts;
@@ -8786,12 +8834,22 @@ export function App() {
                   Review the field contract Pathfinder uses between customer inputs, canonical orders, and output templates.
                 </p>
               </div>
-              <button
-                className="secondary-button"
-                onClick={() => setIsCreatingCanonicalField((current) => !current)}
-              >
-                {isCreatingCanonicalField ? "Close Field Draft" : "New Draft Field"}
-              </button>
+              <div className="settings-header-actions">
+                <button className="secondary-button" onClick={() => downloadCanonicalRegistry("json")}>
+                  <FileText size={16} />
+                  Export JSON
+                </button>
+                <button className="secondary-button" onClick={() => downloadCanonicalRegistry("csv")}>
+                  <FileSpreadsheet size={16} />
+                  Export CSV
+                </button>
+                <button
+                  className="primary-button"
+                  onClick={() => setIsCreatingCanonicalField((current) => !current)}
+                >
+                  {isCreatingCanonicalField ? "Close Field Draft" : "New Draft Field"}
+                </button>
+              </div>
             </header>
 
             <section className="metric-strip canonical-registry-metrics" aria-label="Canonical registry metrics">
@@ -8832,6 +8890,56 @@ export function App() {
                   </div>
                 </div>
               ))}
+            </section>
+
+            <section className="panel canonical-governance-panel">
+              <div className="panel-header unit-map-panel-header">
+                <div className="panel-title">
+                  <History size={18} strokeWidth={2.2} />
+                  <h2>Registry Governance</h2>
+                </div>
+                <span>Version snapshots and recent field-contract changes</span>
+              </div>
+              <div className="canonical-governance-grid">
+                <div className="canonical-governance-summary">
+                  <span>Latest Snapshot</span>
+                  <strong>{latestCanonicalSnapshot?.version ?? "No local snapshot yet"}</strong>
+                  <small>
+                    {latestCanonicalSnapshot
+                      ? `${latestCanonicalSnapshot.field_count} fields · ${displayTimestamp(latestCanonicalSnapshot.created_at)}`
+                      : "A snapshot will be created the next time the registry changes."}
+                  </small>
+                </div>
+                <div className="canonical-governance-summary">
+                  <span>Snapshot Retention</span>
+                  <strong>{canonicalRegistrySnapshots.length}</strong>
+                  <small>Most recent 20 registry snapshots are retained locally.</small>
+                </div>
+                <div className="canonical-governance-history">
+                  <div>
+                    <strong>Recent Changes</strong>
+                    <span>{canonicalRegistryHistory.length ? "Latest 5 shown" : "No local changes recorded yet"}</span>
+                  </div>
+                  {canonicalRegistryHistory.length ? (
+                    <ul>
+                      {canonicalRegistryHistory.slice(0, 5).map((change) => (
+                        <li key={change.change_id}>
+                          <span className="mini-pill mini-pill-neutral">{canonicalRegistryActionLabel(change.action)}</span>
+                          <div>
+                            <strong>{change.summary}</strong>
+                            <small>
+                              {displayTimestamp(change.created_at)}
+                              {change.next_path ? ` · ${change.next_path}` : change.field_path ? ` · ${change.field_path}` : ""}
+                            </small>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p>Saved schema edits from this sprint forward will appear here.</p>
+                  )}
+                </div>
+              </div>
             </section>
 
             <section className="panel canonical-registry-panel">

@@ -1,13 +1,15 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import type {
-  CanonicalFieldDataType,
-  CanonicalFieldDefinition,
-  CanonicalFieldSection,
-  CanonicalOrder,
-  ProcessingState,
-  ValidationMessage
+import {
+  canonicalFieldRegistry,
+  canonicalRegistryMetadata,
+  type CanonicalFieldDataType,
+  type CanonicalFieldDefinition,
+  type CanonicalFieldSection,
+  type CanonicalOrder,
+  type ProcessingState,
+  type ValidationMessage
 } from "@pathfinder/canonical";
 import type { LiftCustomer } from "@pathfinder/customer-directory";
 import {
@@ -372,6 +374,8 @@ export interface PathfinderStore {
   canonical_registry?: {
     overrides: Record<string, CanonicalFieldOverride>;
     custom_fields: CanonicalFieldDefinition[];
+    snapshots: CanonicalRegistrySnapshot[];
+    history: CanonicalRegistryChangeEntry[];
     updated_at: string;
   };
 }
@@ -404,6 +408,39 @@ export interface CanonicalFieldUsageSummary {
   output_template_tokens: number;
   value_rules: number;
   total: number;
+}
+
+export type CanonicalRegistryChangeAction =
+  | "field_metadata_updated"
+  | "custom_field_created"
+  | "custom_field_removed"
+  | "custom_field_renamed";
+
+export interface CanonicalRegistryChangeEntry {
+  change_id: string;
+  action: CanonicalRegistryChangeAction;
+  summary: string;
+  field_id?: string;
+  field_path?: string;
+  previous_path?: string;
+  next_path?: string;
+  usage_total?: number;
+  created_at: string;
+  details?: Record<string, unknown>;
+}
+
+export interface CanonicalRegistrySnapshot {
+  snapshot_id: string;
+  registry_id: string;
+  version: string;
+  status: string;
+  field_count: number;
+  custom_field_count: number;
+  change_id: string;
+  action: CanonicalRegistryChangeAction;
+  summary: string;
+  fields: CanonicalFieldDefinition[];
+  created_at: string;
 }
 
 const storePath = fileURLToPath(new URL("../../../data/pathfinder-store.local.json", import.meta.url));
@@ -1109,6 +1146,8 @@ function createSeedStore(): PathfinderStore {
     canonical_registry: {
       overrides: {},
       custom_fields: [],
+      snapshots: [],
+      history: [],
       updated_at: timestamp
     }
   };
@@ -1339,8 +1378,94 @@ function normalizeCanonicalRegistry(
         }
       ])
     ),
+    snapshots: registry?.snapshots ?? [],
+    history: registry?.history ?? [],
     updated_at: registry?.updated_at ?? timestamp
   };
+}
+
+function registryChangeId(timestamp: string) {
+  return `chg_${timestamp.replace(/[-:.TZ]/g, "")}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function registrySnapshotId(timestamp: string) {
+  return `snap_${timestamp.replace(/[-:.TZ]/g, "")}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function applyCanonicalFieldOverride(field: CanonicalFieldDefinition, override?: CanonicalFieldOverride) {
+  return {
+    ...field,
+    label: override?.label ?? field.label,
+    aliases: override?.aliases ?? field.aliases,
+    status: override?.status ?? field.status,
+    description: override?.description ?? field.description
+  };
+}
+
+function registrySnapshotFields(registry: NonNullable<PathfinderStore["canonical_registry"]>) {
+  return [
+    ...canonicalFieldRegistry.map((field) => applyCanonicalFieldOverride(field, registry.overrides[field.field_id])),
+    ...registry.custom_fields.map((field) => applyCanonicalFieldOverride(field, registry.overrides[field.field_id]))
+  ];
+}
+
+function recordCanonicalRegistryChange(
+  registry: NonNullable<PathfinderStore["canonical_registry"]>,
+  action: CanonicalRegistryChangeAction,
+  summary: string,
+  details: Record<string, unknown> = {}
+) {
+  const timestamp = now();
+  const change: CanonicalRegistryChangeEntry = {
+    change_id: registryChangeId(timestamp),
+    action,
+    summary,
+    created_at: timestamp,
+    details
+  };
+  const fieldId = details.field_id;
+  const fieldPath = details.field_path;
+  const previousPath = details.previous_path;
+  const nextPath = details.next_path;
+  const usageTotal = details.usage_total;
+
+  if (typeof fieldId === "string") {
+    change.field_id = fieldId;
+  }
+  if (typeof fieldPath === "string") {
+    change.field_path = fieldPath;
+  }
+  if (typeof previousPath === "string") {
+    change.previous_path = previousPath;
+  }
+  if (typeof nextPath === "string") {
+    change.next_path = nextPath;
+  }
+  if (typeof usageTotal === "number") {
+    change.usage_total = usageTotal;
+  }
+
+  const fields = registrySnapshotFields(registry);
+  const snapshotNumber = (registry.snapshots?.length ?? 0) + 1;
+  const snapshot: CanonicalRegistrySnapshot = {
+    snapshot_id: registrySnapshotId(timestamp),
+    registry_id: canonicalRegistryMetadata.registry_id,
+    version: `${canonicalRegistryMetadata.version}+local.${snapshotNumber}`,
+    status: canonicalRegistryMetadata.status,
+    field_count: fields.length,
+    custom_field_count: registry.custom_fields.length,
+    change_id: change.change_id,
+    action,
+    summary,
+    fields,
+    created_at: timestamp
+  };
+
+  registry.history = [change, ...(registry.history ?? [])].slice(0, 50);
+  registry.snapshots = [snapshot, ...(registry.snapshots ?? [])].slice(0, 20);
+  registry.updated_at = timestamp;
+
+  return { change, snapshot };
 }
 
 function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderCustomerWorkspace {
@@ -1434,6 +1559,15 @@ export async function getCanonicalRegistryOverrides() {
   return normalizeCanonicalRegistry(store.canonical_registry);
 }
 
+export async function getCanonicalRegistryGovernance() {
+  const store = await readStore();
+  const registry = normalizeCanonicalRegistry(store.canonical_registry);
+  return {
+    history: registry.history ?? [],
+    snapshots: registry.snapshots ?? []
+  };
+}
+
 export async function updateCanonicalRegistryFieldOverride(
   fieldId: string,
   patch: Partial<Pick<CanonicalFieldOverride, "label" | "aliases" | "status" | "description">>
@@ -1464,7 +1598,10 @@ export async function updateCanonicalRegistryFieldOverride(
   }
 
   registry.overrides[fieldId] = next;
-  registry.updated_at = timestamp;
+  recordCanonicalRegistryChange(registry, "field_metadata_updated", "Updated canonical field metadata.", {
+    field_id: fieldId,
+    patch
+  });
   store.canonical_registry = registry;
   await writeStore(store);
   return registry;
@@ -1477,7 +1614,6 @@ function canonicalFieldIdFromPath(path: string) {
 export async function addCanonicalRegistryCustomField(input: CanonicalFieldCreateInput) {
   const store = await readStore();
   const registry = normalizeCanonicalRegistry(store.canonical_registry);
-  const timestamp = now();
   const field: CanonicalFieldDefinition = {
     field_id: canonicalFieldIdFromPath(input.path),
     path: input.path,
@@ -1495,7 +1631,12 @@ export async function addCanonicalRegistryCustomField(input: CanonicalFieldCreat
     ...registry.custom_fields.filter((candidate) => candidate.field_id !== field.field_id && candidate.path !== field.path),
     field
   ];
-  registry.updated_at = timestamp;
+  recordCanonicalRegistryChange(registry, "custom_field_created", `Created custom field ${field.path}.`, {
+    field_id: field.field_id,
+    field_path: field.path,
+    section: field.section,
+    data_type: field.data_type
+  });
   store.canonical_registry = registry;
   await writeStore(store);
   return registry;
@@ -1510,10 +1651,13 @@ export async function deleteCanonicalRegistryCustomField(fieldId: string) {
     return null;
   }
 
-  const timestamp = now();
   registry.custom_fields = registry.custom_fields.filter((field) => field.field_id !== fieldId);
   delete registry.overrides[fieldId];
-  registry.updated_at = timestamp;
+  recordCanonicalRegistryChange(registry, "custom_field_removed", `Removed draft custom field ${existingField.path}.`, {
+    field_id: existingField.field_id,
+    field_path: existingField.path,
+    section: existingField.section
+  });
   store.canonical_registry = registry;
   await writeStore(store);
   return registry;
@@ -1687,12 +1831,19 @@ export async function renameCanonicalRegistryCustomField(fieldId: string, newPat
   );
 
   store.canonical_registry = registry;
+  const usage = canonicalFieldUsageForStore(store, newPath);
+  recordCanonicalRegistryChange(registry, "custom_field_renamed", `Renamed custom field ${oldPath} to ${newPath}.`, {
+    field_id: fieldId,
+    previous_path: oldPath,
+    next_path: newPath,
+    usage_total: usage.total
+  });
   await writeStore(store);
   return {
     registry,
     old_path: oldPath,
     new_path: newPath,
-    usage: canonicalFieldUsageForStore(store, newPath)
+    usage
   };
 }
 

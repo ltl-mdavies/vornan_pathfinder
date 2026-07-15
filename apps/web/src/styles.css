@@ -4568,8 +4568,103 @@ td {
   align-items: center;
 }
 
+.settings-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settings-header-actions .primary-button,
+.settings-header-actions .secondary-button {
+  min-height: 40px;
+}
+
 .canonical-registry-metrics {
   margin-bottom: 18px;
+}
+
+.canonical-governance-panel {
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+
+.canonical-governance-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(180px, 0.7fr) minmax(320px, 1.7fr);
+  gap: 14px;
+  padding: 16px;
+}
+
+.canonical-governance-summary,
+.canonical-governance-history {
+  min-height: 112px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: rgba(247, 250, 245, 0.58);
+}
+
+.canonical-governance-summary {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+}
+
+.canonical-governance-summary span,
+.canonical-governance-history span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.canonical-governance-summary strong,
+.canonical-governance-history strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.canonical-governance-summary small,
+.canonical-governance-history small,
+.canonical-governance-history p {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.canonical-governance-history {
+  display: grid;
+  gap: 12px;
+}
+
+.canonical-governance-history > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.canonical-governance-history ul {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.canonical-governance-history li {
+  display: grid;
+  grid-template-columns: 86px 1fr;
+  align-items: start;
+  gap: 10px;
+}
+
+.canonical-governance-history li > div {
+  display: grid;
+  gap: 2px;
 }
 
 .canonical-registry-panel {

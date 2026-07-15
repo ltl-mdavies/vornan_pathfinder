@@ -48,6 +48,7 @@ import {
   bulkUpsertProductMappings,
   createDefaultProductResolutionConfig,
   deleteCanonicalRegistryCustomField,
+  getCanonicalRegistryGovernance,
   getCanonicalRegistryOverrides,
   getCanonicalRegistryUsageByPath,
   getOrCreateWorkspace,
@@ -1617,6 +1618,7 @@ function applyCanonicalRegistryOverrides(
 
 async function buildCanonicalRegistryResponse() {
   const registry = await getCanonicalRegistryOverrides();
+  const governance = await getCanonicalRegistryGovernance();
   const usageByPath = await getCanonicalRegistryUsageByPath();
   const baseFields = applyCanonicalRegistryOverrides(registry.overrides, usageByPath);
   const fieldMap = new Map(baseFields.map((field) => [field.field_id, field]));
@@ -1650,12 +1652,68 @@ async function buildCanonicalRegistryResponse() {
     updated_at: registry.updated_at ?? canonicalRegistryMetadata.updated_at,
     fields: mergedFields,
     sections: Array.from(new Set(mergedFields.map((field) => field.section))),
-    field_count: mergedFields.length
+    field_count: mergedFields.length,
+    history: governance.history,
+    snapshots: governance.snapshots.map(({ fields: _fields, ...snapshot }) => snapshot)
   };
+}
+
+function csvCell(value: unknown) {
+  const text = Array.isArray(value) ? value.join("; ") : value == null ? "" : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function canonicalRegistryCsv(
+  fields: Array<CanonicalFieldDefinition & { origin: "core" | "custom"; usage: CanonicalFieldUsageSummary }>
+) {
+  const columns = [
+    "path",
+    "label",
+    "section",
+    "data_type",
+    "required",
+    "repeatable",
+    "status",
+    "origin",
+    "aliases",
+    "description",
+    "usage_total"
+  ];
+  const rows = fields.map((field) => [
+    field.path,
+    field.label,
+    field.section,
+    field.data_type,
+    field.required,
+    field.repeatable,
+    field.status,
+    field.origin,
+    field.aliases,
+    field.description,
+    field.usage.total
+  ]);
+
+  return [columns, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
 }
 
 app.get("/api/canonical-registry", async (_req, res) => {
   res.json(await buildCanonicalRegistryResponse());
+});
+
+app.get("/api/canonical-registry/export", async (req, res) => {
+  const registry = await buildCanonicalRegistryResponse();
+  const format = req.query.format === "csv" ? "csv" : "json";
+
+  if (format === "csv") {
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="pathfinder-canonical-registry.csv"');
+    res.send(canonicalRegistryCsv(registry.fields));
+    return;
+  }
+
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="pathfinder-canonical-registry.json"');
+  res.json(registry);
 });
 
 app.put("/api/canonical-registry/fields/:fieldId", async (req, res) => {
