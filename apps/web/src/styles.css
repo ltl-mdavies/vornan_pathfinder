@@ -784,7 +784,7 @@ h1 {
 .dashboard-scope-control::after {
   position: absolute;
   right: 13px;
-  bottom: 14px;
+  bottom: 16px;
   width: 7px;
   height: 7px;
   border-right: 2px solid var(--vornan-forest);
@@ -811,8 +811,19 @@ h1 {
   padding: 0 38px 0 12px;
   color: var(--text-primary);
   background-color: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
   appearance: none;
   cursor: pointer;
+  font-size: 13px;
+  font-weight: 750;
+  outline: none;
+  box-shadow: 0 10px 24px rgba(25, 24, 24, 0.035);
+}
+
+.dashboard-scope-control select:focus {
+  border-color: rgba(57, 82, 59, 0.42);
+  box-shadow: 0 0 0 3px rgba(57, 82, 59, 0.08), 0 10px 24px rgba(25, 24, 24, 0.035);
 }
 
 .dashboard-kpi-grid {
