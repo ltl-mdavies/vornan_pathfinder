@@ -4922,9 +4922,10 @@ td {
   width: 34%;
 }
 
-.canonical-registry-table td:nth-child(4) {
+.canonical-field-rules {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
 }
 

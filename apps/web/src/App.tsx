@@ -9333,10 +9333,12 @@ export function App() {
                           <td>{field.section}</td>
                           <td>{field.data_type}</td>
                           <td>
-                            <span className={field.required ? "mini-pill mini-pill-warning" : "mini-pill mini-pill-neutral"}>
-                              {field.required ? "Required" : "Optional"}
-                            </span>
-                            {field.repeatable ? <span className="mini-pill mini-pill-neutral">Repeatable</span> : null}
+                            <div className="canonical-field-rules">
+                              <span className={field.required ? "mini-pill mini-pill-warning" : "mini-pill mini-pill-neutral"}>
+                                {field.required ? "Required" : "Optional"}
+                              </span>
+                              {field.repeatable ? <span className="mini-pill mini-pill-neutral">Repeatable</span> : null}
+                            </div>
                           </td>
                           <td>
                             {isEditing ? (
