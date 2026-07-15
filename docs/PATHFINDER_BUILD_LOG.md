@@ -967,3 +967,15 @@ What changed:
 - Added `GET /api/canonical-registry/export?format=json|csv` for downloadable registry exports.
 - Updated Settings with export actions and a Registry Governance panel showing the latest snapshot and recent schema changes.
 - Kept export responses focused on schema metadata and mapping usage; credentials and target secrets remain outside the registry export.
+
+## 2026-07-14 - Canonical Registry Impact Review
+
+Added review and recovery controls around canonical schema changes.
+
+What changed:
+
+- Added snapshot detail, snapshot-specific JSON/CSV export, and current-vs-snapshot comparison endpoints.
+- Added an Impact Review modal before canonical field metadata edits, custom path renames, and Draft custom field removals.
+- Replaced browser confirm prompts with an app-native review step showing affected mappings, template tokens, and value rules.
+- Added a Settings snapshot detail modal with export actions, diff counts, and captured field preview.
+- Kept restore destructive actions out of scope; compare is read-only groundwork for future recovery workflows.

@@ -1664,7 +1664,7 @@ function csvCell(value: unknown) {
 }
 
 function canonicalRegistryCsv(
-  fields: Array<CanonicalFieldDefinition & { origin: "core" | "custom"; usage: CanonicalFieldUsageSummary }>
+  fields: Array<CanonicalFieldDefinition & { origin?: "core" | "custom"; usage?: CanonicalFieldUsageSummary }>
 ) {
   const columns = [
     "path",
@@ -1687,13 +1687,46 @@ function canonicalRegistryCsv(
     field.required,
     field.repeatable,
     field.status,
-    field.origin,
+    field.origin ?? "",
     field.aliases,
     field.description,
-    field.usage.total
+    field.usage?.total ?? ""
   ]);
 
   return [columns, ...rows].map((row) => row.map(csvCell).join(",")).join("\n");
+}
+
+function comparableCanonicalField(field: CanonicalFieldDefinition) {
+  return {
+    path: field.path,
+    label: field.label,
+    section: field.section,
+    data_type: field.data_type,
+    required: field.required,
+    repeatable: field.repeatable,
+    status: field.status,
+    aliases: field.aliases ?? [],
+    description: field.description ?? null
+  };
+}
+
+function canonicalRegistrySnapshotDiff(snapshotFields: CanonicalFieldDefinition[], currentFields: CanonicalFieldDefinition[]) {
+  const snapshotByPath = new Map(snapshotFields.map((field) => [field.path, field]));
+  const currentByPath = new Map(currentFields.map((field) => [field.path, field]));
+  const added = currentFields.filter((field) => !snapshotByPath.has(field.path));
+  const removed = snapshotFields.filter((field) => !currentByPath.has(field.path));
+  const changed = currentFields
+    .filter((field) => {
+      const previous = snapshotByPath.get(field.path);
+      return previous && JSON.stringify(comparableCanonicalField(previous)) !== JSON.stringify(comparableCanonicalField(field));
+    })
+    .map((field) => ({
+      path: field.path,
+      before: comparableCanonicalField(snapshotByPath.get(field.path) as CanonicalFieldDefinition),
+      after: comparableCanonicalField(field)
+    }));
+
+  return { added, removed, changed };
 }
 
 app.get("/api/canonical-registry", async (_req, res) => {
@@ -1714,6 +1747,61 @@ app.get("/api/canonical-registry/export", async (req, res) => {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Disposition", 'attachment; filename="pathfinder-canonical-registry.json"');
   res.json(registry);
+});
+
+app.get("/api/canonical-registry/snapshots/:snapshotId", async (req, res) => {
+  const governance = await getCanonicalRegistryGovernance();
+  const snapshot = governance.snapshots.find((candidate) => candidate.snapshot_id === req.params.snapshotId);
+  if (!snapshot) {
+    res.status(404).json({ error: "Canonical registry snapshot not found." });
+    return;
+  }
+
+  res.json({ snapshot });
+});
+
+app.get("/api/canonical-registry/snapshots/:snapshotId/export", async (req, res) => {
+  const governance = await getCanonicalRegistryGovernance();
+  const snapshot = governance.snapshots.find((candidate) => candidate.snapshot_id === req.params.snapshotId);
+  if (!snapshot) {
+    res.status(404).json({ error: "Canonical registry snapshot not found." });
+    return;
+  }
+
+  const format = req.query.format === "csv" ? "csv" : "json";
+  if (format === "csv") {
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${snapshot.snapshot_id}.csv"`);
+    res.send(canonicalRegistryCsv(snapshot.fields));
+    return;
+  }
+
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${snapshot.snapshot_id}.json"`);
+  res.json(snapshot);
+});
+
+app.get("/api/canonical-registry/snapshots/:snapshotId/compare", async (req, res) => {
+  const governance = await getCanonicalRegistryGovernance();
+  const snapshot = governance.snapshots.find((candidate) => candidate.snapshot_id === req.params.snapshotId);
+  if (!snapshot) {
+    res.status(404).json({ error: "Canonical registry snapshot not found." });
+    return;
+  }
+
+  const current = await buildCanonicalRegistryResponse();
+  const diff = canonicalRegistrySnapshotDiff(snapshot.fields, current.fields);
+  res.json({
+    snapshot_id: snapshot.snapshot_id,
+    snapshot_version: snapshot.version,
+    current_version: current.version,
+    counts: {
+      added: diff.added.length,
+      removed: diff.removed.length,
+      changed: diff.changed.length
+    },
+    diff
+  });
 });
 
 app.put("/api/canonical-registry/fields/:fieldId", async (req, res) => {

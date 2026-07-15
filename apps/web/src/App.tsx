@@ -612,6 +612,38 @@ interface CanonicalRegistrySnapshotSummary {
   created_at: string;
 }
 
+type CanonicalRegistrySnapshotDetail = CanonicalRegistrySnapshotSummary & {
+  fields: CanonicalFieldDefinition[];
+};
+
+interface CanonicalRegistrySnapshotCompare {
+  snapshot_id: string;
+  snapshot_version: string;
+  current_version: string;
+  counts: {
+    added: number;
+    removed: number;
+    changed: number;
+  };
+  diff: {
+    added: CanonicalFieldDefinition[];
+    removed: CanonicalFieldDefinition[];
+    changed: Array<{
+      path: string;
+      before: Partial<CanonicalFieldDefinition>;
+      after: Partial<CanonicalFieldDefinition>;
+    }>;
+  };
+}
+
+type CanonicalImpactAction = "metadata" | "rename" | "remove";
+
+interface CanonicalImpactReview {
+  action: CanonicalImpactAction;
+  field: CanonicalRegistryField;
+  nextPath?: string;
+}
+
 const canonicalSectionLabels: Record<string, string> = {
   customer: "Customer",
   contacts: "Contacts",
@@ -1744,6 +1776,39 @@ function canonicalRegistryActionLabel(action: CanonicalRegistryChangeEntry["acti
   }
 }
 
+function canonicalImpactTitle(action: CanonicalImpactAction) {
+  switch (action) {
+    case "rename":
+      return "Review Path Rename";
+    case "remove":
+      return "Review Draft Removal";
+    case "metadata":
+    default:
+      return "Review Field Edit";
+  }
+}
+
+function canonicalImpactRiskLabel(review: CanonicalImpactReview) {
+  const usageTotal = review.field.usage?.total ?? 0;
+  if (review.action === "metadata") {
+    return review.field.status !== "Active" ? "Lifecycle change" : "Metadata-only";
+  }
+  if (review.action === "rename") {
+    return usageTotal ? "Migration-safe" : "No saved references";
+  }
+  return usageTotal ? "Potentially breaking" : "Draft only";
+}
+
+function canonicalImpactSummary(review: CanonicalImpactReview) {
+  if (review.action === "metadata") {
+    return "This updates label, aliases, description, or status. Field ID and path remain stable.";
+  }
+  if (review.action === "rename") {
+    return "Pathfinder will migrate saved mappings, output template mappings, template tokens, and value rules to the new path.";
+  }
+  return "Only Draft custom fields can be removed. Active fields should be deprecated instead of deleted.";
+}
+
 function displayJobId(jobId: string) {
   const digits = jobId.replace(/\D/g, "").slice(-6);
   return digits ? `JOB-${digits}` : jobId;
@@ -2475,6 +2540,10 @@ export function App() {
   const [canonicalRegistrySectionFilter, setCanonicalRegistrySectionFilter] = useState("All");
   const [editingCanonicalFieldId, setEditingCanonicalFieldId] = useState<string | null>(null);
   const [isCreatingCanonicalField, setIsCreatingCanonicalField] = useState(false);
+  const [canonicalImpactReview, setCanonicalImpactReview] = useState<CanonicalImpactReview | null>(null);
+  const [selectedCanonicalSnapshot, setSelectedCanonicalSnapshot] = useState<CanonicalRegistrySnapshotDetail | null>(null);
+  const [canonicalSnapshotCompare, setCanonicalSnapshotCompare] = useState<CanonicalRegistrySnapshotCompare | null>(null);
+  const [canonicalSnapshotState, setCanonicalSnapshotState] = useState<"idle" | "loading" | "error">("idle");
   const [canonicalFieldDraft, setCanonicalFieldDraft] = useState<{
     path: string;
     label: string;
@@ -2628,6 +2697,34 @@ export function App() {
 
   function downloadCanonicalRegistry(format: "json" | "csv") {
     window.open(`${apiBaseUrl}/api/canonical-registry/export?format=${format}`, "_blank", "noopener,noreferrer");
+  }
+
+  function downloadCanonicalSnapshot(snapshotId: string, format: "json" | "csv") {
+    window.open(
+      `${apiBaseUrl}/api/canonical-registry/snapshots/${snapshotId}/export?format=${format}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }
+
+  async function openCanonicalSnapshot(snapshotId: string) {
+    setCanonicalSnapshotState("loading");
+    setSelectedCanonicalSnapshot(null);
+    setCanonicalSnapshotCompare(null);
+    try {
+      const [snapshotResponse, compareResponse] = await Promise.all([
+        fetch(`${apiBaseUrl}/api/canonical-registry/snapshots/${snapshotId}`),
+        fetch(`${apiBaseUrl}/api/canonical-registry/snapshots/${snapshotId}/compare`)
+      ]);
+      const snapshotPayload = await readJsonResponse<{ snapshot: CanonicalRegistrySnapshotDetail }>(snapshotResponse);
+      const comparePayload = await readJsonResponse<CanonicalRegistrySnapshotCompare>(compareResponse);
+      setSelectedCanonicalSnapshot(snapshotPayload.snapshot);
+      setCanonicalSnapshotCompare(comparePayload);
+      setCanonicalSnapshotState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical snapshot load failed.");
+      setCanonicalSnapshotState("error");
+    }
   }
 
   async function loadLiftUnitCatalog(route: OutputRoute) {
@@ -2804,7 +2901,31 @@ export function App() {
     });
   }
 
-  async function saveCanonicalFieldEdit(field: CanonicalFieldDefinition) {
+  function openCanonicalImpactReview(action: CanonicalImpactAction, field: CanonicalRegistryField, nextPath?: string) {
+    setCanonicalImpactReview({ action, field, nextPath });
+  }
+
+  async function confirmCanonicalImpactReview() {
+    const review = canonicalImpactReview;
+    if (!review) {
+      return;
+    }
+
+    setCanonicalImpactReview(null);
+    if (review.action === "metadata") {
+      await performCanonicalFieldEdit(review.field);
+    } else if (review.action === "rename" && review.nextPath) {
+      await performCanonicalRegistryFieldPathRename(review.field, review.nextPath);
+    } else if (review.action === "remove") {
+      await performCanonicalRegistryFieldDelete(review.field);
+    }
+  }
+
+  function saveCanonicalFieldEdit(field: CanonicalRegistryField) {
+    openCanonicalImpactReview("metadata", field);
+  }
+
+  async function performCanonicalFieldEdit(field: CanonicalFieldDefinition) {
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}`, {
@@ -2862,15 +2983,15 @@ export function App() {
     }
   }
 
-  async function deleteCanonicalRegistryField(field: CanonicalRegistryField) {
+  function deleteCanonicalRegistryField(field: CanonicalRegistryField) {
     if (field.origin !== "custom" || field.status !== "Draft") {
       setWorkspaceMessage("Only Draft custom canonical fields can be removed.");
       return;
     }
-    if (!window.confirm(`Remove the draft canonical field "${field.label}"?`)) {
-      return;
-    }
+    openCanonicalImpactReview("remove", field);
+  }
 
+  async function performCanonicalRegistryFieldDelete(field: CanonicalRegistryField) {
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}`, {
@@ -2887,7 +3008,7 @@ export function App() {
     }
   }
 
-  async function renameCanonicalRegistryFieldPath(field: CanonicalRegistryField) {
+  function renameCanonicalRegistryFieldPath(field: CanonicalRegistryField) {
     const nextPath = canonicalFieldDraft.path.trim();
     if (field.origin !== "custom") {
       setWorkspaceMessage("Only custom canonical fields can be renamed.");
@@ -2896,10 +3017,10 @@ export function App() {
     if (!nextPath || nextPath === field.path) {
       return;
     }
-    if (!window.confirm(`Rename "${field.path}" to "${nextPath}" and migrate saved mappings?`)) {
-      return;
-    }
+    openCanonicalImpactReview("rename", field, nextPath);
+  }
 
+  async function performCanonicalRegistryFieldPathRename(field: CanonicalRegistryField, nextPath: string) {
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}/path`, {
@@ -8914,6 +9035,14 @@ export function App() {
                   <span>Snapshot Retention</span>
                   <strong>{canonicalRegistrySnapshots.length}</strong>
                   <small>Most recent 20 registry snapshots are retained locally.</small>
+                  {latestCanonicalSnapshot ? (
+                    <button
+                      className="secondary-button table-inline-button"
+                      onClick={() => void openCanonicalSnapshot(latestCanonicalSnapshot.snapshot_id)}
+                    >
+                      Open Latest
+                    </button>
+                  ) : null}
                 </div>
                 <div className="canonical-governance-history">
                   <div>
@@ -9306,6 +9435,161 @@ export function App() {
               </div>
             </section>
           </>
+        ) : null}
+
+        {canonicalImpactReview ? (
+          <div className="product-map-modal-backdrop" role="presentation" onClick={() => setCanonicalImpactReview(null)}>
+            <section
+              className="product-map-modal canonical-impact-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={canonicalImpactTitle(canonicalImpactReview.action)}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-section-header">
+                <div>
+                  <p className="eyebrow">Canonical Registry</p>
+                  <h2>{canonicalImpactTitle(canonicalImpactReview.action)}</h2>
+                  <span>{canonicalImpactSummary(canonicalImpactReview)}</span>
+                </div>
+                <button className="modal-close-button" onClick={() => setCanonicalImpactReview(null)} aria-label="Close impact review">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="canonical-impact-body">
+                <div className="canonical-impact-hero">
+                  <div>
+                    <span>Field</span>
+                    <strong>{canonicalImpactReview.field.label}</strong>
+                    <small>{canonicalImpactReview.field.path}</small>
+                  </div>
+                  <div>
+                    <span>Review Type</span>
+                    <strong>{canonicalImpactRiskLabel(canonicalImpactReview)}</strong>
+                    <small>
+                      {canonicalImpactReview.nextPath
+                        ? `New path: ${canonicalImpactReview.nextPath}`
+                        : `${canonicalImpactReview.field.usage?.total ?? 0} saved reference${(canonicalImpactReview.field.usage?.total ?? 0) === 1 ? "" : "s"}`}
+                    </small>
+                  </div>
+                </div>
+                <div className="canonical-impact-grid">
+                  {[
+                    ["Import mappings", canonicalImpactReview.field.usage?.import_method_mappings ?? 0],
+                    ["Saved mapping templates", canonicalImpactReview.field.usage?.saved_mapping_templates ?? 0],
+                    ["Output template mappings", canonicalImpactReview.field.usage?.output_template_mappings ?? 0],
+                    ["Template tokens", canonicalImpactReview.field.usage?.output_template_tokens ?? 0],
+                    ["Value rules", canonicalImpactReview.field.usage?.value_rules ?? 0]
+                  ].map(([label, value]) => (
+                    <div className="canonical-impact-count" key={label}>
+                      <span>{label}</span>
+                      <strong>{value}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div className="canonical-impact-note">
+                  <ShieldCheck size={18} />
+                  <span>
+                    {canonicalImpactReview.action === "rename"
+                      ? "Historical preview and submit snapshots remain unchanged for audit accuracy."
+                      : "A registry change entry and snapshot will be recorded when this is saved."}
+                  </span>
+                </div>
+              </div>
+              <div className="modal-action-row">
+                <button className="secondary-button" onClick={() => setCanonicalImpactReview(null)}>
+                  Cancel
+                </button>
+                <button className="primary-button" onClick={() => void confirmCanonicalImpactReview()} disabled={workspaceState === "saving"}>
+                  Confirm Change
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {selectedCanonicalSnapshot || canonicalSnapshotState === "loading" ? (
+          <div className="product-map-modal-backdrop" role="presentation" onClick={() => setSelectedCanonicalSnapshot(null)}>
+            <section
+              className="product-map-modal product-map-modal-wide canonical-snapshot-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Canonical registry snapshot"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-section-header">
+                <div>
+                  <p className="eyebrow">Registry Snapshot</p>
+                  <h2>{selectedCanonicalSnapshot?.version ?? "Loading snapshot"}</h2>
+                  <span>
+                    {selectedCanonicalSnapshot
+                      ? `${selectedCanonicalSnapshot.field_count} fields captured ${displayTimestamp(selectedCanonicalSnapshot.created_at)}`
+                      : "Loading snapshot details and current comparison."}
+                  </span>
+                </div>
+                <button className="modal-close-button" onClick={() => setSelectedCanonicalSnapshot(null)} aria-label="Close snapshot detail">
+                  <X size={16} />
+                </button>
+              </div>
+              {selectedCanonicalSnapshot ? (
+                <>
+                  <div className="canonical-snapshot-toolbar">
+                    <button className="secondary-button" onClick={() => downloadCanonicalSnapshot(selectedCanonicalSnapshot.snapshot_id, "json")}>
+                      <FileText size={16} />
+                      Export Snapshot JSON
+                    </button>
+                    <button className="secondary-button" onClick={() => downloadCanonicalSnapshot(selectedCanonicalSnapshot.snapshot_id, "csv")}>
+                      <FileSpreadsheet size={16} />
+                      Export Snapshot CSV
+                    </button>
+                    <span>{selectedCanonicalSnapshot.summary}</span>
+                  </div>
+                  <div className="canonical-impact-grid canonical-snapshot-diff">
+                    {[
+                      ["Added since snapshot", canonicalSnapshotCompare?.counts.added ?? 0],
+                      ["Removed since snapshot", canonicalSnapshotCompare?.counts.removed ?? 0],
+                      ["Changed since snapshot", canonicalSnapshotCompare?.counts.changed ?? 0]
+                    ].map(([label, value]) => (
+                      <div className="canonical-impact-count" key={label}>
+                        <span>{label}</span>
+                        <strong>{value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="unit-map-table-wrap">
+                    <table className="canonical-registry-table canonical-snapshot-table">
+                      <thead>
+                        <tr>
+                          <th>Captured Field</th>
+                          <th>Section</th>
+                          <th>Type</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedCanonicalSnapshot.fields.slice(0, 20).map((field) => (
+                          <tr key={field.field_id}>
+                            <td>
+                              <strong>{field.label}</strong>
+                              <span className="cell-meta">{field.path}</span>
+                            </td>
+                            <td>{field.section}</td>
+                            <td>{field.data_type}</td>
+                            <td>{field.status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {selectedCanonicalSnapshot.fields.length > 20 ? (
+                      <p className="empty-state">{selectedCanonicalSnapshot.fields.length - 20} additional fields included in exports.</p>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <p className="empty-state">Loading snapshot...</p>
+              )}
+            </section>
+          </div>
         ) : null}
       </section>
     </main>
