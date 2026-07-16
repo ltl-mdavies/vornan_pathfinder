@@ -91,6 +91,7 @@ type SubmitProfileMode = "live_customer" | "sandbox_customer";
 type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
 type RouteDiagnosticStatus = "Passed" | "Warning" | "Blocked";
 type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
+type SubmitAttemptTransportMode = "dry_run" | "mock" | "live";
 type SubmitCertificationActionKey =
   | "manual-import"
   | "field-mapping"
@@ -142,6 +143,7 @@ interface LiftUnitCatalogItem {
   catalog_item_id: string;
   product_id: string | null;
   unit_number: string | null;
+  unit_numbers?: string[];
   product_name: string;
   company_id: string;
   target_id: string;
@@ -153,12 +155,28 @@ interface LiftUnitCatalogItem {
   parent_product_id?: string | null;
   unit_price?: number | null;
   quantity?: number | null;
+  attribute_1?: number | null;
+  attribute_2?: number | null;
   material_id?: string | null;
+  storage_type_id?: string | null;
+  warehouse_location_id?: string | null;
   image_url?: string | null;
   status: "Active" | "Inactive";
   category?: string | null;
   description?: string | null;
+  raw_payload?: Record<string, unknown> | null;
   source?: "Local seed" | "Lift import" | "Manual";
+  updated_at: string;
+}
+
+interface LiftCatalogPreset {
+  preset_id: string;
+  output_route_id: string;
+  target_id: string;
+  catalog_id: string;
+  catalog_name: string;
+  status: "Active" | "Inactive";
+  created_at: string;
   updated_at: string;
 }
 
@@ -379,6 +397,7 @@ interface SubmitAttempt {
   submit_mode: SubmitProfileMode;
   sandbox: boolean;
   state: SubmitAttemptStatus;
+  transport_mode?: SubmitAttemptTransportMode;
   external_submit_enabled: boolean;
   endpoint_url: string;
   ext_id: string;
@@ -399,6 +418,7 @@ interface PathfinderCustomerWorkspace {
   jobs: ProcessingJobPreview[];
   submit_attempts?: SubmitAttempt[];
   product_mappings: CustomerProductMapping[];
+  catalog_presets: LiftCatalogPreset[];
   primary_target_id: string;
   primary_output_route_id: string;
   primary_target: TargetConfig;
@@ -706,6 +726,9 @@ const customerNavItems: Array<{ label: CustomerView; icon: typeof Gauge }> = [
 ];
 
 const seedTimestamp = "2026-07-09T13:41:00.000Z";
+const defaultLiftOrderLookupUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360Orders/N?offset=0";
+const defaultLiftProofReportUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0";
+const defaultLiftPackageDetailsUrl = "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/PackageDetails/package_details?offset=0";
 const importMethodSourceOptions: ImportMethodSource[] = [
   "XLSX",
   "Google Sheet",
@@ -776,9 +799,9 @@ const defaultOutputRoute: OutputRoute = {
     }
   ],
   value_normalization_rules: defaultValueNormalizationRules,
-  order_lookup_url: null,
-  proof_report_url: null,
-  package_details_url: null,
+  order_lookup_url: defaultLiftOrderLookupUrl,
+  proof_report_url: defaultLiftProofReportUrl,
+  package_details_url: defaultLiftPackageDetailsUrl,
   status: "Active",
   updated_at: seedTimestamp
 };
@@ -1255,6 +1278,10 @@ function configuredSecret(value?: string | null) {
   return !/TBD|SECRET|REFERENCE/i.test(value);
 }
 
+function isMaskedSecret(value?: string | null) {
+  return value === "********";
+}
+
 function validUrlWithParam(urlValue: string | null | undefined, paramName: string) {
   if (!urlValue?.trim()) {
     return false;
@@ -1640,6 +1667,35 @@ function formatJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
+function formatRawBodyPreview(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return "No raw response body recorded.";
+  }
+  const text = typeof value === "string" ? value : formatJson(value);
+  return text.length > 1600 ? `${text.slice(0, 1600)}\n...` : text;
+}
+
+function slugForFilename(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+function downloadJsonFile(filename: string, value: unknown) {
+  const blob = new Blob([`${formatJson(value)}\n`], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function displayCurrency(value?: number | null) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return "Unassigned";
@@ -1875,6 +1931,10 @@ function submitCustomerForProfile(customer: LiftCustomer, profile: SubmitProfile
 function environmentRoleKey(environmentName: string, role?: string): LiftTargetConfig["active_environment"] {
   const normalized = `${role ?? ""} ${environmentName}`.toUpperCase();
   return normalized.includes("PROD") ? "PROD" : "QA1";
+}
+
+function isProtectedTargetEnvironment(environment: TargetEnvironment) {
+  return environment.environment_id === "env-lift-qa1" || environment.environment_id === "env-lift-prod";
 }
 
 function liftConfigForRoute(target: TargetConfig | null | undefined, route: OutputRoute): LiftTargetConfig | undefined {
@@ -2592,6 +2652,7 @@ export function App() {
   const [certificationRefreshState, setCertificationRefreshState] = useState<"idle" | "loading" | "error">("idle");
   const certificationRefreshKeyRef = useRef("");
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("sandbox-ltl-demo-1249");
+  const [confirmedProdSandboxSubmitKey, setConfirmedProdSandboxSubmitKey] = useState<string | null>(null);
   const [productMappingDrafts, setProductMappingDrafts] = useState<Record<string, { unit: string; product: string }>>({});
   const [compositeColumnToAdd, setCompositeColumnToAdd] = useState("");
   const [productExampleTestValue, setProductExampleTestValue] = useState("");
@@ -2614,7 +2675,13 @@ export function App() {
   const [unitCatalogStatusFilter, setUnitCatalogStatusFilter] = useState<"Active" | "Inactive" | "All">("Active");
   const [unitCatalogProductTypeFilter, setUnitCatalogProductTypeFilter] = useState("All");
   const [unitCatalogCatalogFilter, setUnitCatalogCatalogFilter] = useState("All");
+  const [unitCatalogApiFilterParam, setUnitCatalogApiFilterParam] = useState("catalog_id");
+  const [unitCatalogApiFilterValue, setUnitCatalogApiFilterValue] = useState("");
+  const [catalogPresetName, setCatalogPresetName] = useState("");
+  const [catalogPresetId, setCatalogPresetId] = useState("");
+  const [selectedCatalogUnitNumbers, setSelectedCatalogUnitNumbers] = useState<Record<string, string>>({});
   const [activeCatalogMappingId, setActiveCatalogMappingId] = useState<string | null>(null);
+  const [selectedCatalogDetailId, setSelectedCatalogDetailId] = useState<string | null>(null);
   const [unitCatalogState, setUnitCatalogState] = useState<"idle" | "loading" | "error">("idle");
   const [openTopbarMenu, setOpenTopbarMenu] = useState<"environment" | "notifications" | "actions" | null>(null);
   const [openProductMapTool, setOpenProductMapTool] = useState<"preload" | "unit-library" | null>(null);
@@ -2755,6 +2822,9 @@ export function App() {
       if (unitCatalogCatalogFilter !== "All") {
         params.set("catalog_id", unitCatalogCatalogFilter);
       }
+      if (unitCatalogApiFilterValue.trim()) {
+        params.set(unitCatalogApiFilterParam, unitCatalogApiFilterValue.trim());
+      }
       const response = await fetch(`${apiBaseUrl}/api/lift/product-catalog?${params.toString()}`);
       const payload = await readJsonResponse<{ products: LiftUnitCatalogItem[] }>(response);
       setLiftUnitCatalog(payload.products);
@@ -2794,14 +2864,26 @@ export function App() {
       if (unitCatalogCatalogFilter !== "All") {
         params.set("catalog_id", unitCatalogCatalogFilter);
       }
+      if (unitCatalogApiFilterValue.trim()) {
+        params.set(unitCatalogApiFilterParam, unitCatalogApiFilterValue.trim());
+      }
       const response = await fetch(`${apiBaseUrl}/api/lift/product-catalog?${params.toString()}`);
       const payload = await readJsonResponse<{
         products: LiftUnitCatalogItem[];
         refreshed_count: number;
+        refresh_error?: string | null;
         source: string;
       }>(response);
       setLiftUnitCatalog(payload.products);
-      setWorkspaceMessage(`Lift product catalog refreshed. ${payload.refreshed_count} product${payload.refreshed_count === 1 ? "" : "s"} received.`);
+      setWorkspaceMessage(
+        payload.refresh_error
+          ? `${payload.refresh_error}${
+              payload.refresh_error.includes("401")
+                ? " Check the selected Target Environment Basic Auth credentials; Postman is using PATHFINDER for this endpoint."
+                : ""
+            } Showing cached Lift products.`
+          : `Lift product catalog refreshed. ${payload.refreshed_count} product${payload.refreshed_count === 1 ? "" : "s"} received.`
+      );
       setUnitCatalogState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Lift product catalog refresh failed.");
@@ -3162,37 +3244,112 @@ export function App() {
         body: JSON.stringify(target)
       });
       const savedTarget = await readJsonResponse<TargetConfig>(response);
-      const activeEnvironment = savedTarget.environments.find(
+      setTargets((current) => [savedTarget, ...current.filter((candidate) => candidate.target_id !== savedTarget.target_id)]);
+      const savedActiveEnvironment = savedTarget.environments.find(
         (environment) => environment.name === savedTarget.lift.active_environment
       );
-      const routesToSync =
-        activeEnvironment && workspace?.output_routes
-          ? workspace.output_routes.filter(
-              (route) => route.target_id === savedTarget.target_id && route.environment_id !== activeEnvironment.environment_id
-            )
-          : [];
-      let syncedWorkspace: PathfinderCustomerWorkspace | null = null;
+      let nextWorkspace =
+        workspace && workspace.primary_target?.target_id === savedTarget.target_id
+          ? { ...workspace, primary_target: savedTarget }
+          : workspace;
 
-      for (const route of routesToSync) {
-        syncedWorkspace = await persistOutputRoute({
-          ...route,
-          environment_id: activeEnvironment!.environment_id
-        });
+      if (savedActiveEnvironment && nextWorkspace) {
+        const routesToSync = nextWorkspace.output_routes.filter(
+          (route) => route.target_id === savedTarget.target_id && route.environment_id !== savedActiveEnvironment.environment_id
+        );
+        for (const route of routesToSync) {
+          nextWorkspace = await persistOutputRoute({
+            ...route,
+            environment_id: savedActiveEnvironment.environment_id
+          });
+        }
       }
 
-      setTargets((current) => [savedTarget, ...current.filter((candidate) => candidate.target_id !== savedTarget.target_id)]);
       setWorkspace((current) => {
-        const nextWorkspace = syncedWorkspace ?? current;
-        return nextWorkspace ? { ...nextWorkspace, primary_target: savedTarget } : nextWorkspace;
+        if (!current) {
+          return current;
+        }
+        return nextWorkspace ? { ...nextWorkspace, primary_target: savedTarget } : { ...current, primary_target: savedTarget };
       });
       setWorkspaceMessage(
-        routesToSync.length
-          ? `Target settings saved. ${routesToSync.length} route${routesToSync.length === 1 ? "" : "s"} now use ${activeEnvironment?.name}.`
+        savedActiveEnvironment
+          ? `Target settings saved. Current workspace routes now use ${savedActiveEnvironment.name}.`
           : "Target settings saved."
       );
       setWorkspaceState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Target save failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  function applyCatalogPreset(preset: LiftCatalogPreset) {
+    setUnitCatalogCatalogFilter("All");
+    setUnitCatalogApiFilterParam("catalog_id");
+    setUnitCatalogApiFilterValue(preset.catalog_id);
+    setCatalogPresetId(preset.catalog_id);
+    setCatalogPresetName(preset.catalog_name);
+    setWorkspaceMessage(`Catalog preset selected: ${preset.catalog_name} / ${preset.catalog_id}.`);
+  }
+
+  async function saveCatalogPreset() {
+    if (!workspace) {
+      return;
+    }
+    const catalogId =
+      catalogPresetId.trim() ||
+      (unitCatalogApiFilterParam === "catalog_id" ? unitCatalogApiFilterValue.trim() : unitCatalogCatalogFilter !== "All" ? unitCatalogCatalogFilter : "");
+    const catalogName =
+      catalogPresetName.trim() ||
+      unitCatalogCatalogOptions.find(([candidateId]) => candidateId === catalogId)?.[1] ||
+      (unitCatalogApiFilterParam === "catalog_name" ? unitCatalogApiFilterValue.trim() : "") ||
+      `Lift catalog ${catalogId}`;
+
+    if (!catalogId) {
+      setWorkspaceMessage("Enter a catalog ID before saving a catalog preset.");
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const presetId = `catalog-preset-${selectedCustomer.lift_customer_id}-${selectedOutputMapRoute.output_route_id}-${slugify(catalogId) || Date.now()}`;
+      const response = await fetch(`${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/catalog-presets/${presetId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          preset_id: presetId,
+          output_route_id: selectedOutputMapRoute.output_route_id,
+          target_id: selectedOutputMapRoute.target_id,
+          catalog_id: catalogId,
+          catalog_name: catalogName,
+          status: "Active"
+        })
+      });
+      const payload = await readJsonResponse<{ catalog_presets: LiftCatalogPreset[] }>(response);
+      setWorkspace((current) => (current ? { ...current, catalog_presets: payload.catalog_presets } : current));
+      setCatalogPresetId(catalogId);
+      setCatalogPresetName(catalogName);
+      setWorkspaceMessage(`Catalog preset saved: ${catalogName} / ${catalogId}.`);
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Catalog preset save failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  async function deleteCatalogPreset(preset: LiftCatalogPreset) {
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/catalog-presets/${preset.preset_id}`,
+        { method: "DELETE" }
+      );
+      const payload = await readJsonResponse<{ catalog_presets: LiftCatalogPreset[] }>(response);
+      setWorkspace((current) => (current ? { ...current, catalog_presets: payload.catalog_presets } : current));
+      setWorkspaceMessage(`Catalog preset removed: ${preset.catalog_name}.`);
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Catalog preset delete failed.");
       setWorkspaceState("error");
     }
   }
@@ -3447,7 +3604,9 @@ export function App() {
     unitCatalogSearch,
     unitCatalogStatusFilter,
     unitCatalogProductTypeFilter,
-    unitCatalogCatalogFilter
+    unitCatalogCatalogFilter,
+    unitCatalogApiFilterParam,
+    unitCatalogApiFilterValue
   ]);
 
   const selectedOutputMapTarget =
@@ -3458,6 +3617,8 @@ export function App() {
     ) ??
     selectedOutputMapTarget?.environments.find((environment) => environment.name === selectedOutputMapTarget.lift.active_environment) ??
     null;
+  const selectedCatalogDetailItem =
+    liftUnitCatalog.find((item) => item.catalog_item_id === selectedCatalogDetailId) ?? null;
   const selectedOutputMapTemplate =
     selectedOutputMapTarget?.output_templates.find(
       (template) => template.output_template_id === selectedOutputMapRoute.output_template_id
@@ -3476,6 +3637,7 @@ export function App() {
   const selectedOutputMapProductConfig =
     selectedOutputMapMethod?.product_resolution_config ?? activeProductConfig;
   const productMappings = workspace?.product_mappings ?? [];
+  const catalogPresets = workspace?.catalog_presets ?? [];
   const filteredProductMappings = useMemo(() => {
     const query = unitMapSearch.trim().toLowerCase();
     return productMappings
@@ -3533,6 +3695,9 @@ export function App() {
     first[1].localeCompare(second[1])
   );
   const routeProductMappings = productMappings.filter((mapping) => mapping.output_route_id === selectedOutputMapRouteId);
+  const routeCatalogPresets = catalogPresets
+    .filter((preset) => preset.output_route_id === selectedOutputMapRouteId && preset.status === "Active")
+    .sort((first, second) => first.catalog_name.localeCompare(second.catalog_name));
   const routeMappedCount = routeProductMappings.filter((mapping) => mapping.status === "Mapped").length;
   const routeUnmappedCount = routeProductMappings.filter((mapping) => mapping.status === "Unmapped").length;
   const routeBlockingCount = routeProductMappings.filter(
@@ -3710,7 +3875,202 @@ export function App() {
   const manualSourceReady = sourceGrid.rows.length > 0;
   const manualPreviewReady = Boolean(lastPreviewJob);
   const manualFixesNeeded = submitCertificationBlockingCount > 0 || routeBlockingCount > 0;
-  const manualSubmitReady = Boolean(lastPreviewJob && submitCertification.can_submit && submitCertification.external_submit_enabled);
+  const activeRouteIsProd =
+    activeRouteEnvironment?.role === "PROD" || activeRouteEnvironmentLabel.toUpperCase().includes("PROD");
+  const prodSandboxConfirmationRequired = activeRouteIsProd && selectedSubmitProfile.mode === "sandbox_customer";
+  const prodSandboxConfirmationKey = [
+    activeOutputRoute.output_route_id,
+    activeRouteEnvironment?.environment_id ?? activeRouteEnvironmentLabel,
+    selectedSubmitProfile.profile_id
+  ].join(":");
+  const prodSandboxSubmitConfirmed =
+    !prodSandboxConfirmationRequired || confirmedProdSandboxSubmitKey === prodSandboxConfirmationKey;
+  const manualSubmitReady = Boolean(
+    lastPreviewJob &&
+      submitCertification.can_submit &&
+      submitCertification.external_submit_enabled &&
+      prodSandboxSubmitConfirmed
+  );
+  const activeRouteAttentionItem =
+    activeRouteDiagnostics.items.find((item) => item.status === "Blocked") ??
+    activeRouteDiagnostics.items.find((item) => item.status === "Warning") ??
+    null;
+  const transportGateItem = submitCertification.items.find((item) => item.item_id === "lift-transport-mode");
+  const externalGateItem = submitCertification.items.find((item) => item.item_id === "external-submit-gate");
+  const productResolutionItem = submitCertification.items.find((item) => item.item_id === "product-resolution");
+  const submitReadinessCards: Array<{
+    label: string;
+    value: string;
+    detail: string;
+    status: "Passed" | "Warning" | "Blocked";
+    actionLabel?: string;
+    action?: () => void;
+  }> = [
+    {
+      label: "Source",
+      value: manualSourceReady ? `${sourceGrid.rows.length} rows loaded` : "No order source",
+      detail: manualSourceReady ? `${sourceName} · ${sheetName}` : "Upload the Momentara workbook or use the sample before preview.",
+      status: manualSourceReady ? "Passed" : "Blocked",
+      actionLabel: manualSourceReady ? undefined : "Load source",
+      action: manualSourceReady ? undefined : () => fileInputRef.current?.click()
+    },
+    {
+      label: "Route",
+      value: activeRouteDiagnostics.status,
+      detail: activeRouteAttentionItem?.message ?? `${activeOutputRoute.name} is configured for ${activeRouteEnvironmentLabel}.`,
+      status: activeRouteDiagnostics.blocking_count
+        ? "Blocked"
+        : activeRouteDiagnostics.warning_count
+          ? "Warning"
+          : "Passed",
+      actionLabel: activeRouteAttentionItem?.action_key ? "Fix route" : undefined,
+      action: activeRouteAttentionItem?.action_key
+        ? () => handleRouteDiagnosticAction(activeOutputRoute, activeRouteAttentionItem.action_key)
+        : undefined
+    },
+    {
+      label: "Product Map",
+      value: routeBlockingCount ? `${routeBlockingCount} gap${routeBlockingCount === 1 ? "" : "s"}` : "Mapped",
+      detail: productResolutionItem?.message ?? `Every line has a ${activeOutputRoute.product_identifier_label}.`,
+      status: routeBlockingCount ? "Blocked" : "Passed",
+      actionLabel: routeBlockingCount ? "Open map" : undefined,
+      action: routeBlockingCount
+        ? () => {
+            setActiveGlobalView("Customers");
+            setOutputMapRouteFilter(activeOutputRoute.output_route_id);
+            setActiveCustomerView("Output Product Map");
+          }
+        : undefined
+    },
+    {
+      label: "Certification",
+      value: submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`,
+      detail: submitCertification.summary,
+      status: submitCertification.can_submit ? "Passed" : "Blocked",
+      actionLabel: lastPreviewJob ? "Recheck" : "Preview first",
+      action: lastPreviewJob ? () => void refreshSubmitCertification(lastPreviewJob, true) : () => void createPreviewJob()
+    },
+    {
+      label: "Submit Gate",
+      value:
+        transportGateItem?.status === "Passed" && externalGateItem?.status === "Passed"
+          ? "Enabled"
+          : externalGateItem?.status === "Blocked"
+            ? "Gate locked"
+            : "Transport gated",
+      detail:
+        externalGateItem?.status === "Blocked"
+          ? externalGateItem.message
+          : transportGateItem?.message ?? "Transport mode will be recorded on the submit attempt.",
+      status:
+        transportGateItem?.status === "Passed" && externalGateItem?.status === "Passed"
+          ? "Passed"
+          : "Blocked",
+      actionLabel: transportGateItem?.action_key || externalGateItem?.action_key ? "Open health" : undefined,
+      action:
+        transportGateItem?.action_key || externalGateItem?.action_key
+          ? () => handleCertificationAction(transportGateItem?.action_key ?? externalGateItem?.action_key)
+          : undefined
+    },
+    {
+      label: "Last Attempt",
+      value: lastSubmitAttempt ? lastSubmitAttempt.state : "None",
+      detail: lastSubmitAttempt
+        ? `${lastSubmitAttempt.transport_mode ?? "unknown"} · ${lastSubmitAttempt.response.message}`
+        : "No submit attempt has been recorded for this preview yet.",
+      status: lastSubmitAttempt
+        ? lastSubmitAttempt.state === "Submitted"
+          ? "Passed"
+          : lastSubmitAttempt.state === "Failed" || lastSubmitAttempt.state === "Blocked"
+            ? "Blocked"
+            : "Warning"
+        : "Warning"
+    }
+  ];
+  const activeRoutePasswordSaved = Boolean(activeRouteEnvironment?.credentials.Password);
+  const activeRouteUserSaved = Boolean(activeRouteEnvironment?.credentials.User);
+  const extIdMatches = displayedSubmitRequest.headers.Ext_ID === displayedLiftPayload.order.ext_id;
+  const valueRuleFailures = normalizedLift.validation.filter((message) => message.severity === "FAIL");
+  const submitPreflightItems: Array<{
+    label: string;
+    value: string;
+    detail: string;
+    status: "Passed" | "Warning" | "Blocked";
+  }> = [
+    {
+      label: "Environment",
+      value: activeRouteEnvironmentLabel,
+      detail: activeRouteIsProd
+        ? prodSandboxConfirmationRequired
+          ? prodSandboxSubmitConfirmed
+            ? "PROD sandbox lane has been confirmed for this submit preview."
+            : "PROD is selected. Confirm this is intentional for the sandbox submit lane."
+          : "PROD is selected. Confirm this is intentional before live customer submit."
+        : "Not PROD. Switch the route environment if today’s Lift test should hit production.",
+      status: activeRouteIsProd ? (prodSandboxSubmitConfirmed ? "Passed" : "Warning") : "Blocked"
+    },
+    {
+      label: "Credentials",
+      value: activeRouteUserSaved && activeRoutePasswordSaved ? "Present" : "Missing",
+      detail: activeRouteUserSaved && activeRoutePasswordSaved
+        ? "Import user and saved secret are available for this environment."
+        : "Enter and save the Lift import user and password on the selected Target Environment.",
+      status: activeRouteUserSaved && activeRoutePasswordSaved ? "Passed" : "Blocked"
+    },
+    {
+      label: "Submit Customer",
+      value: `${submitCustomer.customer_name} / ${submitCustomer.lift_customer_id}`,
+      detail:
+        selectedSubmitProfile.mode === "sandbox_customer" && submitCustomer.lift_customer_id === "1249"
+          ? "Sandbox profile is routing this customer order through LTL Demo."
+          : "Expected sandbox submit profile to use LTL Demo / 1249 for the first production-path test.",
+      status:
+        selectedSubmitProfile.mode === "sandbox_customer" && submitCustomer.lift_customer_id === "1249"
+          ? "Passed"
+          : "Blocked"
+    },
+    {
+      label: "Product Map",
+      value: routeBlockingCount ? `${routeBlockingCount} unresolved` : "Complete",
+      detail: routeBlockingCount
+        ? "Resolve every generated product key before submit."
+        : `All lines have an approved ${activeOutputRoute.product_identifier_label}.`,
+      status: routeBlockingCount ? "Blocked" : "Passed"
+    },
+    {
+      label: "Ext_ID",
+      value: extIdMatches ? displayedLiftPayload.order.ext_id : "Mismatch",
+      detail: extIdMatches
+        ? "Header Ext_ID matches body order.ext_id."
+        : "Lift requires header Ext_ID and body order.ext_id to be identical.",
+      status: extIdMatches ? "Passed" : "Blocked"
+    },
+    {
+      label: "Value Rules",
+      value: valueRuleFailures.length ? `${valueRuleFailures.length} failure${valueRuleFailures.length === 1 ? "" : "s"}` : "Clear",
+      detail: valueRuleFailures[0]?.message ?? "Controlled output values pass route-specific normalization checks.",
+      status: valueRuleFailures.length ? "Blocked" : "Passed"
+    },
+    {
+      label: "Transport",
+      value: submitCertification.live_transport_enabled ? "Live" : "Gated",
+      detail: submitCertification.live_transport_enabled
+        ? "Pathfinder API reports live Lift transport enabled."
+        : "Start the API with PATHFINDER_ENABLE_LIFT_SUBMIT=true and PATHFINDER_LIFT_TRANSPORT_MODE=live for the actual submit.",
+      status: submitCertification.live_transport_enabled ? "Passed" : "Blocked"
+    },
+    {
+      label: "Certification",
+      value: submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`,
+      detail: submitCertification.summary,
+      status: submitCertification.can_submit ? "Passed" : "Blocked"
+    }
+  ];
+  const submitPreflightBlockedCount = submitPreflightItems.filter((item) => item.status === "Blocked").length;
+  const submitPreflightWarningCount = submitPreflightItems.filter((item) => item.status === "Warning").length;
+  const submitPacketFileName = `pathfinder-submit-packet-${slugForFilename(
+    displayedLiftPayload.order.ext_id || lastPreviewJob?.job_id || "preview"
+  ) || "preview"}.json`;
   const mappedColumnCount = sourceGrid.columns.filter((column) =>
     mappings.some((mapping) => mapping.sourceColumn === column)
   ).length;
@@ -4047,6 +4407,31 @@ export function App() {
     });
   }
 
+  function updateTargetActiveEnvironmentDraft(targetId: string, environmentName: string) {
+    const target = targetRows.find((candidate) => candidate.target_id === targetId);
+    const environment = target?.environments.find((candidate) => candidate.name === environmentName);
+
+    updateTargetDraft(targetId, (current) => ({
+      ...current,
+      lift: { ...current.lift, active_environment: environmentName as "QA1" | "PROD" }
+    }));
+
+    if (!environment) {
+      return;
+    }
+
+    setWorkspace((current) =>
+      current
+        ? {
+            ...current,
+            output_routes: current.output_routes.map((route) =>
+              route.target_id === targetId ? { ...route, environment_id: environment.environment_id } : route
+            )
+          }
+        : current
+    );
+  }
+
   function updateValueRuleDraft(routeId: string, ruleId: string, patch: Partial<ValueNormalizationRule>) {
     setWorkspace((current) => {
       if (!current) {
@@ -4237,10 +4622,108 @@ export function App() {
     handleCertificationAction(actionKey);
   }
 
+  function downloadSubmitPacket() {
+    downloadJsonFile(submitPacketFileName, {
+      exported_at: new Date().toISOString(),
+      export_context: {
+        app: "Pathfinder",
+        purpose: "Pre-submit Lift review packet",
+        note: "Headers are masked as shown in Pathfinder. Secrets are not exported."
+      },
+      customer: {
+        source_customer_id: selectedCustomer.lift_customer_id,
+        source_customer_name: selectedCustomer.customer_name,
+        submit_customer_id: submitCustomer.lift_customer_id,
+        submit_customer_name: submitCustomer.customer_name,
+        submit_profile_id: selectedSubmitProfile.profile_id,
+        submit_profile_name: selectedSubmitProfile.name,
+        submit_mode: selectedSubmitProfile.mode,
+        sandbox: selectedSubmitProfile.mode === "sandbox_customer"
+      },
+      route: {
+        output_route_id: activeOutputRoute.output_route_id,
+        name: activeOutputRoute.name,
+        status: activeOutputRoute.status,
+        target_id: activeOutputRoute.target_id,
+        target_system: activeOutputRoute.target_system,
+        destination_account_name: activeOutputRoute.destination_account_name,
+        destination_account_id: activeOutputRoute.destination_account_id,
+        company_id: activeRouteCompanyId,
+        product_identifier_type: activeOutputRoute.product_identifier_type,
+        product_identifier_label: activeOutputRoute.product_identifier_label
+      },
+      target: {
+        target_id: activeRouteTarget?.target_id ?? null,
+        name: activeRouteTarget?.name ?? null,
+        type: activeRouteTarget?.target_type ?? null,
+        adapter: activeRouteTarget?.adapter ?? null,
+        health_status: activeRouteTarget?.health_status ?? null
+      },
+      environment: {
+        environment_id: activeRouteEnvironment?.environment_id ?? null,
+        name: activeRouteEnvironment?.name ?? activeRouteEnvironmentLabel,
+        role: activeRouteEnvironment?.role ?? null,
+        status: activeRouteEnvironment?.status ?? null,
+        endpoint_url: displayedSubmitRequest.endpoint_url,
+        auth_method: activeRouteEnvironment?.auth_method ?? null,
+        company_id: activeRouteCompanyId,
+        credentials_present: {
+          user: activeRouteUserSaved,
+          password: activeRoutePasswordSaved
+        }
+      },
+      output_template: {
+        output_template_id: activeRouteTemplate?.output_template_id ?? activeOutputRoute.output_template_id,
+        name: activeRouteTemplate?.name ?? activeOutputRoute.output_template,
+        destination_method: activeRouteTemplate?.destination_method ?? null,
+        output_format: activeRouteTemplate?.output_format ?? null,
+        status: activeRouteTemplate?.status ?? null
+      },
+      job: lastPreviewJob
+        ? {
+            job_id: lastPreviewJob.job_id,
+            state: lastPreviewJob.state,
+            source_file_name: lastPreviewJob.source_file_name,
+            created_at: lastPreviewJob.created_at,
+            updated_at: lastPreviewJob.updated_at
+          }
+        : {
+            job_id: null,
+            state: "Not persisted",
+            source_file_name: sourceName,
+            created_at: null,
+            updated_at: null
+          },
+      preflight: {
+        blocked_count: submitPreflightBlockedCount,
+        warning_count: submitPreflightWarningCount,
+        items: submitPreflightItems
+      },
+      certification: submitCertification,
+      validation: {
+        canonical: lastPreviewJob?.canonical_validation ?? canonicalMessages,
+        lift: lastPreviewJob?.lift_validation ?? liftMessages
+      },
+      product_resolution: {
+        unresolved_products: lastPreviewJob?.unresolved_products ?? [],
+        results: lastPreviewJob?.product_resolution_results ?? productResolutionRows
+      },
+      submit_request_masked: displayedSubmitRequest,
+      canonical_order: displayedCanonicalOrder,
+      lift_payload: displayedLiftPayload,
+      last_submit_attempt: lastSubmitAttempt
+    });
+    setWorkspaceMessage(`Submit packet exported: ${submitPacketFileName}.`);
+  }
+
   async function requestLiftSubmit(jobOverride?: ProcessingJobPreview, forceNewAttempt = false) {
     const submitJob = jobOverride ?? lastPreviewJob;
     if (!submitJob) {
       setWorkspaceMessage("Generate a persisted preview job before requesting Lift submit.");
+      return;
+    }
+    if (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed) {
+      setWorkspaceMessage("Confirm the PROD sandbox submit lane in Lift Submit Preflight before requesting Lift submit.");
       return;
     }
 
@@ -4409,15 +4892,82 @@ export function App() {
     );
   }
 
+  function catalogUnitNumbers(item: LiftUnitCatalogItem) {
+    return Array.from(new Set([...(item.unit_number ? [item.unit_number] : []), ...(item.unit_numbers ?? [])].filter(Boolean)));
+  }
+
+  function selectedCatalogUnitNumber(item: LiftUnitCatalogItem) {
+    const unitNumbers = catalogUnitNumbers(item);
+    return selectedCatalogUnitNumbers[item.catalog_item_id] || item.unit_number || unitNumbers[0] || null;
+  }
+
   function catalogIdentifierForRoute(item: LiftUnitCatalogItem, route: OutputRoute) {
+    const primaryUnitNumber = selectedCatalogUnitNumber(item) ?? "";
     if (route.product_identifier_type === "lift_product_id") {
-      return item.product_id ?? item.unit_number ?? "";
+      return item.product_id ?? primaryUnitNumber;
     }
-    return item.unit_number ?? item.product_id ?? "";
+    return primaryUnitNumber || item.product_id || "";
   }
 
   function catalogIdentifierLabel(item: LiftUnitCatalogItem) {
-    return item.unit_number ?? (item.product_id ? `Product ID ${item.product_id}` : "No identifier");
+    const unitNumbers = catalogUnitNumbers(item);
+    const selectedUnitNumber = selectedCatalogUnitNumber(item);
+    if (unitNumbers.length > 1) {
+      return `${selectedUnitNumber ?? unitNumbers[0]} + ${unitNumbers.length - 1} more`;
+    }
+    return selectedUnitNumber ?? (item.product_id ? `Product ID ${item.product_id}` : "No identifier");
+  }
+
+  function formatCatalogValue(value: unknown): string {
+    if (value === null || value === undefined || value === "") {
+      return "-";
+    }
+    if (Array.isArray(value)) {
+      return value.length ? value.map((entry) => formatCatalogValue(entry)).join(", ") : "-";
+    }
+    if (typeof value === "object") {
+      return JSON.stringify(value);
+    }
+    return String(value);
+  }
+
+  function catalogDetailRows(item: LiftUnitCatalogItem) {
+    const rawEntries = Object.entries(item.raw_payload ?? {}).map(([field, value]) => ({
+      field,
+      value: formatCatalogValue(value)
+    }));
+    const normalizedEntries = [
+      ["catalog_item_id", item.catalog_item_id],
+      ["product_id", item.product_id],
+      ["unit_number", item.unit_number],
+      ["unit_numbers", item.unit_numbers],
+      ["product_name", item.product_name],
+      ["catalog_id", item.catalog_id],
+      ["catalog_name", item.catalog_name],
+      ["accounting_item_code", item.accounting_item_code],
+      ["product_type", item.product_type],
+      ["parent_product_id", item.parent_product_id],
+      ["status", item.status],
+      ["attribute_1", item.attribute_1],
+      ["attribute_2", item.attribute_2],
+      ["material_id", item.material_id],
+      ["storage_type_id", item.storage_type_id],
+      ["warehouse_location_id", item.warehouse_location_id],
+      ["description", item.description],
+      ["source", item.source]
+    ].map(([field, value]) => ({ field: String(field), value: formatCatalogValue(value) }));
+
+    if (!rawEntries.length) {
+      return normalizedEntries;
+    }
+
+    const normalizedFields = new Set(normalizedEntries.map((entry) => entry.field));
+    return [
+      ...normalizedEntries,
+      ...rawEntries
+        .filter((entry) => !normalizedFields.has(entry.field))
+        .sort((first, second) => first.field.localeCompare(second.field))
+    ];
   }
 
   function setBulkValueFromCatalog(item: LiftUnitCatalogItem) {
@@ -4429,10 +4979,11 @@ export function App() {
 
   async function assignCatalogItemToSelectedMappings(item: LiftUnitCatalogItem) {
     if (!selectedUnitMappings.length) {
-      setBulkValueFromCatalog(item);
+      setWorkspaceMessage("Select one or more Pathfinder product-map rows before assigning a Lift product.");
       return;
     }
 
+    const isSingleRowMapping = Boolean(activeCatalogMapping);
     await bulkUpdateProductMappings(
       {
         output_route_id: selectedOutputMapRouteId,
@@ -4440,17 +4991,17 @@ export function App() {
         target_template: selectedOutputMapRoute.output_template,
         product_identifier_type: selectedOutputMapRoute.product_identifier_type,
         product_identifier_value: catalogIdentifierForRoute(item, selectedOutputMapRoute),
-        lift_unit_number: item.unit_number,
+        lift_unit_number: selectedCatalogUnitNumber(item),
         lift_product_id: item.product_id,
         product_name: item.product_name,
         status: "Mapped"
       },
       `${selectedUnitMappings.length} customer key${selectedUnitMappings.length === 1 ? "" : "s"} mapped to ${catalogIdentifierForRoute(item, selectedOutputMapRoute) || item.product_name}.`
     );
-    if (activeCatalogMappingId) {
+    if (isSingleRowMapping) {
       setOpenProductMapTool(null);
       setActiveCatalogMappingId(null);
-      setSelectedUnitMapIds([]);
+      setSelectedCatalogDetailId(null);
     }
   }
 
@@ -4767,6 +5318,11 @@ export function App() {
       const environment = target.environments.find((candidate) => candidate.environment_id === environmentId);
       if (environment?.name === target.lift.active_environment) {
         setWorkspaceMessage("Choose a different active environment before removing this one.");
+        setWorkspaceState("error");
+        return target;
+      }
+      if (environment && isProtectedTargetEnvironment(environment)) {
+        setWorkspaceMessage("Seeded Lift environments can be marked inactive, but not removed.");
         setWorkspaceState("error");
         return target;
       }
@@ -6089,6 +6645,46 @@ export function App() {
                     </div>
                   </div>
 
+                  <div className="catalog-preset-strip">
+                    <div>
+                      <span>Pinned Lift Catalogs</span>
+                      <strong>
+                        {routeCatalogPresets.length
+                          ? `${routeCatalogPresets.length} saved for this route`
+                          : "No saved catalog presets"}
+                      </strong>
+                    </div>
+                    <label className="setup-control">
+                      <span>Catalog Preset</span>
+                      <select
+                        value=""
+                        onChange={(event) => {
+                          const preset = routeCatalogPresets.find((candidate) => candidate.preset_id === event.target.value);
+                          if (preset) {
+                            applyCatalogPreset(preset);
+                            setOpenProductMapTool("unit-library");
+                          }
+                        }}
+                      >
+                        <option value="">Choose catalog</option>
+                        {routeCatalogPresets.map((preset) => (
+                          <option key={preset.preset_id} value={preset.preset_id}>
+                            {preset.catalog_name} / {preset.catalog_id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="secondary-button"
+                      onClick={() => {
+                        setActiveCatalogMappingId(null);
+                        setOpenProductMapTool("unit-library");
+                      }}
+                    >
+                      Manage Catalogs
+                    </button>
+                  </div>
+
                   {openProductMapTool === "preload" ? (
                     <div
                       className="product-map-modal-backdrop"
@@ -6294,14 +6890,12 @@ export function App() {
                   ) : null}
 
                   {openProductMapTool === "unit-library" ? (
-                    <div className="product-map-modal-backdrop" role="presentation" onClick={() => setOpenProductMapTool(null)}>
-                      <section
-                        className="unit-catalog-panel product-map-modal"
-                        role="dialog"
-                        aria-modal="true"
-                        aria-label="Lift Product Catalog"
-                        onClick={(event) => event.stopPropagation()}
-                      >
+                    <aside
+                      className="unit-catalog-panel unit-catalog-drawer"
+                      role="dialog"
+                      aria-modal="false"
+                      aria-label="Lift Product Catalog"
+                    >
                     <div className="unit-catalog-header">
                       <div>
                         <strong>Lift Product Catalog</strong>
@@ -6319,7 +6913,7 @@ export function App() {
                           onChange={(event) => setUnitCatalogSearch(event.target.value)}
                         />
                       </label>
-                      <div className="unit-catalog-header-actions">
+                    <div className="unit-catalog-header-actions">
                         <button className="secondary-button" onClick={() => void refreshLiftProductCatalog(selectedOutputMapRoute)} disabled={unitCatalogState === "loading"}>
                           <RefreshCw size={15} />
                           Refresh from Lift
@@ -6329,6 +6923,7 @@ export function App() {
                           onClick={() => {
                             setOpenProductMapTool(null);
                             setActiveCatalogMappingId(null);
+                            setSelectedCatalogDetailId(null);
                           }}
                           aria-label="Close Lift product catalog"
                         >
@@ -6336,11 +6931,97 @@ export function App() {
                         </button>
                       </div>
                     </div>
-                    {activeCatalogMapping ? (
-                      <div className="unit-catalog-focus">
-                        <span>Mapping target</span>
-                        <strong>{activeCatalogMapping.customer_product_key}</strong>
-                        <small>{activeCatalogMapping.display_label}</small>
+                    <div
+                      className={`unit-catalog-focus unit-catalog-mapping-scope${
+                        activeCatalogMapping ? " is-single" : selectedUnitMappings.length ? " is-bulk" : " is-reference"
+                      }`}
+                    >
+                      <span>{activeCatalogMapping ? "Single-row mapping" : selectedUnitMappings.length ? "Bulk mapping" : "Reference mode"}</span>
+                      <strong>
+                        {activeCatalogMapping
+                          ? activeCatalogMapping.customer_product_key
+                          : selectedUnitMappings.length
+                            ? `${selectedUnitMappings.length} selected Pathfinder products`
+                            : "No Pathfinder rows selected"}
+                      </strong>
+                      <small>
+                        {activeCatalogMapping
+                          ? `Saving a Lift product updates only ${activeCatalogMapping.display_label || activeCatalogMapping.customer_product_key}.`
+                          : selectedUnitMappings.length
+                            ? `Saving a Lift product updates ${selectedUnitMappings
+                                .map((mapping) => mapping.customer_product_key)
+                                .slice(0, 3)
+                                .join(", ")}${selectedUnitMappings.length > 3 ? `, and ${selectedUnitMappings.length - 3} more` : ""}.`
+                            : "Click Map Product on a Pathfinder row, or select several rows before assigning a Lift product."}
+                      </small>
+                    </div>
+                    <div className="catalog-preset-manager">
+                      <div>
+                        <strong>Pinned catalogs</strong>
+                        <span>Save customer-specific Lift catalogs for this output route.</span>
+                      </div>
+                      <label className="setup-control">
+                        <span>Apply Preset</span>
+                        <select
+                          value=""
+                          onChange={(event) => {
+                            const preset = routeCatalogPresets.find((candidate) => candidate.preset_id === event.target.value);
+                            if (preset) {
+                              applyCatalogPreset(preset);
+                            }
+                          }}
+                        >
+                          <option value="">Choose saved catalog</option>
+                          {routeCatalogPresets.map((preset) => (
+                            <option key={preset.preset_id} value={preset.preset_id}>
+                              {preset.catalog_name} / {preset.catalog_id}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="setup-control">
+                        <span>Catalog Name</span>
+                        <input
+                          value={catalogPresetName}
+                          placeholder="Empirical - Momentara PG"
+                          onChange={(event) => setCatalogPresetName(event.target.value)}
+                        />
+                      </label>
+                      <label className="setup-control">
+                        <span>Catalog ID</span>
+                        <input
+                          value={catalogPresetId}
+                          placeholder="8102"
+                          onChange={(event) => {
+                            setCatalogPresetId(event.target.value);
+                            setUnitCatalogApiFilterParam("catalog_id");
+                            setUnitCatalogApiFilterValue(event.target.value);
+                          }}
+                        />
+                      </label>
+                      <button className="secondary-button" onClick={() => void saveCatalogPreset()} disabled={workspaceState === "saving"}>
+                        Save Preset
+                      </button>
+                    </div>
+                    {routeCatalogPresets.length ? (
+                      <div className="catalog-preset-list">
+                        {routeCatalogPresets.map((preset) => (
+                          <button
+                            key={preset.preset_id}
+                            className="catalog-preset-chip"
+                            onClick={() => applyCatalogPreset(preset)}
+                          >
+                            <span>{preset.catalog_name}</span>
+                            <strong>{preset.catalog_id}</strong>
+                            <X
+                              size={13}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void deleteCatalogPreset(preset);
+                              }}
+                            />
+                          </button>
+                        ))}
                       </div>
                     ) : null}
                     <div className="unit-catalog-filters">
@@ -6384,37 +7065,151 @@ export function App() {
                         </select>
                       </label>
                     </div>
-                    <div className="unit-catalog-results">
-                      {liftUnitCatalog.map((item) => (
-                        <article className="unit-catalog-card" key={item.catalog_item_id}>
-                          <div>
-                            <strong>{item.product_name}</strong>
-                            <span>{catalogIdentifierLabel(item)}</span>
-                            <small>
-                              Product ID {item.product_id ?? "pending"} · Catalog {item.catalog_name ?? item.catalog_id ?? "pending"} · {item.product_type ?? "Product"} · {item.source ?? "Catalog"}
-                            </small>
-                          </div>
-                          <div className="unit-catalog-actions">
-                            <button className="secondary-button" onClick={() => setBulkValueFromCatalog(item)}>
-                              Use Value
-                            </button>
+                    <div className="unit-catalog-api-filter">
+                      <div>
+                        <strong>Lift API filter</strong>
+                        <span>Use this before a catalog has been cached locally.</span>
+                      </div>
+                      <label className="setup-control">
+                        <span>Parameter</span>
+                        <select
+                          value={unitCatalogApiFilterParam}
+                          onChange={(event) => setUnitCatalogApiFilterParam(event.target.value)}
+                        >
+                          <option value="catalog_id">Catalog ID</option>
+                          <option value="catalog_name">Catalog name</option>
+                          <option value="product_name">Product name</option>
+                          <option value="product_id">Product ID</option>
+                          <option value="accounting_item_code">Accounting item code</option>
+                          <option value="parent_product_id">Parent product ID</option>
+                        </select>
+                      </label>
+                      <label className="setup-control">
+                        <span>Value</span>
+                        <input
+                          value={unitCatalogApiFilterValue}
+                          placeholder={unitCatalogApiFilterParam === "catalog_id" ? "8102" : "Enter exact Lift value"}
+                          onChange={(event) => setUnitCatalogApiFilterValue(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                    <div className={selectedCatalogDetailItem ? "unit-catalog-workspace has-detail" : "unit-catalog-workspace"}>
+                      <div className="unit-catalog-table-wrap">
+                        <table className="unit-catalog-table">
+                          <thead>
+                            <tr>
+                              <th>Product</th>
+                              <th>Product ID</th>
+                              <th>Catalog</th>
+                              <th>Type</th>
+                              <th>Size</th>
+                              <th>Identifier</th>
+                              <th>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {liftUnitCatalog.map((item) => (
+                              <tr
+                                key={item.catalog_item_id}
+                                className={selectedCatalogDetailId === item.catalog_item_id ? "is-selected" : undefined}
+                              >
+                                <td>
+                                  <strong>{item.product_name}</strong>
+                                  <span>{item.accounting_item_code ?? item.description ?? item.source ?? "Lift product"}</span>
+                                </td>
+                                <td>{item.product_id ?? "-"}</td>
+                                <td>
+                                  <strong>{item.catalog_name ?? "Catalog pending"}</strong>
+                                  <span>{item.catalog_id ?? "-"}</span>
+                                </td>
+                                <td>
+                                  <strong>{item.product_type ?? "Product"}</strong>
+                                  <span>{item.status}</span>
+                                </td>
+                                <td>
+                                  <strong>
+                                    {item.attribute_1 ?? "-"} x {item.attribute_2 ?? "-"}
+                                  </strong>
+                                  <span>Attributes 1/2</span>
+                                </td>
+                                <td>{catalogIdentifierLabel(item)}</td>
+                                <td>
+                                  <div className="unit-catalog-row-actions">
+                                    <button className="secondary-button" onClick={() => setSelectedCatalogDetailId(item.catalog_item_id)}>
+                                      Details
+                                    </button>
+                                    <button
+                                      className="primary-button"
+                                      onClick={() => void assignCatalogItemToSelectedMappings(item)}
+                                      disabled={workspaceState === "saving" || (!activeCatalogMapping && selectedUnitMappings.length === 0)}
+                                    >
+                                      {activeCatalogMapping
+                                        ? "Save Mapping"
+                                        : selectedUnitMappings.length
+                                          ? `Assign ${selectedUnitMappings.length}`
+                                          : "Select Row"}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {selectedCatalogDetailItem ? (
+                        <section className="unit-catalog-detail-panel">
+                          <div className="modal-section-header">
+                            <div>
+                              <h2>{selectedCatalogDetailItem.product_name}</h2>
+                              <span>
+                                Product ID {selectedCatalogDetailItem.product_id ?? "-"} · Catalog{" "}
+                                {selectedCatalogDetailItem.catalog_name ?? selectedCatalogDetailItem.catalog_id ?? "-"}
+                              </span>
+                            </div>
                             <button
-                              className="primary-button"
-                              onClick={() => void assignCatalogItemToSelectedMappings(item)}
-                              disabled={workspaceState === "saving"}
+                              className="modal-close-button"
+                              onClick={() => setSelectedCatalogDetailId(null)}
+                              aria-label="Close product details"
                             >
-                              {activeCatalogMapping
-                                ? "Map Product"
-                                : selectedUnitMappings.length
-                                  ? `Assign ${selectedUnitMappings.length}`
-                                  : "Set Bulk"}
-                            </button>
-                            <button className="secondary-button" onClick={() => setPreloadDefaultFromCatalog(item)}>
-                              Preload Default
+                              <X size={17} />
                             </button>
                           </div>
-                        </article>
-                      ))}
+                          {catalogUnitNumbers(selectedCatalogDetailItem).length > 1 ? (
+                            <div className="unit-catalog-unit-picker">
+                              <label className="setup-control">
+                                <span>Unit number to import</span>
+                                <select
+                                  value={selectedCatalogUnitNumber(selectedCatalogDetailItem) ?? ""}
+                                  onChange={(event) =>
+                                    setSelectedCatalogUnitNumbers((current) => ({
+                                      ...current,
+                                      [selectedCatalogDetailItem.catalog_item_id]: event.target.value
+                                    }))
+                                  }
+                                >
+                                  {catalogUnitNumbers(selectedCatalogDetailItem).map((unitNumber) => (
+                                    <option key={unitNumber} value={unitNumber}>
+                                      {unitNumber}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <div>
+                                <span>Mapping output</span>
+                                <strong>{catalogIdentifierForRoute(selectedCatalogDetailItem, selectedOutputMapRoute) || "No identifier"}</strong>
+                              </div>
+                            </div>
+                          ) : null}
+                          <div className="unit-catalog-detail-grid">
+                            {catalogDetailRows(selectedCatalogDetailItem).map((entry) => (
+                              <div key={entry.field}>
+                                <dt>{entry.field}</dt>
+                                <dd>{entry.value}</dd>
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      ) : null}
                     </div>
                     {unitCatalogState === "loading" ? (
                       <p className="empty-state">Loading Lift product catalog...</p>
@@ -6422,8 +7217,7 @@ export function App() {
                     {unitCatalogState !== "loading" && liftUnitCatalog.length === 0 ? (
                       <p className="empty-state">No Lift products match this route and search. Refresh from Lift when credentials are configured.</p>
                     ) : null}
-                      </section>
-                    </div>
+                    </aside>
                   ) : null}
 
                   <div className="unit-map-bulkbar">
@@ -6610,6 +7404,88 @@ export function App() {
                       </div>
                     </div>
                   ))}
+                </section>
+
+                <section className="submit-readiness-grid" aria-label="Submit readiness audit">
+                  {submitReadinessCards.map((card) => (
+                    <article className={`submit-readiness-card submit-readiness-${card.status.toLowerCase()}`} key={card.label}>
+                      <div>
+                        <span>{card.label}</span>
+                        <strong>{card.value}</strong>
+                      </div>
+                      <p>{card.detail}</p>
+                      {card.action ? (
+                        <button className="certification-action" onClick={card.action} type="button">
+                          {card.actionLabel}
+                        </button>
+                      ) : null}
+                    </article>
+                  ))}
+                </section>
+
+                <section className="panel submit-preflight-panel">
+                  <PanelHeader
+                    icon={ShieldCheck}
+                    title="Lift Submit Preflight"
+                    detail={
+                      submitPreflightBlockedCount
+                        ? `${submitPreflightBlockedCount} blocker${submitPreflightBlockedCount === 1 ? "" : "s"}`
+                        : submitPreflightWarningCount
+                          ? `${submitPreflightWarningCount} review item${submitPreflightWarningCount === 1 ? "" : "s"}`
+                          : "Ready"
+                    }
+                  />
+                  <div className="submit-preflight-body">
+                    <div className="submit-preflight-intro">
+                      <strong>
+                        {submitPreflightBlockedCount
+                          ? "Submit test is not clear yet."
+                          : submitPreflightWarningCount
+                            ? "Submit test is technically clear, with review items."
+                            : "Submit test is clear from Pathfinder."}
+                      </strong>
+                      <span>
+                        {activeRouteIsProd && selectedSubmitProfile.mode === "sandbox_customer"
+                          ? prodSandboxSubmitConfirmed
+                            ? "PROD endpoint with sandbox customer is confirmed for this preview."
+                            : "PROD endpoint with sandbox customer is allowed here, but should be confirmed before clicking Submit."
+                          : "Use this check before the real Lift submit so the setup and payload are visible in one place."}
+                      </span>
+                      {prodSandboxConfirmationRequired ? (
+                        <label className="prod-sandbox-confirmation">
+                          <input
+                            type="checkbox"
+                            checked={prodSandboxSubmitConfirmed}
+                            onChange={(event) =>
+                              setConfirmedProdSandboxSubmitKey(event.target.checked ? prodSandboxConfirmationKey : null)
+                            }
+                          />
+                          <span>
+                            <strong>Confirm PROD sandbox lane</strong>
+                            <small>Use PROD endpoint, but submit this test under LTL Demo / 1249.</small>
+                          </span>
+                        </label>
+                      ) : null}
+                    </div>
+                    <div className="submit-preflight-items">
+                      {submitPreflightItems.map((item) => (
+                        <article className={`submit-preflight-item submit-preflight-${item.status.toLowerCase()}`} key={item.label}>
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                          <em>{item.detail}</em>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="panel-footer-row">
+                    <span>
+                      Export includes masked headers, canonical order, Lift payload, validation, product resolution, route, environment, and last attempt.
+                    </span>
+                    <button className="secondary-button" onClick={downloadSubmitPacket} type="button">
+                      <FileText size={16} />
+                      Download Submit Packet
+                    </button>
+                  </div>
                 </section>
 
                 <section className="manual-import-grid">
@@ -6802,6 +7678,22 @@ export function App() {
                           <span>Response</span>
                           <strong>{lastSubmitAttempt.response.message}</strong>
                         </div>
+                        <div>
+                          <span>Transport</span>
+                          <strong>{lastSubmitAttempt.transport_mode ?? "Not recorded"}</strong>
+                        </div>
+                        <div>
+                          <span>HTTP status</span>
+                          <strong>{lastSubmitAttempt.response.http_status ?? "No HTTP response"}</strong>
+                        </div>
+                        <div>
+                          <span>Lift order</span>
+                          <strong>{lastSubmitAttempt.response.lift_order_id ?? "Pending"}</strong>
+                        </div>
+                        <div>
+                          <span>Endpoint</span>
+                          <strong>{lastSubmitAttempt.endpoint_url}</strong>
+                        </div>
                         {lastSubmitAttempt.response.error_translation ? (
                           <div className="submit-error-translation">
                             <span>Translated issue</span>
@@ -6814,6 +7706,10 @@ export function App() {
                             <code>{lastSubmitAttempt.response.error_translation.source_message}</code>
                           </div>
                         ) : null}
+                        <details className="submit-raw-response">
+                          <summary>Raw Lift response</summary>
+                          <pre>{formatRawBodyPreview(lastSubmitAttempt.response.raw_body)}</pre>
+                        </details>
                       </div>
                     ) : null}
                     <div className="certification-list">
@@ -6849,12 +7745,19 @@ export function App() {
                       <button
                         className={submitCertification.can_submit ? "primary-button" : "secondary-button"}
                         onClick={() => void requestLiftSubmit()}
-                        disabled={!lastPreviewJob || workspaceState === "saving"}
+                        disabled={
+                          !lastPreviewJob ||
+                          workspaceState === "saving" ||
+                          !submitCertification.external_submit_enabled ||
+                          (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed)
+                        }
                       >
                         {submitCertification.external_submit_enabled ? "Submit to Lift" : "Submit gate locked"}
                       </button>
                       <span>
-                        {submitCertification.external_submit_enabled
+                        {prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed
+                          ? "Confirm the PROD sandbox lane in preflight before submitting."
+                          : submitCertification.external_submit_enabled
                           ? "External submit is controlled by certification status."
                           : "External submit requires an explicit Pathfinder feature gate."}
                       </span>
@@ -7537,10 +8440,7 @@ export function App() {
                           <select
                             value={selectedTarget.lift.active_environment}
                             onChange={(event) =>
-                              updateTargetDraft(selectedTarget.target_id, (target) => ({
-                                ...target,
-                                lift: { ...target.lift, active_environment: event.target.value as "QA1" | "PROD" }
-                              }))
+                              updateTargetActiveEnvironmentDraft(selectedTarget.target_id, event.target.value)
                             }
                           >
                             {targetEnvironments.map((environment) => (
@@ -7583,6 +8483,21 @@ export function App() {
                       </div>
                       {targetEnvironments.map((environment) => (
                         <div className="target-config-card" key={environment.environment_id}>
+                          {(() => {
+                            const deleteDisabled =
+                              targetEnvironments.length <= 1 ||
+                              environment.name === selectedTarget.lift.active_environment ||
+                              isProtectedTargetEnvironment(environment);
+                            const deleteTitle =
+                              targetEnvironments.length <= 1
+                                ? "A target needs at least one environment"
+                                : isProtectedTargetEnvironment(environment)
+                                  ? "Seeded Lift environments can be marked inactive instead of removed"
+                                  : environment.name === selectedTarget.lift.active_environment
+                                    ? "Choose a different active environment before removing this one"
+                                    : `Remove ${environment.name}`;
+
+                            return (
                           <div className="target-card-heading">
                             <div>
                               <strong>{environment.name}</strong>
@@ -7594,20 +8509,16 @@ export function App() {
                               </span>
                               <button
                                 className="icon-button-danger"
-                                title={
-                                  targetEnvironments.length <= 1
-                                    ? "A target needs at least one environment"
-                                    : environment.name === selectedTarget.lift.active_environment
-                                      ? "Choose a different active environment before removing this one"
-                                      : `Remove ${environment.name}`
-                                }
+                                title={deleteTitle}
                                 onClick={() => removeTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id)}
-                                disabled={targetEnvironments.length <= 1 || environment.name === selectedTarget.lift.active_environment}
+                                disabled={deleteDisabled}
                               >
                                 <Trash2 size={15} />
                               </button>
                             </div>
                           </div>
+                            );
+                          })()}
                           <div className="setup-grid target-settings-grid">
                             <label className="setup-control">
                               <span>Role</span>
@@ -7697,7 +8608,9 @@ export function App() {
                             <label className="setup-control">
                               <span>Password Secret</span>
                               <input
-                                value={environment.credentials.Password ?? ""}
+                                type="password"
+                                value={isMaskedSecret(environment.credentials.Password) ? "" : environment.credentials.Password ?? ""}
+                                placeholder={isMaskedSecret(environment.credentials.Password) ? "Saved secret" : "Enter password"}
                                 onChange={(event) =>
                                   updateTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id, (current) => ({
                                     ...current,
@@ -8434,7 +9347,7 @@ export function App() {
 
                 {activeTargetsView === "Test & Health" ? (
                   <section className="panel setup-panel">
-                    <PanelHeader icon={Activity} title="Test & Health" detail="Local preview checks only" />
+                    <PanelHeader icon={Activity} title="Test & Health" detail="Route configuration preview" />
                     <div className="target-health-grid">
                       <div>
                         <span>Current Status</span>
@@ -8469,9 +9382,13 @@ export function App() {
                       }, null, 2)}</pre>
                     </div>
                     <div className="panel-action-footer">
-                      <span>Connection testing will be enabled after credentials and submission rules are finalized.</span>
-                      <button className="secondary-button" disabled>
-                        Test Output gated
+                      <span>Route diagnostics are passing. Use Customer Manual Import to generate a preview and perform the gated Lift submit test.</span>
+                      <button
+                        className="secondary-button"
+                        disabled
+                        title="This panel validates the route setup. The actual submit test runs from Customer Manual Import after preview certification."
+                      >
+                        Use Manual Import
                       </button>
                     </div>
                   </section>

@@ -47,6 +47,7 @@ import {
   addCanonicalRegistryCustomField,
   bulkUpsertProductMappings,
   createDefaultProductResolutionConfig,
+  deleteCatalogPreset,
   deleteCanonicalRegistryCustomField,
   getCanonicalRegistryGovernance,
   getCanonicalRegistryOverrides,
@@ -54,6 +55,7 @@ import {
   getOrCreateWorkspace,
   getTarget,
   listProductMappings,
+  listCatalogPresets,
   listLiftUnitCatalog,
   listJobs,
   listSubmitAttemptsForJob,
@@ -65,6 +67,7 @@ import {
   persistPreviewJob,
   persistSubmitAttempt,
   updateProductMapping,
+  upsertCatalogPreset,
   updateImportMethod,
   updateCanonicalRegistryFieldOverride,
   updateOutputRoute,
@@ -72,6 +75,7 @@ import {
   renameCanonicalRegistryCustomField,
   upsertLiftProductCatalog,
   type CustomerProductMapping,
+  type LiftCatalogPreset,
   type CanonicalFieldOverride,
   type CanonicalFieldUsageSummary,
   type ImportMethod,
@@ -227,6 +231,14 @@ function liftProductNumber(value: unknown) {
   return null;
 }
 
+function liftProductValues(value: unknown) {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map(liftProductValue).filter((item): item is string => Boolean(item))));
+  }
+  const normalized = liftProductValue(value);
+  return normalized ? [normalized] : [];
+}
+
 function normalizeLiftProductPayloadItem(
   item: Record<string, unknown>,
   context: {
@@ -236,7 +248,9 @@ function normalizeLiftProductPayloadItem(
   }
 ): LiftUnitCatalogItem {
   const productId = liftProductValue(item.productId ?? item.product_id);
-  const unitNumber = liftProductValue(item.unitNumber ?? item.unit_number);
+  const liftedUnitNumbers = liftProductValues(item.unitNumbers ?? item.unit_numbers);
+  const unitNumber = liftProductValue(item.unitNumber ?? item.unit_number) ?? liftedUnitNumbers[0] ?? null;
+  const unitNumbers = Array.from(new Set([...(unitNumber ? [unitNumber] : []), ...liftedUnitNumbers]));
   const catalogId = liftProductValue(item.catalogId ?? item.catalog_id);
   const productName = liftProductValue(item.productName ?? item.product_name) ?? productId ?? unitNumber ?? "Unnamed Lift product";
   return {
@@ -253,6 +267,7 @@ function normalizeLiftProductPayloadItem(
       .replace(/^-+|-+$/g, ""),
     product_id: productId,
     unit_number: unitNumber,
+    unit_numbers: unitNumbers,
     product_name: productName,
     company_id: context.companyId ?? "91",
     target_id: context.targetId,
@@ -264,37 +279,77 @@ function normalizeLiftProductPayloadItem(
     parent_product_id: liftProductValue(item.parentProductId ?? item.parent_product_id),
     unit_price: liftProductNumber(item.unitPrice ?? item.unit_price),
     quantity: liftProductNumber(item.quantity),
+    attribute_1: liftProductNumber(item.attribute1 ?? item.attribute_1),
+    attribute_2: liftProductNumber(item.attribute2 ?? item.attribute_2),
     material_id: liftProductValue(item.materialId ?? item.material_id),
+    storage_type_id: liftProductValue(item.storageTypeId ?? item.storage_type_id),
+    warehouse_location_id: liftProductValue(item.warehouseLocationId ?? item.warehouse_location_id),
     image_url: liftProductValue(item.imageUrl ?? item.image_url),
     status: liftProductValue(item.status) === "I" ? "Inactive" : "Active",
     category: liftProductValue(item.catalogName ?? item.catalog_name ?? item.productType ?? item.product_type),
     description: liftProductValue(item.productDescription ?? item.product_description),
+    raw_payload: item,
     source: "Lift import",
     updated_at: new Date().toISOString()
   };
 }
 
+function normalizeLiftProductPayloadItems(
+  item: Record<string, unknown>,
+  context: {
+    targetId: string;
+    environmentId?: string;
+    companyId?: string | null;
+  }
+) {
+  const parent = normalizeLiftProductPayloadItem(item, context);
+  const components = Array.isArray(item.components)
+    ? item.components.map((component) =>
+        normalizeLiftProductPayloadItem(
+          {
+            ...(component as Record<string, unknown>),
+            parentProductId:
+              (component as Record<string, unknown>).parentProductId ??
+              (component as Record<string, unknown>).parent_product_id ??
+              parent.product_id
+          },
+          context
+        )
+      )
+    : [];
+
+  return [parent, ...components];
+}
+
 function liftProductQueryParams(reqQuery: Record<string, unknown>) {
-  const allowedParams = [
-    "product_id",
-    "accounting_item_code",
-    "product_type",
-    "parent_product_id",
-    "status",
-    "catalog_id"
-  ];
+  const allowedParams = new Map([
+    ["product_id", "product_id"],
+    ["product_name", "product_name"],
+    ["catalog_id", "catalog_id"],
+    ["catalog_name", "catalog_name"],
+    ["accounting_item_code", "accounting_item_code"],
+    ["product_type", "product_type"],
+    ["parent_product_id", "parent_product_id"],
+    ["status", "status"],
+    ["fetchSize", "fetchSize"],
+    ["fetch_size", "fetchSize"],
+    ["limit", "fetchSize"],
+    ["fetchOffset", "fetchOffset"],
+    ["fetch_offset", "fetchOffset"],
+    ["offset", "fetchOffset"]
+  ]);
   const params = new URLSearchParams();
 
-  allowedParams.forEach((key) => {
+  allowedParams.forEach((liftKey, key) => {
     const value = reqQuery[key];
     if (typeof value === "string" && value.trim()) {
       const normalizedValue =
-        key === "status" && value.trim() === "Active"
+        liftKey === "status" && value.trim() === "Active"
           ? "A"
-          : key === "status" && value.trim() === "Inactive"
+          : liftKey === "status" && value.trim() === "Inactive"
             ? "I"
             : value.trim();
-      params.set(key, normalizedValue);
+      params.set(liftKey, normalizedValue);
     }
   });
 
@@ -332,8 +387,8 @@ async function fetchLiftProductsFromTarget(target: TargetConfig, route: OutputRo
     throw new Error("Lift product catalog response was not an array.");
   }
 
-  return body.map((item) =>
-    normalizeLiftProductPayloadItem(item as Record<string, unknown>, {
+  return body.flatMap((item) =>
+    normalizeLiftProductPayloadItems(item as Record<string, unknown>, {
       targetId: target.target_id,
       environmentId: environment?.environment_id,
       companyId: route.company_id ?? environment?.headers.Company ?? target.lift.headers.Company
@@ -1489,6 +1544,7 @@ function createSubmitAttempt(args: {
     submit_mode: args.job.submit_mode,
     sandbox: args.job.sandbox,
     state: args.state,
+    transport_mode: liftSubmitTransportMode,
     external_submit_enabled: externalLiftSubmitEnabled,
     endpoint_url: (args.submitRequestMasked ?? args.job.submit_request_masked).endpoint_url,
     ext_id: (args.submitRequestMasked ?? args.job.submit_request_masked).headers.Ext_ID,
@@ -2063,6 +2119,48 @@ app.get("/api/customers/:liftCustomerId/product-mappings", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Product mapping load failed."
+    });
+  }
+});
+
+app.get("/api/customers/:liftCustomerId/catalog-presets", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    res.json({
+      catalog_presets: await listCatalogPresets(customer)
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Catalog presets load failed."
+    });
+  }
+});
+
+app.put("/api/customers/:liftCustomerId/catalog-presets/:presetId", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    res.json({
+      catalog_presets: await upsertCatalogPreset(customer, {
+        ...(req.body as Partial<LiftCatalogPreset>),
+        preset_id: req.params.presetId
+      })
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Catalog preset save failed."
+    });
+  }
+});
+
+app.delete("/api/customers/:liftCustomerId/catalog-presets/:presetId", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    res.json({
+      catalog_presets: await deleteCatalogPreset(customer, req.params.presetId)
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Catalog preset delete failed."
     });
   }
 });
@@ -2878,6 +2976,7 @@ app.get("/api/lift/product-catalog", async (req, res) => {
     const customerId = req.query.customer_id ? String(req.query.customer_id) : undefined;
     let refreshed = false;
     let refreshedCount = 0;
+    let refreshError: string | null = null;
 
     if (req.query.refresh === "1" || req.query.refresh === "true") {
       if (!targetId || !routeId || !customerId) {
@@ -2885,17 +2984,24 @@ app.get("/api/lift/product-catalog", async (req, res) => {
       }
       const customer = await findLiftCustomer(customerId);
       const workspace = await getOrCreateWorkspace(customer);
-      const route = workspace.output_routes.find((candidate) => candidate.output_route_id === routeId);
+      const route =
+        workspace.output_routes.find((candidate) => candidate.output_route_id === routeId) ??
+        workspace.output_routes.find((candidate) => candidate.output_route_id === workspace.primary_output_route_id) ??
+        workspace.output_routes[0];
       const target = (await getTarget(targetId, false)) as TargetConfig | null;
 
       if (!route || !target) {
         throw new Error("Could not find the selected target or output route for product catalog refresh.");
       }
 
-      const liftedProducts = await fetchLiftProductsFromTarget(target, route, req.query);
-      await upsertLiftProductCatalog(liftedProducts);
-      refreshed = true;
-      refreshedCount = liftedProducts.length;
+      try {
+        const liftedProducts = await fetchLiftProductsFromTarget(target, route, req.query);
+        await upsertLiftProductCatalog(liftedProducts);
+        refreshed = true;
+        refreshedCount = liftedProducts.length;
+      } catch (error) {
+        refreshError = error instanceof Error ? error.message : "Lift product catalog refresh failed.";
+      }
     }
 
     const products = await listLiftUnitCatalog({
@@ -2904,18 +3010,31 @@ app.get("/api/lift/product-catalog", async (req, res) => {
       company_id: companyId,
       q: req.query.q ? String(req.query.q) : undefined,
       product_id: req.query.product_id ? String(req.query.product_id) : undefined,
+      product_name: req.query.product_name ? String(req.query.product_name) : undefined,
       catalog_id: req.query.catalog_id ? String(req.query.catalog_id) : undefined,
+      catalog_name: req.query.catalog_name ? String(req.query.catalog_name) : undefined,
       product_type: req.query.product_type ? String(req.query.product_type) : undefined,
       accounting_item_code: req.query.accounting_item_code ? String(req.query.accounting_item_code) : undefined,
       parent_product_id: req.query.parent_product_id ? String(req.query.parent_product_id) : undefined,
       status: req.query.status ? String(req.query.status) : undefined,
-      include_inactive: req.query.include_inactive === "1" || req.query.include_inactive === "true"
+      include_inactive: req.query.include_inactive === "1" || req.query.include_inactive === "true",
+      fetch_size: req.query.fetchSize
+        ? Number(req.query.fetchSize)
+        : req.query.fetch_size
+          ? Number(req.query.fetch_size)
+          : undefined,
+      fetch_offset: req.query.fetchOffset
+        ? Number(req.query.fetchOffset)
+        : req.query.fetch_offset
+          ? Number(req.query.fetch_offset)
+          : undefined
     });
 
     res.json({
       products,
       refreshed,
       refreshed_count: refreshedCount,
+      refresh_error: refreshError,
       source: refreshed ? "lift-api" : "local-cache"
     });
   } catch (error) {

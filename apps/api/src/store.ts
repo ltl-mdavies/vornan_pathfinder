@@ -59,6 +59,7 @@ export type SubmitCertificationActionKey =
   | "target-output-templates"
   | "target-health";
 export type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
+export type SubmitAttemptTransportMode = "dry_run" | "mock" | "live";
 
 export interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
@@ -102,6 +103,7 @@ export interface LiftUnitCatalogItem {
   catalog_item_id: string;
   product_id: string | null;
   unit_number: string | null;
+  unit_numbers?: string[];
   product_name: string;
   company_id: string;
   target_id: string;
@@ -113,12 +115,28 @@ export interface LiftUnitCatalogItem {
   parent_product_id?: string | null;
   unit_price?: number | null;
   quantity?: number | null;
+  attribute_1?: number | null;
+  attribute_2?: number | null;
   material_id?: string | null;
+  storage_type_id?: string | null;
+  warehouse_location_id?: string | null;
   image_url?: string | null;
   status: "Active" | "Inactive";
   category?: string | null;
   description?: string | null;
+  raw_payload?: Record<string, unknown> | null;
   source?: "Local seed" | "Lift import" | "Manual";
+  updated_at: string;
+}
+
+export interface LiftCatalogPreset {
+  preset_id: string;
+  output_route_id: string;
+  target_id: string;
+  catalog_id: string;
+  catalog_name: string;
+  status: "Active" | "Inactive";
+  created_at: string;
   updated_at: string;
 }
 
@@ -339,6 +357,7 @@ export interface SubmitAttempt {
   submit_mode: SubmitProfileMode;
   sandbox: boolean;
   state: SubmitAttemptStatus;
+  transport_mode?: SubmitAttemptTransportMode;
   external_submit_enabled: boolean;
   endpoint_url: string;
   ext_id: string;
@@ -359,6 +378,7 @@ export interface PathfinderCustomerWorkspace {
   jobs: ProcessingJobPreview[];
   submit_attempts?: SubmitAttempt[];
   product_mappings: CustomerProductMapping[];
+  catalog_presets: LiftCatalogPreset[];
   primary_target_id: string;
   primary_output_route_id: string;
   updated_at: string;
@@ -444,10 +464,32 @@ export interface CanonicalRegistrySnapshot {
 }
 
 const storePath = fileURLToPath(new URL("../../../data/pathfinder-store.local.json", import.meta.url));
+const secretsPath = fileURLToPath(new URL("../../../data/pathfinder-secrets.local.json", import.meta.url));
 const targetId = "lift-standard-graphics";
 const ecommerceTargetId = "thinkdifferentprint-ecommerce";
 const outputRouteId = "route-ltl-lift-91-standard-graphics";
 const manualImportMethodId = "manual-xlsx";
+const defaultLiftOrderLookupUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360Orders/N?offset=0";
+const defaultLiftProofReportUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0";
+const defaultLiftPackageDetailsUrl = "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/PackageDetails/package_details?offset=0";
+
+interface LocalTargetSecrets {
+  environments?: Record<
+    string,
+    {
+      credentials?: Partial<TargetEnvironment["credentials"]>;
+      headers?: Record<string, string>;
+    }
+  >;
+  lift?: {
+    credentials?: Partial<LiftTargetConfig["credentials"]>;
+  };
+}
+
+interface LocalSecretsStore {
+  version: 1;
+  targets: Record<string, LocalTargetSecrets>;
+}
 
 function now() {
   return new Date().toISOString();
@@ -996,9 +1038,9 @@ function createSeedOutputRoute(timestamp = now()): OutputRoute {
     product_identifier_label: "Lift unit_number",
     submit_profiles: createDefaultSubmitProfiles(),
     value_normalization_rules: createDefaultValueNormalizationRules(),
-    order_lookup_url: null,
-    proof_report_url: null,
-    package_details_url: null,
+    order_lookup_url: defaultLiftOrderLookupUrl,
+    proof_report_url: defaultLiftProofReportUrl,
+    package_details_url: defaultLiftPackageDetailsUrl,
     status: "Active",
     updated_at: timestamp
   };
@@ -1010,6 +1052,7 @@ function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
       catalog_item_id: "local-unit-2sheet-46x60-48pt",
       product_id: null,
       unit_number: "2SHEET_46x60_48PT",
+      unit_numbers: ["2SHEET_46x60_48PT"],
       product_name: "2 Sheet Poster",
       company_id: "91",
       target_id: targetId,
@@ -1021,7 +1064,11 @@ function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
       parent_product_id: null,
       unit_price: null,
       quantity: null,
+      attribute_1: null,
+      attribute_2: null,
       material_id: null,
+      storage_type_id: null,
+      warehouse_location_id: null,
       image_url: null,
       status: "Active",
       category: "OOH Poster",
@@ -1033,6 +1080,7 @@ function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
       catalog_item_id: "local-unit-banner-36x96-13oz",
       product_id: null,
       unit_number: "BANNER_36x96_13OZ",
+      unit_numbers: ["BANNER_36x96_13OZ"],
       product_name: "13oz Vinyl Banner",
       company_id: "91",
       target_id: targetId,
@@ -1044,7 +1092,11 @@ function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
       parent_product_id: null,
       unit_price: null,
       quantity: null,
+      attribute_1: null,
+      attribute_2: null,
       material_id: null,
+      storage_type_id: null,
+      warehouse_location_id: null,
       image_url: null,
       status: "Active",
       category: "Banner",
@@ -1056,6 +1108,7 @@ function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
       catalog_item_id: "local-unit-sandbox-smoke-poster",
       product_id: null,
       unit_number: "SANDBOX_SMOKE_POSTER",
+      unit_numbers: ["SANDBOX_SMOKE_POSTER"],
       product_name: "Sandbox smoke poster",
       company_id: "91",
       target_id: targetId,
@@ -1067,7 +1120,11 @@ function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
       parent_product_id: null,
       unit_price: null,
       quantity: null,
+      attribute_1: null,
+      attribute_2: null,
       material_id: null,
+      storage_type_id: null,
+      warehouse_location_id: null,
       image_url: null,
       status: "Active",
       category: "Sandbox",
@@ -1103,10 +1160,28 @@ function createSeedMethod(timestamp: string): ImportMethod {
   };
 }
 
+function createSeedCatalogPresets(customer: LiftCustomer, route: OutputRoute, timestamp = now()): LiftCatalogPreset[] {
+  return customer.customer_name.toLowerCase().includes("momentara")
+    ? [
+        {
+          preset_id: "catalog-preset-empirical-momentara-pg-8102",
+          output_route_id: route.output_route_id,
+          target_id: route.target_id,
+          catalog_id: "8102",
+          catalog_name: "Empirical - Momentara PG",
+          status: "Active",
+          created_at: timestamp,
+          updated_at: timestamp
+        }
+      ]
+    : [];
+}
+
 function createWorkspace(customer: LiftCustomer): PathfinderCustomerWorkspace {
   const timestamp = now();
   const method = createSeedMethod(timestamp);
   const route = createSeedOutputRoute(timestamp);
+  const catalogPresets = createSeedCatalogPresets(customer, route, timestamp);
 
   return {
     customer,
@@ -1125,6 +1200,7 @@ function createWorkspace(customer: LiftCustomer): PathfinderCustomerWorkspace {
     jobs: [],
     submit_attempts: [],
     product_mappings: [],
+    catalog_presets: catalogPresets,
     primary_target_id: targetId,
     primary_output_route_id: route.output_route_id,
     updated_at: timestamp
@@ -1265,9 +1341,35 @@ function normalizeProductMapping(mapping: CustomerProductMapping): CustomerProdu
   };
 }
 
+function normalizeCatalogPreset(preset: LiftCatalogPreset, workspace: PathfinderCustomerWorkspace): LiftCatalogPreset {
+  const timestamp = now();
+  const route =
+    workspace.output_routes.find((candidate) => candidate.output_route_id === preset.output_route_id) ??
+    workspace.output_routes.find((candidate) => candidate.output_route_id === workspace.primary_output_route_id) ??
+    workspace.output_routes[0];
+  const catalogId = String(preset.catalog_id ?? "").trim();
+  const presetId =
+    preset.preset_id ||
+    `catalog-preset-${workspace.customer.lift_customer_id}-${route?.output_route_id ?? "route"}-${catalogId || Date.now()}`;
+
+  return {
+    preset_id: presetId,
+    output_route_id: route?.output_route_id ?? preset.output_route_id,
+    target_id: route?.target_id ?? preset.target_id ?? targetId,
+    catalog_id: catalogId,
+    catalog_name: String(preset.catalog_name ?? catalogId ?? "Lift catalog").trim() || catalogId || "Lift catalog",
+    status: preset.status ?? "Active",
+    created_at: preset.created_at ?? timestamp,
+    updated_at: preset.updated_at ?? timestamp
+  };
+}
+
 function normalizeLiftCatalogItem(item: Partial<LiftUnitCatalogItem>, timestamp = now()): LiftUnitCatalogItem {
   const unitNumber = item.unit_number ?? null;
   const productId = item.product_id ?? null;
+  const unitNumbers = Array.from(
+    new Set([...(unitNumber ? [unitNumber] : []), ...(item.unit_numbers ?? [])].filter(Boolean))
+  );
   return {
     catalog_item_id:
       item.catalog_item_id ??
@@ -1284,6 +1386,7 @@ function normalizeLiftCatalogItem(item: Partial<LiftUnitCatalogItem>, timestamp 
         .replace(/^-+|-+$/g, ""),
     product_id: productId,
     unit_number: unitNumber,
+    unit_numbers: unitNumbers,
     product_name: item.product_name ?? unitNumber ?? productId ?? "Unnamed Lift product",
     company_id: item.company_id ?? "91",
     target_id: item.target_id ?? targetId,
@@ -1295,11 +1398,16 @@ function normalizeLiftCatalogItem(item: Partial<LiftUnitCatalogItem>, timestamp 
     parent_product_id: item.parent_product_id ?? null,
     unit_price: item.unit_price ?? null,
     quantity: item.quantity ?? null,
+    attribute_1: item.attribute_1 ?? null,
+    attribute_2: item.attribute_2 ?? null,
     material_id: item.material_id ?? null,
+    storage_type_id: item.storage_type_id ?? null,
+    warehouse_location_id: item.warehouse_location_id ?? null,
     image_url: item.image_url ?? null,
     status: item.status ?? "Active",
     category: item.category ?? item.catalog_name ?? item.product_type ?? null,
     description: item.description ?? null,
+    raw_payload: item.raw_payload ?? null,
     source: item.source ?? "Manual",
     updated_at: item.updated_at ?? timestamp
   };
@@ -1324,6 +1432,7 @@ function matchesSearch(item: LiftUnitCatalogItem, query: string) {
 
   return [
     item.unit_number,
+    ...(item.unit_numbers ?? []),
     item.product_id ?? "",
     item.product_name,
     item.catalog_id ?? "",
@@ -1484,12 +1593,18 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
     package_details_url: candidate.package_details_url ?? route.package_details_url ?? null
   }));
   const primaryOutputRouteId = workspace.primary_output_route_id ?? outputRoutes[0]?.output_route_id ?? route.output_route_id;
+  const catalogPresets = workspace.catalog_presets?.length
+    ? workspace.catalog_presets
+    : createSeedCatalogPresets(workspace.customer, outputRoutes[0] ?? route);
 
   return {
     ...workspace,
     import_methods: (workspace.import_methods ?? []).map(normalizeImportMethod),
     output_routes: outputRoutes,
     product_mappings: (workspace.product_mappings ?? []).map(normalizeProductMapping),
+    catalog_presets: catalogPresets.map((preset) =>
+      normalizeCatalogPreset(preset, { ...workspace, output_routes: outputRoutes })
+    ),
     primary_target_id: workspace.primary_target_id ?? route.target_id,
     primary_output_route_id: primaryOutputRouteId,
     submit_attempts: workspace.submit_attempts ?? [],
@@ -1499,19 +1614,146 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
 
 async function writeStore(store: PathfinderStore) {
   await mkdir(dirname(storePath), { recursive: true });
-  await writeFile(storePath, `${JSON.stringify(store, null, 2)}\n`, "utf8");
+  const sanitizedStore: PathfinderStore = {
+    ...store,
+    targets: Object.fromEntries(
+      Object.entries(store.targets).map(([id, target]) => [id, maskTargetConfig(target)])
+    ) as Record<string, TargetConfig>
+  };
+  await writeFile(storePath, `${JSON.stringify(sanitizedStore, null, 2)}\n`, "utf8");
+}
+
+async function readLocalSecrets(): Promise<LocalSecretsStore> {
+  try {
+    const content = await readFile(secretsPath, "utf8");
+    const parsed = JSON.parse(content) as LocalSecretsStore;
+    return {
+      version: 1,
+      targets: parsed.targets ?? {}
+    };
+  } catch {
+    return { version: 1, targets: {} };
+  }
+}
+
+async function writeLocalSecrets(secrets: LocalSecretsStore) {
+  await mkdir(dirname(secretsPath), { recursive: true });
+  await writeFile(secretsPath, `${JSON.stringify(secrets, null, 2)}\n`, "utf8");
+}
+
+const placeholderCredentialValues = new Set([
+  "",
+  "********",
+  "SECRET_REFERENCE_ONLY",
+  "LIFT_IMPORT_PASSWORD_TBD",
+  "LIFT_IMPORT_USERNAME_TBD"
+]);
+
+function isUsableCredentialValue(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && !placeholderCredentialValues.has(value.trim());
+}
+
+function hydrateTargetWithSecrets(target: TargetConfig, secrets: LocalSecretsStore): TargetConfig {
+  const targetSecrets = secrets.targets[target.target_id];
+  if (!targetSecrets) {
+    return target;
+  }
+
+  return {
+    ...target,
+    environments: target.environments.map((environment) => {
+      const environmentSecrets = targetSecrets.environments?.[environment.environment_id];
+      if (!environmentSecrets) {
+        return environment;
+      }
+
+      return {
+        ...environment,
+        headers: {
+          ...environment.headers,
+          ...(environmentSecrets.headers ?? {})
+        },
+        credentials: {
+          ...environment.credentials,
+          ...(environmentSecrets.credentials ?? {})
+        }
+      };
+    }),
+    lift: {
+      ...target.lift,
+      credentials: {
+        ...target.lift.credentials,
+        ...(targetSecrets.lift?.credentials ?? {})
+      }
+    }
+  };
+}
+
+async function hydrateTargetsWithSecrets(targets: Record<string, TargetConfig>) {
+  const secrets = await readLocalSecrets();
+  return Object.fromEntries(
+    Object.entries(targets).map(([id, target]) => [id, hydrateTargetWithSecrets(target, secrets)])
+  ) as Record<string, TargetConfig>;
+}
+
+async function persistTargetSecrets(target: TargetConfig) {
+  const secrets = await readLocalSecrets();
+  const targetSecrets: LocalTargetSecrets = secrets.targets[target.target_id] ?? { environments: {}, lift: {} };
+  const environments = { ...(targetSecrets.environments ?? {}) };
+
+  for (const environment of target.environments) {
+    const existingEnvironmentSecrets = environments[environment.environment_id] ?? {};
+    const credentials = { ...(existingEnvironmentSecrets.credentials ?? {}) };
+    const headers = { ...(existingEnvironmentSecrets.headers ?? {}) };
+
+    for (const key of ["User", "Password", "token", "api_key"] as const) {
+      if (isUsableCredentialValue(environment.credentials[key])) {
+        credentials[key] = environment.credentials[key];
+      }
+    }
+
+    for (const key of ["User", "Password"] as const) {
+      if (isUsableCredentialValue(environment.headers[key])) {
+        headers[key] = environment.headers[key];
+      }
+    }
+
+    environments[environment.environment_id] = {
+      ...existingEnvironmentSecrets,
+      credentials,
+      headers
+    };
+  }
+
+  const liftCredentials = { ...(targetSecrets.lift?.credentials ?? {}) };
+  for (const key of ["User", "Password"] as const) {
+    if (isUsableCredentialValue(target.lift.credentials[key])) {
+      liftCredentials[key] = target.lift.credentials[key];
+    }
+  }
+
+  secrets.targets[target.target_id] = {
+    ...targetSecrets,
+    environments,
+    lift: {
+      ...(targetSecrets.lift ?? {}),
+      credentials: liftCredentials
+    }
+  };
+  await writeLocalSecrets(secrets);
 }
 
 export async function readStore(): Promise<PathfinderStore> {
   try {
     const content = await readFile(storePath, "utf8");
     const parsed = JSON.parse(content) as PathfinderStore;
-    const normalizedTargets = Object.fromEntries(
+    let normalizedTargets = Object.fromEntries(
       Object.entries(parsed.targets ?? {}).map(([id, target]) => [id, normalizeTarget(target as TargetConfig)])
     );
     if (!normalizedTargets[ecommerceTargetId]) {
       normalizedTargets[ecommerceTargetId] = createSeedEcommerceTarget();
     }
+    normalizedTargets = await hydrateTargetsWithSecrets(normalizedTargets);
 
     return {
       ...parsed,
@@ -1529,6 +1771,7 @@ export async function readStore(): Promise<PathfinderStore> {
     };
   } catch {
     const seed = createSeedStore();
+    seed.targets = await hydrateTargetsWithSecrets(seed.targets);
     await writeStore(seed);
     return seed;
   }
@@ -2038,27 +2281,108 @@ export async function listProductMappings(customer: LiftCustomer) {
   return workspace.product_mappings;
 }
 
+export async function listCatalogPresets(customer: LiftCustomer) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return workspace.catalog_presets;
+}
+
+export async function upsertCatalogPreset(customer: LiftCustomer, patch: Partial<LiftCatalogPreset>) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const timestamp = now();
+  const route =
+    workspace.output_routes.find((candidate) => candidate.output_route_id === patch.output_route_id) ??
+    workspace.output_routes.find((candidate) => candidate.output_route_id === workspace.primary_output_route_id) ??
+    workspace.output_routes[0];
+  const catalogId = String(patch.catalog_id ?? "").trim();
+
+  if (!catalogId) {
+    throw new Error("Catalog ID is required.");
+  }
+
+  const presetId =
+    patch.preset_id ??
+    `catalog-preset-${customer.lift_customer_id}-${route.output_route_id}-${catalogId}`.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const existing = workspace.catalog_presets.find((preset) => preset.preset_id === presetId);
+  const preset = normalizeCatalogPreset(
+    {
+      ...(existing ?? {
+        preset_id: presetId,
+        output_route_id: route.output_route_id,
+        target_id: route.target_id,
+        catalog_id: catalogId,
+        catalog_name: patch.catalog_name ?? catalogId,
+        status: "Active",
+        created_at: timestamp,
+        updated_at: timestamp
+      }),
+      ...patch,
+      preset_id: presetId,
+      output_route_id: route.output_route_id,
+      target_id: route.target_id,
+      catalog_id: catalogId,
+      updated_at: timestamp
+    } as LiftCatalogPreset,
+    workspace
+  );
+
+  workspace.catalog_presets = [
+    preset,
+    ...workspace.catalog_presets.filter((candidate) => candidate.preset_id !== preset.preset_id)
+  ];
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return workspace.catalog_presets;
+}
+
+export async function deleteCatalogPreset(customer: LiftCustomer, presetId: string) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  workspace.catalog_presets = workspace.catalog_presets.filter((preset) => preset.preset_id !== presetId);
+  workspace.updated_at = now();
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return workspace.catalog_presets;
+}
+
 export async function listLiftUnitCatalog(filters: {
   target_id?: string;
   environment_id?: string;
   company_id?: string;
   q?: string;
   product_id?: string;
+  product_name?: string;
   catalog_id?: string;
+  catalog_name?: string;
   product_type?: string;
   accounting_item_code?: string;
   parent_product_id?: string;
   status?: string;
   include_inactive?: boolean;
+  fetch_size?: number;
+  fetch_offset?: number;
 } = {}) {
   const store = await readStore();
   const query = filters.q?.trim().toLowerCase() ?? "";
-  return store.lift_unit_catalog
+  const productName = filters.product_name?.trim().toLowerCase();
+  const catalogName = filters.catalog_name?.trim().toLowerCase();
+  const fetchOffset = Math.max(0, filters.fetch_offset ?? 0);
+  const fetchSize =
+    typeof filters.fetch_size === "number" && Number.isFinite(filters.fetch_size)
+      ? Math.max(0, Math.min(5000, filters.fetch_size))
+      : null;
+  const filtered = store.lift_unit_catalog
     .filter((item) => !filters.target_id || item.target_id === filters.target_id)
     .filter((item) => !filters.environment_id || !item.environment_id || item.environment_id === filters.environment_id)
     .filter((item) => !filters.company_id || item.company_id === filters.company_id)
     .filter((item) => !filters.product_id || item.product_id === filters.product_id)
+    .filter((item) => !productName || item.product_name.toLowerCase() === productName)
     .filter((item) => !filters.catalog_id || item.catalog_id === filters.catalog_id)
+    .filter((item) => !catalogName || item.catalog_name?.toLowerCase() === catalogName)
     .filter((item) => !filters.product_type || item.product_type === filters.product_type)
     .filter((item) => !filters.accounting_item_code || item.accounting_item_code === filters.accounting_item_code)
     .filter((item) => !filters.parent_product_id || item.parent_product_id === filters.parent_product_id)
@@ -2071,6 +2395,8 @@ export async function listLiftUnitCatalog(filters: {
         (first.unit_number ?? "").localeCompare(second.unit_number ?? "") ||
         (first.product_id ?? "").localeCompare(second.product_id ?? "")
     );
+
+  return fetchSize === null ? filtered : filtered.slice(fetchOffset, fetchOffset + fetchSize);
 }
 
 export async function upsertLiftProductCatalog(items: LiftUnitCatalogItem[]) {
@@ -2221,7 +2547,11 @@ export async function getTarget(id = targetId, maskCredentials = true) {
 }
 
 function preserveSecret(nextValue: string | undefined, existingValue: string | undefined) {
-  return nextValue && nextValue !== "********" ? nextValue : existingValue;
+  return isUsableCredentialValue(nextValue) ? nextValue : existingValue;
+}
+
+function preserveCredentialValue(nextValue: string | undefined, existingValue: string | undefined) {
+  return isUsableCredentialValue(nextValue) ? nextValue : existingValue;
 }
 
 function mergeTargetEnvironments(existing: TargetEnvironment[], patch: TargetEnvironment[] | undefined) {
@@ -2237,11 +2567,13 @@ function mergeTargetEnvironments(existing: TargetEnvironment[], patch: TargetEnv
       headers: {
         ...(current?.headers ?? {}),
         ...(environment.headers ?? {}),
+        User: preserveCredentialValue(environment.headers?.User, current?.headers?.User) ?? environment.headers?.User ?? "",
         Password: preserveSecret(environment.headers?.Password, current?.headers?.Password) ?? ""
       },
       credentials: {
         ...(current?.credentials ?? {}),
         ...(environment.credentials ?? {}),
+        User: preserveCredentialValue(environment.credentials?.User, current?.credentials?.User),
         Password: preserveSecret(environment.credentials?.Password, current?.credentials?.Password),
         token: preserveSecret(environment.credentials?.token, current?.credentials?.token),
         api_key: preserveSecret(environment.credentials?.api_key, current?.credentials?.api_key)
@@ -2254,6 +2586,7 @@ export async function updateTarget(id: string, patch: Partial<TargetConfig>) {
   const store = await readStore();
   const existing = normalizeTarget(store.targets[id] ?? createSeedTarget());
   const submittedPassword = patch.lift?.credentials?.Password;
+  const submittedUser = patch.lift?.credentials?.User;
   const nextTarget: TargetConfig = {
     ...existing,
     ...patch,
@@ -2278,8 +2611,9 @@ export async function updateTarget(id: string, patch: Partial<TargetConfig>) {
       credentials: {
         ...existing.lift.credentials,
         ...patch.lift?.credentials,
+        User: preserveCredentialValue(submittedUser, existing.lift.credentials.User) ?? existing.lift.credentials.User,
         Password:
-          submittedPassword && submittedPassword !== "********"
+          isUsableCredentialValue(submittedPassword)
             ? submittedPassword
             : existing.lift.credentials.Password
       }
@@ -2287,6 +2621,7 @@ export async function updateTarget(id: string, patch: Partial<TargetConfig>) {
     updated_at: now()
   };
 
+  await persistTargetSecrets(nextTarget);
   store.targets[id] = nextTarget;
   await writeStore(store);
   return maskTargetConfig(nextTarget);
