@@ -28,6 +28,23 @@ npm run check
 npm run build
 ```
 
+## Production Hosting Prep
+
+The first AWS static hosting foundation is documented in
+[docs/AWS_PRODUCTION_HOSTING_AND_STATUS_PLAN.md](docs/AWS_PRODUCTION_HOSTING_AND_STATUS_PLAN.md).
+
+Admin web deploy entry point:
+
+```bash
+VITE_API_BASE_URL=https://api.pathfinder.vornan.co \
+PATHFINDER_ADMIN_BUCKET=vornan-pathfinder \
+PATHFINDER_ADMIN_CLOUDFRONT_DISTRIBUTION_ID=YOUR_DISTRIBUTION_ID \
+npm run deploy:admin-web
+```
+
+The deploy script builds `@pathfinder/web`, syncs immutable assets to S3, uploads
+`index.html` with no-cache headers, and optionally invalidates CloudFront.
+
 ## Project Records
 
 - Master product directive: [docs/PATHFINDER_MASTER_SPEC.md](docs/PATHFINDER_MASTER_SPEC.md)

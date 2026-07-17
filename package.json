@@ -12,7 +12,8 @@
     "dev:web": "npm run dev --workspace @pathfinder/web",
     "dev:api": "npm run dev --workspace @pathfinder/api",
     "build": "npm run build --workspaces --if-present",
-    "check": "npm run check --workspaces --if-present"
+    "check": "npm run check --workspaces --if-present",
+    "deploy:admin-web": "scripts/deploy-admin-web.sh"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

@@ -1079,3 +1079,15 @@ What changed:
 - Removed section-level save buttons from Targets panels and replaced them with notes that edits save from the target header.
 - Added unsaved-change prompts when leaving Import Method detail or Target detail, with options to save, keep editing, or continue without saving.
 - Hardened the import method API so stale or partial PUT requests to unknown method IDs cannot create surprise draft methods.
+
+## 2026-07-17 - AWS Admin Web Deploy Foundation
+
+Added the first production hosting implementation scaffold for `pathfinder.vornan.co`.
+
+What changed:
+
+- Added production-aware web API configuration through `VITE_API_BASE_URL`, preserving the local `http://127.0.0.1:3000` fallback.
+- Added environment-configurable API CORS origins through `PATHFINDER_ALLOWED_ORIGINS`.
+- Added `infra/aws/production-hosting.json` as the checked-in deployment manifest for Pathfinder admin, public status, API domain, and DNS targets.
+- Added `scripts/deploy-admin-web.sh` and `npm run deploy:admin-web` to build and sync the admin app to `s3://vornan-pathfinder` with CloudFront invalidation support.
+- Added a manual GitHub Actions workflow scaffold for deploying the admin web app once AWS deploy role, bucket, and distribution variables are configured.

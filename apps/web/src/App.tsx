@@ -1651,7 +1651,7 @@ const fallbackCustomer: LiftCustomer = {
   created_date: "2026-06-25"
 };
 
-const apiBaseUrl = "http://127.0.0.1:3000";
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000";
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") ?? "";
@@ -1662,7 +1662,7 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   }
 
   if (!contentType.includes("application/json")) {
-    throw new Error("Pathfinder API returned a non-JSON response. Confirm the API server is running on port 3000.");
+    throw new Error(`Pathfinder API returned a non-JSON response. Confirm the API server is running at ${apiBaseUrl}.`);
   }
 
   return JSON.parse(body) as T;

@@ -1,0 +1,45 @@
+{
+  "admin": {
+    "domain": "pathfinder.vornan.co",
+    "bucket": "vornan-pathfinder",
+    "build_directory": "apps/web/dist",
+    "cloudfront_distribution_id_env": "PATHFINDER_ADMIN_CLOUDFRONT_DISTRIBUTION_ID",
+    "api_base_url_env": "VITE_API_BASE_URL",
+    "api_base_url": "https://api.pathfinder.vornan.co"
+  },
+  "status": {
+    "domain": "status.vornan.co",
+    "bucket": "vornan-pathfinder-status",
+    "build_directory": "apps/status/dist",
+    "cloudfront_distribution_id_env": "PATHFINDER_STATUS_CLOUDFRONT_DISTRIBUTION_ID"
+  },
+  "api": {
+    "domain": "api.pathfinder.vornan.co",
+    "allowed_origins": [
+      "https://pathfinder.vornan.co",
+      "http://127.0.0.1:5173",
+      "http://localhost:5173"
+    ]
+  },
+  "dns": {
+    "provider": "GoDaddy",
+    "zone": "vornan.co",
+    "records": [
+      {
+        "host": "pathfinder",
+        "type": "CNAME",
+        "target": "CloudFront admin distribution domain"
+      },
+      {
+        "host": "status",
+        "type": "CNAME",
+        "target": "CloudFront status distribution domain"
+      },
+      {
+        "host": "api.pathfinder",
+        "type": "CNAME",
+        "target": "API Gateway custom domain target"
+      }
+    ]
+  }
+}

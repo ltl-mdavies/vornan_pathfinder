@@ -105,6 +105,10 @@ const liftCustomerStatusEndpoint =
   "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerStatusJSON/CustomerStatusJSON?";
 const liftProductCatalogBaseUrl =
   process.env.LIFT_PRODUCT_CATALOG_BASE_URL ?? "https://ltlco.lifterp.com/ords/api/lift/erp";
+const allowedCorsOrigins = (process.env.PATHFINDER_ALLOWED_ORIGINS ?? "http://127.0.0.1:5173,http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 const externalLiftSubmitEnabled = process.env.PATHFINDER_ENABLE_LIFT_SUBMIT === "true";
 const liftSubmitTransportMode: LiftSubmitTransportMode =
   process.env.PATHFINDER_LIFT_TRANSPORT_MODE === "live"
@@ -123,7 +127,7 @@ const liftMockScenario: LiftSubmitMockScenario =
 const liveCustomerSubmitAllowed = process.env.PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT === "true";
 const localCustomerSeedUrl = new URL("../../../data/lift-customers.sample.csv", import.meta.url);
 
-app.use(cors({ origin: ["http://127.0.0.1:5173", "http://localhost:5173"] }));
+app.use(cors({ origin: allowedCorsOrigins }));
 app.use(express.json({ limit: "10mb" }));
 
 async function readLocalCustomerSeed(): Promise<LiftCustomerDirectory> {
