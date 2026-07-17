@@ -1091,3 +1091,15 @@ What changed:
 - Added `infra/aws/production-hosting.json` as the checked-in deployment manifest for Pathfinder admin, public status, API domain, and DNS targets.
 - Added `scripts/deploy-admin-web.sh` and `npm run deploy:admin-web` to build and sync the admin app to `s3://vornan-pathfinder` with CloudFront invalidation support.
 - Added a manual GitHub Actions workflow scaffold for deploying the admin web app once AWS deploy role, bucket, and distribution variables are configured.
+
+## 2026-07-17 - Firebase Auth Gate Foundation
+
+Added the first production auth gate for the Pathfinder admin app.
+
+What changed:
+
+- Added Firebase web auth support with Google sign-in and `ltlco.com` / `vornan.co` domain enforcement.
+- Kept local development unblocked by bypassing the auth gate unless Firebase config or `VITE_AUTH_REQUIRED=true` is present.
+- Added an opt-in API Firebase ID token verifier behind `PATHFINDER_REQUIRE_AUTH=true`, leaving `/health` public.
+- Added bearer-token forwarding from the web app to the API once a signed-in Firebase user is available.
+- Added `.env.example` entries and deploy workflow environment wiring for Firebase web config and API verification.

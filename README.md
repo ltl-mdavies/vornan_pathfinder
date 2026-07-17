@@ -33,6 +33,13 @@ npm run build
 The first AWS static hosting foundation is documented in
 [docs/AWS_PRODUCTION_HOSTING_AND_STATUS_PLAN.md](docs/AWS_PRODUCTION_HOSTING_AND_STATUS_PLAN.md).
 
+Production auth is opt-in by environment:
+
+- Web: set `VITE_AUTH_REQUIRED=true` and the `VITE_FIREBASE_*` values.
+- API: set `PATHFINDER_REQUIRE_AUTH=true`, `FIREBASE_PROJECT_ID`, and either
+  `FIREBASE_SERVICE_ACCOUNT_JSON` or AWS/application default credentials.
+- Allowed Google domains default to `ltlco.com,vornan.co`.
+
 Admin web deploy entry point:
 
 ```bash

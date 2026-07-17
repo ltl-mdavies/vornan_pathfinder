@@ -1,5 +1,7 @@
 import cors from "cors";
-import express from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
+import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
 import { readFile } from "node:fs/promises";
 import {
   enrichLiftCustomers,
@@ -108,6 +110,11 @@ const liftProductCatalogBaseUrl =
 const allowedCorsOrigins = (process.env.PATHFINDER_ALLOWED_ORIGINS ?? "http://127.0.0.1:5173,http://localhost:5173")
   .split(",")
   .map((origin) => origin.trim())
+  .filter(Boolean);
+const requireFirebaseAuth = process.env.PATHFINDER_REQUIRE_AUTH === "true";
+const allowedEmailDomains = (process.env.PATHFINDER_ALLOWED_EMAIL_DOMAINS ?? "ltlco.com,vornan.co")
+  .split(",")
+  .map((domain) => domain.trim().toLowerCase())
   .filter(Boolean);
 const externalLiftSubmitEnabled = process.env.PATHFINDER_ENABLE_LIFT_SUBMIT === "true";
 const liftSubmitTransportMode: LiftSubmitTransportMode =
@@ -1610,6 +1617,58 @@ async function fetchLiftCustomerDirectory(): Promise<LiftCustomerDirectory> {
   };
 }
 
+function firebaseAdminAuth() {
+  if (!getApps().length) {
+    const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    initializeApp({
+      credential: serviceAccountJson ? cert(JSON.parse(serviceAccountJson) as Record<string, string>) : applicationDefault(),
+      projectId: process.env.FIREBASE_PROJECT_ID
+    });
+  }
+  return getAuth();
+}
+
+function bearerToken(req: Request) {
+  const authorization = req.header("authorization") ?? "";
+  const [scheme, token] = authorization.split(" ");
+  return scheme?.toLowerCase() === "bearer" && token ? token : null;
+}
+
+async function requirePathfinderAuth(req: Request, res: Response, next: NextFunction) {
+  if (!requireFirebaseAuth) {
+    next();
+    return;
+  }
+
+  const token = bearerToken(req);
+  if (!token) {
+    res.status(401).json({ error: "Missing Firebase bearer token." });
+    return;
+  }
+
+  try {
+    const decoded = await firebaseAdminAuth().verifyIdToken(token);
+    const email = decoded.email?.toLowerCase() ?? "";
+    const domain = email.includes("@") ? email.split("@").pop() ?? "" : "";
+
+    if (!domain || !allowedEmailDomains.includes(domain)) {
+      res.status(403).json({ error: "This Google account is not allowed to access Pathfinder." });
+      return;
+    }
+
+    res.locals.authUser = {
+      uid: decoded.uid,
+      email,
+      domain
+    };
+    next();
+  } catch (error) {
+    res.status(401).json({
+      error: error instanceof Error ? `Invalid Firebase token: ${error.message}` : "Invalid Firebase token."
+    });
+  }
+}
+
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
@@ -1617,6 +1676,8 @@ app.get("/health", (_req, res) => {
     version: "0.1.0"
   });
 });
+
+app.use("/api", requirePathfinderAuth);
 
 app.get("/api/sample-order", (_req, res) => {
   const canonicalValidation = validateCanonicalOrder(sampleCanonicalOrder);

@@ -63,6 +63,7 @@ import {
   type ParsedWorkbookSheet,
   type SourceGrid
 } from "@pathfinder/templates";
+import type { PathfinderAuthSession } from "./auth";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
@@ -1652,6 +1653,21 @@ const fallbackCustomer: LiftCustomer = {
 };
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000";
+let pathfinderAuthToken: string | null = null;
+
+function setPathfinderAuthToken(token: string | null) {
+  pathfinderAuthToken = token;
+}
+
+const fetch: typeof globalThis.fetch = (input, init = {}) => {
+  if (!pathfinderAuthToken) {
+    return globalThis.fetch(input, init);
+  }
+
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${pathfinderAuthToken}`);
+  return globalThis.fetch(input, { ...init, headers });
+};
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") ?? "";
@@ -2684,7 +2700,11 @@ function productMappingSourceLabel(mapping: CustomerProductMapping) {
   return mapping.mapping_source ?? (mapping.last_seen_examples.length ? "Observed order" : "Manual entry");
 }
 
-export function App() {
+export function App({ authSession }: { authSession: PathfinderAuthSession | null }) {
+  useEffect(() => {
+    setPathfinderAuthToken(authSession?.token ?? null);
+  }, [authSession?.token]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const productPreloadFileRef = useRef<HTMLInputElement>(null);
   const [activeGlobalView, setActiveGlobalView] = useState<GlobalView>("Customers");
