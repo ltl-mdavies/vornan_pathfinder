@@ -28,7 +28,8 @@ const allowedDomains: string[] = (import.meta.env.VITE_AUTH_ALLOWED_DOMAINS ?? "
   .map((domain: string) => domain.trim().toLowerCase())
   .filter(Boolean);
 
-const authRequired = import.meta.env.VITE_AUTH_REQUIRED === "true";
+const authRequiredSetting = import.meta.env.VITE_AUTH_REQUIRED;
+const authRequired = authRequiredSetting ? authRequiredSetting === "true" : import.meta.env.PROD;
 
 function firebaseConfig(): FirebaseOptions | null {
   const config = {

@@ -33,9 +33,9 @@ npm run build
 The first AWS static hosting foundation is documented in
 [docs/AWS_PRODUCTION_HOSTING_AND_STATUS_PLAN.md](docs/AWS_PRODUCTION_HOSTING_AND_STATUS_PLAN.md).
 
-Production auth is opt-in by environment:
+Production auth fails closed by default:
 
-- Web: set `VITE_AUTH_REQUIRED=true` and the `VITE_FIREBASE_*` values.
+- Web: production builds require auth unless `VITE_AUTH_REQUIRED=false` is explicitly set. Set the `VITE_FIREBASE_*` values to show Google sign-in; without them, the public app shows the private preview gate instead of the portal.
 - API: set `PATHFINDER_REQUIRE_AUTH=true`, `FIREBASE_PROJECT_ID`, and either
   `FIREBASE_SERVICE_ACCOUNT_JSON` or AWS/application default credentials.
 - Allowed Google domains default to `ltlco.com,vornan.co`.

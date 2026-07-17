@@ -1227,3 +1227,14 @@ Verification:
 Deployment note:
 
 - Local shell did not have Firebase web config environment values loaded, so the production login build should be deployed from an environment with the `VITE_FIREBASE_*` values available, such as the GitHub Actions deploy workflow secrets.
+
+## 2026-07-17 - Production Auth Fails Closed
+
+Tightened the admin web auth gate so the production portal cannot accidentally deploy open to the public.
+
+What changed:
+
+- Production web builds now require auth by default when `VITE_AUTH_REQUIRED` is omitted.
+- Local development still remains open by default unless `VITE_AUTH_REQUIRED=true` is explicitly set.
+- If production auth is required but Firebase web config is unavailable, the public app shows the private preview/coming-soon gate rather than the portal.
+- Updated README production auth notes to document the fail-closed behavior.
