@@ -31,7 +31,11 @@ aws cloudformation deploy \
     LiftCustomerStatusUrl="${LIFT_CUSTOMER_STATUS_URL:-https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerStatusJSON/CustomerStatusJSON?}" \
     LiftProductCatalogBaseUrl="${LIFT_PRODUCT_CATALOG_BASE_URL:-https://ltlco.lifterp.com/ords/api/lift/erp}" \
     ApiDomainName="${PATHFINDER_API_DOMAIN_NAME:-api.pathfinder.vornan.co}" \
-    ApiCertificateArn="${PATHFINDER_API_CERTIFICATE_ARN:-}"
+    ApiCertificateArn="${PATHFINDER_API_CERTIFICATE_ARN:-}" \
+    DataTablePrefix="${PATHFINDER_DATA_TABLE_PREFIX:-Pathfinder}" \
+    SecretPrefix="${PATHFINDER_SECRET_PREFIX:-/vornan/pathfinder/}" \
+    StorageDriver="${PATHFINDER_STORAGE_DRIVER:-local}" \
+    SecretsDriver="${PATHFINDER_SECRETS_DRIVER:-local}"
 
 echo "Stack outputs:"
 aws cloudformation describe-stacks \

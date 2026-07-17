@@ -218,6 +218,9 @@ Current local storage:
 
 Production storage should move to DynamoDB and Secrets Manager.
 
+The checked-in operational runbook is
+[`docs/AWS_STORAGE_AND_SECRETS_RUNBOOK.md`](AWS_STORAGE_AND_SECRETS_RUNBOOK.md).
+
 ### 6.1 DynamoDB Tables
 
 Recommended initial purpose-specific tables:

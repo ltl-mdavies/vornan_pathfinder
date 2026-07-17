@@ -78,7 +78,11 @@ jobs:
               LiftCustomerStatusUrl="${{ vars.LIFT_CUSTOMER_STATUS_URL }}" \
               LiftProductCatalogBaseUrl="${{ vars.LIFT_PRODUCT_CATALOG_BASE_URL || 'https://ltlco.lifterp.com/ords/api/lift/erp' }}" \
               ApiDomainName="${{ inputs.api_domain_name }}" \
-              ApiCertificateArn="${{ secrets.PATHFINDER_API_CERTIFICATE_ARN }}"
+              ApiCertificateArn="${{ secrets.PATHFINDER_API_CERTIFICATE_ARN }}" \
+              DataTablePrefix="${{ vars.PATHFINDER_DATA_TABLE_PREFIX || 'Pathfinder' }}" \
+              SecretPrefix="${{ vars.PATHFINDER_SECRET_PREFIX || '/vornan/pathfinder/' }}" \
+              StorageDriver="${{ vars.PATHFINDER_STORAGE_DRIVER || 'local' }}" \
+              SecretsDriver="${{ vars.PATHFINDER_SECRETS_DRIVER || 'local' }}"
 
       - name: Show stack outputs
         run: |

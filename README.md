@@ -86,6 +86,9 @@ npm run deploy:api-lambda
 GoDaddy DNS instructions live in
 [docs/AWS_GODADDY_DNS_RUNBOOK.md](docs/AWS_GODADDY_DNS_RUNBOOK.md).
 
+AWS storage and secret-management notes live in
+[docs/AWS_STORAGE_AND_SECRETS_RUNBOOK.md](docs/AWS_STORAGE_AND_SECRETS_RUNBOOK.md).
+
 ## Project Records
 
 - Master product directive: [docs/PATHFINDER_MASTER_SPEC.md](docs/PATHFINDER_MASTER_SPEC.md)

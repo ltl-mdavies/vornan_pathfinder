@@ -1139,3 +1139,15 @@ What changed:
 - Wired `PATHFINDER_API_DOMAIN_NAME` and `PATHFINDER_API_CERTIFICATE_ARN` through local deploy and the manual GitHub Actions API deploy workflow.
 - Added `docs/AWS_GODADDY_DNS_RUNBOOK.md` with GoDaddy DNS instructions for `pathfinder`, `api.pathfinder`, and `status` records.
 - Linked the DNS runbook from README and the production hosting plan.
+
+## 2026-07-17 - DynamoDB and Secrets Manager Infrastructure Foundation
+
+Added the first durable storage and secret-management foundation for production hosting.
+
+What changed:
+
+- Added purpose-specific DynamoDB tables to `infra/aws/api-cloudformation.yaml` for customers, workspaces, targets, import methods, routes, product mappings, jobs, submit attempts, Lift product cache, order status tokens, order status snapshots, and canonical registry.
+- Enabled pay-per-request billing, server-side encryption, and point-in-time recovery on production tables.
+- Added scoped Lambda IAM permissions for the Pathfinder tables and the `/vornan/pathfinder/` Secrets Manager prefix.
+- Added `PATHFINDER_STORAGE_DRIVER` and `PATHFINDER_SECRETS_DRIVER` deployment parameters that default to local behavior until the production adapters are implemented.
+- Added `docs/AWS_STORAGE_AND_SECRETS_RUNBOOK.md` to document table names, secret naming, deployment variables, and flip criteria.
