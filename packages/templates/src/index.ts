@@ -70,6 +70,14 @@ export interface ParsedWorkbook extends SourceGrid {
   reference_rows: ParsedSourceRow[];
 }
 
+export interface WorkbookParseOptions {
+  preferredSheetName?: string;
+  headerRow?: number | null;
+  quantityColumn?: string | null;
+  ignoreRepeatedHeaders?: boolean;
+  referenceRowsMode?: "rows_without_quantity" | "ignore";
+}
+
 export interface CanonicalBuildOptions {
   customerId: string;
   customerName: string;
@@ -241,14 +249,50 @@ function hasAnyValue(row: Record<string, string | number | boolean | null>) {
   return Object.values(row).some((value) => value !== null && String(value).trim() !== "");
 }
 
+const embeddedHeaderAliases = new Set(
+  [
+    "contract #",
+    "description",
+    "creative",
+    "sign type",
+    "formatting size",
+    "final size width",
+    "final size length",
+    "stock",
+    "print",
+    "finishing",
+    "print qty",
+    "ship date",
+    "delivery date",
+    "media type",
+    "campaign start date",
+    "notes",
+    "hardware",
+    "ps sku",
+    "item sku",
+    "ps part number",
+    "qty needed"
+  ].map(normalizeAlias)
+);
+
 function isLikelyRepeatedHeader(row: Record<string, string | number | boolean | null>) {
-  let matches = 0;
+  let exactColumnMatches = 0;
+  let headerLikeMatches = 0;
   Object.entries(row).forEach(([column, value]) => {
-    if (valueAsString(value).toLowerCase() === column.toLowerCase()) {
-      matches += 1;
+    const normalizedValue = normalizeAlias(valueAsString(value));
+    if (!normalizedValue) {
+      return;
+    }
+
+    const normalizedColumn = normalizeAlias(column);
+    if (normalizedValue === normalizedColumn) {
+      exactColumnMatches += 1;
+    }
+    if (normalizedValue === normalizedColumn || embeddedHeaderAliases.has(normalizedValue)) {
+      headerLikeMatches += 1;
     }
   });
-  return matches >= 2;
+  return exactColumnMatches >= 2 || headerLikeMatches >= 3;
 }
 
 function isValidQuantity(value: unknown) {
@@ -279,7 +323,8 @@ function findQuantityColumn(columns: string[]) {
 function parseWorksheetRows(
   xlsx: typeof XLSX,
   workbook: XLSX.WorkBook,
-  sheetName: string
+  sheetName: string,
+  options: WorkbookParseOptions = {}
 ): { columns: string[]; rows: ParsedSourceRow[] } {
   const worksheet = workbook.Sheets[sheetName];
   const matrix = xlsx.utils.sheet_to_json<unknown[]>(worksheet, {
@@ -288,10 +333,22 @@ function parseWorksheetRows(
     defval: null,
     raw: false
   });
-  const headerRow = matrix.find((row) => row.some((cell) => cellToPrimitive(cell) !== null)) ?? [];
+  const configuredHeaderIndex =
+    typeof options.headerRow === "number" && options.headerRow > 0 && matrix[options.headerRow - 1]?.some((cell) => cellToPrimitive(cell) !== null)
+      ? options.headerRow - 1
+      : null;
+  const headerRow =
+    configuredHeaderIndex !== null
+      ? matrix[configuredHeaderIndex]
+      : matrix.find((row) => row.some((cell) => cellToPrimitive(cell) !== null)) ?? [];
   const headerIndex = matrix.indexOf(headerRow);
   const columns = headerRow.map((cell, index) => normalizeColumnName(String(cellToPrimitive(cell) ?? `Column ${index + 1}`)));
-  const quantityColumn = findQuantityColumn(columns);
+  const quantityColumn =
+    options.quantityColumn && columns.includes(options.quantityColumn)
+      ? options.quantityColumn
+      : findQuantityColumn(columns);
+  const shouldIgnoreRepeatedHeaders = options.ignoreRepeatedHeaders ?? true;
+  const referenceRowsMode = options.referenceRowsMode ?? "rows_without_quantity";
 
   const rows = matrix
     .slice(headerIndex + 1)
@@ -310,16 +367,25 @@ function parseWorksheetRows(
         values
       } satisfies ParsedSourceRow;
     })
-    .filter((row) => hasAnyValue(row.values) && !isLikelyRepeatedHeader(row.values));
+    .filter((row) => hasAnyValue(row.values))
+    .filter((row) => (shouldIgnoreRepeatedHeaders ? !isLikelyRepeatedHeader(row.values) : true))
+    .filter((row) => (referenceRowsMode === "ignore" ? row.row_type === "order" : true));
 
   return { columns, rows };
 }
 
-export async function parseWorkbookArrayBuffer(buffer: ArrayBuffer, preferredSheetName?: string): Promise<ParsedWorkbook> {
+export async function parseWorkbookArrayBuffer(
+  buffer: ArrayBuffer,
+  preferredSheetNameOrOptions?: string | WorkbookParseOptions
+): Promise<ParsedWorkbook> {
+  const options =
+    typeof preferredSheetNameOrOptions === "string"
+      ? { preferredSheetName: preferredSheetNameOrOptions }
+      : (preferredSheetNameOrOptions ?? {});
   const xlsx = await import("xlsx");
   const workbook = xlsx.read(buffer, { type: "array", cellDates: true });
   const allSheetRows = workbook.SheetNames.map((candidateSheetName) => {
-    const { columns, rows } = parseWorksheetRows(xlsx, workbook, candidateSheetName);
+    const { columns, rows } = parseWorksheetRows(xlsx, workbook, candidateSheetName, options);
     return {
       sheet_name: candidateSheetName,
       columns,
@@ -330,6 +396,7 @@ export async function parseWorkbookArrayBuffer(buffer: ArrayBuffer, preferredShe
   });
   const parsedOrderRows = allSheetRows.flatMap((sheet) => sheet.parsed_rows.filter((row) => row.row_type === "order"));
   const referenceRows = allSheetRows.flatMap((sheet) => sheet.parsed_rows.filter((row) => row.row_type === "reference"));
+  const preferredSheetName = options.preferredSheetName;
   const preferredSheet = preferredSheetName && workbook.Sheets[preferredSheetName] ? preferredSheetName : null;
   const firstOrderSheet = allSheetRows.find((sheet) => sheet.order_row_count > 0)?.sheet_name ?? null;
   const sheetName = preferredSheet ?? firstOrderSheet ?? workbook.SheetNames[0];

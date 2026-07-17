@@ -225,6 +225,11 @@ interface ImportMethod {
     pdf_review_mode?: "manual_review" | "assisted_extract";
     api_endpoint_url?: string | null;
     sftp_path?: string | null;
+    header_row?: number | null;
+    quantity_column?: string | null;
+    ignore_repeated_headers?: boolean;
+    reference_rows_mode?: "rows_without_quantity" | "ignore";
+    sample_template_name?: string | null;
   };
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
@@ -2235,6 +2240,124 @@ function valueAsString(value: unknown, fallback = "") {
   return normalized.length ? normalized : fallback;
 }
 
+function normalizeSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function fuzzySubsequenceScore(haystack: string, needle: string) {
+  if (!needle) {
+    return 0;
+  }
+
+  let haystackIndex = 0;
+  let firstMatch = -1;
+  let previousMatch = -1;
+  let contiguousMatches = 0;
+
+  for (const character of needle) {
+    const foundIndex = haystack.indexOf(character, haystackIndex);
+    if (foundIndex === -1) {
+      return 0;
+    }
+    if (firstMatch === -1) {
+      firstMatch = foundIndex;
+    }
+    if (previousMatch >= 0 && foundIndex === previousMatch + 1) {
+      contiguousMatches += 1;
+    }
+    previousMatch = foundIndex;
+    haystackIndex = foundIndex + 1;
+  }
+
+  const compactness = needle.length / Math.max(haystack.length, 1);
+  const startBonus = firstMatch === 0 ? 20 : Math.max(0, 12 - firstMatch);
+  return 40 + contiguousMatches * 3 + compactness * 80 + startBonus;
+}
+
+function liftCatalogSearchText(item: LiftUnitCatalogItem) {
+  const rawValues =
+    item.raw_payload && typeof item.raw_payload === "object"
+      ? Object.values(item.raw_payload)
+          .filter((value) => ["string", "number", "boolean"].includes(typeof value))
+          .map(String)
+      : [];
+
+  return normalizeSearchText(
+    [
+      item.unit_number,
+      ...(item.unit_numbers ?? []),
+      item.product_id ?? "",
+      item.product_name,
+      item.catalog_id ?? "",
+      item.catalog_name ?? "",
+      item.accounting_item_code ?? "",
+      item.product_type ?? "",
+      item.category ?? "",
+      item.description ?? "",
+      item.parent_product_id ?? "",
+      ...rawValues
+    ].join(" ")
+  );
+}
+
+function liftCatalogSearchScore(item: LiftUnitCatalogItem, query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) {
+    return 1;
+  }
+
+  const searchable = liftCatalogSearchText(item);
+  const compactSearchable = searchable.replace(/\s+/g, "");
+  const compactQuery = normalizedQuery.replace(/\s+/g, "");
+  const terms = normalizedQuery.split(" ").filter(Boolean);
+  const productName = normalizeSearchText(item.product_name);
+  const unitNumber = normalizeSearchText(item.unit_number ?? "");
+  const productId = normalizeSearchText(item.product_id ?? "");
+  const accountingCode = normalizeSearchText(item.accounting_item_code ?? "");
+
+  if ([productId, unitNumber, accountingCode].some((value) => value && value === normalizedQuery)) {
+    return 1000;
+  }
+
+  let score = 0;
+  if (productName === normalizedQuery) {
+    score += 900;
+  }
+  if (searchable.includes(normalizedQuery)) {
+    score += 650;
+  }
+  if (compactSearchable.includes(compactQuery)) {
+    score += 520;
+  }
+
+  const matchedTerms = terms.filter((term) => searchable.includes(term));
+  if (matchedTerms.length) {
+    score += matchedTerms.length * 120;
+    if (matchedTerms.length === terms.length) {
+      score += 220;
+    }
+  }
+
+  score += Math.max(
+    fuzzySubsequenceScore(productName, compactQuery),
+    fuzzySubsequenceScore(compactSearchable, compactQuery) * 0.7
+  );
+
+  return score;
+}
+
+function compareLiftCatalogItems(first: LiftUnitCatalogItem, second: LiftUnitCatalogItem) {
+  return (
+    first.product_name.localeCompare(second.product_name) ||
+    (first.unit_number ?? "").localeCompare(second.unit_number ?? "") ||
+    (first.product_id ?? "").localeCompare(second.product_id ?? "")
+  );
+}
+
 function normalizeProductKey(value: string) {
   return value
     .trim()
@@ -2594,6 +2717,16 @@ export function App() {
   const [activeOutputTemplateId, setActiveOutputTemplateId] = useState<string | null>(null);
   const [globalJobs, setGlobalJobs] = useState<ProcessingJobPreview[]>([]);
   const [activeMethodId, setActiveMethodId] = useState("manual-xlsx");
+  const [isImportMethodDetailOpen, setIsImportMethodDetailOpen] = useState(false);
+  const [dirtyImportMethodIds, setDirtyImportMethodIds] = useState<string[]>([]);
+  const [dirtyTargetIds, setDirtyTargetIds] = useState<string[]>([]);
+  const [dirtyOutputRouteIds, setDirtyOutputRouteIds] = useState<string[]>([]);
+  const [leavePrompt, setLeavePrompt] = useState<{
+    title: string;
+    body: string;
+    scope: "import-method" | "target";
+  } | null>(null);
+  const pendingNavigationRef = useRef<(() => void) | null>(null);
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("idle");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
   const [canonicalRegistrySearch, setCanonicalRegistrySearch] = useState("");
@@ -2677,7 +2810,6 @@ export function App() {
   const [unitCatalogCatalogFilter, setUnitCatalogCatalogFilter] = useState("All");
   const [unitCatalogApiFilterParam, setUnitCatalogApiFilterParam] = useState("catalog_id");
   const [unitCatalogApiFilterValue, setUnitCatalogApiFilterValue] = useState("");
-  const [catalogPresetName, setCatalogPresetName] = useState("");
   const [catalogPresetId, setCatalogPresetId] = useState("");
   const [selectedCatalogUnitNumbers, setSelectedCatalogUnitNumbers] = useState<Record<string, string>>({});
   const [activeCatalogMappingId, setActiveCatalogMappingId] = useState<string | null>(null);
@@ -2724,6 +2856,8 @@ export function App() {
       const response = await fetch(`${apiBaseUrl}/api/customers/${liftCustomerId}/workspace`);
       const loadedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       setWorkspace(loadedWorkspace);
+      setDirtyImportMethodIds([]);
+      setDirtyOutputRouteIds([]);
       setLastSubmitAttempt(loadedWorkspace.submit_attempts?.[0] ?? null);
       setActiveMethodId(
         loadedWorkspace.import_methods.find((method) => method.status !== "Archived")?.import_method_id ?? "manual-xlsx"
@@ -2808,9 +2942,6 @@ export function App() {
       if (route.company_id) {
         params.set("company_id", route.company_id);
       }
-      if (unitCatalogSearch.trim()) {
-        params.set("q", unitCatalogSearch.trim());
-      }
       if (unitCatalogStatusFilter === "All") {
         params.set("include_inactive", "true");
       } else {
@@ -2849,9 +2980,6 @@ export function App() {
       }
       if (route.company_id) {
         params.set("company_id", route.company_id);
-      }
-      if (unitCatalogSearch.trim()) {
-        params.set("q", unitCatalogSearch.trim());
       }
       if (unitCatalogStatusFilter === "All") {
         params.set("include_inactive", "true");
@@ -3137,11 +3265,14 @@ export function App() {
       );
       const nextWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       setWorkspace(nextWorkspace);
+      setDirtyImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
       setWorkspaceMessage("Import method saved.");
       setWorkspaceState("idle");
+      return true;
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Import method save failed.");
       setWorkspaceState("error");
+      return false;
     }
   }
 
@@ -3246,7 +3377,9 @@ export function App() {
       const savedTarget = await readJsonResponse<TargetConfig>(response);
       setTargets((current) => [savedTarget, ...current.filter((candidate) => candidate.target_id !== savedTarget.target_id)]);
       const savedActiveEnvironment = savedTarget.environments.find(
-        (environment) => environment.name === savedTarget.lift.active_environment
+        (environment) =>
+          environment.name === savedTarget.lift.active_environment ||
+          environmentRoleKey(environment.name, environment.role) === savedTarget.lift.active_environment
       );
       let nextWorkspace =
         workspace && workspace.primary_target?.target_id === savedTarget.target_id
@@ -3265,11 +3398,29 @@ export function App() {
         }
       }
 
+      if (nextWorkspace) {
+        const dirtyRoutesToPersist = nextWorkspace.output_routes.filter(
+          (route) => route.target_id === savedTarget.target_id && dirtyOutputRouteIds.includes(route.output_route_id)
+        );
+        for (const route of dirtyRoutesToPersist) {
+          nextWorkspace = await persistOutputRoute(route);
+        }
+      }
+
       setWorkspace((current) => {
         if (!current) {
           return current;
         }
         return nextWorkspace ? { ...nextWorkspace, primary_target: savedTarget } : { ...current, primary_target: savedTarget };
+      });
+      setDirtyTargetIds((current) => current.filter((targetId) => targetId !== savedTarget.target_id));
+      setDirtyOutputRouteIds((current) => {
+        const savedRouteIds = new Set(
+          (nextWorkspace?.output_routes ?? workspace?.output_routes ?? [])
+            .filter((route) => route.target_id === savedTarget.target_id)
+            .map((route) => route.output_route_id)
+        );
+        return current.filter((routeId) => !savedRouteIds.has(routeId));
       });
       setWorkspaceMessage(
         savedActiveEnvironment
@@ -3277,9 +3428,11 @@ export function App() {
           : "Target settings saved."
       );
       setWorkspaceState("idle");
+      return true;
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Target save failed.");
       setWorkspaceState("error");
+      return false;
     }
   }
 
@@ -3288,7 +3441,6 @@ export function App() {
     setUnitCatalogApiFilterParam("catalog_id");
     setUnitCatalogApiFilterValue(preset.catalog_id);
     setCatalogPresetId(preset.catalog_id);
-    setCatalogPresetName(preset.catalog_name);
     setWorkspaceMessage(`Catalog preset selected: ${preset.catalog_name} / ${preset.catalog_id}.`);
   }
 
@@ -3300,8 +3452,9 @@ export function App() {
       catalogPresetId.trim() ||
       (unitCatalogApiFilterParam === "catalog_id" ? unitCatalogApiFilterValue.trim() : unitCatalogCatalogFilter !== "All" ? unitCatalogCatalogFilter : "");
     const catalogName =
-      catalogPresetName.trim() ||
+      liftUnitCatalog.find((item) => item.catalog_id === catalogId)?.catalog_name ||
       unitCatalogCatalogOptions.find(([candidateId]) => candidateId === catalogId)?.[1] ||
+      routeCatalogPresets.find((preset) => preset.catalog_id === catalogId)?.catalog_name ||
       (unitCatalogApiFilterParam === "catalog_name" ? unitCatalogApiFilterValue.trim() : "") ||
       `Lift catalog ${catalogId}`;
 
@@ -3312,7 +3465,7 @@ export function App() {
 
     setWorkspaceState("saving");
     try {
-      const presetId = `catalog-preset-${selectedCustomer.lift_customer_id}-${selectedOutputMapRoute.output_route_id}-${slugify(catalogId) || Date.now()}`;
+      const presetId = `catalog-preset-${selectedCustomer.lift_customer_id}-${selectedOutputMapRoute.output_route_id}-${slugify(catalogId)}`;
       const response = await fetch(`${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/catalog-presets/${presetId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -3328,7 +3481,6 @@ export function App() {
       const payload = await readJsonResponse<{ catalog_presets: LiftCatalogPreset[] }>(response);
       setWorkspace((current) => (current ? { ...current, catalog_presets: payload.catalog_presets } : current));
       setCatalogPresetId(catalogId);
-      setCatalogPresetName(catalogName);
       setWorkspaceMessage(`Catalog preset saved: ${catalogName} / ${catalogId}.`);
       setWorkspaceState("idle");
     } catch (error) {
@@ -3415,6 +3567,9 @@ export function App() {
   const importMethods = allImportMethods.filter((method) => method.status !== "Archived");
   const activeImportMethod =
     importMethods.find((method) => method.import_method_id === activeMethodId) ?? importMethods[0] ?? allImportMethods[0];
+  const activeImportMethodHasUnsavedChanges = activeImportMethod
+    ? dirtyImportMethodIds.includes(activeImportMethod.import_method_id)
+    : false;
   const activeProductConfig = activeImportMethod?.product_resolution_config ?? defaultProductResolutionConfig;
   const activeResolverCopy = productResolverCopy(activeProductConfig.strategy);
   const activeResolutionModeCopy = resolutionModeCopy(activeProductConfig.mode);
@@ -3442,6 +3597,20 @@ export function App() {
       ),
     [activeProductConfig, sourceGrid.columns]
   );
+  const sourceConfig = activeImportMethod?.source_config ?? {};
+  const sourceHeaderRow = sourceConfig.header_row ?? 1;
+  const sourceQuantityColumn =
+    sourceConfig.quantity_column ??
+    sourceGrid.columns.find((column) => normalizeSearchText(column) === "print qty") ??
+    sourceGrid.columns.find((column) => ["qty", "quantity"].includes(normalizeSearchText(column))) ??
+    "";
+  const sourceIgnoresRepeatedHeaders = sourceConfig.ignore_repeated_headers ?? true;
+  const sourceReferenceRowsMode = sourceConfig.reference_rows_mode ?? "rows_without_quantity";
+  const isUsingSampleSource = sourceName === "Sample workbook";
+  const sourceColumnOrigin = isUsingSampleSource ? "Sample/demo columns" : "Loaded workbook columns";
+  const sourceColumnOriginDetail = isUsingSampleSource
+    ? "Upload or use a customer workbook in Manual Import to replace these starter columns."
+    : `${sourceName} · ${sourceGrid.columns.length} columns`;
   const addableCompositeColumns = availableInputColumns.filter(
     (column) => !activeProductConfig.composite_columns.includes(column)
   );
@@ -3493,6 +3662,10 @@ export function App() {
   const selectedTargetRoutes = selectedTarget
     ? outputRoutes.filter((route) => route.target_id === selectedTarget.target_id)
     : [];
+  const selectedTargetHasUnsavedChanges = selectedTarget
+    ? dirtyTargetIds.includes(selectedTarget.target_id) ||
+      selectedTargetRoutes.some((route) => dirtyOutputRouteIds.includes(route.output_route_id))
+    : false;
   const selectedTargetTestRoute = selectedTargetRoutes[0] ?? null;
   const selectedTargetTestEnvironment =
     selectedTarget && selectedTargetTestRoute
@@ -3601,7 +3774,6 @@ export function App() {
     selectedOutputMapRoute.output_route_id,
     selectedOutputMapRoute.company_id,
     selectedOutputMapRoute.target_id,
-    unitCatalogSearch,
     unitCatalogStatusFilter,
     unitCatalogProductTypeFilter,
     unitCatalogCatalogFilter,
@@ -3619,6 +3791,18 @@ export function App() {
     null;
   const selectedCatalogDetailItem =
     liftUnitCatalog.find((item) => item.catalog_item_id === selectedCatalogDetailId) ?? null;
+  const filteredLiftUnitCatalog = useMemo(() => {
+    const query = unitCatalogSearch.trim();
+    if (!query) {
+      return [...liftUnitCatalog].sort(compareLiftCatalogItems);
+    }
+
+    return liftUnitCatalog
+      .map((item) => ({ item, score: liftCatalogSearchScore(item, query) }))
+      .filter((entry) => entry.score > 0)
+      .sort((first, second) => second.score - first.score || compareLiftCatalogItems(first.item, second.item))
+      .map((entry) => entry.item);
+  }, [liftUnitCatalog, unitCatalogSearch]);
   const selectedOutputMapTemplate =
     selectedOutputMapTarget?.output_templates.find(
       (template) => template.output_template_id === selectedOutputMapRoute.output_template_id
@@ -3697,7 +3881,27 @@ export function App() {
   const routeProductMappings = productMappings.filter((mapping) => mapping.output_route_id === selectedOutputMapRouteId);
   const routeCatalogPresets = catalogPresets
     .filter((preset) => preset.output_route_id === selectedOutputMapRouteId && preset.status === "Active")
+    .reduce<LiftCatalogPreset[]>((uniquePresets, preset) => {
+      if (!uniquePresets.some((candidate) => candidate.catalog_id === preset.catalog_id)) {
+        uniquePresets.push(preset);
+      }
+      return uniquePresets;
+    }, [])
     .sort((first, second) => first.catalog_name.localeCompare(second.catalog_name));
+  const activeCatalogScopeId =
+    unitCatalogApiFilterParam === "catalog_id"
+      ? unitCatalogApiFilterValue.trim()
+      : unitCatalogCatalogFilter !== "All"
+        ? unitCatalogCatalogFilter
+        : catalogPresetId.trim();
+  const activeCatalogScopePreset =
+    routeCatalogPresets.find((preset) => preset.catalog_id === activeCatalogScopeId) ?? null;
+  const activeCatalogScopeProduct =
+    liftUnitCatalog.find((item) => item.catalog_id === activeCatalogScopeId && item.catalog_name) ?? null;
+  const activeCatalogScopeName =
+    activeCatalogScopeProduct?.catalog_name ??
+    activeCatalogScopePreset?.catalog_name ??
+    (activeCatalogScopeId ? "Catalog name loads from Lift" : "Choose a catalog");
   const routeMappedCount = routeProductMappings.filter((mapping) => mapping.status === "Mapped").length;
   const routeUnmappedCount = routeProductMappings.filter((mapping) => mapping.status === "Unmapped").length;
   const routeBlockingCount = routeProductMappings.filter(
@@ -4290,7 +4494,7 @@ export function App() {
 
   async function changePrimaryRouteEnvironment(environmentId: string) {
     const environment = primaryRouteTarget?.environments.find((candidate) => candidate.environment_id === environmentId);
-    if (!environment) {
+    if (!environment || !primaryRouteTarget) {
       setWorkspaceMessage("Choose a valid target environment.");
       setWorkspaceState("error");
       return;
@@ -4300,45 +4504,145 @@ export function App() {
       ...primaryOutputRoute,
       environment_id: environment.environment_id
     };
+    const nextTarget: TargetConfig = {
+      ...primaryRouteTarget,
+      lift: {
+        ...primaryRouteTarget.lift,
+        active_environment: environmentRoleKey(environment.name, environment.role)
+      }
+    };
     setOpenTopbarMenu(null);
-    await saveOutputRoute(nextRoute);
-    setWorkspaceMessage(`Primary route environment set to ${environment.name}. Regenerate preview jobs to apply it.`);
+    updateOutputRouteDraft(nextRoute.output_route_id, { environment_id: environment.environment_id });
+    await saveTarget(nextTarget);
+    setDirtyOutputRouteIds((current) => current.filter((routeId) => routeId !== nextRoute.output_route_id));
+    setWorkspaceMessage(`Primary route and target active environment set to ${environment.name}. Regenerate preview jobs to apply it.`);
   }
 
   function runHeaderAction(action: "manual-import" | "preview" | "product-map" | "import-methods" | "jobs" | "target") {
-    setOpenTopbarMenu(null);
-    setActiveGlobalView("Customers");
+    requestGuardedNavigation(() => {
+      setOpenTopbarMenu(null);
+      setActiveGlobalView("Customers");
 
-    if (action === "manual-import") {
-      setActiveCustomerView("Manual Import");
-      return;
-    }
-    if (action === "preview") {
-      setActiveCustomerView("Manual Import");
-      void createPreviewJob();
-      return;
-    }
-    if (action === "product-map") {
-      setActiveCustomerView("Output Product Map");
-      return;
-    }
-    if (action === "import-methods") {
-      setActiveCustomerView("Import Methods");
-      return;
-    }
-    if (action === "jobs") {
-      setActiveCustomerView("Jobs");
+      if (action === "manual-import") {
+        setActiveCustomerView("Manual Import");
+        return;
+      }
+      if (action === "preview") {
+        setActiveCustomerView("Manual Import");
+        void createPreviewJob();
+        return;
+      }
+      if (action === "product-map") {
+        setActiveCustomerView("Output Product Map");
+        return;
+      }
+      if (action === "import-methods") {
+        setActiveCustomerView("Import Methods");
+        setIsImportMethodDetailOpen(false);
+        return;
+      }
+      if (action === "jobs") {
+        setActiveCustomerView("Jobs");
+        return;
+      }
+
+      setActiveGlobalView("Targets");
+      setSelectedTargetId(primaryOutputRoute.target_id);
+      setActiveTargetsView("Output Routes");
+    });
+  }
+
+  function requestGuardedNavigation(action: () => void) {
+    if (
+      activeGlobalView === "Customers" &&
+      activeCustomerView === "Import Methods" &&
+      isImportMethodDetailOpen &&
+      activeImportMethodHasUnsavedChanges
+    ) {
+      pendingNavigationRef.current = action;
+      setLeavePrompt({
+        scope: "import-method",
+        title: "Unsaved import method changes",
+        body: "Save this import method before leaving, or continue without saving and reload the last saved version."
+      });
       return;
     }
 
-    setActiveGlobalView("Targets");
-    setSelectedTargetId(primaryOutputRoute.target_id);
-    setActiveTargetsView("Output Routes");
+    if (activeGlobalView === "Targets" && selectedTarget && selectedTargetHasUnsavedChanges) {
+      pendingNavigationRef.current = action;
+      setLeavePrompt({
+        scope: "target",
+        title: "Unsaved target changes",
+        body: "Save target, environment, output template, route, and value-rule changes before leaving, or continue without saving."
+      });
+      return;
+    }
+
+    action();
+  }
+
+  async function savePromptChangesAndContinue() {
+    if (!leavePrompt) {
+      return;
+    }
+
+    const action = pendingNavigationRef.current;
+    const scope = leavePrompt.scope;
+    setLeavePrompt(null);
+    pendingNavigationRef.current = null;
+
+    const saved =
+      scope === "import-method" && activeImportMethod
+        ? await saveImportMethod(activeImportMethod, mappings)
+        : scope === "target" && selectedTarget
+          ? await saveTarget(selectedTarget)
+          : true;
+
+    if (saved) {
+      action?.();
+    }
+  }
+
+  async function discardPromptChangesAndContinue() {
+    if (!leavePrompt) {
+      return;
+    }
+
+    const action = pendingNavigationRef.current;
+    const scope = leavePrompt.scope;
+    const targetId = selectedTarget?.target_id ?? null;
+    setLeavePrompt(null);
+    pendingNavigationRef.current = null;
+
+    if (scope === "import-method") {
+      await loadWorkspace(selectedCustomer.lift_customer_id);
+    }
+
+    if (scope === "target") {
+      if (targetId) {
+        setDirtyTargetIds((current) => current.filter((candidate) => candidate !== targetId));
+        setDirtyOutputRouteIds((current) => {
+          const routeIdsForTarget = new Set(
+            outputRoutes.filter((route) => route.target_id === targetId).map((route) => route.output_route_id)
+          );
+          return current.filter((routeId) => !routeIdsForTarget.has(routeId));
+        });
+      }
+      await loadTargetsAndJobs();
+      await loadWorkspace(selectedCustomer.lift_customer_id);
+    }
+
+    action?.();
   }
 
   async function importWorkbook(file: File) {
     try {
-      const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer());
+      const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer(), {
+        headerRow: activeImportMethod?.source_config.header_row ?? 1,
+        quantityColumn: activeImportMethod?.source_config.quantity_column ?? null,
+        ignoreRepeatedHeaders: activeImportMethod?.source_config.ignore_repeated_headers ?? true,
+        referenceRowsMode: activeImportMethod?.source_config.reference_rows_mode ?? "rows_without_quantity"
+      });
       setSourceGrid({ columns: parsed.columns, rows: parsed.rows });
       setSourceSheets(parsed.source_sheets);
       setParsedOrderRows(parsed.parsed_order_rows);
@@ -4378,6 +4682,7 @@ export function App() {
   }
 
   function updateActiveMethodDraft(patch: Partial<ImportMethod>) {
+    const methodId = activeImportMethod?.import_method_id;
     setWorkspace((current) => {
       if (!current || !activeImportMethod) {
         return current;
@@ -4390,6 +4695,9 @@ export function App() {
         )
       };
     });
+    if (methodId) {
+      setDirtyImportMethodIds((current) => (current.includes(methodId) ? current : [...current, methodId]));
+    }
   }
 
   function updateOutputRouteDraft(routeId: string, patch: Partial<OutputRoute>) {
@@ -4405,6 +4713,7 @@ export function App() {
         )
       };
     });
+    setDirtyOutputRouteIds((current) => (current.includes(routeId) ? current : [...current, routeId]));
   }
 
   function updateTargetActiveEnvironmentDraft(targetId: string, environmentName: string) {
@@ -4430,6 +4739,12 @@ export function App() {
           }
         : current
     );
+    setDirtyOutputRouteIds((current) => {
+      const routeIdsForTarget = outputRoutes
+        .filter((route) => route.target_id === targetId)
+        .map((route) => route.output_route_id);
+      return Array.from(new Set([...current, ...routeIdsForTarget]));
+    });
   }
 
   function updateValueRuleDraft(routeId: string, ruleId: string, patch: Partial<ValueNormalizationRule>) {
@@ -4452,6 +4767,7 @@ export function App() {
         )
       };
     });
+    setDirtyOutputRouteIds((current) => (current.includes(routeId) ? current : [...current, routeId]));
   }
 
   function addValueRuleDraft(route: OutputRoute) {
@@ -4489,11 +4805,14 @@ export function App() {
     try {
       const nextWorkspace = await persistOutputRoute(route);
       setWorkspace(nextWorkspace);
+      setDirtyOutputRouteIds((current) => current.filter((routeId) => routeId !== route.output_route_id));
       setWorkspaceMessage("Output route saved.");
       setWorkspaceState("idle");
+      return true;
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Output route save failed.");
       setWorkspaceState("error");
+      return false;
     }
   }
 
@@ -4595,6 +4914,7 @@ export function App() {
       setActiveCustomerView("Manual Import");
     } else {
       setActiveCustomerView("Import Methods");
+      setIsImportMethodDetailOpen(false);
     }
   }
 
@@ -4936,11 +5256,13 @@ export function App() {
       field,
       value: formatCatalogValue(value)
     }));
+    if (rawEntries.length) {
+      return rawEntries.sort((first, second) => first.field.localeCompare(second.field));
+    }
+
     const normalizedEntries = [
-      ["catalog_item_id", item.catalog_item_id],
       ["product_id", item.product_id],
       ["unit_number", item.unit_number],
-      ["unit_numbers", item.unit_numbers],
       ["product_name", item.product_name],
       ["catalog_id", item.catalog_id],
       ["catalog_name", item.catalog_name],
@@ -4957,17 +5279,7 @@ export function App() {
       ["source", item.source]
     ].map(([field, value]) => ({ field: String(field), value: formatCatalogValue(value) }));
 
-    if (!rawEntries.length) {
-      return normalizedEntries;
-    }
-
-    const normalizedFields = new Set(normalizedEntries.map((entry) => entry.field));
-    return [
-      ...normalizedEntries,
-      ...rawEntries
-        .filter((entry) => !normalizedFields.has(entry.field))
-        .sort((first, second) => first.field.localeCompare(second.field))
-    ];
+    return normalizedEntries;
   }
 
   function setBulkValueFromCatalog(item: LiftUnitCatalogItem) {
@@ -5179,7 +5491,11 @@ export function App() {
       import_methods: [method, ...workspace.import_methods]
     });
     setActiveMethodId(method.import_method_id);
+    setIsImportMethodDetailOpen(true);
     setActiveCustomerView("Import Methods");
+    setDirtyImportMethodIds((current) =>
+      current.includes(method.import_method_id) ? current : [...current, method.import_method_id]
+    );
   }
 
   async function duplicateImportMethod(method: ImportMethod) {
@@ -5206,6 +5522,7 @@ export function App() {
       import_methods: [duplicate, ...workspace.import_methods]
     });
     setActiveMethodId(methodId);
+    setIsImportMethodDetailOpen(true);
     await saveImportMethod(duplicate, duplicate.mappings);
   }
 
@@ -5224,7 +5541,11 @@ export function App() {
       const nextWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       const nextMethod = nextWorkspace.import_methods.find((candidate) => candidate.status !== "Archived");
       setWorkspace(nextWorkspace);
+      setDirtyImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
       setActiveMethodId(nextMethod?.import_method_id ?? "manual-xlsx");
+      if (method.import_method_id === activeMethodId) {
+        setIsImportMethodDetailOpen(false);
+      }
       setWorkspaceMessage("Import method archived.");
       setWorkspaceState("idle");
     } catch (error) {
@@ -5240,6 +5561,7 @@ export function App() {
         ? { ...current, primary_target: updater(current.primary_target) }
         : current
     );
+    setDirtyTargetIds((current) => (current.includes(targetId) ? current : [...current, targetId]));
   }
 
   function updateTargetEnvironmentDraft(
@@ -5329,6 +5651,9 @@ export function App() {
 
       const nextEnvironments = target.environments.filter((candidate) => candidate.environment_id !== environmentId);
       const fallbackEnvironmentId = nextEnvironments[0]?.environment_id;
+      const affectedRouteIds = (workspace?.output_routes ?? [])
+        .filter((route) => route.target_id === targetId && route.environment_id === environmentId)
+        .map((route) => route.output_route_id);
       setWorkspace((current) =>
         current
           ? {
@@ -5341,6 +5666,7 @@ export function App() {
             }
           : current
       );
+      setDirtyOutputRouteIds((current) => Array.from(new Set([...current, ...affectedRouteIds])));
       setWorkspaceMessage(`${environment?.name ?? "Environment"} removed from draft target setup. Save Target to persist.`);
       setWorkspaceState("idle");
 
@@ -5464,6 +5790,7 @@ export function App() {
     setSelectedTargetId(target.target_id);
     setActiveTargetsView("Environments");
     setActiveOutputTemplateId(template.output_template_id);
+    setDirtyTargetIds((current) => (current.includes(target.target_id) ? current : [...current, target.target_id]));
     setWorkspaceMessage("Draft target created. Save target details when ready.");
   }
 
@@ -5541,7 +5868,7 @@ export function App() {
             <button
               className={activeGlobalView === item.label ? "nav-item nav-item-active" : "nav-item"}
               key={item.label}
-              onClick={() => setActiveGlobalView(item.label)}
+              onClick={() => requestGuardedNavigation(() => setActiveGlobalView(item.label))}
             >
               <item.icon size={18} />
               <span>{item.label}</span>
@@ -5592,13 +5919,16 @@ export function App() {
                     }
                     key={customer.lift_customer_id}
                     onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      setSelectedCustomerId(customer.lift_customer_id);
-                      setCustomerSearch("");
-                      setIsCustomerPickerOpen(false);
-                      setActiveGlobalView("Customers");
-                      setActiveCustomerView("Overview");
-                    }}
+                    onClick={() =>
+                      requestGuardedNavigation(() => {
+                        setSelectedCustomerId(customer.lift_customer_id);
+                        setCustomerSearch("");
+                        setIsCustomerPickerOpen(false);
+                        setActiveGlobalView("Customers");
+                        setActiveCustomerView("Overview");
+                        setIsImportMethodDetailOpen(false);
+                      })
+                    }
                     role="option"
                     aria-selected={customer.lift_customer_id === selectedCustomer.lift_customer_id}
                   >
@@ -5615,10 +5945,15 @@ export function App() {
               <button
                 className={activeCustomerView === item.label ? "customer-nav-item customer-nav-item-active" : "customer-nav-item"}
                 key={item.label}
-                onClick={() => {
-                  setActiveGlobalView("Customers");
-                  setActiveCustomerView(item.label);
-                }}
+                onClick={() =>
+                  requestGuardedNavigation(() => {
+                    setActiveGlobalView("Customers");
+                    setActiveCustomerView(item.label);
+                    if (item.label === "Import Methods") {
+                      setIsImportMethodDetailOpen(false);
+                    }
+                  })
+                }
               >
                 <item.icon size={17} />
                 <span>{item.label}</span>
@@ -5683,12 +6018,14 @@ export function App() {
                       </div>
                       <button
                         className="topbar-popover-link"
-                        onClick={() => {
-                          setOpenTopbarMenu(null);
-                          setActiveGlobalView("Targets");
-                          setSelectedTargetId(primaryOutputRoute.target_id);
-                          setActiveTargetsView("Environments");
-                        }}
+                        onClick={() =>
+                          requestGuardedNavigation(() => {
+                            setOpenTopbarMenu(null);
+                            setActiveGlobalView("Targets");
+                            setSelectedTargetId(primaryOutputRoute.target_id);
+                            setActiveTargetsView("Environments");
+                          })
+                        }
                       >
                         Manage environments
                       </button>
@@ -5872,7 +6209,13 @@ export function App() {
                             (mapping) => mapping.output_route_id === method.output_route_id && mapping.status !== "Mapped"
                           ).length;
                           return (
-                            <tr key={method.import_method_id} onClick={() => setActiveCustomerView("Import Methods")}>
+                            <tr
+                              key={method.import_method_id}
+                              onClick={() => {
+                                setActiveCustomerView("Import Methods");
+                                setIsImportMethodDetailOpen(false);
+                              }}
+                            >
                               <td>{method.name}</td>
                               <td>{method.type}</td>
                               <td>{method.source}</td>
@@ -5888,7 +6231,13 @@ export function App() {
                         })}
                       </tbody>
                     </table>
-                    <button className="table-footer-link" onClick={() => setActiveCustomerView("Import Methods")}>
+                    <button
+                      className="table-footer-link"
+                      onClick={() => {
+                        setActiveCustomerView("Import Methods");
+                        setIsImportMethodDetailOpen(false);
+                      }}
+                    >
                       View all import methods
                       <ArrowGlyph />
                     </button>
@@ -5961,6 +6310,7 @@ export function App() {
 
             {activeCustomerView === "Import Methods" ? (
               <>
+                {!isImportMethodDetailOpen ? (
                 <section className="panel method-panel">
                   <div className="table-panel-header">
                     <PanelHeader icon={Workflow} title="Import Methods" detail="Source intake definitions" />
@@ -5975,7 +6325,13 @@ export function App() {
                         className={activeMethodId === method.import_method_id ? "method-row method-row-active" : "method-row"}
                         key={method.import_method_id}
                       >
-                        <button className="method-select-area" onClick={() => setActiveMethodId(method.import_method_id)}>
+                        <button
+                          className="method-select-area"
+                          onClick={() => {
+                            setActiveMethodId(method.import_method_id);
+                            setIsImportMethodDetailOpen(true);
+                          }}
+                        >
                           <div>
                             <strong>{method.name}</strong>
                             <span>{method.type}</span>
@@ -5986,7 +6342,13 @@ export function App() {
                           <span>{methodLastRun(method)}</span>
                         </button>
                         <div className="method-row-actions">
-                          <button title="Edit import method" onClick={() => setActiveMethodId(method.import_method_id)}>
+                          <button
+                            title="Edit import method"
+                            onClick={() => {
+                              setActiveMethodId(method.import_method_id);
+                              setIsImportMethodDetailOpen(true);
+                            }}
+                          >
                             <Edit3 size={15} />
                           </button>
                           <button title="Duplicate import method" onClick={() => void duplicateImportMethod(method)}>
@@ -6000,7 +6362,51 @@ export function App() {
                     ))}
                   </div>
                 </section>
-                {activeImportMethod ? (
+                ) : null}
+                {isImportMethodDetailOpen && activeImportMethod ? (
+                  <section className="panel method-workspace-panel">
+                    <div className="table-panel-header">
+                      <PanelHeader icon={FileSpreadsheet} title={activeImportMethod.name} detail="Selected import method workspace" />
+                      <div className="method-detail-actions">
+                        <span
+                          className={`method-save-state ${
+                            activeImportMethodHasUnsavedChanges ? "method-save-state-dirty" : "method-save-state-clean"
+                          }`}
+                        >
+                          {activeImportMethodHasUnsavedChanges ? (
+                            "Unsaved changes"
+                          ) : (
+                            <>
+                              <Check size={13} />
+                              Saved
+                            </>
+                          )}
+                        </span>
+                        <button
+                          className="secondary-button table-header-action"
+                          onClick={() => requestGuardedNavigation(() => setIsImportMethodDetailOpen(false))}
+                        >
+                          <ArrowLeft size={15} />
+                          All Import Methods
+                        </button>
+                        <button
+                          className="primary-button table-header-action"
+                          disabled={!activeImportMethodHasUnsavedChanges || workspaceState === "saving"}
+                          onClick={() => void saveImportMethod(activeImportMethod, mappings)}
+                        >
+                          Save Changes
+                        </button>
+                      </div>
+                    </div>
+                    <div className="method-step-strip">
+                      <span>1 Source setup</span>
+                      <span>2 Product resolution</span>
+                      <span>3 Field mapping</span>
+                      <span>4 Manual preview</span>
+                    </div>
+                  </section>
+                ) : null}
+                {isImportMethodDetailOpen && activeImportMethod ? (
                   <section className="panel setup-panel">
                     <PanelHeader icon={SlidersHorizontal} title="Method Setup" detail={activeImportMethod.import_method_id} />
                     <div className="setup-grid">
@@ -6186,19 +6592,160 @@ export function App() {
                         </label>
                       ) : null}
                       <div className="setup-actions">
-                        <button className="secondary-button" onClick={() => setActiveCustomerView("Manual Import")}>
+                        <span className="method-panel-save-note">Method setup saves with the selected import method.</span>
+                        <button
+                          className="secondary-button"
+                          onClick={() => requestGuardedNavigation(() => setActiveCustomerView("Manual Import"))}
+                        >
                           Open Manual Import
-                        </button>
-                        <button className="primary-button" onClick={() => void saveImportMethod(activeImportMethod)}>
-                          Save Method
                         </button>
                       </div>
                     </div>
                   </section>
                 ) : null}
-                {activeImportMethod ? (
+                {isImportMethodDetailOpen && activeImportMethod ? (
+                  <section className="panel setup-panel source-setup-panel">
+                    <PanelHeader icon={Upload} title="Source Setup" detail={sourceColumnOrigin} />
+                    <div className="source-setup-summary">
+                      <div>
+                        <span>Column Source</span>
+                        <strong>{sourceName}</strong>
+                        <p>{sourceColumnOriginDetail}</p>
+                      </div>
+                      <div>
+                        <span>Sheets Detected</span>
+                        <strong>{sourceSheets.length || 1}</strong>
+                        <p>{sheetName}</p>
+                      </div>
+                      <div>
+                        <span>Order Rows</span>
+                        <strong>{parsedOrderRows.length || sourceGrid.rows.length}</strong>
+                        <p>Rows with a valid quantity</p>
+                      </div>
+                      <div>
+                        <span>Reference Rows</span>
+                        <strong>{referenceRows.length}</strong>
+                        <p>No-quantity rows stay out of submit</p>
+                      </div>
+                    </div>
+                    <div className="setup-grid source-parser-grid">
+                      <label className="setup-control">
+                        <span>Header Row</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={sourceHeaderRow}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              source_config: {
+                                ...activeImportMethod.source_config,
+                                header_row: Number.parseInt(event.target.value, 10) || 1
+                              }
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="setup-control">
+                        <span>Quantity Column</span>
+                        <select
+                          value={sourceQuantityColumn}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              source_config: {
+                                ...activeImportMethod.source_config,
+                                quantity_column: event.target.value || null
+                              }
+                            })
+                          }
+                        >
+                          <option value="">Auto-detect quantity column</option>
+                          {sourceQuantityColumn && !availableInputColumns.includes(sourceQuantityColumn) ? (
+                            <option value={sourceQuantityColumn}>{sourceQuantityColumn}</option>
+                          ) : null}
+                          {availableInputColumns.map((column) => (
+                            <option key={column} value={column}>
+                              {column}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="setup-control">
+                        <span>Embedded Headers</span>
+                        <select
+                          value={sourceIgnoresRepeatedHeaders ? "ignore" : "keep"}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              source_config: {
+                                ...activeImportMethod.source_config,
+                                ignore_repeated_headers: event.target.value === "ignore"
+                              }
+                            })
+                          }
+                        >
+                          <option value="ignore">Ignore repeated/header-like rows</option>
+                          <option value="keep">Keep every nonblank row</option>
+                        </select>
+                      </label>
+                      <label className="setup-control">
+                        <span>No-Quantity Rows</span>
+                        <select
+                          value={sourceReferenceRowsMode}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              source_config: {
+                                ...activeImportMethod.source_config,
+                                reference_rows_mode: event.target.value as "rows_without_quantity" | "ignore"
+                              }
+                            })
+                          }
+                        >
+                          <option value="rows_without_quantity">Keep as reference/catalog rows</option>
+                          <option value="ignore">Ignore no-quantity rows</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="source-setup-callout">
+                      <strong>{isUsingSampleSource ? "Sample columns are currently shown." : "Loaded workbook columns are active."}</strong>
+                      <span>
+                        {isUsingSampleSource
+                          ? "Open Manual Import and upload the customer's template or order workbook before finalizing product resolution and field mapping."
+                          : "Column selectors below are based on the loaded workbook. Save this method when the parser behavior and mappings look right."}
+                      </span>
+                    </div>
+                    <div className="panel-action-footer">
+                      <span>Parser settings apply the next time a workbook is loaded and save with this import method.</span>
+                      <div className="inline-action-row">
+                        <button
+                          className="secondary-button"
+                          onClick={() => requestGuardedNavigation(() => setActiveCustomerView("Manual Import"))}
+                        >
+                          Open Manual Import
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+                {isImportMethodDetailOpen && activeImportMethod ? (
                   <section className="panel setup-panel product-resolution-setup">
                     <PanelHeader icon={Database} title="Product Resolution" detail="Customer key to route product" />
+                    <div className="method-source-context">
+                      <div>
+                        <span>Column Source</span>
+                        <strong>{sourceColumnOrigin}</strong>
+                      </div>
+                      <div>
+                        <span>Header Row</span>
+                        <strong>{sourceHeaderRow}</strong>
+                      </div>
+                      <div>
+                        <span>Order Row Rule</span>
+                        <strong>{sourceQuantityColumn || "Auto quantity"}</strong>
+                      </div>
+                      <div>
+                        <span>Embedded Headers</span>
+                        <strong>{sourceIgnoresRepeatedHeaders ? "Ignored" : "Kept"}</strong>
+                      </div>
+                    </div>
                     <div className="resolver-strategy-row">
                       <label className="setup-control resolver-strategy-control">
                         <span>Resolver Strategy</span>
@@ -6443,15 +6990,9 @@ export function App() {
                         ))}
                       </div>
                     </div>
-                    <div className="resolver-action-row">
-                      <div className="setup-actions">
-                        <button className="primary-button" onClick={() => void saveImportMethod(activeImportMethod)}>
-                          Save Resolver
-                        </button>
-                      </div>
-                    </div>
                   </section>
                 ) : null}
+                {isImportMethodDetailOpen && activeImportMethod ? (
                 <section className="panel mapping-panel">
                   <PanelHeader icon={Map} title="Field Mapping" detail="All found input elements can map to any canonical target" />
                   <div className="mapping-table-wrap">
@@ -6476,7 +7017,11 @@ export function App() {
                           <td>
                             <select
                               value={selected}
-                              onChange={(event) => setMappings((current) => updateMapping(current, column, event.target.value))}
+                              onChange={(event) => {
+                                const nextMappings = updateMapping(mappings, column, event.target.value);
+                                setMappings(nextMappings);
+                                updateActiveMethodDraft({ mappings: nextMappings });
+                              }}
                             >
                               <option value="">Ignore</option>
                               <CanonicalFieldOptionGroups fields={canonicalRegistryFields} />
@@ -6489,14 +7034,10 @@ export function App() {
                     </table>
                   </div>
                   <div className="panel-action-footer">
-                    <span>{mappedColumnCount} of {sourceGrid.columns.length} source columns mapped</span>
-                    {activeImportMethod ? (
-                      <button className="primary-button" onClick={() => void saveImportMethod(activeImportMethod)}>
-                        Save Field Mapping
-                      </button>
-                    ) : null}
+                    <span>{mappedColumnCount} of {sourceGrid.columns.length} source columns mapped. Field mappings save with this import method.</span>
                   </div>
                 </section>
+                ) : null}
               </>
             ) : null}
 
@@ -6898,26 +7439,22 @@ export function App() {
                     >
                     <div className="unit-catalog-header">
                       <div>
-                        <strong>Lift Product Catalog</strong>
+                        <strong>
+                          {activeCatalogMapping
+                            ? "Map Lift Product"
+                            : selectedUnitMappings.length
+                              ? "Bulk Map Lift Product"
+                              : "Browse Lift Product Catalog"}
+                        </strong>
                         <span>
                           {activeCatalogMapping
-                            ? `Map ${activeCatalogMapping.customer_product_key} to an approved Lift product.`
-                            : "Search cached Lift products, refresh from Lift, then map customer keys to product_id or unitNumber."}
+                            ? "Choose the approved Lift product for this Pathfinder customer key."
+                            : selectedUnitMappings.length
+                              ? `Choose one Lift product and assign it to ${selectedUnitMappings.length} selected Pathfinder keys.`
+                              : "Review Lift products by catalog. Use Map Product on a Pathfinder row for the guided mapping flow."}
                         </span>
                       </div>
-                      <label className="unit-map-search unit-catalog-search">
-                        <Search size={16} />
-                        <input
-                          value={unitCatalogSearch}
-                          placeholder="Search product name, product ID, unit number, catalog"
-                          onChange={(event) => setUnitCatalogSearch(event.target.value)}
-                        />
-                      </label>
-                    <div className="unit-catalog-header-actions">
-                        <button className="secondary-button" onClick={() => void refreshLiftProductCatalog(selectedOutputMapRoute)} disabled={unitCatalogState === "loading"}>
-                          <RefreshCw size={15} />
-                          Refresh from Lift
-                        </button>
+                      <div className="unit-catalog-header-actions">
                         <button
                           className="modal-close-button"
                           onClick={() => {
@@ -6936,160 +7473,198 @@ export function App() {
                         activeCatalogMapping ? " is-single" : selectedUnitMappings.length ? " is-bulk" : " is-reference"
                       }`}
                     >
-                      <span>{activeCatalogMapping ? "Single-row mapping" : selectedUnitMappings.length ? "Bulk mapping" : "Reference mode"}</span>
-                      <strong>
-                        {activeCatalogMapping
-                          ? activeCatalogMapping.customer_product_key
-                          : selectedUnitMappings.length
-                            ? `${selectedUnitMappings.length} selected Pathfinder products`
-                            : "No Pathfinder rows selected"}
-                      </strong>
-                      <small>
-                        {activeCatalogMapping
-                          ? `Saving a Lift product updates only ${activeCatalogMapping.display_label || activeCatalogMapping.customer_product_key}.`
-                          : selectedUnitMappings.length
-                            ? `Saving a Lift product updates ${selectedUnitMappings
-                                .map((mapping) => mapping.customer_product_key)
-                                .slice(0, 3)
-                                .join(", ")}${selectedUnitMappings.length > 3 ? `, and ${selectedUnitMappings.length - 3} more` : ""}.`
-                            : "Click Map Product on a Pathfinder row, or select several rows before assigning a Lift product."}
-                      </small>
-                    </div>
-                    <div className="catalog-preset-manager">
                       <div>
-                        <strong>Pinned catalogs</strong>
-                        <span>Save customer-specific Lift catalogs for this output route.</span>
+                        <span>{activeCatalogMapping ? "Pathfinder key" : selectedUnitMappings.length ? "Bulk scope" : "Catalog mode"}</span>
+                        <strong>
+                          {activeCatalogMapping
+                            ? activeCatalogMapping.customer_product_key
+                            : selectedUnitMappings.length
+                              ? `${selectedUnitMappings.length} selected customer keys`
+                              : "Reference browsing"}
+                        </strong>
                       </div>
-                      <label className="setup-control">
-                        <span>Apply Preset</span>
-                        <select
-                          value=""
-                          onChange={(event) => {
-                            const preset = routeCatalogPresets.find((candidate) => candidate.preset_id === event.target.value);
-                            if (preset) {
-                              applyCatalogPreset(preset);
-                            }
-                          }}
-                        >
-                          <option value="">Choose saved catalog</option>
-                          {routeCatalogPresets.map((preset) => (
-                            <option key={preset.preset_id} value={preset.preset_id}>
-                              {preset.catalog_name} / {preset.catalog_id}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="setup-control">
-                        <span>Catalog Name</span>
-                        <input
-                          value={catalogPresetName}
-                          placeholder="Empirical - Momentara PG"
-                          onChange={(event) => setCatalogPresetName(event.target.value)}
-                        />
-                      </label>
-                      <label className="setup-control">
-                        <span>Catalog ID</span>
-                        <input
-                          value={catalogPresetId}
-                          placeholder="8102"
-                          onChange={(event) => {
-                            setCatalogPresetId(event.target.value);
-                            setUnitCatalogApiFilterParam("catalog_id");
-                            setUnitCatalogApiFilterValue(event.target.value);
-                          }}
-                        />
-                      </label>
-                      <button className="secondary-button" onClick={() => void saveCatalogPreset()} disabled={workspaceState === "saving"}>
-                        Save Preset
-                      </button>
+                      <div>
+                        <span>Source value</span>
+                        <strong>
+                          {activeCatalogMapping
+                            ? activeCatalogMapping.display_label || activeCatalogMapping.customer_product_key
+                            : selectedUnitMappings.length
+                              ? selectedUnitMappings
+                                  .map((mapping) => mapping.display_label || mapping.customer_product_key)
+                                  .slice(0, 2)
+                                  .join(", ") + (selectedUnitMappings.length > 2 ? `, +${selectedUnitMappings.length - 2}` : "")
+                              : "Open from a row to assign a mapping"}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Current mapping</span>
+                        <strong>
+                          {activeCatalogMapping
+                            ? activeCatalogMapping.product_identifier_value || "Needs mapping"
+                            : selectedUnitMappings.length
+                              ? `${selectedOutputMapRoute.product_identifier_label} assignment`
+                              : selectedOutputMapRoute.product_identifier_label}
+                        </strong>
+                      </div>
                     </div>
-                    {routeCatalogPresets.length ? (
-                      <div className="catalog-preset-list">
-                        {routeCatalogPresets.map((preset) => (
-                          <button
-                            key={preset.preset_id}
-                            className="catalog-preset-chip"
-                            onClick={() => applyCatalogPreset(preset)}
+                    <section className="unit-catalog-scope">
+                      <div className="unit-catalog-scope-summary">
+                        <div>
+                          <strong>Lift catalog</strong>
+                          <span>
+                            {activeCatalogScopeId
+                              ? `${activeCatalogScopeName} / ${activeCatalogScopeId}`
+                              : "Choose a saved catalog or enter a catalog ID."}
+                          </span>
+                        </div>
+                        <button
+                          className="primary-button"
+                          onClick={() => void refreshLiftProductCatalog(selectedOutputMapRoute)}
+                          disabled={unitCatalogState === "loading" || !unitCatalogApiFilterValue.trim()}
+                        >
+                          <RefreshCw size={15} />
+                          Refresh from Lift
+                        </button>
+                      </div>
+                      <div className="unit-catalog-scope-row">
+                        <label className="setup-control">
+                          <span>Pinned catalog</span>
+                          <select
+                            value={activeCatalogScopePreset?.preset_id ?? ""}
+                            onChange={(event) => {
+                              const preset = routeCatalogPresets.find((candidate) => candidate.preset_id === event.target.value);
+                              if (preset) {
+                                applyCatalogPreset(preset);
+                              }
+                            }}
                           >
-                            <span>{preset.catalog_name}</span>
-                            <strong>{preset.catalog_id}</strong>
-                            <X
-                              size={13}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void deleteCatalogPreset(preset);
-                              }}
-                            />
+                            <option value="">Choose saved catalog</option>
+                            {routeCatalogPresets.map((preset) => (
+                              <option key={preset.preset_id} value={preset.preset_id}>
+                                {preset.catalog_name} / {preset.catalog_id}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Catalog ID</span>
+                          <input
+                            value={unitCatalogApiFilterParam === "catalog_id" ? unitCatalogApiFilterValue : catalogPresetId}
+                            placeholder="8102"
+                            onChange={(event) => {
+                              setCatalogPresetId(event.target.value);
+                              setUnitCatalogApiFilterParam("catalog_id");
+                              setUnitCatalogApiFilterValue(event.target.value);
+                              setUnitCatalogCatalogFilter("All");
+                            }}
+                          />
+                        </label>
+                        <button
+                          className="secondary-button"
+                          onClick={() => void saveCatalogPreset()}
+                          disabled={workspaceState === "saving" || !activeCatalogScopeId}
+                        >
+                          Pin Catalog
+                        </button>
+                        {activeCatalogScopePreset ? (
+                          <button
+                            className="icon-button"
+                            onClick={() => void deleteCatalogPreset(activeCatalogScopePreset)}
+                            aria-label={`Remove ${activeCatalogScopePreset.catalog_name} catalog preset`}
+                          >
+                            <X size={15} />
                           </button>
-                        ))}
+                        ) : null}
                       </div>
-                    ) : null}
-                    <div className="unit-catalog-filters">
-                      <label className="setup-control">
-                        <span>Status</span>
-                        <select
-                          value={unitCatalogStatusFilter}
-                          onChange={(event) => setUnitCatalogStatusFilter(event.target.value as "Active" | "Inactive" | "All")}
-                        >
-                          <option value="Active">Active products</option>
-                          <option value="Inactive">Inactive products</option>
-                          <option value="All">All products</option>
-                        </select>
-                      </label>
-                      <label className="setup-control">
-                        <span>Product Type</span>
-                        <select
-                          value={unitCatalogProductTypeFilter}
-                          onChange={(event) => setUnitCatalogProductTypeFilter(event.target.value)}
-                        >
-                          <option value="All">All product types</option>
-                          {unitCatalogProductTypeOptions.map((productType) => (
-                            <option key={productType} value={productType}>
-                              {productType}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="setup-control">
-                        <span>Catalog</span>
-                        <select
-                          value={unitCatalogCatalogFilter}
-                          onChange={(event) => setUnitCatalogCatalogFilter(event.target.value)}
-                        >
-                          <option value="All">All catalogs</option>
-                          {unitCatalogCatalogOptions.map(([catalogId, catalogName]) => (
-                            <option key={catalogId} value={catalogId}>
-                              {catalogName} / {catalogId}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
-                    <div className="unit-catalog-api-filter">
+                      <p className="unit-catalog-scope-note">
+                        Catalog names are read from Lift after refresh. Search below filters the loaded products with fuzzy matching.
+                      </p>
+                      <details className="unit-catalog-advanced">
+                        <summary>Advanced filters</summary>
+                        <div className="unit-catalog-filters">
+                          <label className="setup-control">
+                            <span>Status</span>
+                            <select
+                              value={unitCatalogStatusFilter}
+                              onChange={(event) => setUnitCatalogStatusFilter(event.target.value as "Active" | "Inactive" | "All")}
+                            >
+                              <option value="Active">Active products</option>
+                              <option value="Inactive">Inactive products</option>
+                              <option value="All">All products</option>
+                            </select>
+                          </label>
+                          <label className="setup-control">
+                            <span>Product Type</span>
+                            <select
+                              value={unitCatalogProductTypeFilter}
+                              onChange={(event) => setUnitCatalogProductTypeFilter(event.target.value)}
+                            >
+                              <option value="All">All product types</option>
+                              {unitCatalogProductTypeOptions.map((productType) => (
+                                <option key={productType} value={productType}>
+                                  {productType}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="setup-control">
+                            <span>Cached Catalog</span>
+                            <select
+                              value={unitCatalogCatalogFilter}
+                              onChange={(event) => setUnitCatalogCatalogFilter(event.target.value)}
+                            >
+                              <option value="All">All cached catalogs</option>
+                              {unitCatalogCatalogOptions.map(([catalogId, catalogName]) => (
+                                <option key={catalogId} value={catalogId}>
+                                  {catalogName} / {catalogId}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </div>
+                        <div className="unit-catalog-api-filter">
+                          <div>
+                            <strong>Exact Lift API filter</strong>
+                            <span>Use only when you need to fetch by a field other than catalog ID.</span>
+                          </div>
+                          <label className="setup-control">
+                            <span>Parameter</span>
+                            <select
+                              value={unitCatalogApiFilterParam}
+                              onChange={(event) => setUnitCatalogApiFilterParam(event.target.value)}
+                            >
+                              <option value="catalog_id">Catalog ID</option>
+                              <option value="catalog_name">Catalog name</option>
+                              <option value="product_name">Product name</option>
+                              <option value="product_id">Product ID</option>
+                              <option value="accounting_item_code">Accounting item code</option>
+                              <option value="parent_product_id">Parent product ID</option>
+                            </select>
+                          </label>
+                          <label className="setup-control">
+                            <span>Value</span>
+                            <input
+                              value={unitCatalogApiFilterValue}
+                              placeholder={unitCatalogApiFilterParam === "catalog_id" ? "8102" : "Enter exact Lift value"}
+                              onChange={(event) => setUnitCatalogApiFilterValue(event.target.value)}
+                            />
+                          </label>
+                        </div>
+                      </details>
+                    </section>
+                    <div className="unit-catalog-results-header">
                       <div>
-                        <strong>Lift API filter</strong>
-                        <span>Use this before a catalog has been cached locally.</span>
+                        <strong>Lift product results</strong>
+                        <span>
+                          {filteredLiftUnitCatalog.length} of {liftUnitCatalog.length} loaded product{liftUnitCatalog.length === 1 ? "" : "s"}
+                        </span>
                       </div>
-                      <label className="setup-control">
-                        <span>Parameter</span>
-                        <select
-                          value={unitCatalogApiFilterParam}
-                          onChange={(event) => setUnitCatalogApiFilterParam(event.target.value)}
-                        >
-                          <option value="catalog_id">Catalog ID</option>
-                          <option value="catalog_name">Catalog name</option>
-                          <option value="product_name">Product name</option>
-                          <option value="product_id">Product ID</option>
-                          <option value="accounting_item_code">Accounting item code</option>
-                          <option value="parent_product_id">Parent product ID</option>
-                        </select>
-                      </label>
-                      <label className="setup-control">
-                        <span>Value</span>
+                      <label className="unit-map-search unit-catalog-search">
+                        <Search size={16} />
                         <input
-                          value={unitCatalogApiFilterValue}
-                          placeholder={unitCatalogApiFilterParam === "catalog_id" ? "8102" : "Enter exact Lift value"}
-                          onChange={(event) => setUnitCatalogApiFilterValue(event.target.value)}
+                          value={unitCatalogSearch}
+                          placeholder="Fuzzy search loaded products"
+                          onChange={(event) => setUnitCatalogSearch(event.target.value)}
                         />
                       </label>
                     </div>
@@ -7108,7 +7683,7 @@ export function App() {
                             </tr>
                           </thead>
                           <tbody>
-                            {liftUnitCatalog.map((item) => (
+                            {filteredLiftUnitCatalog.map((item) => (
                               <tr
                                 key={item.catalog_item_id}
                                 className={selectedCatalogDetailId === item.catalog_item_id ? "is-selected" : undefined}
@@ -7214,8 +7789,12 @@ export function App() {
                     {unitCatalogState === "loading" ? (
                       <p className="empty-state">Loading Lift product catalog...</p>
                     ) : null}
-                    {unitCatalogState !== "loading" && liftUnitCatalog.length === 0 ? (
-                      <p className="empty-state">No Lift products match this route and search. Refresh from Lift when credentials are configured.</p>
+                    {unitCatalogState !== "loading" && filteredLiftUnitCatalog.length === 0 ? (
+                      <p className="empty-state">
+                        {liftUnitCatalog.length
+                          ? "No products in the current Lift result set match that search."
+                          : "No Lift products match this route and API scope. Refresh from Lift when credentials are configured."}
+                      </p>
                     ) : null}
                     </aside>
                   ) : null}
@@ -7237,6 +7816,21 @@ export function App() {
                     />
                     <button className="primary-button" onClick={() => void bulkAssignUnitNumber()} disabled={workspaceState === "saving"}>
                       Bulk Assign
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => {
+                        setActiveCatalogMappingId(null);
+                        setUnitCatalogSearch(
+                          selectedUnitMappings
+                            .map((mapping) => mapping.product_name || mapping.display_label || mapping.customer_product_key)
+                            .find(Boolean) ?? ""
+                        );
+                        setOpenProductMapTool("unit-library");
+                      }}
+                      disabled={selectedUnitMappings.length === 0}
+                    >
+                      Map Selected
                     </button>
                     <button
                       className="secondary-button"
@@ -8293,7 +8887,7 @@ export function App() {
                       Configure the systems Pathfinder can send orders to, then combine environments and templates into reusable output routes.
                     </p>
                   </div>
-                  <button className="primary-button" onClick={addTargetDraft}>
+                  <button className="primary-button" onClick={() => requestGuardedNavigation(addTargetDraft)}>
                     <Plus size={16} />
                     Add Target
                   </button>
@@ -8365,7 +8959,10 @@ export function App() {
                               </span>
                             </td>
                             <td>
-                              <button className="secondary-button table-inline-button" onClick={() => selectTargetForEdit(target)}>
+                              <button
+                                className="secondary-button table-inline-button"
+                                onClick={() => requestGuardedNavigation(() => selectTargetForEdit(target))}
+                              >
                                 <Edit3 size={14} />
                                 Edit
                               </button>
@@ -8380,7 +8977,7 @@ export function App() {
             ) : (
               <>
                 <header className="target-detail-header">
-                  <button className="secondary-button" onClick={() => setSelectedTargetId(null)}>
+                  <button className="secondary-button" onClick={() => requestGuardedNavigation(() => setSelectedTargetId(null))}>
                     <ArrowLeft size={16} />
                     All targets
                   </button>
@@ -8394,8 +8991,26 @@ export function App() {
                       <i />
                       {selectedTarget.health_status}
                     </span>
-                    <button className="primary-button" onClick={() => void saveTarget(selectedTarget)} disabled={workspaceState === "saving"}>
-                      {workspaceState === "saving" ? "Saving" : "Save Target"}
+                    <span
+                      className={`method-save-state ${
+                        selectedTargetHasUnsavedChanges ? "method-save-state-dirty" : "method-save-state-clean"
+                      }`}
+                    >
+                      {selectedTargetHasUnsavedChanges ? (
+                        "Unsaved changes"
+                      ) : (
+                        <>
+                          <Check size={13} />
+                          Saved
+                        </>
+                      )}
+                    </span>
+                    <button
+                      className="primary-button"
+                      onClick={() => void saveTarget(selectedTarget)}
+                      disabled={!selectedTargetHasUnsavedChanges || workspaceState === "saving"}
+                    >
+                      {workspaceState === "saving" ? "Saving" : "Save Changes"}
                     </button>
                   </div>
                 </header>
@@ -8637,10 +9252,7 @@ export function App() {
                       ))}
                     </div>
                     <div className="panel-action-footer">
-                      <span>Secrets are saved locally and returned masked by the API.</span>
-                      <button className="primary-button" onClick={() => void saveTarget(selectedTarget)} disabled={workspaceState === "saving"}>
-                        Save Environments
-                      </button>
+                      <span>Environment edits, credentials, and secrets save from the target header.</span>
                     </div>
                   </section>
                 ) : null}
@@ -8949,10 +9561,7 @@ export function App() {
                       )}
                     </div>
                     <div className="panel-action-footer">
-                      <span>Template edits update preview configuration only in this slice.</span>
-                      <button className="primary-button" onClick={() => void saveTarget(selectedTarget)} disabled={workspaceState === "saving"}>
-                        Save Output Templates
-                      </button>
+                      <span>Template edits save with this target from the header.</span>
                     </div>
                   </section>
                 ) : null}
@@ -9181,13 +9790,7 @@ export function App() {
                                   ))}
                                 </div>
                               </div>
-                              <button
-                                className="primary-button"
-                                onClick={() => void saveOutputRoute(route)}
-                                disabled={workspaceState === "saving"}
-                              >
-                                Save Route
-                              </button>
+                              <span className="target-footer-save-note">Route edits save with this target from the header.</span>
                             </div>
                           </article>
                         );
@@ -9327,14 +9930,7 @@ export function App() {
                             <p className="empty-state">No value rules are configured for this output route.</p>
                           )}
                           <div className="panel-action-footer">
-                            <span>Strict rules can block submit when Lift requires an exact controlled value.</span>
-                            <button
-                              className="primary-button"
-                              onClick={() => void saveOutputRoute(route)}
-                              disabled={workspaceState === "saving"}
-                            >
-                              Save Value Rules
-                            </button>
+                            <span>Strict rules can block submit when Lift requires an exact controlled value. Rule edits save from the target header.</span>
                           </div>
                         </article>
                       ))}
@@ -10507,6 +11103,47 @@ export function App() {
               ) : (
                 <p className="empty-state">Loading snapshot...</p>
               )}
+            </section>
+          </div>
+        ) : null}
+
+        {leavePrompt ? (
+          <div className="product-map-modal-backdrop" role="presentation" onClick={() => setLeavePrompt(null)}>
+            <section
+              className="product-map-modal unsaved-changes-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={leavePrompt.title}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-section-header">
+                <div>
+                  <p className="eyebrow">Unsaved Changes</p>
+                  <h2>{leavePrompt.title}</h2>
+                  <span>{leavePrompt.body}</span>
+                </div>
+                <button className="modal-close-button" onClick={() => setLeavePrompt(null)} aria-label="Keep editing">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="unsaved-changes-body">
+                <ShieldCheck size={22} />
+                <div>
+                  <strong>Choose how to continue.</strong>
+                  <span>Saving persists the current setup for future sessions and other users. Continuing without saving reloads the last saved version.</span>
+                </div>
+              </div>
+              <div className="modal-action-row">
+                <button className="secondary-button" onClick={() => setLeavePrompt(null)}>
+                  Keep Editing
+                </button>
+                <button className="secondary-button" onClick={() => void discardPromptChangesAndContinue()}>
+                  Continue Without Saving
+                </button>
+                <button className="primary-button" onClick={() => void savePromptChangesAndContinue()} disabled={workspaceState === "saving"}>
+                  Save Changes
+                </button>
+              </div>
             </section>
           </div>
         ) : null}

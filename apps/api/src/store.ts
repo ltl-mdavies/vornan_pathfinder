@@ -185,6 +185,11 @@ export interface ImportMethod {
     pdf_review_mode?: "manual_review" | "assisted_extract";
     api_endpoint_url?: string | null;
     sftp_path?: string | null;
+    header_row?: number | null;
+    quantity_column?: string | null;
+    ignore_repeated_headers?: boolean;
+    reference_rows_mode?: "rows_without_quantity" | "ignore";
+    sample_template_name?: string | null;
   };
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
@@ -1425,26 +1430,122 @@ function normalizeLiftUnitCatalog(catalog: LiftUnitCatalogItem[] | undefined): L
   return Array.from(seededByUnit.values());
 }
 
-function matchesSearch(item: LiftUnitCatalogItem, query: string) {
-  if (!query) {
-    return true;
+function normalizeSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function fuzzySubsequenceScore(haystack: string, needle: string) {
+  if (!needle) {
+    return 0;
   }
 
-  return [
-    item.unit_number,
-    ...(item.unit_numbers ?? []),
-    item.product_id ?? "",
-    item.product_name,
-    item.catalog_id ?? "",
-    item.catalog_name ?? "",
-    item.accounting_item_code ?? "",
-    item.product_type ?? "",
-    item.category ?? "",
-    item.description ?? ""
-  ]
-    .join(" ")
-    .toLowerCase()
-    .includes(query);
+  let haystackIndex = 0;
+  let firstMatch = -1;
+  let previousMatch = -1;
+  let contiguousMatches = 0;
+
+  for (const character of needle) {
+    const foundIndex = haystack.indexOf(character, haystackIndex);
+    if (foundIndex === -1) {
+      return 0;
+    }
+    if (firstMatch === -1) {
+      firstMatch = foundIndex;
+    }
+    if (previousMatch >= 0 && foundIndex === previousMatch + 1) {
+      contiguousMatches += 1;
+    }
+    previousMatch = foundIndex;
+    haystackIndex = foundIndex + 1;
+  }
+
+  const compactness = needle.length / Math.max(haystack.length, 1);
+  const startBonus = firstMatch === 0 ? 20 : Math.max(0, 12 - firstMatch);
+  return 40 + contiguousMatches * 3 + compactness * 80 + startBonus;
+}
+
+function liftCatalogSearchText(item: LiftUnitCatalogItem) {
+  const rawValues =
+    item.raw_payload && typeof item.raw_payload === "object"
+      ? Object.values(item.raw_payload)
+          .filter((value) => ["string", "number", "boolean"].includes(typeof value))
+          .map(String)
+      : [];
+
+  return normalizeSearchText(
+    [
+      item.unit_number,
+      ...(item.unit_numbers ?? []),
+      item.product_id ?? "",
+      item.product_name,
+      item.catalog_id ?? "",
+      item.catalog_name ?? "",
+      item.accounting_item_code ?? "",
+      item.product_type ?? "",
+      item.category ?? "",
+      item.description ?? "",
+      item.parent_product_id ?? "",
+      ...rawValues
+    ].join(" ")
+  );
+}
+
+function liftCatalogSearchScore(item: LiftUnitCatalogItem, query: string) {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) {
+    return 1;
+  }
+
+  const searchable = liftCatalogSearchText(item);
+  const compactSearchable = searchable.replace(/\s+/g, "");
+  const compactQuery = normalizedQuery.replace(/\s+/g, "");
+  const terms = normalizedQuery.split(" ").filter(Boolean);
+  const productName = normalizeSearchText(item.product_name);
+  const unitNumber = normalizeSearchText(item.unit_number ?? "");
+  const productId = normalizeSearchText(item.product_id ?? "");
+  const accountingCode = normalizeSearchText(item.accounting_item_code ?? "");
+
+  if ([productId, unitNumber, accountingCode].some((value) => value && value === normalizedQuery)) {
+    return 1000;
+  }
+
+  let score = 0;
+  if (productName === normalizedQuery) {
+    score += 900;
+  }
+  if (searchable.includes(normalizedQuery)) {
+    score += 650;
+  }
+  if (compactSearchable.includes(compactQuery)) {
+    score += 520;
+  }
+
+  const matchedTerms = terms.filter((term) => searchable.includes(term));
+  if (matchedTerms.length) {
+    score += matchedTerms.length * 120;
+    if (matchedTerms.length === terms.length) {
+      score += 220;
+    }
+  }
+
+  score += Math.max(
+    fuzzySubsequenceScore(productName, compactQuery),
+    fuzzySubsequenceScore(compactSearchable, compactQuery) * 0.7
+  );
+
+  return score;
+}
+
+function compareLiftCatalogItems(first: LiftUnitCatalogItem, second: LiftUnitCatalogItem) {
+  return (
+    first.product_name.localeCompare(second.product_name) ||
+    (first.unit_number ?? "").localeCompare(second.unit_number ?? "") ||
+    (first.product_id ?? "").localeCompare(second.product_id ?? "")
+  );
 }
 
 function normalizeSubmitProfiles(route: OutputRoute): SubmitProfile[] {
@@ -2094,20 +2195,32 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
   const timestamp = now();
-  const existingMethod =
-    workspace.import_methods.find((method) => method.import_method_id === methodId) ?? createSeedMethod(timestamp);
+  const existingMethod = workspace.import_methods.find((method) => method.import_method_id === methodId);
+  const isCompleteNewMethod =
+    Boolean(methodPatch.name) &&
+    Boolean(methodPatch.type) &&
+    Boolean(methodPatch.source) &&
+    Boolean(methodPatch.status) &&
+    Boolean(methodPatch.output_route_id) &&
+    Boolean(methodPatch.template_id);
+
+  if (!existingMethod && !isCompleteNewMethod) {
+    throw new Error(`Import method ${methodId} does not exist. Create a new import method before saving settings.`);
+  }
+
+  const methodSource = existingMethod ?? createSeedMethod(timestamp);
   const nextMethod: ImportMethod = {
-    ...normalizeImportMethod(existingMethod),
+    ...normalizeImportMethod(methodSource),
     ...methodPatch,
     import_method_id: methodId,
     source_config: {
-      ...(existingMethod.source_config ?? {}),
+      ...(methodSource.source_config ?? {}),
       ...(methodPatch.source_config ?? {})
     },
-    workbook_sheet_policy: methodPatch.workbook_sheet_policy ?? existingMethod.workbook_sheet_policy ?? "rows_with_quantity",
+    workbook_sheet_policy: methodPatch.workbook_sheet_policy ?? methodSource.workbook_sheet_policy ?? "rows_with_quantity",
     product_resolution_config: {
       ...createDefaultProductResolutionConfig(),
-      ...(existingMethod.product_resolution_config ?? {}),
+      ...(methodSource.product_resolution_config ?? {}),
       ...(methodPatch.product_resolution_config ?? {})
     },
     updated_at: timestamp
@@ -2388,13 +2501,10 @@ export async function listLiftUnitCatalog(filters: {
     .filter((item) => !filters.parent_product_id || item.parent_product_id === filters.parent_product_id)
     .filter((item) => !filters.status || item.status === filters.status)
     .filter((item) => filters.include_inactive || item.status === "Active")
-    .filter((item) => matchesSearch(item, query))
-    .sort(
-      (first, second) =>
-        first.product_name.localeCompare(second.product_name) ||
-        (first.unit_number ?? "").localeCompare(second.unit_number ?? "") ||
-        (first.product_id ?? "").localeCompare(second.product_id ?? "")
-    );
+    .map((item) => ({ item, score: query ? liftCatalogSearchScore(item, query) : 0 }))
+    .filter((entry) => !query || entry.score > 0)
+    .sort((first, second) => (query ? second.score - first.score : 0) || compareLiftCatalogItems(first.item, second.item))
+    .map((entry) => entry.item);
 
   return fetchSize === null ? filtered : filtered.slice(fetchOffset, fetchOffset + fetchSize);
 }

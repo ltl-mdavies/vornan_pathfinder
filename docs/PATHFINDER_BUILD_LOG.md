@@ -979,3 +979,103 @@ What changed:
 - Replaced browser confirm prompts with an app-native review step showing affected mappings, template tokens, and value rules.
 - Added a Settings snapshot detail modal with export actions, diff counts, and captured field preview.
 - Kept restore destructive actions out of scope; compare is read-only groundwork for future recovery workflows.
+
+## 2026-07-16 - AWS Production Hosting and Public Status Plan
+
+Documented the recommended production rollout for Pathfinder hosting, authentication, durable API infrastructure, and public order status links.
+
+What changed:
+
+- Added `AWS_PRODUCTION_HOSTING_AND_STATUS_PLAN.md`.
+- Defined `pathfinder.vornan.co` as the authenticated internal Pathfinder app.
+- Recommended `status.vornan.co` for public tokenized order status pages, with `go.vornan.co` reserved for future short-link or redirect workflows.
+- Captured the AWS target architecture: S3, CloudFront, API Gateway, Lambda, DynamoDB, Secrets Manager, CloudWatch, and optional queue/scheduler services.
+- Captured Firebase Google Auth requirements for `ltlco.com` and `vornan.co` users.
+- Captured public status token rules, sanitized customer-facing order payloads, and the rule that internal shipping-rate data must never be exposed.
+- Broke the work into early-next-week implementation phases covering hosting, auth, API shell, durable storage, Lift submit, and public status foundations.
+
+## 2026-07-16 - Lift Catalog Fuzzy Search
+
+Improved Lift product catalog lookup so Pathfinder can provide a forgiving search experience even though the Lift API only supports exact query parameters.
+
+What changed:
+
+- Added fuzzy-ranked product catalog matching for cached Lift catalog results.
+- Kept Lift API filters as the upstream scope control, such as catalog ID, product ID, exact product name, product type, and status.
+- Changed the Output Product Map catalog search field to filter the already-loaded result set locally instead of sending every typed search term back to Lift.
+- Ranked exact product IDs, unit numbers, and accounting item codes first, followed by product-name phrase, token, and fuzzy matches.
+- Preserved the pinned catalog workflow so users can fetch a known catalog, then quickly narrow products with forgiving search terms.
+
+## 2026-07-16 - Mapping-First Lift Catalog Drawer
+
+Reorganized the Output Product Map Lift catalog drawer around the actual mapping workflow instead of generic catalog browsing.
+
+What changed:
+
+- Made row-driven `Map Product` the primary workflow for assigning a Lift product to a Pathfinder customer key.
+- Added an explicit `Map Selected` bulk action for assigning one Lift product to several selected customer keys.
+- Moved fuzzy product search into the results section so it clearly filters the already-loaded Lift result set.
+- Collapsed catalog presets, exact Lift API filters, status, product type, and cached catalog controls into a quieter `Lift catalog scope` section.
+- Added a compact mapping context strip showing the Pathfinder key, source value, and current mapping before a user chooses a Lift product.
+
+## 2026-07-17 - Lift Catalog Scope Simplification
+
+Cleaned up the Output Product Map catalog scope controls after live mapping review.
+
+What changed:
+
+- Replaced the noisy catalog scope drawer section with a simpler catalog selector, Catalog ID field, and single `Refresh from Lift` action.
+- Moved less common status, product type, cached catalog, and exact API parameter controls behind `Advanced filters`.
+- Removed manual catalog-name entry from the workflow; catalog names now come from Lift product payloads or existing saved presets.
+- Prevented duplicate pinned catalog display for the same output route/catalog ID.
+- Updated product details to show Lift payload fields directly when available, avoiding duplicated normalized fields like `unit_number` and `unit_numbers`.
+
+## 2026-07-17 - Import Method Source-First Setup
+
+Reworked Import Methods so source structure is explicit before product resolution and field mapping.
+
+What changed:
+
+- Added a selected-method workspace strip so the page reads as a list first, then setup sections for the active import method.
+- Added a Source Setup panel showing whether column options come from sample/demo data or a loaded workbook.
+- Added persisted parser controls for header row, quantity column, embedded/repeated header handling, and no-quantity reference rows.
+- Wired workbook uploads to the active method parser settings so saved source setup affects the next XLSX parse.
+- Improved workbook parsing to ignore embedded header-like rows such as Momentara's hardware subtable header inside the order sheet.
+- Added source context directly above Product Resolution so users can see which columns and parser rules the resolver is using.
+
+## 2026-07-17 - Import Methods List-First Navigation
+
+Adjusted Import Methods to behave like a true setup workspace instead of showing every configuration section at once.
+
+What changed:
+
+- Made the Import Methods main page show only the method list and primary method actions.
+- Changed method row and edit actions to open a selected-method detail view.
+- Moved Method Setup, Source Setup, Product Resolution, and Field Mapping behind that selected-method detail view.
+- Added an `All Import Methods` back action so users can return to the clean method list.
+- Updated sidebar and overview links so they return users to the list view by default.
+
+## 2026-07-17 - Import Method Single-Save Detail Flow
+
+Simplified the Import Method detail workspace so users save the selected method as one coherent setup instead of saving each panel separately.
+
+What changed:
+
+- Added a method-level `Save Changes` action and saved/unsaved state chip in the selected import method header.
+- Removed separate `Save Method`, `Save Source Setup`, `Save Resolver`, and `Save Field Mapping` buttons from individual panels.
+- Kept panel-level actions focused on navigation or task flow, such as opening Manual Import.
+- Made field mapping edits update the active method draft so they are included in the single save action.
+- Cleared draft indicators after save, delete, or customer workspace reload to avoid stale unsaved states.
+
+## 2026-07-17 - Persistence Guards And Target Single-Save Flow
+
+Hardened the setup editing workflow so saved values persist predictably and draft state cannot silently leak into future sessions.
+
+What changed:
+
+- Fixed the customer header Environment control so changing QA1/PROD persists the target active environment and synced output route, not only the local route selection.
+- Added explicit dirty tracking for target settings and customer output routes.
+- Changed Targets detail to use one header-level `Save Changes` action for environments, templates, output routes, and value rules.
+- Removed section-level save buttons from Targets panels and replaced them with notes that edits save from the target header.
+- Added unsaved-change prompts when leaving Import Method detail or Target detail, with options to save, keep editing, or continue without saving.
+- Hardened the import method API so stale or partial PUT requests to unknown method IDs cannot create surprise draft methods.
