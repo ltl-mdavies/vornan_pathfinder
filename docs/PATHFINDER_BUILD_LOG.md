@@ -1178,3 +1178,24 @@ What changed:
 - Standardized the production bucket names as `vornan-pathfinder`, `vornan-pathfinder-status`, and `vornan-pathfinder-artifacts`.
 - The bootstrap script creates missing buckets and applies public-access blocking, AES256 server-side encryption, and versioning.
 - Updated README, `.env.example`, the AWS storage runbook, and the production hosting plan so local and CI deployment commands use the same bucket names.
+
+## 2026-07-17 - CloudFront Web Hosting Scaffold
+
+Added the first deployable CloudFront hosting stack for Pathfinder web surfaces.
+
+What changed:
+
+- Added `infra/aws/web-cloudformation.yaml` for admin and public status CloudFront distributions backed by private S3 origins.
+- Added Origin Access Control and bucket policies so public reads flow through CloudFront rather than direct S3 access.
+- Added SPA fallback behavior for both distributions.
+- Added `scripts/deploy-web-hosting.sh` and `npm run deploy:web-hosting`.
+- Kept domain aliases and ACM certificate optional so hosting can be deployed before DNS validation is complete.
+
+Deployment note:
+
+- Deployed API Gateway/Lambda stack `vornan-pathfinder-api-prod`.
+- Temporary API health URL: `https://dvhbk1kezg.execute-api.us-east-1.amazonaws.com/health`.
+- Deployed CloudFront web stack `vornan-pathfinder-web-prod`.
+- Admin CloudFront distribution: `E34F508KID3LHW` / `dgpk5x391g0c3.cloudfront.net`.
+- Public status CloudFront distribution: `E13RHNZTC6PRRC` / `d2x5lokt6c28c4.cloudfront.net`.
+- Deployed the current admin web build to `s3://vornan-pathfinder` using the temporary API Gateway base URL.

@@ -36,6 +36,25 @@ GoDaddy zone:
 vornan.co
 ```
 
+## Current AWS Targets
+
+Created on July 17, 2026:
+
+| Surface | AWS resource | Current AWS value |
+| --- | --- | --- |
+| Admin app | CloudFront distribution `E34F508KID3LHW` | `dgpk5x391g0c3.cloudfront.net` |
+| Public status app | CloudFront distribution `E13RHNZTC6PRRC` | `d2x5lokt6c28c4.cloudfront.net` |
+| API | API Gateway default endpoint | `https://dvhbk1kezg.execute-api.us-east-1.amazonaws.com` |
+
+The CloudFront domains are live for AWS-side testing, but the public CNAME
+records for `pathfinder.vornan.co` and `status.vornan.co` should not be added
+until the CloudFront stack is redeployed with the validated ACM certificate and
+alternate domain aliases attached.
+
+The API default endpoint is live for AWS-side testing. The final
+`api.pathfinder.vornan.co` CNAME target will be generated after the API stack is
+redeployed with the validated ACM certificate.
+
 ### API Gateway Custom Domain
 
 After deploying `infra/aws/api-cloudformation.yaml` with:
@@ -77,7 +96,8 @@ Expected response:
 
 ### Pathfinder Admin App
 
-When the admin CloudFront distribution is created, add:
+After running `npm run deploy:web-hosting`, use the stack output named
+`AdminDistributionDomainName` as the DNS target. Add:
 
 | Type | Name / Host | Value / Points to | TTL |
 | --- | --- | --- | --- |
@@ -93,7 +113,8 @@ Do not include `https://` in the CNAME value.
 
 ### Public Status App
 
-When the status CloudFront distribution is created, add:
+After running `npm run deploy:web-hosting`, use the stack output named
+`StatusDistributionDomainName` as the DNS target. Add:
 
 | Type | Name / Host | Value / Points to | TTL |
 | --- | --- | --- | --- |

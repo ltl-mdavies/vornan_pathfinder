@@ -607,7 +607,8 @@ Tasks:
 
 - Run `npm run bootstrap:aws-buckets` to create or verify `vornan-pathfinder`,
   `vornan-pathfinder-status`, and `vornan-pathfinder-artifacts`.
-- Create CloudFront distribution.
+- Run `npm run deploy:web-hosting` to create CloudFront distributions and S3
+  bucket policies. This can run without aliases while ACM validation is pending.
 - Create or request ACM certificate.
 - Add GoDaddy DNS validation records.
 - Add GoDaddy CNAME for `pathfinder.vornan.co`.

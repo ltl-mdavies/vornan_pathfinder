@@ -15,6 +15,7 @@
     "check": "npm run check --workspaces --if-present",
     "deploy:admin-web": "scripts/deploy-admin-web.sh",
     "bootstrap:aws-buckets": "scripts/bootstrap-aws-buckets.sh",
+    "deploy:web-hosting": "scripts/deploy-web-hosting.sh",
     "build:api-lambda": "node scripts/build-api-lambda.mjs",
     "package:api-lambda": "scripts/package-api-lambda.sh",
     "deploy:api-lambda": "scripts/deploy-api-lambda.sh"

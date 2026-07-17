@@ -63,6 +63,17 @@ status bucket (`vornan-pathfinder-status`), and API artifact bucket
 (`vornan-pathfinder-artifacts`) with public access blocked, AES256 encryption,
 and versioning enabled.
 
+CloudFront hosting deploy:
+
+```bash
+npm run deploy:web-hosting
+```
+
+This creates CloudFront distributions and private S3 bucket policies for the
+admin and public status apps. It can run before DNS is ready; leave
+`PATHFINDER_WEB_CERTIFICATE_ARN` empty to create CloudFront default domains,
+then redeploy with the ACM certificate ARN and domain names after validation.
+
 API Lambda artifact build:
 
 ```bash
