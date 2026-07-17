@@ -139,13 +139,13 @@ export function AuthGate({ children }: AuthGateProps) {
     return (
       <AuthScreen
         eyebrow="Vornan Pathfinder"
-        title="A clearer path from order intake to production."
-        description="Pathfinder helps teams turn customer order files into clean, validated production-ready orders."
-        statusLabel="Coming soon"
+        title="A clearer way to move orders forward."
+        description="Pathfinder turns customer order files into clean, validated production handoffs for the teams that keep work moving."
+        statusLabel="Private preview"
         statusTone="warning"
-        cardEyebrow="Private Preview"
+        cardEyebrow="Coming Soon"
         cardTitle="Pathfinder is almost ready."
-        cardDescription="We are preparing secure workspace access for the Vornan and Larger Than Life teams."
+        cardDescription="Secure workspace access is being prepared for Vornan and Larger Than Life teams."
       />
     );
   }
@@ -154,8 +154,8 @@ export function AuthGate({ children }: AuthGateProps) {
     return (
       <AuthScreen
         eyebrow="Vornan Pathfinder"
-        title="Checking access."
-        description="Verifying the current browser session before opening the workspace."
+        title="Opening the workspace."
+        description="Checking your secure session before continuing."
         statusLabel="Secure handoff"
         statusTone="ready"
       />
@@ -166,8 +166,8 @@ export function AuthGate({ children }: AuthGateProps) {
     return (
       <AuthScreen
         eyebrow="Vornan Pathfinder"
-        title="Order translation, under control."
-        description="Translate customer order files, resolve product mappings, and prepare production-ready submit packets from one controlled workspace."
+        title="Translate orders with confidence."
+        description="Map customer files, resolve product details, and prepare clean production handoffs from one focused workspace."
         statusLabel="Private access"
         statusTone="ready"
         error={error}
@@ -186,8 +186,8 @@ export function AuthGate({ children }: AuthGateProps) {
     return (
       <AuthScreen
         eyebrow="Access Restricted"
-        title="This account is outside the workspace."
-        description="Pathfinder is currently limited to Google accounts from ltlco.com and vornan.co."
+        title="This workspace is private."
+        description="Pathfinder access is currently limited to approved Vornan and Larger Than Life accounts."
         statusLabel={domain ? `Signed in as ${domain}` : "Domain unavailable"}
         statusTone="danger"
       >
@@ -216,7 +216,7 @@ function AuthScreen({
   statusTone,
   cardEyebrow = "Workspace Access",
   cardTitle = "Welcome to Pathfinder.",
-  cardDescription = "Use your company Google account to continue.",
+  cardDescription = "Use an approved Google account to continue.",
   error,
   children
 }: {
@@ -245,9 +245,9 @@ function AuthScreen({
             <p>{description}</p>
           </div>
           <div className="auth-proof-strip" aria-label="Pathfinder access scope">
-            <span><CheckCircle2 size={16} aria-hidden="true" />Customer imports</span>
-            <span><ShieldCheck size={16} aria-hidden="true" />Lift submit controls</span>
-            <span><LockKeyhole size={16} aria-hidden="true" />Protected workspace</span>
+            <span><CheckCircle2 size={16} aria-hidden="true" />Order intake</span>
+            <span><ShieldCheck size={16} aria-hidden="true" />Product mapping</span>
+            <span><LockKeyhole size={16} aria-hidden="true" />Private workspace</span>
           </div>
         </div>
 
