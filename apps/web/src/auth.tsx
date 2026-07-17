@@ -138,11 +138,14 @@ export function AuthGate({ children }: AuthGateProps) {
   if (!config && authRequired) {
     return (
       <AuthScreen
-        eyebrow="Configuration Required"
-        title="Authentication is not ready."
-        description="Add the Firebase web configuration before enabling protected production access."
-        statusLabel="Setup blocked"
+        eyebrow="Vornan Pathfinder"
+        title="A clearer path from order intake to production."
+        description="Pathfinder helps teams turn customer order files into clean, validated production-ready orders."
+        statusLabel="Coming soon"
         statusTone="warning"
+        cardEyebrow="Private Preview"
+        cardTitle="Pathfinder is almost ready."
+        cardDescription="We are preparing secure workspace access for the Vornan and Larger Than Life teams."
       />
     );
   }
@@ -164,8 +167,8 @@ export function AuthGate({ children }: AuthGateProps) {
       <AuthScreen
         eyebrow="Vornan Pathfinder"
         title="Order translation, under control."
-        description="Sign in with an approved Google account to manage customer import methods, product maps, and Lift-ready submit workflows."
-        statusLabel="Google access"
+        description="Translate customer order files, resolve product mappings, and prepare production-ready submit packets from one controlled workspace."
+        statusLabel="Private access"
         statusTone="ready"
         error={error}
       >
@@ -211,6 +214,9 @@ function AuthScreen({
   description,
   statusLabel,
   statusTone,
+  cardEyebrow = "Workspace Access",
+  cardTitle = "Welcome to Pathfinder.",
+  cardDescription = "Use your company Google account to continue.",
   error,
   children
 }: {
@@ -219,6 +225,9 @@ function AuthScreen({
   description: string;
   statusLabel: string;
   statusTone: "ready" | "warning" | "danger";
+  cardEyebrow?: string;
+  cardTitle?: string;
+  cardDescription?: string;
   error?: string | null;
   children?: ReactNode;
 }) {
@@ -250,9 +259,9 @@ function AuthScreen({
           <div className="auth-card">
             <img className="auth-card-lockup" src="/brand/pathfinder-lockup-zinnia.svg" alt="Pathfinder" />
             <div>
-              <p className="eyebrow">Workspace Access</p>
-              <h2>Welcome to Pathfinder.</h2>
-              <p>Use your company Google account to continue.</p>
+              <p className="eyebrow">{cardEyebrow}</p>
+              <h2>{cardTitle}</h2>
+              <p>{cardDescription}</p>
             </div>
             {error ? <p className="auth-error">{error}</p> : null}
             {children}
