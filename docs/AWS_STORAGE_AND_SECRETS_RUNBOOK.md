@@ -13,13 +13,17 @@ PATHFINDER_STORAGE_DRIVER=local
 PATHFINDER_SECRETS_DRIVER=local
 ```
 
-Keep those defaults until the DynamoDB and Secrets Manager adapters are implemented and smoke-tested.
+Keep local storage until the DynamoDB adapter is implemented and smoke-tested. Secrets Manager can now be enabled independently for target credentials:
 
-If either driver is accidentally changed early, the API now fails clearly instead of silently falling back to local JSON:
+```text
+PATHFINDER_STORAGE_DRIVER=local
+PATHFINDER_SECRETS_DRIVER=secrets-manager
+```
+
+If storage is accidentally changed early, the API now fails clearly instead of silently falling back to local JSON:
 
 ```text
 PATHFINDER_STORAGE_DRIVER=dynamodb          # guarded until adapter implementation
-PATHFINDER_SECRETS_DRIVER=secrets-manager   # guarded until adapter implementation
 ```
 
 The unauthenticated `/health` endpoint includes the active persistence driver settings and readiness flags.
@@ -57,21 +61,37 @@ The Lambda role can read and write secrets below:
 /vornan/pathfinder/
 ```
 
-Recommended secret names:
+Target credentials are stored one secret per target. The default Lift target secret name is:
 
 ```text
-/vornan/pathfinder/targets/lift-erp/prod/import-credentials
-/vornan/pathfinder/targets/lift-erp/qa1/import-credentials
-/vornan/pathfinder/firebase/admin
+/vornan/pathfinder/targets/lift-standard-graphics
 ```
 
-Secret values should be JSON objects, for example:
+The API writes a JSON object with environment-specific credentials, for example:
 
 ```json
 {
-  "User": "PATHFINDER",
-  "Password": "stored-in-secrets-manager"
+  "environments": {
+    "lift-prod": {
+      "credentials": {
+        "User": "PATHFINDER",
+        "Password": "stored-in-secrets-manager"
+      }
+    }
+  },
+  "lift": {
+    "credentials": {
+      "User": "PATHFINDER",
+      "Password": "stored-in-secrets-manager"
+    }
+  }
 }
+```
+
+Optional additional secret:
+
+```text
+/vornan/pathfinder/firebase/admin
 ```
 
 ## Deployment Variables
@@ -94,14 +114,14 @@ GitHub Actions variables:
 | `PATHFINDER_DATA_TABLE_PREFIX` | `Pathfinder` |
 | `PATHFINDER_SECRET_PREFIX` | `/vornan/pathfinder/` |
 | `PATHFINDER_STORAGE_DRIVER` | `local` initially, then `dynamodb` |
-| `PATHFINDER_SECRETS_DRIVER` | `local` initially, then `secrets-manager` |
+| `PATHFINDER_SECRETS_DRIVER` | `secrets-manager` for production target credentials |
 
 ## Flip Criteria
 
-Do not set production to `dynamodb` / `secrets-manager` until:
+Do not set production storage to `dynamodb` until:
 
 - The DynamoDB adapter reads and writes every current store domain.
-- The Secrets Manager adapter preserves masked credential behavior.
+- The Secrets Manager adapter is enabled and preserves masked credential behavior.
 - A migration script seeds targets, routes, import methods, canonical registry, and customer workspaces.
 - API smoke tests pass against a deployed Lambda using the AWS drivers.
 - Saved target environment credentials survive fresh Lambda invocations.
@@ -115,11 +135,4 @@ local JSON store -> current behavior
 DynamoDB store   -> production behavior
 ```
 
-Then add a secrets adapter interface:
-
-```text
-local secrets sidecar -> current behavior
-Secrets Manager       -> production behavior
-```
-
-This keeps the working MVP stable while giving production a clean, testable path off local JSON files.
+The secrets adapter is in place for target credentials. The next persistence step is the DynamoDB store adapter plus a migration script for existing local JSON data.

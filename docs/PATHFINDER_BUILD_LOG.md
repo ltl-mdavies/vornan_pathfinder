@@ -1156,3 +1156,14 @@ Follow-up hardening:
 
 - Added runtime persistence driver metadata to `/health` so deployed environments can be checked quickly.
 - Added explicit guards that block `dynamodb` and `secrets-manager` driver values until their adapters are implemented, preventing accidental production misconfiguration.
+
+## 2026-07-17 - Secrets Manager Target Credential Adapter
+
+Added the first production persistence adapter without moving the whole local JSON store.
+
+What changed:
+
+- Added a Secrets Manager-backed target credential store for saved target environment credentials.
+- Preserved the existing local sidecar secret file for development.
+- Kept DynamoDB storage guarded until the larger store migration is implemented.
+- Updated the storage/secrets runbook with the one-secret-per-target shape and production driver setting.

@@ -9,6 +9,7 @@
     "check": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1090.0",
     "@pathfinder/canonical": "0.1.0",
     "@pathfinder/customer-directory": "0.1.0",
     "@pathfinder/lift-adapter": "0.1.0",

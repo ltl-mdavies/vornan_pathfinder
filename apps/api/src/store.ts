@@ -29,7 +29,8 @@ import {
   type ParsedWorkbookSheet,
   type SourceGrid
 } from "@pathfinder/templates";
-import { assertLocalSecretsDriver, assertLocalStorageDriver } from "./runtime-config.js";
+import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
+import { assertLocalStorageDriver } from "./runtime-config.js";
 
 export type ImportMethodStatus = "Active" | "Inactive" | "Draft" | "Paused" | "Archived";
 export type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP";
@@ -470,7 +471,6 @@ export interface CanonicalRegistrySnapshot {
 }
 
 const storePath = fileURLToPath(new URL("../../../data/pathfinder-store.local.json", import.meta.url));
-const secretsPath = fileURLToPath(new URL("../../../data/pathfinder-secrets.local.json", import.meta.url));
 const targetId = "lift-standard-graphics";
 const ecommerceTargetId = "thinkdifferentprint-ecommerce";
 const outputRouteId = "route-ltl-lift-91-standard-graphics";
@@ -478,24 +478,6 @@ const manualImportMethodId = "manual-xlsx";
 const defaultLiftOrderLookupUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360Orders/N?offset=0";
 const defaultLiftProofReportUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0";
 const defaultLiftPackageDetailsUrl = "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/PackageDetails/package_details?offset=0";
-
-interface LocalTargetSecrets {
-  environments?: Record<
-    string,
-    {
-      credentials?: Partial<TargetEnvironment["credentials"]>;
-      headers?: Record<string, string>;
-    }
-  >;
-  lift?: {
-    credentials?: Partial<LiftTargetConfig["credentials"]>;
-  };
-}
-
-interface LocalSecretsStore {
-  version: 1;
-  targets: Record<string, LocalTargetSecrets>;
-}
 
 function now() {
   return new Date().toISOString();
@@ -1726,26 +1708,6 @@ async function writeStore(store: PathfinderStore) {
   await writeFile(storePath, `${JSON.stringify(sanitizedStore, null, 2)}\n`, "utf8");
 }
 
-async function readLocalSecrets(): Promise<LocalSecretsStore> {
-  assertLocalSecretsDriver();
-  try {
-    const content = await readFile(secretsPath, "utf8");
-    const parsed = JSON.parse(content) as LocalSecretsStore;
-    return {
-      version: 1,
-      targets: parsed.targets ?? {}
-    };
-  } catch {
-    return { version: 1, targets: {} };
-  }
-}
-
-async function writeLocalSecrets(secrets: LocalSecretsStore) {
-  assertLocalSecretsDriver();
-  await mkdir(dirname(secretsPath), { recursive: true });
-  await writeFile(secretsPath, `${JSON.stringify(secrets, null, 2)}\n`, "utf8");
-}
-
 const placeholderCredentialValues = new Set([
   "",
   "********",
@@ -1758,8 +1720,7 @@ function isUsableCredentialValue(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0 && !placeholderCredentialValues.has(value.trim());
 }
 
-function hydrateTargetWithSecrets(target: TargetConfig, secrets: LocalSecretsStore): TargetConfig {
-  const targetSecrets = secrets.targets[target.target_id];
+function hydrateTargetWithSecrets(target: TargetConfig, targetSecrets: TargetSecrets): TargetConfig {
   if (!targetSecrets) {
     return target;
   }
@@ -1795,15 +1756,17 @@ function hydrateTargetWithSecrets(target: TargetConfig, secrets: LocalSecretsSto
 }
 
 async function hydrateTargetsWithSecrets(targets: Record<string, TargetConfig>) {
-  const secrets = await readLocalSecrets();
-  return Object.fromEntries(
-    Object.entries(targets).map(([id, target]) => [id, hydrateTargetWithSecrets(target, secrets)])
-  ) as Record<string, TargetConfig>;
+  const hydratedTargets = await Promise.all(
+    Object.entries(targets).map(async ([id, target]) => {
+      const targetSecrets = await readTargetSecrets(target.target_id);
+      return [id, hydrateTargetWithSecrets(target, targetSecrets)] as const;
+    })
+  );
+  return Object.fromEntries(hydratedTargets) as Record<string, TargetConfig>;
 }
 
 async function persistTargetSecrets(target: TargetConfig) {
-  const secrets = await readLocalSecrets();
-  const targetSecrets: LocalTargetSecrets = secrets.targets[target.target_id] ?? { environments: {}, lift: {} };
+  const targetSecrets: TargetSecrets = await readTargetSecrets(target.target_id);
   const environments = { ...(targetSecrets.environments ?? {}) };
 
   for (const environment of target.environments) {
@@ -1837,15 +1800,14 @@ async function persistTargetSecrets(target: TargetConfig) {
     }
   }
 
-  secrets.targets[target.target_id] = {
+  await writeTargetSecrets(target.target_id, {
     ...targetSecrets,
     environments,
     lift: {
       ...(targetSecrets.lift ?? {}),
       credentials: liftCredentials
     }
-  };
-  await writeLocalSecrets(secrets);
+  });
 }
 
 export async function readStore(): Promise<PathfinderStore> {
