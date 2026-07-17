@@ -1103,3 +1103,15 @@ What changed:
 - Added an opt-in API Firebase ID token verifier behind `PATHFINDER_REQUIRE_AUTH=true`, leaving `/health` public.
 - Added bearer-token forwarding from the web app to the API once a signed-in Firebase user is available.
 - Added `.env.example` entries and deploy workflow environment wiring for Firebase web config and API verification.
+
+## 2026-07-17 - API Lambda Shell Foundation
+
+Added the first Lambda-ready production API shell while preserving local Express development.
+
+What changed:
+
+- Exported the Express app from `apps/api/src/server.ts` and guarded `app.listen` so Lambda imports do not start a local server.
+- Added `apps/api/src/lambda.ts` using `serverless-http` as the API Gateway/Lambda bridge.
+- Added `npm run build:api-lambda`, which bundles the API handler with esbuild into `outputs/api-lambda/lambda.mjs`.
+- Added a deploy-time customer seed file override through `PATHFINDER_CUSTOMER_SEED_FILE`.
+- Documented the Lambda handler and required environment variables in README and `.env.example`.

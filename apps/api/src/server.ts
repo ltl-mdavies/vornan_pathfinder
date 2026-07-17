@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 import {
   enrichLiftCustomers,
   parseLiftCustomerCsv,
@@ -97,7 +98,7 @@ import {
   type TargetEnvironment
 } from "./store.js";
 
-const app = express();
+export const app = express();
 const port = Number(process.env.PORT || 3000);
 const liftCustomerListEndpoint =
   process.env.LIFT_CUSTOMER_LIST_URL ??
@@ -132,7 +133,9 @@ const liftMockScenario: LiftSubmitMockScenario =
     ? process.env.PATHFINDER_LIFT_MOCK_SCENARIO
     : "accepted";
 const liveCustomerSubmitAllowed = process.env.PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT === "true";
-const localCustomerSeedUrl = new URL("../../../data/lift-customers.sample.csv", import.meta.url);
+const localCustomerSeedUrl = process.env.PATHFINDER_CUSTOMER_SEED_FILE
+  ? pathToFileURL(process.env.PATHFINDER_CUSTOMER_SEED_FILE)
+  : new URL("../../../data/lift-customers.sample.csv", import.meta.url);
 
 app.use(cors({ origin: allowedCorsOrigins }));
 app.use(express.json({ limit: "10mb" }));
@@ -3124,6 +3127,8 @@ app.post("/api/lift/preview", (req, res) => {
   });
 });
 
-app.listen(port, () => {
-  console.log(`Pathfinder API listening on http://127.0.0.1:${port}`);
-});
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME && process.env.PATHFINDER_RUNTIME !== "lambda") {
+  app.listen(port, () => {
+    console.log(`Pathfinder API listening on http://127.0.0.1:${port}`);
+  });
+}

@@ -52,6 +52,16 @@ npm run deploy:admin-web
 The deploy script builds `@pathfinder/web`, syncs immutable assets to S3, uploads
 `index.html` with no-cache headers, and optionally invalidates CloudFront.
 
+API Lambda artifact build:
+
+```bash
+npm run build:api-lambda
+```
+
+This writes a Lambda-ready handler bundle to `outputs/api-lambda/lambda.mjs`.
+Use handler `lambda.handler` with Node.js 20.x and set
+`PATHFINDER_CUSTOMER_SEED_FILE=/var/task/data/lift-customers.sample.csv`.
+
 ## Project Records
 
 - Master product directive: [docs/PATHFINDER_MASTER_SPEC.md](docs/PATHFINDER_MASTER_SPEC.md)
