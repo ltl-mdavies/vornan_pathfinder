@@ -1167,3 +1167,14 @@ What changed:
 - Preserved the existing local sidecar secret file for development.
 - Kept DynamoDB storage guarded until the larger store migration is implemented.
 - Updated the storage/secrets runbook with the one-secret-per-target shape and production driver setting.
+
+## 2026-07-17 - AWS Bucket Bootstrap Script
+
+Added a repeatable bootstrap step for Pathfinder production S3 buckets.
+
+What changed:
+
+- Added `scripts/bootstrap-aws-buckets.sh` and `npm run bootstrap:aws-buckets`.
+- Standardized the production bucket names as `vornan-pathfinder`, `vornan-pathfinder-status`, and `vornan-pathfinder-artifacts`.
+- The bootstrap script creates missing buckets and applies public-access blocking, AES256 server-side encryption, and versioning.
+- Updated README, `.env.example`, the AWS storage runbook, and the production hosting plan so local and CI deployment commands use the same bucket names.

@@ -605,7 +605,8 @@ Goal:
 
 Tasks:
 
-- Create S3 bucket `vornan-pathfinder`.
+- Run `npm run bootstrap:aws-buckets` to create or verify `vornan-pathfinder`,
+  `vornan-pathfinder-status`, and `vornan-pathfinder-artifacts`.
 - Create CloudFront distribution.
 - Create or request ACM certificate.
 - Add GoDaddy DNS validation records.

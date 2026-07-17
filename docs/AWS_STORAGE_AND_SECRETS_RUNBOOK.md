@@ -99,13 +99,29 @@ Optional additional secret:
 Local deploy:
 
 ```bash
-PATHFINDER_API_ARTIFACT_BUCKET=your-lambda-artifact-bucket \
+PATHFINDER_API_ARTIFACT_BUCKET=vornan-pathfinder-artifacts \
 PATHFINDER_DATA_TABLE_PREFIX=Pathfinder \
 PATHFINDER_SECRET_PREFIX=/vornan/pathfinder/ \
 PATHFINDER_STORAGE_DRIVER=local \
 PATHFINDER_SECRETS_DRIVER=local \
 npm run deploy:api-lambda
 ```
+
+Before the first deploy, bootstrap the required S3 buckets:
+
+```bash
+npm run bootstrap:aws-buckets
+```
+
+The bootstrap script creates or verifies:
+
+- `vornan-pathfinder` for the admin web app.
+- `vornan-pathfinder-status` for the public order status app.
+- `vornan-pathfinder-artifacts` for Lambda deployment packages.
+
+Each bucket is configured with public access blocked, AES256 server-side
+encryption, and versioning enabled. Public web access should come through
+CloudFront, not direct S3 website hosting.
 
 GitHub Actions variables:
 

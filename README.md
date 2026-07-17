@@ -52,6 +52,17 @@ npm run deploy:admin-web
 The deploy script builds `@pathfinder/web`, syncs immutable assets to S3, uploads
 `index.html` with no-cache headers, and optionally invalidates CloudFront.
 
+AWS bucket bootstrap:
+
+```bash
+npm run bootstrap:aws-buckets
+```
+
+This creates or verifies the admin web bucket (`vornan-pathfinder`), public
+status bucket (`vornan-pathfinder-status`), and API artifact bucket
+(`vornan-pathfinder-artifacts`) with public access blocked, AES256 encryption,
+and versioning enabled.
+
 API Lambda artifact build:
 
 ```bash
@@ -66,7 +77,7 @@ Use handler `lambda.handler` with Node.js 20.x and set
 API Gateway/Lambda deploy scaffold:
 
 ```bash
-PATHFINDER_API_ARTIFACT_BUCKET=your-lambda-artifact-bucket \
+PATHFINDER_API_ARTIFACT_BUCKET=vornan-pathfinder-artifacts \
 npm run deploy:api-lambda
 ```
 
@@ -77,7 +88,7 @@ execution role, proxy routes, and `/health` output.
 To deploy the API with `api.pathfinder.vornan.co`, provide an ACM certificate ARN:
 
 ```bash
-PATHFINDER_API_ARTIFACT_BUCKET=your-lambda-artifact-bucket \
+PATHFINDER_API_ARTIFACT_BUCKET=vornan-pathfinder-artifacts \
 PATHFINDER_API_DOMAIN_NAME=api.pathfinder.vornan.co \
 PATHFINDER_API_CERTIFICATE_ARN=arn:aws:acm:REGION:ACCOUNT:certificate/... \
 npm run deploy:api-lambda
