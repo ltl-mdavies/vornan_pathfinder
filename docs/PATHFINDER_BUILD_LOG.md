@@ -1199,3 +1199,10 @@ Deployment note:
 - Admin CloudFront distribution: `E34F508KID3LHW` / `dgpk5x391g0c3.cloudfront.net`.
 - Public status CloudFront distribution: `E13RHNZTC6PRRC` / `d2x5lokt6c28c4.cloudfront.net`.
 - Deployed the current admin web build to `s3://vornan-pathfinder` using the temporary API Gateway base URL.
+
+Follow-up:
+
+- ACM certificate `arn:aws:acm:us-east-1:744016783602:certificate/86d6d1a5-669d-4f30-86c2-da57e802aa99` issued successfully after Cloudflare validation records were added.
+- Redeployed CloudFront hosting with aliases for `pathfinder.vornan.co` and `status.vornan.co`.
+- Redeployed API Gateway with `api.pathfinder.vornan.co`; final CNAME target is `d-dtf1ffa6fe.execute-api.us-east-1.amazonaws.com`.
+- Redeployed the admin web app with `VITE_API_BASE_URL=https://api.pathfinder.vornan.co`.

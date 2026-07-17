@@ -1,4 +1,4 @@
-# Pathfinder AWS + GoDaddy DNS Runbook
+# Pathfinder AWS + Cloudflare DNS Runbook
 
 This runbook captures the DNS steps for putting Pathfinder on the Vornan domain.
 
@@ -26,11 +26,13 @@ Important region note:
 - API Gateway regional custom domains need an ACM certificate in the same AWS region as the API stack.
 - If the API stack is deployed in `us-east-1`, one certificate can cover both CloudFront and API Gateway.
 
-After requesting the certificate, AWS will provide one DNS validation CNAME per domain. Add each CNAME in GoDaddy exactly as ACM shows it.
+After requesting the certificate, AWS will provide one DNS validation CNAME per
+domain. Add each CNAME in Cloudflare exactly as ACM shows it, and keep those
+validation records in place so AWS can renew the certificate.
 
-## GoDaddy DNS Records
+## Cloudflare DNS Records
 
-GoDaddy zone:
+Cloudflare zone:
 
 ```text
 vornan.co
@@ -44,16 +46,18 @@ Created on July 17, 2026:
 | --- | --- | --- |
 | Admin app | CloudFront distribution `E34F508KID3LHW` | `dgpk5x391g0c3.cloudfront.net` |
 | Public status app | CloudFront distribution `E13RHNZTC6PRRC` | `d2x5lokt6c28c4.cloudfront.net` |
-| API | API Gateway default endpoint | `https://dvhbk1kezg.execute-api.us-east-1.amazonaws.com` |
+| API | API Gateway custom domain target | `d-dtf1ffa6fe.execute-api.us-east-1.amazonaws.com` |
 
-The CloudFront domains are live for AWS-side testing, but the public CNAME
-records for `pathfinder.vornan.co` and `status.vornan.co` should not be added
-until the CloudFront stack is redeployed with the validated ACM certificate and
-alternate domain aliases attached.
+The ACM certificate has been issued and AWS aliases are attached. Add these
+Cloudflare records:
 
-The API default endpoint is live for AWS-side testing. The final
-`api.pathfinder.vornan.co` CNAME target will be generated after the API stack is
-redeployed with the validated ACM certificate.
+| Type | Name | Target | Proxy status |
+| --- | --- | --- | --- |
+| CNAME | `pathfinder` | `dgpk5x391g0c3.cloudfront.net` | DNS only for first verification |
+| CNAME | `status` | `d2x5lokt6c28c4.cloudfront.net` | DNS only for first verification |
+| CNAME | `api.pathfinder` | `d-dtf1ffa6fe.execute-api.us-east-1.amazonaws.com` | DNS only for first verification |
+
+Do not include `https://` in any CNAME target value.
 
 ### API Gateway Custom Domain
 
@@ -66,13 +70,14 @@ PATHFINDER_API_ARTIFACT_BUCKET=YOUR_ARTIFACT_BUCKET
 npm run deploy:api-lambda
 ```
 
-the stack output named `CustomDomainRegionalTarget` is the CNAME target for GoDaddy.
+the stack output named `CustomDomainRegionalTarget` is the CNAME target for
+Cloudflare.
 
-Add this GoDaddy DNS record:
+Add this Cloudflare DNS record:
 
 | Type | Name / Host | Value / Points to | TTL |
 | --- | --- | --- | --- |
-| CNAME | `api.pathfinder` | `CustomDomainRegionalTarget` stack output | 1 hour |
+| CNAME | `api.pathfinder` | `CustomDomainRegionalTarget` stack output | Auto |
 
 Example value shape:
 
@@ -101,7 +106,7 @@ After running `npm run deploy:web-hosting`, use the stack output named
 
 | Type | Name / Host | Value / Points to | TTL |
 | --- | --- | --- | --- |
-| CNAME | `pathfinder` | CloudFront distribution domain | 1 hour |
+| CNAME | `pathfinder` | CloudFront distribution domain | Auto |
 
 Example value shape:
 
@@ -118,22 +123,22 @@ After running `npm run deploy:web-hosting`, use the stack output named
 
 | Type | Name / Host | Value / Points to | TTL |
 | --- | --- | --- | --- |
-| CNAME | `status` | CloudFront distribution domain | 1 hour |
+| CNAME | `status` | CloudFront distribution domain | Auto |
 
-## GoDaddy UI Steps
+## Cloudflare UI Steps
 
-1. Open GoDaddy and choose the `vornan.co` domain.
-2. Go to DNS or Manage DNS.
+1. Open Cloudflare and choose the `vornan.co` zone.
+2. Go to DNS > Records.
 3. Add a new record.
 4. Choose `CNAME`.
 5. Enter the Host from the table above.
 6. Paste the AWS target value into Points to.
-7. Set TTL to 1 hour or the default.
-8. Save.
-9. Wait for DNS propagation.
+7. Set Proxy status to DNS only for first verification.
+8. Leave TTL on Auto.
+9. Save.
+10. Wait for DNS propagation.
 
 ## Notes
 
-- `api.pathfinder.vornan.co` is a nested subdomain. In GoDaddy, the Host should be `api.pathfinder`, not the full domain.
+- `api.pathfinder.vornan.co` is a nested subdomain. In Cloudflare, the Name can be `api.pathfinder`.
 - DNS validation records from ACM usually have generated names beginning with `_`. Add those separately from the app CNAME records.
-- If GoDaddy rejects nested hostnames, use `pathfinder-api.vornan.co` instead and deploy the API stack with `PATHFINDER_API_DOMAIN_NAME=pathfinder-api.vornan.co`.
