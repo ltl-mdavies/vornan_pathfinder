@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { FirebaseOptions } from "firebase/app";
 import type { Auth, User } from "firebase/auth";
+import { ArrowRight, CheckCircle2, LockKeyhole, ShieldCheck } from "lucide-react";
 
 export interface PathfinderAuthSession {
   displayName: string | null;
@@ -22,7 +23,7 @@ interface FirebaseRuntime {
   authModule: FirebaseAuthModule;
 }
 
-const allowedDomains = (import.meta.env.VITE_AUTH_ALLOWED_DOMAINS ?? "ltlco.com,vornan.co")
+const allowedDomains: string[] = (import.meta.env.VITE_AUTH_ALLOWED_DOMAINS ?? "ltlco.com,vornan.co")
   .split(",")
   .map((domain: string) => domain.trim().toLowerCase())
   .filter(Boolean);
@@ -62,6 +63,7 @@ export function AuthGate({ children }: AuthGateProps) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
 
   useEffect(() => {
     if (!config) {
@@ -111,9 +113,16 @@ export function AuthGate({ children }: AuthGateProps) {
     }
 
     setError(null);
-    const provider = new runtime.authModule.GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: "select_account" });
-    await runtime.authModule.signInWithPopup(runtime.auth, provider);
+    setSigningIn(true);
+    try {
+      const provider = new runtime.authModule.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      await runtime.authModule.signInWithPopup(runtime.auth, provider);
+    } catch (signInError) {
+      setError(signInError instanceof Error ? signInError.message : "Google sign-in could not be completed.");
+    } finally {
+      setSigningIn(false);
+    }
   }
 
   async function handleSignOut() {
@@ -128,56 +137,61 @@ export function AuthGate({ children }: AuthGateProps) {
 
   if (!config && authRequired) {
     return (
-      <div className="auth-shell">
-        <div className="auth-card">
-          <p className="eyebrow">Pathfinder Auth</p>
-          <h1>Firebase Auth is not configured.</h1>
-          <p>Add Firebase web config environment variables before enabling production auth.</p>
-        </div>
-      </div>
+      <AuthScreen
+        eyebrow="Configuration Required"
+        title="Authentication is not ready."
+        description="Add the Firebase web configuration before enabling protected production access."
+        statusLabel="Setup blocked"
+        statusTone="warning"
+      />
     );
   }
 
   if (loading) {
     return (
-      <div className="auth-shell">
-        <div className="auth-card">
-          <p className="eyebrow">Pathfinder</p>
-          <h1>Checking access...</h1>
-        </div>
-      </div>
+      <AuthScreen
+        eyebrow="Vornan Pathfinder"
+        title="Checking access."
+        description="Verifying the current browser session before opening the workspace."
+        statusLabel="Secure handoff"
+        statusTone="ready"
+      />
     );
   }
 
   if (!user) {
     return (
-      <div className="auth-shell">
-        <div className="auth-card">
-          <p className="eyebrow">Vornan Pathfinder</p>
-          <h1>Sign in to continue.</h1>
-          <p>Use a Google account from ltlco.com or vornan.co.</p>
-          {error ? <p className="auth-error">{error}</p> : null}
-          <button className="primary-button auth-button" type="button" onClick={handleSignIn}>
-            Sign in with Google
-          </button>
-        </div>
-      </div>
+      <AuthScreen
+        eyebrow="Vornan Pathfinder"
+        title="Order translation, under control."
+        description="Sign in with an approved Google account to manage customer import methods, product maps, and Lift-ready submit workflows."
+        statusLabel="Google access"
+        statusTone="ready"
+        error={error}
+      >
+        <button className="auth-google-button" type="button" onClick={handleSignIn} disabled={signingIn}>
+          <span className="auth-google-mark" aria-hidden="true">G</span>
+          <span>{signingIn ? "Opening Google..." : "Continue with Google"}</span>
+          <ArrowRight size={18} aria-hidden="true" />
+        </button>
+      </AuthScreen>
     );
   }
 
   const domain = userDomain(user);
   if (!isAllowedDomain(domain)) {
     return (
-      <div className="auth-shell">
-        <div className="auth-card">
-          <p className="eyebrow">Access Restricted</p>
-          <h1>This account is not allowed.</h1>
-          <p>Pathfinder is currently limited to ltlco.com and vornan.co Google accounts.</p>
-          <button className="secondary-button auth-button" type="button" onClick={handleSignOut}>
-            Sign out
-          </button>
-        </div>
-      </div>
+      <AuthScreen
+        eyebrow="Access Restricted"
+        title="This account is outside the workspace."
+        description="Pathfinder is currently limited to Google accounts from ltlco.com and vornan.co."
+        statusLabel={domain ? `Signed in as ${domain}` : "Domain unavailable"}
+        statusTone="danger"
+      >
+        <button className="secondary-button auth-button" type="button" onClick={handleSignOut}>
+          Sign out
+        </button>
+      </AuthScreen>
     );
   }
 
@@ -189,4 +203,67 @@ export function AuthGate({ children }: AuthGateProps) {
     domain,
     signOut: handleSignOut
   });
+}
+
+function AuthScreen({
+  eyebrow,
+  title,
+  description,
+  statusLabel,
+  statusTone,
+  error,
+  children
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  statusLabel: string;
+  statusTone: "ready" | "warning" | "danger";
+  error?: string | null;
+  children?: ReactNode;
+}) {
+  return (
+    <main className="auth-shell">
+      <section className="auth-stage" aria-label="Pathfinder sign in">
+        <div className="auth-brand-panel">
+          <img className="auth-vornan-wordmark" src="/brand/vornan-wordmark.svg" alt="Vornan" />
+          <div className="auth-product-mark">
+            <img src="/brand/pathfinder-lockup-ondark.svg" alt="Pathfinder" />
+          </div>
+          <div className="auth-brand-copy">
+            <p className="eyebrow">{eyebrow}</p>
+            <h1>{title}</h1>
+            <p>{description}</p>
+          </div>
+          <div className="auth-proof-strip" aria-label="Pathfinder access scope">
+            <span><CheckCircle2 size={16} aria-hidden="true" />Customer imports</span>
+            <span><ShieldCheck size={16} aria-hidden="true" />Lift submit controls</span>
+            <span><LockKeyhole size={16} aria-hidden="true" />Protected workspace</span>
+          </div>
+        </div>
+
+        <div className="auth-action-panel">
+          <div className={`auth-status-chip ${statusTone}`}>
+            <span aria-hidden="true" />
+            {statusLabel}
+          </div>
+          <div className="auth-card">
+            <img className="auth-card-lockup" src="/brand/pathfinder-lockup-zinnia.svg" alt="Pathfinder" />
+            <div>
+              <p className="eyebrow">Workspace Access</p>
+              <h2>Welcome to Pathfinder.</h2>
+              <p>Use your company Google account to continue.</p>
+            </div>
+            {error ? <p className="auth-error">{error}</p> : null}
+            {children}
+            <div className="auth-domain-list" aria-label="Allowed email domains">
+              {allowedDomains.map((domain) => (
+                <span key={domain}>{domain}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
 }

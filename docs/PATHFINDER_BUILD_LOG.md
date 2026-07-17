@@ -1206,3 +1206,24 @@ Follow-up:
 - Redeployed CloudFront hosting with aliases for `pathfinder.vornan.co` and `status.vornan.co`.
 - Redeployed API Gateway with `api.pathfinder.vornan.co`; final CNAME target is `d-dtf1ffa6fe.execute-api.us-east-1.amazonaws.com`.
 - Redeployed the admin web app with `VITE_API_BASE_URL=https://api.pathfinder.vornan.co`.
+
+## 2026-07-17 - First-Class Pathfinder Login Screen
+
+Replaced the simple Firebase Auth gate with a polished Vornan/Pathfinder login surface for production access.
+
+What changed:
+
+- Added a responsive two-panel login screen using Vornan wordmark, Pathfinder source-faithful lockups, and compass artwork.
+- Preserved Google Auth behavior, `ltlco.com` / `vornan.co` domain enforcement, loading state, configuration-missing state, and denied-domain state.
+- Added clearer sign-in error handling and a disabled in-progress state for the Google sign-in action.
+- Copied brand assets into `apps/web/public/brand/` from approved source assets without modifying source masters.
+- Updated the admin web deploy script so production builds carry through `VITE_AUTH_REQUIRED`, `VITE_AUTH_ALLOWED_DOMAINS`, and Firebase web config environment variables instead of only `VITE_API_BASE_URL`.
+
+Verification:
+
+- `npm run check`
+- `npm run build`
+
+Deployment note:
+
+- Local shell did not have Firebase web config environment values loaded, so the production login build should be deployed from an environment with the `VITE_FIREBASE_*` values available, such as the GitHub Actions deploy workflow secrets.
