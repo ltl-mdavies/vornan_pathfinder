@@ -587,6 +587,11 @@ If GoDaddy DNS constraints make nested records awkward, use:
 pathfinder-api.vornan.co
 ```
 
+The checked-in DNS runbook is
+[`docs/AWS_GODADDY_DNS_RUNBOOK.md`](AWS_GODADDY_DNS_RUNBOOK.md). For the API
+custom domain, use the `CustomDomainRegionalTarget` CloudFormation output as
+the GoDaddy CNAME target.
+
 ## 14. Early-Next-Week Execution Plan
 
 ### Phase 1 — Production Hosting Skeleton
@@ -755,4 +760,3 @@ Proceed with the AWS production path in this order:
 6. Build `status.vornan.co` public tokenized status app.
 
 This sequence gets the visible app live quickly while preserving the production-grade security and persistence work required before real submit usage expands.
-

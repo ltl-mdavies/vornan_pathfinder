@@ -40,6 +40,19 @@ Parameters:
   LiftProductCatalogBaseUrl:
     Type: String
     Default: "https://ltlco.lifterp.com/ords/api/lift/erp"
+  ApiDomainName:
+    Type: String
+    Default: ""
+    Description: Optional custom API domain, such as api.pathfinder.vornan.co.
+  ApiCertificateArn:
+    Type: String
+    Default: ""
+    Description: Optional ACM certificate ARN for ApiDomainName. Must be in the same region as this API Gateway HTTP API.
+
+Conditions:
+  HasApiCustomDomain: !And
+    - !Not [!Equals [!Ref ApiDomainName, ""]]
+    - !Not [!Equals [!Ref ApiCertificateArn, ""]]
 
 Resources:
   PathfinderApiRole:
@@ -141,6 +154,24 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${PathfinderHttpApi}/*/*"
 
+  PathfinderApiCustomDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: HasApiCustomDomain
+    Properties:
+      DomainName: !Ref ApiDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref ApiCertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  PathfinderApiCustomDomainMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: HasApiCustomDomain
+    Properties:
+      ApiId: !Ref PathfinderHttpApi
+      DomainName: !Ref PathfinderApiCustomDomain
+      Stage: !Ref PathfinderApiStage
+
 Outputs:
   ApiEndpoint:
     Description: HTTP API endpoint.
@@ -151,3 +182,19 @@ Outputs:
   HealthUrl:
     Description: API health endpoint.
     Value: !Sub "${PathfinderHttpApi.ApiEndpoint}/health"
+  CustomDomainName:
+    Condition: HasApiCustomDomain
+    Description: Custom API domain.
+    Value: !Ref ApiDomainName
+  CustomDomainHealthUrl:
+    Condition: HasApiCustomDomain
+    Description: Custom API health endpoint.
+    Value: !Sub "https://${ApiDomainName}/health"
+  CustomDomainRegionalTarget:
+    Condition: HasApiCustomDomain
+    Description: API Gateway regional domain target for GoDaddy CNAME.
+    Value: !GetAtt PathfinderApiCustomDomain.RegionalDomainName
+  CustomDomainRegionalHostedZoneId:
+    Condition: HasApiCustomDomain
+    Description: API Gateway regional hosted zone id.
+    Value: !GetAtt PathfinderApiCustomDomain.RegionalHostedZoneId

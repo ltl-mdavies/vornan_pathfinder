@@ -29,7 +29,9 @@ aws cloudformation deploy \
     FirebaseProjectId="${FIREBASE_PROJECT_ID:-}" \
     LiftCustomerListUrl="${LIFT_CUSTOMER_LIST_URL:-https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerContactLIst/LTL-Customer-List?offset=0}" \
     LiftCustomerStatusUrl="${LIFT_CUSTOMER_STATUS_URL:-https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerStatusJSON/CustomerStatusJSON?}" \
-    LiftProductCatalogBaseUrl="${LIFT_PRODUCT_CATALOG_BASE_URL:-https://ltlco.lifterp.com/ords/api/lift/erp}"
+    LiftProductCatalogBaseUrl="${LIFT_PRODUCT_CATALOG_BASE_URL:-https://ltlco.lifterp.com/ords/api/lift/erp}" \
+    ApiDomainName="${PATHFINDER_API_DOMAIN_NAME:-api.pathfinder.vornan.co}" \
+    ApiCertificateArn="${PATHFINDER_API_CERTIFICATE_ARN:-}"
 
 echo "Stack outputs:"
 aws cloudformation describe-stacks \

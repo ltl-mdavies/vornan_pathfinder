@@ -1127,3 +1127,15 @@ What changed:
 - Added `npm run deploy:api-lambda` to upload the artifact and deploy the CloudFormation stack.
 - Added a manual GitHub Actions workflow for API deployment using `AWS_DEPLOY_ROLE_ARN` and `PATHFINDER_API_ARTIFACT_BUCKET`.
 - Documented the required deployment environment variables in `.env.example` and README.
+
+## 2026-07-17 - API Custom Domain + GoDaddy DNS Runbook
+
+Extended the API deployment scaffold so the production API can be mapped to `api.pathfinder.vornan.co`.
+
+What changed:
+
+- Added optional API Gateway custom domain and API mapping resources to `infra/aws/api-cloudformation.yaml`.
+- Added CloudFormation outputs for `CustomDomainRegionalTarget`, `CustomDomainRegionalHostedZoneId`, and custom-domain health URL.
+- Wired `PATHFINDER_API_DOMAIN_NAME` and `PATHFINDER_API_CERTIFICATE_ARN` through local deploy and the manual GitHub Actions API deploy workflow.
+- Added `docs/AWS_GODADDY_DNS_RUNBOOK.md` with GoDaddy DNS instructions for `pathfinder`, `api.pathfinder`, and `status` records.
+- Linked the DNS runbook from README and the production hosting plan.

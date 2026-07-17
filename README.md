@@ -74,6 +74,18 @@ The deploy script uploads `outputs/pathfinder-api-lambda.zip` and deploys
 `infra/aws/api-cloudformation.yaml`, which creates an HTTP API, Lambda function,
 execution role, proxy routes, and `/health` output.
 
+To deploy the API with `api.pathfinder.vornan.co`, provide an ACM certificate ARN:
+
+```bash
+PATHFINDER_API_ARTIFACT_BUCKET=your-lambda-artifact-bucket \
+PATHFINDER_API_DOMAIN_NAME=api.pathfinder.vornan.co \
+PATHFINDER_API_CERTIFICATE_ARN=arn:aws:acm:REGION:ACCOUNT:certificate/... \
+npm run deploy:api-lambda
+```
+
+GoDaddy DNS instructions live in
+[docs/AWS_GODADDY_DNS_RUNBOOK.md](docs/AWS_GODADDY_DNS_RUNBOOK.md).
+
 ## Project Records
 
 - Master product directive: [docs/PATHFINDER_MASTER_SPEC.md](docs/PATHFINDER_MASTER_SPEC.md)
