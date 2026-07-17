@@ -56,11 +56,23 @@ API Lambda artifact build:
 
 ```bash
 npm run build:api-lambda
+npm run package:api-lambda
 ```
 
 This writes a Lambda-ready handler bundle to `outputs/api-lambda/lambda.mjs`.
 Use handler `lambda.handler` with Node.js 20.x and set
 `PATHFINDER_CUSTOMER_SEED_FILE=/var/task/data/lift-customers.sample.csv`.
+
+API Gateway/Lambda deploy scaffold:
+
+```bash
+PATHFINDER_API_ARTIFACT_BUCKET=your-lambda-artifact-bucket \
+npm run deploy:api-lambda
+```
+
+The deploy script uploads `outputs/pathfinder-api-lambda.zip` and deploys
+`infra/aws/api-cloudformation.yaml`, which creates an HTTP API, Lambda function,
+execution role, proxy routes, and `/health` output.
 
 ## Project Records
 

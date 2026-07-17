@@ -1,0 +1,153 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Pathfinder production API shell - HTTP API Gateway plus Lambda.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: prod
+    AllowedPattern: "^[a-z0-9-]+$"
+  ApiName:
+    Type: String
+    Default: vornan-pathfinder-api
+  LambdaFunctionName:
+    Type: String
+    Default: vornan-pathfinder-api
+  LambdaCodeS3Bucket:
+    Type: String
+  LambdaCodeS3Key:
+    Type: String
+  AllowedOrigins:
+    Type: String
+    Default: "https://pathfinder.vornan.co"
+  RequireFirebaseAuth:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+  AllowedEmailDomains:
+    Type: String
+    Default: "ltlco.com,vornan.co"
+  FirebaseProjectId:
+    Type: String
+    Default: ""
+  LiftCustomerListUrl:
+    Type: String
+    Default: "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerContactLIst/LTL-Customer-List?offset=0"
+  LiftCustomerStatusUrl:
+    Type: String
+    Default: "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerStatusJSON/CustomerStatusJSON?"
+  LiftProductCatalogBaseUrl:
+    Type: String
+    Default: "https://ltlco.lifterp.com/ords/api/lift/erp"
+
+Resources:
+  PathfinderApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${LambdaFunctionName}-${EnvironmentName}-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  PathfinderApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${LambdaFunctionName}-${EnvironmentName}"
+      Description: Pathfinder API Express shell behind API Gateway HTTP API.
+      Runtime: nodejs20.x
+      Handler: lambda.handler
+      Role: !GetAtt PathfinderApiRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+      MemorySize: 1024
+      Timeout: 30
+      Environment:
+        Variables:
+          NODE_OPTIONS: "--enable-source-maps"
+          PATHFINDER_RUNTIME: "lambda"
+          PATHFINDER_CUSTOMER_SEED_FILE: "/var/task/data/lift-customers.sample.csv"
+          PATHFINDER_ALLOWED_ORIGINS: !Ref AllowedOrigins
+          PATHFINDER_REQUIRE_AUTH: !Ref RequireFirebaseAuth
+          PATHFINDER_ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
+          FIREBASE_PROJECT_ID: !Ref FirebaseProjectId
+          LIFT_CUSTOMER_LIST_URL: !Ref LiftCustomerListUrl
+          LIFT_CUSTOMER_STATUS_URL: !Ref LiftCustomerStatusUrl
+          LIFT_PRODUCT_CATALOG_BASE_URL: !Ref LiftProductCatalogBaseUrl
+
+  PathfinderHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${ApiName}-${EnvironmentName}"
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowCredentials: false
+        AllowHeaders:
+          - authorization
+          - content-type
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        AllowOrigins: !Split [",", !Ref AllowedOrigins]
+        MaxAge: 300
+
+  PathfinderApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PathfinderHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub
+        - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FunctionArn}/invocations"
+        - FunctionArn: !GetAtt PathfinderApiFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  PathfinderApiProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PathfinderHttpApi
+      RouteKey: "ANY /{proxy+}"
+      Target: !Sub "integrations/${PathfinderApiIntegration}"
+
+  PathfinderApiRootRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PathfinderHttpApi
+      RouteKey: "ANY /"
+      Target: !Sub "integrations/${PathfinderApiIntegration}"
+
+  PathfinderApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref PathfinderHttpApi
+      StageName: "$default"
+      AutoDeploy: true
+
+  PathfinderApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PathfinderApiFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${PathfinderHttpApi}/*/*"
+
+Outputs:
+  ApiEndpoint:
+    Description: HTTP API endpoint.
+    Value: !GetAtt PathfinderHttpApi.ApiEndpoint
+  LambdaFunctionName:
+    Description: Lambda function name.
+    Value: !Ref PathfinderApiFunction
+  HealthUrl:
+    Description: API health endpoint.
+    Value: !Sub "${PathfinderHttpApi.ApiEndpoint}/health"

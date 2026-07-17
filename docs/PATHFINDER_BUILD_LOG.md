@@ -1115,3 +1115,15 @@ What changed:
 - Added `npm run build:api-lambda`, which bundles the API handler with esbuild into `outputs/api-lambda/lambda.mjs`.
 - Added a deploy-time customer seed file override through `PATHFINDER_CUSTOMER_SEED_FILE`.
 - Documented the Lambda handler and required environment variables in README and `.env.example`.
+
+## 2026-07-17 - API Gateway Deploy Scaffold
+
+Added the first AWS deploy scaffold for the production API domain path.
+
+What changed:
+
+- Added `infra/aws/api-cloudformation.yaml` for API Gateway HTTP API, Lambda, IAM role, proxy routes, and stack outputs.
+- Added `npm run package:api-lambda` to zip the generated Lambda bundle.
+- Added `npm run deploy:api-lambda` to upload the artifact and deploy the CloudFormation stack.
+- Added a manual GitHub Actions workflow for API deployment using `AWS_DEPLOY_ROLE_ARN` and `PATHFINDER_API_ARTIFACT_BUCKET`.
+- Documented the required deployment environment variables in `.env.example` and README.
