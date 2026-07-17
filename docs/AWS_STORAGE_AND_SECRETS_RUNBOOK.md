@@ -15,6 +15,15 @@ PATHFINDER_SECRETS_DRIVER=local
 
 Keep those defaults until the DynamoDB and Secrets Manager adapters are implemented and smoke-tested.
 
+If either driver is accidentally changed early, the API now fails clearly instead of silently falling back to local JSON:
+
+```text
+PATHFINDER_STORAGE_DRIVER=dynamodb          # guarded until adapter implementation
+PATHFINDER_SECRETS_DRIVER=secrets-manager   # guarded until adapter implementation
+```
+
+The unauthenticated `/health` endpoint includes the active persistence driver settings and readiness flags.
+
 ## DynamoDB Tables
 
 The API CloudFormation stack creates these on-demand, encrypted DynamoDB tables with point-in-time recovery enabled:

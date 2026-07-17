@@ -1151,3 +1151,8 @@ What changed:
 - Added scoped Lambda IAM permissions for the Pathfinder tables and the `/vornan/pathfinder/` Secrets Manager prefix.
 - Added `PATHFINDER_STORAGE_DRIVER` and `PATHFINDER_SECRETS_DRIVER` deployment parameters that default to local behavior until the production adapters are implemented.
 - Added `docs/AWS_STORAGE_AND_SECRETS_RUNBOOK.md` to document table names, secret naming, deployment variables, and flip criteria.
+
+Follow-up hardening:
+
+- Added runtime persistence driver metadata to `/health` so deployed environments can be checked quickly.
+- Added explicit guards that block `dynamodb` and `secrets-manager` driver values until their adapters are implemented, preventing accidental production misconfiguration.

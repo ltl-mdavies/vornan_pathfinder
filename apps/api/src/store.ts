@@ -29,6 +29,7 @@ import {
   type ParsedWorkbookSheet,
   type SourceGrid
 } from "@pathfinder/templates";
+import { assertLocalSecretsDriver, assertLocalStorageDriver } from "./runtime-config.js";
 
 export type ImportMethodStatus = "Active" | "Inactive" | "Draft" | "Paused" | "Archived";
 export type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP";
@@ -1714,6 +1715,7 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
 }
 
 async function writeStore(store: PathfinderStore) {
+  assertLocalStorageDriver();
   await mkdir(dirname(storePath), { recursive: true });
   const sanitizedStore: PathfinderStore = {
     ...store,
@@ -1725,6 +1727,7 @@ async function writeStore(store: PathfinderStore) {
 }
 
 async function readLocalSecrets(): Promise<LocalSecretsStore> {
+  assertLocalSecretsDriver();
   try {
     const content = await readFile(secretsPath, "utf8");
     const parsed = JSON.parse(content) as LocalSecretsStore;
@@ -1738,6 +1741,7 @@ async function readLocalSecrets(): Promise<LocalSecretsStore> {
 }
 
 async function writeLocalSecrets(secrets: LocalSecretsStore) {
+  assertLocalSecretsDriver();
   await mkdir(dirname(secretsPath), { recursive: true });
   await writeFile(secretsPath, `${JSON.stringify(secrets, null, 2)}\n`, "utf8");
 }
@@ -1845,6 +1849,7 @@ async function persistTargetSecrets(target: TargetConfig) {
 }
 
 export async function readStore(): Promise<PathfinderStore> {
+  assertLocalStorageDriver();
   try {
     const content = await readFile(storePath, "utf8");
     const parsed = JSON.parse(content) as PathfinderStore;

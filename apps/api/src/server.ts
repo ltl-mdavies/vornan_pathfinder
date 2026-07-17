@@ -97,6 +97,7 @@ import {
   type TargetConfig,
   type TargetEnvironment
 } from "./store.js";
+import { getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 
 export const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -1673,10 +1674,12 @@ async function requirePathfinderAuth(req: Request, res: Response, next: NextFunc
 }
 
 app.get("/health", (_req, res) => {
+  const persistence = getPathfinderPersistenceRuntimeConfig();
   res.json({
     ok: true,
     service: "pathfinder-api",
-    version: "0.1.0"
+    version: "0.1.0",
+    persistence
   });
 });
 
