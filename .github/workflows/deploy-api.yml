@@ -88,6 +88,7 @@ jobs:
               SesConfigurationSet="${{ vars.PATHFINDER_SES_CONFIGURATION_SET || 'pathfinder-transactional' }}" \
               PublicStatusRateLimitPepper="${{ secrets.PATHFINDER_PUBLIC_STATUS_RATE_LIMIT_PEPPER || '' }}" \
               PublicStatusEmailMatchRequired="${{ vars.PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED || 'true' }}" \
+              PublicStatusGlobalAllowedDomains="${{ vars.PATHFINDER_PUBLIC_STATUS_GLOBAL_ALLOWED_DOMAINS || 'ltlco.com,vornan.co' }}" \
               RequireFirebaseAuth="${{ inputs.require_auth }}" \
               AllowedEmailDomains="${{ vars.PATHFINDER_ALLOWED_EMAIL_DOMAINS || 'ltlco.com,vornan.co' }}" \
               FirebaseProjectId="${{ secrets.FIREBASE_PROJECT_ID || secrets.VITE_FIREBASE_PROJECT_ID || 'ltl-dashboard-site' }}" \

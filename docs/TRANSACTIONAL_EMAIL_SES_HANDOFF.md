@@ -87,7 +87,7 @@ This handoff has been converted into the first implementation slice:
 - The public status-link endpoint now delegates to the email abstraction instead of logging raw token URLs.
 - Public status-link failures continue returning the neutral accepted response.
 - Public status-link request throttling now covers source IP, email, order number, and order/email pair with HMAC-style hashed keys.
-- Public status-link delivery now requires the requested email to match an order, customer, or contact email by default. The only override is the explicit `PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED=false` development switch.
+- Public status-link delivery now requires the requested email to match an order, customer, contact, customer-approved domain, or globally trusted internal domain by default. The explicit `PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED=false` switch remains a development-only fallback.
 - Status-link token records now persist audit-safe delivery metadata: masked requested email, hashed requested email, delivery mode, delivery status, provider message id when available, and send/log failure details when applicable.
 - `GET /api/email/status` now returns authenticated, non-secret email readiness diagnostics for operators.
 - `GET /health` now includes a non-secret email runtime summary for deployment smoke checks.
@@ -335,6 +335,7 @@ PATHFINDER_SES_CONFIGURATION_SET=pathfinder-transactional
 PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK=false
 PATHFINDER_PUBLIC_STATUS_RATE_LIMIT_PEPPER=<secret random value>
 PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED=true
+PATHFINDER_PUBLIC_STATUS_GLOBAL_ALLOWED_DOMAINS=ltlco.com,vornan.co
 ```
 
 Keep local development defaulting to `log`. Keep deployed production in `log` only while SES is not verified, and redact raw tokens in that mode. Reject unknown provider modes instead of silently falling back.

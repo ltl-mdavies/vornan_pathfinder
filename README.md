@@ -98,6 +98,7 @@ Public order status links:
 - `PATHFINDER_SES_CONFIGURATION_SET=pathfinder-transactional`
 - `PATHFINDER_PUBLIC_STATUS_RATE_LIMIT_PEPPER` should be set as a secret before public traffic.
 - `PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED=true` requires the requested email to match an order/customer/contact email before a public status link is sent.
+- `PATHFINDER_PUBLIC_STATUS_GLOBAL_ALLOWED_DOMAINS=ltlco.com,vornan.co` allows trusted internal domains to request status links across customers while still blocking public email domains from broad access.
 - `PATHFINDER_PUBLIC_STATUS_RETURN_LINK=true` only returns debug links when `PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK=true` and the API is not running in Lambda.
 - Public lookup requests accept order number + email and return the same neutral response whether or not a match is found.
 - Status-link delivery logs are sanitized; raw tokens and full status URLs should not appear in production logs.

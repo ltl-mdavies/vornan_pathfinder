@@ -139,6 +139,10 @@ const publicStatusRateLimitPepper =
   process.env.FIREBASE_PROJECT_ID ??
   "pathfinder-public-status";
 const publicStatusEmailMatchRequired = process.env.PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED !== "false";
+const globalStatusAccessDomains = (process.env.PATHFINDER_PUBLIC_STATUS_GLOBAL_ALLOWED_DOMAINS ?? "")
+  .split(",")
+  .map((domain) => domain.trim().toLowerCase())
+  .filter(Boolean);
 const allowedCorsOrigins = (process.env.PATHFINDER_ALLOWED_ORIGINS ?? "http://127.0.0.1:5173,http://localhost:5173")
   .split(",")
   .map((origin) => origin.trim())
@@ -1233,6 +1237,14 @@ function approvedStatusAccessDomains(policy: StatusAccessPolicy | undefined) {
   );
 }
 
+function globallyAllowedStatusAccessDomains() {
+  return new Set(
+    globalStatusAccessDomains
+      .map((domain) => emailDomain(domain))
+      .filter((domain) => domain && !publicEmailDomains.has(domain))
+  );
+}
+
 function canSendPublicStatusLinkToEmail(
   workspace: PathfinderCustomerWorkspace,
   job: ProcessingJobPreview,
@@ -1240,12 +1252,22 @@ function canSendPublicStatusLinkToEmail(
 ) {
   const policy = workspace.status_access_policy;
 
-  if (!policy?.allow_public_status_links || policy.mode === "Invite only" || policy.mode === "Internal only") {
+  if (!policy?.allow_public_status_links) {
+    return false;
+  }
+
+  const normalizedEmail = normalizeEmail(email);
+  const domain = emailDomain(normalizedEmail);
+
+  if (domain && globallyAllowedStatusAccessDomains().has(domain)) {
+    return true;
+  }
+
+  if (policy.mode === "Invite only" || policy.mode === "Internal only") {
     return false;
   }
 
   const candidates = Array.from(new Set(jobEmailCandidates(workspace.customer, job)));
-  const normalizedEmail = normalizeEmail(email);
 
   if (candidates.length === 0) {
     return !publicStatusEmailMatchRequired && policy.mode === "Exact email or approved domain";
@@ -1258,8 +1280,6 @@ function canSendPublicStatusLinkToEmail(
   if (policy.mode !== "Exact email or approved domain") {
     return false;
   }
-
-  const domain = emailDomain(normalizedEmail);
 
   if (!domain || publicEmailDomains.has(domain)) {
     return false;
@@ -2179,6 +2199,7 @@ app.get("/health", (_req, res) => {
       mode: emailConfig.mode,
       ses_region: emailConfig.sesRegion,
       configuration_set_present: Boolean(emailConfig.sesConfigurationSet),
+      global_status_access_domains_configured: globallyAllowedStatusAccessDomains().size,
       from_domain: emailConfig.from.includes("@") ? emailConfig.from.split("@").pop()?.replace(">", "") ?? null : null,
       status_reply_to_domain: emailConfig.statusReplyTo.includes("@")
         ? emailConfig.statusReplyTo.split("@").pop() ?? null
@@ -2337,6 +2358,7 @@ app.get("/api/email/status", (_req, res) => {
     const config = getEmailRuntimeConfig();
     const fromDomain = config.from.includes("@") ? config.from.split("@").pop()?.replace(">", "") ?? null : null;
     const statusReplyToDomain = config.statusReplyTo.includes("@") ? config.statusReplyTo.split("@").pop() ?? null : null;
+    const globalAllowedDomainCount = globallyAllowedStatusAccessDomains().size;
     const items = [
       {
         item_id: "mode",
@@ -2372,6 +2394,15 @@ app.get("/api/email/status", (_req, res) => {
         message: config.sesConfigurationSet
           ? `SES configuration set ${config.sesConfigurationSet} is configured.`
           : "SES configuration set is not configured; provider event publishing may be limited."
+      },
+      {
+        item_id: "global-status-domains",
+        status: globalAllowedDomainCount > 0 ? "Ready" : "Warning",
+        label: "Global status domains",
+        message:
+          globalAllowedDomainCount > 0
+            ? `${globalAllowedDomainCount} trusted domain${globalAllowedDomainCount === 1 ? "" : "s"} can request status links across customers.`
+            : "No global trusted domains are configured for cross-customer status lookup."
       }
     ];
 
@@ -2386,6 +2417,9 @@ app.get("/api/email/status", (_req, res) => {
       ses: {
         region: config.sesRegion,
         configuration_set: config.sesConfigurationSet ?? null
+      },
+      public_status_access: {
+        global_allowed_domains_configured: globalAllowedDomainCount
       },
       readiness: {
         status: items.some((item) => item.status === "Blocked")

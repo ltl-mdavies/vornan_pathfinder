@@ -71,6 +71,10 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
+  PublicStatusGlobalAllowedDomains:
+    Type: String
+    Default: "ltlco.com,vornan.co"
+    Description: Comma-separated trusted domains allowed to request public status links across customers.
   RequireFirebaseAuth:
     Type: String
     Default: "true"
@@ -220,6 +224,7 @@ Resources:
           PATHFINDER_SES_CONFIGURATION_SET: !Ref SesConfigurationSet
           PATHFINDER_PUBLIC_STATUS_RATE_LIMIT_PEPPER: !Ref PublicStatusRateLimitPepper
           PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED: !Ref PublicStatusEmailMatchRequired
+          PATHFINDER_PUBLIC_STATUS_GLOBAL_ALLOWED_DOMAINS: !Ref PublicStatusGlobalAllowedDomains
           PATHFINDER_REQUIRE_AUTH: !Ref RequireFirebaseAuth
           PATHFINDER_ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
           FIREBASE_PROJECT_ID: !Ref FirebaseProjectId
