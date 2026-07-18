@@ -319,12 +319,86 @@ button:disabled {
   border-color: rgba(255, 255, 255, 0.11);
 }
 
+.sidebar-user-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 10px;
+  margin-top: auto;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.sidebar-user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  overflow: hidden;
+  color: #1d2118;
+  background: var(--vornan-lime);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.sidebar-user-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sidebar-user-copy {
+  min-width: 0;
+}
+
+.sidebar-user-copy strong,
+.sidebar-user-copy span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-copy strong {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sidebar-user-copy span {
+  margin-top: 3px;
+  color: rgba(255, 255, 255, 0.54);
+  font-size: 11px;
+}
+
+.sidebar-user-signout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+}
+
+.sidebar-user-signout:hover {
+  color: #fff;
+  background: rgba(171, 198, 95, 0.12);
+  border-color: rgba(171, 198, 95, 0.34);
+}
+
 .sidebar-status {
   display: grid;
   grid-template-columns: 76px 1fr;
   align-items: center;
   gap: 14px;
-  margin-top: auto;
+  margin-top: 10px;
   padding: 14px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -6142,11 +6216,13 @@ td {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  color: var(--vornan-forest);
   background: #fff;
-  font-family: Inter, system-ui, sans-serif;
-  font-size: 16px;
-  font-weight: 900;
+  box-shadow: inset 0 0 0 1px rgba(25, 24, 24, 0.08);
+}
+
+.auth-google-mark svg {
+  width: 20px;
+  height: 20px;
 }
 
 .auth-status-chip {

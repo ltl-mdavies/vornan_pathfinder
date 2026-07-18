@@ -26,7 +26,7 @@ aws cloudformation deploy \
     AllowedOrigins="${PATHFINDER_ALLOWED_ORIGINS:-https://pathfinder.vornan.co}" \
     RequireFirebaseAuth="${PATHFINDER_REQUIRE_AUTH:-true}" \
     AllowedEmailDomains="${PATHFINDER_ALLOWED_EMAIL_DOMAINS:-ltlco.com,vornan.co}" \
-    FirebaseProjectId="${FIREBASE_PROJECT_ID:-}" \
+    FirebaseProjectId="${FIREBASE_PROJECT_ID:-ltl-dashboard-site}" \
     LiftCustomerListUrl="${LIFT_CUSTOMER_LIST_URL:-https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerContactLIst/LTL-Customer-List?offset=0}" \
     LiftCustomerStatusUrl="${LIFT_CUSTOMER_STATUS_URL:-https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerStatusJSON/CustomerStatusJSON?}" \
     LiftProductCatalogBaseUrl="${LIFT_PRODUCT_CATALOG_BASE_URL:-https://ltlco.lifterp.com/ords/api/lift/erp}" \

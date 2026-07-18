@@ -18,6 +18,7 @@ import {
   FileText,
   Gauge,
   History,
+  LogOut,
   Map,
   Plus,
   RefreshCw,
@@ -88,6 +89,29 @@ type OutputDestinationMethod = "HTTP POST" | "SFTP file" | "Email attachment" | 
 type OutputFormat = "JSON" | "XML" | "CSV" | "XLSX";
 type TargetsView = "Overview" | "Environments" | "Output Templates" | "Output Routes" | "Value Rules" | "Test & Health";
 type TargetDetailView = Exclude<TargetsView, "Overview">;
+
+function getAuthInitials(authSession: PathfinderAuthSession | null) {
+  const fallback = "PF";
+  const label = authSession?.displayName || authSession?.email;
+
+  if (!label) {
+    return fallback;
+  }
+
+  const nameParts = label
+    .replace(/@.*/, "")
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+
+  if (nameParts.length === 0) {
+    return fallback;
+  }
+
+  return nameParts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
 type SubmitProfileMode = "live_customer" | "sandbox_customer";
 type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
 type RouteDiagnosticStatus = "Passed" | "Warning" | "Blocked";
@@ -5981,6 +6005,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             ))}
           </nav>
         </section>
+
+        {authSession ? (
+          <div className="sidebar-user-card">
+            <div className="sidebar-user-avatar" aria-hidden="true">
+              {authSession.photoURL ? <img src={authSession.photoURL} alt="" /> : <span>{getAuthInitials(authSession)}</span>}
+            </div>
+            <div className="sidebar-user-copy">
+              <strong>{authSession.displayName || "Signed in"}</strong>
+              <span>{authSession.email || authSession.domain || "Google account"}</span>
+            </div>
+            <button className="sidebar-user-signout" onClick={() => void authSession.signOut()} type="button" title="Sign out">
+              <LogOut size={16} />
+            </button>
+          </div>
+        ) : null}
 
         <div className="sidebar-status">
           <img src="/brand/scout.png" alt="" />
