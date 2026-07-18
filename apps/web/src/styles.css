@@ -5791,6 +5791,97 @@ td {
   margin-bottom: 18px;
 }
 
+.email-health-panel {
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+
+.email-health-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.email-health-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.email-health-summary {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-height: 104px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: rgba(247, 250, 245, 0.62);
+}
+
+.email-health-summary span,
+.email-readiness-row strong {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.email-health-summary strong {
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.email-health-summary small,
+.email-readiness-row small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.email-health-error {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 16px 16px 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(177, 59, 51, 0.2);
+  border-radius: 8px;
+  color: var(--danger);
+  background: rgba(177, 59, 51, 0.08);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.email-readiness-list {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+}
+
+.email-readiness-row {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.email-readiness-row > div {
+  display: grid;
+  gap: 3px;
+}
+
 .canonical-governance-panel {
   overflow: hidden;
   margin-bottom: 18px;
@@ -6397,6 +6488,10 @@ td {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .email-health-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .submit-readiness-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -6444,6 +6539,16 @@ td {
   .app-shell {
     grid-template-columns: 1fr;
     overflow-x: hidden;
+  }
+
+  .email-health-grid,
+  .email-readiness-row {
+    grid-template-columns: 1fr;
+  }
+
+  .email-health-header-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .sidebar {

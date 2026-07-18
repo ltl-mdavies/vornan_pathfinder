@@ -115,6 +115,7 @@ function getAuthInitials(authSession: PathfinderAuthSession | null) {
 type SubmitProfileMode = "live_customer" | "sandbox_customer";
 type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
 type RouteDiagnosticStatus = "Passed" | "Warning" | "Blocked";
+type EmailReadinessStatus = "Ready" | "Warning" | "Blocked";
 type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
 type SubmitAttemptTransportMode = "dry_run" | "mock" | "live";
 type SubmitCertificationActionKey =
@@ -125,6 +126,29 @@ type SubmitCertificationActionKey =
   | "target-output-routes"
   | "target-output-templates"
   | "target-health";
+
+type EmailStatusPayload = {
+  mode: "log" | "ses";
+  sender: {
+    from: string;
+    from_domain: string | null;
+    status_reply_to: string;
+    status_reply_to_domain: string | null;
+  };
+  ses: {
+    region: string;
+    configuration_set: string | null;
+  };
+  readiness: {
+    status: EmailReadinessStatus;
+    items: {
+      item_id: string;
+      status: EmailReadinessStatus;
+      label: string;
+      message: string;
+    }[];
+  };
+};
 
 interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
@@ -1801,7 +1825,11 @@ function MethodStatusPill({ status }: { status: ImportMethodStatus }) {
   return <span className={className}>{status}</span>;
 }
 
-function RouteDiagnosticPill({ status }: { status: RouteDiagnostics["status"] | RouteDiagnosticStatus }) {
+function RouteDiagnosticPill({
+  status
+}: {
+  status: RouteDiagnostics["status"] | RouteDiagnosticStatus | EmailReadinessStatus;
+}) {
   const className =
     status === "Ready" || status === "Passed"
       ? "pill pill-success"
@@ -2780,6 +2808,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [workspace, setWorkspace] = useState<PathfinderCustomerWorkspace | null>(null);
   const [targets, setTargets] = useState<TargetConfig[]>([]);
   const [canonicalRegistry, setCanonicalRegistry] = useState<CanonicalRegistryPayload | null>(null);
+  const [emailStatus, setEmailStatus] = useState<EmailStatusPayload | null>(null);
+  const [emailStatusState, setEmailStatusState] = useState<"idle" | "loading" | "error">("idle");
+  const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [activeTargetsView, setActiveTargetsView] = useState<TargetDetailView>("Environments");
   const [activeOutputTemplateId, setActiveOutputTemplateId] = useState<string | null>(null);
@@ -2966,6 +2997,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setCanonicalRegistry(registry);
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Canonical registry load failed.");
+    }
+  }
+
+  async function loadEmailStatus() {
+    setEmailStatusState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/email/status`);
+      const payload = await readJsonResponse<EmailStatusPayload>(response);
+      setEmailStatus(payload);
+      setEmailStatusMessage(null);
+      setEmailStatusState("idle");
+    } catch (error) {
+      setEmailStatusMessage(error instanceof Error ? error.message : "Email status load failed.");
+      setEmailStatusState("error");
     }
   }
 
@@ -3646,6 +3691,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   useEffect(() => {
     void loadCanonicalRegistry();
   }, []);
+
+  useEffect(() => {
+    void loadEmailStatus();
+  }, []);
+
+  useEffect(() => {
+    if (activeGlobalView === "Settings") {
+      void loadEmailStatus();
+    }
+  }, [activeGlobalView]);
 
   const selectedCustomer =
     customers.find((customer) => customer.lift_customer_id === selectedCustomerId) ?? fallbackCustomer;
@@ -10800,6 +10855,80 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                 </div>
               ))}
+            </section>
+
+            <section className="panel email-health-panel">
+              <div className="panel-header unit-map-panel-header">
+                <div className="panel-title">
+                  <Bell size={18} strokeWidth={2.2} />
+                  <h2>Transactional Email</h2>
+                </div>
+                <div className="email-health-header-actions">
+                  {emailStatus ? <RouteDiagnosticPill status={emailStatus.readiness.status} /> : null}
+                  <button
+                    className="secondary-button table-inline-button"
+                    onClick={() => void loadEmailStatus()}
+                    disabled={emailStatusState === "loading"}
+                  >
+                    <RefreshCw size={14} />
+                    {emailStatusState === "loading" ? "Checking" : "Refresh"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="email-health-grid">
+                <div className="email-health-summary">
+                  <span>Delivery Mode</span>
+                  <strong>{emailStatus?.mode === "ses" ? "Amazon SES" : emailStatus?.mode === "log" ? "Log mode" : "Loading"}</strong>
+                  <small>
+                    {emailStatus?.mode === "ses"
+                      ? "Status links are configured for delivery."
+                      : "Status links are recorded, not sent to customers yet."}
+                  </small>
+                </div>
+                <div className="email-health-summary">
+                  <span>From</span>
+                  <strong>{emailStatus?.sender.from ?? "Pending"}</strong>
+                  <small>{emailStatus?.sender.from_domain ?? "Sender domain unavailable"}</small>
+                </div>
+                <div className="email-health-summary">
+                  <span>Reply-To</span>
+                  <strong>{emailStatus?.sender.status_reply_to ?? "Pending"}</strong>
+                  <small>{emailStatus?.sender.status_reply_to_domain ?? "Reply-to domain unavailable"}</small>
+                </div>
+                <div className="email-health-summary">
+                  <span>SES Region</span>
+                  <strong>{emailStatus?.ses.region ?? "Pending"}</strong>
+                  <small>{emailStatus?.ses.configuration_set ?? "No configuration set"}</small>
+                </div>
+              </div>
+
+              {emailStatusMessage ? (
+                <div className="email-health-error">
+                  <AlertTriangle size={16} />
+                  <span>{emailStatusMessage}</span>
+                </div>
+              ) : null}
+
+              <div className="email-readiness-list">
+                {(emailStatus?.readiness.items ?? []).map((item) => (
+                  <div className="email-readiness-row" key={item.item_id}>
+                    <span
+                      className={`health-dot health-dot-${
+                        item.status === "Ready" ? "healthy" : item.status === "Warning" ? "warning" : "error"
+                      }`}
+                    />
+                    <div>
+                      <strong>{item.label}</strong>
+                      <small>{item.message}</small>
+                    </div>
+                    <RouteDiagnosticPill status={item.status} />
+                  </div>
+                ))}
+                {!emailStatus && emailStatusState === "loading" ? (
+                  <p className="empty-state">Checking transactional email settings...</p>
+                ) : null}
+              </div>
             </section>
 
             <section className="panel canonical-governance-panel">
