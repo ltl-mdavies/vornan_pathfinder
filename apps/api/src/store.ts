@@ -72,6 +72,28 @@ export type SubmitCertificationActionKey =
 export type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
 export type SubmitAttemptTransportMode = "dry_run" | "mock" | "live";
 export type OrderStatusTokenStatus = "Active" | "Revoked";
+export type StatusAccessPolicyMode =
+  | "Exact email only"
+  | "Exact email or approved domain"
+  | "Invite only"
+  | "Internal only";
+export type StatusAccessDomainStatus = "Approved" | "Suggested" | "Blocked";
+export type StatusAccessDomainSource = "Customer email" | "Order email" | "Imported contact" | "Admin" | "Seed";
+
+export interface StatusAccessDomain {
+  domain: string;
+  status: StatusAccessDomainStatus;
+  source: StatusAccessDomainSource;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StatusAccessPolicy {
+  mode: StatusAccessPolicyMode;
+  allow_public_status_links: boolean;
+  approved_email_domains: StatusAccessDomain[];
+  updated_at: string;
+}
 
 export interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
@@ -396,6 +418,7 @@ export interface PathfinderCustomerWorkspace {
   submit_attempts?: SubmitAttempt[];
   product_mappings: CustomerProductMapping[];
   catalog_presets: LiftCatalogPreset[];
+  status_access_policy: StatusAccessPolicy;
   primary_target_id: string;
   primary_output_route_id: string;
   updated_at: string;
@@ -1263,6 +1286,97 @@ function createSeedCatalogPresets(customer: LiftCustomer, route: OutputRoute, ti
     : [];
 }
 
+const publicEmailDomains = new Set([
+  "aol.com",
+  "icloud.com",
+  "gmail.com",
+  "googlemail.com",
+  "hotmail.com",
+  "live.com",
+  "me.com",
+  "msn.com",
+  "outlook.com",
+  "proton.me",
+  "protonmail.com",
+  "yahoo.com",
+  "ymail.com"
+]);
+
+function normalizeEmailDomain(value: unknown) {
+  const email = typeof value === "string" ? value.trim().toLowerCase() : "";
+  const atIndex = email.lastIndexOf("@");
+  const domain = atIndex >= 0 ? email.slice(atIndex + 1) : email;
+  return domain.replace(/^\.+|\.+$/g, "");
+}
+
+function inferredStatusAccessDomain(
+  email: unknown,
+  source: StatusAccessDomainSource,
+  timestamp: string
+): StatusAccessDomain | null {
+  const domain = normalizeEmailDomain(email);
+
+  if (!domain || !domain.includes(".") || publicEmailDomains.has(domain)) {
+    return null;
+  }
+
+  return {
+    domain,
+    status: "Approved",
+    source,
+    created_at: timestamp,
+    updated_at: timestamp
+  };
+}
+
+function createDefaultStatusAccessPolicy(customer: LiftCustomer, timestamp = now()): StatusAccessPolicy {
+  const inferredDomains = [inferredStatusAccessDomain(customer.default_invoice_email_address, "Customer email", timestamp)]
+    .filter((domain): domain is StatusAccessDomain => Boolean(domain))
+    .filter((domain, index, domains) => domains.findIndex((candidate) => candidate.domain === domain.domain) === index);
+
+  return {
+    mode: "Exact email or approved domain",
+    allow_public_status_links: true,
+    approved_email_domains: inferredDomains,
+    updated_at: timestamp
+  };
+}
+
+function normalizeStatusAccessPolicy(
+  policy: StatusAccessPolicy | undefined,
+  customer: LiftCustomer,
+  timestamp = now()
+): StatusAccessPolicy {
+  const defaultPolicy = createDefaultStatusAccessPolicy(customer, timestamp);
+  const domainsByName = new Map<string, StatusAccessDomain>();
+
+  [...defaultPolicy.approved_email_domains, ...(policy?.approved_email_domains ?? [])].forEach((domain) => {
+    const normalizedDomain = normalizeEmailDomain(domain.domain);
+
+    if (!normalizedDomain || !normalizedDomain.includes(".") || publicEmailDomains.has(normalizedDomain)) {
+      return;
+    }
+
+    domainsByName.set(normalizedDomain, {
+      ...domain,
+      domain: normalizedDomain,
+      status: domain.status ?? "Approved",
+      source: domain.source ?? "Admin",
+      created_at: domain.created_at ?? timestamp,
+      updated_at: domain.updated_at ?? timestamp
+    });
+  });
+
+  return {
+    mode: policy?.mode ?? defaultPolicy.mode,
+    allow_public_status_links: policy?.allow_public_status_links ?? defaultPolicy.allow_public_status_links,
+    approved_email_domains: Array.from(domainsByName.values()).sort((first, second) =>
+      first.domain.localeCompare(second.domain)
+    ),
+    updated_at: policy?.updated_at ?? defaultPolicy.updated_at
+  };
+}
+
 function createWorkspace(customer: LiftCustomer): PathfinderCustomerWorkspace {
   const timestamp = now();
   const method = createSeedMethod(timestamp);
@@ -1287,6 +1401,7 @@ function createWorkspace(customer: LiftCustomer): PathfinderCustomerWorkspace {
     submit_attempts: [],
     product_mappings: [],
     catalog_presets: catalogPresets,
+    status_access_policy: createDefaultStatusAccessPolicy(customer, timestamp),
     primary_target_id: targetId,
     primary_output_route_id: route.output_route_id,
     updated_at: timestamp
@@ -2170,6 +2285,7 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
     catalog_presets: catalogPresets.map((preset) =>
       normalizeCatalogPreset(preset, { ...workspace, output_routes: outputRoutes })
     ),
+    status_access_policy: normalizeStatusAccessPolicy(workspace.status_access_policy, workspace.customer),
     primary_target_id: workspace.primary_target_id ?? route.target_id,
     primary_output_route_id: primaryOutputRouteId,
     submit_attempts: workspace.submit_attempts ?? [],
@@ -2426,6 +2542,7 @@ export async function getOrCreateWorkspace(customer: LiftCustomer) {
   if (existing) {
     const normalized = normalizeWorkspace(existing);
     normalized.customer = customer;
+    normalized.status_access_policy = normalizeStatusAccessPolicy(normalized.status_access_policy, customer);
     normalized.jobs = store.jobs.filter((job) => job.customer_id === customer.lift_customer_id);
     normalized.submit_attempts = store.submit_attempts.filter((attempt) => attempt.customer_id === customer.lift_customer_id);
     store.workspaces[customer.lift_customer_id] = normalized;

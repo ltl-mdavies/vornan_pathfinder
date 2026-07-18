@@ -93,7 +93,9 @@ import {
   type ProductResolutionConfig,
   type ProductResolutionResult,
   type ProcessingJobPreview,
+  type PathfinderCustomerWorkspace,
   type PublicOrderStatusSnapshot,
+  type StatusAccessPolicy,
   type SubmitCertificationActionKey,
   type SubmitCertification,
   type SubmitCertificationItem,
@@ -1186,6 +1188,29 @@ function normalizeEmail(value: unknown) {
   return valueAsString(value).trim().toLowerCase();
 }
 
+const publicEmailDomains = new Set([
+  "aol.com",
+  "icloud.com",
+  "gmail.com",
+  "googlemail.com",
+  "hotmail.com",
+  "live.com",
+  "me.com",
+  "msn.com",
+  "outlook.com",
+  "proton.me",
+  "protonmail.com",
+  "yahoo.com",
+  "ymail.com"
+]);
+
+function emailDomain(value: unknown) {
+  const email = normalizeEmail(value);
+  const atIndex = email.lastIndexOf("@");
+  const domain = atIndex >= 0 ? email.slice(atIndex + 1) : email;
+  return domain.replace(/^\.+|\.+$/g, "");
+}
+
 function jobEmailCandidates(customer: LiftCustomer, job: ProcessingJobPreview) {
   const contacts = Array.isArray(job.canonical_order.contacts) ? job.canonical_order.contacts : [];
   return [
@@ -1198,14 +1223,48 @@ function jobEmailCandidates(customer: LiftCustomer, job: ProcessingJobPreview) {
     .filter(Boolean);
 }
 
-function canSendPublicStatusLinkToEmail(customer: LiftCustomer, job: ProcessingJobPreview, email: string) {
-  const candidates = Array.from(new Set(jobEmailCandidates(customer, job)));
+function approvedStatusAccessDomains(policy: StatusAccessPolicy | undefined) {
+  return new Set(
+    (policy?.approved_email_domains ?? [])
+      .filter((domain) => domain.status === "Approved")
+      .map((domain) => emailDomain(domain.domain))
+      .filter((domain) => domain && !publicEmailDomains.has(domain))
+  );
+}
 
-  if (candidates.length === 0) {
-    return !publicStatusEmailMatchRequired;
+function canSendPublicStatusLinkToEmail(
+  workspace: PathfinderCustomerWorkspace,
+  job: ProcessingJobPreview,
+  email: string
+) {
+  const policy = workspace.status_access_policy;
+
+  if (!policy?.allow_public_status_links || policy.mode === "Invite only" || policy.mode === "Internal only") {
+    return false;
   }
 
-  return candidates.includes(normalizeEmail(email));
+  const candidates = Array.from(new Set(jobEmailCandidates(workspace.customer, job)));
+  const normalizedEmail = normalizeEmail(email);
+
+  if (candidates.length === 0) {
+    return !publicStatusEmailMatchRequired && policy.mode === "Exact email or approved domain";
+  }
+
+  if (candidates.includes(normalizedEmail)) {
+    return true;
+  }
+
+  if (policy.mode !== "Exact email or approved domain") {
+    return false;
+  }
+
+  const domain = emailDomain(normalizedEmail);
+
+  if (!domain || publicEmailDomains.has(domain)) {
+    return false;
+  }
+
+  return approvedStatusAccessDomains(policy).has(domain);
 }
 
 async function findPathfinderJobByOrderNumber(orderNumber: string) {
@@ -1219,6 +1278,7 @@ async function findPathfinderJobByOrderNumber(orderNumber: string) {
 
   for (const job of jobs) {
     const customer = await findLiftCustomer(job.customer_id);
+    const workspace = await getOrCreateWorkspace(customer);
     const attempts = await listSubmitAttemptsForJob(customer, job.job_id);
     const matched = jobOrderLookupCandidates(job, attempts).some(
       (candidate) => normalizeOrderLookupValue(candidate) === normalizedOrderNumber
@@ -1227,6 +1287,7 @@ async function findPathfinderJobByOrderNumber(orderNumber: string) {
     if (matched) {
       return {
         customer,
+        workspace,
         job,
         attempts
       };
@@ -2204,7 +2265,7 @@ app.post("/public/status/request-link", async (req, res) => {
     const match = await findPathfinderJobByOrderNumber(orderNumber);
     let debugStatusUrl: string | undefined;
 
-    if (match && canSendPublicStatusLinkToEmail(match.customer, match.job, email)) {
+    if (match && canSendPublicStatusLinkToEmail(match.workspace, match.job, email)) {
       const link = await createPublicStatusLinkForJob({
         customer: match.customer,
         jobId: match.job.job_id,
