@@ -31,6 +31,11 @@ const allowedDomains: string[] = (import.meta.env.VITE_AUTH_ALLOWED_DOMAINS ?? "
 const authRequiredSetting = import.meta.env.VITE_AUTH_REQUIRED;
 const authRequired = authRequiredSetting ? authRequiredSetting === "true" : import.meta.env.PROD;
 
+function shouldUseRedirectSignIn() {
+  const hostname = window.location.hostname;
+  return import.meta.env.PROD && hostname !== "localhost" && hostname !== "127.0.0.1";
+}
+
 function firebaseConfig(): FirebaseOptions | null {
   const config = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -87,6 +92,12 @@ export function AuthGate({ children }: AuthGateProps) {
         }
 
         setRuntime({ auth, authModule });
+        void authModule.getRedirectResult(auth).catch((redirectError) => {
+          if (!mounted) {
+            return;
+          }
+          setError(redirectError instanceof Error ? redirectError.message : "Google sign-in could not be completed.");
+        });
         unsubscribe = authModule.onIdTokenChanged(auth, async (nextUser) => {
           setLoading(true);
           setUser(nextUser);
@@ -118,6 +129,10 @@ export function AuthGate({ children }: AuthGateProps) {
     try {
       const provider = new runtime.authModule.GoogleAuthProvider();
       provider.setCustomParameters({ prompt: "select_account" });
+      if (shouldUseRedirectSignIn()) {
+        await runtime.authModule.signInWithRedirect(runtime.auth, provider);
+        return;
+      }
       await runtime.authModule.signInWithPopup(runtime.auth, provider);
     } catch (signInError) {
       setError(signInError instanceof Error ? signInError.message : "Google sign-in could not be completed.");
