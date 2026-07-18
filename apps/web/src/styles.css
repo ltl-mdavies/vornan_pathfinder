@@ -6045,6 +6045,150 @@ td {
   background: #fff;
 }
 
+.status-access-panel {
+  overflow: hidden;
+}
+
+.status-access-body {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+}
+
+.status-access-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(220px, 0.7fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.status-access-grid .primary-button,
+.status-access-add-row .secondary-button {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
+.status-access-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.status-access-summary div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 13px;
+  background: rgba(243, 247, 241, 0.72);
+  border: 1px solid rgba(57, 82, 59, 0.12);
+  border-radius: 8px;
+}
+
+.status-access-summary span,
+.status-access-domain-table th {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.status-access-summary strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.status-access-summary p,
+.status-access-note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.status-access-add-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(180px, 0.35fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.status-access-domain-wrap {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.status-access-domain-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.status-access-domain-table th,
+.status-access-domain-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.status-access-domain-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.status-access-domain-table td:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.status-access-domain-table td:first-child strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.status-access-domain-table td:first-child span,
+.status-access-domain-table td {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.status-access-domain-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.status-access-domain-pill-approved {
+  color: #205d35;
+  background: #e4f3dc;
+}
+
+.status-access-domain-pill-suggested {
+  color: var(--warning);
+  background: #f8ecd8;
+}
+
+.status-access-domain-pill-blocked {
+  color: var(--danger);
+  background: #f8dedb;
+}
+
+.status-access-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .canonical-registry-table {
   width: 100%;
   border-collapse: collapse;

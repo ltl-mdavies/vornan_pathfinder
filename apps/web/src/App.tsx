@@ -464,6 +464,29 @@ interface SubmitAttempt {
   updated_at: string;
 }
 
+type StatusAccessPolicyMode =
+  | "Exact email only"
+  | "Exact email or approved domain"
+  | "Invite only"
+  | "Internal only";
+type StatusAccessDomainStatus = "Approved" | "Suggested" | "Blocked";
+type StatusAccessDomainSource = "Customer email" | "Order email" | "Imported contact" | "Admin" | "Seed";
+
+interface StatusAccessDomain {
+  domain: string;
+  status: StatusAccessDomainStatus;
+  source: StatusAccessDomainSource;
+  created_at: string;
+  updated_at: string;
+}
+
+interface StatusAccessPolicy {
+  mode: StatusAccessPolicyMode;
+  allow_public_status_links: boolean;
+  approved_email_domains: StatusAccessDomain[];
+  updated_at: string;
+}
+
 interface PathfinderCustomerWorkspace {
   customer: LiftCustomer;
   import_methods: ImportMethod[];
@@ -473,6 +496,7 @@ interface PathfinderCustomerWorkspace {
   submit_attempts?: SubmitAttempt[];
   product_mappings: CustomerProductMapping[];
   catalog_presets: LiftCatalogPreset[];
+  status_access_policy: StatusAccessPolicy;
   primary_target_id: string;
   primary_output_route_id: string;
   primary_target: TargetConfig;
@@ -1760,6 +1784,78 @@ function formatJson(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
+const publicEmailDomains = new Set([
+  "aol.com",
+  "gmail.com",
+  "hotmail.com",
+  "icloud.com",
+  "live.com",
+  "me.com",
+  "msn.com",
+  "outlook.com",
+  "proton.me",
+  "protonmail.com",
+  "yahoo.com"
+]);
+
+function normalizeStatusDomainInput(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/^@/, "")
+    .split("/")[0]
+    .split(":")[0];
+}
+
+function domainFromEmail(value?: string | null) {
+  if (!value?.includes("@")) {
+    return null;
+  }
+  const domain = normalizeStatusDomainInput(value.split("@").pop() ?? "");
+  if (!domain || publicEmailDomains.has(domain)) {
+    return null;
+  }
+  return domain;
+}
+
+function createStatusAccessPolicyFallback(customer: LiftCustomer): StatusAccessPolicy {
+  const timestamp = new Date().toISOString();
+  const inferredDomain = domainFromEmail(customer.default_invoice_email_address);
+  return {
+    mode: "Exact email or approved domain",
+    allow_public_status_links: true,
+    approved_email_domains: inferredDomain
+      ? [
+          {
+            domain: inferredDomain,
+            status: "Suggested",
+            source: "Customer email",
+            created_at: timestamp,
+            updated_at: timestamp
+          }
+        ]
+      : [],
+    updated_at: timestamp
+  };
+}
+
+function statusPolicyModeDescription(mode: StatusAccessPolicyMode) {
+  switch (mode) {
+    case "Exact email only":
+      return "Only email addresses already attached to the order can request a secure status link.";
+    case "Exact email or approved domain":
+      return "Recommended. Known order emails work, and approved customer domains can request secure links.";
+    case "Invite only":
+      return "Public lookup requests are off; links must be created by an internal user.";
+    case "Internal only":
+      return "Only signed-in Pathfinder users can view status for this customer.";
+    default:
+      return "Choose who can request public status access for this customer.";
+  }
+}
+
 function formatRawBodyPreview(value: unknown) {
   if (value === null || value === undefined || value === "") {
     return "No raw response body recorded.";
@@ -2828,6 +2924,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const pendingNavigationRef = useRef<(() => void) | null>(null);
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("idle");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [statusPolicyDraft, setStatusPolicyDraft] = useState<StatusAccessPolicy | null>(null);
+  const [newStatusDomain, setNewStatusDomain] = useState("");
+  const [newStatusDomainStatus, setNewStatusDomainStatus] = useState<StatusAccessDomainStatus>("Approved");
   const [canonicalRegistrySearch, setCanonicalRegistrySearch] = useState("");
   const [canonicalRegistrySectionFilter, setCanonicalRegistrySectionFilter] = useState("All");
   const [editingCanonicalFieldId, setEditingCanonicalFieldId] = useState<string | null>(null);
@@ -2969,6 +3068,112 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWorkspaceMessage(null);
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Workspace load failed.");
+      setWorkspaceState("error");
+      return;
+    }
+    setWorkspaceState("idle");
+  }
+
+  function updateStatusPolicyDraft(patch: Partial<StatusAccessPolicy>) {
+    setStatusPolicyDraft((current) => ({
+      ...(current ?? createStatusAccessPolicyFallback(selectedCustomer)),
+      ...patch
+    }));
+  }
+
+  function updateStatusDomainDraft(domain: string, patch: Partial<StatusAccessDomain>) {
+    setStatusPolicyDraft((current) => {
+      const policy = current ?? createStatusAccessPolicyFallback(selectedCustomer);
+      const timestamp = new Date().toISOString();
+      return {
+        ...policy,
+        approved_email_domains: policy.approved_email_domains.map((entry) =>
+          entry.domain === domain
+            ? {
+                ...entry,
+                ...patch,
+                updated_at: timestamp
+              }
+            : entry
+        )
+      };
+    });
+  }
+
+  function addStatusDomainDraft() {
+    const domain = normalizeStatusDomainInput(newStatusDomain);
+    if (!domain) {
+      setWorkspaceMessage("Enter a customer email domain before adding it.");
+      return;
+    }
+    if (publicEmailDomains.has(domain)) {
+      setWorkspaceMessage("Public email domains are not eligible for customer status access.");
+      return;
+    }
+
+    setStatusPolicyDraft((current) => {
+      const policy = current ?? createStatusAccessPolicyFallback(selectedCustomer);
+      const timestamp = new Date().toISOString();
+      const existing = policy.approved_email_domains.find((entry) => entry.domain === domain);
+      if (existing) {
+        return {
+          ...policy,
+          approved_email_domains: policy.approved_email_domains.map((entry) =>
+            entry.domain === domain
+              ? {
+                  ...entry,
+                  status: newStatusDomainStatus,
+                  source: entry.source === "Admin" ? "Admin" : entry.source,
+                  updated_at: timestamp
+                }
+              : entry
+          )
+        };
+      }
+      return {
+        ...policy,
+        approved_email_domains: [
+          ...policy.approved_email_domains,
+          {
+            domain,
+            status: newStatusDomainStatus,
+            source: "Admin",
+            created_at: timestamp,
+            updated_at: timestamp
+          }
+        ]
+      };
+    });
+    setNewStatusDomain("");
+    setNewStatusDomainStatus("Approved");
+    setWorkspaceMessage(null);
+  }
+
+  function removeStatusDomainDraft(domain: string) {
+    setStatusPolicyDraft((current) => {
+      const policy = current ?? createStatusAccessPolicyFallback(selectedCustomer);
+      return {
+        ...policy,
+        approved_email_domains: policy.approved_email_domains.filter((entry) => entry.domain !== domain)
+      };
+    });
+  }
+
+  async function saveStatusAccessPolicy() {
+    const policy = statusPolicyDraft ?? createStatusAccessPolicyFallback(selectedCustomer);
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/status-access-policy`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(policy)
+      });
+      const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      setWorkspace(updatedWorkspace);
+      setStatusPolicyDraft(updatedWorkspace.status_access_policy);
+      setWorkspaceMessage("Public status access policy saved.");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Status access policy save failed.");
       setWorkspaceState("error");
       return;
     }
@@ -3704,9 +3909,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   const selectedCustomer =
     customers.find((customer) => customer.lift_customer_id === selectedCustomerId) ?? fallbackCustomer;
+  const statusAccessPolicy = statusPolicyDraft ?? workspace?.status_access_policy ?? createStatusAccessPolicyFallback(selectedCustomer);
+  const statusAccessDomains = statusAccessPolicy.approved_email_domains ?? [];
+  const approvedStatusDomainCount = statusAccessDomains.filter((domain) => domain.status === "Approved").length;
+  const suggestedStatusDomainCount = statusAccessDomains.filter((domain) => domain.status === "Suggested").length;
+  const blockedStatusDomainCount = statusAccessDomains.filter((domain) => domain.status === "Blocked").length;
   useEffect(() => {
     void loadWorkspace(selectedCustomer.lift_customer_id);
   }, [selectedCustomer.lift_customer_id]);
+
+  useEffect(() => {
+    setStatusPolicyDraft(workspace?.status_access_policy ?? createStatusAccessPolicyFallback(selectedCustomer));
+    setNewStatusDomain("");
+    setNewStatusDomainStatus("Approved");
+  }, [selectedCustomer, workspace?.status_access_policy]);
 
   useEffect(() => {
     if (!lastPreviewJob || activeGlobalView !== "Customers" || activeCustomerView !== "Manual Import") {
@@ -8821,6 +9037,146 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     <DetailItem label="Manual import" value={importMethods.some((method) => method.type === "Manual upload" && method.status === "Active") ? "Enabled" : "Not active"} />
                     <DetailItem label="Automation" value={scheduledMethodCount ? `${scheduledMethodCount} configured` : "None configured"} />
                   </dl>
+                </div>
+                <div className="panel customer-panel status-access-panel">
+                  <PanelHeader icon={ShieldCheck} title="Public Status Access" detail="Secure status links" />
+                  <div className="status-access-body">
+                    <div className="status-access-grid">
+                      <label className="setup-control">
+                        <span>Access mode</span>
+                        <select
+                          value={statusAccessPolicy.mode}
+                          onChange={(event) =>
+                            updateStatusPolicyDraft({ mode: event.target.value as StatusAccessPolicyMode })
+                          }
+                        >
+                          <option value="Exact email or approved domain">Exact email or approved domain</option>
+                          <option value="Exact email only">Exact email only</option>
+                          <option value="Invite only">Invite only</option>
+                          <option value="Internal only">Internal only</option>
+                        </select>
+                      </label>
+                      <label className="setup-control">
+                        <span>Public request links</span>
+                        <select
+                          value={statusAccessPolicy.allow_public_status_links ? "enabled" : "disabled"}
+                          onChange={(event) =>
+                            updateStatusPolicyDraft({ allow_public_status_links: event.target.value === "enabled" })
+                          }
+                        >
+                          <option value="enabled">Enabled</option>
+                          <option value="disabled">Disabled</option>
+                        </select>
+                      </label>
+                      <button className="primary-button" onClick={() => void saveStatusAccessPolicy()} disabled={workspaceState === "saving"}>
+                        {workspaceState === "saving" ? "Saving" : "Save Access Policy"}
+                      </button>
+                    </div>
+                    <div className="status-access-summary">
+                      <div>
+                        <span>Mode</span>
+                        <strong>{statusAccessPolicy.mode}</strong>
+                        <p>{statusPolicyModeDescription(statusAccessPolicy.mode)}</p>
+                      </div>
+                      <div>
+                        <span>Approved domains</span>
+                        <strong>{approvedStatusDomainCount}</strong>
+                        <p>{suggestedStatusDomainCount ? `${suggestedStatusDomainCount} suggested for review.` : "No pending suggestions."}</p>
+                      </div>
+                      <div>
+                        <span>Blocked domains</span>
+                        <strong>{blockedStatusDomainCount}</strong>
+                        <p>Blocked domains cannot request public status links for this customer.</p>
+                      </div>
+                    </div>
+                    <div className="status-access-add-row">
+                      <label className="setup-control">
+                        <span>Customer email domain</span>
+                        <input
+                          value={newStatusDomain}
+                          onChange={(event) => setNewStatusDomain(event.target.value)}
+                          placeholder="example.com"
+                        />
+                      </label>
+                      <label className="setup-control">
+                        <span>Status</span>
+                        <select
+                          value={newStatusDomainStatus}
+                          onChange={(event) => setNewStatusDomainStatus(event.target.value as StatusAccessDomainStatus)}
+                        >
+                          <option value="Approved">Approved</option>
+                          <option value="Suggested">Suggested</option>
+                          <option value="Blocked">Blocked</option>
+                        </select>
+                      </label>
+                      <button className="secondary-button" onClick={addStatusDomainDraft}>
+                        Add Domain
+                      </button>
+                    </div>
+                    <div className="status-access-domain-wrap">
+                      <table className="status-access-domain-table">
+                        <thead>
+                          <tr>
+                            <th>Domain</th>
+                            <th>Status</th>
+                            <th>Source</th>
+                            <th>Updated</th>
+                            <th>Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {statusAccessDomains.map((domain) => (
+                            <tr key={domain.domain}>
+                              <td>
+                                <strong>{domain.domain}</strong>
+                                {domain.source !== "Admin" ? <span>Inferred from customer/order data</span> : null}
+                              </td>
+                              <td>
+                                <span
+                                  className={`status-access-domain-pill status-access-domain-pill-${domain.status.toLowerCase()}`}
+                                >
+                                  {domain.status}
+                                </span>
+                              </td>
+                              <td>{domain.source}</td>
+                              <td>{displayTimestamp(domain.updated_at)}</td>
+                              <td>
+                                <div className="status-access-actions">
+                                  {domain.status === "Blocked" ? (
+                                    <button
+                                      className="secondary-button"
+                                      onClick={() => updateStatusDomainDraft(domain.domain, { status: "Approved" })}
+                                    >
+                                      Approve
+                                    </button>
+                                  ) : (
+                                    <button
+                                      className="secondary-button"
+                                      onClick={() => updateStatusDomainDraft(domain.domain, { status: "Blocked" })}
+                                    >
+                                      Block
+                                    </button>
+                                  )}
+                                  {domain.source === "Admin" ? (
+                                    <button className="icon-button danger-icon-button" onClick={() => removeStatusDomainDraft(domain.domain)}>
+                                      <Trash2 size={15} />
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {statusAccessDomains.length === 0 ? (
+                        <p className="empty-state">No approved customer domains yet. Exact order emails can still request secure links.</p>
+                      ) : null}
+                    </div>
+                    <p className="status-access-note">
+                      Public requests still send a secure email link before showing status. Approved domains only decide who can request
+                      that link for this customer.
+                    </p>
+                  </div>
                 </div>
               </section>
             ) : null}

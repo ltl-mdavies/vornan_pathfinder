@@ -2955,6 +2955,29 @@ export async function updateOutputRoute(customer: LiftCustomer, routeId: string,
   return workspace;
 }
 
+export async function updateStatusAccessPolicy(customer: LiftCustomer, policyPatch: Partial<StatusAccessPolicy>) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const timestamp = now();
+
+  workspace.status_access_policy = normalizeStatusAccessPolicy(
+    {
+      ...workspace.status_access_policy,
+      ...policyPatch,
+      approved_email_domains:
+        policyPatch.approved_email_domains ?? workspace.status_access_policy.approved_email_domains,
+      updated_at: timestamp
+    },
+    customer,
+    timestamp
+  );
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+
+  return workspace;
+}
+
 export async function listJobs() {
   const store = await readStore();
   return store.jobs;

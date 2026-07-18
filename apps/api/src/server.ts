@@ -79,6 +79,7 @@ import {
   updateImportMethod,
   updateCanonicalRegistryFieldOverride,
   updateOutputRoute,
+  updateStatusAccessPolicy,
   updateTarget,
   renameCanonicalRegistryCustomField,
   upsertLiftProductCatalog,
@@ -2894,6 +2895,23 @@ app.put("/api/customers/:liftCustomerId/output-routes/:routeId", async (req, res
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Output route save failed."
+    });
+  }
+});
+
+app.put("/api/customers/:liftCustomerId/status-access-policy", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const workspace = await updateStatusAccessPolicy(customer, req.body as Partial<StatusAccessPolicy>);
+    const target = await getTarget(workspace.primary_target_id);
+
+    res.json({
+      ...workspace,
+      primary_target: target
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Status access policy save failed."
     });
   }
 });
