@@ -1274,6 +1274,7 @@ async function createPublicStatusLinkForJob(args: {
 async function sendPublicStatusLinkEmail(args: {
   email: string;
   orderNumber: string;
+  customerName?: string;
   statusUrl: string;
   expiresAt: string;
 }) {
@@ -1281,7 +1282,9 @@ async function sendPublicStatusLinkEmail(args: {
     buildStatusLinkEmail({
       to: args.email,
       statusUrl: args.statusUrl,
-      expiresAt: args.expiresAt
+      expiresAt: args.expiresAt,
+      orderNumber: args.orderNumber,
+      customerName: args.customerName
     })
   );
 
@@ -2169,7 +2172,8 @@ app.post("/public/status/request-link", async (req, res) => {
       if (!("error" in link)) {
         await sendPublicStatusLinkEmail({
           email,
-          orderNumber,
+          orderNumber: link.snapshot.order_number || orderNumber,
+          customerName: link.snapshot.customer.submit_customer_name,
           statusUrl: link.status_url,
           expiresAt: link.expires_at
         });

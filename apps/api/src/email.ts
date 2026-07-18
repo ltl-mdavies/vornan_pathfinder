@@ -90,6 +90,8 @@ export function buildStatusLinkEmail(args: {
   to: string;
   statusUrl: string;
   expiresAt: string;
+  orderNumber?: string;
+  customerName?: string;
 }): TransactionalEmail {
   const config = getEmailRuntimeConfig();
   const expires = new Date(args.expiresAt);
@@ -102,19 +104,24 @@ export function buildStatusLinkEmail(args: {
       }).format(expires);
   const safeStatusUrl = escapeHtml(args.statusUrl);
   const safeExpiresLabel = escapeHtml(expiresLabel);
+  const safeOrderNumber = escapeHtml(args.orderNumber?.trim() || "your order");
+  const safeCustomerName = escapeHtml(args.customerName?.trim() || "Vornan");
+  const subjectOrder = args.orderNumber?.trim() ? ` for ${args.orderNumber.trim()}` : "";
 
   return {
     to: [args.to],
     from: config.from,
     replyTo: [config.statusReplyTo],
     category: "status_link",
-    subject: "Your Vornan order status link",
+    subject: `Your Vornan order status link${subjectOrder}`,
     text: [
-      "A secure Vornan order status link was requested.",
+      `A secure Vornan order status link was requested${args.orderNumber ? ` for ${args.orderNumber}` : ""}.`,
       "",
       args.statusUrl,
       "",
       `This link expires ${expiresLabel}.`,
+      "",
+      "The status page can include order progress, proof files, package activity, and shipment details when those are available.",
       "",
       "If you did not request this link, you can ignore this email."
     ].join("\n"),
@@ -128,11 +135,29 @@ export function buildStatusLinkEmail(args: {
       '<tr><td style="padding:28px 30px 18px;">',
       '<div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#355b39;font-weight:800;">Vornan</div>',
       '<h1 style="font-size:28px;line-height:1.15;margin:12px 0 10px;color:#191818;">Your order status link is ready.</h1>',
-      '<p style="font-size:16px;line-height:1.55;margin:0;color:#5c6859;">Use this secure link to view the latest available order status details.</p>',
+      `<p style="font-size:16px;line-height:1.55;margin:0;color:#5c6859;">Use this private link to view the latest available status details for <strong style="color:#191818;">${safeOrderNumber}</strong>.</p>`,
+      "</td></tr>",
+      '<tr><td style="padding:0 30px 8px;">',
+      '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #dfe7da;border-radius:8px;background:#f7f8f5;">',
+      '<tr>',
+      '<td style="padding:14px 16px;border-bottom:1px solid #dfe7da;">',
+      '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#758070;font-weight:800;">Order</div>',
+      `<div style="font-size:17px;line-height:1.35;margin-top:4px;color:#191818;font-weight:800;">${safeOrderNumber}</div>`,
+      "</td>",
+      '<td style="padding:14px 16px;border-bottom:1px solid #dfe7da;">',
+      '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#758070;font-weight:800;">Account</div>',
+      `<div style="font-size:17px;line-height:1.35;margin-top:4px;color:#191818;font-weight:800;">${safeCustomerName}</div>`,
+      "</td>",
+      "</tr>",
+      '<tr><td colspan="2" style="padding:14px 16px;">',
+      '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#758070;font-weight:800;">Status view may include</div>',
+      '<div style="font-size:14px;line-height:1.55;margin-top:5px;color:#5c6859;">Order progress, proof files, package activity, and shipment details when available.</div>',
+      "</td></tr>",
+      "</table>",
       "</td></tr>",
       '<tr><td style="padding:4px 30px 26px;">',
       `<a href="${safeStatusUrl}" style="display:inline-block;background:#345738;color:#ffffff;text-decoration:none;font-weight:800;font-size:16px;padding:14px 18px;border-radius:6px;">View order status</a>`,
-      `<p style="font-size:14px;line-height:1.5;margin:20px 0 0;color:#6f796b;">This link expires ${safeExpiresLabel}.</p>`,
+      `<p style="font-size:14px;line-height:1.5;margin:20px 0 0;color:#6f796b;">This private link expires ${safeExpiresLabel}.</p>`,
       '<p style="font-size:13px;line-height:1.5;margin:14px 0 0;color:#7b8477;">If you did not request this link, you can ignore this email.</p>',
       "</td></tr>",
       "</table>",

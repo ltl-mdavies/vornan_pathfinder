@@ -10171,25 +10171,81 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <span>Status Snapshot Ready</span>
                   <strong>{internalOrderLookupResult.snapshot.order_number}</strong>
                   <em>
-                    {internalOrderLookupResult.match.customer_name} · {displayJobId(internalOrderLookupResult.match.job_id)}
+                    {internalOrderLookupResult.match.customer_name} · {displayJobId(internalOrderLookupResult.match.job_id)} · Refreshed{" "}
+                    {displayTimestamp(internalOrderLookupResult.snapshot.refreshed_at)}
                   </em>
+                  <div className="internal-order-match-summary">
+                    <div>
+                      <span>State</span>
+                      <strong>{internalOrderLookupResult.match.job_state}</strong>
+                    </div>
+                    <div>
+                      <span>Source</span>
+                      <strong>{internalOrderLookupResult.match.source_order_id}</strong>
+                    </div>
+                    <div>
+                      <span>Route</span>
+                      <strong>{internalOrderLookupResult.snapshot.route.name}</strong>
+                    </div>
+                    <div>
+                      <span>Lines</span>
+                      <strong>{internalOrderLookupResult.snapshot.lines.length}</strong>
+                    </div>
+                    <div>
+                      <span>Proofs</span>
+                      <strong>{internalOrderLookupResult.snapshot.proofs.length}</strong>
+                    </div>
+                    <div>
+                      <span>Packages</span>
+                      <strong>{internalOrderLookupResult.snapshot.packages.length}</strong>
+                    </div>
+                    <div>
+                      <span>Issues</span>
+                      <strong>{internalOrderLookupResult.snapshot.issues.length}</strong>
+                    </div>
+                  </div>
                 </div>
-                <button
-                  className="secondary-button"
-                  onClick={() => {
-                    const matchedJob = allJobs.find(
-                      (job) =>
-                        job.customer_id === internalOrderLookupResult.match.customer_id &&
-                        job.job_id === internalOrderLookupResult.match.job_id
-                    );
-                    if (matchedJob) {
-                      void openJobDetail(matchedJob);
+                <div className="internal-order-match-actions">
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      const matchedJob = allJobs.find(
+                        (job) =>
+                          job.customer_id === internalOrderLookupResult.match.customer_id &&
+                          job.job_id === internalOrderLookupResult.match.job_id
+                      );
+                      if (matchedJob) {
+                        void openJobDetail(matchedJob);
+                      }
+                      setOrderSnapshotResult(internalOrderLookupResult.snapshot);
+                    }}
+                  >
+                    Open Match
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      const matchedJob = allJobs.find(
+                        (job) =>
+                          job.customer_id === internalOrderLookupResult.match.customer_id &&
+                          job.job_id === internalOrderLookupResult.match.job_id
+                      );
+                      if (matchedJob) {
+                        void createStatusLink(matchedJob);
+                      }
+                    }}
+                    disabled={
+                      statusLinkState === "loading" ||
+                      !allJobs.some(
+                        (job) =>
+                          job.customer_id === internalOrderLookupResult.match.customer_id &&
+                          job.job_id === internalOrderLookupResult.match.job_id
+                      )
                     }
-                    setOrderSnapshotResult(internalOrderLookupResult.snapshot);
-                  }}
-                >
-                  Open Match
-                </button>
+                  >
+                    {statusLinkState === "loading" ? "Creating link" : "Create Public Link"}
+                  </button>
+                </div>
               </div>
             ) : null}
             <table>
