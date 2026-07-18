@@ -89,9 +89,18 @@ Public order status links:
 
 - `PATHFINDER_PUBLIC_STATUS_BASE_URL=https://status.vornan.co`
 - `PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS=30`
-- `PATHFINDER_STATUS_EMAIL_MODE=log` logs generated links until email delivery is wired.
-- `PATHFINDER_PUBLIC_STATUS_RETURN_LINK=true` may be used only for local smoke testing.
+- `PATHFINDER_STATUS_EMAIL_MODE=log|ses` controls local log mode versus SES delivery.
+- `PATHFINDER_EMAIL_FROM=Vornan Updates <notifications@notify.vornan.co>`
+- `PATHFINDER_STATUS_REPLY_TO=support@vornan.co`
+- `PATHFINDER_ORDERS_REPLY_TO=orders@vornan.co`
+- `PATHFINDER_SYSTEM_REPLY_TO=ops@vornan.co`
+- `PATHFINDER_SES_REGION=us-east-1`
+- `PATHFINDER_SES_CONFIGURATION_SET=pathfinder-transactional`
+- `PATHFINDER_PUBLIC_STATUS_RATE_LIMIT_PEPPER` should be set as a secret before public traffic.
+- `PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED=true` requires the requested email to match an order/customer/contact email before a public status link is sent.
+- `PATHFINDER_PUBLIC_STATUS_RETURN_LINK=true` only returns debug links when `PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK=true` and the API is not running in Lambda.
 - Public lookup requests accept order number + email and return the same neutral response whether or not a match is found.
+- Status-link delivery logs are sanitized; raw tokens and full status URLs should not appear in production logs.
 
 API Gateway/Lambda deploy scaffold:
 

@@ -2,7 +2,7 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
@@ -104,6 +104,7 @@ import {
   type TargetEnvironment
 } from "./store.js";
 import { getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
+import { buildStatusLinkEmail, maskEmailAddress, sendTransactionalEmail } from "./email.js";
 
 export const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -117,8 +118,18 @@ const liftProductCatalogBaseUrl =
   process.env.LIFT_PRODUCT_CATALOG_BASE_URL ?? "https://ltlco.lifterp.com/ords/api/lift/erp";
 const publicStatusBaseUrl = process.env.PATHFINDER_PUBLIC_STATUS_BASE_URL ?? "https://status.vornan.co";
 const publicStatusTokenDays = Number(process.env.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS ?? 30);
-const publicStatusReturnLink = process.env.PATHFINDER_PUBLIC_STATUS_RETURN_LINK === "true";
-const publicStatusEmailMode = process.env.PATHFINDER_STATUS_EMAIL_MODE ?? "log";
+const publicStatusReturnLink =
+  process.env.PATHFINDER_PUBLIC_STATUS_RETURN_LINK === "true" &&
+  process.env.PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK === "true" &&
+  process.env.PATHFINDER_RUNTIME !== "lambda";
+const publicStatusRateLimitWindowMs = Number(process.env.PATHFINDER_PUBLIC_STATUS_RATE_LIMIT_WINDOW_MS ?? 15 * 60 * 1000);
+const publicStatusRateLimitMax = Number(process.env.PATHFINDER_PUBLIC_STATUS_RATE_LIMIT_MAX ?? 5);
+const publicStatusCooldownMs = Number(process.env.PATHFINDER_PUBLIC_STATUS_COOLDOWN_MS ?? 60 * 1000);
+const publicStatusRateLimitPepper =
+  process.env.PATHFINDER_PUBLIC_STATUS_RATE_LIMIT_PEPPER ??
+  process.env.FIREBASE_PROJECT_ID ??
+  "pathfinder-public-status";
+const publicStatusEmailMatchRequired = process.env.PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED !== "false";
 const allowedCorsOrigins = (process.env.PATHFINDER_ALLOWED_ORIGINS ?? "http://127.0.0.1:5173,http://localhost:5173")
   .split(",")
   .map((origin) => origin.trim())
@@ -147,7 +158,12 @@ const liveCustomerSubmitAllowed = process.env.PATHFINDER_ALLOW_LIVE_CUSTOMER_SUB
 const localCustomerSeedUrl = process.env.PATHFINDER_CUSTOMER_SEED_FILE
   ? pathToFileURL(process.env.PATHFINDER_CUSTOMER_SEED_FILE)
   : new URL("../../../data/lift-customers.sample.csv", import.meta.url);
+const publicStatusRateLimits = new Map<string, { count: number; resetAt: number; lastAt: number }>();
 
+app.use((_req, res, next) => {
+  res.setHeader("Referrer-Policy", "no-referrer");
+  next();
+});
 app.use(cors({ origin: allowedCorsOrigins }));
 app.use(express.json({ limit: "10mb" }));
 
@@ -1062,6 +1078,66 @@ function hashStatusToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
+function hashPublicLogValue(value: unknown) {
+  return createHmac("sha256", publicStatusRateLimitPepper)
+    .update(valueAsString(value).toLowerCase())
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function publicStatusRequestIp(req: Request) {
+  const forwardedFor = valueAsString(req.headers["x-forwarded-for"]).split(",")[0]?.trim();
+  return forwardedFor || req.ip || "unknown";
+}
+
+function isPublicStatusRequestRateLimited(req: Request, email: string, orderNumber: string) {
+  const now = Date.now();
+  const hashedIp = hashPublicLogValue(publicStatusRequestIp(req));
+  const hashedEmail = hashPublicLogValue(email);
+  const hashedOrder = hashPublicLogValue(orderNumber);
+  const keys = [
+    `ip:${hashedIp}`,
+    `email:${hashedEmail}`,
+    `order:${hashedOrder}`,
+    `pair:${hashedOrder}:${hashedEmail}`
+  ];
+
+  for (const key of keys) {
+    const current = publicStatusRateLimits.get(key);
+
+    if (!current || current.resetAt <= now) {
+      continue;
+    }
+
+    if (now - current.lastAt < publicStatusCooldownMs || current.count >= publicStatusRateLimitMax) {
+      console.info("[pathfinder-status-link-rate-limited]", {
+        key_type: key.split(":")[0],
+        key_hash: key.split(":").slice(1).join(":"),
+        reset_at: new Date(current.resetAt).toISOString()
+      });
+      return true;
+    }
+  }
+
+  for (const key of keys) {
+    const current = publicStatusRateLimits.get(key);
+
+    if (!current || current.resetAt <= now) {
+      publicStatusRateLimits.set(key, {
+        count: 1,
+        resetAt: now + publicStatusRateLimitWindowMs,
+        lastAt: now
+      });
+      continue;
+    }
+
+    current.count += 1;
+    current.lastAt = now;
+  }
+
+  return false;
+}
+
 function statusUrlForToken(token: string) {
   return `${publicStatusBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(token)}`;
 }
@@ -1120,7 +1196,7 @@ function canSendPublicStatusLinkToEmail(customer: LiftCustomer, job: ProcessingJ
   const candidates = Array.from(new Set(jobEmailCandidates(customer, job)));
 
   if (candidates.length === 0) {
-    return true;
+    return !publicStatusEmailMatchRequired;
   }
 
   return candidates.includes(normalizeEmail(email));
@@ -1201,14 +1277,22 @@ async function sendPublicStatusLinkEmail(args: {
   statusUrl: string;
   expiresAt: string;
 }) {
-  if (publicStatusEmailMode === "log") {
-    console.info("[pathfinder-status-link]", {
+  const result = await sendTransactionalEmail(
+    buildStatusLinkEmail({
       to: args.email,
-      order_number: args.orderNumber,
-      status_url: args.statusUrl,
-      expires_at: args.expiresAt
-    });
-  }
+      statusUrl: args.statusUrl,
+      expiresAt: args.expiresAt
+    })
+  );
+
+  console.info("[pathfinder-status-link-email]", {
+    mode: result.mode,
+    status: result.status,
+    provider_message_id: result.provider_message_id ?? null,
+    to: maskEmailAddress(args.email),
+    order_number_hash: hashPublicLogValue(args.orderNumber),
+    expires_at: args.expiresAt
+  });
 }
 
 function synthesizeParsedRows(sourceGrid: SourceGrid): ParsedSourceRow[] {
@@ -2051,6 +2135,11 @@ app.get("/public/status/:token", async (req, res) => {
 });
 
 app.post("/public/status/request-link", async (req, res) => {
+  const acceptedResponse = {
+    status: "accepted",
+    message: "If we can match this request, we will send a secure order status link."
+  };
+
   try {
     const orderNumber = valueAsString(req.body?.order_number);
     const email = valueAsString(req.body?.email).toLowerCase();
@@ -2059,6 +2148,11 @@ app.post("/public/status/request-link", async (req, res) => {
       res.status(400).json({
         error: "Enter an order number and a valid email address."
       });
+      return;
+    }
+
+    if (isPublicStatusRequestRateLimited(req, email, orderNumber)) {
+      res.status(202).json(acceptedResponse);
       return;
     }
 
@@ -2083,21 +2177,21 @@ app.post("/public/status/request-link", async (req, res) => {
       }
     } else if (match) {
       console.info("[pathfinder-status-link-rejected]", {
-        order_number: orderNumber,
-        requested_email: email,
+        order_number_hash: hashPublicLogValue(orderNumber),
+        requested_email: maskEmailAddress(email),
         reason: "email_not_associated_with_order"
       });
     }
 
     res.status(202).json({
-      status: "accepted",
-      message: "If we can match this request, we will send a secure order status link.",
+      ...acceptedResponse,
       debug_status_url: debugStatusUrl
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("[pathfinder-status-link-error]", {
       error: error instanceof Error ? error.message : "Order status request failed."
     });
+    res.status(202).json(acceptedResponse);
   }
 });
 

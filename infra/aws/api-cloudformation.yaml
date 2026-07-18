@@ -22,6 +22,55 @@ Parameters:
   PublicStatusBaseUrl:
     Type: String
     Default: "https://status.vornan.co"
+  PublicStatusTokenDays:
+    Type: Number
+    Default: 30
+  PublicStatusReturnLink:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+  PublicStatusEmailMode:
+    Type: String
+    Default: "log"
+    AllowedValues:
+      - log
+      - ses
+  PublicStatusEmailDebugReturnLink:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+  EmailFrom:
+    Type: String
+    Default: "Vornan Updates <notifications@notify.vornan.co>"
+  StatusReplyTo:
+    Type: String
+    Default: "support@vornan.co"
+  OrdersReplyTo:
+    Type: String
+    Default: "orders@vornan.co"
+  SystemReplyTo:
+    Type: String
+    Default: "ops@vornan.co"
+  SesRegion:
+    Type: String
+    Default: "us-east-1"
+  SesConfigurationSet:
+    Type: String
+    Default: "pathfinder-transactional"
+  PublicStatusRateLimitPepper:
+    Type: String
+    Default: ""
+    NoEcho: true
+  PublicStatusEmailMatchRequired:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
   RequireFirebaseAuth:
     Type: String
     Default: "true"
@@ -132,6 +181,12 @@ Resources:
                   - secretsmanager:PutSecretValue
                   - secretsmanager:UpdateSecret
                 Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretPrefix}*"
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                Resource:
+                  - !Sub "arn:aws:ses:${SesRegion}:${AWS::AccountId}:identity/notify.vornan.co"
+                  - !Sub "arn:aws:ses:${SesRegion}:${AWS::AccountId}:configuration-set/${SesConfigurationSet}"
 
   PathfinderApiFunction:
     Type: AWS::Lambda::Function
@@ -153,6 +208,18 @@ Resources:
           PATHFINDER_CUSTOMER_SEED_FILE: "/var/task/data/lift-customers.sample.csv"
           PATHFINDER_ALLOWED_ORIGINS: !Ref AllowedOrigins
           PATHFINDER_PUBLIC_STATUS_BASE_URL: !Ref PublicStatusBaseUrl
+          PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS: !Ref PublicStatusTokenDays
+          PATHFINDER_PUBLIC_STATUS_RETURN_LINK: !Ref PublicStatusReturnLink
+          PATHFINDER_STATUS_EMAIL_MODE: !Ref PublicStatusEmailMode
+          PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK: !Ref PublicStatusEmailDebugReturnLink
+          PATHFINDER_EMAIL_FROM: !Ref EmailFrom
+          PATHFINDER_STATUS_REPLY_TO: !Ref StatusReplyTo
+          PATHFINDER_ORDERS_REPLY_TO: !Ref OrdersReplyTo
+          PATHFINDER_SYSTEM_REPLY_TO: !Ref SystemReplyTo
+          PATHFINDER_SES_REGION: !Ref SesRegion
+          PATHFINDER_SES_CONFIGURATION_SET: !Ref SesConfigurationSet
+          PATHFINDER_PUBLIC_STATUS_RATE_LIMIT_PEPPER: !Ref PublicStatusRateLimitPepper
+          PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED: !Ref PublicStatusEmailMatchRequired
           PATHFINDER_REQUIRE_AUTH: !Ref RequireFirebaseAuth
           PATHFINDER_ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
           FIREBASE_PROJECT_ID: !Ref FirebaseProjectId
