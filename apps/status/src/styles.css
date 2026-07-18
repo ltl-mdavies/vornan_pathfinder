@@ -50,7 +50,7 @@ input {
 }
 
 .hero,
-.token-entry,
+.status-request,
 .loading-card,
 .summary-grid,
 .lookup-grid,
@@ -328,7 +328,7 @@ a:hover {
   color: #1f241e;
 }
 
-.token-entry {
+.status-request {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 430px);
   gap: 32px;
@@ -337,11 +337,19 @@ a:hover {
   border-radius: 8px;
 }
 
-.token-entry h1 {
+.status-request h1 {
   font-size: clamp(2rem, 4vw, 3.85rem);
 }
 
-.token-entry form {
+.status-error-card {
+  min-height: 100%;
+  padding: 22px;
+  border: 1px solid #dce5d8;
+  border-radius: 8px;
+  background: #fbfcfa;
+}
+
+.status-request form {
   display: grid;
   gap: 12px;
   padding: 22px;
@@ -380,6 +388,37 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.request-message {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #dce5d8;
+  border-radius: 8px;
+  background: #fff;
+  color: #315c3b;
+  font-size: 0.95rem;
+}
+
+.request-message.error {
+  border-color: #f0d0cb;
+  background: #fff5f3;
+  color: #9d352d;
+}
+
+.debug-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d6e0d1;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .loading-card {
   display: flex;
   gap: 14px;
@@ -412,7 +451,7 @@ button {
   .section-heading,
   .privacy-note,
   .issue-strip,
-  .token-entry {
+  .status-request {
     display: grid;
     grid-template-columns: 1fr;
   }
@@ -423,7 +462,7 @@ button {
   }
 
   .hero,
-  .token-entry {
+  .status-request {
     padding: 24px;
   }
 

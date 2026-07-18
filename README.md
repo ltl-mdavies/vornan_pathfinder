@@ -85,6 +85,14 @@ This writes a Lambda-ready handler bundle to `outputs/api-lambda/lambda.mjs`.
 Use handler `lambda.handler` with Node.js 20.x and set
 `PATHFINDER_CUSTOMER_SEED_FILE=/var/task/data/lift-customers.sample.csv`.
 
+Public order status links:
+
+- `PATHFINDER_PUBLIC_STATUS_BASE_URL=https://status.vornan.co`
+- `PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS=30`
+- `PATHFINDER_STATUS_EMAIL_MODE=log` logs generated links until email delivery is wired.
+- `PATHFINDER_PUBLIC_STATUS_RETURN_LINK=true` may be used only for local smoke testing.
+- Public lookup requests accept order number + email and return the same neutral response whether or not a match is found.
+
 API Gateway/Lambda deploy scaffold:
 
 ```bash

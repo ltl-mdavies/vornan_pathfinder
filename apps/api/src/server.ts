@@ -117,6 +117,8 @@ const liftProductCatalogBaseUrl =
   process.env.LIFT_PRODUCT_CATALOG_BASE_URL ?? "https://ltlco.lifterp.com/ords/api/lift/erp";
 const publicStatusBaseUrl = process.env.PATHFINDER_PUBLIC_STATUS_BASE_URL ?? "https://status.vornan.co";
 const publicStatusTokenDays = Number(process.env.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS ?? 30);
+const publicStatusReturnLink = process.env.PATHFINDER_PUBLIC_STATUS_RETURN_LINK === "true";
+const publicStatusEmailMode = process.env.PATHFINDER_STATUS_EMAIL_MODE ?? "log";
 const allowedCorsOrigins = (process.env.PATHFINDER_ALLOWED_ORIGINS ?? "http://127.0.0.1:5173,http://localhost:5173")
   .split(",")
   .map((origin) => origin.trim())
@@ -1064,6 +1066,151 @@ function statusUrlForToken(token: string) {
   return `${publicStatusBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(token)}`;
 }
 
+function normalizeOrderLookupValue(value: unknown) {
+  return valueAsString(value).toUpperCase().replace(/\s+/g, "");
+}
+
+function rawBodyOrderCandidates(rawBody: unknown) {
+  if (!rawBody || typeof rawBody !== "object") {
+    return [];
+  }
+
+  const record = rawBody as Record<string, unknown>;
+  return [
+    record.order_number,
+    record.ORDER_NUMBER,
+    record.orderNumber,
+    record.lift_order_id,
+    record.LIFT_ORDER_ID
+  ];
+}
+
+function jobOrderLookupCandidates(job: ProcessingJobPreview, attempts: SubmitAttempt[]) {
+  return [
+    job.target_order_number,
+    job.lift_payload.order.ext_id,
+    job.canonical_order.order.external_order_id,
+    job.canonical_order.source.source_record_id,
+    job.submit_request_masked.headers.Ext_ID,
+    ...attempts.flatMap((attempt) => [
+      attempt.response.lift_order_id,
+      attempt.ext_id,
+      ...rawBodyOrderCandidates(attempt.response.raw_body)
+    ])
+  ].filter(Boolean);
+}
+
+function normalizeEmail(value: unknown) {
+  return valueAsString(value).trim().toLowerCase();
+}
+
+function jobEmailCandidates(customer: LiftCustomer, job: ProcessingJobPreview) {
+  const contacts = Array.isArray(job.canonical_order.contacts) ? job.canonical_order.contacts : [];
+  return [
+    customer.default_invoice_email_address,
+    job.canonical_order.order.shipping?.email,
+    job.lift_payload.order.shipping?.email,
+    ...contacts.map((contact) => contact.email)
+  ]
+    .map(normalizeEmail)
+    .filter(Boolean);
+}
+
+function canSendPublicStatusLinkToEmail(customer: LiftCustomer, job: ProcessingJobPreview, email: string) {
+  const candidates = Array.from(new Set(jobEmailCandidates(customer, job)));
+
+  if (candidates.length === 0) {
+    return true;
+  }
+
+  return candidates.includes(normalizeEmail(email));
+}
+
+async function findPathfinderJobByOrderNumber(orderNumber: string) {
+  const normalizedOrderNumber = normalizeOrderLookupValue(orderNumber);
+
+  if (!normalizedOrderNumber) {
+    return null;
+  }
+
+  const jobs = [...(await listJobs())].sort((first, second) => Date.parse(second.updated_at) - Date.parse(first.updated_at));
+
+  for (const job of jobs) {
+    const customer = await findLiftCustomer(job.customer_id);
+    const attempts = await listSubmitAttemptsForJob(customer, job.job_id);
+    const matched = jobOrderLookupCandidates(job, attempts).some(
+      (candidate) => normalizeOrderLookupValue(candidate) === normalizedOrderNumber
+    );
+
+    if (matched) {
+      return {
+        customer,
+        job,
+        attempts
+      };
+    }
+  }
+
+  return null;
+}
+
+async function createPublicStatusLinkForJob(args: {
+  customer: LiftCustomer;
+  jobId: string;
+  createdByEmail?: string | null;
+}) {
+  const result = await buildInternalOrderSnapshotForJob(args.customer, args.jobId);
+
+  if ("error" in result) {
+    return result;
+  }
+
+  const snapshot = publicOrderStatusSnapshotFromInternal(result.snapshot);
+  const rawToken = randomBytes(32).toString("base64url");
+  const nowIso = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + Math.max(1, publicStatusTokenDays) * 24 * 60 * 60 * 1000);
+  const tokenRecord = {
+    token_hash: hashStatusToken(rawToken),
+    order_key: snapshot.order_key,
+    customer_id: args.customer.lift_customer_id,
+    job_id: result.context.job.job_id,
+    order_number: result.context.orderNumber,
+    status: "Active" as const,
+    created_at: nowIso,
+    updated_at: nowIso,
+    expires_at: expiresAt.toISOString(),
+    expires_at_epoch: Math.floor(expiresAt.getTime() / 1000),
+    created_by_email: args.createdByEmail ?? null
+  };
+
+  await persistPublicOrderStatusSnapshot(snapshot);
+  await persistOrderStatusToken(tokenRecord);
+
+  return {
+    status_url: statusUrlForToken(rawToken),
+    token: rawToken,
+    expires_at: tokenRecord.expires_at,
+    snapshot,
+    context: result.context
+  };
+}
+
+async function sendPublicStatusLinkEmail(args: {
+  email: string;
+  orderNumber: string;
+  statusUrl: string;
+  expiresAt: string;
+}) {
+  if (publicStatusEmailMode === "log") {
+    console.info("[pathfinder-status-link]", {
+      to: args.email,
+      order_number: args.orderNumber,
+      status_url: args.statusUrl,
+      expires_at: args.expiresAt
+    });
+  }
+}
+
 function synthesizeParsedRows(sourceGrid: SourceGrid): ParsedSourceRow[] {
   return sourceGrid.rows.map((values, index) => ({
     sheet_name: "Imported Grid",
@@ -1899,6 +2046,57 @@ app.get("/public/status/:token", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Order status lookup failed."
+    });
+  }
+});
+
+app.post("/public/status/request-link", async (req, res) => {
+  try {
+    const orderNumber = valueAsString(req.body?.order_number);
+    const email = valueAsString(req.body?.email).toLowerCase();
+
+    if (!orderNumber || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({
+        error: "Enter an order number and a valid email address."
+      });
+      return;
+    }
+
+    const match = await findPathfinderJobByOrderNumber(orderNumber);
+    let debugStatusUrl: string | undefined;
+
+    if (match && canSendPublicStatusLinkToEmail(match.customer, match.job, email)) {
+      const link = await createPublicStatusLinkForJob({
+        customer: match.customer,
+        jobId: match.job.job_id,
+        createdByEmail: email
+      });
+
+      if (!("error" in link)) {
+        await sendPublicStatusLinkEmail({
+          email,
+          orderNumber,
+          statusUrl: link.status_url,
+          expiresAt: link.expires_at
+        });
+        debugStatusUrl = publicStatusReturnLink ? link.status_url : undefined;
+      }
+    } else if (match) {
+      console.info("[pathfinder-status-link-rejected]", {
+        order_number: orderNumber,
+        requested_email: email,
+        reason: "email_not_associated_with_order"
+      });
+    }
+
+    res.status(202).json({
+      status: "accepted",
+      message: "If we can match this request, we will send a secure order status link.",
+      debug_status_url: debugStatusUrl
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Order status request failed."
     });
   }
 });
@@ -2922,10 +3120,19 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId/order-snapshot", async (req,
   }
 });
 
-app.post("/api/customers/:liftCustomerId/jobs/:jobId/status-link", async (req, res) => {
+app.get("/api/order-status/lookup", async (req, res) => {
   try {
-    const customer = await findLiftCustomer(req.params.liftCustomerId);
-    const result = await buildInternalOrderSnapshotForJob(customer, req.params.jobId);
+    const orderNumber = typeof req.query.order_number === "string" ? req.query.order_number : "";
+    const match = await findPathfinderJobByOrderNumber(orderNumber);
+
+    if (!match) {
+      res.status(404).json({
+        error: "No Pathfinder job matched that order number."
+      });
+      return;
+    }
+
+    const result = await buildInternalOrderSnapshotForJob(match.customer, match.job.job_id);
 
     if ("error" in result) {
       res.status(result.errorStatus ?? 500).json({
@@ -2934,32 +3141,45 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/status-link", async (req, r
       return;
     }
 
-    const snapshot = publicOrderStatusSnapshotFromInternal(result.snapshot);
-    const rawToken = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(Date.now() + Math.max(1, publicStatusTokenDays) * 24 * 60 * 60 * 1000);
-    const tokenRecord = {
-      token_hash: hashStatusToken(rawToken),
-      order_key: snapshot.order_key,
-      customer_id: customer.lift_customer_id,
-      job_id: result.context.job.job_id,
-      order_number: result.context.orderNumber,
-      status: "Active" as const,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      expires_at: expiresAt.toISOString(),
-      expires_at_epoch: Math.floor(expiresAt.getTime() / 1000),
-      created_by_email:
-        typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null
-    };
+    res.json({
+      match: {
+        customer_id: match.customer.lift_customer_id,
+        customer_name: match.customer.customer_name,
+        job_id: match.job.job_id,
+        job_state: match.job.state,
+        source_order_id: match.job.lift_payload.order.ext_id,
+        target_order_number: result.context.orderNumber
+      },
+      snapshot: result.snapshot
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Internal order status lookup failed."
+    });
+  }
+});
 
-    await persistPublicOrderStatusSnapshot(snapshot);
-    await persistOrderStatusToken(tokenRecord);
+app.post("/api/customers/:liftCustomerId/jobs/:jobId/status-link", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const result = await createPublicStatusLinkForJob({
+      customer,
+      jobId: req.params.jobId,
+      createdByEmail: typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null
+    });
+
+    if ("error" in result) {
+      res.status(result.errorStatus ?? 500).json({
+        error: result.error
+      });
+      return;
+    }
 
     res.status(201).json({
-      status_url: statusUrlForToken(rawToken),
-      token: rawToken,
-      expires_at: tokenRecord.expires_at,
-      snapshot
+      status_url: result.status_url,
+      token: result.token,
+      expires_at: result.expires_at,
+      snapshot: result.snapshot
     });
   } catch (error) {
     res.status(500).json({

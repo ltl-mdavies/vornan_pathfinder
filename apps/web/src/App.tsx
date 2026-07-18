@@ -607,6 +607,18 @@ interface PublicStatusLinkResult {
   };
 }
 
+interface InternalOrderStatusLookupResult {
+  match: {
+    customer_id: string;
+    customer_name: string;
+    job_id: string;
+    job_state: ProcessingState;
+    source_order_id: string;
+    target_order_number: string;
+  };
+  snapshot: PathfinderOrderSnapshot;
+}
+
 interface RouteDiagnosticItem {
   item_id: string;
   label: string;
@@ -2840,6 +2852,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [orderSnapshotResult, setOrderSnapshotResult] = useState<PathfinderOrderSnapshot | null>(null);
   const [statusLinkState, setStatusLinkState] = useState<"idle" | "loading" | "error">("idle");
   const [statusLinkResult, setStatusLinkResult] = useState<PublicStatusLinkResult | null>(null);
+  const [internalOrderLookupNumber, setInternalOrderLookupNumber] = useState("");
+  const [internalOrderLookupState, setInternalOrderLookupState] = useState<"idle" | "loading" | "error">("idle");
+  const [internalOrderLookupResult, setInternalOrderLookupResult] = useState<InternalOrderStatusLookupResult | null>(null);
   const [certificationRefreshState, setCertificationRefreshState] = useState<"idle" | "loading" | "error">("idle");
   const certificationRefreshKeyRef = useRef("");
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("sandbox-ltl-demo-1249");
@@ -3177,6 +3192,40 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Public status link creation failed.");
       setStatusLinkState("error");
+    }
+  }
+
+  async function lookupInternalOrderStatus() {
+    const orderNumber = internalOrderLookupNumber.trim();
+
+    if (!orderNumber) {
+      setWorkspaceMessage("Enter a Lift or source order number to look up.");
+      setInternalOrderLookupState("error");
+      return;
+    }
+
+    setInternalOrderLookupState("loading");
+    setInternalOrderLookupResult(null);
+    try {
+      const params = new URLSearchParams({ order_number: orderNumber });
+      const response = await fetch(`${apiBaseUrl}/api/order-status/lookup?${params.toString()}`);
+      const payload = await readJsonResponse<InternalOrderStatusLookupResult>(response);
+      const matchedJob = allJobs.find(
+        (job) => job.customer_id === payload.match.customer_id && job.job_id === payload.match.job_id
+      );
+
+      if (matchedJob) {
+        await openJobDetail(matchedJob);
+      }
+
+      setOrderSnapshotResult(payload.snapshot);
+      setOrderSnapshotState("idle");
+      setInternalOrderLookupResult(payload);
+      setWorkspaceMessage(`Order status loaded for ${payload.snapshot.order_number}.`);
+      setInternalOrderLookupState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Internal order lookup failed.");
+      setInternalOrderLookupState("error");
     }
   }
 
@@ -10092,6 +10141,57 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         {activeGlobalView === "Jobs" ? (
           <section className="panel jobs-panel">
             <PanelHeader icon={Archive} title="Processing Jobs" detail="Global history" />
+            <div className="internal-order-lookup">
+              <div>
+                <p className="eyebrow">Internal Order Lookup</p>
+                <h3>Find any Pathfinder order.</h3>
+                <span>Search by Lift order number, source order number, or submit Ext_ID.</span>
+              </div>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void lookupInternalOrderStatus();
+                }}
+              >
+                <input
+                  value={internalOrderLookupNumber}
+                  onChange={(event) => setInternalOrderLookupNumber(event.target.value)}
+                  placeholder="A0219986 or AS360-30904511"
+                  aria-label="Order number"
+                />
+                <button className="primary-button" type="submit" disabled={internalOrderLookupState === "loading"}>
+                  <Search size={16} />
+                  {internalOrderLookupState === "loading" ? "Looking up" : "Lookup Order"}
+                </button>
+              </form>
+            </div>
+            {internalOrderLookupResult ? (
+              <div className="latest-attempt-callout public-status-link-callout internal-order-match">
+                <div>
+                  <span>Matched Order</span>
+                  <strong>{internalOrderLookupResult.snapshot.order_number}</strong>
+                  <em>
+                    {internalOrderLookupResult.match.customer_name} · {displayJobId(internalOrderLookupResult.match.job_id)}
+                  </em>
+                </div>
+                <button
+                  className="secondary-button"
+                  onClick={() => {
+                    const matchedJob = allJobs.find(
+                      (job) =>
+                        job.customer_id === internalOrderLookupResult.match.customer_id &&
+                        job.job_id === internalOrderLookupResult.match.job_id
+                    );
+                    if (matchedJob) {
+                      void openJobDetail(matchedJob);
+                    }
+                    setOrderSnapshotResult(internalOrderLookupResult.snapshot);
+                  }}
+                >
+                  Open Match
+                </button>
+              </div>
+            ) : null}
             <table>
               <thead>
                 <tr>

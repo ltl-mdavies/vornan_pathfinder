@@ -1238,3 +1238,16 @@ What changed:
 - Local development still remains open by default unless `VITE_AUTH_REQUIRED=true` is explicitly set.
 - If production auth is required but Firebase web config is unavailable, the public app shows the private preview/coming-soon gate rather than the portal.
 - Updated README production auth notes to document the fail-closed behavior.
+
+## 2026-07-18 - Secure Public Status Request Flow
+
+Added the first customer-facing order status request path and an internal lookup utility for authenticated Pathfinder users.
+
+What changed:
+
+- Added `POST /public/status/request-link` so `status.vornan.co` can accept an order number and email address, then issue a private tokenized status link when Pathfinder can safely match the request.
+- Kept the public request response neutral whether or not an order is found, so the endpoint does not reveal which order numbers exist.
+- Added an email association check using known customer/order/contact emails before creating public links.
+- Added `PATHFINDER_STATUS_EMAIL_MODE=log` as the current delivery mode, with `PATHFINDER_PUBLIC_STATUS_RETURN_LINK=true` reserved for local smoke testing.
+- Added authenticated internal order lookup on the admin Jobs page for any Pathfinder job by Lift order number, source order number, or submit Ext_ID.
+- Updated the public status app so the default page asks for order number + email, while token URLs still render the order, proof, and package snapshot.

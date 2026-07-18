@@ -4081,6 +4081,58 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+.internal-order-lookup {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.75fr) minmax(360px, 1.25fr);
+  gap: 14px;
+  align-items: end;
+  padding: 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(245, 247, 241, 0.72);
+}
+
+.internal-order-lookup h3 {
+  margin: 4px 0 6px;
+  color: var(--text-primary);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.internal-order-lookup span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.internal-order-lookup form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.internal-order-lookup input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 750;
+  outline: none;
+}
+
+.internal-order-lookup input:focus {
+  border-color: rgba(57, 82, 59, 0.45);
+  box-shadow: 0 0 0 3px rgba(179, 213, 89, 0.2);
+}
+
+.internal-order-match {
+  padding-top: 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
 .job-detail-grid,
 .job-detail-code-grid {
   display: grid;
@@ -6390,9 +6442,16 @@ td {
   }
 
   .dashboard-work-item,
-  .dashboard-health-row {
+  .dashboard-health-row,
+  .internal-order-lookup,
+  .internal-order-lookup form {
     grid-template-columns: 1fr;
     justify-items: start;
+  }
+
+  .internal-order-lookup form,
+  .internal-order-lookup .primary-button {
+    width: 100%;
   }
 
   .dashboard-work-meta,

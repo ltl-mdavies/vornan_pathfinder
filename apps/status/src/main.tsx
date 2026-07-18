@@ -103,6 +103,12 @@ type PublicStatusResponse = {
   };
 };
 
+type StatusRequestResponse = {
+  status: string;
+  message: string;
+  debug_status_url?: string;
+};
+
 function tokenFromLocation() {
   const url = new URL(window.location.href);
   const queryToken = url.searchParams.get("token");
@@ -166,36 +172,96 @@ function productIdentifier(line: StatusLine) {
   return "Product identifier pending";
 }
 
-function TokenEntry({ initialToken }: { initialToken: string }) {
-  const [token, setToken] = useState(initialToken);
+function StatusRequestForm() {
+  const [orderNumber, setOrderNumber] = useState("");
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [message, setMessage] = useState("");
+  const [debugLink, setDebugLink] = useState("");
 
   return (
-    <section className="token-entry">
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!orderNumber.trim() || !email.trim()) {
+          setState("error");
+          setMessage("Enter both an order number and email address.");
+          return;
+        }
+        setState("sending");
+        setMessage("");
+        setDebugLink("");
+        void fetch(`${apiBaseUrl}/public/status/request-link`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            order_number: orderNumber.trim(),
+            email: email.trim()
+          })
+        })
+          .then(async (response) => {
+            const payload = (await response.json().catch(() => null)) as StatusRequestResponse | { error?: string } | null;
+            if (!response.ok) {
+              throw new Error(payload && "error" in payload ? payload.error : "We could not send this request.");
+            }
+            setState("sent");
+            setMessage(
+              payload && "message" in payload
+                ? payload.message
+                : "If we can match this request, we will send a secure order status link."
+            );
+            setDebugLink(payload && "debug_status_url" in payload && payload.debug_status_url ? payload.debug_status_url : "");
+          })
+          .catch((error) => {
+            setState("error");
+            setMessage(error instanceof Error ? error.message : "We could not send this request.");
+          });
+      }}
+    >
+      <label htmlFor="order-number">Order number</label>
+      <input
+        id="order-number"
+        value={orderNumber}
+        onChange={(event) => setOrderNumber(event.target.value)}
+        placeholder="A0219986"
+        autoComplete="off"
+      />
+      <label htmlFor="request-email">Email address</label>
+      <input
+        id="request-email"
+        value={email}
+        onChange={(event) => setEmail(event.target.value)}
+        placeholder="name@company.com"
+        type="email"
+        autoComplete="email"
+      />
+      <button type="submit" disabled={state === "sending"}>
+        {state === "sending" ? "Sending request" : "Send secure link"}
+      </button>
+      {message ? <p className={`request-message ${state === "error" ? "error" : ""}`}>{message}</p> : null}
+      {debugLink ? (
+        <a className="debug-link" href={debugLink}>
+          Open test status link
+        </a>
+      ) : null}
+    </form>
+  );
+}
+
+function StatusRequest() {
+  return (
+    <section className="status-request">
       <div>
-        <p className="eyebrow">Private Status Link</p>
-        <h1>Order status is available by secure link.</h1>
+        <p className="eyebrow">Order Status</p>
+        <h1>Request a secure order status link.</h1>
         <p>
-          Paste the private order status token from your Pathfinder link to view current
-          order, proof, and shipment activity.
+          Enter the order number and your email address. If we can match the request,
+          Pathfinder will send a private link with current order, proof, and shipment details.
         </p>
       </div>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (token.trim()) {
-            window.location.assign(`/${encodeURIComponent(token.trim())}`);
-          }
-        }}
-      >
-        <label htmlFor="status-token">Status token</label>
-        <input
-          id="status-token"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          placeholder="Paste private token"
-        />
-        <button type="submit">Open status</button>
-      </form>
+      <StatusRequestForm />
     </section>
   );
 }
@@ -393,7 +459,7 @@ function App() {
         <img src="/brand/pathfinder-lockup-zinnia.svg" alt="Pathfinder" className="pathfinder-lockup" />
       </header>
 
-      {!initialToken ? <TokenEntry initialToken="" /> : null}
+      {!initialToken ? <StatusRequest /> : null}
 
       {state === "loading" ? (
         <section className="loading-card">
@@ -404,13 +470,13 @@ function App() {
       ) : null}
 
       {state === "error" ? (
-        <section className="token-entry">
-          <div>
+        <section className="status-request">
+          <div className="status-error-card">
             <p className="eyebrow">Status Link</p>
             <h1>This link could not be opened.</h1>
             <p>{message}</p>
           </div>
-          <TokenEntry initialToken={initialToken} />
+          <StatusRequestForm />
         </section>
       ) : null}
 
