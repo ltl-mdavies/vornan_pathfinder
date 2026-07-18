@@ -11,6 +11,11 @@ data/*.local.json
 *.local.json
 assets/brand/Vornan-Brand-Guidelines.pdf
 
+# Local creative source/export work product. Runtime web assets are copied into apps/web/public.
+logo/
+logo_old.zip
+outputs/
+
 # Logs and editor noise
 *.log
 .env

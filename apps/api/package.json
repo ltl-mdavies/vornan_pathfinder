@@ -9,12 +9,15 @@
     "check": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1090.0",
     "@pathfinder/canonical": "0.1.0",
     "@pathfinder/customer-directory": "0.1.0",
     "@pathfinder/lift-adapter": "0.1.0",
     "@pathfinder/templates": "0.1.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "firebase-admin": "^14.2.0",
+    "serverless-http": "^4.0.0",
     "tsx": "^4.19.2"
   },
   "devDependencies": {

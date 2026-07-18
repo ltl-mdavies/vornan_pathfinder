@@ -15,6 +15,7 @@
     "@pathfinder/lift-adapter": "0.1.0",
     "@pathfinder/templates": "0.1.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "firebase": "^12.16.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

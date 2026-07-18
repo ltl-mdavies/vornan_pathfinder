@@ -1,0 +1,574 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Pathfinder production API shell - HTTP API Gateway plus Lambda.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: prod
+    AllowedPattern: "^[a-z0-9-]+$"
+  ApiName:
+    Type: String
+    Default: vornan-pathfinder-api
+  LambdaFunctionName:
+    Type: String
+    Default: vornan-pathfinder-api
+  LambdaCodeS3Bucket:
+    Type: String
+  LambdaCodeS3Key:
+    Type: String
+  AllowedOrigins:
+    Type: String
+    Default: "https://pathfinder.vornan.co"
+  RequireFirebaseAuth:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+  AllowedEmailDomains:
+    Type: String
+    Default: "ltlco.com,vornan.co"
+  FirebaseProjectId:
+    Type: String
+    Default: ""
+  LiftCustomerListUrl:
+    Type: String
+    Default: "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerContactLIst/LTL-Customer-List?offset=0"
+  LiftCustomerStatusUrl:
+    Type: String
+    Default: "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerStatusJSON/CustomerStatusJSON?"
+  LiftProductCatalogBaseUrl:
+    Type: String
+    Default: "https://ltlco.lifterp.com/ords/api/lift/erp"
+  ApiDomainName:
+    Type: String
+    Default: ""
+    Description: Optional custom API domain, such as api.pathfinder.vornan.co.
+  ApiCertificateArn:
+    Type: String
+    Default: ""
+    Description: Optional ACM certificate ARN for ApiDomainName. Must be in the same region as this API Gateway HTTP API.
+  DataTablePrefix:
+    Type: String
+    Default: Pathfinder
+    AllowedPattern: "^[A-Za-z0-9-]+$"
+    Description: Prefix used for Pathfinder DynamoDB table names.
+  SecretPrefix:
+    Type: String
+    Default: "/vornan/pathfinder/"
+    Description: Secrets Manager prefix Pathfinder may read and write.
+  StorageDriver:
+    Type: String
+    Default: local
+    AllowedValues:
+      - local
+      - dynamodb
+    Description: Runtime storage driver. Keep local until the DynamoDB adapter is enabled.
+  SecretsDriver:
+    Type: String
+    Default: local
+    AllowedValues:
+      - local
+      - secrets-manager
+    Description: Runtime secrets driver. Keep local until the Secrets Manager adapter is enabled.
+
+Conditions:
+  HasApiCustomDomain: !And
+    - !Not [!Equals [!Ref ApiDomainName, ""]]
+    - !Not [!Equals [!Ref ApiCertificateArn, ""]]
+
+Resources:
+  PathfinderApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${LambdaFunctionName}-${EnvironmentName}-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: !Sub "${LambdaFunctionName}-${EnvironmentName}-data-access"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:ConditionCheckItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:DescribeTable
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt PathfinderCustomersTable.Arn
+                  - !GetAtt PathfinderCustomerWorkspacesTable.Arn
+                  - !GetAtt PathfinderTargetsTable.Arn
+                  - !GetAtt PathfinderImportMethodsTable.Arn
+                  - !GetAtt PathfinderOutputRoutesTable.Arn
+                  - !GetAtt PathfinderProductMappingsTable.Arn
+                  - !GetAtt PathfinderJobsTable.Arn
+                  - !GetAtt PathfinderSubmitAttemptsTable.Arn
+                  - !GetAtt PathfinderLiftProductCacheTable.Arn
+                  - !GetAtt PathfinderOrderStatusTokensTable.Arn
+                  - !GetAtt PathfinderOrderStatusSnapshotsTable.Arn
+                  - !GetAtt PathfinderCanonicalRegistryTable.Arn
+              - Effect: Allow
+                Action:
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:PutSecretValue
+                  - secretsmanager:UpdateSecret
+                Resource: !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretPrefix}*"
+
+  PathfinderApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${LambdaFunctionName}-${EnvironmentName}"
+      Description: Pathfinder API Express shell behind API Gateway HTTP API.
+      Runtime: nodejs20.x
+      Handler: lambda.handler
+      Role: !GetAtt PathfinderApiRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+      MemorySize: 1024
+      Timeout: 30
+      Environment:
+        Variables:
+          NODE_OPTIONS: "--enable-source-maps"
+          PATHFINDER_RUNTIME: "lambda"
+          PATHFINDER_CUSTOMER_SEED_FILE: "/var/task/data/lift-customers.sample.csv"
+          PATHFINDER_ALLOWED_ORIGINS: !Ref AllowedOrigins
+          PATHFINDER_REQUIRE_AUTH: !Ref RequireFirebaseAuth
+          PATHFINDER_ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
+          FIREBASE_PROJECT_ID: !Ref FirebaseProjectId
+          LIFT_CUSTOMER_LIST_URL: !Ref LiftCustomerListUrl
+          LIFT_CUSTOMER_STATUS_URL: !Ref LiftCustomerStatusUrl
+          LIFT_PRODUCT_CATALOG_BASE_URL: !Ref LiftProductCatalogBaseUrl
+          PATHFINDER_STORAGE_DRIVER: !Ref StorageDriver
+          PATHFINDER_SECRETS_DRIVER: !Ref SecretsDriver
+          PATHFINDER_SECRET_PREFIX: !Ref SecretPrefix
+          PATHFINDER_CUSTOMERS_TABLE: !Ref PathfinderCustomersTable
+          PATHFINDER_CUSTOMER_WORKSPACES_TABLE: !Ref PathfinderCustomerWorkspacesTable
+          PATHFINDER_TARGETS_TABLE: !Ref PathfinderTargetsTable
+          PATHFINDER_IMPORT_METHODS_TABLE: !Ref PathfinderImportMethodsTable
+          PATHFINDER_OUTPUT_ROUTES_TABLE: !Ref PathfinderOutputRoutesTable
+          PATHFINDER_PRODUCT_MAPPINGS_TABLE: !Ref PathfinderProductMappingsTable
+          PATHFINDER_JOBS_TABLE: !Ref PathfinderJobsTable
+          PATHFINDER_SUBMIT_ATTEMPTS_TABLE: !Ref PathfinderSubmitAttemptsTable
+          PATHFINDER_LIFT_PRODUCT_CACHE_TABLE: !Ref PathfinderLiftProductCacheTable
+          PATHFINDER_ORDER_STATUS_TOKENS_TABLE: !Ref PathfinderOrderStatusTokensTable
+          PATHFINDER_ORDER_STATUS_SNAPSHOTS_TABLE: !Ref PathfinderOrderStatusSnapshotsTable
+          PATHFINDER_CANONICAL_REGISTRY_TABLE: !Ref PathfinderCanonicalRegistryTable
+
+  PathfinderCustomersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-Customers-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderCustomerWorkspacesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-CustomerWorkspaces-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderTargetsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-Targets-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: target_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: target_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderImportMethodsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-ImportMethods-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: import_method_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: import_method_id
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderOutputRoutesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-OutputRoutes-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: output_route_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: output_route_id
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderProductMappingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-ProductMappings-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_route_id
+          AttributeType: S
+        - AttributeName: mapping_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_route_id
+          KeyType: HASH
+        - AttributeName: mapping_id
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderJobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-Jobs-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: job_id
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderSubmitAttemptsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-SubmitAttempts-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: attempt_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: attempt_id
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderLiftProductCacheTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-LiftProductCache-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: route_environment_id
+          AttributeType: S
+        - AttributeName: product_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: route_environment_id
+          KeyType: HASH
+        - AttributeName: product_id
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderOrderStatusTokensTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-OrderStatusTokens-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: token_hash
+          AttributeType: S
+      KeySchema:
+        - AttributeName: token_hash
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expires_at_epoch
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderOrderStatusSnapshotsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-OrderStatusSnapshots-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: order_key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: order_key
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderCanonicalRegistryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-CanonicalRegistry-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: registry_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: registry_id
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${ApiName}-${EnvironmentName}"
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowCredentials: false
+        AllowHeaders:
+          - authorization
+          - content-type
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        AllowOrigins: !Split [",", !Ref AllowedOrigins]
+        MaxAge: 300
+
+  PathfinderApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref PathfinderHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub
+        - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${FunctionArn}/invocations"
+        - FunctionArn: !GetAtt PathfinderApiFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  PathfinderApiProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PathfinderHttpApi
+      RouteKey: "ANY /{proxy+}"
+      Target: !Sub "integrations/${PathfinderApiIntegration}"
+
+  PathfinderApiRootRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref PathfinderHttpApi
+      RouteKey: "ANY /"
+      Target: !Sub "integrations/${PathfinderApiIntegration}"
+
+  PathfinderApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref PathfinderHttpApi
+      StageName: "$default"
+      AutoDeploy: true
+
+  PathfinderApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PathfinderApiFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${PathfinderHttpApi}/*/*"
+
+  PathfinderApiCustomDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: HasApiCustomDomain
+    Properties:
+      DomainName: !Ref ApiDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref ApiCertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  PathfinderApiCustomDomainMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: HasApiCustomDomain
+    Properties:
+      ApiId: !Ref PathfinderHttpApi
+      DomainName: !Ref PathfinderApiCustomDomain
+      Stage: !Ref PathfinderApiStage
+
+Outputs:
+  ApiEndpoint:
+    Description: HTTP API endpoint.
+    Value: !GetAtt PathfinderHttpApi.ApiEndpoint
+  LambdaFunctionName:
+    Description: Lambda function name.
+    Value: !Ref PathfinderApiFunction
+  HealthUrl:
+    Description: API health endpoint.
+    Value: !Sub "${PathfinderHttpApi.ApiEndpoint}/health"
+  CustomDomainName:
+    Condition: HasApiCustomDomain
+    Description: Custom API domain.
+    Value: !Ref ApiDomainName
+  CustomDomainHealthUrl:
+    Condition: HasApiCustomDomain
+    Description: Custom API health endpoint.
+    Value: !Sub "https://${ApiDomainName}/health"
+  CustomDomainRegionalTarget:
+    Condition: HasApiCustomDomain
+    Description: API Gateway regional domain target for GoDaddy CNAME.
+    Value: !GetAtt PathfinderApiCustomDomain.RegionalDomainName
+  CustomDomainRegionalHostedZoneId:
+    Condition: HasApiCustomDomain
+    Description: API Gateway regional hosted zone id.
+    Value: !GetAtt PathfinderApiCustomDomain.RegionalHostedZoneId
+  DataTableNames:
+    Description: Comma-separated DynamoDB tables created for Pathfinder.
+    Value: !Join
+      - ","
+      - - !Ref PathfinderCustomersTable
+        - !Ref PathfinderCustomerWorkspacesTable
+        - !Ref PathfinderTargetsTable
+        - !Ref PathfinderImportMethodsTable
+        - !Ref PathfinderOutputRoutesTable
+        - !Ref PathfinderProductMappingsTable
+        - !Ref PathfinderJobsTable
+        - !Ref PathfinderSubmitAttemptsTable
+        - !Ref PathfinderLiftProductCacheTable
+        - !Ref PathfinderOrderStatusTokensTable
+        - !Ref PathfinderOrderStatusSnapshotsTable
+        - !Ref PathfinderCanonicalRegistryTable
+  ConfiguredSecretPrefix:
+    Description: Secrets Manager prefix granted to the Pathfinder API Lambda role.
+    Value: !Ref SecretPrefix

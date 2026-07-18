@@ -1,0 +1,93 @@
+{
+  "customer": {
+    "lift_customer_id": "{{customer.lift_customer_id}}",
+    "customer_name": "{{customer.name}}",
+    "crm_id": "{{customer.crm_id}}"
+  },
+  "contacts": [
+    {
+      "first_name": "{{contacts[].first_name}}",
+      "last_name": "{{contacts[].last_name}}",
+      "title": "{{contacts[].title}}",
+      "email": "{{contacts[].email}}",
+      "mobile_phone": "{{contacts[].mobile_phone}}",
+      "office_phone": "{{contacts[].office_phone}}",
+      "home_phone": "{{contacts[].home_phone}}",
+      "slack": "{{contacts[].slack}}",
+      "fax": "{{contacts[].fax}}"
+    }
+  ],
+  "source": {
+    "platform": "Pathfinder",
+    "pathfinder_customer_id": "{{customer.id}}",
+    "source_system": "{{source.source_system}}",
+    "source_customer": "{{source.source_customer}}",
+    "source_record_id": "{{source.source_record_id}}",
+    "source_record_url": "{{source.source_record_url}}",
+    "source_template": "{{source.source_template}}",
+    "submitted_at": "{{source.submitted_at}}",
+    "pathfinder_job_id": "{{generated.pathfinder_job_id}}",
+    "pathfinder_canonical_order_id": "{{generated.pathfinder_canonical_order_id}}"
+  },
+  "order": {
+    "ext_id": "{{order.external_order_id}}",
+    "po_number": "{{order.po_number}}",
+    "contract_number": "{{order.contract_number}}",
+    "order_title": "{{order.order_title}}",
+    "order_note": "{{order.order_note}}",
+    "requested_ship_date": "{{order.ship_date}}",
+    "due_date": "{{order.due_date}}",
+    "order_attachment": "{{order.order_attachment}}",
+    "shipping": {
+      "method": "{{order.shipping.method}}",
+      "account_number": "{{order.shipping.account_number}}",
+      "acct_billing_zip": "{{order.shipping.acct_billing_zip}}",
+      "acct_billing_country": "{{order.shipping.acct_billing_country}}",
+      "attention_to": "{{order.shipping.attention_to}}",
+      "company": "{{order.shipping.company}}",
+      "address_1": "{{order.shipping.address_1}}",
+      "address_2": "{{order.shipping.address_2}}",
+      "city": "{{order.shipping.city}}",
+      "state": "{{order.shipping.state}}",
+      "postal_code": "{{order.shipping.postal_code}}",
+      "country": "{{order.shipping.country}}",
+      "phone": "{{order.shipping.phone}}",
+      "email": "{{order.shipping.email}}",
+      "instructions": "{{order.shipping.instructions}}"
+    }
+  },
+  "lines": [
+    {
+      "line_number": "{{lines[].line_number}}",
+      "unit_number": "{{lines[].unit_number}}",
+      "customer_sku": "{{lines[].customer_sku}}",
+      "description": "{{lines[].description}}",
+      "product_id": "{{lines[].product_id}}",
+      "product_name": "{{lines[].product_name}}",
+      "quantity": "{{lines[].quantity}}",
+      "artwork": {
+        "file_name": "{{lines[].artwork.file_name}}",
+        "file_url": "{{lines[].artwork.file_url}}",
+        "checksum": "{{lines[].artwork.checksum}}"
+      },
+      "dimensions": {
+        "final_height": "{{lines[].dimensions.final_height}}",
+        "final_width": "{{lines[].dimensions.final_width}}",
+        "live_height": "{{lines[].dimensions.live_height}}",
+        "live_width": "{{lines[].dimensions.live_width}}",
+        "bleed": "{{lines[].dimensions.bleed}}"
+      },
+      "production": {
+        "material": "{{lines[].production.material}}",
+        "laminate": "{{lines[].production.laminate}}",
+        "coating": "{{lines[].production.coating}}",
+        "premask": "{{lines[].production.premask}}",
+        "ink": "{{lines[].production.ink}}",
+        "cut_type": "{{lines[].production.cut_type}}",
+        "hem": "{{lines[].production.hem}}",
+        "grommets": "{{lines[].production.grommets}}"
+      },
+      "line_note": "{{lines[].line_note}}"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import type { CanonicalOrder, ShippingAddress, ValidationMessage } from "@pathfinder/canonical";
+import type { CanonicalOrder, Contact, ShippingAddress, ValidationMessage } from "@pathfinder/canonical";
 
 export interface LiftTargetConfig {
   destination_adapter: "lift-standard-graphics";
@@ -29,7 +29,9 @@ export interface LiftOrderPayload {
   customer: {
     lift_customer_id?: string;
     customer_name: string;
+    crm_id?: string | null;
   };
+  contacts?: Contact[];
   source: {
     platform: "Pathfinder";
     pathfinder_customer_id: string;
@@ -49,6 +51,8 @@ export interface LiftOrderPayload {
     order_title?: string | null;
     order_note?: string | null;
     requested_ship_date?: string | null;
+    due_date?: string | null;
+    order_attachment?: string | null;
     shipping?: ShippingAddress | null;
   };
   lines: Array<{
@@ -56,6 +60,7 @@ export interface LiftOrderPayload {
     unit_number: string;
     customer_sku?: string | null;
     description?: string | null;
+    product_id?: string | null;
     product_name?: string | null;
     quantity: number;
     artwork?: {
@@ -71,9 +76,33 @@ export interface LiftOrderPayload {
       bleed?: number | null;
     };
     production?: Record<string, string | number | boolean | null>;
-    shipping?: ShippingAddress | null;
     line_note?: string | null;
   }>;
+}
+
+export type ValueNormalizationMatchMode = "exact" | "case_insensitive" | "contains" | "regex";
+export type ValueNormalizationFallbackBehavior = "pass_through" | "block_submit" | "use_default";
+
+export interface ValueNormalizationRule {
+  value_rule_id: string;
+  canonical_field: string;
+  output_field: string;
+  match_mode: ValueNormalizationMatchMode;
+  input_value: string;
+  normalized_value: string;
+  fallback_behavior: ValueNormalizationFallbackBehavior;
+  default_value?: string | null;
+  status: "Active" | "Draft" | "Inactive";
+  notes?: string | null;
+}
+
+export interface ValueNormalizationResult {
+  rule_id?: string | null;
+  field: string;
+  original_value: string;
+  normalized_value: string;
+  status: "Normalized" | "Pass Through" | "Defaulted" | "Blocked";
+  message: string;
 }
 
 export interface LiftSubmitRequest {
@@ -86,6 +115,111 @@ export interface LiftSubmitRequest {
     Company: string;
   };
   body: LiftOrderPayload;
+}
+
+export type LiftSubmitTransportMode = "dry_run" | "mock" | "live";
+export type LiftSubmitMockScenario =
+  | "accepted"
+  | "auth_error"
+  | "product_error"
+  | "payload_error"
+  | "duplicate_ext_id"
+  | "endpoint_error";
+
+export function buildLiftOrderLookupUrl(orderLookupUrl: string | null | undefined, orderNumber: string | null | undefined) {
+  const baseUrl = orderLookupUrl?.trim();
+  const trimmedOrderNumber = orderNumber?.trim();
+
+  if (!baseUrl || !trimmedOrderNumber) {
+    return null;
+  }
+
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set("p0", trimmedOrderNumber);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function buildLiftProofReportUrl(
+  proofReportUrl: string | null | undefined,
+  orderNumber: string | null | undefined,
+  orderLineId?: string | number | null
+) {
+  const baseUrl = proofReportUrl?.trim();
+  const trimmedOrderNumber = orderNumber?.trim();
+  const trimmedOrderLineId = orderLineId == null ? "" : String(orderLineId).trim();
+
+  if (!baseUrl || !trimmedOrderNumber) {
+    return null;
+  }
+
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set("p1", trimmedOrderNumber);
+    if (trimmedOrderLineId) {
+      url.searchParams.set("p2", trimmedOrderLineId);
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function buildLiftPackageDetailsUrl(
+  packageDetailsUrl: string | null | undefined,
+  orderNumber: string | null | undefined,
+  orderLineId?: string | number | null
+) {
+  const baseUrl = packageDetailsUrl?.trim();
+  const trimmedOrderNumber = orderNumber?.trim();
+  const trimmedOrderLineId = orderLineId == null ? "" : String(orderLineId).trim();
+
+  if (!baseUrl || !trimmedOrderNumber) {
+    return null;
+  }
+
+  try {
+    const url = new URL(baseUrl);
+    url.searchParams.set("p0", trimmedOrderNumber);
+    if (trimmedOrderLineId) {
+      url.searchParams.set("p1", trimmedOrderLineId);
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+export interface LiftSubmitTransportResult {
+  status: "not_sent" | "accepted" | "rejected" | "error";
+  http_status?: number | null;
+  lift_order_id?: string | null;
+  message: string;
+  raw_body?: unknown;
+  error_translation?: LiftSubmitErrorTranslation | null;
+  received_at: string;
+}
+
+export type LiftSubmitErrorCategory =
+  | "auth"
+  | "company"
+  | "duplicate_ext_id"
+  | "customer"
+  | "unit_number"
+  | "payload"
+  | "endpoint"
+  | "timeout"
+  | "unknown";
+
+export interface LiftSubmitErrorTranslation {
+  category: LiftSubmitErrorCategory;
+  operator_message: string;
+  suggested_action: string;
+  retryable: boolean;
+  source_message: string;
 }
 
 export const defaultLiftTargetConfig: LiftTargetConfig = {
@@ -138,8 +272,10 @@ export function generateLiftPayload(
   return {
     customer: {
       lift_customer_id: canonicalOrder.customer.destination_customer_id,
-      customer_name: canonicalOrder.customer.customer_name
+      customer_name: canonicalOrder.customer.customer_name,
+      crm_id: canonicalOrder.customer.crm_id ?? null
     },
+    contacts: canonicalOrder.contacts ?? [],
     source: {
       platform: "Pathfinder",
       pathfinder_customer_id: canonicalOrder.customer.customer_id,
@@ -159,6 +295,8 @@ export function generateLiftPayload(
       order_title: canonicalOrder.order.order_title ?? null,
       order_note: canonicalOrder.order.order_note ?? null,
       requested_ship_date: canonicalOrder.order.ship_date ?? null,
+      due_date: canonicalOrder.order.due_date ?? null,
+      order_attachment: canonicalOrder.order.order_attachment ?? null,
       shipping: canonicalOrder.order.shipping ?? null
     },
     lines: canonicalOrder.lines.map((line) => ({
@@ -166,6 +304,7 @@ export function generateLiftPayload(
       unit_number: line.unit_number,
       customer_sku: line.customer_sku ?? null,
       description: line.description ?? null,
+      product_id: line.product_id ?? null,
       product_name: line.product_name ?? line.description ?? null,
       quantity: line.quantity,
       artwork: line.artwork,
@@ -177,14 +316,155 @@ export function generateLiftPayload(
         bleed: line.dimensions.bleed ?? null
       },
       production: line.production,
-      shipping: line.shipping ?? null,
       line_note: line.line_note ?? null
     }))
   };
 }
 
-export function validateLiftPayload(payload: LiftOrderPayload): ValidationMessage[] {
+function getPayloadValue(payload: LiftOrderPayload, field: string): unknown {
+  return field.split(".").reduce<unknown>((current, segment) => {
+    if (!current || typeof current !== "object") {
+      return undefined;
+    }
+    return (current as Record<string, unknown>)[segment];
+  }, payload);
+}
+
+function setPayloadValue(payload: LiftOrderPayload, field: string, value: unknown) {
+  const segments = field.split(".");
+  const finalSegment = segments.pop();
+  if (!finalSegment) {
+    return;
+  }
+
+  const parent = segments.reduce<Record<string, unknown>>((current, segment) => {
+    if (!current[segment] || typeof current[segment] !== "object") {
+      current[segment] = {};
+    }
+    return current[segment] as Record<string, unknown>;
+  }, payload as unknown as Record<string, unknown>);
+
+  parent[finalSegment] = value;
+}
+
+function matchesNormalizationRule(value: string, rule: ValueNormalizationRule) {
+  const inputs = rule.input_value
+    .split(",")
+    .map((input) => input.trim())
+    .filter(Boolean);
+  if (!inputs.length) {
+    return false;
+  }
+
+  return inputs.some((input) => {
+    if (rule.match_mode === "case_insensitive") {
+      return value.trim().toLowerCase() === input.toLowerCase();
+    }
+    if (rule.match_mode === "contains") {
+      return value.toLowerCase().includes(input.toLowerCase());
+    }
+    if (rule.match_mode === "regex") {
+      try {
+        return new RegExp(input, "i").test(value);
+      } catch {
+        return false;
+      }
+    }
+    return value.trim() === input;
+  });
+}
+
+export function applyValueNormalizationToLiftPayload(
+  payload: LiftOrderPayload,
+  rules: ValueNormalizationRule[] = []
+): { payload: LiftOrderPayload; results: ValueNormalizationResult[]; validation: ValidationMessage[] } {
+  const nextPayload = JSON.parse(JSON.stringify(payload)) as LiftOrderPayload;
+  const activeRules = rules.filter((rule) => rule.status === "Active" && rule.output_field.trim());
+  const fields = [...new Set(activeRules.map((rule) => rule.output_field))];
+  const results: ValueNormalizationResult[] = [];
+  const validation: ValidationMessage[] = [];
+
+  for (const field of fields) {
+    const fieldRules = activeRules.filter((rule) => rule.output_field === field);
+    const rawValue = getPayloadValue(nextPayload, field);
+
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      continue;
+    }
+
+    const originalValue = String(rawValue);
+    const matchedRule = fieldRules.find((rule) => matchesNormalizationRule(originalValue, rule));
+
+    if (matchedRule) {
+      setPayloadValue(nextPayload, field, matchedRule.normalized_value);
+      results.push({
+        rule_id: matchedRule.value_rule_id,
+        field,
+        original_value: originalValue,
+        normalized_value: matchedRule.normalized_value,
+        status: "Normalized",
+        message: `${field} normalized from "${originalValue}" to "${matchedRule.normalized_value}".`
+      });
+      continue;
+    }
+
+    const fallbackRule = fieldRules.find((rule) => rule.fallback_behavior === "block_submit") ?? fieldRules[0];
+    if (fallbackRule?.fallback_behavior === "use_default" && fallbackRule.default_value) {
+      setPayloadValue(nextPayload, field, fallbackRule.default_value);
+      results.push({
+        rule_id: fallbackRule.value_rule_id,
+        field,
+        original_value: originalValue,
+        normalized_value: fallbackRule.default_value,
+        status: "Defaulted",
+        message: `${field} defaulted to "${fallbackRule.default_value}".`
+      });
+      continue;
+    }
+
+    if (fallbackRule?.fallback_behavior === "block_submit") {
+      results.push({
+        rule_id: null,
+        field,
+        original_value: originalValue,
+        normalized_value: originalValue,
+        status: "Blocked",
+        message: `${field} value "${originalValue}" does not match an approved output value.`
+      });
+      validation.push({
+        severity: "FAIL",
+        code: "LIFT-VALUE-NORMALIZATION",
+        object: "lift.payload",
+        field,
+        message: `${field} value "${originalValue}" is not approved for this output route.`,
+        suggested_action: "Add a value normalization rule or update the source mapping before submitting."
+      });
+      continue;
+    }
+
+    results.push({
+      rule_id: null,
+      field,
+      original_value: originalValue,
+      normalized_value: originalValue,
+      status: "Pass Through",
+      message: `${field} passed through without normalization.`
+    });
+  }
+
+  return { payload: nextPayload, results, validation };
+}
+
+export interface LiftPayloadValidationOptions {
+  product_identifier_type?: "lift_unit_number" | "lift_product_id" | string;
+  product_identifier_label?: string;
+}
+
+export function validateLiftPayload(payload: LiftOrderPayload, options: LiftPayloadValidationOptions = {}): ValidationMessage[] {
   const messages: ValidationMessage[] = [];
+  const productIdentifierType = options.product_identifier_type ?? "lift_unit_number";
+  const productIdentifierLabel =
+    options.product_identifier_label ?? (productIdentifierType === "lift_product_id" ? "Lift product_id" : "Lift unit_number");
 
   if (!payload.order.ext_id?.trim()) {
     messages.push({
@@ -209,14 +489,23 @@ export function validateLiftPayload(payload: LiftOrderPayload): ValidationMessag
   }
 
   payload.lines.forEach((line, index) => {
-    if (!line.unit_number.trim()) {
+    if (productIdentifierType === "lift_product_id" && !line.product_id?.trim()) {
+      messages.push({
+        severity: "FAIL",
+        code: "LIFT-PRODUCT-ID",
+        object: "lift.line",
+        field: `lines[${index}].product_id`,
+        message: "Lift line product_id is required for this output route.",
+        suggested_action: `Resolve product mapping to an approved ${productIdentifierLabel} before generating the Lift payload.`
+      });
+    } else if (productIdentifierType !== "lift_product_id" && !line.unit_number.trim()) {
       messages.push({
         severity: "FAIL",
         code: "LIFT-UNIT",
         object: "lift.line",
         field: `lines[${index}].unit_number`,
-        message: "Lift line unit_number is required.",
-        suggested_action: "Resolve product mapping before generating the Lift payload."
+        message: "Lift line unit_number is required for this output route.",
+        suggested_action: `Resolve product mapping to an approved ${productIdentifierLabel} before generating the Lift payload.`
       });
     }
   });
@@ -264,4 +553,344 @@ export function maskLiftSubmitRequest(request: LiftSubmitRequest) {
       Password: "********"
     }
   };
+}
+
+function valueFromRecord(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    if (typeof value === "number") {
+      return String(value);
+    }
+  }
+
+  return null;
+}
+
+function valueFromBody(body: unknown, keys: string[], depth = 0): string | null {
+  if (!body || typeof body !== "object" || depth > 3) {
+    return null;
+  }
+
+  if (Array.isArray(body)) {
+    for (const item of body) {
+      const nestedValue = valueFromBody(item, keys, depth + 1);
+      if (nestedValue) {
+        return nestedValue;
+      }
+    }
+    return null;
+  }
+
+  const record = body as Record<string, unknown>;
+  const directValue = valueFromRecord(record, keys);
+  if (directValue) {
+    return directValue;
+  }
+
+  for (const key of keys) {
+    const lowerKey = key.toLowerCase();
+    const matchingKey = Object.keys(record).find((candidate) => candidate.toLowerCase() === lowerKey);
+    if (matchingKey) {
+      const value = record[matchingKey];
+      if (typeof value === "string" && value.trim()) {
+        return value.trim();
+      }
+      if (typeof value === "number") {
+        return String(value);
+      }
+    }
+  }
+
+  for (const nested of Object.values(record)) {
+    const nestedValue = valueFromBody(nested, keys, depth + 1);
+    if (nestedValue) {
+      return nestedValue;
+    }
+  }
+
+  return null;
+}
+
+function messageFromBody(body: unknown): string | null {
+  if (typeof body === "string" && body.trim()) {
+    return body.trim().slice(0, 500);
+  }
+
+  return valueFromBody(body, ["message", "status", "error", "error_message", "detail"]);
+}
+
+function rawTextFromBody(body: unknown): string {
+  if (typeof body === "string") {
+    return body;
+  }
+
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return String(body);
+  }
+}
+
+function bodyHasFailureSignal(body: unknown): boolean {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return false;
+  }
+
+  const joinedValues = Object.values(body as Record<string, unknown>)
+    .filter((value) => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  return /\b(error|failed|failure|rejected|invalid)\b/.test(joinedValues);
+}
+
+export function translateLiftSubmitError(args: {
+  httpStatus?: number | null;
+  rawBody?: unknown;
+  message?: string | null;
+}): LiftSubmitErrorTranslation {
+  const sourceMessage = (args.message || rawTextFromBody(args.rawBody) || "Unknown Lift submit failure").slice(0, 1000);
+  const text = sourceMessage.toLowerCase();
+  const httpStatus = args.httpStatus ?? null;
+
+  if (httpStatus === 401 || httpStatus === 403 || /auth|unauthori[sz]ed|credential|password|user\b|forbidden/.test(text)) {
+    return {
+      category: "auth",
+      operator_message: "Lift rejected the request because the import credentials were not accepted.",
+      suggested_action: "Check the selected target environment's import user and password, then retry the submit.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/company|company_id|company id/.test(text)) {
+    return {
+      category: "company",
+      operator_message: "Lift could not accept the request for the configured Company ID.",
+      suggested_action: "Confirm the Output Route company ID and environment header settings match the destination Lift company.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (
+    /(duplicate|already exists|unique).*(ext[_ -]?id|external id|order)|(ext[_ -]?id|external id|order).*(duplicate|already exists|unique)/.test(
+      text
+    )
+  ) {
+    return {
+      category: "duplicate_ext_id",
+      operator_message: "Lift appears to have rejected the order as a duplicate external order.",
+      suggested_action: "Confirm whether this Ext_ID was already submitted. If this is a retry, use the existing Lift order or choose a corrected Ext_ID strategy before resubmitting.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/customer|customerid|customer id/.test(text)) {
+    return {
+      category: "customer",
+      operator_message: "Lift could not resolve the customer on the order.",
+      suggested_action: "Check the selected submit profile and Lift customer ID. For sandbox tests, confirm LTL Demo / 1249 is selected when intended.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/unit[_ -]?number|unit number|product|item|sku|part/.test(text)) {
+    return {
+      category: "unit_number",
+      operator_message: "Lift could not resolve one or more submitted product identifiers.",
+      suggested_action: "Review the Output Product Map for this route and confirm each customer key maps to an approved Lift product identifier.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/missing|required|invalid|payload|json|parse|field|format/.test(text) || httpStatus === 400 || httpStatus === 422) {
+    return {
+      category: "payload",
+      operator_message: "Lift rejected the order payload because required or formatted data was not accepted.",
+      suggested_action: "Review the Canonical Order, Output Template mappings, and Lift payload preview for missing or malformed fields.",
+      retryable: false,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/timeout|timed out|abort/.test(text)) {
+    return {
+      category: "timeout",
+      operator_message: "Pathfinder timed out while waiting for Lift to respond.",
+      suggested_action: "Check Lift availability and retry after confirming the order was not created in Lift.",
+      retryable: true,
+      source_message: sourceMessage
+    };
+  }
+
+  if (/fetch failed|econn|enotfound|network|unavailable|service unavailable|bad gateway|gateway/.test(text) || (httpStatus !== null && httpStatus >= 500)) {
+    return {
+      category: "endpoint",
+      operator_message: "Pathfinder could not reach Lift or Lift returned a server-side error.",
+      suggested_action: "Check the selected environment endpoint and Lift service health. Retry after confirming whether Lift created the order.",
+      retryable: true,
+      source_message: sourceMessage
+    };
+  }
+
+  return {
+    category: "unknown",
+    operator_message: "Lift rejected the submit request, but Pathfinder does not yet recognize this error pattern.",
+    suggested_action: "Review the raw Lift response with the Lift integration team, then add or refine an error translation rule.",
+    retryable: false,
+    source_message: sourceMessage
+  };
+}
+
+export function normalizeLiftSubmitResponse(httpStatus: number, rawBody: unknown): LiftSubmitTransportResult {
+  const acceptedHttpStatus = httpStatus >= 200 && httpStatus < 300;
+  const failureSignal = bodyHasFailureSignal(rawBody);
+  const liftOrderId = valueFromBody(rawBody, [
+    "lift_order_id",
+    "liftOrderId",
+    "lift_order_number",
+    "liftOrderNumber",
+    "order_number",
+    "orderNumber",
+    "ORDER_NUMBER",
+    "order_id",
+    "orderId",
+    "ORDER_ID",
+    "id"
+  ]);
+  const bodyMessage = messageFromBody(rawBody);
+  const status = acceptedHttpStatus && !failureSignal ? "accepted" : "rejected";
+
+  return {
+    status,
+    http_status: httpStatus,
+    lift_order_id: liftOrderId,
+    message:
+      bodyMessage ??
+      (status === "accepted"
+        ? "Lift accepted the order request."
+        : `Lift rejected the order request with HTTP ${httpStatus}.`),
+    raw_body: rawBody,
+    error_translation:
+      status === "accepted"
+        ? null
+        : translateLiftSubmitError({
+            httpStatus,
+            rawBody,
+            message: bodyMessage
+          }),
+    received_at: new Date().toISOString()
+  };
+}
+
+function mockLiftSubmitResponse(request: LiftSubmitRequest, scenario: LiftSubmitMockScenario = "accepted"): LiftSubmitTransportResult {
+  const receivedAt = new Date().toISOString();
+  const extId = request.body.order.ext_id || request.headers.Ext_ID || "UNKNOWN";
+  const mockOrderNumber = `MOCK-${extId.replace(/[^A-Za-z0-9]/g, "").slice(-8) || Date.now().toString().slice(-8)}`;
+
+  if (scenario === "accepted") {
+    return normalizeLiftSubmitResponse(202, {
+      status: "accepted",
+      order_number: mockOrderNumber,
+      message: `Mock Lift accepted order ${extId}.`
+    });
+  }
+
+  const scenarios: Record<Exclude<LiftSubmitMockScenario, "accepted">, { status: number; body: Record<string, unknown> }> = {
+    auth_error: {
+      status: 401,
+      body: {
+        error: "Unauthorized import user/password for Lift order import.",
+        ext_id: extId
+      }
+    },
+    product_error: {
+      status: 422,
+      body: {
+        error: "Invalid unit_number or product_id on one or more order lines.",
+        ext_id: extId
+      }
+    },
+    payload_error: {
+      status: 400,
+      body: {
+        error: "Missing required order field in JSON payload.",
+        ext_id: extId
+      }
+    },
+    duplicate_ext_id: {
+      status: 409,
+      body: {
+        error: `Order with Ext_ID ${extId} already exists.`,
+        ext_id: extId
+      }
+    },
+    endpoint_error: {
+      status: 503,
+      body: {
+        error: "Lift create_order endpoint unavailable in mock scenario.",
+        ext_id: extId
+      }
+    }
+  };
+  const selected = scenarios[scenario] ?? scenarios.payload_error;
+  return {
+    ...normalizeLiftSubmitResponse(selected.status, selected.body),
+    received_at: receivedAt
+  };
+}
+
+export async function submitLiftOrder(
+  request: LiftSubmitRequest,
+  options: { mode?: LiftSubmitTransportMode; mockScenario?: LiftSubmitMockScenario; timeoutMs?: number } = {}
+): Promise<LiftSubmitTransportResult> {
+  const mode = options.mode ?? "dry_run";
+  if (mode === "mock") {
+    return mockLiftSubmitResponse(request, options.mockScenario);
+  }
+  if (mode !== "live") {
+    return {
+      status: "not_sent",
+      http_status: null,
+      lift_order_id: null,
+      message: "Dry run: external Lift request not sent.",
+      raw_body: null,
+      error_translation: null,
+      received_at: new Date().toISOString()
+    };
+  }
+
+  try {
+    const response = await fetch(request.endpoint_url, {
+      method: "POST",
+      headers: request.headers,
+      body: JSON.stringify(request.body),
+      signal: AbortSignal.timeout(options.timeoutMs ?? 15000)
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    const rawBody = contentType.includes("application/json") ? await response.json() : await response.text();
+
+    return normalizeLiftSubmitResponse(response.status, rawBody);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Lift submit transport failed.";
+    return {
+      status: "error",
+      http_status: null,
+      lift_order_id: null,
+      message,
+      raw_body: null,
+      error_translation: translateLiftSubmitError({
+        httpStatus: null,
+        message
+      }),
+      received_at: new Date().toISOString()
+    };
+  }
 }

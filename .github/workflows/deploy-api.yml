@@ -1,0 +1,92 @@
+name: Deploy Pathfinder API
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment_name:
+        description: "Deployment environment name"
+        required: true
+        default: "prod"
+      allowed_origins:
+        description: "Comma-separated CORS origins"
+        required: true
+        default: "https://pathfinder.vornan.co"
+      require_auth:
+        description: "Require Firebase auth on /api routes"
+        required: true
+        default: "true"
+      api_domain_name:
+        description: "Optional API custom domain"
+        required: true
+        default: "api.pathfinder.vornan.co"
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check
+        run: npm run check
+
+      - name: Package API Lambda
+        run: npm run package:api-lambda
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Upload Lambda artifact
+        id: artifact
+        run: |
+          key="api/pathfinder-api-lambda-${GITHUB_SHA}.zip"
+          aws s3 cp outputs/pathfinder-api-lambda.zip "s3://${{ vars.PATHFINDER_API_ARTIFACT_BUCKET }}/${key}"
+          echo "key=${key}" >> "${GITHUB_OUTPUT}"
+
+      - name: Deploy API stack
+        run: |
+          aws cloudformation deploy \
+            --stack-name "${{ vars.PATHFINDER_API_STACK_NAME || 'vornan-pathfinder-api-prod' }}" \
+            --template-file infra/aws/api-cloudformation.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              EnvironmentName="${{ inputs.environment_name }}" \
+              ApiName="${{ vars.PATHFINDER_API_NAME || 'vornan-pathfinder-api' }}" \
+              LambdaFunctionName="${{ vars.PATHFINDER_API_LAMBDA_NAME || 'vornan-pathfinder-api' }}" \
+              LambdaCodeS3Bucket="${{ vars.PATHFINDER_API_ARTIFACT_BUCKET }}" \
+              LambdaCodeS3Key="${{ steps.artifact.outputs.key }}" \
+              AllowedOrigins="${{ inputs.allowed_origins }}" \
+              RequireFirebaseAuth="${{ inputs.require_auth }}" \
+              AllowedEmailDomains="${{ vars.PATHFINDER_ALLOWED_EMAIL_DOMAINS || 'ltlco.com,vornan.co' }}" \
+              FirebaseProjectId="${{ secrets.VITE_FIREBASE_PROJECT_ID }}" \
+              LiftCustomerListUrl="${{ vars.LIFT_CUSTOMER_LIST_URL }}" \
+              LiftCustomerStatusUrl="${{ vars.LIFT_CUSTOMER_STATUS_URL }}" \
+              LiftProductCatalogBaseUrl="${{ vars.LIFT_PRODUCT_CATALOG_BASE_URL || 'https://ltlco.lifterp.com/ords/api/lift/erp' }}" \
+              ApiDomainName="${{ inputs.api_domain_name }}" \
+              ApiCertificateArn="${{ secrets.PATHFINDER_API_CERTIFICATE_ARN }}" \
+              DataTablePrefix="${{ vars.PATHFINDER_DATA_TABLE_PREFIX || 'Pathfinder' }}" \
+              SecretPrefix="${{ vars.PATHFINDER_SECRET_PREFIX || '/vornan/pathfinder/' }}" \
+              StorageDriver="${{ vars.PATHFINDER_STORAGE_DRIVER || 'local' }}" \
+              SecretsDriver="${{ vars.PATHFINDER_SECRETS_DRIVER || 'local' }}"
+
+      - name: Show stack outputs
+        run: |
+          aws cloudformation describe-stacks \
+            --stack-name "${{ vars.PATHFINDER_API_STACK_NAME || 'vornan-pathfinder-api-prod' }}" \
+            --query "Stacks[0].Outputs" \
+            --output table
