@@ -1251,3 +1251,51 @@ What changed:
 - Added `PATHFINDER_STATUS_EMAIL_MODE=log` as the current delivery mode, with `PATHFINDER_PUBLIC_STATUS_RETURN_LINK=true` reserved for local smoke testing.
 - Added authenticated internal order lookup on the admin Jobs page for any Pathfinder job by Lift order number, source order number, or submit Ext_ID.
 - Updated the public status app so the default page asks for order number + email, while token URLs still render the order, proof, and package snapshot.
+
+## 2026-07-18 - Multi-Order Public Status Requests
+
+Extended the secure public status flow so customers can request several orders and receive one private status view.
+
+What changed:
+
+- Added `order_numbers` support to `POST /public/status/request-link`, with case-insensitive deduplication and a 10-order request limit while retaining legacy `order_number` support.
+- Added a bulk job lookup path that preserves the latest Pathfinder match per requested order.
+- Extended status token records with optional order references while retaining the original single-order fields for backward compatibility.
+- Updated public token lookup responses to return `snapshots` plus the legacy primary `snapshot`.
+- Kept access policy checks order-specific, so one link includes only the orders that the requesting email is permitted to view and the public response remains neutral.
+- Updated transactional status emails for single- and multi-order subjects, copy, order lists, and customer lists without logging raw order numbers.
+- Replaced the public status order-number input with a multiline, deduplicating request control and added a responsive order summary selector for individual details.
+
+Verification:
+
+- `npm run check`
+- `npm run build`
+- Plural email render assertion against the compiled email module.
+- Local API smoke tests for neutral multi-order acceptance, the 10-order server limit, and invalid-token behavior.
+- Desktop and 390px mobile browser checks, including no horizontal overflow and the client-side 10-order guard.
+
+## 2026-07-18 - Output Product Map Row-Level Mapping
+
+Completed the guided `Map Product` workflow for individual Pathfinder product-map rows.
+
+What changed:
+
+- Kept a clear `Map Product` action on every Output Product Map row and made the active row visually distinct while its Lift catalog drawer is open.
+- Scoped the drawer to the selected Pathfinder key and its fuzzy Lift product search while preserving route catalog presets, advanced filters, refresh behavior, and product details.
+- Made the active Lift catalog scope and route product identifier strategy explicit in the drawer.
+- Added an exact-row save path through the single mapping endpoint; selecting a Lift product now writes the product name, product ID, unit number, and route-specific identifier to only that mapping row.
+- Enforced route strategy boundaries so `product_id` routes cannot silently use a unit number and `unit_number` routes cannot silently use a product ID.
+- Updated resolver and UI status logic so mappings created for a different route identifier strategy are treated as unresolved unless the correct supplemental identifier exists.
+- Replaced unit-centric search/catalog language with `route product identifier` where the route may use `product_id`.
+- Restored the route identifier column in catalog results and disabled save actions when a Lift product lacks the identifier required by the route.
+- Made the Lift catalog drawer responsive below 1100px without changing the existing bulk mapping workflow.
+
+Verification:
+
+- `npm run check`
+- `npm run build`
+- Isolated local browser validation using a temporary store and disabled auth gate; no external Lift submit flags were enabled.
+- Exact-row save assertion: one selected mapping changed to `Mapped` with its Lift unit number while the neighboring row remained unchanged.
+- `product_id` route assertion: unit-only catalog products displayed `Product ID unavailable` and could not be saved.
+- 390x844 browser validation with a 390px drawer, single-column scope layout, and no horizontal overflow.
+- No browser console warnings or errors.

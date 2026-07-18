@@ -2379,6 +2379,30 @@ function outputIdentifierLabel(type: OutputProductIdentifierType) {
   return "Custom product identifier";
 }
 
+function productMappingIdentifierForRoute(mapping: CustomerProductMapping, route: OutputRoute) {
+  if (route.product_identifier_type === "lift_product_id") {
+    return (
+      mapping.lift_product_id ??
+      (mapping.product_identifier_type === "lift_product_id" ? mapping.product_identifier_value : null) ??
+      null
+    );
+  }
+  if (route.product_identifier_type === "lift_unit_number") {
+    return (
+      mapping.lift_unit_number ??
+      (mapping.product_identifier_type === "lift_unit_number" ? mapping.product_identifier_value : null) ??
+      null
+    );
+  }
+  return mapping.product_identifier_type === route.product_identifier_type
+    ? mapping.product_identifier_value ?? null
+    : null;
+}
+
+function productMappingStatusForRoute(mapping: CustomerProductMapping, route: OutputRoute): ProductMappingStatus {
+  return mapping.status === "Mapped" && !productMappingIdentifierForRoute(mapping, route) ? "Unmapped" : mapping.status;
+}
+
 function sourceTypeLabel(source: ImportMethodSource) {
   return source;
 }
@@ -4226,7 +4250,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     const query = unitMapSearch.trim().toLowerCase();
     return productMappings
       .filter((mapping) => mapping.output_route_id === selectedOutputMapRouteId)
-      .filter((mapping) => unitMapStatusFilter === "All" || mapping.status === unitMapStatusFilter)
+      .filter(
+        (mapping) =>
+          unitMapStatusFilter === "All" || productMappingStatusForRoute(mapping, selectedOutputMapRoute) === unitMapStatusFilter
+      )
       .filter((mapping) => {
         if (!query) {
           return true;
@@ -4254,11 +4281,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           Inactive: 3
         };
         return (
-          statusWeight[first.status] - statusWeight[second.status] ||
+          statusWeight[productMappingStatusForRoute(first, selectedOutputMapRoute)] -
+            statusWeight[productMappingStatusForRoute(second, selectedOutputMapRoute)] ||
           second.updated_at.localeCompare(first.updated_at)
         );
       });
-  }, [productMappings, selectedOutputMapRouteId, unitMapSearch, unitMapStatusFilter]);
+  }, [productMappings, selectedOutputMapRoute, selectedOutputMapRouteId, unitMapSearch, unitMapStatusFilter]);
   const selectedUnitMappings = productMappings.filter(
     (mapping) => mapping.output_route_id === selectedOutputMapRouteId && selectedUnitMapIds.includes(mapping.mapping_id)
   );
@@ -4302,10 +4330,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     activeCatalogScopeProduct?.catalog_name ??
     activeCatalogScopePreset?.catalog_name ??
     (activeCatalogScopeId ? "Catalog name loads from Lift" : "Choose a catalog");
-  const routeMappedCount = routeProductMappings.filter((mapping) => mapping.status === "Mapped").length;
-  const routeUnmappedCount = routeProductMappings.filter((mapping) => mapping.status === "Unmapped").length;
+  const routeMappedCount = routeProductMappings.filter(
+    (mapping) => productMappingStatusForRoute(mapping, selectedOutputMapRoute) === "Mapped"
+  ).length;
+  const routeUnmappedCount = routeProductMappings.filter(
+    (mapping) => productMappingStatusForRoute(mapping, selectedOutputMapRoute) === "Unmapped"
+  ).length;
   const routeBlockingCount = routeProductMappings.filter(
-    (mapping) => mapping.status === "Unmapped" || mapping.status === "Ambiguous"
+    (mapping) => {
+      const routeStatus = productMappingStatusForRoute(mapping, selectedOutputMapRoute);
+      return routeStatus === "Unmapped" || routeStatus === "Ambiguous";
+    }
   ).length;
   const routeSeenExampleCount = routeProductMappings.reduce((total, mapping) => total + productMappingSeenCount(mapping), 0);
   const routePreloadedCount = routeProductMappings.filter((mapping) => productMappingSourceLabel(mapping) === "Preloaded catalog").length;
@@ -5228,7 +5263,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     const currentUnit =
       draft?.unit ??
       ("mapping_id" in mapping
-        ? mapping.product_identifier_value ?? mapping.lift_unit_number ?? mapping.lift_product_id
+        ? productMappingIdentifierForRoute(mapping, mappingRoute)
         : mapping.resolved_product_identifier ?? mapping.resolved_unit_number ?? mapping.resolved_product_id) ??
       "";
     const currentProduct = draft?.product ?? mapping.product_name ?? mapping.display_label;
@@ -5624,18 +5659,28 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   function catalogIdentifierForRoute(item: LiftUnitCatalogItem, route: OutputRoute) {
     const primaryUnitNumber = selectedCatalogUnitNumber(item) ?? "";
     if (route.product_identifier_type === "lift_product_id") {
-      return item.product_id ?? primaryUnitNumber;
+      return item.product_id ?? "";
+    }
+    if (route.product_identifier_type === "lift_unit_number") {
+      return primaryUnitNumber;
     }
     return primaryUnitNumber || item.product_id || "";
   }
 
-  function catalogIdentifierLabel(item: LiftUnitCatalogItem) {
+  function catalogIdentifierLabel(item: LiftUnitCatalogItem, route: OutputRoute) {
+    if (route.product_identifier_type === "lift_product_id") {
+      return item.product_id ? `Product ID ${item.product_id}` : "Product ID unavailable";
+    }
+
     const unitNumbers = catalogUnitNumbers(item);
     const selectedUnitNumber = selectedCatalogUnitNumber(item);
     if (unitNumbers.length > 1) {
       return `${selectedUnitNumber ?? unitNumbers[0]} + ${unitNumbers.length - 1} more`;
     }
-    return selectedUnitNumber ?? (item.product_id ? `Product ID ${item.product_id}` : "No identifier");
+    if (route.product_identifier_type === "lift_unit_number") {
+      return selectedUnitNumber ?? "Unit number unavailable";
+    }
+    return selectedUnitNumber ?? (item.product_id ? `Product ID ${item.product_id}` : "No route product identifier");
   }
 
   function formatCatalogValue(value: unknown): string {
@@ -5684,37 +5729,104 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   function setBulkValueFromCatalog(item: LiftUnitCatalogItem) {
     const identifier = catalogIdentifierForRoute(item, selectedOutputMapRoute);
+    if (!identifier) {
+      setWorkspaceMessage(
+        `This Lift product does not provide the ${selectedOutputMapRoute.product_identifier_label} required by this route.`
+      );
+      return;
+    }
     setBulkUnitNumber(identifier);
     setBulkProductName(item.product_name);
     setWorkspaceMessage(`${identifier || item.product_name} selected for bulk assignment.`);
   }
 
+  function openCatalogForMapping(mapping: CustomerProductMapping) {
+    setSelectedUnitMapIds([mapping.mapping_id]);
+    setActiveCatalogMappingId(mapping.mapping_id);
+    setSelectedCatalogDetailId(null);
+    setUnitCatalogSearch(mapping.product_name ?? mapping.display_label ?? mapping.customer_product_key);
+    setOpenProductMapTool("unit-library");
+  }
+
+  async function assignCatalogItemToMapping(mapping: CustomerProductMapping, item: LiftUnitCatalogItem) {
+    const identifier = catalogIdentifierForRoute(item, selectedOutputMapRoute);
+    if (!identifier) {
+      setWorkspaceMessage(
+        `This Lift product cannot be mapped because it does not provide the ${selectedOutputMapRoute.product_identifier_label} required by this route.`
+      );
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/product-mappings/${mapping.mapping_id}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...mapping,
+            output_route_id: selectedOutputMapRoute.output_route_id,
+            target_id: selectedOutputMapRoute.target_id,
+            target_template: selectedOutputMapRoute.output_template,
+            product_identifier_type: selectedOutputMapRoute.product_identifier_type,
+            product_identifier_value: identifier,
+            lift_unit_number: selectedCatalogUnitNumber(item),
+            lift_product_id: item.product_id,
+            product_name: item.product_name,
+            status: "Mapped"
+          })
+        }
+      );
+      const payload = await readJsonResponse<{ product_mappings: CustomerProductMapping[] }>(response);
+      setWorkspace((current) => (current ? { ...current, product_mappings: payload.product_mappings } : current));
+      setSelectedUnitMapIds([]);
+      setActiveCatalogMappingId(null);
+      setSelectedCatalogDetailId(null);
+      setOpenProductMapTool(null);
+      setWorkspaceMessage(
+        `${mapping.customer_product_key} mapped to route product identifier ${identifier}. Regenerate preview to apply it.`
+      );
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Product mapping save failed.");
+      setWorkspaceState("error");
+    }
+  }
+
   async function assignCatalogItemToSelectedMappings(item: LiftUnitCatalogItem) {
+    if (activeCatalogMapping) {
+      await assignCatalogItemToMapping(activeCatalogMapping, item);
+      return;
+    }
+
     if (!selectedUnitMappings.length) {
       setWorkspaceMessage("Select one or more Pathfinder product-map rows before assigning a Lift product.");
       return;
     }
 
-    const isSingleRowMapping = Boolean(activeCatalogMapping);
+    const identifier = catalogIdentifierForRoute(item, selectedOutputMapRoute);
+    if (!identifier) {
+      setWorkspaceMessage(
+        `This Lift product cannot be mapped because it does not provide the ${selectedOutputMapRoute.product_identifier_label} required by this route.`
+      );
+      return;
+    }
+
     await bulkUpdateProductMappings(
       {
         output_route_id: selectedOutputMapRouteId,
         target_id: selectedOutputMapRoute.target_id,
         target_template: selectedOutputMapRoute.output_template,
         product_identifier_type: selectedOutputMapRoute.product_identifier_type,
-        product_identifier_value: catalogIdentifierForRoute(item, selectedOutputMapRoute),
+        product_identifier_value: identifier,
         lift_unit_number: selectedCatalogUnitNumber(item),
         lift_product_id: item.product_id,
         product_name: item.product_name,
         status: "Mapped"
       },
-      `${selectedUnitMappings.length} customer key${selectedUnitMappings.length === 1 ? "" : "s"} mapped to ${catalogIdentifierForRoute(item, selectedOutputMapRoute) || item.product_name}.`
+      `${selectedUnitMappings.length} customer key${selectedUnitMappings.length === 1 ? "" : "s"} mapped to ${identifier}.`
     );
-    if (isSingleRowMapping) {
-      setOpenProductMapTool(null);
-      setActiveCatalogMappingId(null);
-      setSelectedCatalogDetailId(null);
-    }
   }
 
   function setPreloadDefaultFromCatalog(item: LiftUnitCatalogItem) {
@@ -7540,7 +7652,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <Search size={16} />
                       <input
                         value={unitMapSearch}
-                        placeholder="Search key, source value, unit number, or product"
+                        placeholder="Search key, source value, route identifier, or product"
                         onChange={(event) => setUnitMapSearch(event.target.value)}
                       />
                     </label>
@@ -7912,10 +8024,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </strong>
                       </div>
                       <div>
-                        <span>Current mapping</span>
+                        <span>Route product identifier</span>
                         <strong>
                           {activeCatalogMapping
-                            ? activeCatalogMapping.product_identifier_value || "Needs mapping"
+                            ? `${selectedOutputMapRoute.product_identifier_label}: ${
+                                productMappingIdentifierForRoute(activeCatalogMapping, selectedOutputMapRoute) || "Needs mapping"
+                              }`
                             : selectedUnitMappings.length
                               ? `${selectedOutputMapRoute.product_identifier_label} assignment`
                               : selectedOutputMapRoute.product_identifier_label}
@@ -7925,7 +8039,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     <section className="unit-catalog-scope">
                       <div className="unit-catalog-scope-summary">
                         <div>
-                          <strong>Lift catalog</strong>
+                          <strong>Active Lift catalog scope</strong>
                           <span>
                             {activeCatalogScopeId
                               ? `${activeCatalogScopeName} / ${activeCatalogScopeId}`
@@ -8093,7 +8207,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <th>Catalog</th>
                               <th>Type</th>
                               <th>Size</th>
-                              <th>Identifier</th>
+                              <th>Route product identifier</th>
                               <th>Actions</th>
                             </tr>
                           </thead>
@@ -8122,7 +8236,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   </strong>
                                   <span>Attributes 1/2</span>
                                 </td>
-                                <td>{catalogIdentifierLabel(item)}</td>
+                                <td>{catalogIdentifierLabel(item, selectedOutputMapRoute)}</td>
                                 <td>
                                   <div className="unit-catalog-row-actions">
                                     <button className="secondary-button" onClick={() => setSelectedCatalogDetailId(item.catalog_item_id)}>
@@ -8131,7 +8245,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                     <button
                                       className="primary-button"
                                       onClick={() => void assignCatalogItemToSelectedMappings(item)}
-                                      disabled={workspaceState === "saving" || (!activeCatalogMapping && selectedUnitMappings.length === 0)}
+                                      disabled={
+                                        workspaceState === "saving" ||
+                                        (!activeCatalogMapping && selectedUnitMappings.length === 0) ||
+                                        !catalogIdentifierForRoute(item, selectedOutputMapRoute)
+                                      }
+                                      title={
+                                        catalogIdentifierForRoute(item, selectedOutputMapRoute)
+                                          ? `Save ${selectedOutputMapRoute.product_identifier_label} to the active Pathfinder mapping row`
+                                          : `This product has no ${selectedOutputMapRoute.product_identifier_label}`
+                                      }
                                     >
                                       {activeCatalogMapping
                                         ? "Save Mapping"
@@ -8164,10 +8287,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <X size={17} />
                             </button>
                           </div>
-                          {catalogUnitNumbers(selectedCatalogDetailItem).length > 1 ? (
+                          {selectedOutputMapRoute.product_identifier_type === "lift_unit_number" &&
+                          catalogUnitNumbers(selectedCatalogDetailItem).length > 1 ? (
                             <div className="unit-catalog-unit-picker">
                               <label className="setup-control">
-                                <span>Unit number to import</span>
+                                <span>Unit number to map</span>
                                 <select
                                   value={selectedCatalogUnitNumber(selectedCatalogDetailItem) ?? ""}
                                   onChange={(event) =>
@@ -8284,11 +8408,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         {filteredProductMappings.map((mapping) => {
                           const draftKey = productMappingDraftKey(mapping.output_route_id, mapping.customer_product_key);
                           const draft = productMappingDrafts[draftKey] ?? {
-                            unit: mapping.product_identifier_value ?? mapping.lift_unit_number ?? mapping.lift_product_id ?? "",
+                            unit: productMappingIdentifierForRoute(mapping, selectedOutputMapRoute) ?? "",
                             product: mapping.product_name ?? ""
                           };
+                          const routeMappingStatus = productMappingStatusForRoute(mapping, selectedOutputMapRoute);
                           return (
-                            <tr key={mapping.mapping_id}>
+                            <tr
+                              key={mapping.mapping_id}
+                              className={activeCatalogMappingId === mapping.mapping_id ? "is-map-target" : undefined}
+                            >
                               <td>
                                 <input
                                   type="checkbox"
@@ -8298,7 +8426,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 />
                               </td>
                               <td>
-                                <span className={productMappingStatusClass(mapping.status)}>{mapping.status}</span>
+                                <span className={productMappingStatusClass(routeMappingStatus)}>{routeMappingStatus}</span>
                               </td>
                               <td>
                                 <strong>{productMappingSourceLabel(mapping)}</strong>
@@ -8348,12 +8476,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <td>
                                 <button
                                   className="secondary-button table-inline-button"
-                                  onClick={() => {
-                                    setSelectedUnitMapIds([mapping.mapping_id]);
-                                    setActiveCatalogMappingId(mapping.mapping_id);
-                                    setUnitCatalogSearch(mapping.product_name ?? mapping.display_label ?? mapping.customer_product_key);
-                                    setOpenProductMapTool("unit-library");
-                                  }}
+                                  onClick={() => openCatalogForMapping(mapping)}
+                                  aria-pressed={activeCatalogMappingId === mapping.mapping_id}
                                 >
                                   Map Product
                                 </button>

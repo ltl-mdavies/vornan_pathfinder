@@ -91,7 +91,9 @@ export function buildStatusLinkEmail(args: {
   statusUrl: string;
   expiresAt: string;
   orderNumber?: string;
+  orderNumbers?: string[];
   customerName?: string;
+  customerNames?: string[];
 }): TransactionalEmail {
   const config = getEmailRuntimeConfig();
   const expires = new Date(args.expiresAt);
@@ -104,9 +106,19 @@ export function buildStatusLinkEmail(args: {
       }).format(expires);
   const safeStatusUrl = escapeHtml(args.statusUrl);
   const safeExpiresLabel = escapeHtml(expiresLabel);
-  const safeOrderNumber = escapeHtml(args.orderNumber?.trim() || "your order");
-  const safeCustomerName = escapeHtml(args.customerName?.trim() || "Vornan");
-  const subjectOrder = args.orderNumber?.trim() ? ` for ${args.orderNumber.trim()}` : "";
+  const orderNumbers = Array.from(
+    new Set((args.orderNumbers?.length ? args.orderNumbers : [args.orderNumber]).map((value) => value?.trim()).filter(Boolean))
+  ) as string[];
+  const customerNames = Array.from(
+    new Set((args.customerNames?.length ? args.customerNames : [args.customerName]).map((value) => value?.trim()).filter(Boolean))
+  ) as string[];
+  const orderLabel = orderNumbers.length ? orderNumbers.join(", ") : "your order";
+  const customerLabel = customerNames.length ? customerNames.join(", ") : "Vornan";
+  const safeOrderLabel = escapeHtml(orderLabel);
+  const safeCustomerLabel = escapeHtml(customerLabel);
+  const subjectOrder =
+    orderNumbers.length === 1 ? ` for ${orderNumbers[0]}` : orderNumbers.length > 1 ? ` for ${orderNumbers.length} orders` : "";
+  const orderNoun = orderNumbers.length === 1 ? "order" : "orders";
 
   return {
     to: [args.to],
@@ -115,7 +127,7 @@ export function buildStatusLinkEmail(args: {
     category: "status_link",
     subject: `Your Vornan order status link${subjectOrder}`,
     text: [
-      `A secure Vornan order status link was requested${args.orderNumber ? ` for ${args.orderNumber}` : ""}.`,
+      `A secure Vornan order status link was requested${orderNumbers.length ? ` for ${orderLabel}` : ""}.`,
       "",
       args.statusUrl,
       "",
@@ -135,18 +147,18 @@ export function buildStatusLinkEmail(args: {
       '<tr><td style="padding:28px 30px 18px;">',
       '<div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#355b39;font-weight:800;">Vornan</div>',
       '<h1 style="font-size:28px;line-height:1.15;margin:12px 0 10px;color:#191818;">Your order status link is ready.</h1>',
-      `<p style="font-size:16px;line-height:1.55;margin:0;color:#5c6859;">Use this private link to view the latest available status details for <strong style="color:#191818;">${safeOrderNumber}</strong>.</p>`,
+      `<p style="font-size:16px;line-height:1.55;margin:0;color:#5c6859;">Use this private link to view the latest available status details for your ${orderNoun}.</p>`,
       "</td></tr>",
       '<tr><td style="padding:0 30px 8px;">',
       '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #dfe7da;border-radius:8px;background:#f7f8f5;">',
       '<tr>',
       '<td style="padding:14px 16px;border-bottom:1px solid #dfe7da;">',
-      '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#758070;font-weight:800;">Order</div>',
-      `<div style="font-size:17px;line-height:1.35;margin-top:4px;color:#191818;font-weight:800;">${safeOrderNumber}</div>`,
+      `<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#758070;font-weight:800;">${orderNumbers.length === 1 ? "Order" : "Orders"}</div>`,
+      `<div style="font-size:17px;line-height:1.35;margin-top:4px;color:#191818;font-weight:800;">${safeOrderLabel}</div>`,
       "</td>",
       '<td style="padding:14px 16px;border-bottom:1px solid #dfe7da;">',
       '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#758070;font-weight:800;">Account</div>',
-      `<div style="font-size:17px;line-height:1.35;margin-top:4px;color:#191818;font-weight:800;">${safeCustomerName}</div>`,
+      `<div style="font-size:17px;line-height:1.35;margin-top:4px;color:#191818;font-weight:800;">${safeCustomerLabel}</div>`,
       "</td>",
       "</tr>",
       '<tr><td colspan="2" style="padding:14px 16px;">',
@@ -156,7 +168,7 @@ export function buildStatusLinkEmail(args: {
       "</table>",
       "</td></tr>",
       '<tr><td style="padding:4px 30px 26px;">',
-      `<a href="${safeStatusUrl}" style="display:inline-block;background:#345738;color:#ffffff;text-decoration:none;font-weight:800;font-size:16px;padding:14px 18px;border-radius:6px;">View order status</a>`,
+      `<a href="${safeStatusUrl}" style="display:inline-block;background:#345738;color:#ffffff;text-decoration:none;font-weight:800;font-size:16px;padding:14px 18px;border-radius:6px;">View ${orderNumbers.length === 1 ? "order" : "orders"}</a>`,
       `<p style="font-size:14px;line-height:1.5;margin:20px 0 0;color:#6f796b;">This private link expires ${safeExpiresLabel}.</p>`,
       '<p style="font-size:13px;line-height:1.5;margin:14px 0 0;color:#7b8477;">If you did not request this link, you can ignore this email.</p>',
       "</td></tr>",

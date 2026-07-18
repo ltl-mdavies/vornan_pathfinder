@@ -97,9 +97,11 @@ type PublicOrderStatusSnapshot = {
 
 type PublicStatusResponse = {
   snapshot: PublicOrderStatusSnapshot;
+  snapshots?: PublicOrderStatusSnapshot[];
   link: {
     status: string;
     expires_at: string;
+    order_count?: number;
   };
 };
 
@@ -203,8 +205,23 @@ function productIdentifier(line: StatusLine) {
   return "Product identifier pending";
 }
 
+function parseOrderNumbers(value: string) {
+  const seen = new Set<string>();
+  return value
+    .split(/[\n,;]+/)
+    .map((orderNumber) => orderNumber.trim())
+    .filter((orderNumber) => {
+      const normalized = orderNumber.toUpperCase().replace(/\s+/g, "");
+      if (!normalized || seen.has(normalized)) {
+        return false;
+      }
+      seen.add(normalized);
+      return true;
+    });
+}
+
 function StatusRequestForm() {
-  const [orderNumber, setOrderNumber] = useState("");
+  const [orderNumberInput, setOrderNumberInput] = useState("");
   const [email, setEmail] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [message, setMessage] = useState("");
@@ -214,9 +231,15 @@ function StatusRequestForm() {
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        if (!orderNumber.trim() || !email.trim()) {
+        const orderNumbers = parseOrderNumbers(orderNumberInput);
+        if (!orderNumbers.length || !email.trim()) {
           setState("error");
-          setMessage("Enter both an order number and email address.");
+          setMessage("Enter at least one order number and an email address.");
+          return;
+        }
+        if (orderNumbers.length > 10) {
+          setState("error");
+          setMessage("Enter no more than 10 order numbers at a time.");
           return;
         }
         setState("sending");
@@ -228,7 +251,8 @@ function StatusRequestForm() {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            order_number: orderNumber.trim(),
+            order_number: orderNumbers[0],
+            order_numbers: orderNumbers,
             email: email.trim()
           })
         })
@@ -255,14 +279,15 @@ function StatusRequestForm() {
         <span>Private status link</span>
         <strong>Sent by email</strong>
       </div>
-      <label htmlFor="order-number">Order number</label>
-      <input
-        id="order-number"
-        value={orderNumber}
-        onChange={(event) => setOrderNumber(event.target.value)}
-        placeholder="A0219986"
+      <label htmlFor="order-numbers">Order numbers</label>
+      <textarea
+        id="order-numbers"
+        value={orderNumberInput}
+        onChange={(event) => setOrderNumberInput(event.target.value)}
+        placeholder={"A0219986\nA0219987"}
         autoComplete="off"
       />
+      <small className="field-hint">One per line, up to 10 orders.</small>
       <label htmlFor="request-email">Email address</label>
       <input
         id="request-email"
@@ -291,7 +316,7 @@ function StatusRequest() {
       <div>
         <p className="eyebrow">Order Status</p>
         <h1>Check your order status.</h1>
-        <p>Enter your order number and email. We will send a private link when the request matches our records.</p>
+        <p>Enter one or more order numbers and your email. We will send one private link when the request matches our records.</p>
         <p className="request-note">Order details, proof files, and shipment updates are shown when available.</p>
       </div>
       <StatusRequestForm />
@@ -359,7 +384,9 @@ function PackageList({ packages }: { packages: StatusPackage[] }) {
 }
 
 function StatusView({ payload }: { payload: PublicStatusResponse }) {
-  const { snapshot } = payload;
+  const snapshots = payload.snapshots?.length ? payload.snapshots : [payload.snapshot];
+  const [selectedOrderKey, setSelectedOrderKey] = useState(snapshots[0].order_key);
+  const snapshot = snapshots.find((candidate) => candidate.order_key === selectedOrderKey) ?? snapshots[0];
   const trackingNumber = firstTracking(snapshot);
   const currentStatus = statusLabel(snapshot);
   const expiresAt = displayDate(payload.link.expires_at);
@@ -369,6 +396,38 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
 
   return (
     <>
+      {snapshots.length > 1 ? (
+        <section className="order-collection" aria-label="Requested orders">
+          <div className="collection-heading">
+            <div>
+              <p className="eyebrow">Order Summary</p>
+              <h1>{snapshots.length} orders</h1>
+            </div>
+            <p>Select an order to see its progress, proofs, and shipment activity.</p>
+          </div>
+          <div className="order-selector">
+            {snapshots.map((candidate) => (
+              <button
+                type="button"
+                className={candidate.order_key === snapshot.order_key ? "selected" : ""}
+                key={candidate.order_key}
+                onClick={() => setSelectedOrderKey(candidate.order_key)}
+                aria-pressed={candidate.order_key === snapshot.order_key}
+              >
+                <span>
+                  <strong>{candidate.order_number}</strong>
+                  <small>{candidate.customer.source_customer_name}</small>
+                </span>
+                <span>
+                  <strong>{statusLabel(candidate)}</strong>
+                  <small>Updated {displayDate(candidate.refreshed_at)}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section className="hero">
         <div>
           <p className="eyebrow">Order Status</p>

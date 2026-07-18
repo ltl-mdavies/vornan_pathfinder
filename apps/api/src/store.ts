@@ -507,6 +507,12 @@ export interface OrderStatusTokenRecord {
   customer_id: string;
   job_id: string;
   order_number: string;
+  orders?: Array<{
+    order_key: string;
+    customer_id: string;
+    job_id: string;
+    order_number: string;
+  }>;
   status: OrderStatusTokenStatus;
   created_at: string;
   updated_at: string;

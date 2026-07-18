@@ -13,12 +13,14 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Current HEAD at handoff: `914622a Add global status access domain allowlist`
-- Working tree at handoff creation: clean before this document was added
+- Current HEAD before the continuation work: `a2f0bf0 Add Pathfinder thread handoff`
+- Branch state during continuation: `main`, four commits ahead of `origin/main`
+- Working tree now contains the intentional multi-order public status and row-level Output Product Map changes; they remain uncommitted pending an intentional commit.
 
 Recent commits:
 
 ```text
+a2f0bf0 Add Pathfinder thread handoff
 914622a Add global status access domain allowlist
 5f4b3b9 Add customer status access policy controls
 adef691 Add public status access policy
@@ -394,17 +396,13 @@ GitHub Actions deploys:
 - API production console errors from missing Firebase project ID were resolved.
 - Customer environment selection persisted after the DynamoDB switch in the live app.
 - Public status app exists and has an email/token request foundation.
-- Global public status domain allowlist was added in the latest commit.
+- Global public status domain allowlist was committed before the continuation work.
+- Public status requests now accept up to 10 order numbers and issue one tokenized link with an order summary and individual details.
+- Output Product Map rows now open a scoped Lift catalog workflow and save the selected route identifier back to the exact row.
 
 ## Current Known Friction Or Risks
 
 - Google login may show Cross-Origin-Opener-Policy console warnings from Firebase popup behavior even when auth succeeds.
-- Product mapping UI still needs a clearer row-level workflow:
-  - Pick a Pathfinder customer product key row.
-  - Click "Map Product".
-  - Search/select Lift catalog product.
-  - Save product ID and/or unit number back to that exact mapping row.
-  - Support bulk mapping intentionally.
 - The Lift Product Catalog panel has been iterated several times and may still need simplification around pinned catalogs, refresh behavior, and product details hierarchy.
 - Import Methods layout needs continued cleanup:
   - List first.
@@ -451,28 +449,38 @@ Current direction:
 - Internal logged-in users should be able to look up any order number.
 - Public users should not be able to trivially enumerate order numbers.
 
+Completed in the continuation slice:
+
+- Multi-order requests accept up to 10 unique order numbers.
+- One backward-compatible token can reference several public snapshots.
+- One email opens a clean order summary and individual order details.
+
 Recommended next slices:
 
-1. Add multi-order public status requests:
-   - Accept several order numbers.
-   - Send one tokenized link.
-   - Show a clean order summary list and individual order details.
-2. Add email-domain gate:
+1. Continue hardening the email-domain gate:
    - Check request email domain against customer-derived or configured allowed domains.
    - Global allowlist domains can request across customers.
    - Return neutral messaging even when denied.
-3. Add customer settings for approved status domains:
+2. Continue customer settings for approved status domains:
    - Auto-suggest from known customer/contact emails.
    - Allow manual add/remove.
    - Keep defaults conservative.
-4. Add internal status lookup:
+3. Expand internal status lookup:
    - Admin-authenticated users can search by order number without email token.
-5. Improve status page polish:
+4. Improve status page polish:
    - Premium minimal layout.
    - Less explanatory copy.
    - Stronger mobile behavior.
 
 ## Product Mapping Roadmap
+
+Completed in the continuation slice:
+
+- Added and validated a direct `Map Product` action on each Pathfinder mapping row.
+- The catalog drawer shows the active Pathfinder key, active Lift catalog scope, and route identifier strategy.
+- Lift product selection saves through the exact-row endpoint and records the available product ID/unit number metadata.
+- Route identifier resolution is strict: `unit_number` and `product_id` do not silently substitute for one another.
+- Existing bulk controls, catalog presets, advanced filters, refresh, and product details remain available.
 
 Recommended next slices:
 
@@ -481,14 +489,12 @@ Recommended next slices:
    - Prevent duplicate pinned catalog presets.
    - Always import catalog name from Lift payload.
    - Remove redundant manual catalog name entry where possible.
-2. Add row-level Map Product:
-   - Put the action directly on each Output Product Map row.
-   - Open Lift catalog search scoped to that row.
-   - Save selected product fields to that exact mapping.
-3. Add bulk map flow:
-   - Select multiple Pathfinder rows.
-   - Choose one Lift product.
-   - Confirm all selected rows map to that same product identifier.
+2. Add explicit route-strategy migration assistance:
+   - Summarize mappings that lack the newly selected route identifier after a strategy change.
+   - Offer a focused remap queue without silently rewriting stored identifiers.
+3. Refine the existing bulk map flow only when needed:
+   - Keep multi-row selection clearly separate from the primary row-level workflow.
+   - Add an explicit confirmation before one Lift product is assigned to several Pathfinder rows.
 4. Clean details panel:
    - Show only real payload field names and values.
    - Avoid duplicate `unit_number` / `unit_numbers` display unless both are truly present in the payload and meaningful.
@@ -567,8 +573,7 @@ Please read /Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/THREAD_HA
 
 If the next slice is not specified, the best candidates are:
 
-1. Public status multi-order request and domain gate.
-2. Output Product Map row-level Map Product workflow.
-3. Import Methods restructure with single save and unsaved-change guard.
-4. Transactional email SES smoke test and production switch.
-5. Mobile polish for login, dashboard, overview, and public status.
+1. Import Methods restructure with single save and unsaved-change guard.
+2. Tighten Lift Catalog Scope and add route-strategy migration assistance.
+3. Transactional email SES smoke test and production switch.
+4. Mobile polish for login, dashboard, overview, and public status.

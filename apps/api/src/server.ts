@@ -127,6 +127,7 @@ const liftProductCatalogBaseUrl =
   process.env.LIFT_PRODUCT_CATALOG_BASE_URL ?? "https://ltlco.lifterp.com/ords/api/lift/erp";
 const publicStatusBaseUrl = process.env.PATHFINDER_PUBLIC_STATUS_BASE_URL ?? "https://status.vornan.co";
 const publicStatusTokenDays = Number(process.env.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS ?? 30);
+const maxPublicStatusOrdersPerRequest = 10;
 const publicStatusReturnLink =
   process.env.PATHFINDER_PUBLIC_STATUS_RETURN_LINK === "true" &&
   process.env.PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK === "true" &&
@@ -1103,16 +1104,16 @@ function publicStatusRequestIp(req: Request) {
   return forwardedFor || req.ip || "unknown";
 }
 
-function isPublicStatusRequestRateLimited(req: Request, email: string, orderNumber: string) {
+function isPublicStatusRequestRateLimited(req: Request, email: string, orderNumbers: string[]) {
   const now = Date.now();
   const hashedIp = hashPublicLogValue(publicStatusRequestIp(req));
   const hashedEmail = hashPublicLogValue(email);
-  const hashedOrder = hashPublicLogValue(orderNumber);
+  const hashedOrders = orderNumbers.map((orderNumber) => hashPublicLogValue(orderNumber));
   const keys = [
     `ip:${hashedIp}`,
     `email:${hashedEmail}`,
-    `order:${hashedOrder}`,
-    `pair:${hashedOrder}:${hashedEmail}`
+    `request:${hashPublicLogValue(orderNumbers.join("|"))}:${hashedEmail}`,
+    ...hashedOrders.flatMap((hashedOrder) => [`order:${hashedOrder}`, `pair:${hashedOrder}:${hashedEmail}`])
   ];
 
   for (const key of keys) {
@@ -1157,6 +1158,27 @@ function statusUrlForToken(token: string) {
 
 function normalizeOrderLookupValue(value: unknown) {
   return valueAsString(value).toUpperCase().replace(/\s+/g, "");
+}
+
+function requestedPublicStatusOrderNumbers(body: unknown) {
+  if (!body || typeof body !== "object") {
+    return [];
+  }
+
+  const record = body as Record<string, unknown>;
+  const values = Array.isArray(record.order_numbers) ? record.order_numbers : [record.order_number];
+  const seen = new Set<string>();
+
+  return values
+    .map((value) => valueAsString(value).trim())
+    .filter((value) => {
+      const normalized = normalizeOrderLookupValue(value);
+      if (!normalized || seen.has(normalized)) {
+        return false;
+      }
+      seen.add(normalized);
+      return true;
+    });
 }
 
 function rawBodyOrderCandidates(rawBody: unknown) {
@@ -1289,48 +1311,85 @@ function canSendPublicStatusLinkToEmail(
 }
 
 async function findPathfinderJobByOrderNumber(orderNumber: string) {
-  const normalizedOrderNumber = normalizeOrderLookupValue(orderNumber);
+  return (await findPathfinderJobsByOrderNumbers([orderNumber]))[0] ?? null;
+}
 
-  if (!normalizedOrderNumber) {
-    return null;
+async function findPathfinderJobsByOrderNumbers(orderNumbers: string[]) {
+  const requestedOrderNumbers = new Set(orderNumbers.map(normalizeOrderLookupValue).filter(Boolean));
+  const matches = new Map<
+    string,
+    {
+      customer: LiftCustomer;
+      workspace: PathfinderCustomerWorkspace;
+      job: ProcessingJobPreview;
+      attempts: SubmitAttempt[];
+    }
+  >();
+
+  if (!requestedOrderNumbers.size) {
+    return [];
   }
 
   const jobs = [...(await listJobs())].sort((first, second) => Date.parse(second.updated_at) - Date.parse(first.updated_at));
 
   for (const job of jobs) {
+    if (matches.size === requestedOrderNumbers.size) {
+      break;
+    }
+
     const customer = await findLiftCustomer(job.customer_id);
     const workspace = await getOrCreateWorkspace(customer);
     const attempts = await listSubmitAttemptsForJob(customer, job.job_id);
-    const matched = jobOrderLookupCandidates(job, attempts).some(
-      (candidate) => normalizeOrderLookupValue(candidate) === normalizedOrderNumber
-    );
+    const matchedOrderNumber = jobOrderLookupCandidates(job, attempts)
+      .map(normalizeOrderLookupValue)
+      .find((candidate) => requestedOrderNumbers.has(candidate) && !matches.has(candidate));
 
-    if (matched) {
-      return {
+    if (matchedOrderNumber) {
+      matches.set(matchedOrderNumber, {
         customer,
         workspace,
         job,
         attempts
-      };
+      });
     }
   }
 
-  return null;
+  return orderNumbers
+    .map((orderNumber) => matches.get(normalizeOrderLookupValue(orderNumber)))
+    .filter((match): match is NonNullable<typeof match> => Boolean(match));
 }
 
-async function createPublicStatusLinkForJob(args: {
-  customer: LiftCustomer;
-  jobId: string;
+async function createPublicStatusLinkForJobs(args: {
+  orders: Array<{ customer: LiftCustomer; jobId: string }>;
   createdByEmail?: string | null;
   requestedEmail?: string | null;
 }) {
-  const result = await buildInternalOrderSnapshotForJob(args.customer, args.jobId);
+  const results: Array<Exclude<Awaited<ReturnType<typeof buildInternalOrderSnapshotForJob>>, { error: string }>> = [];
+  let firstError: Awaited<ReturnType<typeof buildInternalOrderSnapshotForJob>> | null = null;
+  const seenOrderKeys = new Set<string>();
 
-  if ("error" in result) {
-    return result;
+  for (const order of args.orders) {
+    const result = await buildInternalOrderSnapshotForJob(order.customer, order.jobId);
+
+    if ("error" in result) {
+      firstError ??= result;
+      continue;
+    }
+
+    const orderKey = `${result.snapshot.customer.submit_customer_name}:${result.context.orderNumber}:${result.context.job.job_id}`;
+    if (!seenOrderKeys.has(orderKey)) {
+      seenOrderKeys.add(orderKey);
+      results.push(result);
+    }
   }
 
-  const snapshot = publicOrderStatusSnapshotFromInternal(result.snapshot);
+  if (!results.length) {
+    return firstError ?? { error: "No order status snapshots could be created.", errorStatus: 404 };
+  }
+
+  const snapshots = results.map((result) => publicOrderStatusSnapshotFromInternal(result.snapshot));
+  const snapshot = snapshots[0];
+  const primaryResult = results[0];
   const rawToken = randomBytes(32).toString("base64url");
   const nowIso = new Date().toISOString();
   const expiresAt = new Date(Date.now() + Math.max(1, publicStatusTokenDays) * 24 * 60 * 60 * 1000);
@@ -1338,9 +1397,15 @@ async function createPublicStatusLinkForJob(args: {
   const tokenRecord = {
     token_hash: hashStatusToken(rawToken),
     order_key: snapshot.order_key,
-    customer_id: args.customer.lift_customer_id,
-    job_id: result.context.job.job_id,
-    order_number: result.context.orderNumber,
+    customer_id: primaryResult.context.job.customer_id,
+    job_id: primaryResult.context.job.job_id,
+    order_number: primaryResult.context.orderNumber,
+    orders: results.map((result, index) => ({
+      order_key: snapshots[index].order_key,
+      customer_id: result.context.job.customer_id,
+      job_id: result.context.job.job_id,
+      order_number: result.context.orderNumber
+    })),
     status: "Active" as const,
     created_at: nowIso,
     updated_at: nowIso,
@@ -1360,7 +1425,9 @@ async function createPublicStatusLinkForJob(args: {
       : null
   };
 
-  await persistPublicOrderStatusSnapshot(snapshot);
+  for (const statusSnapshot of snapshots) {
+    await persistPublicOrderStatusSnapshot(statusSnapshot);
+  }
   await persistOrderStatusToken(tokenRecord);
 
   return {
@@ -1369,14 +1436,29 @@ async function createPublicStatusLinkForJob(args: {
     expires_at: tokenRecord.expires_at,
     token_record: tokenRecord,
     snapshot,
-    context: result.context
+    snapshots,
+    context: primaryResult.context,
+    contexts: results.map((result) => result.context)
   };
+}
+
+async function createPublicStatusLinkForJob(args: {
+  customer: LiftCustomer;
+  jobId: string;
+  createdByEmail?: string | null;
+  requestedEmail?: string | null;
+}) {
+  return createPublicStatusLinkForJobs({
+    orders: [{ customer: args.customer, jobId: args.jobId }],
+    createdByEmail: args.createdByEmail,
+    requestedEmail: args.requestedEmail
+  });
 }
 
 async function sendPublicStatusLinkEmail(args: {
   email: string;
-  orderNumber: string;
-  customerName?: string;
+  orderNumbers: string[];
+  customerNames?: string[];
   statusUrl: string;
   expiresAt: string;
 }): Promise<TransactionalEmailResult> {
@@ -1385,8 +1467,8 @@ async function sendPublicStatusLinkEmail(args: {
       to: args.email,
       statusUrl: args.statusUrl,
       expiresAt: args.expiresAt,
-      orderNumber: args.orderNumber,
-      customerName: args.customerName
+      orderNumbers: args.orderNumbers,
+      customerNames: args.customerNames
     })
   );
 
@@ -1395,7 +1477,8 @@ async function sendPublicStatusLinkEmail(args: {
     status: result.status,
     provider_message_id: result.provider_message_id ?? null,
     to: maskEmailAddress(args.email),
-    order_number_hash: hashPublicLogValue(args.orderNumber),
+    order_count: args.orderNumbers.length,
+    order_number_hashes: args.orderNumbers.map(hashPublicLogValue),
     expires_at: args.expiresAt
   });
 
@@ -1474,12 +1557,22 @@ function buildMappingFromRow(
 
 function resolvedIdentifierForRoute(mapping: CustomerProductMapping, route: OutputRoute) {
   if (route.product_identifier_type === "lift_product_id") {
-    return mapping.product_identifier_value ?? mapping.lift_product_id ?? null;
+    return (
+      mapping.lift_product_id ??
+      (mapping.product_identifier_type === "lift_product_id" ? mapping.product_identifier_value : null) ??
+      null
+    );
   }
   if (route.product_identifier_type === "lift_unit_number") {
-    return mapping.product_identifier_value ?? mapping.lift_unit_number ?? null;
+    return (
+      mapping.lift_unit_number ??
+      (mapping.product_identifier_type === "lift_unit_number" ? mapping.product_identifier_value : null) ??
+      null
+    );
   }
-  return mapping.product_identifier_value ?? mapping.lift_unit_number ?? mapping.lift_product_id ?? null;
+  return mapping.product_identifier_type === route.product_identifier_type
+    ? mapping.product_identifier_value ?? null
+    : null;
 }
 
 function detectAmbiguousKeys(rows: ParsedSourceRow[], config: ProductResolutionConfig) {
@@ -2241,18 +2334,36 @@ app.get("/public/status/:token", async (req, res) => {
       return;
     }
 
-    const snapshot = await getPublicOrderStatusSnapshot(tokenRecord.order_key);
+    const tokenOrders = tokenRecord.orders?.length
+      ? tokenRecord.orders
+      : [
+          {
+            order_key: tokenRecord.order_key,
+            customer_id: tokenRecord.customer_id,
+            job_id: tokenRecord.job_id,
+            order_number: tokenRecord.order_number
+          }
+        ];
+    const snapshots = (
+      await Promise.all(
+        Array.from(new Set(tokenOrders.map((order) => order.order_key))).map((orderKey) =>
+          getPublicOrderStatusSnapshot(orderKey)
+        )
+      )
+    ).filter((snapshot): snapshot is PublicOrderStatusSnapshot => snapshot != null);
 
-    if (!snapshot) {
-      res.status(404).json({ error: "Order status snapshot was not found." });
+    if (!snapshots.length) {
+      res.status(404).json({ error: "Order status snapshots were not found." });
       return;
     }
 
     res.json({
-      snapshot,
+      snapshot: snapshots[0],
+      snapshots,
       link: {
         status: tokenRecord.status,
-        expires_at: tokenRecord.expires_at
+        expires_at: tokenRecord.expires_at,
+        order_count: snapshots.length
       }
     });
   } catch (error) {
@@ -2269,28 +2380,33 @@ app.post("/public/status/request-link", async (req, res) => {
   };
 
   try {
-    const orderNumber = valueAsString(req.body?.order_number);
+    const orderNumbers = requestedPublicStatusOrderNumbers(req.body);
     const email = valueAsString(req.body?.email).toLowerCase();
 
-    if (!orderNumber || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (
+      !orderNumbers.length ||
+      orderNumbers.length > maxPublicStatusOrdersPerRequest ||
+      !email ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    ) {
       res.status(400).json({
-        error: "Enter an order number and a valid email address."
+        error: `Enter one to ${maxPublicStatusOrdersPerRequest} order numbers and a valid email address.`
       });
       return;
     }
 
-    if (isPublicStatusRequestRateLimited(req, email, orderNumber)) {
+    if (isPublicStatusRequestRateLimited(req, email, orderNumbers)) {
       res.status(202).json(acceptedResponse);
       return;
     }
 
-    const match = await findPathfinderJobByOrderNumber(orderNumber);
+    const matches = await findPathfinderJobsByOrderNumbers(orderNumbers);
+    const permittedMatches = matches.filter((match) => canSendPublicStatusLinkToEmail(match.workspace, match.job, email));
     let debugStatusUrl: string | undefined;
 
-    if (match && canSendPublicStatusLinkToEmail(match.workspace, match.job, email)) {
-      const link = await createPublicStatusLinkForJob({
-        customer: match.customer,
-        jobId: match.job.job_id,
+    if (permittedMatches.length) {
+      const link = await createPublicStatusLinkForJobs({
+        orders: permittedMatches.map((match) => ({ customer: match.customer, jobId: match.job.job_id })),
         createdByEmail: email,
         requestedEmail: email
       });
@@ -2299,8 +2415,8 @@ app.post("/public/status/request-link", async (req, res) => {
         try {
           const delivery = await sendPublicStatusLinkEmail({
             email,
-            orderNumber: link.snapshot.order_number || orderNumber,
-            customerName: link.snapshot.customer.submit_customer_name,
+            orderNumbers: link.snapshots.map((snapshot) => snapshot.order_number),
+            customerNames: link.snapshots.map((snapshot) => snapshot.customer.submit_customer_name),
             statusUrl: link.status_url,
             expiresAt: link.expires_at
           });
@@ -2331,9 +2447,12 @@ app.post("/public/status/request-link", async (req, res) => {
         }
         debugStatusUrl = publicStatusReturnLink ? link.status_url : undefined;
       }
-    } else if (match) {
+    }
+
+    if (matches.length > permittedMatches.length) {
       console.info("[pathfinder-status-link-rejected]", {
-        order_number_hash: hashPublicLogValue(orderNumber),
+        rejected_order_count: matches.length - permittedMatches.length,
+        order_number_hashes: orderNumbers.map(hashPublicLogValue),
         requested_email: maskEmailAddress(email),
         reason: "email_not_associated_with_order"
       });
