@@ -53,14 +53,13 @@ input {
 .status-request,
 .loading-card,
 .summary-grid,
-.visibility-grid,
 .progress-panel,
 .order-lines,
 .privacy-note,
 .issue-strip {
   border: 1px solid #dce5d8;
   background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 24px 70px rgba(30, 45, 28, 0.08);
+  box-shadow: 0 24px 70px rgba(30, 45, 28, 0.07);
 }
 
 .hero {
@@ -68,7 +67,7 @@ input {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 32px;
   align-items: end;
-  padding: 36px;
+  padding: 42px 40px;
   border-radius: 8px;
 }
 
@@ -124,7 +123,6 @@ p {
 
 .status-badge span,
 .key-value span,
-.lookup-card span,
 .line-detail-label {
   display: block;
   color: #748071;
@@ -231,8 +229,7 @@ p {
   line-height: 1.3;
 }
 
-.summary-grid,
-.visibility-grid {
+.summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
@@ -241,100 +238,21 @@ p {
   overflow: hidden;
 }
 
-.key-value,
-.lookup-card,
-.visibility-grid > div {
+.key-value {
   min-height: 96px;
   padding: 20px;
   border-right: 1px solid #dce5d8;
 }
 
-.key-value:last-child,
-.visibility-grid > div:last-child {
+.key-value:last-child {
   border-right: 0;
 }
 
-.key-value strong,
-.lookup-card strong,
-.visibility-grid > div > strong {
+.key-value strong {
   display: block;
   margin-top: 6px;
   font-size: 1.12rem;
   line-height: 1.25;
-}
-
-.visibility-grid > div > span,
-.lookup-card {
-  position: relative;
-}
-
-.visibility-grid > div > span {
-  display: block;
-  color: #748071;
-  font-size: 0.72rem;
-  font-weight: 850;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.visibility-grid > div > small {
-  display: block;
-  margin-top: 6px;
-  color: #6d7769;
-  font-weight: 650;
-}
-
-.source-availability {
-  grid-column: span 1;
-}
-
-.source-availability > div {
-  display: grid;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.source-availability .lookup-card {
-  min-height: 0;
-  padding: 11px 12px;
-  border: 1px solid #dce5d8;
-  border-left: 4px solid #c6d0c2;
-  border-radius: 8px;
-  background: #fbfcfa;
-}
-
-.source-availability .lookup-card.loaded {
-  border-top-color: #dce5d8;
-  border-left-color: #2f8f4c;
-}
-
-.source-availability .lookup-card span {
-  font-size: 0.68rem;
-}
-
-.source-availability .lookup-card strong {
-  margin-top: 2px;
-  font-size: 0.95rem;
-}
-
-.source-availability .lookup-card small {
-  margin-top: 2px;
-  font-size: 0.78rem;
-}
-
-.lookup-card {
-  border-top: 4px solid #c6d0c2;
-}
-
-.lookup-card.loaded {
-  border-top-color: #2f8f4c;
-}
-
-.lookup-card small {
-  display: block;
-  margin-top: 6px;
-  color: #6d7769;
-  font-weight: 650;
 }
 
 .issue-strip {
@@ -371,6 +289,26 @@ p {
 .section-heading span {
   color: #667263;
   font-weight: 750;
+}
+
+.line-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.line-summary-chips span {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #dce5d8;
+  border-radius: 999px;
+  padding: 0 13px;
+  background: #f7faf4;
+  color: #315c3b;
+  font-size: 0.85rem;
+  font-weight: 850;
 }
 
 .line-card {
@@ -493,24 +431,11 @@ a:hover {
   font-size: clamp(2rem, 4vw, 3.85rem);
 }
 
-.status-highlights {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 24px;
-}
-
-.status-highlights span {
-  display: inline-flex;
-  min-height: 34px;
-  align-items: center;
-  border: 1px solid #dce5d8;
-  border-radius: 999px;
-  padding: 0 13px;
-  background: #fbfcfa;
+.request-note {
+  max-width: 520px;
+  margin-bottom: 0;
   color: #37583d;
-  font-size: 0.85rem;
-  font-weight: 850;
+  font-size: 0.95rem;
 }
 
 .status-error-card {
@@ -665,7 +590,6 @@ button:disabled {
   }
 
   .summary-grid,
-  .visibility-grid,
   .progress-panel,
   .line-status,
   .line-detail {
@@ -673,20 +597,14 @@ button:disabled {
   }
 
   .key-value,
-  .visibility-grid > div,
   .progress-step {
     border-right: 0;
     border-bottom: 1px solid #dce5d8;
   }
 
   .key-value:last-child,
-  .visibility-grid > div:last-child,
   .progress-step:last-child {
     border-bottom: 0;
-  }
-
-  .source-availability {
-    grid-column: auto;
   }
 
   .vornan-wordmark {
@@ -697,13 +615,8 @@ button:disabled {
     width: 150px;
   }
 
-  .status-highlights {
-    gap: 8px;
-  }
-
-  .status-highlights span {
-    width: 100%;
-    justify-content: center;
+  .line-summary-chips {
+    justify-content: flex-start;
   }
 
   .request-form-header {

@@ -109,12 +109,6 @@ type StatusRequestResponse = {
   debug_status_url?: string;
 };
 
-const statusHighlights = [
-  "Current order progress",
-  "Proof files when available",
-  "Shipment and package activity"
-];
-
 function tokenFromLocation() {
   const url = new URL(window.location.href);
   const queryToken = url.searchParams.get("token");
@@ -153,13 +147,6 @@ function statusLabel(snapshot: PublicOrderStatusSnapshot) {
     return "Proofs available";
   }
   return "Received";
-}
-
-function lookupText(lookup: LookupStatus | null) {
-  if (!lookup) {
-    return "Not connected";
-  }
-  return lookup.ok ? "Loaded" : `HTTP ${lookup.http_status}`;
 }
 
 function firstTracking(snapshot: PublicOrderStatusSnapshot) {
@@ -254,7 +241,7 @@ function StatusRequestForm() {
             setMessage(
               payload && "message" in payload
                 ? payload.message
-                : "If the order and email match, a private status link will be sent shortly."
+                : "If we can match that order, a private status link will arrive by email."
             );
             setDebugLink(payload && "debug_status_url" in payload && payload.debug_status_url ? payload.debug_status_url : "");
           })
@@ -265,8 +252,8 @@ function StatusRequestForm() {
       }}
     >
       <div className="request-form-header">
-        <span>Secure Email Lookup</span>
-        <strong>No account required</strong>
+        <span>Private status link</span>
+        <strong>Sent by email</strong>
       </div>
       <label htmlFor="order-number">Order number</label>
       <input
@@ -286,7 +273,7 @@ function StatusRequestForm() {
         autoComplete="email"
       />
       <button type="submit" disabled={state === "sending"}>
-        {state === "sending" ? "Sending request" : "Send secure link"}
+        {state === "sending" ? "Sending link" : "Email my status link"}
       </button>
       {message ? <p className={`request-message ${state === "error" ? "error" : ""}`}>{message}</p> : null}
       {debugLink ? (
@@ -303,16 +290,9 @@ function StatusRequest() {
     <section className="status-request">
       <div>
         <p className="eyebrow">Order Status</p>
-        <h1>See what is happening with your order.</h1>
-        <p>
-          Enter your order number and email address. If we can match the request, Pathfinder will email a private link
-          with the latest order, proof, and shipment visibility.
-        </p>
-        <div className="status-highlights" aria-label="Status link contents">
-          {statusHighlights.map((highlight) => (
-            <span key={highlight}>{highlight}</span>
-          ))}
-        </div>
+        <h1>Check your order status.</h1>
+        <p>Enter your order number and email. We will send a private link when the request matches our records.</p>
+        <p className="request-note">Order details, proof files, and shipment updates are shown when available.</p>
       </div>
       <StatusRequestForm />
     </section>
@@ -324,17 +304,6 @@ function KeyValue({ label, value }: { label: string; value: React.ReactNode }) {
     <div className="key-value">
       <span>{label}</span>
       <strong>{value || "Not available"}</strong>
-    </div>
-  );
-}
-
-function LookupCard({ label, lookup }: { label: string; lookup: LookupStatus | null }) {
-  const loaded = Boolean(lookup?.ok);
-  return (
-    <div className={`lookup-card ${loaded ? "loaded" : ""}`}>
-      <span>{label}</span>
-      <strong>{lookupText(lookup)}</strong>
-      <small>{lookup ? displayDate(lookup.fetched_at) : "Awaiting Lift data"}</small>
     </div>
   );
 }
@@ -358,7 +327,7 @@ function ProofLinks({ proofs }: { proofs: StatusProof[] }) {
   ]).filter(Boolean) as Array<{ label: string; url: string }>;
 
   if (!links.length) {
-    return <span className="muted">No proof links yet</span>;
+    return <span className="muted">Not posted yet</span>;
   }
 
   return (
@@ -374,7 +343,7 @@ function ProofLinks({ proofs }: { proofs: StatusProof[] }) {
 
 function PackageList({ packages }: { packages: StatusPackage[] }) {
   if (!packages.length) {
-    return <span className="muted">No package activity yet</span>;
+    return <span className="muted">No shipment activity yet</span>;
   }
 
   return (
@@ -404,15 +373,12 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
         <div>
           <p className="eyebrow">Order Status</p>
           <h1>{snapshot.order_number}</h1>
-          <p>
-            {snapshot.customer.source_customer_name} order visibility from Pathfinder, refreshed{" "}
-            {displayDate(snapshot.refreshed_at)}.
-          </p>
+          <p>Latest available update for {snapshot.customer.source_customer_name}.</p>
         </div>
         <div className="status-badge">
           <span>Current status</span>
           <strong>{currentStatus}</strong>
-          <small>Private link expires {expiresAt}</small>
+          <small>Updated {displayDate(snapshot.refreshed_at)}</small>
         </div>
       </section>
 
@@ -436,39 +402,16 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
         <KeyValue label="Tracking" value={trackingNumber ?? "Pending"} />
       </section>
 
-      <section className="visibility-grid">
-        <div>
-          <span>Lines</span>
-          <strong>{snapshot.lines.length}</strong>
-          <small>Order lines visible</small>
-        </div>
-        <div>
-          <span>Proofs</span>
-          <strong>{proofs}</strong>
-          <small>{proofs ? "Available for review" : "Not posted yet"}</small>
-        </div>
-        <div>
-          <span>Packages</span>
-          <strong>{packages}</strong>
-          <small>{packages ? "Shipment activity found" : "No package activity yet"}</small>
-        </div>
-        <div className="source-availability">
-          <span>Data Availability</span>
-          <div>
-            <LookupCard label="Order" lookup={snapshot.lookups.order} />
-            <LookupCard label="Proofs" lookup={snapshot.lookups.proofs} />
-            <LookupCard label="Packages" lookup={snapshot.lookups.packages} />
-          </div>
-        </div>
-      </section>
-
       <section className="order-lines">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Line Items</p>
+            <p className="eyebrow">Order Details</p>
             <h2>{snapshot.lines.length} order line{snapshot.lines.length === 1 ? "" : "s"}</h2>
           </div>
-          <span>Proofs, package activity, and latest line updates</span>
+          <div className="line-summary-chips" aria-label="Visible order activity">
+            <span>{proofs} proof{proofs === 1 ? "" : "s"}</span>
+            <span>{packages} package{packages === 1 ? "" : "s"}</span>
+          </div>
         </div>
 
         {snapshot.lines.map((line) => (
@@ -499,11 +442,8 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
       </section>
 
       <section className="privacy-note">
-        <strong>Visibility note</strong>
-        <span>
-          This private link expires {expiresAt}. Internal costs and submit history are omitted. Redacted fields:{" "}
-          {snapshot.visibility_policy.redacted_fields.join(", ")}.
-        </span>
+        <strong>Private link</strong>
+        <span>This view expires {expiresAt}. For questions, reply to the email that sent this link.</span>
       </section>
     </>
   );
