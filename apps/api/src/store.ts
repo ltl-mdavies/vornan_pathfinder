@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import {
   BatchWriteItemCommand,
   DynamoDBClient,
+  GetItemCommand,
+  PutItemCommand,
   ScanCommand,
   type AttributeValue,
   type WriteRequest
@@ -69,6 +71,7 @@ export type SubmitCertificationActionKey =
   | "target-health";
 export type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
 export type SubmitAttemptTransportMode = "dry_run" | "mock" | "live";
+export type OrderStatusTokenStatus = "Active" | "Revoked";
 
 export interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
@@ -405,6 +408,8 @@ export interface PathfinderStore {
   jobs: ProcessingJobPreview[];
   submit_attempts: SubmitAttempt[];
   lift_unit_catalog: LiftUnitCatalogItem[];
+  order_status_tokens?: OrderStatusTokenRecord[];
+  order_status_snapshots?: PublicOrderStatusSnapshot[];
   canonical_registry?: {
     overrides: Record<string, CanonicalFieldOverride>;
     custom_fields: CanonicalFieldDefinition[];
@@ -412,6 +417,79 @@ export interface PathfinderStore {
     history: CanonicalRegistryChangeEntry[];
     updated_at: string;
   };
+}
+
+export interface PublicOrderStatusSnapshot {
+  snapshot_id: string;
+  order_key: string;
+  order_number: string;
+  source_order_id: string;
+  customer: {
+    source_customer_name: string;
+    submit_customer_name: string;
+  };
+  job: {
+    job_id: string;
+    state: ProcessingState;
+    import_method_name: string;
+    source_file_name: string;
+    created_at: string;
+    updated_at: string;
+  };
+  route: {
+    name: string;
+    target: string;
+    template: string;
+  };
+  header: {
+    ext_id: string;
+    po_number?: string | null;
+    order_title?: string | null;
+    requested_ship_date?: string | null;
+    due_date?: string | null;
+    shipping?: unknown;
+  };
+  lines: Array<{
+    line_number: number;
+    order_line_id: string | number | null;
+    product_name: string | null | undefined;
+    description: string | null | undefined;
+    quantity: number;
+    unit_number?: string | null;
+    product_id?: string | null;
+    proof_count: number;
+    package_count: number;
+    latest_proof_status: string | null;
+    latest_tracking_message: string | null;
+    proofs: unknown[];
+    packages: unknown[];
+  }>;
+  lookups: {
+    order: { ok: boolean; http_status: number; fetched_at: string } | null;
+    proofs: { ok: boolean; http_status: number; fetched_at: string } | null;
+    packages: { ok: boolean; http_status: number; fetched_at: string; redacted_fields: string[] } | null;
+  };
+  issues: Array<{ source: string; severity: "warning" | "error"; message: string }>;
+  visibility_policy: {
+    audience: "public_status";
+    redacted_fields: string[];
+    token_required: true;
+  };
+  refreshed_at: string;
+}
+
+export interface OrderStatusTokenRecord {
+  token_hash: string;
+  order_key: string;
+  customer_id: string;
+  job_id: string;
+  order_number: string;
+  status: OrderStatusTokenStatus;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  expires_at_epoch: number;
+  created_by_email?: string | null;
 }
 
 export interface CanonicalFieldOverride {
@@ -1218,6 +1296,8 @@ function createSeedStore(): PathfinderStore {
     jobs: [],
     submit_attempts: [],
     lift_unit_catalog: createSeedLiftUnitCatalog(timestamp),
+    order_status_tokens: [],
+    order_status_snapshots: [],
     canonical_registry: {
       overrides: {},
       custom_fields: [],
@@ -1238,6 +1318,8 @@ interface DynamoTableConfig {
   jobs: string;
   submit_attempts: string;
   lift_product_cache: string;
+  order_status_tokens: string;
+  order_status_snapshots: string;
   canonical_registry: string;
 }
 
@@ -1267,6 +1349,8 @@ function getDynamoTableConfig(): DynamoTableConfig {
     jobs: requireEnv("PATHFINDER_JOBS_TABLE"),
     submit_attempts: requireEnv("PATHFINDER_SUBMIT_ATTEMPTS_TABLE"),
     lift_product_cache: requireEnv("PATHFINDER_LIFT_PRODUCT_CACHE_TABLE"),
+    order_status_tokens: requireEnv("PATHFINDER_ORDER_STATUS_TOKENS_TABLE"),
+    order_status_snapshots: requireEnv("PATHFINDER_ORDER_STATUS_SNAPSHOTS_TABLE"),
     canonical_registry: requireEnv("PATHFINDER_CANONICAL_REGISTRY_TABLE")
   };
 }
@@ -1307,6 +1391,29 @@ async function scanDynamoTable(tableName: string) {
   } while (ExclusiveStartKey);
 
   return items;
+}
+
+async function getDynamoData<T>(tableName: string, key: Record<string, string>) {
+  const response = await getDynamoClient().send(
+    new GetItemCommand({
+      TableName: tableName,
+      Key: Object.fromEntries(Object.entries(key).map(([keyName, value]) => [keyName, dynamoString(value)]))
+    })
+  );
+
+  return response.Item ? parseDynamoData<T>(response.Item as Record<string, AttributeValue>) : null;
+}
+
+async function putDynamoData(tableName: string, keys: Record<string, string>, data: unknown, extra?: Record<string, AttributeValue>) {
+  await getDynamoClient().send(
+    new PutItemCommand({
+      TableName: tableName,
+      Item: {
+        ...dynamoItem(keys, data),
+        ...(extra ?? {})
+      }
+    })
+  );
 }
 
 async function batchWriteDynamo(tableName: string, requests: WriteRequest[]) {
@@ -1485,6 +1592,8 @@ async function readDynamoStore(): Promise<PathfinderStore | null> {
     jobs,
     submit_attempts: submitAttempts,
     lift_unit_catalog: liftUnitCatalog,
+    order_status_tokens: [],
+    order_status_snapshots: [],
     canonical_registry: canonicalRegistry
   };
 }
@@ -2078,6 +2187,71 @@ async function writeStore(store: PathfinderStore) {
   await writeFile(storePath, `${JSON.stringify(sanitizedStore, null, 2)}\n`, "utf8");
 }
 
+export async function persistPublicOrderStatusSnapshot(snapshot: PublicOrderStatusSnapshot) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    await putDynamoData(tables.order_status_snapshots, { order_key: snapshot.order_key }, snapshot);
+    return snapshot;
+  }
+
+  const store = await readStore();
+  store.order_status_snapshots = [
+    snapshot,
+    ...(store.order_status_snapshots ?? []).filter((candidate) => candidate.order_key !== snapshot.order_key)
+  ];
+  await writeStore(store);
+  return snapshot;
+}
+
+export async function getPublicOrderStatusSnapshot(orderKey: string) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    return getDynamoData<PublicOrderStatusSnapshot>(tables.order_status_snapshots, { order_key: orderKey });
+  }
+
+  const store = await readStore();
+  return (store.order_status_snapshots ?? []).find((snapshot) => snapshot.order_key === orderKey) ?? null;
+}
+
+export async function persistOrderStatusToken(tokenRecord: OrderStatusTokenRecord) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    await putDynamoData(
+      tables.order_status_tokens,
+      { token_hash: tokenRecord.token_hash },
+      tokenRecord,
+      { expires_at_epoch: { N: String(tokenRecord.expires_at_epoch) } }
+    );
+    return tokenRecord;
+  }
+
+  const store = await readStore();
+  store.order_status_tokens = [
+    tokenRecord,
+    ...(store.order_status_tokens ?? []).filter((candidate) => candidate.token_hash !== tokenRecord.token_hash)
+  ];
+  await writeStore(store);
+  return tokenRecord;
+}
+
+export async function getOrderStatusToken(tokenHash: string) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    return getDynamoData<OrderStatusTokenRecord>(tables.order_status_tokens, { token_hash: tokenHash });
+  }
+
+  const store = await readStore();
+  return (store.order_status_tokens ?? []).find((token) => token.token_hash === tokenHash) ?? null;
+}
+
 const placeholderCredentialValues = new Set([
   "",
   "********",
@@ -2220,6 +2394,8 @@ export async function readStore(): Promise<PathfinderStore> {
       jobs: parsed.jobs ?? [],
       submit_attempts: parsed.submit_attempts ?? [],
       lift_unit_catalog: normalizeLiftUnitCatalog(parsed.lift_unit_catalog),
+      order_status_tokens: parsed.order_status_tokens ?? [],
+      order_status_snapshots: parsed.order_status_snapshots ?? [],
       canonical_registry: normalizeCanonicalRegistry(parsed.canonical_registry)
     };
   } catch (error) {

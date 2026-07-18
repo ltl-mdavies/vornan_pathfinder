@@ -18,7 +18,10 @@ Parameters:
     Type: String
   AllowedOrigins:
     Type: String
-    Default: "https://pathfinder.vornan.co"
+    Default: "https://pathfinder.vornan.co,https://status.vornan.co"
+  PublicStatusBaseUrl:
+    Type: String
+    Default: "https://status.vornan.co"
   RequireFirebaseAuth:
     Type: String
     Default: "true"
@@ -149,6 +152,7 @@ Resources:
           PATHFINDER_RUNTIME: "lambda"
           PATHFINDER_CUSTOMER_SEED_FILE: "/var/task/data/lift-customers.sample.csv"
           PATHFINDER_ALLOWED_ORIGINS: !Ref AllowedOrigins
+          PATHFINDER_PUBLIC_STATUS_BASE_URL: !Ref PublicStatusBaseUrl
           PATHFINDER_REQUIRE_AUTH: !Ref RequireFirebaseAuth
           PATHFINDER_ALLOWED_EMAIL_DOMAINS: !Ref AllowedEmailDomains
           FIREBASE_PROJECT_ID: !Ref FirebaseProjectId

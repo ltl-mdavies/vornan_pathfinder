@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListPathfinderAdminBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::vornan-pathfinder"
+    },
+    {
+      "Sid": "WritePathfinderAdminObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:DeleteObject",
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::vornan-pathfinder/*"
+    },
+    {
+      "Sid": "InvalidatePathfinderAdminCloudFront",
+      "Effect": "Allow",
+      "Action": "cloudfront:CreateInvalidation",
+      "Resource": "arn:aws:cloudfront::744016783602:distribution/E34F508KID3LHW"
+    }
+  ]
+}

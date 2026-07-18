@@ -4066,6 +4066,21 @@ h1 {
   font-weight: 700;
 }
 
+.public-status-link-callout {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.public-status-link-callout .secondary-button {
+  width: fit-content;
+  margin: 0;
+  text-decoration: none;
+}
+
+.public-status-link-callout strong {
+  overflow-wrap: anywhere;
+}
+
 .job-detail-grid,
 .job-detail-code-grid {
   display: grid;

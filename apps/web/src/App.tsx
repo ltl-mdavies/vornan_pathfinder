@@ -595,6 +595,18 @@ interface PathfinderOrderSnapshot {
   refreshed_at: string;
 }
 
+interface PublicStatusLinkResult {
+  status_url: string;
+  token: string;
+  expires_at: string;
+  snapshot: {
+    snapshot_id: string;
+    order_number: string;
+    source_order_id: string;
+    refreshed_at: string;
+  };
+}
+
 interface RouteDiagnosticItem {
   item_id: string;
   label: string;
@@ -2826,6 +2838,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [packageDetailsResult, setPackageDetailsResult] = useState<LiftPackageDetailsResult | null>(null);
   const [orderSnapshotState, setOrderSnapshotState] = useState<"idle" | "loading" | "error">("idle");
   const [orderSnapshotResult, setOrderSnapshotResult] = useState<PathfinderOrderSnapshot | null>(null);
+  const [statusLinkState, setStatusLinkState] = useState<"idle" | "loading" | "error">("idle");
+  const [statusLinkResult, setStatusLinkResult] = useState<PublicStatusLinkResult | null>(null);
   const [certificationRefreshState, setCertificationRefreshState] = useState<"idle" | "loading" | "error">("idle");
   const certificationRefreshKeyRef = useRef("");
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("sandbox-ltl-demo-1249");
@@ -3074,6 +3088,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setPackageDetailsState("idle");
     setOrderSnapshotResult(null);
     setOrderSnapshotState("idle");
+    setStatusLinkResult(null);
+    setStatusLinkState("idle");
     setJobDetailState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
@@ -3141,6 +3157,26 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Pathfinder order snapshot failed.");
       setOrderSnapshotState("error");
+    }
+  }
+
+  async function createStatusLink(job: ProcessingJobPreview) {
+    setStatusLinkState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/status-link`, {
+        method: "POST"
+      });
+      const payload = await readJsonResponse<PublicStatusLinkResult>(response);
+      setStatusLinkResult(payload);
+      setWorkspaceMessage(`Public status link created for ${payload.snapshot.order_number}.`);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload.status_url);
+        setWorkspaceMessage(`Public status link copied for ${payload.snapshot.order_number}.`);
+      }
+      setStatusLinkState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Public status link creation failed.");
+      setStatusLinkState("error");
     }
   }
 
@@ -10142,6 +10178,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </button>
                   <button
                     className="secondary-button"
+                    onClick={() => void createStatusLink(selectedJobDetail)}
+                    disabled={
+                      statusLinkState === "loading" ||
+                      !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
+                    }
+                  >
+                    <Copy size={16} />
+                    {statusLinkState === "loading" ? "Creating link" : "Create Status Link"}
+                  </button>
+                  <button
+                    className="secondary-button"
                     onClick={() => void lookupLiftProofs(selectedJobDetail)}
                     disabled={
                       proofReportState === "loading" ||
@@ -10174,6 +10221,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       setPackageDetailsState("idle");
                       setOrderSnapshotResult(null);
                       setOrderSnapshotState("idle");
+                      setStatusLinkResult(null);
+                      setStatusLinkState("idle");
                     }}
                   >
                     Close
@@ -10198,6 +10247,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 >
                   Open Lift order lookup
                 </a>
+              ) : null}
+              {statusLinkResult ? (
+                <div className="latest-attempt-callout public-status-link-callout">
+                  <div>
+                    <span>Public status link</span>
+                    <strong>{statusLinkResult.status_url}</strong>
+                    <em>Expires {displayTimestamp(statusLinkResult.expires_at)}</em>
+                  </div>
+                  <a className="secondary-button" href={statusLinkResult.status_url} target="_blank" rel="noreferrer">
+                    Open Status Page
+                  </a>
+                </div>
               ) : null}
               {orderSnapshotResult ? (
                 <div className="code-panel order-lookup-panel order-snapshot-panel">

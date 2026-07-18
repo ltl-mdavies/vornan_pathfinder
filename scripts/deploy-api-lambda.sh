@@ -23,7 +23,8 @@ aws cloudformation deploy \
     LambdaFunctionName="${PATHFINDER_API_LAMBDA_NAME:-vornan-pathfinder-api}" \
     LambdaCodeS3Bucket="${artifact_bucket}" \
     LambdaCodeS3Key="${artifact_key}" \
-    AllowedOrigins="${PATHFINDER_ALLOWED_ORIGINS:-https://pathfinder.vornan.co}" \
+    AllowedOrigins="${PATHFINDER_ALLOWED_ORIGINS:-https://pathfinder.vornan.co,https://status.vornan.co}" \
+    PublicStatusBaseUrl="${PATHFINDER_PUBLIC_STATUS_BASE_URL:-https://status.vornan.co}" \
     RequireFirebaseAuth="${PATHFINDER_REQUIRE_AUTH:-true}" \
     AllowedEmailDomains="${PATHFINDER_ALLOWED_EMAIL_DOMAINS:-ltlco.com,vornan.co}" \
     FirebaseProjectId="${FIREBASE_PROJECT_ID:-ltl-dashboard-site}" \

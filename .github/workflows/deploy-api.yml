@@ -10,7 +10,11 @@ on:
       allowed_origins:
         description: "Comma-separated CORS origins"
         required: true
-        default: "https://pathfinder.vornan.co"
+        default: "https://pathfinder.vornan.co,https://status.vornan.co"
+      public_status_base_url:
+        description: "Public order status app base URL"
+        required: true
+        default: "https://status.vornan.co"
       require_auth:
         description: "Require Firebase auth on /api routes"
         required: true
@@ -71,6 +75,7 @@ jobs:
               LambdaCodeS3Bucket="${{ vars.PATHFINDER_API_ARTIFACT_BUCKET }}" \
               LambdaCodeS3Key="${{ steps.artifact.outputs.key }}" \
               AllowedOrigins="${{ inputs.allowed_origins }}" \
+              PublicStatusBaseUrl="${{ inputs.public_status_base_url }}" \
               RequireFirebaseAuth="${{ inputs.require_auth }}" \
               AllowedEmailDomains="${{ vars.PATHFINDER_ALLOWED_EMAIL_DOMAINS || 'ltlco.com,vornan.co' }}" \
               FirebaseProjectId="${{ secrets.FIREBASE_PROJECT_ID || secrets.VITE_FIREBASE_PROJECT_ID || 'ltl-dashboard-site' }}" \

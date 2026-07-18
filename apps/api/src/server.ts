@@ -2,6 +2,7 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
+import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
@@ -64,10 +65,14 @@ import {
   listSubmitAttemptsForJob,
   listTargets,
   getJob,
+  getOrderStatusToken,
+  getPublicOrderStatusSnapshot,
   getSubmitAttemptByIdempotencyKey,
   maskTargetConfig,
+  persistOrderStatusToken,
   persistJobSnapshot,
   persistPreviewJob,
+  persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
   updateProductMapping,
   upsertCatalogPreset,
@@ -88,6 +93,7 @@ import {
   type ProductResolutionConfig,
   type ProductResolutionResult,
   type ProcessingJobPreview,
+  type PublicOrderStatusSnapshot,
   type SubmitCertificationActionKey,
   type SubmitCertification,
   type SubmitCertificationItem,
@@ -109,6 +115,8 @@ const liftCustomerStatusEndpoint =
   "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerStatusJSON/CustomerStatusJSON?";
 const liftProductCatalogBaseUrl =
   process.env.LIFT_PRODUCT_CATALOG_BASE_URL ?? "https://ltlco.lifterp.com/ords/api/lift/erp";
+const publicStatusBaseUrl = process.env.PATHFINDER_PUBLIC_STATUS_BASE_URL ?? "https://status.vornan.co";
+const publicStatusTokenDays = Number(process.env.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS ?? 30);
 const allowedCorsOrigins = (process.env.PATHFINDER_ALLOWED_ORIGINS ?? "http://127.0.0.1:5173,http://localhost:5173")
   .split(",")
   .map((origin) => origin.trim())
@@ -884,6 +892,176 @@ function buildOrderSnapshot(args: {
     issues: args.issues,
     refreshed_at: new Date().toISOString()
   };
+}
+
+type InternalOrderSnapshot = ReturnType<typeof buildOrderSnapshot>;
+type JobLiftContext = Awaited<ReturnType<typeof getJobLiftContext>>;
+type JobLiftContextSuccess = Extract<JobLiftContext, { job: ProcessingJobPreview }>;
+type JobLiftContextError = { error: string; errorStatus?: number };
+type InternalOrderSnapshotResult =
+  | { snapshot: InternalOrderSnapshot; context: JobLiftContextSuccess }
+  | JobLiftContextError;
+
+async function buildInternalOrderSnapshotForJob(
+  customer: LiftCustomer,
+  jobId: string
+): Promise<InternalOrderSnapshotResult> {
+  const context = await getJobLiftContext(customer, jobId);
+
+  if (context.error) {
+    return {
+      error: context.error,
+      errorStatus: context.errorStatus
+    };
+  }
+
+  const issues: Array<{ source: string; severity: "warning" | "error"; message: string }> = [];
+  const [orderLookupResult, proofReportResult, packageDetailsResult] = await Promise.allSettled([
+    context.route.order_lookup_url
+      ? fetchLiftOrderLookup({
+          target: context.target,
+          route: context.route,
+          orderNumber: context.orderNumber
+        })
+      : Promise.resolve(null),
+    context.route.proof_report_url
+      ? fetchLiftProofReport({
+          target: context.target,
+          route: context.route,
+          orderNumber: context.orderNumber
+        })
+      : Promise.resolve(null),
+    context.route.package_details_url
+      ? fetchLiftPackageDetails({
+          target: context.target,
+          route: context.route,
+          orderNumber: context.orderNumber
+        })
+      : Promise.resolve(null)
+  ]);
+
+  if (!context.route.order_lookup_url) {
+    issues.push({
+      source: "order_lookup",
+      severity: "warning",
+      message: "Output route has no Lift order lookup URL configured."
+    });
+  }
+  if (!context.route.proof_report_url) {
+    issues.push({
+      source: "proof_report",
+      severity: "warning",
+      message: "Output route has no Lift proof report URL configured."
+    });
+  }
+  if (!context.route.package_details_url) {
+    issues.push({
+      source: "package_details",
+      severity: "warning",
+      message: "Output route has no Lift package details URL configured."
+    });
+  }
+
+  const orderLookup =
+    orderLookupResult.status === "fulfilled"
+      ? orderLookupResult.value
+      : (issues.push({
+          source: "order_lookup",
+          severity: "error",
+          message: orderLookupResult.reason instanceof Error ? orderLookupResult.reason.message : "Lift order lookup failed."
+        }),
+        null);
+  const proofReport =
+    proofReportResult.status === "fulfilled"
+      ? proofReportResult.value
+      : (issues.push({
+          source: "proof_report",
+          severity: "error",
+          message: proofReportResult.reason instanceof Error ? proofReportResult.reason.message : "Lift proof report failed."
+        }),
+        null);
+  const packageDetails =
+    packageDetailsResult.status === "fulfilled"
+      ? packageDetailsResult.value
+      : (issues.push({
+          source: "package_details",
+          severity: "error",
+          message:
+            packageDetailsResult.reason instanceof Error
+              ? packageDetailsResult.reason.message
+              : "Lift package details failed."
+        }),
+        null);
+
+  return {
+    snapshot: buildOrderSnapshot({
+      customer,
+      job: context.job,
+      route: context.route,
+      target: context.target,
+      attempts: context.attempts,
+      orderNumber: context.orderNumber,
+      orderLookup,
+      proofReport,
+      packageDetails,
+      issues
+    }),
+    context
+  };
+}
+
+function publicOrderStatusSnapshotFromInternal(snapshot: InternalOrderSnapshot): PublicOrderStatusSnapshot {
+  return {
+    snapshot_id: snapshot.snapshot_id,
+    order_key: `${snapshot.customer.submit_customer_name}:${snapshot.order_number}:${snapshot.job.job_id}`,
+    order_number: snapshot.order_number,
+    source_order_id: snapshot.source_order_id,
+    customer: {
+      source_customer_name: snapshot.customer.source_customer_name,
+      submit_customer_name: snapshot.customer.submit_customer_name
+    },
+    job: snapshot.job,
+    route: {
+      name: snapshot.route.name,
+      target: snapshot.route.target,
+      template: snapshot.route.template
+    },
+    header: {
+      ext_id: snapshot.header.ext_id,
+      po_number: snapshot.header.po_number ?? null,
+      order_title: snapshot.header.order_title ?? null,
+      requested_ship_date: snapshot.header.requested_ship_date ?? null,
+      due_date: snapshot.header.due_date ?? null,
+      shipping: snapshot.header.shipping ?? null
+    },
+    lines: snapshot.lines,
+    lookups: {
+      order: snapshot.lookups.order
+        ? {
+            ok: snapshot.lookups.order.ok,
+            http_status: snapshot.lookups.order.http_status,
+            fetched_at: snapshot.lookups.order.fetched_at
+          }
+        : null,
+      proofs: snapshot.lookups.proofs,
+      packages: snapshot.lookups.packages
+    },
+    issues: snapshot.issues,
+    visibility_policy: {
+      audience: "public_status",
+      redacted_fields: ["NEGOTIATED_RATE", "submit_history", "raw Lift lookup payloads"],
+      token_required: true
+    },
+    refreshed_at: snapshot.refreshed_at
+  };
+}
+
+function hashStatusToken(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function statusUrlForToken(token: string) {
+  return `${publicStatusBaseUrl.replace(/\/$/, "")}/${encodeURIComponent(token)}`;
 }
 
 function synthesizeParsedRows(sourceGrid: SourceGrid): ParsedSourceRow[] {
@@ -1681,6 +1859,48 @@ app.get("/health", (_req, res) => {
     version: "0.1.0",
     persistence
   });
+});
+
+app.get("/public/status/:token", async (req, res) => {
+  try {
+    const token = req.params.token?.trim();
+
+    if (!token) {
+      res.status(400).json({ error: "Missing status token." });
+      return;
+    }
+
+    const tokenRecord = await getOrderStatusToken(hashStatusToken(token));
+
+    if (!tokenRecord || tokenRecord.status !== "Active") {
+      res.status(404).json({ error: "Order status link was not found." });
+      return;
+    }
+
+    if (Date.parse(tokenRecord.expires_at) <= Date.now()) {
+      res.status(410).json({ error: "Order status link has expired." });
+      return;
+    }
+
+    const snapshot = await getPublicOrderStatusSnapshot(tokenRecord.order_key);
+
+    if (!snapshot) {
+      res.status(404).json({ error: "Order status snapshot was not found." });
+      return;
+    }
+
+    res.json({
+      snapshot,
+      link: {
+        status: tokenRecord.status,
+        expires_at: tokenRecord.expires_at
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Order status lookup failed."
+    });
+  }
 });
 
 app.use("/api", requirePathfinderAuth);
@@ -2685,110 +2905,65 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId/package-details", async (req
 app.get("/api/customers/:liftCustomerId/jobs/:jobId/order-snapshot", async (req, res) => {
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
-    const context = await getJobLiftContext(customer, req.params.jobId);
+    const result = await buildInternalOrderSnapshotForJob(customer, req.params.jobId);
 
-    if ("error" in context) {
-      res.status(context.errorStatus ?? 500).json({
-        error: context.error
+    if ("error" in result) {
+      res.status(result.errorStatus ?? 500).json({
+        error: result.error
       });
       return;
     }
 
-    const issues: Array<{ source: string; severity: "warning" | "error"; message: string }> = [];
-    const [orderLookupResult, proofReportResult, packageDetailsResult] = await Promise.allSettled([
-      context.route.order_lookup_url
-        ? fetchLiftOrderLookup({
-            target: context.target,
-            route: context.route,
-            orderNumber: context.orderNumber
-          })
-        : Promise.resolve(null),
-      context.route.proof_report_url
-        ? fetchLiftProofReport({
-            target: context.target,
-            route: context.route,
-            orderNumber: context.orderNumber
-          })
-        : Promise.resolve(null),
-      context.route.package_details_url
-        ? fetchLiftPackageDetails({
-            target: context.target,
-            route: context.route,
-            orderNumber: context.orderNumber
-          })
-        : Promise.resolve(null)
-    ]);
-
-    if (!context.route.order_lookup_url) {
-      issues.push({
-        source: "order_lookup",
-        severity: "warning",
-        message: "Output route has no Lift order lookup URL configured."
-      });
-    }
-    if (!context.route.proof_report_url) {
-      issues.push({
-        source: "proof_report",
-        severity: "warning",
-        message: "Output route has no Lift proof report URL configured."
-      });
-    }
-    if (!context.route.package_details_url) {
-      issues.push({
-        source: "package_details",
-        severity: "warning",
-        message: "Output route has no Lift package details URL configured."
-      });
-    }
-
-    const orderLookup =
-      orderLookupResult.status === "fulfilled"
-        ? orderLookupResult.value
-        : (issues.push({
-            source: "order_lookup",
-            severity: "error",
-            message: orderLookupResult.reason instanceof Error ? orderLookupResult.reason.message : "Lift order lookup failed."
-          }),
-          null);
-    const proofReport =
-      proofReportResult.status === "fulfilled"
-        ? proofReportResult.value
-        : (issues.push({
-            source: "proof_report",
-            severity: "error",
-            message: proofReportResult.reason instanceof Error ? proofReportResult.reason.message : "Lift proof report lookup failed."
-          }),
-          null);
-    const packageDetails =
-      packageDetailsResult.status === "fulfilled"
-        ? packageDetailsResult.value
-        : (issues.push({
-            source: "package_details",
-            severity: "error",
-            message:
-              packageDetailsResult.reason instanceof Error
-                ? packageDetailsResult.reason.message
-                : "Lift package details lookup failed."
-          }),
-          null);
-
-    const snapshot = buildOrderSnapshot({
-      customer,
-      job: context.job,
-      route: context.route,
-      target: context.target,
-      attempts: context.attempts,
-      orderNumber: context.orderNumber,
-      orderLookup,
-      proofReport,
-      packageDetails,
-      issues
-    });
-
-    res.json({ snapshot });
+    res.json({ snapshot: result.snapshot });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Pathfinder order snapshot failed."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/jobs/:jobId/status-link", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const result = await buildInternalOrderSnapshotForJob(customer, req.params.jobId);
+
+    if ("error" in result) {
+      res.status(result.errorStatus ?? 500).json({
+        error: result.error
+      });
+      return;
+    }
+
+    const snapshot = publicOrderStatusSnapshotFromInternal(result.snapshot);
+    const rawToken = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + Math.max(1, publicStatusTokenDays) * 24 * 60 * 60 * 1000);
+    const tokenRecord = {
+      token_hash: hashStatusToken(rawToken),
+      order_key: snapshot.order_key,
+      customer_id: customer.lift_customer_id,
+      job_id: result.context.job.job_id,
+      order_number: result.context.orderNumber,
+      status: "Active" as const,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      expires_at: expiresAt.toISOString(),
+      expires_at_epoch: Math.floor(expiresAt.getTime() / 1000),
+      created_by_email:
+        typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null
+    };
+
+    await persistPublicOrderStatusSnapshot(snapshot);
+    await persistOrderStatusToken(tokenRecord);
+
+    res.status(201).json({
+      status_url: statusUrlForToken(rawToken),
+      token: rawToken,
+      expires_at: tokenRecord.expires_at,
+      snapshot
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Could not create order status link."
     });
   }
 });
