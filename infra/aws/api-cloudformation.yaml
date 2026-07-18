@@ -30,7 +30,7 @@ Parameters:
     Default: "ltlco.com,vornan.co"
   FirebaseProjectId:
     Type: String
-    Default: ""
+    Default: "ltl-dashboard-site"
   LiftCustomerListUrl:
     Type: String
     Default: "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/CustomerContactLIst/LTL-Customer-List?offset=0"
