@@ -34,8 +34,8 @@ aws cloudformation deploy \
     ApiCertificateArn="${PATHFINDER_API_CERTIFICATE_ARN:-}" \
     DataTablePrefix="${PATHFINDER_DATA_TABLE_PREFIX:-Pathfinder}" \
     SecretPrefix="${PATHFINDER_SECRET_PREFIX:-/vornan/pathfinder/}" \
-    StorageDriver="${PATHFINDER_STORAGE_DRIVER:-local}" \
-    SecretsDriver="${PATHFINDER_SECRETS_DRIVER:-local}"
+    StorageDriver="${PATHFINDER_STORAGE_DRIVER:-dynamodb}" \
+    SecretsDriver="${PATHFINDER_SECRETS_DRIVER:-secrets-manager}"
 
 echo "Stack outputs:"
 aws cloudformation describe-stacks \

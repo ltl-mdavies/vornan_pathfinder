@@ -2,6 +2,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BatchWriteItemCommand,
+  DynamoDBClient,
+  ScanCommand,
+  type AttributeValue,
+  type WriteRequest
+} from "@aws-sdk/client-dynamodb";
+import {
   canonicalFieldRegistry,
   canonicalRegistryMetadata,
   type CanonicalFieldDataType,
@@ -30,7 +37,7 @@ import {
   type SourceGrid
 } from "@pathfinder/templates";
 import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
-import { assertLocalStorageDriver } from "./runtime-config.js";
+import { assertLocalStorageDriver, getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 
 export type ImportMethodStatus = "Active" | "Inactive" | "Draft" | "Paused" | "Archived";
 export type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP";
@@ -1221,6 +1228,358 @@ function createSeedStore(): PathfinderStore {
   };
 }
 
+interface DynamoTableConfig {
+  customers: string;
+  workspaces: string;
+  targets: string;
+  import_methods: string;
+  output_routes: string;
+  product_mappings: string;
+  jobs: string;
+  submit_attempts: string;
+  lift_product_cache: string;
+  canonical_registry: string;
+}
+
+let dynamoClient: DynamoDBClient | null = null;
+
+function getDynamoClient() {
+  dynamoClient ??= new DynamoDBClient({});
+  return dynamoClient;
+}
+
+function requireEnv(name: string) {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} must be configured when PATHFINDER_STORAGE_DRIVER=dynamodb.`);
+  }
+  return value;
+}
+
+function getDynamoTableConfig(): DynamoTableConfig {
+  return {
+    customers: requireEnv("PATHFINDER_CUSTOMERS_TABLE"),
+    workspaces: requireEnv("PATHFINDER_CUSTOMER_WORKSPACES_TABLE"),
+    targets: requireEnv("PATHFINDER_TARGETS_TABLE"),
+    import_methods: requireEnv("PATHFINDER_IMPORT_METHODS_TABLE"),
+    output_routes: requireEnv("PATHFINDER_OUTPUT_ROUTES_TABLE"),
+    product_mappings: requireEnv("PATHFINDER_PRODUCT_MAPPINGS_TABLE"),
+    jobs: requireEnv("PATHFINDER_JOBS_TABLE"),
+    submit_attempts: requireEnv("PATHFINDER_SUBMIT_ATTEMPTS_TABLE"),
+    lift_product_cache: requireEnv("PATHFINDER_LIFT_PRODUCT_CACHE_TABLE"),
+    canonical_registry: requireEnv("PATHFINDER_CANONICAL_REGISTRY_TABLE")
+  };
+}
+
+function dynamoString(value: string | number | null | undefined) {
+  return { S: String(value ?? "") };
+}
+
+function dynamoItem(keys: Record<string, string>, data: unknown): Record<string, AttributeValue> {
+  return {
+    ...Object.fromEntries(Object.entries(keys).map(([key, value]) => [key, dynamoString(value)])),
+    data: { S: JSON.stringify(data) },
+    updated_at: dynamoString(now())
+  };
+}
+
+function parseDynamoData<T>(item: Record<string, AttributeValue>): T | null {
+  const data = item.data?.S;
+  if (!data) {
+    return null;
+  }
+  return JSON.parse(data) as T;
+}
+
+async function scanDynamoTable(tableName: string) {
+  const items: Record<string, AttributeValue>[] = [];
+  let ExclusiveStartKey: Record<string, AttributeValue> | undefined;
+
+  do {
+    const response = await getDynamoClient().send(
+      new ScanCommand({
+        TableName: tableName,
+        ExclusiveStartKey
+      })
+    );
+    items.push(...((response.Items ?? []) as Record<string, AttributeValue>[]));
+    ExclusiveStartKey = response.LastEvaluatedKey as Record<string, AttributeValue> | undefined;
+  } while (ExclusiveStartKey);
+
+  return items;
+}
+
+async function batchWriteDynamo(tableName: string, requests: WriteRequest[]) {
+  for (let index = 0; index < requests.length; index += 25) {
+    let requestItems: Record<string, WriteRequest[]> = {
+      [tableName]: requests.slice(index, index + 25)
+    };
+
+    do {
+      const response = await getDynamoClient().send(new BatchWriteItemCommand({ RequestItems: requestItems }));
+      requestItems = response.UnprocessedItems ?? {};
+    } while (Object.keys(requestItems).length > 0);
+  }
+}
+
+async function replaceDynamoTable(
+  tableName: string,
+  keyAttributes: string[],
+  putItems: Array<Record<string, AttributeValue>>
+) {
+  const existingItems = await scanDynamoTable(tableName);
+  const deleteRequests = existingItems.map((item) => ({
+    DeleteRequest: {
+      Key: Object.fromEntries(keyAttributes.map((key) => [key, item[key] ?? dynamoString("")]))
+    }
+  }));
+  await batchWriteDynamo(tableName, deleteRequests);
+
+  const putRequests = putItems.map((item) => ({
+    PutRequest: {
+      Item: item
+    }
+  }));
+  await batchWriteDynamo(tableName, putRequests);
+}
+
+function workspaceRecord(workspace: PathfinderCustomerWorkspace) {
+  const { import_methods, output_routes, jobs, submit_attempts, product_mappings, ...record } = workspace;
+  return record;
+}
+
+function customerRouteKey(customerId: string, outputRouteId: string) {
+  return `${customerId}#${outputRouteId}`;
+}
+
+function liftProductCachePartition(item: LiftUnitCatalogItem) {
+  return [item.target_id, item.environment_id ?? "any-env", item.company_id].join("#");
+}
+
+function liftProductCacheSort(item: LiftUnitCatalogItem) {
+  return item.product_id ?? item.unit_number ?? item.catalog_item_id;
+}
+
+function pushByCustomer<T>(map: Map<string, T[]>, customerId: string | undefined, item: T) {
+  if (!customerId) {
+    return;
+  }
+  const items = map.get(customerId) ?? [];
+  items.push(item);
+  map.set(customerId, items);
+}
+
+async function readDynamoStore(): Promise<PathfinderStore | null> {
+  const tables = getDynamoTableConfig();
+  const [
+    customerItems,
+    workspaceItems,
+    targetItems,
+    importMethodItems,
+    outputRouteItems,
+    productMappingItems,
+    jobItems,
+    submitAttemptItems,
+    liftProductItems,
+    canonicalRegistryItems
+  ] = await Promise.all([
+    scanDynamoTable(tables.customers),
+    scanDynamoTable(tables.workspaces),
+    scanDynamoTable(tables.targets),
+    scanDynamoTable(tables.import_methods),
+    scanDynamoTable(tables.output_routes),
+    scanDynamoTable(tables.product_mappings),
+    scanDynamoTable(tables.jobs),
+    scanDynamoTable(tables.submit_attempts),
+    scanDynamoTable(tables.lift_product_cache),
+    scanDynamoTable(tables.canonical_registry)
+  ]);
+
+  if (
+    targetItems.length === 0 &&
+    workspaceItems.length === 0 &&
+    customerItems.length === 0 &&
+    canonicalRegistryItems.length === 0
+  ) {
+    return null;
+  }
+
+  const targets = Object.fromEntries(
+    targetItems
+      .map((item) => parseDynamoData<TargetConfig>(item))
+      .filter((target): target is TargetConfig => Boolean(target))
+      .map((target) => [target.target_id, target])
+  ) as Record<string, TargetConfig>;
+
+  const customers = Object.fromEntries(
+    customerItems
+      .map((item) => parseDynamoData<LiftCustomer>(item))
+      .filter((customer): customer is LiftCustomer => Boolean(customer))
+      .map((customer) => [customer.lift_customer_id, customer])
+  ) as Record<string, LiftCustomer>;
+
+  const importMethodsByCustomer = new Map<string, ImportMethod[]>();
+  importMethodItems
+    .map((item) => parseDynamoData<ImportMethod & { customer_id?: string }>(item))
+    .filter((method): method is ImportMethod & { customer_id: string } => Boolean(method?.customer_id))
+    .forEach((method) => pushByCustomer(importMethodsByCustomer, method.customer_id, method));
+
+  const outputRoutesByCustomer = new Map<string, OutputRoute[]>();
+  outputRouteItems
+    .map((item) => parseDynamoData<OutputRoute & { customer_id?: string }>(item))
+    .filter((route): route is OutputRoute & { customer_id: string } => Boolean(route?.customer_id))
+    .forEach((route) => pushByCustomer(outputRoutesByCustomer, route.customer_id, route));
+
+  const productMappingsByCustomer = new Map<string, CustomerProductMapping[]>();
+  productMappingItems
+    .map((item) => parseDynamoData<CustomerProductMapping & { customer_id?: string }>(item))
+    .filter((mapping): mapping is CustomerProductMapping & { customer_id: string } => Boolean(mapping?.customer_id))
+    .forEach((mapping) => pushByCustomer(productMappingsByCustomer, mapping.customer_id, mapping));
+
+  const jobs = jobItems
+    .map((item) => parseDynamoData<ProcessingJobPreview>(item))
+    .filter((job): job is ProcessingJobPreview => Boolean(job));
+  const jobsByCustomer = new Map<string, ProcessingJobPreview[]>();
+  jobs.forEach((job) => pushByCustomer(jobsByCustomer, job.customer_id, job));
+
+  const submitAttempts = submitAttemptItems
+    .map((item) => parseDynamoData<SubmitAttempt>(item))
+    .filter((attempt): attempt is SubmitAttempt => Boolean(attempt));
+  const submitAttemptsByCustomer = new Map<string, SubmitAttempt[]>();
+  submitAttempts.forEach((attempt) => pushByCustomer(submitAttemptsByCustomer, attempt.customer_id, attempt));
+
+  const workspaces = Object.fromEntries(
+    workspaceItems
+      .map((item) => parseDynamoData<PathfinderCustomerWorkspace>(item))
+      .filter((workspace): workspace is PathfinderCustomerWorkspace => Boolean(workspace?.customer?.lift_customer_id))
+      .map((workspace) => {
+        const customerId = workspace.customer.lift_customer_id;
+        return [
+          customerId,
+          {
+            ...workspace,
+            customer: customers[customerId] ?? workspace.customer,
+            import_methods: importMethodsByCustomer.get(customerId) ?? [],
+            output_routes: outputRoutesByCustomer.get(customerId) ?? [],
+            product_mappings: productMappingsByCustomer.get(customerId) ?? [],
+            jobs: jobsByCustomer.get(customerId) ?? [],
+            submit_attempts: submitAttemptsByCustomer.get(customerId) ?? []
+          }
+        ] as const;
+      })
+  ) as Record<string, PathfinderCustomerWorkspace>;
+
+  const liftUnitCatalog = liftProductItems
+    .map((item) => parseDynamoData<LiftUnitCatalogItem>(item))
+    .filter((item): item is LiftUnitCatalogItem => Boolean(item));
+
+  const canonicalRegistry =
+    canonicalRegistryItems
+      .map((item) => parseDynamoData<PathfinderStore["canonical_registry"]>(item))
+      .find((registry): registry is NonNullable<PathfinderStore["canonical_registry"]> => Boolean(registry)) ?? undefined;
+
+  return {
+    version: 1,
+    targets,
+    workspaces,
+    jobs,
+    submit_attempts: submitAttempts,
+    lift_unit_catalog: liftUnitCatalog,
+    canonical_registry: canonicalRegistry
+  };
+}
+
+async function writeDynamoStore(store: PathfinderStore) {
+  const tables = getDynamoTableConfig();
+  const workspaces = Object.values(store.workspaces);
+
+  await replaceDynamoTable(
+    tables.targets,
+    ["target_id"],
+    Object.values(store.targets).map((target) => dynamoItem({ target_id: target.target_id }, target))
+  );
+  await replaceDynamoTable(
+    tables.customers,
+    ["customer_id"],
+    workspaces.map((workspace) =>
+      dynamoItem({ customer_id: workspace.customer.lift_customer_id }, workspace.customer)
+    )
+  );
+  await replaceDynamoTable(
+    tables.workspaces,
+    ["customer_id"],
+    workspaces.map((workspace) =>
+      dynamoItem({ customer_id: workspace.customer.lift_customer_id }, workspaceRecord(workspace))
+    )
+  );
+  await replaceDynamoTable(
+    tables.import_methods,
+    ["customer_id", "import_method_id"],
+    workspaces.flatMap((workspace) =>
+      workspace.import_methods.map((method) =>
+        dynamoItem(
+          { customer_id: workspace.customer.lift_customer_id, import_method_id: method.import_method_id },
+          { ...method, customer_id: workspace.customer.lift_customer_id }
+        )
+      )
+    )
+  );
+  await replaceDynamoTable(
+    tables.output_routes,
+    ["customer_id", "output_route_id"],
+    workspaces.flatMap((workspace) =>
+      workspace.output_routes.map((route) =>
+        dynamoItem(
+          { customer_id: workspace.customer.lift_customer_id, output_route_id: route.output_route_id },
+          { ...route, customer_id: workspace.customer.lift_customer_id }
+        )
+      )
+    )
+  );
+  await replaceDynamoTable(
+    tables.product_mappings,
+    ["customer_route_id", "mapping_id"],
+    workspaces.flatMap((workspace) =>
+      workspace.product_mappings.map((mapping) =>
+        dynamoItem(
+          {
+            customer_route_id: customerRouteKey(workspace.customer.lift_customer_id, mapping.output_route_id),
+            mapping_id: mapping.mapping_id
+          },
+          { ...mapping, customer_id: workspace.customer.lift_customer_id }
+        )
+      )
+    )
+  );
+  await replaceDynamoTable(
+    tables.jobs,
+    ["customer_id", "job_id"],
+    store.jobs.map((job) => dynamoItem({ customer_id: job.customer_id, job_id: job.job_id }, job))
+  );
+  await replaceDynamoTable(
+    tables.submit_attempts,
+    ["customer_id", "attempt_id"],
+    store.submit_attempts.map((attempt) =>
+      dynamoItem({ customer_id: attempt.customer_id, attempt_id: attempt.attempt_id }, attempt)
+    )
+  );
+  await replaceDynamoTable(
+    tables.lift_product_cache,
+    ["route_environment_id", "product_id"],
+    store.lift_unit_catalog.map((item) =>
+      dynamoItem(
+        { route_environment_id: liftProductCachePartition(item), product_id: liftProductCacheSort(item) },
+        item
+      )
+    )
+  );
+  await replaceDynamoTable(
+    tables.canonical_registry,
+    ["registry_id"],
+    store.canonical_registry ? [dynamoItem({ registry_id: "default" }, store.canonical_registry)] : []
+  );
+}
+
 export function maskTargetConfig(target: TargetConfig): TargetConfig {
   return {
     ...target,
@@ -1701,14 +2060,21 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
 }
 
 async function writeStore(store: PathfinderStore) {
-  assertLocalStorageDriver();
-  await mkdir(dirname(storePath), { recursive: true });
   const sanitizedStore: PathfinderStore = {
     ...store,
     targets: Object.fromEntries(
       Object.entries(store.targets).map(([id, target]) => [id, maskTargetConfig(target)])
     ) as Record<string, TargetConfig>
   };
+  const config = getPathfinderPersistenceRuntimeConfig();
+
+  if (config.storage_driver === "dynamodb") {
+    await writeDynamoStore(sanitizedStore);
+    return;
+  }
+
+  assertLocalStorageDriver();
+  await mkdir(dirname(storePath), { recursive: true });
   await writeFile(storePath, `${JSON.stringify(sanitizedStore, null, 2)}\n`, "utf8");
 }
 
@@ -1815,10 +2181,25 @@ async function persistTargetSecrets(target: TargetConfig) {
 }
 
 export async function readStore(): Promise<PathfinderStore> {
-  assertLocalStorageDriver();
+  const config = getPathfinderPersistenceRuntimeConfig();
   try {
-    const content = await readFile(storePath, "utf8");
-    const parsed = JSON.parse(content) as PathfinderStore;
+    let parsed: PathfinderStore | null = null;
+
+    if (config.storage_driver === "dynamodb") {
+      parsed = await readDynamoStore();
+    } else {
+      assertLocalStorageDriver();
+      const content = await readFile(storePath, "utf8");
+      parsed = JSON.parse(content) as PathfinderStore;
+    }
+
+    if (!parsed) {
+      const seed = createSeedStore();
+      seed.targets = await hydrateTargetsWithSecrets(seed.targets);
+      await writeStore(seed);
+      return seed;
+    }
+
     let normalizedTargets = Object.fromEntries(
       Object.entries(parsed.targets ?? {}).map(([id, target]) => [id, normalizeTarget(target as TargetConfig)])
     );
@@ -1841,7 +2222,11 @@ export async function readStore(): Promise<PathfinderStore> {
       lift_unit_catalog: normalizeLiftUnitCatalog(parsed.lift_unit_catalog),
       canonical_registry: normalizeCanonicalRegistry(parsed.canonical_registry)
     };
-  } catch {
+  } catch (error) {
+    if (config.storage_driver === "dynamodb") {
+      throw error;
+    }
+
     const seed = createSeedStore();
     seed.targets = await hydrateTargetsWithSecrets(seed.targets);
     await writeStore(seed);

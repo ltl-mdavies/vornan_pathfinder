@@ -59,11 +59,11 @@ Parameters:
     Description: Secrets Manager prefix Pathfinder may read and write.
   StorageDriver:
     Type: String
-    Default: local
+    Default: dynamodb
     AllowedValues:
       - local
       - dynamodb
-    Description: Runtime storage driver. Keep local until the DynamoDB adapter is enabled.
+    Description: Runtime storage driver for Pathfinder application data.
   SecretsDriver:
     Type: String
     Default: local
