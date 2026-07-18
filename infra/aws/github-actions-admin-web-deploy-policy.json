@@ -2,26 +2,37 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "ListPathfinderAdminBucket",
+      "Sid": "ListPathfinderDeployBuckets",
       "Effect": "Allow",
       "Action": "s3:ListBucket",
-      "Resource": "arn:aws:s3:::vornan-pathfinder"
+      "Resource": [
+        "arn:aws:s3:::vornan-pathfinder",
+        "arn:aws:s3:::vornan-pathfinder-status",
+        "arn:aws:s3:::vornan-pathfinder-artifacts"
+      ]
     },
     {
-      "Sid": "WritePathfinderAdminObjects",
+      "Sid": "WritePathfinderDeployObjects",
       "Effect": "Allow",
       "Action": [
         "s3:DeleteObject",
         "s3:GetObject",
         "s3:PutObject"
       ],
-      "Resource": "arn:aws:s3:::vornan-pathfinder/*"
+      "Resource": [
+        "arn:aws:s3:::vornan-pathfinder/*",
+        "arn:aws:s3:::vornan-pathfinder-status/*",
+        "arn:aws:s3:::vornan-pathfinder-artifacts/*"
+      ]
     },
     {
-      "Sid": "InvalidatePathfinderAdminCloudFront",
+      "Sid": "InvalidatePathfinderCloudFront",
       "Effect": "Allow",
       "Action": "cloudfront:CreateInvalidation",
-      "Resource": "arn:aws:cloudfront::744016783602:distribution/E34F508KID3LHW"
+      "Resource": [
+        "arn:aws:cloudfront::744016783602:distribution/E34F508KID3LHW",
+        "arn:aws:cloudfront::744016783602:distribution/E13RHNZTC6PRRC"
+      ]
     }
   ]
 }
