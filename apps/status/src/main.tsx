@@ -110,9 +110,9 @@ type StatusRequestResponse = {
 };
 
 const statusHighlights = [
-  "Order and line-level progress",
-  "Proof links when available",
-  "Package and tracking activity"
+  "Current order progress",
+  "Proof files when available",
+  "Shipment and package activity"
 ];
 
 function tokenFromLocation() {
@@ -166,6 +166,44 @@ function firstTracking(snapshot: PublicOrderStatusSnapshot) {
   return snapshot.lines
     .flatMap((line) => line.packages)
     .find((pkg) => pkg.tracking_number)?.tracking_number;
+}
+
+function countProofs(snapshot: PublicOrderStatusSnapshot) {
+  return snapshot.lines.reduce((total, line) => total + line.proof_count, 0);
+}
+
+function countPackages(snapshot: PublicOrderStatusSnapshot) {
+  return snapshot.lines.reduce((total, line) => total + line.package_count, 0);
+}
+
+function progressSteps(snapshot: PublicOrderStatusSnapshot) {
+  const proofs = countProofs(snapshot);
+  const packages = countPackages(snapshot);
+  const tracking = firstTracking(snapshot);
+  const hasError = snapshot.issues.some((issue) => issue.severity === "error");
+
+  return [
+    {
+      label: "Received",
+      detail: snapshot.job.state || "Order captured",
+      state: "complete"
+    },
+    {
+      label: "Proof review",
+      detail: proofs ? `${proofs} proof file${proofs === 1 ? "" : "s"}` : "Awaiting proof files",
+      state: proofs ? "complete" : hasError ? "attention" : "pending"
+    },
+    {
+      label: "Production",
+      detail: packages || tracking ? "Production activity recorded" : "Production updates pending",
+      state: packages || tracking ? "complete" : proofs ? "current" : "pending"
+    },
+    {
+      label: "Shipping",
+      detail: tracking ? `Tracking ${tracking}` : "Tracking pending",
+      state: tracking ? "current" : "pending"
+    }
+  ];
 }
 
 function productIdentifier(line: StatusLine) {
@@ -227,8 +265,8 @@ function StatusRequestForm() {
       }}
     >
       <div className="request-form-header">
-        <span>Private Status Link</span>
-        <strong>Sent by email</strong>
+        <span>Secure Email Lookup</span>
+        <strong>No account required</strong>
       </div>
       <label htmlFor="order-number">Order number</label>
       <input
@@ -265,10 +303,10 @@ function StatusRequest() {
     <section className="status-request">
       <div>
         <p className="eyebrow">Order Status</p>
-        <h1>Get a private view of your order.</h1>
+        <h1>See what is happening with your order.</h1>
         <p>
-          Enter your order number and email address. If they match, Pathfinder sends a secure link with current order,
-          proof, and shipment details.
+          Enter your order number and email address. If we can match the request, Pathfinder will email a private link
+          with the latest order, proof, and shipment visibility.
         </p>
         <div className="status-highlights" aria-label="Status link contents">
           {statusHighlights.map((highlight) => (
@@ -297,6 +335,18 @@ function LookupCard({ label, lookup }: { label: string; lookup: LookupStatus | n
       <span>{label}</span>
       <strong>{lookupText(lookup)}</strong>
       <small>{lookup ? displayDate(lookup.fetched_at) : "Awaiting Lift data"}</small>
+    </div>
+  );
+}
+
+function ProgressStep({ step, index }: { step: ReturnType<typeof progressSteps>[number]; index: number }) {
+  return (
+    <div className={`progress-step ${step.state}`}>
+      <span>{index + 1}</span>
+      <div>
+        <strong>{step.label}</strong>
+        <small>{step.detail}</small>
+      </div>
     </div>
   );
 }
@@ -344,6 +394,9 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
   const trackingNumber = firstTracking(snapshot);
   const currentStatus = statusLabel(snapshot);
   const expiresAt = displayDate(payload.link.expires_at);
+  const proofs = countProofs(snapshot);
+  const packages = countPackages(snapshot);
+  const steps = progressSteps(snapshot);
 
   return (
     <>
@@ -352,14 +405,21 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
           <p className="eyebrow">Order Status</p>
           <h1>{snapshot.order_number}</h1>
           <p>
-            {snapshot.customer.source_customer_name} order visibility from Pathfinder. Last refreshed{" "}
+            {snapshot.customer.source_customer_name} order visibility from Pathfinder, refreshed{" "}
             {displayDate(snapshot.refreshed_at)}.
           </p>
         </div>
         <div className="status-badge">
           <span>Current status</span>
           <strong>{currentStatus}</strong>
+          <small>Private link expires {expiresAt}</small>
         </div>
+      </section>
+
+      <section className="progress-panel" aria-label="Order progress">
+        {steps.map((step, index) => (
+          <ProgressStep key={step.label} step={step} index={index} />
+        ))}
       </section>
 
       {snapshot.issues.length ? (
@@ -376,10 +436,30 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
         <KeyValue label="Tracking" value={trackingNumber ?? "Pending"} />
       </section>
 
-      <section className="lookup-grid">
-        <LookupCard label="Order detail" lookup={snapshot.lookups.order} />
-        <LookupCard label="Proof files" lookup={snapshot.lookups.proofs} />
-        <LookupCard label="Packages" lookup={snapshot.lookups.packages} />
+      <section className="visibility-grid">
+        <div>
+          <span>Lines</span>
+          <strong>{snapshot.lines.length}</strong>
+          <small>Order lines visible</small>
+        </div>
+        <div>
+          <span>Proofs</span>
+          <strong>{proofs}</strong>
+          <small>{proofs ? "Available for review" : "Not posted yet"}</small>
+        </div>
+        <div>
+          <span>Packages</span>
+          <strong>{packages}</strong>
+          <small>{packages ? "Shipment activity found" : "No package activity yet"}</small>
+        </div>
+        <div className="source-availability">
+          <span>Data Availability</span>
+          <div>
+            <LookupCard label="Order" lookup={snapshot.lookups.order} />
+            <LookupCard label="Proofs" lookup={snapshot.lookups.proofs} />
+            <LookupCard label="Packages" lookup={snapshot.lookups.packages} />
+          </div>
+        </div>
       </section>
 
       <section className="order-lines">
@@ -388,7 +468,7 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
             <p className="eyebrow">Line Items</p>
             <h2>{snapshot.lines.length} order line{snapshot.lines.length === 1 ? "" : "s"}</h2>
           </div>
-          <span>{snapshot.route.target} · {snapshot.route.template}</span>
+          <span>Proofs, package activity, and latest line updates</span>
         </div>
 
         {snapshot.lines.map((line) => (

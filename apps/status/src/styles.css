@@ -53,7 +53,8 @@ input {
 .status-request,
 .loading-card,
 .summary-grid,
-.lookup-grid,
+.visibility-grid,
+.progress-panel,
 .order-lines,
 .privacy-note,
 .issue-strip {
@@ -139,8 +140,16 @@ p {
   font-size: 1.55rem;
 }
 
-.summary-grid,
-.lookup-grid {
+.status-badge small {
+  display: block;
+  margin-top: 10px;
+  color: #657160;
+  font-size: 0.82rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.progress-panel {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0;
@@ -149,37 +158,176 @@ p {
   overflow: hidden;
 }
 
-.lookup-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.progress-step {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  min-height: 112px;
+  align-items: center;
+  padding: 20px;
+  border-right: 1px solid #dce5d8;
+  background: #fff;
+}
+
+.progress-step:last-child {
+  border-right: 0;
+}
+
+.progress-step::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 4px;
+  background: #d7dfd2;
+}
+
+.progress-step.complete::before,
+.progress-step.current::before {
+  background: #2f8f4c;
+}
+
+.progress-step.attention::before {
+  background: #bc8120;
+}
+
+.progress-step span {
+  display: inline-flex;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #eef4e8;
+  color: #315c3b;
+  font-weight: 900;
+}
+
+.progress-step.complete span,
+.progress-step.current span {
+  background: #315c3b;
+  color: #fff;
+}
+
+.progress-step.attention span {
+  background: #bc8120;
+  color: #fff;
+}
+
+.progress-step strong,
+.progress-step small {
+  display: block;
+}
+
+.progress-step strong {
+  font-size: 1rem;
+}
+
+.progress-step small {
+  margin-top: 5px;
+  color: #667263;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.summary-grid,
+.visibility-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin-top: 20px;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .key-value,
-.lookup-card {
+.lookup-card,
+.visibility-grid > div {
   min-height: 96px;
   padding: 20px;
   border-right: 1px solid #dce5d8;
 }
 
 .key-value:last-child,
-.lookup-card:last-child {
+.visibility-grid > div:last-child {
   border-right: 0;
 }
 
 .key-value strong,
-.lookup-card strong {
+.lookup-card strong,
+.visibility-grid > div > strong {
   display: block;
   margin-top: 6px;
   font-size: 1.12rem;
   line-height: 1.25;
 }
 
+.visibility-grid > div > span,
 .lookup-card {
   position: relative;
+}
+
+.visibility-grid > div > span {
+  display: block;
+  color: #748071;
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.visibility-grid > div > small {
+  display: block;
+  margin-top: 6px;
+  color: #6d7769;
+  font-weight: 650;
+}
+
+.source-availability {
+  grid-column: span 1;
+}
+
+.source-availability > div {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.source-availability .lookup-card {
+  min-height: 0;
+  padding: 11px 12px;
+  border: 1px solid #dce5d8;
+  border-left: 4px solid #c6d0c2;
+  border-radius: 8px;
+  background: #fbfcfa;
+}
+
+.source-availability .lookup-card.loaded {
+  border-top-color: #dce5d8;
+  border-left-color: #2f8f4c;
+}
+
+.source-availability .lookup-card span {
+  font-size: 0.68rem;
+}
+
+.source-availability .lookup-card strong {
+  margin-top: 2px;
+  font-size: 0.95rem;
+}
+
+.source-availability .lookup-card small {
+  margin-top: 2px;
+  font-size: 0.78rem;
+}
+
+.lookup-card {
   border-top: 4px solid #c6d0c2;
 }
 
 .lookup-card.loaded {
-  border-top-color: #2f7d46;
+  border-top-color: #2f8f4c;
 }
 
 .lookup-card small {
@@ -335,6 +483,10 @@ a:hover {
   align-items: center;
   padding: 38px;
   border-radius: 8px;
+}
+
+.status-request > div:first-child {
+  max-width: 620px;
 }
 
 .status-request h1 {
@@ -513,21 +665,28 @@ button:disabled {
   }
 
   .summary-grid,
-  .lookup-grid,
+  .visibility-grid,
+  .progress-panel,
   .line-status,
   .line-detail {
     grid-template-columns: 1fr;
   }
 
   .key-value,
-  .lookup-card {
+  .visibility-grid > div,
+  .progress-step {
     border-right: 0;
     border-bottom: 1px solid #dce5d8;
   }
 
   .key-value:last-child,
-  .lookup-card:last-child {
+  .visibility-grid > div:last-child,
+  .progress-step:last-child {
     border-bottom: 0;
+  }
+
+  .source-availability {
+    grid-column: auto;
   }
 
   .vornan-wordmark {
