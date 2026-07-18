@@ -109,6 +109,12 @@ type StatusRequestResponse = {
   debug_status_url?: string;
 };
 
+const statusHighlights = [
+  "Order and line-level progress",
+  "Proof links when available",
+  "Package and tracking activity"
+];
+
 function tokenFromLocation() {
   const url = new URL(window.location.href);
   const queryToken = url.searchParams.get("token");
@@ -210,7 +216,7 @@ function StatusRequestForm() {
             setMessage(
               payload && "message" in payload
                 ? payload.message
-                : "If we can match this request, we will send a secure order status link."
+                : "If the order and email match, a private status link will be sent shortly."
             );
             setDebugLink(payload && "debug_status_url" in payload && payload.debug_status_url ? payload.debug_status_url : "");
           })
@@ -220,6 +226,10 @@ function StatusRequestForm() {
           });
       }}
     >
+      <div className="request-form-header">
+        <span>Private Status Link</span>
+        <strong>Sent by email</strong>
+      </div>
       <label htmlFor="order-number">Order number</label>
       <input
         id="order-number"
@@ -255,11 +265,16 @@ function StatusRequest() {
     <section className="status-request">
       <div>
         <p className="eyebrow">Order Status</p>
-        <h1>Request a secure order status link.</h1>
+        <h1>Get a private view of your order.</h1>
         <p>
-          Enter the order number and your email address. If we can match the request,
-          Pathfinder will send a private link with current order, proof, and shipment details.
+          Enter your order number and email address. If they match, Pathfinder sends a secure link with current order,
+          proof, and shipment details.
         </p>
+        <div className="status-highlights" aria-label="Status link contents">
+          {statusHighlights.map((highlight) => (
+            <span key={highlight}>{highlight}</span>
+          ))}
+        </div>
       </div>
       <StatusRequestForm />
     </section>
@@ -328,6 +343,7 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
   const { snapshot } = payload;
   const trackingNumber = firstTracking(snapshot);
   const currentStatus = statusLabel(snapshot);
+  const expiresAt = displayDate(payload.link.expires_at);
 
   return (
     <>
@@ -336,8 +352,8 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
           <p className="eyebrow">Order Status</p>
           <h1>{snapshot.order_number}</h1>
           <p>
-            {snapshot.customer.source_customer_name} order visibility from Pathfinder.
-            Last refreshed {displayDate(snapshot.refreshed_at)}.
+            {snapshot.customer.source_customer_name} order visibility from Pathfinder. Last refreshed{" "}
+            {displayDate(snapshot.refreshed_at)}.
           </p>
         </div>
         <div className="status-badge">
@@ -405,8 +421,7 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
       <section className="privacy-note">
         <strong>Visibility note</strong>
         <span>
-          This page omits internal costs and submit history. Redacted fields:
-          {" "}
+          This private link expires {expiresAt}. Internal costs and submit history are omitted. Redacted fields:{" "}
           {snapshot.visibility_policy.redacted_fields.join(", ")}.
         </span>
       </section>
@@ -465,7 +480,7 @@ function App() {
         <section className="loading-card">
           <span className="loading-dot" />
           <strong>Loading order status</strong>
-          <p>Gathering the latest Pathfinder snapshot.</p>
+          <p>Opening the latest Pathfinder order view.</p>
         </section>
       ) : null}
 
@@ -474,7 +489,7 @@ function App() {
           <div className="status-error-card">
             <p className="eyebrow">Status Link</p>
             <h1>This link could not be opened.</h1>
-            <p>{message}</p>
+            <p>{message || "Request a new secure link to see the latest available order status."}</p>
           </div>
           <StatusRequestForm />
         </section>

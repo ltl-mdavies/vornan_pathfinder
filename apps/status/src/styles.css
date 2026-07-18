@@ -341,6 +341,26 @@ a:hover {
   font-size: clamp(2rem, 4vw, 3.85rem);
 }
 
+.status-highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.status-highlights span {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  border: 1px solid #dce5d8;
+  border-radius: 999px;
+  padding: 0 13px;
+  background: #fbfcfa;
+  color: #37583d;
+  font-size: 0.85rem;
+  font-weight: 850;
+}
+
 .status-error-card {
   min-height: 100%;
   padding: 22px;
@@ -356,6 +376,28 @@ a:hover {
   border: 1px solid #dce5d8;
   border-radius: 8px;
   background: #f7faf4;
+}
+
+.request-form-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #dce5d8;
+}
+
+.request-form-header span {
+  color: #748071;
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.request-form-header strong {
+  color: #315c3b;
+  font-size: 0.92rem;
 }
 
 label {
@@ -398,7 +440,7 @@ button:disabled {
   padding: 12px 14px;
   border: 1px solid #dce5d8;
   border-radius: 8px;
-  background: #fff;
+  background: #eef6e4;
   color: #315c3b;
   font-size: 0.95rem;
 }
@@ -494,5 +536,19 @@ button:disabled {
 
   .pathfinder-lockup {
     width: 150px;
+  }
+
+  .status-highlights {
+    gap: 8px;
+  }
+
+  .status-highlights span {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .request-form-header {
+    display: grid;
+    gap: 3px;
   }
 }

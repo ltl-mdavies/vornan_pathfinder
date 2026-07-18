@@ -10140,12 +10140,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
         {activeGlobalView === "Jobs" ? (
           <section className="panel jobs-panel">
-            <PanelHeader icon={Archive} title="Processing Jobs" detail="Global history" />
+            <PanelHeader icon={Archive} title="Processing Jobs" detail="Order history and internal status lookup" />
             <div className="internal-order-lookup">
               <div>
-                <p className="eyebrow">Internal Order Lookup</p>
-                <h3>Find any Pathfinder order.</h3>
-                <span>Search by Lift order number, source order number, or submit Ext_ID.</span>
+                <p className="eyebrow">Staff Status Lookup</p>
+                <h3>Open the composed order view.</h3>
+                <span>Search by Lift order number, source order number, or Ext_ID to review order, proof, and package data.</span>
               </div>
               <form
                 onSubmit={(event) => {
@@ -10168,7 +10168,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             {internalOrderLookupResult ? (
               <div className="latest-attempt-callout public-status-link-callout internal-order-match">
                 <div>
-                  <span>Matched Order</span>
+                  <span>Status Snapshot Ready</span>
                   <strong>{internalOrderLookupResult.snapshot.order_number}</strong>
                   <em>
                     {internalOrderLookupResult.match.customer_name} · {displayJobId(internalOrderLookupResult.match.job_id)}
