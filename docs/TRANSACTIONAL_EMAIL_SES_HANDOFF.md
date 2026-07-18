@@ -88,6 +88,9 @@ This handoff has been converted into the first implementation slice:
 - Public status-link failures continue returning the neutral accepted response.
 - Public status-link request throttling now covers source IP, email, order number, and order/email pair with HMAC-style hashed keys.
 - Public status-link delivery now requires the requested email to match an order, customer, or contact email by default. The only override is the explicit `PATHFINDER_PUBLIC_STATUS_EMAIL_MATCH_REQUIRED=false` development switch.
+- Status-link token records now persist audit-safe delivery metadata: masked requested email, hashed requested email, delivery mode, delivery status, provider message id when available, and send/log failure details when applicable.
+- `GET /api/email/status` now returns authenticated, non-secret email readiness diagnostics for operators.
+- `GET /health` now includes a non-secret email runtime summary for deployment smoke checks.
 - `Referrer-Policy: no-referrer` is applied by the API.
 - Lambda configuration, deployment scripts, GitHub Actions, README, and `.env.example` now include the new email and public status settings.
 - The API Lambda execution role is configured for least-privilege `ses:SendEmail` against `notify.vornan.co`.

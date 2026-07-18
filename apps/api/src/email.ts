@@ -19,7 +19,7 @@ export type TransactionalEmailResult = {
   provider_message_id?: string;
 };
 
-type EmailRuntimeConfig = {
+export type EmailRuntimeConfig = {
   mode: TransactionalEmailMode;
   from: string;
   statusReplyTo: string;

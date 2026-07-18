@@ -490,6 +490,15 @@ export interface OrderStatusTokenRecord {
   expires_at: string;
   expires_at_epoch: number;
   created_by_email?: string | null;
+  requested_email_hash?: string | null;
+  requested_email_masked?: string | null;
+  email_delivery?: {
+    mode: "log" | "ses";
+    status: "Pending" | "Logged" | "Sent" | "Failed";
+    provider_message_id?: string | null;
+    error?: string | null;
+    updated_at: string;
+  } | null;
 }
 
 export interface CanonicalFieldOverride {

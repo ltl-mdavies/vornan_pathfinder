@@ -104,7 +104,13 @@ import {
   type TargetEnvironment
 } from "./store.js";
 import { getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
-import { buildStatusLinkEmail, maskEmailAddress, sendTransactionalEmail } from "./email.js";
+import {
+  buildStatusLinkEmail,
+  getEmailRuntimeConfig,
+  maskEmailAddress,
+  sendTransactionalEmail,
+  type TransactionalEmailResult
+} from "./email.js";
 
 export const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -1234,6 +1240,7 @@ async function createPublicStatusLinkForJob(args: {
   customer: LiftCustomer;
   jobId: string;
   createdByEmail?: string | null;
+  requestedEmail?: string | null;
 }) {
   const result = await buildInternalOrderSnapshotForJob(args.customer, args.jobId);
 
@@ -1245,6 +1252,7 @@ async function createPublicStatusLinkForJob(args: {
   const rawToken = randomBytes(32).toString("base64url");
   const nowIso = new Date().toISOString();
   const expiresAt = new Date(Date.now() + Math.max(1, publicStatusTokenDays) * 24 * 60 * 60 * 1000);
+  const emailMode = args.requestedEmail ? getEmailRuntimeConfig().mode : null;
   const tokenRecord = {
     token_hash: hashStatusToken(rawToken),
     order_key: snapshot.order_key,
@@ -1256,7 +1264,18 @@ async function createPublicStatusLinkForJob(args: {
     updated_at: nowIso,
     expires_at: expiresAt.toISOString(),
     expires_at_epoch: Math.floor(expiresAt.getTime() / 1000),
-    created_by_email: args.createdByEmail ?? null
+    created_by_email: args.createdByEmail ?? null,
+    requested_email_hash: args.requestedEmail ? hashPublicLogValue(args.requestedEmail) : null,
+    requested_email_masked: args.requestedEmail ? maskEmailAddress(args.requestedEmail) : null,
+    email_delivery: emailMode
+      ? {
+          mode: emailMode,
+          status: "Pending" as const,
+          provider_message_id: null,
+          error: null,
+          updated_at: nowIso
+        }
+      : null
   };
 
   await persistPublicOrderStatusSnapshot(snapshot);
@@ -1266,6 +1285,7 @@ async function createPublicStatusLinkForJob(args: {
     status_url: statusUrlForToken(rawToken),
     token: rawToken,
     expires_at: tokenRecord.expires_at,
+    token_record: tokenRecord,
     snapshot,
     context: result.context
   };
@@ -1277,7 +1297,7 @@ async function sendPublicStatusLinkEmail(args: {
   customerName?: string;
   statusUrl: string;
   expiresAt: string;
-}) {
+}): Promise<TransactionalEmailResult> {
   const result = await sendTransactionalEmail(
     buildStatusLinkEmail({
       to: args.email,
@@ -1296,6 +1316,8 @@ async function sendPublicStatusLinkEmail(args: {
     order_number_hash: hashPublicLogValue(args.orderNumber),
     expires_at: args.expiresAt
   });
+
+  return result;
 }
 
 function synthesizeParsedRows(sourceGrid: SourceGrid): ParsedSourceRow[] {
@@ -2087,11 +2109,31 @@ async function requirePathfinderAuth(req: Request, res: Response, next: NextFunc
 
 app.get("/health", (_req, res) => {
   const persistence = getPathfinderPersistenceRuntimeConfig();
+  let email: Record<string, unknown>;
+
+  try {
+    const emailConfig = getEmailRuntimeConfig();
+    email = {
+      mode: emailConfig.mode,
+      ses_region: emailConfig.sesRegion,
+      configuration_set_present: Boolean(emailConfig.sesConfigurationSet),
+      from_domain: emailConfig.from.includes("@") ? emailConfig.from.split("@").pop()?.replace(">", "") ?? null : null,
+      status_reply_to_domain: emailConfig.statusReplyTo.includes("@")
+        ? emailConfig.statusReplyTo.split("@").pop() ?? null
+        : null
+    };
+  } catch (error) {
+    email = {
+      error: error instanceof Error ? error.message : "Email runtime configuration is invalid."
+    };
+  }
+
   res.json({
     ok: true,
     service: "pathfinder-api",
     version: "0.1.0",
-    persistence
+    persistence,
+    email
   });
 });
 
@@ -2166,17 +2208,44 @@ app.post("/public/status/request-link", async (req, res) => {
       const link = await createPublicStatusLinkForJob({
         customer: match.customer,
         jobId: match.job.job_id,
-        createdByEmail: email
+        createdByEmail: email,
+        requestedEmail: email
       });
 
       if (!("error" in link)) {
-        await sendPublicStatusLinkEmail({
-          email,
-          orderNumber: link.snapshot.order_number || orderNumber,
-          customerName: link.snapshot.customer.submit_customer_name,
-          statusUrl: link.status_url,
-          expiresAt: link.expires_at
-        });
+        try {
+          const delivery = await sendPublicStatusLinkEmail({
+            email,
+            orderNumber: link.snapshot.order_number || orderNumber,
+            customerName: link.snapshot.customer.submit_customer_name,
+            statusUrl: link.status_url,
+            expiresAt: link.expires_at
+          });
+          await persistOrderStatusToken({
+            ...link.token_record,
+            email_delivery: {
+              mode: delivery.mode,
+              status: delivery.status === "sent" ? "Sent" : "Logged",
+              provider_message_id: delivery.provider_message_id ?? null,
+              error: null,
+              updated_at: new Date().toISOString()
+            },
+            updated_at: new Date().toISOString()
+          });
+        } catch (error) {
+          await persistOrderStatusToken({
+            ...link.token_record,
+            email_delivery: {
+              mode: link.token_record.email_delivery?.mode ?? getEmailRuntimeConfig().mode,
+              status: "Failed",
+              provider_message_id: null,
+              error: error instanceof Error ? error.message : "Status email delivery failed.",
+              updated_at: new Date().toISOString()
+            },
+            updated_at: new Date().toISOString()
+          });
+          throw error;
+        }
         debugStatusUrl = publicStatusReturnLink ? link.status_url : undefined;
       }
     } else if (match) {
@@ -2200,6 +2269,77 @@ app.post("/public/status/request-link", async (req, res) => {
 });
 
 app.use("/api", requirePathfinderAuth);
+
+app.get("/api/email/status", (_req, res) => {
+  try {
+    const config = getEmailRuntimeConfig();
+    const fromDomain = config.from.includes("@") ? config.from.split("@").pop()?.replace(">", "") ?? null : null;
+    const statusReplyToDomain = config.statusReplyTo.includes("@") ? config.statusReplyTo.split("@").pop() ?? null : null;
+    const items = [
+      {
+        item_id: "mode",
+        status: config.mode === "ses" ? "Ready" : "Warning",
+        label: "Delivery mode",
+        message:
+          config.mode === "ses"
+            ? "Status-link email is configured to send through Amazon SES."
+            : "Status-link email is in log mode; links are logged instead of delivered."
+      },
+      {
+        item_id: "sender",
+        status: fromDomain === "notify.vornan.co" ? "Ready" : "Warning",
+        label: "Sender domain",
+        message: fromDomain ? `Sender domain is ${fromDomain}.` : "Sender domain could not be detected."
+      },
+      {
+        item_id: "reply-to",
+        status: statusReplyToDomain === "vornan.co" ? "Ready" : "Warning",
+        label: "Status reply-to",
+        message: `Status replies route to ${config.statusReplyTo}.`
+      },
+      {
+        item_id: "ses-region",
+        status: config.sesRegion ? "Ready" : "Blocked",
+        label: "SES region",
+        message: config.sesRegion ? `Amazon SES region is ${config.sesRegion}.` : "SES region is missing."
+      },
+      {
+        item_id: "configuration-set",
+        status: config.sesConfigurationSet ? "Ready" : "Warning",
+        label: "SES events",
+        message: config.sesConfigurationSet
+          ? `SES configuration set ${config.sesConfigurationSet} is configured.`
+          : "SES configuration set is not configured; provider event publishing may be limited."
+      }
+    ];
+
+    res.json({
+      mode: config.mode,
+      sender: {
+        from: config.from,
+        from_domain: fromDomain,
+        status_reply_to: config.statusReplyTo,
+        status_reply_to_domain: statusReplyToDomain
+      },
+      ses: {
+        region: config.sesRegion,
+        configuration_set: config.sesConfigurationSet ?? null
+      },
+      readiness: {
+        status: items.some((item) => item.status === "Blocked")
+          ? "Blocked"
+          : items.some((item) => item.status === "Warning")
+            ? "Warning"
+            : "Ready",
+        items
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Email runtime configuration is invalid."
+    });
+  }
+});
 
 app.get("/api/sample-order", (_req, res) => {
   const canonicalValidation = validateCanonicalOrder(sampleCanonicalOrder);
