@@ -73,7 +73,7 @@ jobs:
               AllowedOrigins="${{ inputs.allowed_origins }}" \
               RequireFirebaseAuth="${{ inputs.require_auth }}" \
               AllowedEmailDomains="${{ vars.PATHFINDER_ALLOWED_EMAIL_DOMAINS || 'ltlco.com,vornan.co' }}" \
-              FirebaseProjectId="${{ secrets.VITE_FIREBASE_PROJECT_ID }}" \
+              FirebaseProjectId="${{ secrets.FIREBASE_PROJECT_ID || secrets.VITE_FIREBASE_PROJECT_ID || 'ltl-dashboard-site' }}" \
               LiftCustomerListUrl="${{ vars.LIFT_CUSTOMER_LIST_URL }}" \
               LiftCustomerStatusUrl="${{ vars.LIFT_CUSTOMER_STATUS_URL }}" \
               LiftProductCatalogBaseUrl="${{ vars.LIFT_PRODUCT_CATALOG_BASE_URL || 'https://ltlco.lifterp.com/ords/api/lift/erp' }}" \
@@ -82,7 +82,7 @@ jobs:
               DataTablePrefix="${{ vars.PATHFINDER_DATA_TABLE_PREFIX || 'Pathfinder' }}" \
               SecretPrefix="${{ vars.PATHFINDER_SECRET_PREFIX || '/vornan/pathfinder/' }}" \
               StorageDriver="${{ vars.PATHFINDER_STORAGE_DRIVER || 'local' }}" \
-              SecretsDriver="${{ vars.PATHFINDER_SECRETS_DRIVER || 'local' }}"
+              SecretsDriver="${{ vars.PATHFINDER_SECRETS_DRIVER || 'secrets-manager' }}"
 
       - name: Show stack outputs
         run: |

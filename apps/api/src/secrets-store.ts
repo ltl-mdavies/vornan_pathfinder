@@ -30,7 +30,11 @@ interface LocalSecretsStore {
   targets: Record<string, TargetSecrets>;
 }
 
-const secretsPath = fileURLToPath(new URL("../../../data/pathfinder-secrets.local.json", import.meta.url));
+const secretsPath =
+  process.env.PATHFINDER_LOCAL_SECRETS_PATH ??
+  (process.env.PATHFINDER_RUNTIME === "lambda"
+    ? "/tmp/pathfinder-secrets.local.json"
+    : fileURLToPath(new URL("../../../data/pathfinder-secrets.local.json", import.meta.url)));
 let secretsManagerClient: SecretsManagerClient | null = null;
 
 function getSecretsManagerClient() {

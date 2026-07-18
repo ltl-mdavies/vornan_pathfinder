@@ -470,7 +470,11 @@ export interface CanonicalRegistrySnapshot {
   created_at: string;
 }
 
-const storePath = fileURLToPath(new URL("../../../data/pathfinder-store.local.json", import.meta.url));
+const storePath =
+  process.env.PATHFINDER_LOCAL_STORE_PATH ??
+  (process.env.PATHFINDER_RUNTIME === "lambda"
+    ? "/tmp/pathfinder-store.local.json"
+    : fileURLToPath(new URL("../../../data/pathfinder-store.local.json", import.meta.url)));
 const targetId = "lift-standard-graphics";
 const ecommerceTargetId = "thinkdifferentprint-ecommerce";
 const outputRouteId = "route-ltl-lift-91-standard-graphics";
