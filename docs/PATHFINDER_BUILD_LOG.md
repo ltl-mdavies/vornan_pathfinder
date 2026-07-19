@@ -1638,3 +1638,14 @@ Verification:
 - Delayed the local API by 1.5 seconds and confirmed only the loading skeleton appeared until the complete current workspace replaced it.
 - Confirmed loading and loaded states at 390px with `scrollWidth === innerWidth` and no horizontal overflow.
 - Real Lift submission remains disabled.
+
+Production deployment:
+
+- Committed and pushed as `64d48ec Add unique order IDs and truthful loading`.
+- API workflow `29698121590`, admin workflow `29698120929`, and status workflow `29698123724` completed successfully.
+- CloudFormation stack `vornan-pathfinder-api-prod` reached `UPDATE_COMPLETE` and now includes `Pathfinder-OrderIds-prod`.
+- Verified the Order ID table is `ACTIVE`, uses `PAY_PER_REQUEST`, has server-side encryption enabled, and has point-in-time recovery enabled.
+- Verified the production Lambda is `Active`, its last update succeeded, and `PATHFINDER_ORDER_IDS_TABLE=Pathfinder-OrderIds-prod` is present.
+- Verified `https://api.pathfinder.vornan.co/health`, `https://pathfinder.vornan.co/`, and `https://status.vornan.co/` return HTTP 200.
+- Verified the live admin entrypoint references the split vendor assets and the 323,993-byte lazy workspace asset.
+- The explicit Lift-submit environment gate remains unset, so external Lift submission remains disabled and defaults to dry-run behavior.

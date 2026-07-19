@@ -13,10 +13,10 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Current committed base: `1b63406 Simplify order identity resolution`
-- Branch state before the Pathfinder Order Number slice: `main`, synchronized with `origin/main`.
-- Commit `1b63406` is deployed to the admin app and API; real Lift submission remains disabled.
-- The globally reserved Pathfinder Order Number slice is currently uncommitted and must receive a full API stack deployment because it adds a DynamoDB table and Lambda environment variable.
+- Current feature commit: `64d48ec Add unique order IDs and truthful loading`
+- Branch state after the production deployment: `main`, synchronized with `origin/main` before this deployment-record follow-up.
+- Commit `64d48ec` is deployed to the admin app, public status app, and API; real Lift submission remains disabled.
+- The full API stack deployment provisioned the globally reserved Pathfinder Order Number table and injected its Lambda environment variable.
 
 Recent committed base history:
 
@@ -55,7 +55,7 @@ Current completed slice:
 - Adds validation for required components, configured length, deterministic retries, duplicate names, persistence isolation, and legacy behavior.
 - No production deployment or real Lift submit behavior is part of this slice.
 
-Current working slice:
+Latest deployed slice:
 
 - Reserves one globally unique Pathfinder Order Number through a dedicated DynamoDB table and conditional write.
 - Makes the Pathfinder Order Number the recommended Lift `Ext_ID` source for new Import Methods while preserving existing saved strategies.
@@ -65,9 +65,12 @@ Current working slice:
 - Requires a CloudFormation stack update before API code deployment because `PATHFINDER_ORDER_IDS_TABLE` is a new runtime dependency.
 - Does not enable live Lift transport or automatically resubmit.
 - Validation passed: `npm run check`, 21 tests via `npm test`, `npm run build`, desktop/mobile browser review, and a local preview proving the same reserved number reaches both Lift `Ext_ID` locations.
-- The same uncommitted working tree now also splits the admin production bundle below Vite's warning threshold and replaces seeded-data hydration flashes with skeleton, empty, and retryable error states.
+- The same deployed feature commit also splits the admin production bundle below Vite's warning threshold and replaces seeded-data hydration flashes with skeleton, empty, and retryable error states.
 - New bundle result: the former 542.87 kB main chunk is now a 323.98 kB lazy workspace chunk; all JavaScript chunks are below 500 kB.
 - A 1.5-second delayed local API test confirmed that no customer, Import Method, job, route, or sample workbook values appear before current data is ready.
+- Production workflows `29698121590` (API), `29698120929` (admin), and `29698123724` (status) completed successfully on 2026-07-19.
+- Stack `vornan-pathfinder-api-prod` is `UPDATE_COMPLETE`; `Pathfinder-OrderIds-prod` is active, encrypted, on-demand, and PITR-enabled.
+- Live admin, status, and API health endpoints returned HTTP 200 after CloudFront invalidation and Lambda publication.
 
 Recommended opening move in the next thread:
 
