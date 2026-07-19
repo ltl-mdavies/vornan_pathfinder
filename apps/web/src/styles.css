@@ -3535,6 +3535,13 @@ h1 {
   font-weight: 800;
 }
 
+.source-schema-toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .source-schema-message {
   margin: 0;
   color: var(--forest);
@@ -3545,6 +3552,10 @@ h1 {
 
 .source-schema-message-error {
   color: var(--danger);
+}
+
+.source-schema-message-warning {
+  color: #7c4b00;
 }
 
 .source-schema-sheet-list {
@@ -7158,6 +7169,12 @@ td {
   .source-schema-drop-zone,
   .source-schema-toolbar {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .source-schema-toolbar-actions {
+    width: 100%;
+    align-items: stretch;
     flex-direction: column;
   }
 

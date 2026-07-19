@@ -26,6 +26,9 @@ export interface ParsedWorkbookSheet {
   order_row_count: number;
   reference_row_count: number;
   parsed_rows: ParsedSourceRow[];
+  header_row?: number | null;
+  header_row_count?: 1 | 2;
+  ignored_header_rows?: number[];
 }
 
 export interface FieldMapping {
@@ -73,6 +76,7 @@ export interface ParsedWorkbook extends SourceGrid {
 export interface WorkbookParseOptions {
   preferredSheetName?: string;
   headerRow?: number | null;
+  headerRowCount?: 1 | 2;
   quantityColumn?: string | null;
   ignoreRepeatedHeaders?: boolean;
   referenceRowsMode?: "rows_without_quantity" | "ignore";
@@ -224,6 +228,17 @@ function normalizeAlias(value: string) {
   return normalizeColumnName(value).toLowerCase();
 }
 
+function deduplicateColumnNames(columns: string[]) {
+  const seen = new Map<string, number>();
+  return columns.map((column, index) => {
+    const base = normalizeColumnName(column) || `Column ${index + 1}`;
+    const key = base.toLowerCase();
+    const count = (seen.get(key) ?? 0) + 1;
+    seen.set(key, count);
+    return count === 1 ? base : `${base} ${count}`;
+  });
+}
+
 function cellToPrimitive(value: unknown): string | number | boolean | null {
   if (value === undefined || value === null) {
     return null;
@@ -271,18 +286,154 @@ const embeddedHeaderAliases = new Set(
     "ps sku",
     "item sku",
     "ps part number",
-    "qty needed"
+    "qty needed",
+    "order information",
+    "line items",
+    "product information",
+    "shipping information",
+    "ship to",
+    "bill to",
+    "dimensions",
+    "artwork",
+    "production",
+    "required",
+    "optional"
   ].map(normalizeAlias)
 );
+
+const knownHeaderAliases = new Set([...Object.keys(sourceColumnAliases).map(normalizeAlias), ...embeddedHeaderAliases]);
+
+function headerColumnsForRows(matrix: unknown[][], headerIndex: number, headerRowCount: 1 | 2) {
+  const headerRows = matrix.slice(headerIndex, headerIndex + headerRowCount);
+  const width = Math.max(0, ...headerRows.map((row) => row.length));
+
+  if (headerRowCount === 1) {
+    return deduplicateColumnNames(
+      Array.from({ length: width }, (_, columnIndex) => {
+        const value = cellToPrimitive(headerRows[0]?.[columnIndex]);
+        return value === null ? `Column ${columnIndex + 1}` : valueAsString(value);
+      })
+    );
+  }
+
+  const topValues: Array<string | null> = [];
+  let carriedTopValue: string | null = null;
+
+  for (let columnIndex = 0; columnIndex < width; columnIndex += 1) {
+    const value = cellToPrimitive(headerRows[0]?.[columnIndex]);
+    if (value !== null) {
+      carriedTopValue = valueAsString(value);
+    }
+    topValues.push(carriedTopValue);
+  }
+
+  const lowerValues = Array.from({ length: width }, (_, columnIndex) => {
+    const value = cellToPrimitive(headerRows[1]?.[columnIndex]);
+    return value === null ? null : valueAsString(value);
+  });
+  const lowerCounts = new Map<string, number>();
+  lowerValues.forEach((value) => {
+    const normalized = normalizeAlias(value ?? "");
+    if (normalized) {
+      lowerCounts.set(normalized, (lowerCounts.get(normalized) ?? 0) + 1);
+    }
+  });
+
+  const columns = lowerValues.map((lowerValue, index) => {
+    const topValue = topValues[index];
+    const combined = topValue && lowerValue && normalizeAlias(topValue) !== normalizeAlias(lowerValue)
+      ? `${topValue} ${lowerValue}`
+      : lowerValue ?? topValue;
+    const normalizedLower = normalizeAlias(lowerValue ?? "");
+    const normalizedCombined = normalizeAlias(combined ?? "");
+
+    if (lowerValue && knownHeaderAliases.has(normalizedLower) && lowerCounts.get(normalizedLower) === 1) {
+      return lowerValue;
+    }
+    if (combined && knownHeaderAliases.has(normalizedCombined)) {
+      return combined;
+    }
+    if (lowerValue && lowerCounts.get(normalizedLower) === 1) {
+      return lowerValue;
+    }
+    return combined ?? `Column ${index + 1}`;
+  });
+
+  return deduplicateColumnNames(columns);
+}
+
+function headerCandidateScore(matrix: unknown[][], headerIndex: number, headerRowCount: 1 | 2) {
+  const columns = headerColumnsForRows(matrix, headerIndex, headerRowCount);
+  const namedColumns = columns.filter((column) => !/^Column \d+(?: \d+)?$/.test(column));
+  if (namedColumns.length === 0) {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const recognizedColumns = namedColumns.filter((column) => knownHeaderAliases.has(normalizeAlias(column))).length;
+  const headerCells = matrix
+    .slice(headerIndex, headerIndex + headerRowCount)
+    .flatMap((row) => row.map(cellToPrimitive))
+    .filter((value) => value !== null);
+  const textCells = headerCells.filter((value) => typeof value === "string").length;
+  const numericCells = headerCells.filter((value) => typeof value === "number").length;
+  const recognizedCells = headerCells.filter((value) => knownHeaderAliases.has(normalizeAlias(valueAsString(value)))).length;
+  const dataLikeCells = headerCells.filter((value) => {
+    const text = valueAsString(value);
+    return /\d/.test(text) && !knownHeaderAliases.has(normalizeAlias(text));
+  }).length;
+  const nextPopulatedRow = matrix
+    .slice(headerIndex + headerRowCount)
+    .find((row) => row.some((cell) => cellToPrimitive(cell) !== null));
+  const nextValueCount = nextPopulatedRow?.filter((cell) => cellToPrimitive(cell) !== null).length ?? 0;
+  const compatibleDataBonus = nextValueCount > 0 && nextValueCount <= columns.length + 2 ? 3 : 0;
+  const singleColumnPenalty = namedColumns.length === 1 ? 6 : 0;
+
+  return (
+    recognizedColumns * 10 +
+    recognizedCells * 4 +
+    namedColumns.length * 2 +
+    textCells * 0.5 -
+    numericCells * 2 +
+    dataLikeCells * -2 +
+    compatibleDataBonus -
+    singleColumnPenalty -
+    headerIndex * 0.05
+  );
+}
+
+function detectHeaderIndex(matrix: unknown[][], headerRow: number | null | undefined, headerRowCount: 1 | 2) {
+  if (
+    typeof headerRow === "number" &&
+    headerRow > 0 &&
+    matrix[headerRow - 1]?.some((cell) => cellToPrimitive(cell) !== null)
+  ) {
+    return headerRow - 1;
+  }
+
+  let bestIndex = 0;
+  let bestScore = Number.NEGATIVE_INFINITY;
+  const candidateCount = Math.min(matrix.length, 25);
+  for (let index = 0; index < candidateCount; index += 1) {
+    const score = headerCandidateScore(matrix, index, headerRowCount);
+    if (score > bestScore) {
+      bestIndex = index;
+      bestScore = score;
+    }
+  }
+
+  return bestIndex;
+}
 
 function isLikelyRepeatedHeader(row: Record<string, string | number | boolean | null>) {
   let exactColumnMatches = 0;
   let headerLikeMatches = 0;
+  let populatedValues = 0;
   Object.entries(row).forEach(([column, value]) => {
     const normalizedValue = normalizeAlias(valueAsString(value));
     if (!normalizedValue) {
       return;
     }
+    populatedValues += 1;
 
     const normalizedColumn = normalizeAlias(column);
     if (normalizedValue === normalizedColumn) {
@@ -292,7 +443,7 @@ function isLikelyRepeatedHeader(row: Record<string, string | number | boolean | 
       headerLikeMatches += 1;
     }
   });
-  return exactColumnMatches >= 2 || headerLikeMatches >= 3;
+  return exactColumnMatches >= 2 || headerLikeMatches >= 3 || (headerLikeMatches >= 2 && headerLikeMatches === populatedValues);
 }
 
 function isValidQuantity(value: unknown) {
@@ -325,7 +476,13 @@ function parseWorksheetRows(
   workbook: XLSX.WorkBook,
   sheetName: string,
   options: WorkbookParseOptions = {}
-): { columns: string[]; rows: ParsedSourceRow[] } {
+): {
+  columns: string[];
+  rows: ParsedSourceRow[];
+  headerRow: number | null;
+  headerRowCount: 1 | 2;
+  ignoredHeaderRows: number[];
+} {
   const worksheet = workbook.Sheets[sheetName];
   const matrix = xlsx.utils.sheet_to_json<unknown[]>(worksheet, {
     header: 1,
@@ -333,31 +490,29 @@ function parseWorksheetRows(
     defval: null,
     raw: false
   });
-  const configuredHeaderIndex =
-    typeof options.headerRow === "number" && options.headerRow > 0 && matrix[options.headerRow - 1]?.some((cell) => cellToPrimitive(cell) !== null)
-      ? options.headerRow - 1
-      : null;
-  const headerRow =
-    configuredHeaderIndex !== null
-      ? matrix[configuredHeaderIndex]
-      : matrix.find((row) => row.some((cell) => cellToPrimitive(cell) !== null)) ?? [];
-  const headerIndex = matrix.indexOf(headerRow);
-  const columns = headerRow.map((cell, index) => normalizeColumnName(String(cellToPrimitive(cell) ?? `Column ${index + 1}`)));
+  if (matrix.length === 0) {
+    return { columns: [], rows: [], headerRow: null, headerRowCount: options.headerRowCount ?? 1, ignoredHeaderRows: [] };
+  }
+
+  const headerRowCount = options.headerRowCount ?? 1;
+  const headerIndex = detectHeaderIndex(matrix, options.headerRow, headerRowCount);
+  const columns = headerColumnsForRows(matrix, headerIndex, headerRowCount);
   const quantityColumn =
     options.quantityColumn && columns.includes(options.quantityColumn)
       ? options.quantityColumn
       : findQuantityColumn(columns);
   const shouldIgnoreRepeatedHeaders = options.ignoreRepeatedHeaders ?? true;
   const referenceRowsMode = options.referenceRowsMode ?? "rows_without_quantity";
+  const ignoredHeaderRows: number[] = [];
 
   const rows = matrix
-    .slice(headerIndex + 1)
+    .slice(headerIndex + headerRowCount)
     .map((row, index) => {
       const values = columns.reduce<Record<string, string | number | boolean | null>>((record, column, columnIndex) => {
         record[column] = cellToPrimitive(row[columnIndex]);
         return record;
       }, {});
-      const rowNumber = headerIndex + index + 2;
+      const rowNumber = headerIndex + headerRowCount + index + 1;
       const hasQuantity = quantityColumn ? isValidQuantity(values[quantityColumn]) : false;
 
       return {
@@ -368,10 +523,22 @@ function parseWorksheetRows(
       } satisfies ParsedSourceRow;
     })
     .filter((row) => hasAnyValue(row.values))
-    .filter((row) => (shouldIgnoreRepeatedHeaders ? !isLikelyRepeatedHeader(row.values) : true))
+    .filter((row) => {
+      if (shouldIgnoreRepeatedHeaders && isLikelyRepeatedHeader(row.values)) {
+        ignoredHeaderRows.push(row.row_number);
+        return false;
+      }
+      return true;
+    })
     .filter((row) => (referenceRowsMode === "ignore" ? row.row_type === "order" : true));
 
-  return { columns, rows };
+  return {
+    columns,
+    rows,
+    headerRow: headerIndex + 1,
+    headerRowCount,
+    ignoredHeaderRows
+  };
 }
 
 export async function parseWorkbookArrayBuffer(
@@ -385,13 +552,21 @@ export async function parseWorkbookArrayBuffer(
   const xlsx = await import("xlsx");
   const workbook = xlsx.read(buffer, { type: "array", cellDates: true });
   const allSheetRows = workbook.SheetNames.map((candidateSheetName) => {
-    const { columns, rows } = parseWorksheetRows(xlsx, workbook, candidateSheetName, options);
+    const { columns, rows, headerRow, headerRowCount, ignoredHeaderRows } = parseWorksheetRows(
+      xlsx,
+      workbook,
+      candidateSheetName,
+      options
+    );
     return {
       sheet_name: candidateSheetName,
       columns,
       order_row_count: rows.filter((row) => row.row_type === "order").length,
       reference_row_count: rows.filter((row) => row.row_type === "reference").length,
-      parsed_rows: rows
+      parsed_rows: rows,
+      header_row: headerRow,
+      header_row_count: headerRowCount,
+      ignored_header_rows: ignoredHeaderRows
     } satisfies ParsedWorkbookSheet;
   });
   const parsedOrderRows = allSheetRows.flatMap((sheet) => sheet.parsed_rows.filter((row) => row.row_type === "order"));

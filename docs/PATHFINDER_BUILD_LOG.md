@@ -1382,3 +1382,35 @@ Verification:
 - Confirmed `Use Sample Columns` did not change the API before save and that guarded discard restored the persisted template schema.
 - 390x844 browser validation confirmed a single-column schema layout and no horizontal overflow.
 - No browser console warnings or errors.
+
+## 2026-07-19 - Multi-Row Header Detection And Schema Refresh
+
+Hardened workbook header parsing and prevented saved Import Methods from drifting out of sync with their detected source schemas.
+
+What changed:
+
+- Added automatic header-row scoring so title and instruction rows above the real field headers can be skipped without a manual row number.
+- Added explicit single-header and two-row grouped-header modes.
+- Combined duplicated lower-level grouped labels with their parent heading, such as `Shipping Address` and `Billing Address`, while preserving recognized standalone field names.
+- Continued filtering repeated/secondary header rows and now records their original row numbers for audit visibility.
+- Added detected header row, header span, ignored-header rows, and the parser configuration snapshot to persisted schema metadata.
+- Changed the Header Row override to optional; leaving it blank uses automatic per-sheet detection.
+- Added schema freshness comparison across header row, header span, quantity column, repeated-header handling, and reference-row handling.
+- Treats previously saved schemas without a parser snapshot as needing one refresh before further method saves.
+- Marked mismatched schemas as `Refresh required`, disabled `Save Method`, and added `Re-detect Schema` when the local template is still available or `Upload Template Again` after reload.
+- Kept sample-column reset as the explicit way to remove a detected schema without re-uploading.
+
+Verification:
+
+- `npm run check`
+- `npm run build`
+- `git diff --check`
+- Generated-workbook parser assertions:
+  - automatic single-row detection selected row 3 below title/group rows
+  - automatic two-row detection selected rows 2-3
+  - a repeated header at row 5 was ignored and recorded while two order rows remained
+  - duplicated grouped labels produced `Shipping Address`, `Shipping City`, `Billing Address`, and `Billing City`
+- Disposable API assertion confirmed header row, span, ignored-row audit data, and parser configuration persisted.
+- Local browser validation confirmed saved audit metadata, stale-schema warning, upload-again fallback, disabled save, guarded sample reset, and discard restoration.
+- 390x844 browser validation had no horizontal overflow.
+- No browser console warnings or errors.

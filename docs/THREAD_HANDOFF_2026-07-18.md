@@ -13,15 +13,16 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Current committed HEAD: `aaac73c Add route strategy remap assistance`
-- Branch state before the Import Methods sprint: `main`, synchronized with `origin/main`
+- Current committed HEAD: `a6bceb5 Harden import methods and persist source schemas`
+- Branch state before the multi-row header sprint: `main`, synchronized with `origin/main`
 - Commit `932d6eb` was deployed successfully to the admin app, status app, and API.
-- Commit `aaac73c` has been pushed but has not been deployed.
-- The working tree now contains the intentional Import Methods single-save and persisted source-schema workflow changes; they remain uncommitted pending review.
+- Commits `aaac73c` and `a6bceb5` have been pushed but have not been deployed.
+- The working tree now contains the intentional multi-row header detection and stale-schema refresh changes; they remain uncommitted pending review.
 
 Recent commits:
 
 ```text
+a6bceb5 Harden import methods and persist source schemas
 aaac73c Add route strategy remap assistance
 932d6eb Add multi-order status and row-level product mapping
 a2f0bf0 Add Pathfinder thread handoff
@@ -406,13 +407,15 @@ GitHub Actions deploys:
 - Output Route strategy changes now summarize identifier readiness and can open a focused remap queue without rewriting previously stored identifiers.
 - Import Methods now uses a list-first detail workflow with one explicit save, local-only new/duplicate drafts, and guarded discard/navigation behavior.
 - Import Methods can now detect and persist workbook schema metadata while keeping workbook rows and cell values session-only.
+- Workbook parsing can now auto-detect headers below title rows, handle two-row grouped headers, and audit ignored repeated header rows.
+- Import Methods block save when parser settings no longer match the detected schema and guide the operator through re-detection.
 
 ## Current Known Friction Or Risks
 
 - Google login may show Cross-Origin-Opener-Policy console warnings from Firebase popup behavior even when auth succeeds.
 - The Lift Product Catalog panel has been iterated several times and may still need simplification around pinned catalogs, refresh behavior, and product details hierarchy.
-- Import Methods persists detected sheets and columns, but changing parser settings currently requires re-uploading the template to refresh the detected schema.
-- Multi-row/secondary header handling still needs a focused parser workflow beyond the existing header-row override and repeated-header filter.
+- Automatic header detection is heuristic; live customer templates with unusually sparse or decorative headers should be checked before relying on the detected row.
+- One explicit header-row override currently applies to every sheet; per-sheet overrides may be needed for workbooks whose tabs use different layouts.
 - Targets should eventually get the same single-save/unsaved-change treatment as Import Methods.
 - Public status gating must balance security with customer ease. Email-domain-based access has momentum, plus global allowed domains.
 - Mobile support is not required for the full admin app, but login, dashboard, overview, and public status should behave well on mobile.
@@ -516,15 +519,15 @@ Completed in the latest continuation slice:
 - Detected file name, sheet structure, columns, row counts, and detection time persist with the method; raw rows and cell values do not.
 - Matching mappings are preserved, recognized new columns are auto-mapped, and Manual Import reuses the active method's matching mappings.
 - Operators can return to clearly labeled sample columns as a guarded draft change.
+- Automatic detection can skip title/instruction rows, while two-row mode combines grouped header labels without collapsing duplicate child names.
+- Detected schemas record the actual header row/span and any ignored repeated-header row numbers for each sheet.
+- Saved parser settings are compared with the schema's parser snapshot; stale schemas must be re-detected or removed before save.
 
 Recommended next slices:
 
-1. Handle multi-row headers:
-   - Add header row detection/override.
-   - Support ignored secondary header rows.
-   - Preserve sheet and row audit info.
-2. Add an explicit re-detect action or stale-schema signal after parser settings change.
-3. Add focused method-level tests for source-specific settings and mapping persistence as the workflow grows.
+1. Add per-sheet header overrides for workbooks whose tabs do not share one layout.
+2. Add durable parser regression fixtures and focused method-level tests for schema and mapping persistence.
+3. Consider a schema version/history view if operators need to compare template changes over time.
 
 ## Canonical Registry Roadmap
 
@@ -578,7 +581,7 @@ Please read /Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/THREAD_HA
 
 If the next slice is not specified, the best candidates are:
 
-1. Import Methods multi-row/secondary-header detection and schema refresh handling.
+1. Import Methods per-sheet header overrides and durable parser regression fixtures.
 2. Add confirmation and separation to the existing bulk product-map flow.
 3. Transactional email SES smoke test and production switch.
 4. Mobile polish for login, dashboard, overview, and public status.

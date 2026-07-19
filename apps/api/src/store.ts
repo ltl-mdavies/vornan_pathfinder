@@ -206,6 +206,17 @@ export interface DetectedSourceSchemaSheet {
   columns: string[];
   order_row_count: number;
   reference_row_count: number;
+  header_row?: number | null;
+  header_row_count?: 1 | 2;
+  ignored_header_rows?: number[];
+}
+
+export interface DetectedSourceParserConfig {
+  header_row: number | null;
+  header_row_count: 1 | 2;
+  quantity_column: string | null;
+  ignore_repeated_headers: boolean;
+  reference_rows_mode: "rows_without_quantity" | "ignore";
 }
 
 export interface DetectedSourceSchema {
@@ -214,6 +225,7 @@ export interface DetectedSourceSchema {
   columns: string[];
   sheets: DetectedSourceSchemaSheet[];
   detected_at: string;
+  parser_config?: DetectedSourceParserConfig;
 }
 
 export interface ImportMethod {
@@ -235,6 +247,7 @@ export interface ImportMethod {
     api_endpoint_url?: string | null;
     sftp_path?: string | null;
     header_row?: number | null;
+    header_row_count?: 1 | 2;
     quantity_column?: string | null;
     ignore_repeated_headers?: boolean;
     reference_rows_mode?: "rows_without_quantity" | "ignore";

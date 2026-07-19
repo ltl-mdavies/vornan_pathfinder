@@ -267,6 +267,17 @@ interface DetectedSourceSchemaSheet {
   columns: string[];
   order_row_count: number;
   reference_row_count: number;
+  header_row?: number | null;
+  header_row_count?: 1 | 2;
+  ignored_header_rows?: number[];
+}
+
+interface DetectedSourceParserConfig {
+  header_row: number | null;
+  header_row_count: 1 | 2;
+  quantity_column: string | null;
+  ignore_repeated_headers: boolean;
+  reference_rows_mode: "rows_without_quantity" | "ignore";
 }
 
 interface DetectedSourceSchema {
@@ -275,6 +286,7 @@ interface DetectedSourceSchema {
   columns: string[];
   sheets: DetectedSourceSchemaSheet[];
   detected_at: string;
+  parser_config?: DetectedSourceParserConfig;
 }
 
 interface ImportMethod {
@@ -296,6 +308,7 @@ interface ImportMethod {
     api_endpoint_url?: string | null;
     sftp_path?: string | null;
     header_row?: number | null;
+    header_row_count?: 1 | 2;
     quantity_column?: string | null;
     ignore_repeated_headers?: boolean;
     reference_rows_mode?: "rows_without_quantity" | "ignore";
@@ -2802,7 +2815,39 @@ function sampleValuesForColumn(rows: SourceGrid["rows"], column: string) {
     .join(" · ");
 }
 
-function detectedSourceSchemaFromWorkbook(fileName: string, parsed: ParsedWorkbook): DetectedSourceSchema {
+function sourceParserConfigFromMethod(sourceConfig: ImportMethod["source_config"]): DetectedSourceParserConfig {
+  return {
+    header_row: sourceConfig.header_row ?? null,
+    header_row_count: sourceConfig.header_row_count ?? 1,
+    quantity_column: sourceConfig.quantity_column ?? null,
+    ignore_repeated_headers: sourceConfig.ignore_repeated_headers ?? true,
+    reference_rows_mode: sourceConfig.reference_rows_mode ?? "rows_without_quantity"
+  };
+}
+
+function sourceSchemaIsStale(schema: DetectedSourceSchema | null, sourceConfig: ImportMethod["source_config"]) {
+  if (!schema) {
+    return false;
+  }
+  if (!schema.parser_config) {
+    return true;
+  }
+
+  const current = sourceParserConfigFromMethod(sourceConfig);
+  return (
+    schema.parser_config.header_row !== current.header_row ||
+    schema.parser_config.header_row_count !== current.header_row_count ||
+    schema.parser_config.quantity_column !== current.quantity_column ||
+    schema.parser_config.ignore_repeated_headers !== current.ignore_repeated_headers ||
+    schema.parser_config.reference_rows_mode !== current.reference_rows_mode
+  );
+}
+
+function detectedSourceSchemaFromWorkbook(
+  fileName: string,
+  parsed: ParsedWorkbook,
+  parserConfig: DetectedSourceParserConfig
+): DetectedSourceSchema {
   return {
     source_file_name: fileName,
     selected_sheet_name: parsed.sheetName,
@@ -2811,9 +2856,13 @@ function detectedSourceSchemaFromWorkbook(fileName: string, parsed: ParsedWorkbo
       sheet_name: sheet.sheet_name,
       columns: sheet.columns,
       order_row_count: sheet.order_row_count,
-      reference_row_count: sheet.reference_row_count
+      reference_row_count: sheet.reference_row_count,
+      header_row: sheet.header_row ?? null,
+      header_row_count: sheet.header_row_count ?? parserConfig.header_row_count,
+      ignored_header_rows: sheet.ignored_header_rows ?? []
     })),
-    detected_at: new Date().toISOString()
+    detected_at: new Date().toISOString(),
+    parser_config: parserConfig
   };
 }
 
@@ -2954,6 +3003,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const methodTemplateInputRef = useRef<HTMLInputElement>(null);
+  const methodTemplateFileRef = useRef<File | null>(null);
   const productPreloadFileRef = useRef<HTMLInputElement>(null);
   const [activeGlobalView, setActiveGlobalView] = useState<GlobalView>("Customers");
   const [activeCustomerView, setActiveCustomerView] = useState<CustomerView>("Overview");
@@ -3727,6 +3777,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return false;
     }
 
+    if (sourceSchemaIsStale(method.source_config.detected_schema ?? null, method.source_config)) {
+      setWorkspaceMessage("Re-detect the source schema after parser changes before saving this method.");
+      return false;
+    }
+
     const isLocalDraft = localDraftImportMethodIds.includes(method.import_method_id);
     setWorkspaceState("saving");
     try {
@@ -4103,7 +4158,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   );
   const sourceConfig = activeImportMethod?.source_config ?? {};
   const detectedSourceSchema = sourceConfig.detected_schema ?? null;
-  const sourceHeaderRow = sourceConfig.header_row ?? 1;
+  const sourceHeaderRow = sourceConfig.header_row ?? null;
+  const sourceHeaderRowCount = sourceConfig.header_row_count ?? 1;
   const sourceQuantityColumn =
     sourceConfig.quantity_column ??
     sourceGrid.columns.find((column) => normalizeSearchText(column) === "print qty") ??
@@ -4111,6 +4167,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     "";
   const sourceIgnoresRepeatedHeaders = sourceConfig.ignore_repeated_headers ?? true;
   const sourceReferenceRowsMode = sourceConfig.reference_rows_mode ?? "rows_without_quantity";
+  const detectedSelectedSheet = detectedSourceSchema?.sheets.find(
+    (sheet) => sheet.sheet_name === detectedSourceSchema.selected_sheet_name
+  );
+  const sourceHeaderDisplay = sourceHeaderRow
+    ? `Row ${sourceHeaderRow}`
+    : detectedSelectedSheet?.header_row
+      ? `Auto · row ${detectedSelectedSheet.header_row}`
+      : "Auto-detect";
+  const detectedSourceSchemaIsStale = sourceSchemaIsStale(detectedSourceSchema, sourceConfig);
   const detectedOrderRowCount = detectedSourceSchema?.sheets.reduce((total, sheet) => total + sheet.order_row_count, 0) ?? 0;
   const detectedReferenceRowCount =
     detectedSourceSchema?.sheets.reduce((total, sheet) => total + sheet.reference_row_count, 0) ?? 0;
@@ -5204,6 +5269,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   function applyImportMethodSourceContext(method: ImportMethod) {
     const schema = method.source_config.detected_schema;
+    methodTemplateFileRef.current = null;
     setSourceSchemaState("idle");
     setSourceSchemaMessage(null);
 
@@ -5241,18 +5307,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setSourceSchemaMessage(null);
 
     try {
+      const parserConfig = sourceParserConfigFromMethod(activeImportMethod.source_config);
       const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer(), {
-        headerRow: activeImportMethod.source_config.header_row ?? 1,
-        quantityColumn: activeImportMethod.source_config.quantity_column ?? null,
-        ignoreRepeatedHeaders: activeImportMethod.source_config.ignore_repeated_headers ?? true,
-        referenceRowsMode: activeImportMethod.source_config.reference_rows_mode ?? "rows_without_quantity"
+        headerRow: parserConfig.header_row,
+        headerRowCount: parserConfig.header_row_count,
+        quantityColumn: parserConfig.quantity_column,
+        ignoreRepeatedHeaders: parserConfig.ignore_repeated_headers,
+        referenceRowsMode: parserConfig.reference_rows_mode
       });
 
       if (parsed.columns.length === 0) {
         throw new Error("No source columns were detected. Check the header row and upload the template again.");
       }
 
-      const detectedSchema = detectedSourceSchemaFromWorkbook(file.name, parsed);
+      const detectedSchema = detectedSourceSchemaFromWorkbook(file.name, parsed, parserConfig);
       const nextMappings = mappingsForSourceColumns(parsed.columns, activeImportMethod.mappings);
 
       setSourceGrid({ columns: parsed.columns, rows: parsed.rows });
@@ -5262,6 +5330,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setSourceName(file.name);
       setSheetName(parsed.sheetName);
       setMappings(nextMappings);
+      methodTemplateFileRef.current = file;
       setLastPreviewJob(null);
       setLastSubmitAttempt(null);
       updateActiveMethodDraft({
@@ -5303,6 +5372,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setSourceName("Sample workbook");
     setSheetName("Sample");
     setMappings(nextMappings);
+    methodTemplateFileRef.current = null;
     updateActiveMethodDraft({
       mappings: nextMappings,
       source_config: {
@@ -5318,7 +5388,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   async function importWorkbook(file: File) {
     try {
       const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer(), {
-        headerRow: activeImportMethod?.source_config.header_row ?? 1,
+        headerRow: activeImportMethod?.source_config.header_row ?? null,
+        headerRowCount: activeImportMethod?.source_config.header_row_count ?? 1,
         quantityColumn: activeImportMethod?.source_config.quantity_column ?? null,
         ignoreRepeatedHeaders: activeImportMethod?.source_config.ignore_repeated_headers ?? true,
         referenceRowsMode: activeImportMethod?.source_config.reference_rows_mode ?? "rows_without_quantity"
@@ -7240,6 +7311,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         >
                           {localDraftImportMethodIds.includes(activeImportMethod.import_method_id) ? (
                             "Not saved yet"
+                          ) : detectedSourceSchemaIsStale ? (
+                            "Schema refresh required"
                           ) : activeImportMethodHasUnsavedChanges ? (
                             "Unsaved changes"
                           ) : (
@@ -7258,7 +7331,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </button>
                         <button
                           className="primary-button table-header-action"
-                          disabled={!activeImportMethodHasUnsavedChanges || workspaceState === "saving"}
+                          disabled={
+                            !activeImportMethodHasUnsavedChanges ||
+                            detectedSourceSchemaIsStale ||
+                            workspaceState === "saving"
+                          }
+                          title={detectedSourceSchemaIsStale ? "Re-detect the source schema before saving." : undefined}
                           onClick={() => void saveImportMethod(activeImportMethod, mappings)}
                         >
                           Save Method
@@ -7513,22 +7591,47 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <span>Schema State</span>
                           <strong>
                             {detectedSourceSchema
-                              ? activeImportMethodHasUnsavedChanges
+                              ? detectedSourceSchemaIsStale
+                                ? "Refresh required"
+                                : activeImportMethodHasUnsavedChanges
                                 ? "Included in method draft"
                                 : "Saved with method"
                               : "Using sample columns"}
                           </strong>
                         </div>
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          disabled={isUsingSampleSource || sourceSchemaState === "detecting"}
-                          onClick={useSampleSourceColumns}
-                        >
-                          Use Sample Columns
-                        </button>
+                        <div className="source-schema-toolbar-actions">
+                          {detectedSourceSchemaIsStale ? (
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={sourceSchemaState === "detecting"}
+                              onClick={() => {
+                                const file = methodTemplateFileRef.current;
+                                if (file) {
+                                  void detectImportMethodSourceSchema(file);
+                                  return;
+                                }
+                                methodTemplateInputRef.current?.click();
+                              }}
+                            >
+                              {methodTemplateFileRef.current ? "Re-detect Schema" : "Upload Template Again"}
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={isUsingSampleSource || sourceSchemaState === "detecting"}
+                            onClick={useSampleSourceColumns}
+                          >
+                            Use Sample Columns
+                          </button>
+                        </div>
                       </div>
-                      {sourceSchemaMessage ? (
+                      {detectedSourceSchemaIsStale ? (
+                        <p className="source-schema-message source-schema-message-warning">
+                          Parser settings have changed since this schema was detected. Re-detect before saving so columns and row classification stay in sync.
+                        </p>
+                      ) : sourceSchemaMessage ? (
                         <p className={sourceSchemaState === "error" ? "source-schema-message source-schema-message-error" : "source-schema-message"}>
                           {sourceSchemaMessage}
                         </p>
@@ -7540,6 +7643,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <strong>{sheet.sheet_name}</strong>
                               <span>
                                 {sheet.columns.length} columns · {sheet.order_row_count} order rows · {sheet.reference_row_count} reference rows
+                              </span>
+                              <span>
+                                Header {sheet.header_row ? `row ${sheet.header_row}` : "auto"}
+                                {sheet.header_row_count === 2 ? " · two-row header" : ""}
+                                {sheet.ignored_header_rows?.length
+                                  ? ` · ${sheet.ignored_header_rows.length} secondary/repeated header row${sheet.ignored_header_rows.length === 1 ? "" : "s"} ignored`
+                                  : ""}
                               </span>
                             </div>
                           ))}
@@ -7574,16 +7684,35 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <input
                           type="number"
                           min={1}
-                          value={sourceHeaderRow}
+                          value={sourceHeaderRow ?? ""}
+                          placeholder="Auto-detect"
+                          onChange={(event) => {
+                            const value = event.target.value.trim();
+                            updateActiveMethodDraft({
+                              source_config: {
+                                ...activeImportMethod.source_config,
+                                header_row: value ? Number.parseInt(value, 10) || 1 : null
+                              }
+                            });
+                          }}
+                        />
+                      </label>
+                      <label className="setup-control">
+                        <span>Header Rows</span>
+                        <select
+                          value={sourceHeaderRowCount}
                           onChange={(event) =>
                             updateActiveMethodDraft({
                               source_config: {
                                 ...activeImportMethod.source_config,
-                                header_row: Number.parseInt(event.target.value, 10) || 1
+                                header_row_count: Number.parseInt(event.target.value, 10) === 2 ? 2 : 1
                               }
                             })
                           }
-                        />
+                        >
+                          <option value={1}>Single header row</option>
+                          <option value={2}>Two-row grouped header</option>
+                        </select>
                       </label>
                       <label className="setup-control">
                         <span>Quantity Column</span>
@@ -7683,7 +7812,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </div>
                       <div>
                         <span>Header Row</span>
-                        <strong>{sourceHeaderRow}</strong>
+                        <strong>
+                          {sourceHeaderDisplay}
+                          {sourceHeaderRowCount === 2 ? " · two rows" : ""}
+                        </strong>
                       </div>
                       <div>
                         <span>Order Row Rule</span>
