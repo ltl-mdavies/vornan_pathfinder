@@ -74,6 +74,7 @@ import {
   type SourceGrid
 } from "@pathfinder/templates";
 import type { PathfinderAuthSession } from "./auth";
+import { WorkspaceLoading } from "./WorkspaceLoading";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
@@ -1698,120 +1699,6 @@ function liftStandardGraphicsTemplateMappings() {
     .filter((mapping) => mapping.targetField);
 }
 
-const fallbackJobs: Array<{
-  id: string;
-  customer: string;
-  source: string;
-  state: ProcessingState;
-  extId: string;
-  updated: string;
-  orders: number;
-  started: string;
-  duration: string;
-}> = [
-  {
-    id: "job_20260709_000001",
-    customer: "Empirical - Momentara",
-    source: "Manual XLSX",
-    state: "Ready",
-    extId: "AS360-30904511",
-    updated: "2 min ago",
-    orders: 24,
-    started: "Today 9:41 AM",
-    duration: "1m 52s"
-  },
-  {
-    id: "job_20260709_000000",
-    customer: "Empirical - Momentara",
-    source: "Wrike Intake",
-    state: "Validated",
-    extId: "AS360-30904492",
-    updated: "18 min ago",
-    orders: 18,
-    started: "Today 7:22 AM",
-    duration: "2m 18s"
-  },
-  {
-    id: "job_20260708_000118",
-    customer: "Empirical - Momentara",
-    source: "Manual XLSX",
-    state: "Failed",
-    extId: "AS360-30904110",
-    updated: "1 hr ago",
-    orders: 5,
-    started: "Yesterday 4:31 PM",
-    duration: "45s"
-  }
-];
-
-const fallbackImportMethods: ImportMethod[] = [
-  {
-    import_method_id: "manual-xlsx",
-    name: "Manual XLSX",
-    type: "Manual upload",
-    source: "XLSX",
-    status: "Active",
-    output_route_id: defaultOutputRoute.output_route_id,
-    target_id: "lift-standard-graphics",
-    target_template: "Lift Standard Graphics Order",
-    template_id: "template_manual_xlsx_v1",
-    mappings: buildDefaultMappings(sampleSourceGrid.columns),
-    source_config: {},
-    workbook_sheet_policy: "rows_with_quantity",
-    product_resolution_config: defaultProductResolutionConfig,
-    order_name_resolution_config: defaultOrderNameResolutionConfig,
-    ext_id_strategy: "customer_order_id",
-    last_run_at: seedTimestamp,
-    success_rate: "100%",
-    created_at: seedTimestamp,
-    updated_at: seedTimestamp
-  },
-  {
-    import_method_id: "wrike-intake",
-    name: "Wrike Intake",
-    type: "API import",
-    source: "REST API",
-    status: "Draft",
-    output_route_id: defaultOutputRoute.output_route_id,
-    target_id: "lift-standard-graphics",
-    target_template: "Lift Standard Graphics Order",
-    template_id: "template_wrike_intake_v1",
-    mappings: [],
-    source_config: {
-      api_endpoint_url: ""
-    },
-    workbook_sheet_policy: "rows_with_quantity",
-    product_resolution_config: defaultProductResolutionConfig,
-    order_name_resolution_config: defaultOrderNameResolutionConfig,
-    ext_id_strategy: "customer_order_id",
-    last_run_at: null,
-    success_rate: "98.7%",
-    created_at: seedTimestamp,
-    updated_at: seedTimestamp
-  },
-  {
-    import_method_id: "paste-grid",
-    name: "Paste Grid",
-    type: "Manual paste",
-    source: "Clipboard",
-    status: "Draft",
-    output_route_id: defaultOutputRoute.output_route_id,
-    target_id: "lift-standard-graphics",
-    target_template: "Lift Standard Graphics Order",
-    template_id: "template_paste_grid_v1",
-    mappings: [],
-    source_config: {},
-    workbook_sheet_policy: "rows_with_quantity",
-    product_resolution_config: defaultProductResolutionConfig,
-    order_name_resolution_config: defaultOrderNameResolutionConfig,
-    ext_id_strategy: "customer_order_id",
-    last_run_at: null,
-    success_rate: null,
-    created_at: seedTimestamp,
-    updated_at: seedTimestamp
-  }
-];
-
 const fallbackCustomer: LiftCustomer = {
   lift_customer_id: "284619",
   customer_name: "Empirical - Momentara",
@@ -3116,20 +3003,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const productPreloadFileRef = useRef<HTMLInputElement>(null);
   const [activeGlobalView, setActiveGlobalView] = useState<GlobalView>("Customers");
   const [activeCustomerView, setActiveCustomerView] = useState<CustomerView>("Overview");
-  const [sourceGrid, setSourceGrid] = useState<SourceGrid>(sampleSourceGrid);
-  const [sourceSheets, setSourceSheets] = useState<ParsedWorkbookSheet[]>(() => sampleSourceSheets(sampleSourceGrid));
-  const [parsedOrderRows, setParsedOrderRows] = useState<ParsedSourceRow[]>(() => sampleParsedRows(sampleSourceGrid));
+  const [sourceGrid, setSourceGrid] = useState<SourceGrid>({ columns: [], rows: [] });
+  const [sourceSheets, setSourceSheets] = useState<ParsedWorkbookSheet[]>([]);
+  const [parsedOrderRows, setParsedOrderRows] = useState<ParsedSourceRow[]>([]);
   const [referenceRows, setReferenceRows] = useState<ParsedSourceRow[]>([]);
-  const [mappings, setMappings] = useState<FieldMapping[]>(() => buildDefaultMappings(sampleSourceGrid.columns));
-  const [sourceName, setSourceName] = useState("Sample workbook");
-  const [sheetName, setSheetName] = useState("Sample");
+  const [mappings, setMappings] = useState<FieldMapping[]>([]);
+  const [sourceName, setSourceName] = useState("");
+  const [sheetName, setSheetName] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
   const [sourceSchemaState, setSourceSchemaState] = useState<"idle" | "detecting" | "error">("idle");
   const [sourceSchemaMessage, setSourceSchemaMessage] = useState<string | null>(null);
   const [selectedSourceSchemaSheetName, setSelectedSourceSchemaSheetName] = useState("");
   const [selectedSourceSchemaHistoryDetectedAt, setSelectedSourceSchemaHistoryDetectedAt] = useState("");
-  const [customers, setCustomers] = useState<LiftCustomer[]>([fallbackCustomer]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState(fallbackCustomer.lift_customer_id);
+  const [customers, setCustomers] = useState<LiftCustomer[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
   const [customerDirectory, setCustomerDirectory] = useState<Omit<LiftCustomerDirectory, "customers">>({
@@ -3139,10 +3026,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     loaded_at: "",
     warning: undefined
   });
-  const [customerImportState, setCustomerImportState] = useState<"idle" | "loading">("idle");
+  const [customerImportState, setCustomerImportState] = useState<"idle" | "loading">("loading");
   const [workspace, setWorkspace] = useState<PathfinderCustomerWorkspace | null>(null);
   const [targets, setTargets] = useState<TargetConfig[]>([]);
+  const [targetsAndJobsState, setTargetsAndJobsState] = useState<"loading" | "idle" | "error">("loading");
   const [canonicalRegistry, setCanonicalRegistry] = useState<CanonicalRegistryPayload | null>(null);
+  const [canonicalRegistryState, setCanonicalRegistryState] = useState<"loading" | "idle" | "error">("loading");
   const [emailStatus, setEmailStatus] = useState<EmailStatusPayload | null>(null);
   const [emailStatusState, setEmailStatusState] = useState<"idle" | "loading" | "error">("idle");
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
@@ -3163,8 +3052,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     scope: "import-method" | "target";
   } | null>(null);
   const pendingNavigationRef = useRef<(() => void) | null>(null);
-  const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("idle");
+  const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("loading");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const workspaceRequestIdRef = useRef(0);
   const [statusPolicyDraft, setStatusPolicyDraft] = useState<StatusAccessPolicy | null>(null);
   const [newStatusDomain, setNewStatusDomain] = useState("");
   const [newStatusDomainStatus, setNewStatusDomainStatus] = useState<StatusAccessDomainStatus>("Approved");
@@ -3271,6 +3161,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     try {
       const response = await fetch(`${apiBaseUrl}/api/lift/customers${refresh ? "?refresh=1" : ""}`);
       const directory = await readJsonResponse<LiftCustomerDirectory>(response);
+      if (directory.customers.length === 0) {
+        throw new Error("Lift returned no customers for this workspace.");
+      }
       setCustomers(directory.customers);
       setCustomerDirectory({
         source: directory.source,
@@ -3286,7 +3179,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         const momentara = directory.customers.find((customer) =>
           customer.customer_name.toLowerCase().includes("momentara")
         );
-        return momentara?.lift_customer_id ?? directory.customers[0]?.lift_customer_id ?? fallbackCustomer.lift_customer_id;
+        return momentara?.lift_customer_id ?? directory.customers[0]?.lift_customer_id ?? "";
       });
     } catch (error) {
       setCustomerDirectory((current) => ({
@@ -3299,10 +3192,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function loadWorkspace(liftCustomerId: string) {
+    const requestId = workspaceRequestIdRef.current + 1;
+    workspaceRequestIdRef.current = requestId;
+    setWorkspace(null);
+    setLastPreviewJob(null);
+    setLastSubmitAttempt(null);
+    setStatusPolicyDraft(null);
     setWorkspaceState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${liftCustomerId}/workspace`);
       const loadedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      if (workspaceRequestIdRef.current !== requestId) {
+        return;
+      }
       setWorkspace(loadedWorkspace);
       setDirtyImportMethodIds([]);
       setLocalDraftImportMethodIds([]);
@@ -3315,6 +3217,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       );
       setWorkspaceMessage(null);
     } catch (error) {
+      if (workspaceRequestIdRef.current !== requestId) {
+        return;
+      }
       setWorkspaceMessage(error instanceof Error ? error.message : "Workspace load failed.");
       setWorkspaceState("error");
       return;
@@ -3429,6 +3334,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function loadTargetsAndJobs() {
+    setTargetsAndJobsState("loading");
     try {
       const [targetsResponse, jobsResponse] = await Promise.all([
         fetch(`${apiBaseUrl}/api/targets`),
@@ -3438,18 +3344,23 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const jobsPayload = await readJsonResponse<{ jobs: ProcessingJobPreview[] }>(jobsResponse);
       setTargets(targetsPayload.targets);
       setGlobalJobs(jobsPayload.jobs);
+      setTargetsAndJobsState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Target/job load failed.");
+      setTargetsAndJobsState("error");
     }
   }
 
   async function loadCanonicalRegistry() {
+    setCanonicalRegistryState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry`);
       const registry = await readJsonResponse<CanonicalRegistryPayload>(response);
       setCanonicalRegistry(registry);
+      setCanonicalRegistryState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Canonical registry load failed.");
+      setCanonicalRegistryState("error");
     }
   }
 
@@ -3931,7 +3842,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function createPreviewJob() {
-    const availableMethods = workspace?.import_methods.length ? workspace.import_methods : fallbackImportMethods;
+    const availableMethods = workspace?.import_methods ?? [];
     const method = availableMethods.find((candidate) => candidate.import_method_id === activeMethodId) ?? availableMethods[0];
     if (!method) {
       setWorkspaceMessage("Choose an import method before generating a preview job.");
@@ -4199,8 +4110,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const suggestedStatusDomainCount = statusAccessDomains.filter((domain) => domain.status === "Suggested").length;
   const blockedStatusDomainCount = statusAccessDomains.filter((domain) => domain.status === "Blocked").length;
   useEffect(() => {
-    void loadWorkspace(selectedCustomer.lift_customer_id);
-  }, [selectedCustomer.lift_customer_id]);
+    if (selectedCustomerId) {
+      void loadWorkspace(selectedCustomerId);
+    }
+  }, [selectedCustomerId]);
 
   useEffect(() => {
     setStatusPolicyDraft(workspace?.status_access_policy ?? createStatusAccessPolicyFallback(selectedCustomer));
@@ -4247,7 +4160,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const customerComboboxValue = isCustomerPickerOpen
     ? customerSearch
     : `${selectedCustomer.customer_name} · ${selectedCustomer.lift_customer_id}`;
-  const allImportMethods = workspace?.import_methods.length ? workspace.import_methods : fallbackImportMethods;
+  const allImportMethods = workspace?.import_methods ?? [];
   const importMethods = allImportMethods.filter((method) => method.status !== "Archived");
   const activeImportMethod =
     importMethods.find((method) => method.import_method_id === activeMethodId) ?? importMethods[0] ?? allImportMethods[0];
@@ -4347,16 +4260,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     : parsedOrderRows.length || sourceGrid.rows.length;
   const sourceReferenceRowCount = detectedSourceSchema ? detectedReferenceRowCount : referenceRows.length;
   const isUsingSampleSource = !detectedSourceSchema && sourceName === "Sample workbook";
+  const hasSourceContext = sourceGrid.columns.length > 0;
   const sourceColumnOrigin = detectedSourceSchema
     ? "Detected workbook schema"
     : isUsingSampleSource
       ? "Sample/demo columns"
-      : "Loaded workbook columns";
+      : hasSourceContext
+        ? "Loaded workbook columns"
+        : "No source loaded";
   const sourceColumnOriginDetail = detectedSourceSchema
     ? `${detectedSourceSchema.source_file_name} · ${detectedSourceSchema.columns.length} columns · detected ${displayTimestamp(detectedSourceSchema.detected_at)}`
     : isUsingSampleSource
       ? "Detect a customer template here to replace these clearly labeled starter columns."
-      : `${sourceName} · ${sourceGrid.columns.length} columns`;
+      : hasSourceContext
+        ? `${sourceName || "Current source"} · ${sourceGrid.columns.length} columns`
+        : "Upload a customer template or explicitly choose the sample columns to begin mapping.";
   const addableCompositeColumns = availableInputColumns.filter(
     (column) => !activeProductConfig.composite_columns.includes(column)
   );
@@ -4868,7 +4786,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     jobId: "job_preview",
     canonicalOrderId: "co_preview",
     pathfinderOrderId: "PF-PREVIEW",
-    extIdStrategy: activeImportMethod?.ext_id_strategy ?? "customer_order_id"
+    extIdStrategy: activeImportMethod?.ext_id_strategy ?? "pathfinder_generated"
   });
   const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, activeOutputRoute.value_normalization_rules ?? []);
   const liftPayload = normalizedLift.payload;
@@ -5490,12 +5408,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return;
     }
 
-    setSourceGrid(sampleSourceGrid);
-    setSourceSheets(sampleSourceSheets(sampleSourceGrid));
-    setParsedOrderRows(sampleParsedRows(sampleSourceGrid));
+    setSourceGrid({ columns: [], rows: [] });
+    setSourceSheets([]);
+    setParsedOrderRows([]);
     setReferenceRows([]);
-    setSourceName("Sample workbook");
-    setSheetName("Sample");
+    setSourceName("");
+    setSheetName("");
     setSelectedSourceSchemaSheetName("");
   }
 
@@ -6672,12 +6590,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       target_id: activeOutputRoute.target_id,
       target_template: activeOutputRoute.output_template,
       template_id: `template-${Date.now()}`,
-      mappings: buildDefaultMappings(sampleSourceGrid.columns),
+      mappings: [],
       source_config: {},
       workbook_sheet_policy: "rows_with_quantity",
       product_resolution_config: defaultProductResolutionConfig,
       order_name_resolution_config: defaultOrderNameResolutionConfig,
-      ext_id_strategy: "customer_order_id",
+      ext_id_strategy: "pathfinder_generated",
       last_run_at: null,
       success_rate: null,
       created_at: timestamp,
@@ -7075,6 +6993,44 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         updated_at: new Date().toISOString()
       };
     });
+  }
+
+  const workspaceMatchesSelectedCustomer = Boolean(
+    selectedCustomerId && workspace?.customer.lift_customer_id === selectedCustomerId
+  );
+  const initialLoadError =
+    customers.length === 0 && customerImportState === "idle"
+      ? customerDirectory.warning ?? "Pathfinder could not load the customer directory."
+      : selectedCustomerId && !workspaceMatchesSelectedCustomer && workspaceState === "error"
+        ? workspaceMessage ?? "Pathfinder could not load the selected customer workspace."
+        : null;
+  const isInitialWorkspaceLoading =
+    !initialLoadError &&
+    ((customers.length === 0 && customerImportState === "loading") ||
+      (Boolean(selectedCustomerId) && !workspaceMatchesSelectedCustomer) ||
+      (targets.length === 0 && targetsAndJobsState === "loading") ||
+      (!canonicalRegistry && canonicalRegistryState === "loading"));
+
+  if (initialLoadError || isInitialWorkspaceLoading) {
+    return (
+      <WorkspaceLoading
+        error={initialLoadError}
+        onRetry={() => {
+          setWorkspaceMessage(null);
+          if (customers.length === 0) {
+            void loadCustomers();
+          } else if (selectedCustomerId) {
+            void loadWorkspace(selectedCustomerId);
+          }
+          if (targetsAndJobsState === "error") {
+            void loadTargetsAndJobs();
+          }
+          if (canonicalRegistryState === "error") {
+            void loadCanonicalRegistry();
+          }
+        }}
+      />
+    );
   }
 
   return (
@@ -7914,7 +7870,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 : activeImportMethodHasUnsavedChanges
                                 ? "Included in method draft"
                                 : "Saved with method"
-                              : "Using sample columns"}
+                              : isUsingSampleSource
+                                ? "Using sample columns"
+                                : "No schema loaded"}
                           </strong>
                         </div>
                         <div className="source-schema-toolbar-actions">
@@ -8053,7 +8011,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     <div className="source-setup-summary">
                       <div>
                         <span>Column Source</span>
-                        <strong>{sourceName}</strong>
+                        <strong>{sourceName || "No order file loaded"}</strong>
                         <p>{sourceColumnOriginDetail}</p>
                       </div>
                       <div>
@@ -8556,7 +8514,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 ) : null}
                 {isImportMethodDetailOpen && activeImportMethod ? (
                   <section className="panel setup-panel order-name-resolution-setup">
-                    <PanelHeader icon={ClipboardList} title="Order Name Resolution" detail="Canonical title to Lift order JSON" />
+                    <PanelHeader icon={ClipboardList} title="Order Identity" detail="Pathfinder number + readable Lift name" />
                     <div className="order-name-route-strip">
                       <div>
                         <span>Customer Input</span>
@@ -8581,11 +8539,43 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <span>Lift Ext_ID</span>
                         <strong>
                           {activeImportMethod.ext_id_strategy === "pathfinder_generated"
-                            ? "Pathfinder-generated per job"
+                            ? "Pathfinder Order Number"
                             : "Customer external order ID"}
                         </strong>
                       </div>
                     </div>
+                    <div className="resolver-strategy-row order-identity-strategy-row">
+                      <label className="setup-control resolver-strategy-control">
+                        <span>Lift Order ID</span>
+                        <select
+                          value={activeImportMethod.ext_id_strategy}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({ ext_id_strategy: event.target.value as LiftExtIdStrategy })
+                          }
+                        >
+                          <option value="pathfinder_generated">Pathfinder Order Number (recommended)</option>
+                          <option value="customer_order_id">Customer order ID (advanced)</option>
+                        </select>
+                      </label>
+                      <div className="resolver-explainer">
+                        <strong>
+                          {activeImportMethod.ext_id_strategy === "pathfinder_generated"
+                            ? "One globally unique number, handled by Pathfinder"
+                            : "Use the customer's mapped external order ID"}
+                        </strong>
+                        <p>
+                          {activeImportMethod.ext_id_strategy === "pathfinder_generated"
+                            ? "Pathfinder reserves the number when the preview job is created, saves it with the job, and reuses it for retries. The same value is sent in the Lift Ext_ID header and order.ext_id field."
+                            : "This legacy option is available when the customer's ID is already guaranteed unique in Lift. Customer order, PO, and contract values remain available as references either way."}
+                        </p>
+                      </div>
+                    </div>
+                    <details className="order-name-advanced-settings">
+                      <summary>
+                        <span>Advanced readable order name settings</span>
+                        <small>Optional customer title, composite text, and formatting</small>
+                      </summary>
+                      <div className="order-name-advanced-content">
                     <div className="order-name-enable-row">
                       <div>
                         <strong>Resolve and validate a Lift order name for this Import Method</strong>
@@ -8631,33 +8621,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <div className="resolver-explainer">
                         <strong>{activeOrderNameStrategyCopy.title}</strong>
                         <p>{activeOrderNameStrategyCopy.body}</p>
-                      </div>
-                    </div>
-                    <div className="resolver-section-break" />
-                    <div className="resolver-strategy-row order-identity-strategy-row">
-                      <label className="setup-control resolver-strategy-control">
-                        <span>Lift Ext_ID Source</span>
-                        <select
-                          value={activeImportMethod.ext_id_strategy}
-                          onChange={(event) =>
-                            updateActiveMethodDraft({ ext_id_strategy: event.target.value as LiftExtIdStrategy })
-                          }
-                        >
-                          <option value="customer_order_id">Customer external order ID</option>
-                          <option value="pathfinder_generated">Pathfinder-generated order ID</option>
-                        </select>
-                      </label>
-                      <div className="resolver-explainer">
-                        <strong>
-                          {activeImportMethod.ext_id_strategy === "pathfinder_generated"
-                            ? "Use Pathfinder's persisted unique ID"
-                            : "Use the customer's mapped external order ID"}
-                        </strong>
-                        <p>
-                          {activeImportMethod.ext_id_strategy === "pathfinder_generated"
-                            ? "Pathfinder writes the same generated value to the Lift Ext_ID header and order.ext_id body field. The customer order, PO, and contract values remain available in the canonical record and readable order name."
-                            : "This preserves the existing ecommerce pattern. Choose Pathfinder-generated when the customer's numbering may repeat in Lift."}
-                        </p>
                       </div>
                     </div>
                     {activeOrderNameConfig.strategy !== "provided" ? (
@@ -8940,6 +8903,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         />
                       </label>
                     </div>
+                      </div>
+                    </details>
                     <div className="resolver-section-break" />
                     <div className="resolver-example order-name-preview">
                       <div className="resolver-subsection-heading resolver-example-heading">
@@ -10304,6 +10269,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <DetailItem label="Template" value={activeRouteTemplate?.name ?? activeOutputRoute.output_template} />
                       <DetailItem label="Source Customer" value={lastPreviewJob?.source_customer_name ?? selectedCustomer.customer_name} />
                       <DetailItem label="Submit Customer" value={lastPreviewJob?.submit_customer_name ?? submitCustomer.customer_name} />
+                      <DetailItem
+                        label="Pathfinder Order Number"
+                        value={lastPreviewJob?.pathfinder_order_id ?? "Reserved when preview is created"}
+                      />
                       <DetailItem label="Ext_ID" value={displayedSubmitRequest.headers.Ext_ID} />
                       <DetailItem label="Company" value={displayedSubmitRequest.headers.Company || activeRouteCompanyId} />
                       <DetailItem label="Lift CustomerID" value={displayedLiftPayload.customer.lift_customer_id} />
@@ -12436,7 +12405,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <p className="eyebrow">Job Detail</p>
                   <h2>{selectedJobDetail.customer_name}</h2>
                   <span>
-                    {selectedJobDetail.import_method_name} · {selectedJobDetail.source_file_name} · {jobExtId(selectedJobDetail)}
+                    {selectedJobDetail.import_method_name} · {selectedJobDetail.source_file_name} · Pathfinder {selectedJobDetail.pathfinder_order_id}
                   </span>
                 </div>
                 <div className="job-detail-actions">
@@ -12525,6 +12494,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
               </div>
               <dl className="customer-details job-detail-summary">
+                <DetailItem label="Pathfinder Order Number" value={selectedJobDetail.pathfinder_order_id} />
+                <DetailItem label="Lift Ext_ID" value={jobExtId(selectedJobDetail)} />
                 <DetailItem label="Submit profile" value={selectedJobDetail.submit_profile_name} />
                 <DetailItem label="Submit customer" value={`${selectedJobDetail.submit_customer_name} / ${selectedJobDetail.submit_customer_id}`} />
                 <DetailItem label="Output route" value={selectedJobDetail.output_route_name} />

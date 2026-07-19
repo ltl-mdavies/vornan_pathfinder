@@ -79,6 +79,7 @@ import {
   persistPreviewJob,
   persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
+  reservePathfinderOrderNumber,
   updateProductMapping,
   upsertCatalogPreset,
   updateImportMethod,
@@ -3214,7 +3215,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       ext_id_strategy:
         req.body?.ext_id_strategy === "pathfinder_generated" || req.body?.ext_id_strategy === "customer_order_id"
           ? req.body.ext_id_strategy
-          : existingMethod?.ext_id_strategy ?? "customer_order_id"
+          : existingMethod?.ext_id_strategy ?? "pathfinder_generated"
     };
     const outputRoute =
       workspace.output_routes.find((route) => route.output_route_id === method.output_route_id) ??
@@ -3239,9 +3240,6 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     const idEntropy = randomBytes(3).toString("hex");
     const jobId = `job_${compactTimestamp}_${idEntropy}`;
     const canonicalOrderId = `co_${compactTimestamp}_${idEntropy}`;
-    const pathfinderOrderId = `PF${Date.parse(timestamp).toString(36).toUpperCase()}${randomBytes(2)
-      .toString("hex")
-      .toUpperCase()}`;
     const seenMappings = productResolutionResults.map((result, index) => {
       const row = orderRows[index];
       const existing = existingProductMappings.find(
@@ -3328,6 +3326,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       }),
       ...validateOrderNameResolution(orderNameResolution.result, method.order_name_resolution_config)
     ];
+    const pathfinderOrderId = await reservePathfinderOrderNumber();
     const rawLiftPayload = generateLiftPayload(canonicalOrder, {
       jobId,
       canonicalOrderId,

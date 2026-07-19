@@ -41,6 +41,7 @@ The API CloudFormation stack creates these on-demand, encrypted DynamoDB tables 
 | Output routes | `Pathfinder-OutputRoutes-prod` |
 | Product mappings | `Pathfinder-ProductMappings-prod` |
 | Jobs | `Pathfinder-Jobs-prod` |
+| Reserved Pathfinder Order Numbers | `Pathfinder-OrderIds-prod` |
 | Submit attempts | `Pathfinder-SubmitAttempts-prod` |
 | Lift product cache | `Pathfinder-LiftProductCache-prod` |
 | Order status tokens | `Pathfinder-OrderStatusTokens-prod` |

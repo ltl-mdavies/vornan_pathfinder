@@ -1585,3 +1585,56 @@ Verification:
 - Confirmed the local admin and API servers remain available at `http://127.0.0.1:5183` and `http://127.0.0.1:3108`.
 
 The production deployment updates Pathfinder configuration, preview, and guarded retry preparation only. It does not enable external Lift submission or automatically submit an order.
+
+## 2026-07-19 - Globally Reserved Pathfinder Order Numbers
+
+Simplified Lift order identity around one Pathfinder-managed number that operators do not need to compose or police for uniqueness.
+
+What changed:
+
+- Added a dedicated DynamoDB reservation table keyed by `pathfinder_order_id`; production creation uses a conditional write and retries candidate generation on the unlikely event of a collision.
+- Added local-development reservation tracking plus persisted-job checks so local previews also avoid reusing an Order Number.
+- Reserved the Pathfinder Order Number when a preview job is created, persisted it in the job snapshot, and retained the existing retry behavior that reuses the saved payload and identifier.
+- Made Pathfinder Order Number the recommended default Lift `Ext_ID` source for newly created Import Methods while preserving saved legacy method choices.
+- Continued to write the exact same resolved value to Lift header `Ext_ID` and body `order.ext_id`.
+- Kept customer order, PO, and contract identifiers in the canonical record for traceability and readable order-name composition.
+- Reframed the Import Method panel around the recommended managed identity and moved customer-title composition and formatting into an optional Advanced section.
+- Surfaced the persisted Pathfinder Order Number in preview target details and persisted job details.
+- Did not enable real Lift submission.
+
+Deployment note:
+
+- The API CloudFormation stack must be updated to provision `Pathfinder-OrderIds-prod` and inject `PATHFINDER_ORDER_IDS_TABLE` before deploying this API code to a DynamoDB-backed environment.
+
+Verification:
+
+- `npm run check`
+- `npm test` (21 tests passed)
+- `npm run build` (existing Vite chunk-size advisory only)
+- `git diff --check`
+- Created a local preview and confirmed its 14-character Pathfinder Order Number exactly matched Lift header `Ext_ID` and body `order.ext_id`.
+- Verified the simplified closed-by-default Advanced section at desktop and 390px mobile widths with no horizontal overflow.
+
+## 2026-07-19 - Truthful Workspace Loading And Bundle Splitting
+
+Removed the initial seeded-data flash and split the admin application into deliberate production chunks.
+
+What changed:
+
+- Lazy-loads the main Pathfinder workspace after the authentication surface, keeping the sign-in path independent from the large workspace module.
+- Splits React, Firebase, and the icon library into stable vendor chunks while preserving the existing on-demand XLSX parser chunk.
+- Reduced the prior 542.87 kB main production chunk to a 323.98 kB workspace chunk; every emitted JavaScript chunk is now below Vite's 500 kB warning threshold.
+- Starts customer and source state empty instead of briefly presenting Empirical, seeded Import Methods, or sample workbook values as current data.
+- Shows an accessible skeleton workspace until the customer directory, selected customer workspace, routes/jobs, and canonical registry are ready.
+- Clears the previous customer workspace immediately during customer changes and ignores stale workspace responses, preventing cross-customer data flashes.
+- Keeps explicit sample workbook actions available, but no longer loads sample columns automatically when opening an Import Method without a detected schema.
+- Adds a retryable load-failure state instead of falling back to credible-looking sample values.
+
+Verification:
+
+- `npm run check`
+- `npm test` (21 tests passed)
+- `npm run build` with no chunk-size advisory
+- Delayed the local API by 1.5 seconds and confirmed only the loading skeleton appeared until the complete current workspace replaced it.
+- Confirmed loading and loaded states at 390px with `scrollWidth === innerWidth` and no horizontal overflow.
+- Real Lift submission remains disabled.

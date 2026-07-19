@@ -8,6 +8,7 @@ let testDirectory = "";
 let testStorePath = "";
 let getOrCreateWorkspace: typeof import("../src/store.ts")["getOrCreateWorkspace"];
 let updateImportMethod: typeof import("../src/store.ts")["updateImportMethod"];
+let reservePathfinderOrderNumber: typeof import("../src/store.ts")["reservePathfinderOrderNumber"];
 
 const testCustomer = {
   lift_customer_id: "regression-import-methods",
@@ -41,6 +42,7 @@ before(async () => {
   const store = await import("../src/store.ts");
   getOrCreateWorkspace = store.getOrCreateWorkspace;
   updateImportMethod = store.updateImportMethod;
+  reservePathfinderOrderNumber = store.reservePathfinderOrderNumber;
 });
 
 after(async () => {
@@ -52,6 +54,20 @@ function importMethod(workspace: any, methodId: string) {
   assert.ok(method, `Expected import method ${methodId}`);
   return method;
 }
+
+test("reserves compact unique Pathfinder Order Numbers in local development", async () => {
+  const orderNumbers = await Promise.all(
+    Array.from({ length: 200 }, () => reservePathfinderOrderNumber())
+  );
+
+  assert.equal(new Set(orderNumbers).size, orderNumbers.length);
+  assert.ok(orderNumbers.every((value) => /^PF[A-Z0-9]{12}$/.test(value)));
+});
+
+test("uses the Pathfinder Order Number for newly seeded Import Methods", async () => {
+  const workspace = await getOrCreateWorkspace(testCustomer);
+  assert.equal(importMethod(workspace, "manual-xlsx").ext_id_strategy, "pathfinder_generated");
+});
 
 test("persists detected schemas and mappings without retaining workbook rows", async () => {
   const initialWorkspace = await getOrCreateWorkspace(testCustomer);
@@ -232,7 +248,7 @@ test("persists order name resolution independently for each import method", asyn
   assert.deepEqual(importMethod(saved, "manual-xlsx").order_name_resolution_config, orderNameConfig);
   assert.equal(importMethod(saved, "manual-xlsx").ext_id_strategy, "pathfinder_generated");
   assert.deepEqual(importMethod(saved, "legacy-csv").order_name_resolution_config, secondaryBefore);
-  assert.equal(importMethod(saved, "legacy-csv").ext_id_strategy, "customer_order_id");
+  assert.equal(importMethod(saved, "legacy-csv").ext_id_strategy, "pathfinder_generated");
 
   const reloaded = await getOrCreateWorkspace(testCustomer);
   assert.deepEqual(importMethod(reloaded, "manual-xlsx").order_name_resolution_config, orderNameConfig);

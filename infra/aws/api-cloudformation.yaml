@@ -172,6 +172,7 @@ Resources:
                   - !GetAtt PathfinderOutputRoutesTable.Arn
                   - !GetAtt PathfinderProductMappingsTable.Arn
                   - !GetAtt PathfinderJobsTable.Arn
+                  - !GetAtt PathfinderOrderIdsTable.Arn
                   - !GetAtt PathfinderSubmitAttemptsTable.Arn
                   - !GetAtt PathfinderLiftProductCacheTable.Arn
                   - !GetAtt PathfinderOrderStatusTokensTable.Arn
@@ -241,6 +242,7 @@ Resources:
           PATHFINDER_OUTPUT_ROUTES_TABLE: !Ref PathfinderOutputRoutesTable
           PATHFINDER_PRODUCT_MAPPINGS_TABLE: !Ref PathfinderProductMappingsTable
           PATHFINDER_JOBS_TABLE: !Ref PathfinderJobsTable
+          PATHFINDER_ORDER_IDS_TABLE: !Ref PathfinderOrderIdsTable
           PATHFINDER_SUBMIT_ATTEMPTS_TABLE: !Ref PathfinderSubmitAttemptsTable
           PATHFINDER_LIFT_PRODUCT_CACHE_TABLE: !Ref PathfinderLiftProductCacheTable
           PATHFINDER_ORDER_STATUS_TOKENS_TABLE: !Ref PathfinderOrderStatusTokensTable
@@ -400,6 +402,27 @@ Resources:
           KeyType: HASH
         - AttributeName: job_id
           KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderOrderIdsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-OrderIds-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pathfinder_order_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pathfinder_order_id
+          KeyType: HASH
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: true
       SSESpecification:
@@ -640,6 +663,7 @@ Outputs:
         - !Ref PathfinderOutputRoutesTable
         - !Ref PathfinderProductMappingsTable
         - !Ref PathfinderJobsTable
+        - !Ref PathfinderOrderIdsTable
         - !Ref PathfinderSubmitAttemptsTable
         - !Ref PathfinderLiftProductCacheTable
         - !Ref PathfinderOrderStatusTokensTable

@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -1318,7 +1319,7 @@ function createSeedMethod(timestamp: string): ImportMethod {
     workbook_sheet_policy: "rows_with_quantity",
     product_resolution_config: createDefaultProductResolutionConfig(),
     order_name_resolution_config: createDefaultOrderNameResolutionConfig(),
-    ext_id_strategy: "customer_order_id",
+    ext_id_strategy: "pathfinder_generated",
     last_run_at: null,
     success_rate: null,
     created_at: timestamp,
@@ -1497,6 +1498,7 @@ interface DynamoTableConfig {
   output_routes: string;
   product_mappings: string;
   jobs: string;
+  order_ids: string;
   submit_attempts: string;
   lift_product_cache: string;
   order_status_tokens: string;
@@ -1528,6 +1530,7 @@ function getDynamoTableConfig(): DynamoTableConfig {
     output_routes: requireEnv("PATHFINDER_OUTPUT_ROUTES_TABLE"),
     product_mappings: requireEnv("PATHFINDER_PRODUCT_MAPPINGS_TABLE"),
     jobs: requireEnv("PATHFINDER_JOBS_TABLE"),
+    order_ids: requireEnv("PATHFINDER_ORDER_IDS_TABLE"),
     submit_attempts: requireEnv("PATHFINDER_SUBMIT_ATTEMPTS_TABLE"),
     lift_product_cache: requireEnv("PATHFINDER_LIFT_PRODUCT_CACHE_TABLE"),
     order_status_tokens: requireEnv("PATHFINDER_ORDER_STATUS_TOKENS_TABLE"),
@@ -1595,6 +1598,53 @@ async function putDynamoData(tableName: string, keys: Record<string, string>, da
       }
     })
   );
+}
+
+function pathfinderOrderNumberCandidate(timestamp = Date.now()) {
+  return `PF${timestamp.toString(36).toUpperCase()}${randomBytes(2).toString("hex").toUpperCase()}`;
+}
+
+const locallyReservedPathfinderOrderNumbers = new Set<string>();
+
+export async function reservePathfinderOrderNumber() {
+  const config = getPathfinderPersistenceRuntimeConfig();
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const pathfinderOrderNumber = pathfinderOrderNumberCandidate();
+
+    if (config.storage_driver === "dynamodb") {
+      try {
+        const tables = getDynamoTableConfig();
+        await getDynamoClient().send(
+          new PutItemCommand({
+            TableName: tables.order_ids,
+            Item: {
+              pathfinder_order_id: dynamoString(pathfinderOrderNumber),
+              created_at: dynamoString(now())
+            },
+            ConditionExpression: "attribute_not_exists(pathfinder_order_id)"
+          })
+        );
+        return pathfinderOrderNumber;
+      } catch (error) {
+        if ((error as { name?: string }).name === "ConditionalCheckFailedException") {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    const store = await readStore();
+    if (
+      !locallyReservedPathfinderOrderNumbers.has(pathfinderOrderNumber) &&
+      !store.jobs.some((job) => job.pathfinder_order_id === pathfinderOrderNumber)
+    ) {
+      locallyReservedPathfinderOrderNumbers.add(pathfinderOrderNumber);
+      return pathfinderOrderNumber;
+    }
+  }
+
+  throw new Error("Pathfinder could not reserve a unique Order Number. Try the preview again.");
 }
 
 async function batchWriteDynamo(tableName: string, requests: WriteRequest[]) {

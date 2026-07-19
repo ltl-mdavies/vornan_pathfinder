@@ -13,12 +13,10 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Current committed base: `6a63f81 Add import method order name resolution`
-- Branch state before the Order Name Resolution sprint: `main`, synchronized with `origin/main`
-- Commit `932d6eb` was deployed successfully to the admin app, status app, and API.
-- Commits `aaac73c`, `a6bceb5`, `e5dbbb5`, `d45f2d1`, and `7b2865f` have been pushed but have not been deployed.
-- Commits `6a62fa4` and `04ae9e9` have been pushed but have not been deployed.
-- The simplified Order Identity Resolution follow-up is validated and ready for its intentional production commit.
+- Current committed base: `1b63406 Simplify order identity resolution`
+- Branch state before the Pathfinder Order Number slice: `main`, synchronized with `origin/main`.
+- Commit `1b63406` is deployed to the admin app and API; real Lift submission remains disabled.
+- The globally reserved Pathfinder Order Number slice is currently uncommitted and must receive a full API stack deployment because it adds a DynamoDB table and Lambda environment variable.
 
 Recent committed base history:
 
@@ -59,13 +57,17 @@ Current completed slice:
 
 Current working slice:
 
-- Removes the speculative route-level Lift Order Name Contract setup.
-- Adds ordered fixed text to composite order names, supporting customer identifier + configured label + submission date.
-- Adds an explicit customer-vs-Pathfinder Lift Ext_ID strategy while preserving header/body equality.
-- Persists a compact collision-resistant Pathfinder order ID with each preview job.
-- Classifies duplicate order-name failures separately and prepares an incremented suffix for an operator-requested retry.
+- Reserves one globally unique Pathfinder Order Number through a dedicated DynamoDB table and conditional write.
+- Makes the Pathfinder Order Number the recommended Lift `Ext_ID` source for new Import Methods while preserving existing saved strategies.
+- Persists and surfaces the number with each preview job; retries reuse the same number.
+- Keeps customer order, PO, and contract identifiers as source references and optional readable order-name components.
+- Moves the more complex readable-name composition controls into an optional Advanced section.
+- Requires a CloudFormation stack update before API code deployment because `PATHFINDER_ORDER_IDS_TABLE` is a new runtime dependency.
 - Does not enable live Lift transport or automatically resubmit.
-- Validation passed with 8 API tests, 11 template/parser tests, full type checks, production builds, and an isolated API preview matching header/body Ext_ID and canonical/Lift order title.
+- Validation passed: `npm run check`, 21 tests via `npm test`, `npm run build`, desktop/mobile browser review, and a local preview proving the same reserved number reaches both Lift `Ext_ID` locations.
+- The same uncommitted working tree now also splits the admin production bundle below Vite's warning threshold and replaces seeded-data hydration flashes with skeleton, empty, and retryable error states.
+- New bundle result: the former 542.87 kB main chunk is now a 323.98 kB lazy workspace chunk; all JavaScript chunks are below 500 kB.
+- A 1.5-second delayed local API test confirmed that no customer, Import Method, job, route, or sample workbook values appear before current data is ready.
 
 Recommended opening move in the next thread:
 

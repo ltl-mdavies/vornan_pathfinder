@@ -44,21 +44,30 @@ After that response, Pathfinder prepares—not automatically submits—the next 
 
 Authentication, endpoint, payload, product, timeout, and duplicate-`Ext_ID` failures do not change the order name.
 
-## Lift Ext_ID
+## Pathfinder Order Number and Lift Ext_ID
 
-Every Import Method has an explicit `Ext_ID` source strategy:
+Pathfinder now treats its own Order Number as the safe default identity for new Import Methods. It is intentionally separate from the readable order name and from identifiers supplied by the customer.
 
-- `customer_order_id` preserves the existing ecommerce pattern and uses mapped `order.external_order_id`, with the existing contract/PO/source-record fallbacks;
-- `pathfinder_generated` uses a collision-resistant ID created once with the preview job and persisted in its snapshot.
+The recommended flow is:
 
-The generated ID is currently a compact `PF` identifier built from the job timestamp plus random entropy. Pathfinder does not claim or enforce a Lift maximum length; the compact format is simply conservative while the real limit remains unknown.
+1. Reserve one compact `PF` number when a preview job is created.
+2. Persist that number with the job snapshot.
+3. Write the same number to Lift request header `Ext_ID` and JSON body `order.ext_id`.
+4. Reuse it for every retry of that job.
+5. Retain the customer's order number, PO number, and contract number as canonical references and optional readable-name components.
 
-Whichever strategy is selected, the Lift adapter writes the identical resolved value to:
+Production reservations use a dedicated DynamoDB table and a conditional insert on the Order Number key. That makes uniqueness global across customers and submissions rather than relying only on timestamp/random collision probability. Local development maintains the same non-reuse behavior within the running process and also checks persisted jobs.
+
+New Import Methods default to this `pathfinder_generated` strategy. Previously saved methods retain their existing strategy, including the legacy `customer_order_id` option. The legacy option remains available for an integration whose source order number is independently guaranteed unique in Lift.
+
+The Pathfinder Order Number remains compact because existing Lift integrations commonly use short external IDs, but Pathfinder does not claim or enforce an unverified Lift maximum length.
+
+Whichever strategy is selected, the Lift adapter writes the identical value to:
 
 - request header `Ext_ID`;
 - JSON body `order.ext_id`.
 
-The customer order, PO, and contract values remain in the canonical record even when Pathfinder supplies the Lift `Ext_ID`. This preserves source traceability and keeps those values available for the readable order name.
+The primary Import Method screen recommends the Pathfinder-managed choice. Customer-title composition, formatting, and the legacy ID choice remain available without making them part of the everyday setup path.
 
 ## Data Flow
 
