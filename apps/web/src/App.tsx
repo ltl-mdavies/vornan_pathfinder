@@ -188,6 +188,11 @@ interface CustomerProductMapping {
   updated_at: string;
 }
 
+interface RouteStrategyChange {
+  from: OutputProductIdentifierType;
+  to: OutputProductIdentifierType;
+}
+
 interface LiftUnitCatalogItem {
   catalog_item_id: string;
   product_id: string | null;
@@ -2403,6 +2408,10 @@ function productMappingStatusForRoute(mapping: CustomerProductMapping, route: Ou
   return mapping.status === "Mapped" && !productMappingIdentifierForRoute(mapping, route) ? "Unmapped" : mapping.status;
 }
 
+function productMappingHasIdentifierForRoute(mapping: CustomerProductMapping, route: OutputRoute) {
+  return Boolean(productMappingIdentifierForRoute(mapping, route)?.trim());
+}
+
 function sourceTypeLabel(source: ImportMethodSource) {
   return source;
 }
@@ -2940,6 +2949,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [dirtyImportMethodIds, setDirtyImportMethodIds] = useState<string[]>([]);
   const [dirtyTargetIds, setDirtyTargetIds] = useState<string[]>([]);
   const [dirtyOutputRouteIds, setDirtyOutputRouteIds] = useState<string[]>([]);
+  const [routeStrategyChanges, setRouteStrategyChanges] = useState<Record<string, RouteStrategyChange>>({});
   const [leavePrompt, setLeavePrompt] = useState<{
     title: string;
     body: string;
@@ -3019,6 +3029,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [unitMapSearch, setUnitMapSearch] = useState("");
   const [unitMapStatusFilter, setUnitMapStatusFilter] = useState<ProductMappingStatus | "All">("All");
   const [outputMapRouteFilter, setOutputMapRouteFilter] = useState("All");
+  const [migrationQueueRouteId, setMigrationQueueRouteId] = useState<string | null>(null);
   const [selectedUnitMapIds, setSelectedUnitMapIds] = useState<string[]>([]);
   const [bulkUnitNumber, setBulkUnitNumber] = useState("");
   const [bulkProductName, setBulkProductName] = useState("");
@@ -3085,6 +3096,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWorkspace(loadedWorkspace);
       setDirtyImportMethodIds([]);
       setDirtyOutputRouteIds([]);
+      setRouteStrategyChanges({});
+      setMigrationQueueRouteId(null);
       setLastSubmitAttempt(loadedWorkspace.submit_attempts?.[0] ?? null);
       setActiveMethodId(
         loadedWorkspace.import_methods.find((method) => method.status !== "Archived")?.import_method_id ?? "manual-xlsx"
@@ -3825,6 +3838,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         );
         return current.filter((routeId) => !savedRouteIds.has(routeId));
       });
+      setRouteStrategyChanges((current) => {
+        const next = { ...current };
+        (nextWorkspace?.output_routes ?? workspace?.output_routes ?? [])
+          .filter((route) => route.target_id === savedTarget.target_id)
+          .forEach((route) => delete next[route.output_route_id]);
+        return next;
+      });
       setWorkspaceMessage(
         savedActiveEnvironment
           ? `Target settings saved. Current workspace routes now use ${savedActiveEnvironment.name}.`
@@ -4246,10 +4266,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     selectedOutputMapMethod?.product_resolution_config ?? activeProductConfig;
   const productMappings = workspace?.product_mappings ?? [];
   const catalogPresets = workspace?.catalog_presets ?? [];
+  const isMigrationQueueActive = migrationQueueRouteId === selectedOutputMapRouteId;
+  const selectedRouteMigrationQueue = productMappings.filter(
+    (mapping) =>
+      mapping.output_route_id === selectedOutputMapRouteId &&
+      mapping.status !== "Inactive" &&
+      !productMappingHasIdentifierForRoute(mapping, selectedOutputMapRoute)
+  );
   const filteredProductMappings = useMemo(() => {
     const query = unitMapSearch.trim().toLowerCase();
     return productMappings
       .filter((mapping) => mapping.output_route_id === selectedOutputMapRouteId)
+      .filter(
+        (mapping) =>
+          !isMigrationQueueActive ||
+          (mapping.status !== "Inactive" && !productMappingHasIdentifierForRoute(mapping, selectedOutputMapRoute))
+      )
       .filter(
         (mapping) =>
           unitMapStatusFilter === "All" || productMappingStatusForRoute(mapping, selectedOutputMapRoute) === unitMapStatusFilter
@@ -4286,7 +4318,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           second.updated_at.localeCompare(first.updated_at)
         );
       });
-  }, [productMappings, selectedOutputMapRoute, selectedOutputMapRouteId, unitMapSearch, unitMapStatusFilter]);
+  }, [
+    isMigrationQueueActive,
+    productMappings,
+    selectedOutputMapRoute,
+    selectedOutputMapRouteId,
+    unitMapSearch,
+    unitMapStatusFilter
+  ]);
   const selectedUnitMappings = productMappings.filter(
     (mapping) => mapping.output_route_id === selectedOutputMapRouteId && selectedUnitMapIds.includes(mapping.mapping_id)
   );
@@ -5151,6 +5190,46 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setDirtyOutputRouteIds((current) => (current.includes(routeId) ? current : [...current, routeId]));
   }
 
+  function updateOutputRouteStrategyDraft(route: OutputRoute, nextType: OutputProductIdentifierType) {
+    if (nextType === route.product_identifier_type) {
+      return;
+    }
+
+    setRouteStrategyChanges((current) => {
+      const originalType = current[route.output_route_id]?.from ?? route.product_identifier_type;
+      const next = { ...current };
+      if (nextType === originalType) {
+        delete next[route.output_route_id];
+      } else {
+        next[route.output_route_id] = { from: originalType, to: nextType };
+      }
+      return next;
+    });
+    updateOutputRouteDraft(route.output_route_id, {
+      product_identifier_type: nextType,
+      product_identifier_label: outputIdentifierLabel(nextType)
+    });
+  }
+
+  async function reviewRouteRemapQueue(route: OutputRoute) {
+    if (selectedTarget && selectedTargetHasUnsavedChanges) {
+      const saved = await saveTarget(selectedTarget);
+      if (!saved) {
+        return;
+      }
+    }
+
+    setActiveGlobalView("Customers");
+    setActiveCustomerView("Output Product Map");
+    setOutputMapRouteFilter(route.output_route_id);
+    setMigrationQueueRouteId(route.output_route_id);
+    setUnitMapStatusFilter("All");
+    setUnitMapSearch("");
+    setSelectedUnitMapIds([]);
+    setActiveCatalogMappingId(null);
+    setOpenProductMapTool(null);
+  }
+
   function updateTargetActiveEnvironmentDraft(targetId: string, environmentName: string) {
     const target = targetRows.find((candidate) => candidate.target_id === targetId);
     const environment = target?.environments.find((candidate) => candidate.name === environmentName);
@@ -5241,6 +5320,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const nextWorkspace = await persistOutputRoute(route);
       setWorkspace(nextWorkspace);
       setDirtyOutputRouteIds((current) => current.filter((routeId) => routeId !== route.output_route_id));
+      setRouteStrategyChanges((current) => {
+        const next = { ...current };
+        delete next[route.output_route_id];
+        return next;
+      });
       setWorkspaceMessage("Output route saved.");
       setWorkspaceState("idle");
       return true;
@@ -7660,7 +7744,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <span>Output Route</span>
                       <select
                         value={outputMapRouteFilter}
-                        onChange={(event) => setOutputMapRouteFilter(event.target.value)}
+                        onChange={(event) => {
+                          setOutputMapRouteFilter(event.target.value);
+                          setMigrationQueueRouteId(null);
+                        }}
                       >
                         <option value="All">Active method route</option>
                         {outputRoutes.map((route) => (
@@ -7712,6 +7799,33 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <strong>{selectedOutputMapRoute.product_identifier_label}</strong>
                     </div>
                   </div>
+
+                  {isMigrationQueueActive ? (
+                    <div
+                      className={`migration-remap-queue ${
+                        selectedRouteMigrationQueue.length ? "migration-remap-queue-warning" : "migration-remap-queue-ready"
+                      }`}
+                    >
+                      <div>
+                        <span>Focused remap queue</span>
+                        <strong>
+                          {selectedRouteMigrationQueue.length
+                            ? `${selectedRouteMigrationQueue.length} mapping${
+                                selectedRouteMigrationQueue.length === 1 ? "" : "s"
+                              } need ${selectedOutputMapRoute.product_identifier_label}`
+                            : `All mappings include ${selectedOutputMapRoute.product_identifier_label}`}
+                        </strong>
+                        <p>
+                          {selectedRouteMigrationQueue.length
+                            ? "Only active Pathfinder rows missing the current route product identifier are shown. Map each row from the Lift catalog; identifiers saved for the previous strategy remain stored."
+                            : "The strategy migration queue is clear. No stored identifiers were rewritten."}
+                        </p>
+                      </div>
+                      <button className="secondary-button" type="button" onClick={() => setMigrationQueueRouteId(null)}>
+                        Show All Mappings
+                      </button>
+                    </div>
+                  ) : null}
 
                   <div className="catalog-preset-strip">
                     <div>
@@ -8492,7 +8606,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </table>
                     {filteredProductMappings.length === 0 ? (
                       <p className="empty-state">
-                        No customer keys match this view. Generate a preview job to capture source values, or clear the filters.
+                        {isMigrationQueueActive
+                          ? `The remap queue is clear for ${selectedOutputMapRoute.product_identifier_label}.`
+                          : "No customer keys match this view. Generate a preview job to capture source values, or clear the filters."}
                       </p>
                     ) : null}
                   </div>
@@ -10262,6 +10378,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           template: routeTemplate
                         });
                         const attentionItems = routeDiagnostics.items.filter((item) => item.status !== "Passed");
+                        const activeRouteMappings = productMappings.filter(
+                          (mapping) => mapping.output_route_id === route.output_route_id && mapping.status !== "Inactive"
+                        );
+                        const routeMappingsNeedingRemap = activeRouteMappings.filter(
+                          (mapping) => !productMappingHasIdentifierForRoute(mapping, route)
+                        );
+                        const readyRouteMappingCount = activeRouteMappings.length - routeMappingsNeedingRemap.length;
+                        const routeStrategyChange = routeStrategyChanges[route.output_route_id] ?? null;
                         return (
                           <article className="output-route-card" key={route.output_route_id}>
                             <div className="output-route-heading">
@@ -10320,10 +10444,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   value={route.product_identifier_type}
                                   onChange={(event) => {
                                     const nextType = event.target.value as OutputProductIdentifierType;
-                                    updateOutputRouteDraft(route.output_route_id, {
-                                      product_identifier_type: nextType,
-                                      product_identifier_label: outputIdentifierLabel(nextType)
-                                    });
+                                    updateOutputRouteStrategyDraft(route, nextType);
                                   }}
                                 >
                                   <option value="lift_unit_number">Lift unit_number</option>
@@ -10403,6 +10524,52 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 />
                               </label>
                             </div>
+
+                            {activeRouteMappings.length || routeStrategyChange ? (
+                              <div
+                                className={`route-strategy-impact ${
+                                  routeMappingsNeedingRemap.length ? "route-strategy-impact-warning" : "route-strategy-impact-ready"
+                                }`}
+                              >
+                                <div className="route-strategy-impact-heading">
+                                  <div>
+                                    <span>{routeStrategyChange ? "Strategy change impact" : "Route identifier readiness"}</span>
+                                    <strong>
+                                      {routeStrategyChange
+                                        ? `${outputIdentifierLabel(routeStrategyChange.from)} → ${route.product_identifier_label}`
+                                        : route.product_identifier_label}
+                                    </strong>
+                                  </div>
+                                  <div className="route-strategy-impact-counts" aria-label="Route mapping readiness counts">
+                                    <span>{readyRouteMappingCount} identifier ready</span>
+                                    <span>{routeMappingsNeedingRemap.length} need remap</span>
+                                  </div>
+                                </div>
+                                <p>
+                                  {routeMappingsNeedingRemap.length
+                                    ? `${routeMappingsNeedingRemap.length} of ${activeRouteMappings.length} active mapping${
+                                        activeRouteMappings.length === 1 ? "" : "s"
+                                      } do not have the ${route.product_identifier_label} required by this route.`
+                                    : activeRouteMappings.length
+                                      ? `All ${activeRouteMappings.length} active mapping${
+                                          activeRouteMappings.length === 1 ? "" : "s"
+                                        } already include the route product identifier this strategy requires.`
+                                      : "No active product mappings exist for this route yet; new mappings will use the selected strategy."} {routeStrategyChange
+                                    ? `Existing ${outputIdentifierLabel(routeStrategyChange.from)} values will remain stored; Pathfinder will not substitute or rewrite them.`
+                                    : "Stored identifiers from other strategies remain available and are not rewritten."}
+                                </p>
+                                {routeMappingsNeedingRemap.length ? (
+                                  <button
+                                    className="secondary-button"
+                                    type="button"
+                                    onClick={() => void reviewRouteRemapQueue(route)}
+                                    disabled={workspaceState === "saving"}
+                                  >
+                                    {selectedTargetHasUnsavedChanges ? "Save Changes & Review Remap Queue" : "Review Remap Queue"}
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
 
                             <div className="route-diagnostics">
                               <div className="route-diagnostics-summary">

@@ -13,13 +13,15 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Current HEAD before the continuation work: `a2f0bf0 Add Pathfinder thread handoff`
-- Branch state during continuation: `main`, four commits ahead of `origin/main`
-- Working tree now contains the intentional multi-order public status and row-level Output Product Map changes; they remain uncommitted pending an intentional commit.
+- Current committed HEAD: `932d6eb Add multi-order status and row-level product mapping`
+- Branch state before the route-strategy sprint: `main`, synchronized with `origin/main`
+- Commit `932d6eb` was deployed successfully to the admin app, status app, and API.
+- The working tree now contains the intentional route-strategy migration assistance changes; they remain uncommitted pending review.
 
 Recent commits:
 
 ```text
+932d6eb Add multi-order status and row-level product mapping
 a2f0bf0 Add Pathfinder thread handoff
 914622a Add global status access domain allowlist
 5f4b3b9 Add customer status access policy controls
@@ -399,6 +401,7 @@ GitHub Actions deploys:
 - Global public status domain allowlist was committed before the continuation work.
 - Public status requests now accept up to 10 order numbers and issue one tokenized link with an order summary and individual details.
 - Output Product Map rows now open a scoped Lift catalog workflow and save the selected route identifier back to the exact row.
+- Output Route strategy changes now summarize identifier readiness and can open a focused remap queue without rewriting previously stored identifiers.
 
 ## Current Known Friction Or Risks
 
@@ -481,25 +484,23 @@ Completed in the continuation slice:
 - Lift product selection saves through the exact-row endpoint and records the available product ID/unit number metadata.
 - Route identifier resolution is strict: `unit_number` and `product_id` do not silently substitute for one another.
 - Existing bulk controls, catalog presets, advanced filters, refresh, and product details remain available.
+- Output Route cards summarize how many active mappings already contain the selected route identifier and how many need remapping.
+- Unsaved strategy changes explicitly show the old and new identifier types and state that existing identifiers remain stored.
+- A save-and-review action opens a focused Output Product Map queue containing only active rows missing the newly selected identifier.
+- The queue updates as exact rows are remapped and shows a clear completion state when no gaps remain.
 
 Recommended next slices:
 
-1. Tighten Lift Catalog Scope:
-   - Make the active catalog state obvious.
-   - Prevent duplicate pinned catalog presets.
-   - Always import catalog name from Lift payload.
-   - Remove redundant manual catalog name entry where possible.
-2. Add explicit route-strategy migration assistance:
-   - Summarize mappings that lack the newly selected route identifier after a strategy change.
-   - Offer a focused remap queue without silently rewriting stored identifiers.
-3. Refine the existing bulk map flow only when needed:
+1. Refine the existing bulk map flow only when needed:
    - Keep multi-row selection clearly separate from the primary row-level workflow.
    - Add an explicit confirmation before one Lift product is assigned to several Pathfinder rows.
-4. Clean details panel:
+2. Clean details panel:
    - Show only real payload field names and values.
    - Avoid duplicate `unit_number` / `unit_numbers` display unless both are truly present in the payload and meaningful.
-5. Improve Product ID strategy language:
+3. Continue Product ID strategy language cleanup:
    - If route strategy is `product_id`, Product Resolution should talk about "route product identifier", not unit number.
+4. Revisit catalog scope only where live operator feedback still shows friction:
+   - Preserve the current active-scope treatment, catalog-name import, and preset deduplication behavior.
 
 ## Import Methods Roadmap
 
@@ -574,6 +575,6 @@ Please read /Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/THREAD_HA
 If the next slice is not specified, the best candidates are:
 
 1. Import Methods restructure with single save and unsaved-change guard.
-2. Tighten Lift Catalog Scope and add route-strategy migration assistance.
+2. Add confirmation and separation to the existing bulk product-map flow.
 3. Transactional email SES smoke test and production switch.
 4. Mobile polish for login, dashboard, overview, and public status.

@@ -1299,3 +1299,31 @@ Verification:
 - `product_id` route assertion: unit-only catalog products displayed `Product ID unavailable` and could not be saved.
 - 390x844 browser validation with a 390px drawer, single-column scope layout, and no horizontal overflow.
 - No browser console warnings or errors.
+
+## 2026-07-18 - Output Route Strategy Migration Assistance
+
+Added an explicit migration workflow for routes that change between Lift `unit_number` and `product_id` mapping strategies.
+
+What changed:
+
+- Added route-level mapping readiness to Output Route cards, including counts for rows that already contain the selected route identifier and rows that need remapping.
+- Made unsaved strategy changes show the previous and newly selected identifier types before save.
+- Clarified that Pathfinder preserves stored identifiers from the previous strategy and does not silently substitute or rewrite them.
+- Added a `Save Changes & Review Remap Queue` path that persists the route and opens Output Product Map scoped to the exact route.
+- Added a focused remap queue that contains only active mappings missing the selected route identifier while retaining the existing row-level `Map Product` and manual save behavior.
+- Made the queue update automatically after exact-row saves and show an explicit completion state when every active mapping has the required route identifier.
+- Kept bulk mapping, catalog presets, product details, and real Lift submit behavior unchanged.
+
+Verification:
+
+- `npm run check`
+- `npm run build`
+- `git diff --check`
+- Local browser workflow against a disposable store:
+  - a `unit_number` route with three mapping shapes reported `2 identifier ready / 1 need remap`
+  - switching to `product_id` reported `2 identifier ready / 1 need remap` with the strategy-change warning
+  - save-and-review opened a focused one-row queue
+  - saving the missing Product ID removed that row and produced the clear-queue state
+- Isolated API persistence assertion confirmed the remapped row retained `UNIT-ONLY-001` while adding `PROD-UNIT-001` and changing the route strategy to `lift_product_id`.
+- Browser console contained only Chrome extension message-channel noise; no Pathfinder application error was observed.
+- No real Lift submit flags were enabled and no external Lift request was sent.
