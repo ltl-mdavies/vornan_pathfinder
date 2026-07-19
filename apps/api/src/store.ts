@@ -1919,6 +1919,151 @@ function normalizeTarget(target: TargetConfig): TargetConfig {
   };
 }
 
+function normalizeSourceHeaderRow(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const row = Number(value);
+  return Number.isInteger(row) && row >= 1 ? row : null;
+}
+
+function normalizeSourceSheetHeaderOverrides(value: unknown): Record<string, SourceSheetHeaderOverride> {
+  return Object.fromEntries(
+    Object.entries(asRecord(value))
+      .map(([sheetName, rawOverride]) => {
+        const normalizedSheetName = sheetName.trim();
+        const override = asRecord(rawOverride);
+        if (!normalizedSheetName || Object.keys(override).length === 0) {
+          return null;
+        }
+
+        return [
+          normalizedSheetName,
+          {
+            header_row: normalizeSourceHeaderRow(override.header_row),
+            header_row_count: override.header_row_count === 2 ? 2 : 1
+          }
+        ] as const;
+      })
+      .filter((entry): entry is readonly [string, SourceSheetHeaderOverride] => entry !== null)
+      .sort(([left], [right]) => left.localeCompare(right))
+  );
+}
+
+function normalizeDetectedSourceSchema(value: unknown): DetectedSourceSchema | null {
+  const schema = asRecord(value);
+  if (Object.keys(schema).length === 0) {
+    return null;
+  }
+
+  const parserConfig = asRecord(schema.parser_config);
+  const normalizedParserConfig: DetectedSourceParserConfig | undefined = Object.keys(parserConfig).length
+    ? {
+        header_row: normalizeSourceHeaderRow(parserConfig.header_row),
+        header_row_count: parserConfig.header_row_count === 2 ? (2 as const) : (1 as const),
+        quantity_column: typeof parserConfig.quantity_column === "string" ? parserConfig.quantity_column : null,
+        ignore_repeated_headers: parserConfig.ignore_repeated_headers !== false,
+        reference_rows_mode:
+          parserConfig.reference_rows_mode === "ignore" ? ("ignore" as const) : ("rows_without_quantity" as const),
+        sheet_header_overrides: normalizeSourceSheetHeaderOverrides(parserConfig.sheet_header_overrides)
+      }
+    : undefined;
+
+  const sheets = Array.isArray(schema.sheets)
+    ? schema.sheets.map((value) => {
+        const sheet = asRecord(value);
+        const headerRow = normalizeSourceHeaderRow(sheet.header_row);
+        return {
+          sheet_name: typeof sheet.sheet_name === "string" ? sheet.sheet_name : "",
+          columns: Array.isArray(sheet.columns)
+            ? sheet.columns.filter((column): column is string => typeof column === "string")
+            : [],
+          order_row_count:
+            typeof sheet.order_row_count === "number" && Number.isFinite(sheet.order_row_count)
+              ? Math.max(0, Math.floor(sheet.order_row_count))
+              : 0,
+          reference_row_count:
+            typeof sheet.reference_row_count === "number" && Number.isFinite(sheet.reference_row_count)
+              ? Math.max(0, Math.floor(sheet.reference_row_count))
+              : 0,
+          ...(sheet.header_row !== undefined ? { header_row: headerRow } : {}),
+          ...(sheet.header_row_count !== undefined
+            ? { header_row_count: sheet.header_row_count === 2 ? (2 as const) : (1 as const) }
+            : {}),
+          ...(Array.isArray(sheet.ignored_header_rows)
+            ? {
+                ignored_header_rows: sheet.ignored_header_rows.filter(
+                  (row): row is number => typeof row === "number" && Number.isInteger(row) && row >= 1
+                )
+              }
+            : {})
+        };
+      })
+    : [];
+
+  return {
+    source_file_name: typeof schema.source_file_name === "string" ? schema.source_file_name : "",
+    selected_sheet_name: typeof schema.selected_sheet_name === "string" ? schema.selected_sheet_name : "",
+    columns: Array.isArray(schema.columns)
+      ? schema.columns.filter((column): column is string => typeof column === "string")
+      : [],
+    sheets,
+    detected_at: typeof schema.detected_at === "string" ? schema.detected_at : "",
+    ...(normalizedParserConfig ? { parser_config: normalizedParserConfig } : {})
+  };
+}
+
+function normalizeImportSourceConfig(sourceConfig: ImportMethod["source_config"] | undefined): ImportMethod["source_config"] {
+  const source = asRecord(sourceConfig);
+  return {
+    google_sheet_url:
+      typeof source.google_sheet_url === "string" || source.google_sheet_url === null
+        ? source.google_sheet_url
+        : undefined,
+    google_sheet_tab:
+      typeof source.google_sheet_tab === "string" || source.google_sheet_tab === null
+        ? source.google_sheet_tab
+        : undefined,
+    google_sheet_range:
+      typeof source.google_sheet_range === "string" || source.google_sheet_range === null
+        ? source.google_sheet_range
+        : undefined,
+    pdf_review_mode:
+      source.pdf_review_mode === "manual_review" || source.pdf_review_mode === "assisted_extract"
+        ? source.pdf_review_mode
+        : undefined,
+    api_endpoint_url:
+      typeof source.api_endpoint_url === "string" || source.api_endpoint_url === null
+        ? source.api_endpoint_url
+        : undefined,
+    sftp_path: typeof source.sftp_path === "string" || source.sftp_path === null ? source.sftp_path : undefined,
+    header_row: source.header_row === undefined ? undefined : normalizeSourceHeaderRow(source.header_row),
+    header_row_count: source.header_row_count === undefined ? undefined : source.header_row_count === 2 ? 2 : 1,
+    quantity_column:
+      typeof source.quantity_column === "string" || source.quantity_column === null
+        ? source.quantity_column
+        : undefined,
+    ignore_repeated_headers:
+      typeof source.ignore_repeated_headers === "boolean" ? source.ignore_repeated_headers : undefined,
+    reference_rows_mode:
+      source.reference_rows_mode === "rows_without_quantity" || source.reference_rows_mode === "ignore"
+        ? source.reference_rows_mode
+        : undefined,
+    sheet_header_overrides: normalizeSourceSheetHeaderOverrides(source.sheet_header_overrides),
+    sample_template_name:
+      typeof source.sample_template_name === "string" || source.sample_template_name === null
+        ? source.sample_template_name
+        : undefined,
+    detected_schema:
+      source.detected_schema === null
+        ? null
+        : source.detected_schema === undefined
+          ? undefined
+          : normalizeDetectedSourceSchema(source.detected_schema)
+  };
+}
+
 function normalizeImportMethod(method: ImportMethod): ImportMethod {
   const route = createSeedOutputRoute();
   return {
@@ -1927,7 +2072,7 @@ function normalizeImportMethod(method: ImportMethod): ImportMethod {
     output_route_id: method.output_route_id ?? route.output_route_id,
     target_id: method.target_id ?? route.target_id,
     target_template: method.target_template ?? route.output_template,
-    source_config: method.source_config ?? {},
+    source_config: normalizeImportSourceConfig(method.source_config),
     workbook_sheet_policy: method.workbook_sheet_policy ?? "rows_with_quantity",
     product_resolution_config: {
       ...createDefaultProductResolutionConfig(),
@@ -2913,10 +3058,10 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
     ...normalizeImportMethod(methodSource),
     ...methodPatch,
     import_method_id: methodId,
-    source_config: {
+    source_config: normalizeImportSourceConfig({
       ...(methodSource.source_config ?? {}),
       ...(methodPatch.source_config ?? {})
-    },
+    }),
     workbook_sheet_policy: methodPatch.workbook_sheet_policy ?? methodSource.workbook_sheet_policy ?? "rows_with_quantity",
     product_resolution_config: {
       ...createDefaultProductResolutionConfig(),

@@ -13,15 +13,16 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Current committed HEAD: `e5dbbb5 Add multi-row header schema refresh`
-- Branch state before the per-sheet header override sprint: `main`, synchronized with `origin/main`
+- Current committed HEAD: `d45f2d1 Add per-sheet header overrides`
+- Branch state before the Import Method persistence regression sprint: `main`, synchronized with `origin/main`
 - Commit `932d6eb` was deployed successfully to the admin app, status app, and API.
-- Commits `aaac73c`, `a6bceb5`, and `e5dbbb5` have been pushed but have not been deployed.
-- The working tree now contains the intentional per-sheet header override and parser regression-suite changes; they remain uncommitted pending review.
+- Commits `aaac73c`, `a6bceb5`, `e5dbbb5`, and `d45f2d1` have been pushed but have not been deployed.
+- The working tree now contains the intentional Import Method persistence regression and source-metadata sanitization changes; they remain uncommitted pending review.
 
 Recent commits:
 
 ```text
+d45f2d1 Add per-sheet header overrides
 e5dbbb5 Add multi-row header schema refresh
 a6bceb5 Harden import methods and persist source schemas
 aaac73c Add route strategy remap assistance
@@ -43,11 +44,10 @@ b27991b Add secure public status request flow
 
 Current in-progress slice:
 
-- Adds header row/span overrides scoped to exact workbook sheet names while keeping quantity, repeated-header, and reference-row rules global.
-- Persists overrides in Import Method source configuration and includes them in detected-schema freshness checks.
-- Applies the same exact-sheet overrides during source detection and Manual Import parsing.
-- Adds a repeatable `npm test` parser suite covering automatic headers, grouped headers, blank header cells, repeated-header audit rows, and per-sheet layouts.
-- Isolated API and browser verification confirmed exact-sheet persistence, stale-schema save protection, a single-column 390px layout, and no browser console errors.
+- Adds method-level persistence regressions for source schemas, parser settings, per-sheet overrides, mappings, and saved mapping templates.
+- Verifies partial updates preserve the active method's mappings without changing a neighboring method.
+- Normalizes legacy parser snapshots that predate per-sheet override maps.
+- Allowlists persisted source-schema metadata so raw workbook rows and cell values are rejected at the store/API boundary.
 - No production deployment or real Lift submit behavior is part of this slice.
 
 Recommended opening move in the next thread:
@@ -421,6 +421,7 @@ GitHub Actions deploys:
 - Import Methods block save when parser settings no longer match the detected schema and guide the operator through re-detection.
 - Import Methods can override the header row and one/two-row span for an exact workbook sheet while preserving global quantity, repeated-header, and reference-row rules.
 - The templates workspace now has durable parser regressions exposed through the root `npm test` command.
+- Import Method persistence now strips raw workbook rows/cell values at the store boundary and has regression coverage for schema reloads, mapping-template synchronization, method isolation, and legacy parser settings.
 
 ## Current Known Friction Or Risks
 
@@ -537,9 +538,9 @@ Completed in the latest continuation slice:
 
 Recommended next slices:
 
-1. Add focused method-level/API regression tests for detected-schema and mapping persistence.
-2. Consider a schema version/history view if operators need to compare template changes over time.
-3. Validate the header heuristics and override controls against the next real customer workbook before adding more per-sheet parser settings.
+1. Consider a schema version/history view if operators need to compare template changes over time.
+2. Validate the header heuristics and override controls against the next real customer workbook before adding more per-sheet parser settings.
+3. Add endpoint-level request validation if live integrations begin sending malformed Import Method payloads.
 
 ## Canonical Registry Roadmap
 
@@ -593,7 +594,7 @@ Please read /Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/THREAD_HA
 
 If the next slice is not specified, the best candidates are:
 
-1. Import Methods method-level/API regression tests for schema and mapping persistence.
+1. Import Methods schema version/history if operators need template comparison.
 2. Add confirmation and separation to the existing bulk product-map flow.
 3. Transactional email SES smoke test and production switch.
 4. Mobile polish for login, dashboard, overview, and public status.

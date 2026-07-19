@@ -1441,3 +1441,26 @@ Verification:
 - 390x844 browser validation confirmed the override controls collapse to one column with no horizontal overflow.
 - No browser console warnings or errors were observed.
 - No real Lift submit flags were enabled and no external Lift request was sent.
+
+## 2026-07-19 - Import Method Persistence Regression Coverage
+
+Added focused store/API-boundary regression coverage for detected source schemas and field mappings.
+
+What changed:
+
+- Added Import Method persistence tests that save and reload detected schema metadata, parser configuration, per-sheet overrides, and field mappings through the same `updateImportMethod` boundary used by the API route.
+- Verified the matching saved field-mapping template updates with the active method while a neighboring method retains its own mappings.
+- Added legacy parser normalization so methods saved before per-sheet overrides hydrate with empty override maps.
+- Hardened source configuration persistence with a metadata allowlist.
+- Raw workbook rows, parsed rows, cell values, and unrecognized nested payload fields are now removed even if a client includes them in an Import Method save request.
+- Added the API test suite to the existing workspace-level `npm test` command.
+
+Verification:
+
+- `npm test` (2 Import Method persistence regressions and 4 workbook parser regressions passing)
+- `npm run check`
+- `npm run build`
+- `git diff --check`
+- Production build retained the existing Vite advisory for the admin bundle exceeding 500 kB; no build failed.
+- Tests use an isolated temporary local store and remove it after completion.
+- No production deployment or external Lift request is part of this slice.
