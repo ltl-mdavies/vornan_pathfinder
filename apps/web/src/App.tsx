@@ -54,12 +54,19 @@ import {
   type ValueNormalizationRule
 } from "@pathfinder/lift-adapter";
 import {
+  applyOrderNameResolution,
   buildDefaultMappings,
   canonicalTargetFields,
+  createDefaultOrderNameResolutionConfig,
   mapSourceRowsToCanonicalOrder,
   parseWorkbookArrayBuffer,
   sampleSourceGrid,
+  validateOrderNameResolution,
   type FieldMapping,
+  type OrderNameResolutionCase,
+  type OrderNameResolutionConfig,
+  type OrderNameResolutionResult,
+  type OrderNameResolutionStrategy,
   type ParsedWorkbook,
   type ParsedSourceRow,
   type ParsedWorkbookSheet,
@@ -344,6 +351,7 @@ interface ImportMethod {
   };
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
+  order_name_resolution_config: OrderNameResolutionConfig;
   last_run_at?: string | null;
   success_rate?: string | null;
   created_at: string;
@@ -477,6 +485,7 @@ interface ProcessingJobPreview {
   reference_rows: ParsedSourceRow[];
   mappings: FieldMapping[];
   product_resolution_results: ProductResolutionResult[];
+  order_name_resolution_result?: OrderNameResolutionResult;
   unresolved_products: CustomerProductMapping[];
   canonical_order: CanonicalOrder;
   canonical_validation: ValidationMessage[];
@@ -913,6 +922,8 @@ const defaultProductResolutionConfig: ProductResolutionConfig = {
   fallback_strategy: "none",
   direct_unit_number_column: null
 };
+
+const defaultOrderNameResolutionConfig = createDefaultOrderNameResolutionConfig();
 
 const defaultValueNormalizationRules: ValueNormalizationRule[] = [
   {
@@ -1745,6 +1756,7 @@ const fallbackImportMethods: ImportMethod[] = [
     source_config: {},
     workbook_sheet_policy: "rows_with_quantity",
     product_resolution_config: defaultProductResolutionConfig,
+    order_name_resolution_config: defaultOrderNameResolutionConfig,
     last_run_at: seedTimestamp,
     success_rate: "100%",
     created_at: seedTimestamp,
@@ -1766,6 +1778,7 @@ const fallbackImportMethods: ImportMethod[] = [
     },
     workbook_sheet_policy: "rows_with_quantity",
     product_resolution_config: defaultProductResolutionConfig,
+    order_name_resolution_config: defaultOrderNameResolutionConfig,
     last_run_at: null,
     success_rate: "98.7%",
     created_at: seedTimestamp,
@@ -1785,6 +1798,7 @@ const fallbackImportMethods: ImportMethod[] = [
     source_config: {},
     workbook_sheet_policy: "rows_with_quantity",
     product_resolution_config: defaultProductResolutionConfig,
+    order_name_resolution_config: defaultOrderNameResolutionConfig,
     last_run_at: null,
     success_rate: null,
     created_at: seedTimestamp,
@@ -3212,6 +3226,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [confirmedProdSandboxSubmitKey, setConfirmedProdSandboxSubmitKey] = useState<string | null>(null);
   const [productMappingDrafts, setProductMappingDrafts] = useState<Record<string, { unit: string; product: string }>>({});
   const [compositeColumnToAdd, setCompositeColumnToAdd] = useState("");
+  const [orderNameComponentToAdd, setOrderNameComponentToAdd] = useState("");
   const [productExampleTestValue, setProductExampleTestValue] = useState("");
   const [unitMapSearch, setUnitMapSearch] = useState("");
   const [unitMapStatusFilter, setUnitMapStatusFilter] = useState<ProductMappingStatus | "All">("All");
@@ -3874,6 +3889,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return false;
     }
 
+    if (
+      method.order_name_resolution_config.enabled &&
+      method.order_name_resolution_config.strategy !== "provided" &&
+      method.order_name_resolution_config.components.length === 0
+    ) {
+      setWorkspaceMessage("Add at least one canonical component before saving this Order Name Resolution strategy.");
+      return false;
+    }
+
     const isLocalDraft = localDraftImportMethodIds.includes(method.import_method_id);
     setWorkspaceState("saving");
     try {
@@ -3926,7 +3950,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           reference_rows: referenceRows,
           mappings,
           submit_profile_id: selectedSubmitProfile.profile_id,
-          product_resolution_config: method.product_resolution_config
+          product_resolution_config: method.product_resolution_config,
+          order_name_resolution_config: method.order_name_resolution_config
         })
       });
       const payload = await readJsonResponse<{ job: ProcessingJobPreview; workspace: PathfinderCustomerWorkspace }>(response);
@@ -4222,6 +4247,28 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     ? dirtyImportMethodIds.includes(activeImportMethod.import_method_id)
     : false;
   const activeProductConfig = activeImportMethod?.product_resolution_config ?? defaultProductResolutionConfig;
+  const activeOrderNameConfig =
+    activeImportMethod?.order_name_resolution_config ?? defaultOrderNameResolutionConfig;
+  const activeOrderNameStrategyCopy =
+    !activeOrderNameConfig.enabled
+      ? {
+          title: "Legacy pass-through is active",
+          body: "Pathfinder leaves the mapped order.order_title unchanged. Enable resolution when this Import Method is ready to enforce a provided or composite name."
+        }
+      : activeOrderNameConfig.strategy === "provided"
+      ? {
+          title: "Use the customer's mapped order title",
+          body: "Pathfinder preserves the mapped order.order_title value. A missing value blocks the preview instead of inventing a name."
+        }
+      : activeOrderNameConfig.strategy === "composite"
+        ? {
+            title: "Always build a deterministic composite",
+            body: "Pathfinder combines the ordered canonical components below and ignores a provided title."
+          }
+        : {
+            title: "Prefer the customer title, then fall back safely",
+            body: "Pathfinder uses a mapped order.order_title when present, otherwise it builds the configured deterministic composite."
+          };
   const activeResolverCopy = productResolverCopy(activeProductConfig.strategy);
   const activeResolutionModeCopy = resolutionModeCopy(activeProductConfig.mode);
   const activeResolverSummary =
@@ -4409,6 +4456,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     activeRouteTarget?.output_templates.find((template) => template.output_template_id === activeOutputRoute.output_template_id) ??
     activeRouteTarget?.output_templates.find((template) => template.name === activeOutputRoute.output_template) ??
     null;
+  const activeOrderNameTemplateMapping = activeRouteTemplate?.canonical_mappings.find(
+    (mapping) => mapping.targetField === "order.order_title"
+  );
+  const activeOrderNameLiftPath =
+    activeOrderNameTemplateMapping?.sourceColumn.replace(/^body:/, "") || "order.order_title";
   const activeRouteCompanyId =
     activeOutputRoute.company_id ?? activeRouteEnvironment?.headers.Company ?? activeRouteTarget?.lift.headers.Company;
   const activeRouteEnvironmentLabel =
@@ -4422,6 +4474,26 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const selectedSubmitProfile = submitProfileForRoute(activeOutputRoute, selectedSubmitProfileId);
   const submitCustomer = submitCustomerForProfile(selectedCustomer, selectedSubmitProfile);
   const canonicalRegistryFields = canonicalRegistry?.fields ?? [];
+  const orderNameComponentOptions = Array.from(
+    new Set([
+      ...activeOrderNameConfig.components.map((component) => component.field),
+      ...canonicalRegistryFields
+        .filter(
+          (field) =>
+            !field.repeatable &&
+            field.path !== activeOrderNameConfig.provided_field &&
+            !field.path.startsWith("lines[].") &&
+            !field.path.startsWith("contacts[].")
+        )
+        .map((field) => field.path),
+      "customer.destination_customer_id",
+      "order.external_order_id",
+      "order.ship_date"
+    ])
+  ).sort();
+  const addableOrderNameComponentOptions = orderNameComponentOptions.filter(
+    (path) => !activeOrderNameConfig.components.some((component) => component.field === path)
+  );
   const canonicalRegistrySections = canonicalRegistry?.sections ?? [];
   const canonicalRegistryPaths = new Set(canonicalRegistryFields.map((field) => field.path));
   const canonicalCompatibilityOptions = canonicalOrderOptions.filter(
@@ -4746,7 +4818,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setSelectedUnitMapIds([]);
   }, [selectedOutputMapRouteId]);
 
-  const canonicalOrder = useMemo(
+  const mappedCanonicalOrder = useMemo(
     () =>
       mapSourceRowsToCanonicalOrder(sourceGrid.rows, mappings, {
         customerId: `lift:${selectedCustomer.lift_customer_id}`,
@@ -4770,9 +4842,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     ]
   );
 
-  const canonicalMessages = validateCanonicalOrder(canonicalOrder, {
-    product_identifier_type: activeOutputRoute.product_identifier_type
-  });
+  const orderNameResolution = useMemo(
+    () => applyOrderNameResolution(mappedCanonicalOrder, activeOrderNameConfig),
+    [activeOrderNameConfig, mappedCanonicalOrder]
+  );
+  const canonicalOrder = orderNameResolution.canonical_order;
+
+  const canonicalMessages = [
+    ...validateCanonicalOrder(canonicalOrder, {
+      product_identifier_type: activeOutputRoute.product_identifier_type
+    }),
+    ...validateOrderNameResolution(orderNameResolution.result, activeOrderNameConfig)
+  ];
   const rawLiftPayload = generateLiftPayload(canonicalOrder, {
     jobId: "job_preview",
     canonicalOrderId: "co_preview"
@@ -6583,6 +6664,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       source_config: {},
       workbook_sheet_policy: "rows_with_quantity",
       product_resolution_config: defaultProductResolutionConfig,
+      order_name_resolution_config: defaultOrderNameResolutionConfig,
       last_run_at: null,
       success_rate: null,
       created_at: timestamp,
@@ -7568,8 +7650,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     <div className="method-step-strip">
                       <span>1 Source setup</span>
                       <span>2 Product resolution</span>
-                      <span>3 Field mapping</span>
-                      <span>4 Review &amp; save</span>
+                      <span>3 Order name resolution</span>
+                      <span>4 Field mapping</span>
+                      <span>5 Review &amp; save</span>
                     </div>
                   </section>
                 ) : null}
@@ -8459,50 +8542,410 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </section>
                 ) : null}
                 {isImportMethodDetailOpen && activeImportMethod ? (
-                <section className="panel mapping-panel">
-                  <PanelHeader icon={Map} title="Field Mapping" detail="All found input elements can map to any canonical target" />
-                  <div className="mapping-table-wrap">
-                    <table className="mapping-table">
-                      <thead>
-                        <tr>
-                          <th>Found Input Element</th>
-                          <th>Sample Values</th>
-                          <th>Canonical Target</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {foundInputElements.map(({ column, sample }) => {
-                      const selected = mappings.find((mapping) => mapping.sourceColumn === column)?.targetField ?? "";
-                      return (
-                        <tr key={column}>
-                          <td>
-                            <strong>{column}</strong>
-                            <span className="cell-meta">Source field</span>
-                          </td>
-                          <td>{sample || "No sample value found"}</td>
-                          <td>
-                            <select
-                              value={selected}
-                              onChange={(event) => {
-                                const nextMappings = updateMapping(mappings, column, event.target.value);
-                                setMappings(nextMappings);
-                                updateActiveMethodDraft({ mappings: nextMappings });
+                  <section className="panel setup-panel order-name-resolution-setup">
+                    <PanelHeader icon={ClipboardList} title="Order Name Resolution" detail="Canonical title to Lift order JSON" />
+                    <div className="order-name-route-strip">
+                      <div>
+                        <span>Customer Input</span>
+                        <strong>
+                          {mappings.find((mapping) => mapping.targetField === "order.order_title")?.sourceColumn ||
+                            "No title column mapped"}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Canonical Destination</span>
+                        <strong>order.order_title</strong>
+                      </div>
+                      <div>
+                        <span>Lift JSON Destination</span>
+                        <strong>{activeOrderNameLiftPath}</strong>
+                      </div>
+                      <div>
+                        <span>Output Template</span>
+                        <strong>{activeRouteTemplate?.name || activeOutputRoute.output_template}</strong>
+                      </div>
+                    </div>
+                    <div className="order-name-enable-row">
+                      <div>
+                        <strong>Resolve and validate a Lift order name for this Import Method</strong>
+                        <span>
+                          Existing methods stay in legacy pass-through until enabled. New resolution rules remain deterministic and preview-only until a job is created.
+                        </span>
+                      </div>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={activeOrderNameConfig.enabled}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              order_name_resolution_config: {
+                                ...activeOrderNameConfig,
+                                enabled: event.target.checked
+                              }
+                            })
+                          }
+                        />
+                        {activeOrderNameConfig.enabled ? "Enabled" : "Legacy pass-through"}
+                      </label>
+                    </div>
+                    <div className="resolver-strategy-row">
+                      <label className="setup-control resolver-strategy-control">
+                        <span>Resolution Strategy</span>
+                        <select
+                          value={activeOrderNameConfig.strategy}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              order_name_resolution_config: {
+                                ...activeOrderNameConfig,
+                                strategy: event.target.value as OrderNameResolutionStrategy
+                              }
+                            })
+                          }
+                        >
+                          <option value="provided">Customer-provided value</option>
+                          <option value="composite">Composite value</option>
+                          <option value="provided_then_composite">Customer value, then composite fallback</option>
+                        </select>
+                      </label>
+                      <div className="resolver-explainer">
+                        <strong>{activeOrderNameStrategyCopy.title}</strong>
+                        <p>{activeOrderNameStrategyCopy.body}</p>
+                      </div>
+                    </div>
+                    {activeOrderNameConfig.strategy !== "provided" ? (
+                      <>
+                        <div className="resolver-section-break" />
+                        <div className="resolver-subsection-heading">
+                          <h3>Composite Components</h3>
+                          <span>Ordered canonical values keep the rule stable when customer headers change.</span>
+                        </div>
+                        <div className="order-name-component-list">
+                          {activeOrderNameConfig.components.map((component, index) => (
+                            <div className="order-name-component-row" key={`${component.field}-${index}`}>
+                              <div className="order-name-component-order">
+                                <span>{index + 1}</span>
+                                <div>
+                                  <button
+                                    type="button"
+                                    disabled={index === 0}
+                                    onClick={() => {
+                                      const components = [...activeOrderNameConfig.components];
+                                      [components[index - 1], components[index]] = [components[index], components[index - 1]];
+                                      updateActiveMethodDraft({
+                                        order_name_resolution_config: { ...activeOrderNameConfig, components }
+                                      });
+                                    }}
+                                  >
+                                    Up
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={index === activeOrderNameConfig.components.length - 1}
+                                    onClick={() => {
+                                      const components = [...activeOrderNameConfig.components];
+                                      [components[index], components[index + 1]] = [components[index + 1], components[index]];
+                                      updateActiveMethodDraft({
+                                        order_name_resolution_config: { ...activeOrderNameConfig, components }
+                                      });
+                                    }}
+                                  >
+                                    Down
+                                  </button>
+                                </div>
+                              </div>
+                              <div>
+                                <strong>{component.field}</strong>
+                                <span>
+                                  {orderNameResolution.result.component_values.find((item) => item.field === component.field)?.value ||
+                                    "No sample value"}
+                                </span>
+                              </div>
+                              <label className="setup-control order-name-inline-control">
+                                <span>Format</span>
+                                <select
+                                  value={component.format}
+                                  onChange={(event) => {
+                                    const components = activeOrderNameConfig.components.map((candidate, componentIndex) =>
+                                      componentIndex === index
+                                        ? { ...candidate, format: event.target.value as "none" | "yyyyMMdd" }
+                                        : candidate
+                                    );
+                                    updateActiveMethodDraft({
+                                      order_name_resolution_config: { ...activeOrderNameConfig, components }
+                                    });
+                                  }}
+                                >
+                                  <option value="none">As mapped</option>
+                                  <option value="yyyyMMdd">Date · yyyyMMdd</option>
+                                </select>
+                              </label>
+                              <label className="order-name-optional-control">
+                                <input
+                                  type="checkbox"
+                                  checked={component.optional}
+                                  onChange={(event) => {
+                                    const components = activeOrderNameConfig.components.map((candidate, componentIndex) =>
+                                      componentIndex === index ? { ...candidate, optional: event.target.checked } : candidate
+                                    );
+                                    updateActiveMethodDraft({
+                                      order_name_resolution_config: { ...activeOrderNameConfig, components }
+                                    });
+                                  }}
+                                />
+                                Optional
+                              </label>
+                              <button
+                                type="button"
+                                className="order-name-remove-component"
+                                onClick={() =>
+                                  updateActiveMethodDraft({
+                                    order_name_resolution_config: {
+                                      ...activeOrderNameConfig,
+                                      components: activeOrderNameConfig.components.filter(
+                                        (_candidate, componentIndex) => componentIndex !== index
+                                      )
+                                    }
+                                  })
+                                }
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                          <div className="order-name-component-add">
+                            <label className="setup-control order-name-component-field-control">
+                              <span>Canonical Field</span>
+                              <select
+                                value={orderNameComponentToAdd}
+                                onChange={(event) => setOrderNameComponentToAdd(event.target.value)}
+                              >
+                                <option value="">Choose canonical field</option>
+                                {addableOrderNameComponentOptions.map((path) => (
+                                  <option value={path} key={path}>
+                                    {path}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={!orderNameComponentToAdd}
+                              onClick={() => {
+                                if (!orderNameComponentToAdd) {
+                                  return;
+                                }
+                                updateActiveMethodDraft({
+                                  order_name_resolution_config: {
+                                    ...activeOrderNameConfig,
+                                    components: [
+                                      ...activeOrderNameConfig.components,
+                                      { field: orderNameComponentToAdd, format: "none", optional: true }
+                                    ]
+                                  }
+                                });
+                                setOrderNameComponentToAdd("");
                               }}
                             >
-                              <option value="">Ignore</option>
-                              <CanonicalFieldOptionGroups fields={canonicalRegistryFields} />
-                            </select>
-                          </td>
-                        </tr>
-                      );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="panel-action-footer">
-                    <span>{mappedColumnCount} of {sourceGrid.columns.length} source columns mapped. Field mappings save with this import method.</span>
-                  </div>
-                </section>
+                              <Plus size={14} />
+                              Add Component
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+                    <div className="resolver-section-break" />
+                    <div className="resolver-subsection-heading">
+                      <h3>Final Formatting</h3>
+                      <span>Stable formatting applies to both provided and composite names.</span>
+                    </div>
+                    <div className="setup-grid order-name-format-grid">
+                      <label className="setup-control">
+                        <span>Prefix</span>
+                        <input
+                          value={activeOrderNameConfig.prefix}
+                          placeholder="Optional, e.g. MOM"
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              order_name_resolution_config: { ...activeOrderNameConfig, prefix: event.target.value }
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="setup-control">
+                        <span>Suffix</span>
+                        <input
+                          value={activeOrderNameConfig.suffix}
+                          placeholder="Optional"
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              order_name_resolution_config: { ...activeOrderNameConfig, suffix: event.target.value }
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="setup-control">
+                        <span>Separator</span>
+                        <input
+                          value={activeOrderNameConfig.separator}
+                          maxLength={8}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              order_name_resolution_config: { ...activeOrderNameConfig, separator: event.target.value }
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="setup-control">
+                        <span>Case</span>
+                        <select
+                          value={activeOrderNameConfig.case}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              order_name_resolution_config: {
+                                ...activeOrderNameConfig,
+                                case: event.target.value as OrderNameResolutionCase
+                              }
+                            })
+                          }
+                        >
+                          <option value="preserve">Preserve</option>
+                          <option value="upper">UPPERCASE</option>
+                          <option value="lower">lowercase</option>
+                        </select>
+                      </label>
+                      <label className="setup-control">
+                        <span>Maximum Length</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={512}
+                          value={activeOrderNameConfig.max_length ?? ""}
+                          placeholder="Not confirmed"
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              order_name_resolution_config: {
+                                ...activeOrderNameConfig,
+                                max_length: event.target.value ? Number(event.target.value) : null
+                              }
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
+                    <div className="resolver-section-break" />
+                    <div className="resolver-example order-name-preview">
+                      <div className="resolver-subsection-heading resolver-example-heading">
+                        <h3>Live Resolution Preview</h3>
+                        <span>Uses the current mapped sample and does not reserve or submit a Lift order.</span>
+                      </div>
+                      <div className="resolver-example-grid">
+                        <div>
+                          <span>Resolved Order Name</span>
+                          <strong>
+                            {canonicalOrder.order.order_title ||
+                              (activeOrderNameConfig.enabled ? "Resolution blocked" : "No mapped title")}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>Resolution Source</span>
+                          <strong>
+                            {!activeOrderNameConfig.enabled
+                              ? "Legacy pass-through"
+                              : orderNameResolution.result.source === "provided"
+                              ? "Customer-provided title"
+                              : orderNameResolution.result.source === "composite"
+                                ? "Composite fallback"
+                                : "Missing required value"}
+                          </strong>
+                        </div>
+                        <div>
+                          <span>Canonical Record</span>
+                          <strong>order.order_title</strong>
+                        </div>
+                        <div>
+                          <span>Lift JSON</span>
+                          <strong>{activeOrderNameLiftPath}</strong>
+                        </div>
+                      </div>
+                      <div
+                        className={`order-name-validation-note ${
+                          (activeOrderNameConfig.enabled && !orderNameResolution.result.value) ||
+                          orderNameResolution.result.exceeds_max_length
+                            ? "order-name-validation-blocked"
+                            : ""
+                        }`}
+                      >
+                        {(activeOrderNameConfig.enabled && !orderNameResolution.result.value) ||
+                        orderNameResolution.result.exceeds_max_length ? (
+                          <AlertTriangle size={18} />
+                        ) : (
+                          <ShieldCheck size={18} />
+                        )}
+                        <span>
+                          {!activeOrderNameConfig.enabled
+                            ? "Legacy pass-through preserves the existing mapped title and adds no new validation gate."
+                            : !orderNameResolution.result.value
+                            ? `Resolution needs attention${
+                                orderNameResolution.result.missing_required_fields.length
+                                  ? `: ${orderNameResolution.result.missing_required_fields.join(", ")}`
+                                  : "."
+                              }`
+                            : orderNameResolution.result.exceeds_max_length
+                              ? `The resolved name is ${orderNameResolution.result.value.length} characters and exceeds this method's maximum.`
+                              : "The same mapped values will resolve to the same order name on retry. Duplicate blocking is enforced within each import batch."}
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+                {isImportMethodDetailOpen && activeImportMethod ? (
+                  <section className="panel mapping-panel">
+                    <PanelHeader icon={Map} title="Field Mapping" detail="All found input elements can map to any canonical target" />
+                    <div className="mapping-table-wrap">
+                      <table className="mapping-table">
+                        <thead>
+                          <tr>
+                            <th>Found Input Element</th>
+                            <th>Sample Values</th>
+                            <th>Canonical Target</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {foundInputElements.map(({ column, sample }) => {
+                            const selected = mappings.find((mapping) => mapping.sourceColumn === column)?.targetField ?? "";
+                            return (
+                              <tr key={column}>
+                                <td>
+                                  <strong>{column}</strong>
+                                  <span className="cell-meta">Source field</span>
+                                </td>
+                                <td>{sample || "No sample value found"}</td>
+                                <td>
+                                  <select
+                                    value={selected}
+                                    onChange={(event) => {
+                                      const nextMappings = updateMapping(mappings, column, event.target.value);
+                                      setMappings(nextMappings);
+                                      updateActiveMethodDraft({ mappings: nextMappings });
+                                    }}
+                                  >
+                                    <option value="">Ignore</option>
+                                    <CanonicalFieldOptionGroups fields={canonicalRegistryFields} />
+                                  </select>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="panel-action-footer">
+                      <span>
+                        {mappedColumnCount} of {sourceGrid.columns.length} source columns mapped. Field mappings save with this import method.
+                      </span>
+                    </div>
+                  </section>
                 ) : null}
               </>
             ) : null}

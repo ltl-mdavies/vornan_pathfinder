@@ -4,7 +4,8 @@ import {
   type CanonicalOrder,
   type CanonicalOrderLine,
   type Contact,
-  type ShippingAddress
+  type ShippingAddress,
+  type ValidationMessage
 } from "@pathfinder/canonical";
 import type * as XLSX from "xlsx";
 
@@ -98,6 +99,283 @@ export interface CanonicalBuildOptions {
   sourceTemplate?: string | null;
   targetSystem: string;
   submittedAt?: string;
+}
+
+export type OrderNameResolutionStrategy = "provided" | "composite" | "provided_then_composite";
+export type OrderNameResolutionCase = "preserve" | "upper" | "lower";
+export type OrderNameComponentFormat = "none" | "yyyyMMdd";
+
+export interface OrderNameResolutionComponent {
+  field: string;
+  format: OrderNameComponentFormat;
+  optional: boolean;
+}
+
+export interface OrderNameResolutionConfig {
+  enabled: boolean;
+  strategy: OrderNameResolutionStrategy;
+  provided_field: string;
+  components: OrderNameResolutionComponent[];
+  prefix: string;
+  suffix: string;
+  separator: string;
+  case: OrderNameResolutionCase;
+  max_length: number | null;
+  duplicate_behavior: "block";
+}
+
+export interface OrderNameResolutionResult {
+  value: string | null;
+  source: "provided" | "composite" | "missing";
+  provided_value: string | null;
+  component_values: Array<{
+    field: string;
+    value: string | null;
+    optional: boolean;
+  }>;
+  missing_required_fields: string[];
+  exceeds_max_length: boolean;
+}
+
+export function createDefaultOrderNameResolutionConfig(): OrderNameResolutionConfig {
+  return {
+    enabled: true,
+    strategy: "provided_then_composite",
+    provided_field: "order.order_title",
+    components: [
+      { field: "customer.destination_customer_id", format: "none", optional: false },
+      { field: "order.external_order_id", format: "none", optional: false },
+      { field: "order.ship_date", format: "yyyyMMdd", optional: true }
+    ],
+    prefix: "",
+    suffix: "",
+    separator: "-",
+    case: "preserve",
+    max_length: null,
+    duplicate_behavior: "block"
+  };
+}
+
+export function createLegacyOrderNameResolutionConfig(): OrderNameResolutionConfig {
+  return {
+    ...createDefaultOrderNameResolutionConfig(),
+    enabled: false,
+    strategy: "provided",
+    components: []
+  };
+}
+
+export function normalizeOrderNameResolutionConfig(
+  config: Partial<OrderNameResolutionConfig> | null | undefined,
+  fallback = createDefaultOrderNameResolutionConfig()
+): OrderNameResolutionConfig {
+  const source = config ?? {};
+  const strategy =
+    source.strategy === "provided" || source.strategy === "composite" || source.strategy === "provided_then_composite"
+      ? source.strategy
+      : fallback.strategy;
+  const resolutionCase =
+    source.case === "upper" || source.case === "lower" || source.case === "preserve"
+      ? source.case
+      : fallback.case;
+  const maxLength =
+    typeof source.max_length === "number" && Number.isFinite(source.max_length) && source.max_length > 0
+      ? Math.min(512, Math.round(source.max_length))
+      : source.max_length === null
+        ? null
+        : fallback.max_length;
+  const rawComponents = Array.isArray(source.components) ? source.components : fallback.components;
+  const components: OrderNameResolutionComponent[] = rawComponents
+    .filter((component): component is OrderNameResolutionComponent => Boolean(component && typeof component.field === "string"))
+    .map((component) => ({
+      field: component.field.trim(),
+      format: component.format === "yyyyMMdd" ? ("yyyyMMdd" as const) : ("none" as const),
+      optional: Boolean(component.optional)
+    }))
+    .filter(
+      (component, index, allComponents) =>
+        component.field && allComponents.findIndex((candidate) => candidate.field === component.field) === index
+    );
+
+  return {
+    enabled: typeof source.enabled === "boolean" ? source.enabled : fallback.enabled,
+    strategy,
+    provided_field:
+      typeof source.provided_field === "string" && source.provided_field.trim()
+        ? source.provided_field.trim()
+        : fallback.provided_field,
+    components,
+    prefix: typeof source.prefix === "string" ? source.prefix.trim() : fallback.prefix,
+    suffix: typeof source.suffix === "string" ? source.suffix.trim() : fallback.suffix,
+    separator: typeof source.separator === "string" ? source.separator.slice(0, 8) : fallback.separator,
+    case: resolutionCase,
+    max_length: maxLength,
+    duplicate_behavior: "block"
+  };
+}
+
+function nestedCanonicalValue(order: CanonicalOrder, path: string): unknown {
+  return path.split(".").filter(Boolean).reduce<unknown>((value, segment) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    return (value as Record<string, unknown>)[segment];
+  }, order);
+}
+
+function formatOrderNameDate(value: string) {
+  const directMatch = value.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (directMatch) {
+    return `${directMatch[1]}${directMatch[2].padStart(2, "0")}${directMatch[3].padStart(2, "0")}`;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return value;
+  }
+  return `${parsed.getUTCFullYear()}${String(parsed.getUTCMonth() + 1).padStart(2, "0")}${String(parsed.getUTCDate()).padStart(2, "0")}`;
+}
+
+function formatOrderNameComponent(value: unknown, format: OrderNameComponentFormat) {
+  const normalized = valueAsString(value).replace(/\s+/g, " ");
+  if (!normalized) {
+    return "";
+  }
+  return format === "yyyyMMdd" ? formatOrderNameDate(normalized) : normalized;
+}
+
+function applyOrderNameCase(value: string, resolutionCase: OrderNameResolutionCase) {
+  if (resolutionCase === "upper") {
+    return value.toUpperCase();
+  }
+  if (resolutionCase === "lower") {
+    return value.toLowerCase();
+  }
+  return value;
+}
+
+export function resolveOrderName(
+  order: CanonicalOrder,
+  rawConfig: Partial<OrderNameResolutionConfig> | null | undefined
+): OrderNameResolutionResult {
+  const config = normalizeOrderNameResolutionConfig(rawConfig);
+  const providedValue = formatOrderNameComponent(nestedCanonicalValue(order, config.provided_field), "none") || null;
+  const componentValues = config.components.map((component) => ({
+    field: component.field,
+    value: formatOrderNameComponent(nestedCanonicalValue(order, component.field), component.format) || null,
+    optional: component.optional
+  }));
+  if (!config.enabled) {
+    return {
+      value: providedValue,
+      source: providedValue ? "provided" : "missing",
+      provided_value: providedValue,
+      component_values: componentValues,
+      missing_required_fields: [],
+      exceeds_max_length: false
+    };
+  }
+  const missingRequiredFields = componentValues
+    .filter((component) => !component.optional && !component.value)
+    .map((component) => component.field);
+  const useProvided = Boolean(providedValue) && config.strategy !== "composite";
+  const useComposite = config.strategy === "composite" || (config.strategy === "provided_then_composite" && !providedValue);
+  const baseParts = useProvided
+    ? [providedValue as string]
+    : useComposite && missingRequiredFields.length === 0
+      ? componentValues.flatMap((component) => (component.value ? [component.value] : []))
+      : [];
+  const parts = [config.prefix, ...baseParts, config.suffix].filter(Boolean);
+  const value = baseParts.length ? applyOrderNameCase(parts.join(config.separator), config.case) : null;
+
+  return {
+    value,
+    source: useProvided ? "provided" : value ? "composite" : "missing",
+    provided_value: providedValue,
+    component_values: componentValues,
+    missing_required_fields: useComposite ? missingRequiredFields : [],
+    exceeds_max_length: Boolean(value && config.max_length && value.length > config.max_length)
+  };
+}
+
+export function applyOrderNameResolution(
+  order: CanonicalOrder,
+  config: Partial<OrderNameResolutionConfig> | null | undefined
+) {
+  const result = resolveOrderName(order, config);
+  const normalizedConfig = normalizeOrderNameResolutionConfig(config);
+  return {
+    canonical_order: {
+      ...order,
+      order: {
+        ...order.order,
+        order_title: normalizedConfig.enabled ? result.value : order.order.order_title ?? null
+      }
+    } satisfies CanonicalOrder,
+    result
+  };
+}
+
+export function validateOrderNameResolution(
+  result: OrderNameResolutionResult,
+  config: Partial<OrderNameResolutionConfig> | null | undefined
+): ValidationMessage[] {
+  const normalizedConfig = normalizeOrderNameResolutionConfig(config);
+  if (!normalizedConfig.enabled) {
+    return [];
+  }
+  if (!result.value) {
+    const missingDetail = result.missing_required_fields.length
+      ? ` Missing required composite fields: ${result.missing_required_fields.join(", ")}.`
+      : "";
+    return [
+      {
+        severity: "FAIL",
+        code: "ORDER_NAME_MISSING",
+        object: "Order",
+        field: "order.order_title",
+        message: `Order Name Resolution did not produce a value.${missingDetail}`,
+        suggested_action: "Map a customer order title or complete the configured composite fields."
+      }
+    ];
+  }
+
+  if (result.exceeds_max_length) {
+    return [
+      {
+        severity: "FAIL",
+        code: "ORDER_NAME_TOO_LONG",
+        object: "Order",
+        field: "order.order_title",
+        message: `Resolved order name is ${result.value.length} characters; this method allows ${normalizedConfig.max_length}.`,
+        suggested_action: "Shorten the configured prefix, suffix, or composite components."
+      }
+    ];
+  }
+
+  return [
+    {
+      severity: "PASS",
+      code: "ORDER_NAME_RESOLVED",
+      object: "Order",
+      field: "order.order_title",
+      message: `Resolved from ${result.source === "provided" ? "the customer-provided title" : "the configured composite"}.`
+    }
+  ];
+}
+
+export function findDuplicateOrderNames(results: OrderNameResolutionResult[]) {
+  const seen = new Map<string, number[]>();
+  results.forEach((result, index) => {
+    if (!result.value) {
+      return;
+    }
+    const key = result.value.trim().toLocaleLowerCase();
+    seen.set(key, [...(seen.get(key) ?? []), index]);
+  });
+  return Array.from(seen.entries())
+    .filter(([, indexes]) => indexes.length > 1)
+    .map(([normalized_name, indexes]) => ({ normalized_name, indexes }));
 }
 
 const sourceColumnAliases: Record<string, CanonicalTargetField> = {

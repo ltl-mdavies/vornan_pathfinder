@@ -13,16 +13,17 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Current committed HEAD: `6a62fa4 Add import method schema history`
-- Branch state before the bulk product mapping safety sprint: `main`, one local commit ahead of `origin/main`
+- Committed base immediately before the Order Name Resolution sprint: `04ae9e9 Add bulk product mapping confirmation`
+- Branch state before the Order Name Resolution sprint: `main`, synchronized with `origin/main`
 - Commit `932d6eb` was deployed successfully to the admin app, status app, and API.
 - Commits `aaac73c`, `a6bceb5`, `e5dbbb5`, `d45f2d1`, and `7b2865f` have been pushed but have not been deployed.
-- Commit `6a62fa4` is local and has not been pushed or deployed.
-- The working tree now contains the intentional bulk product mapping confirmation changes and Lift order-name strategy documentation; they remain uncommitted pending review.
+- Commits `6a62fa4` and `04ae9e9` have been pushed but have not been deployed.
+- The implementation following that base is the intentional Import Method Order Name Resolution slice, including its tests, documentation, and review-driven UI polish.
 
-Recent commits:
+Recent committed base history:
 
 ```text
+04ae9e9 Add bulk product mapping confirmation
 6a62fa4 Add import method schema history
 7b2865f Add import method persistence tests
 d45f2d1 Add per-sheet header overrides
@@ -45,14 +46,15 @@ d3cbd65 Add SES status link email foundation
 b27991b Add secure public status request flow
 ```
 
-Current in-progress slice:
+Current completed slice:
 
-- Requires at least two rows before the bulk product assignment path becomes available.
-- Shows the exact selected Pathfinder rows before catalog search and again in a final confirmation modal.
-- Routes both manual identifiers and catalog products through the same route-aware review.
-- Rechecks row and route strategy state at confirmation and leaves the row-level workflow unchanged.
-- Adds persistence coverage proving unselected neighboring rows are not changed.
-- Documents the proposed canonical/composite Lift order-name strategy as a separate planned slice.
+- Persists per-Import Method Order Name Resolution configuration.
+- Resolves customer-provided, composite, or provided-with-composite-fallback values into `order.order_title`.
+- Preserves legacy saved methods behind a disabled pass-through gate until an operator opts in.
+- Shows the source mapping, canonical destination, Lift JSON destination, component values, and live deterministic result.
+- Places Order Name Resolution before Field Mapping and presents the Import Method setup as a five-step workflow.
+- Applies the same resolver to API preview jobs and retains the result in persisted job snapshots.
+- Adds validation for required components, configured length, deterministic retries, duplicate names, persistence isolation, and legacy behavior.
 - No production deployment or real Lift submit behavior is part of this slice.
 
 Recommended opening move in the next thread:
@@ -532,24 +534,33 @@ Recommended next slices:
 
 The requested Lift order-name setup is documented in `docs/LIFT_ORDER_NAME_STRATEGY.md`.
 
-Recommended approach:
+Implemented in the current working tree:
 
 - Use the existing canonical `order.order_title`; the Lift adapter and seeded output template already emit it to `order.order_title` in the JSON.
 - Add canonical `order.order_name` only if the verified Lift contract proves the unique name is a separate payload field.
-- Add an Import Method Order Naming setup with customer-provided, composite, and provided-with-composite-fallback strategies.
+- Added an Import Method Order Name Resolution setup with customer-provided, composite, and provided-with-composite-fallback strategies.
 - Build composites from canonical paths, not raw workbook columns, with optional prefix/suffix, separator, casing, and date formatting.
 - Prefer a stable customer-provided name, otherwise default to customer/destination code plus external order ID and an optional stable business date.
 - Do not use the current timestamp or a random value by default; retries must resolve to the same name.
-- Initially block duplicate resolved titles within the current import and retain the resolved value in preview and submit snapshots.
+- Added current-batch duplicate detection and retained the resolved value in preview snapshots.
+- Existing methods remain disabled legacy pass-through until explicitly enabled, avoiding a new blocking requirement on historical configurations.
 - Add an atomic cross-job reservation only after Lift's uniqueness scope and lookup behavior are confirmed.
 - Validate the complete flow in sandbox before enabling any real Lift submission.
 
-Implementation sequence:
+Remaining sequence:
 
-1. Add Import Method order-name configuration and live preview targeting `order.order_title`.
-2. Resolve provided/composite/fallback titles after canonical field mapping.
-3. Add current-import duplicate validation and legacy-method coverage.
-4. Confirm Lift uniqueness scope, length/character constraints, and lookup behavior before cross-job reservation work.
+1. Confirm Lift uniqueness scope, length/character constraints, and lookup behavior.
+2. Add cross-job reservations and deterministic collision handling only if the confirmed contract requires them.
+3. Validate in a sandbox route before enabling any real Lift submission.
+
+Browser follow-up completed on 2026-07-19:
+
+- Confirmed the Import Method detail view places Order Name Resolution before Field Mapping without horizontal overflow.
+- Hardened the login root and auth-stage sizing against the narrow left-column render shown in Chrome.
+- Evenly distributed the dark-panel access chips on desktop, centered their mobile wrap, and hid the redundant `Vornan Pathfinder` eyebrow at the mobile breakpoint.
+- Restored a viewport-height desktop app shell with independent sidebar and workspace overflow; max-content workspace rows prevent tall Import Method panels from shrinking or clipping.
+- Aligned the composite canonical-field selector with the shared labeled setup-control styling used by Resolution Strategy, including its responsive stacked layout.
+- Confirmed a centered 1160px two-column login at 1904x1009 and an edge-to-edge single-column login at 390x844 with no horizontal overflow.
 
 ## Import Methods Roadmap
 
@@ -627,7 +638,7 @@ Please read /Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/THREAD_HA
 
 If the next slice is not specified, the best candidates are:
 
-1. Add the `order.order_title` Order Name Resolution configuration and live-preview slice from `docs/LIFT_ORDER_NAME_STRATEGY.md`.
+1. Confirm Lift naming constraints and uniqueness scope, then add cross-job safeguards only if the contract requires them.
 2. Validate Import Method parsing/history against the next real customer workbook.
 3. Transactional email SES smoke test and production switch.
-4. Mobile polish for login, dashboard, overview, and public status.
+4. Mobile polish for dashboard, overview, and public status.

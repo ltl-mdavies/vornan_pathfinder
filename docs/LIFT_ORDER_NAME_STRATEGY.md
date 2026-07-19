@@ -1,5 +1,9 @@
 # Lift Order Name Strategy
 
+## Implementation Status
+
+The first configuration/resolution slice is implemented in the current working tree. It targets canonical `order.order_title`, preserves the existing Lift JSON mapping, provides an Import Method live preview, and keeps historical methods in disabled legacy pass-through until explicitly enabled. Cross-job reservations and real Lift submission remain out of scope pending confirmation of Lift's uniqueness contract.
+
 ## Recommendation
 
 Treat the Lift order name as a resolved canonical value, not as an output-template-only expression.

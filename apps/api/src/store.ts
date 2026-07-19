@@ -32,8 +32,13 @@ import {
 } from "@pathfinder/lift-adapter";
 import {
   buildDefaultMappings,
+  createDefaultOrderNameResolutionConfig,
+  createLegacyOrderNameResolutionConfig,
+  normalizeOrderNameResolutionConfig,
   sampleSourceGrid,
   type FieldMapping,
+  type OrderNameResolutionConfig as TemplateOrderNameResolutionConfig,
+  type OrderNameResolutionResult,
   type ParsedSourceRow,
   type ParsedWorkbookSheet,
   type SourceGrid
@@ -105,6 +110,8 @@ export interface ProductResolutionConfig {
   fallback_strategy: "none" | "composite_key";
   direct_unit_number_column?: string | null;
 }
+
+export type OrderNameResolutionConfig = TemplateOrderNameResolutionConfig;
 
 export interface CustomerProductMapping {
   mapping_id: string;
@@ -264,6 +271,7 @@ export interface ImportMethod {
   };
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
+  order_name_resolution_config: OrderNameResolutionConfig;
   last_run_at?: string | null;
   success_rate?: string | null;
   created_at: string;
@@ -397,6 +405,7 @@ export interface ProcessingJobPreview {
   reference_rows: ParsedSourceRow[];
   mappings: FieldMapping[];
   product_resolution_results: ProductResolutionResult[];
+  order_name_resolution_result?: OrderNameResolutionResult;
   unresolved_products: CustomerProductMapping[];
   canonical_order: CanonicalOrder;
   canonical_validation: ValidationMessage[];
@@ -1305,6 +1314,7 @@ function createSeedMethod(timestamp: string): ImportMethod {
     source_config: {},
     workbook_sheet_policy: "rows_with_quantity",
     product_resolution_config: createDefaultProductResolutionConfig(),
+    order_name_resolution_config: createDefaultOrderNameResolutionConfig(),
     last_run_at: null,
     success_rate: null,
     created_at: timestamp,
@@ -2115,7 +2125,13 @@ function normalizeImportMethod(method: ImportMethod): ImportMethod {
     product_resolution_config: {
       ...createDefaultProductResolutionConfig(),
       ...(method.product_resolution_config ?? {})
-    }
+    },
+    order_name_resolution_config: normalizeOrderNameResolutionConfig(
+      method.order_name_resolution_config,
+      method.order_name_resolution_config
+        ? createDefaultOrderNameResolutionConfig()
+        : createLegacyOrderNameResolutionConfig()
+    )
   };
 }
 
@@ -3124,6 +3140,13 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
       ...(methodSource.product_resolution_config ?? {}),
       ...(methodPatch.product_resolution_config ?? {})
     },
+    order_name_resolution_config: normalizeOrderNameResolutionConfig(
+      {
+        ...(normalizedMethodSource.order_name_resolution_config ?? {}),
+        ...(methodPatch.order_name_resolution_config ?? {})
+      },
+      normalizedMethodSource.order_name_resolution_config
+    ),
     updated_at: timestamp
   };
 

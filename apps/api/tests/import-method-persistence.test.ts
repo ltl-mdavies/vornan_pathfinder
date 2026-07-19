@@ -205,6 +205,36 @@ test("keeps mappings isolated across methods and normalizes legacy parser settin
   assert.equal(legacyAfter.source_config.sample_template_name, undefined);
 });
 
+test("persists order name resolution independently for each import method", async () => {
+  const before = await getOrCreateWorkspace(testCustomer);
+  const secondaryBefore = importMethod(before, "legacy-csv").order_name_resolution_config;
+  const orderNameConfig = {
+    enabled: true,
+    strategy: "provided_then_composite",
+    provided_field: "order.order_title",
+    components: [
+      { field: "customer.destination_customer_id", format: "none", optional: false },
+      { field: "order.external_order_id", format: "none", optional: false },
+      { field: "order.ship_date", format: "yyyyMMdd", optional: true }
+    ],
+    prefix: "REG",
+    suffix: "",
+    separator: "-",
+    case: "upper",
+    max_length: 80,
+    duplicate_behavior: "block"
+  };
+
+  const saved = await updateImportMethod(testCustomer, "manual-xlsx", {
+    order_name_resolution_config: orderNameConfig
+  } as any);
+  assert.deepEqual(importMethod(saved, "manual-xlsx").order_name_resolution_config, orderNameConfig);
+  assert.deepEqual(importMethod(saved, "legacy-csv").order_name_resolution_config, secondaryBefore);
+
+  const reloaded = await getOrCreateWorkspace(testCustomer);
+  assert.deepEqual(importMethod(reloaded, "manual-xlsx").order_name_resolution_config, orderNameConfig);
+});
+
 test("retains only the five most recent structural schema versions", async () => {
   const historyCustomer = {
     ...testCustomer,

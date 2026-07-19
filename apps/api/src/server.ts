@@ -39,8 +39,12 @@ import {
   type LiftTargetConfig
 } from "@pathfinder/lift-adapter";
 import {
+  applyOrderNameResolution,
+  createDefaultOrderNameResolutionConfig,
   mapSourceRowsToCanonicalOrder,
+  normalizeOrderNameResolutionConfig,
   sampleSourceGrid,
+  validateOrderNameResolution,
   type FieldMapping,
   type ParsedSourceRow,
   type ParsedWorkbookSheet,
@@ -3197,7 +3201,14 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
         ...createDefaultProductResolutionConfig(),
         ...(existingMethod?.product_resolution_config ?? {}),
         ...(req.body?.product_resolution_config ?? {})
-      }
+      },
+      order_name_resolution_config: normalizeOrderNameResolutionConfig(
+        {
+          ...(existingMethod?.order_name_resolution_config ?? {}),
+          ...(req.body?.order_name_resolution_config ?? {})
+        },
+        existingMethod?.order_name_resolution_config ?? createDefaultOrderNameResolutionConfig()
+      )
     };
     const outputRoute =
       workspace.output_routes.find((route) => route.output_route_id === method.output_route_id) ??
@@ -3272,7 +3283,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     if (!target) {
       throw new Error(`Output route target ${outputRoute.target_id} could not be found.`);
     }
-    const canonicalOrder = mapSourceRowsToCanonicalOrder(mappingRows, mappings, {
+    const mappedCanonicalOrder = mapSourceRowsToCanonicalOrder(mappingRows, mappings, {
       customerId: `lift:${customer.lift_customer_id}`,
       customerName: submitCustomer.customer_name,
       customerCrmId: customer.crm_id ?? null,
@@ -3282,6 +3293,11 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       sourceTemplate: method.name,
       targetSystem: target.template
     });
+    const orderNameResolution = applyOrderNameResolution(
+      mappedCanonicalOrder,
+      method.order_name_resolution_config
+    );
+    const canonicalOrder = orderNameResolution.canonical_order;
     canonicalOrder.lines = canonicalOrder.lines.map((line, index) => ({
       ...line,
       unit_number:
@@ -3295,9 +3311,12 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       product_name: productResolutionResults[index]?.product_name ?? line.product_name,
       customer_sku: productResolutionResults[index]?.customer_product_key ?? line.customer_sku
     }));
-    const canonicalValidation = validateCanonicalOrder(canonicalOrder, {
-      product_identifier_type: outputRoute.product_identifier_type
-    });
+    const canonicalValidation = [
+      ...validateCanonicalOrder(canonicalOrder, {
+        product_identifier_type: outputRoute.product_identifier_type
+      }),
+      ...validateOrderNameResolution(orderNameResolution.result, method.order_name_resolution_config)
+    ];
     const rawLiftPayload = generateLiftPayload(canonicalOrder, {
       jobId,
       canonicalOrderId
@@ -3364,6 +3383,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       reference_rows: referenceRows,
       mappings,
       product_resolution_results: productResolutionResults,
+      order_name_resolution_result: orderNameResolution.result,
       unresolved_products: unresolvedProducts,
       canonical_order: canonicalOrder,
       canonical_validation: canonicalValidation,

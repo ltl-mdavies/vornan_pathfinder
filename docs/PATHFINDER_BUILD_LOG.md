@@ -1521,3 +1521,41 @@ Planned follow-up:
 
 - Added `docs/LIFT_ORDER_NAME_STRATEGY.md` with the recommended `order.order_title`, composite/fallback, duplicate safety, retry, and output-template approach for Lift order names.
 - The first implementation should add Import Method configuration and live preview while preserving the existing Lift `order.order_title` adapter/template path; cross-job reservations remain a later contract-dependent phase.
+
+## 2026-07-19 - Import Method Order Name Resolution
+
+Added deterministic Lift order-name setup and preview to Import Methods while retaining the existing canonical and output-template contract.
+
+What changed:
+
+- Added persisted per-method Order Name Resolution configuration with customer-provided, composite, and provided-with-composite-fallback strategies.
+- Reused canonical `order.order_title`; the existing Lift adapter and output template continue to emit the same value to Lift JSON `order.order_title`.
+- Composite rules use ordered canonical paths rather than raw workbook headers and support optional components, `yyyyMMdd` date formatting, prefix, suffix, separator, casing, and an optional maximum length.
+- Added a live Import Method preview showing the source mapping, component sample values, final resolved name, canonical destination, Lift JSON destination, and active output template.
+- Placed Order Name Resolution before Field Mapping in the Import Method workflow and expanded the step guide to five explicit stages so naming is configured before downstream mappings are reviewed.
+- Added an explicit enablement gate. Previously saved methods normalize to disabled legacy pass-through, so this slice does not introduce a new title requirement or silently generate names until an operator opts in.
+- New/configured methods default to customer-provided title with deterministic composite fallback using destination customer ID, external order ID, and optional ship date.
+- API preview jobs now run the same shared resolver as the browser preview, persist the resolution result, and include blocking validation for missing required components or configured length limits.
+- Added case-insensitive current-batch duplicate detection for use by multi-order import paths; cross-job/global reservations remain out of scope until Lift's real uniqueness contract is confirmed.
+
+Verification:
+
+- `npm test` (5 API persistence/product-map regressions and 9 template/parser regressions passing)
+- `npm run check`
+- `npm run build`
+- `git diff --check`
+- Isolated local API preview resolved `1249-AS360-30904511`, stored it in canonical `order.order_title`, emitted the identical Lift `order.order_title`, and returned `ORDER_NAME_RESOLVED` as passing validation.
+- The isolated preview remained `Needs Mapping` only because its product map was intentionally empty.
+- Live browser verification confirmed Order Name Resolution renders before Field Mapping and the Import Method detail view has no horizontal overflow.
+- Hardened the login root and auth-stage width rules so the page cannot collapse to a narrow left-aligned column when the browser viewport is wide.
+- Distributed the three dark-panel access chips evenly across the desktop panel and centered their responsive wrap on mobile.
+- Removed the redundant `Vornan Pathfinder` eyebrow from the mobile brand panel while retaining the Vornan and Pathfinder wordmarks.
+- Restored the desktop app shell to a viewport-height frame: the sidebar now remains bounded to the viewport with its own overflow safety, while the workspace owns long-page scrolling.
+- Set workspace grid rows to max-content so tall Import Method panels retain their full height inside the scroll container rather than shrinking and clipping their contents.
+- Moved the composite `Choose canonical field` selector into the shared labeled setup-control system so it matches the Resolution Strategy select on desktop and stacks cleanly with its action on mobile.
+- Desktop Chrome verification at 1904x1009 confirmed a centered 1160px two-column login stage; 390x844 verification confirmed an edge-to-edge single-column layout with a 342px action card and no horizontal overflow.
+- No production deployment, external Lift request, or real Lift submit behavior is part of this slice.
+
+Planned follow-up:
+
+- Confirm Lift's uniqueness scope, maximum length, allowed characters, and lookup behavior before adding cross-job reservation or deterministic collision suffixes.
