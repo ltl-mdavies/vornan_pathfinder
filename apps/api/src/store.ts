@@ -211,12 +211,18 @@ export interface DetectedSourceSchemaSheet {
   ignored_header_rows?: number[];
 }
 
+export interface SourceSheetHeaderOverride {
+  header_row: number | null;
+  header_row_count: 1 | 2;
+}
+
 export interface DetectedSourceParserConfig {
   header_row: number | null;
   header_row_count: 1 | 2;
   quantity_column: string | null;
   ignore_repeated_headers: boolean;
   reference_rows_mode: "rows_without_quantity" | "ignore";
+  sheet_header_overrides: Record<string, SourceSheetHeaderOverride>;
 }
 
 export interface DetectedSourceSchema {
@@ -251,6 +257,7 @@ export interface ImportMethod {
     quantity_column?: string | null;
     ignore_repeated_headers?: boolean;
     reference_rows_mode?: "rows_without_quantity" | "ignore";
+    sheet_header_overrides?: Record<string, SourceSheetHeaderOverride>;
     sample_template_name?: string | null;
     detected_schema?: DetectedSourceSchema | null;
   };

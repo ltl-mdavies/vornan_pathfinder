@@ -73,6 +73,11 @@ export interface ParsedWorkbook extends SourceGrid {
   reference_rows: ParsedSourceRow[];
 }
 
+export interface WorkbookSheetHeaderOverride {
+  headerRow: number | null;
+  headerRowCount: 1 | 2;
+}
+
 export interface WorkbookParseOptions {
   preferredSheetName?: string;
   headerRow?: number | null;
@@ -80,6 +85,7 @@ export interface WorkbookParseOptions {
   quantityColumn?: string | null;
   ignoreRepeatedHeaders?: boolean;
   referenceRowsMode?: "rows_without_quantity" | "ignore";
+  sheetHeaderOverrides?: Record<string, WorkbookSheetHeaderOverride>;
 }
 
 export interface CanonicalBuildOptions {
@@ -552,11 +558,18 @@ export async function parseWorkbookArrayBuffer(
   const xlsx = await import("xlsx");
   const workbook = xlsx.read(buffer, { type: "array", cellDates: true });
   const allSheetRows = workbook.SheetNames.map((candidateSheetName) => {
+    const sheetOverride = options.sheetHeaderOverrides?.[candidateSheetName];
     const { columns, rows, headerRow, headerRowCount, ignoredHeaderRows } = parseWorksheetRows(
       xlsx,
       workbook,
       candidateSheetName,
-      options
+      sheetOverride
+        ? {
+            ...options,
+            headerRow: sheetOverride.headerRow,
+            headerRowCount: sheetOverride.headerRowCount
+          }
+        : options
     );
     return {
       sheet_name: candidateSheetName,

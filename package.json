@@ -13,6 +13,7 @@
     "dev:api": "npm run dev --workspace @pathfinder/api",
     "build": "npm run build --workspaces --if-present",
     "check": "npm run check --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "deploy:admin-web": "scripts/deploy-admin-web.sh",
     "bootstrap:aws-buckets": "scripts/bootstrap-aws-buckets.sh",
     "deploy:web-hosting": "scripts/deploy-web-hosting.sh",

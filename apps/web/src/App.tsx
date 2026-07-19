@@ -272,12 +272,18 @@ interface DetectedSourceSchemaSheet {
   ignored_header_rows?: number[];
 }
 
+interface SourceSheetHeaderOverride {
+  header_row: number | null;
+  header_row_count: 1 | 2;
+}
+
 interface DetectedSourceParserConfig {
   header_row: number | null;
   header_row_count: 1 | 2;
   quantity_column: string | null;
   ignore_repeated_headers: boolean;
   reference_rows_mode: "rows_without_quantity" | "ignore";
+  sheet_header_overrides: Record<string, SourceSheetHeaderOverride>;
 }
 
 interface DetectedSourceSchema {
@@ -312,6 +318,7 @@ interface ImportMethod {
     quantity_column?: string | null;
     ignore_repeated_headers?: boolean;
     reference_rows_mode?: "rows_without_quantity" | "ignore";
+    sheet_header_overrides?: Record<string, SourceSheetHeaderOverride>;
     sample_template_name?: string | null;
     detected_schema?: DetectedSourceSchema | null;
   };
@@ -2816,13 +2823,38 @@ function sampleValuesForColumn(rows: SourceGrid["rows"], column: string) {
 }
 
 function sourceParserConfigFromMethod(sourceConfig: ImportMethod["source_config"]): DetectedSourceParserConfig {
+  const sheetHeaderOverrides = Object.fromEntries(
+    Object.entries(sourceConfig.sheet_header_overrides ?? {})
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([sheetName, override]) => [
+        sheetName,
+        {
+          header_row: override.header_row ?? null,
+          header_row_count: override.header_row_count ?? 1
+        }
+      ])
+  );
+
   return {
     header_row: sourceConfig.header_row ?? null,
     header_row_count: sourceConfig.header_row_count ?? 1,
     quantity_column: sourceConfig.quantity_column ?? null,
     ignore_repeated_headers: sourceConfig.ignore_repeated_headers ?? true,
-    reference_rows_mode: sourceConfig.reference_rows_mode ?? "rows_without_quantity"
+    reference_rows_mode: sourceConfig.reference_rows_mode ?? "rows_without_quantity",
+    sheet_header_overrides: sheetHeaderOverrides
   };
+}
+
+function workbookSheetHeaderOverrides(parserConfig: DetectedSourceParserConfig) {
+  return Object.fromEntries(
+    Object.entries(parserConfig.sheet_header_overrides).map(([sheetName, override]) => [
+      sheetName,
+      {
+        headerRow: override.header_row,
+        headerRowCount: override.header_row_count
+      }
+    ])
+  );
 }
 
 function sourceSchemaIsStale(schema: DetectedSourceSchema | null, sourceConfig: ImportMethod["source_config"]) {
@@ -2839,7 +2871,8 @@ function sourceSchemaIsStale(schema: DetectedSourceSchema | null, sourceConfig: 
     schema.parser_config.header_row_count !== current.header_row_count ||
     schema.parser_config.quantity_column !== current.quantity_column ||
     schema.parser_config.ignore_repeated_headers !== current.ignore_repeated_headers ||
-    schema.parser_config.reference_rows_mode !== current.reference_rows_mode
+    schema.parser_config.reference_rows_mode !== current.reference_rows_mode ||
+    JSON.stringify(schema.parser_config.sheet_header_overrides ?? {}) !== JSON.stringify(current.sheet_header_overrides)
   );
 }
 
@@ -3017,6 +3050,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [importError, setImportError] = useState<string | null>(null);
   const [sourceSchemaState, setSourceSchemaState] = useState<"idle" | "detecting" | "error">("idle");
   const [sourceSchemaMessage, setSourceSchemaMessage] = useState<string | null>(null);
+  const [selectedSourceSchemaSheetName, setSelectedSourceSchemaSheetName] = useState("");
   const [customers, setCustomers] = useState<LiftCustomer[]>([fallbackCustomer]);
   const [selectedCustomerId, setSelectedCustomerId] = useState(fallbackCustomer.lift_customer_id);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -4170,6 +4204,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const detectedSelectedSheet = detectedSourceSchema?.sheets.find(
     (sheet) => sheet.sheet_name === detectedSourceSchema.selected_sheet_name
   );
+  const configuredSourceSchemaSheet =
+    detectedSourceSchema?.sheets.find((sheet) => sheet.sheet_name === selectedSourceSchemaSheetName) ??
+    detectedSelectedSheet ??
+    detectedSourceSchema?.sheets[0];
+  const selectedSourceSheetOverride = configuredSourceSchemaSheet
+    ? sourceConfig.sheet_header_overrides?.[configuredSourceSchemaSheet.sheet_name]
+    : undefined;
   const sourceHeaderDisplay = sourceHeaderRow
     ? `Row ${sourceHeaderRow}`
     : detectedSelectedSheet?.header_row
@@ -5285,6 +5326,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setReferenceRows([]);
       setSourceName(schema.source_file_name);
       setSheetName(schema.selected_sheet_name || schema.sheets[0]?.sheet_name || "Detected schema");
+      setSelectedSourceSchemaSheetName(schema.selected_sheet_name || schema.sheets[0]?.sheet_name || "");
       return;
     }
 
@@ -5294,6 +5336,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setReferenceRows([]);
     setSourceName("Sample workbook");
     setSheetName("Sample");
+    setSelectedSourceSchemaSheetName("");
   }
 
   async function detectImportMethodSourceSchema(file: File) {
@@ -5313,7 +5356,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         headerRowCount: parserConfig.header_row_count,
         quantityColumn: parserConfig.quantity_column,
         ignoreRepeatedHeaders: parserConfig.ignore_repeated_headers,
-        referenceRowsMode: parserConfig.reference_rows_mode
+        referenceRowsMode: parserConfig.reference_rows_mode,
+        sheetHeaderOverrides: workbookSheetHeaderOverrides(parserConfig)
       });
 
       if (parsed.columns.length === 0) {
@@ -5329,6 +5373,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setReferenceRows(parsed.reference_rows);
       setSourceName(file.name);
       setSheetName(parsed.sheetName);
+      setSelectedSourceSchemaSheetName((current) =>
+        parsed.sheetNames.includes(current) ? current : parsed.sheetName
+      );
       setMappings(nextMappings);
       methodTemplateFileRef.current = file;
       setLastPreviewJob(null);
@@ -5359,6 +5406,26 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     event.target.value = "";
   }
 
+  function updateSourceSheetHeaderOverride(sheetName: string, override: SourceSheetHeaderOverride | null) {
+    if (!activeImportMethod) {
+      return;
+    }
+
+    const nextOverrides = { ...(activeImportMethod.source_config.sheet_header_overrides ?? {}) };
+    if (override) {
+      nextOverrides[sheetName] = override;
+    } else {
+      delete nextOverrides[sheetName];
+    }
+
+    updateActiveMethodDraft({
+      source_config: {
+        ...activeImportMethod.source_config,
+        sheet_header_overrides: nextOverrides
+      }
+    });
+  }
+
   function useSampleSourceColumns() {
     if (!activeImportMethod) {
       return;
@@ -5371,6 +5438,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setReferenceRows([]);
     setSourceName("Sample workbook");
     setSheetName("Sample");
+    setSelectedSourceSchemaSheetName("");
     setMappings(nextMappings);
     methodTemplateFileRef.current = null;
     updateActiveMethodDraft({
@@ -5387,12 +5455,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   async function importWorkbook(file: File) {
     try {
+      const parserConfig = sourceParserConfigFromMethod(activeImportMethod?.source_config ?? {});
       const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer(), {
-        headerRow: activeImportMethod?.source_config.header_row ?? null,
-        headerRowCount: activeImportMethod?.source_config.header_row_count ?? 1,
-        quantityColumn: activeImportMethod?.source_config.quantity_column ?? null,
-        ignoreRepeatedHeaders: activeImportMethod?.source_config.ignore_repeated_headers ?? true,
-        referenceRowsMode: activeImportMethod?.source_config.reference_rows_mode ?? "rows_without_quantity"
+        headerRow: parserConfig.header_row,
+        headerRowCount: parserConfig.header_row_count,
+        quantityColumn: parserConfig.quantity_column,
+        ignoreRepeatedHeaders: parserConfig.ignore_repeated_headers,
+        referenceRowsMode: parserConfig.reference_rows_mode,
+        sheetHeaderOverrides: workbookSheetHeaderOverrides(parserConfig)
       });
       setSourceGrid({ columns: parsed.columns, rows: parsed.rows });
       setSourceSheets(parsed.source_sheets);
@@ -7773,6 +7843,94 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </select>
                       </label>
                     </div>
+                    {detectedSourceSchema && configuredSourceSchemaSheet ? (
+                      <div className="source-sheet-override-panel">
+                        <div className="source-sheet-override-heading">
+                          <div>
+                            <strong>Per-Sheet Header Override</strong>
+                            <span>Use this when workbook tabs do not share the global header layout.</span>
+                          </div>
+                          <span>
+                            {Object.keys(sourceConfig.sheet_header_overrides ?? {}).length} active override
+                            {Object.keys(sourceConfig.sheet_header_overrides ?? {}).length === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                        <div className="setup-grid source-sheet-override-grid">
+                          <label className="setup-control">
+                            <span>Workbook Sheet</span>
+                            <select
+                              value={configuredSourceSchemaSheet.sheet_name}
+                              onChange={(event) => setSelectedSourceSchemaSheetName(event.target.value)}
+                            >
+                              {detectedSourceSchema.sheets.map((sheet) => (
+                                <option key={sheet.sheet_name} value={sheet.sheet_name}>
+                                  {sheet.sheet_name}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="setup-control">
+                            <span>Header Settings</span>
+                            <select
+                              value={selectedSourceSheetOverride ? "override" : "global"}
+                              onChange={(event) => {
+                                if (event.target.value === "global") {
+                                  updateSourceSheetHeaderOverride(configuredSourceSchemaSheet.sheet_name, null);
+                                  return;
+                                }
+
+                                updateSourceSheetHeaderOverride(configuredSourceSchemaSheet.sheet_name, {
+                                  header_row: configuredSourceSchemaSheet.header_row ?? sourceHeaderRow,
+                                  header_row_count:
+                                    configuredSourceSchemaSheet.header_row_count ?? sourceHeaderRowCount
+                                });
+                              }}
+                            >
+                              <option value="global">Use global header settings</option>
+                              <option value="override">Override this sheet</option>
+                            </select>
+                          </label>
+                          {selectedSourceSheetOverride ? (
+                            <>
+                              <label className="setup-control">
+                                <span>Sheet Header Row</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={selectedSourceSheetOverride.header_row ?? ""}
+                                  placeholder="Auto-detect"
+                                  onChange={(event) => {
+                                    const value = event.target.value.trim();
+                                    updateSourceSheetHeaderOverride(configuredSourceSchemaSheet.sheet_name, {
+                                      ...selectedSourceSheetOverride,
+                                      header_row: value ? Number.parseInt(value, 10) || 1 : null
+                                    });
+                                  }}
+                                />
+                              </label>
+                              <label className="setup-control">
+                                <span>Sheet Header Rows</span>
+                                <select
+                                  value={selectedSourceSheetOverride.header_row_count}
+                                  onChange={(event) =>
+                                    updateSourceSheetHeaderOverride(configuredSourceSchemaSheet.sheet_name, {
+                                      ...selectedSourceSheetOverride,
+                                      header_row_count: Number.parseInt(event.target.value, 10) === 2 ? 2 : 1
+                                    })
+                                  }
+                                >
+                                  <option value={1}>Single header row</option>
+                                  <option value={2}>Two-row grouped header</option>
+                                </select>
+                              </label>
+                            </>
+                          ) : null}
+                        </div>
+                        <p>
+                          Quantity, repeated-header, and reference-row rules remain global. Header overrides take effect after re-detecting this schema.
+                        </p>
+                      </div>
+                    ) : null}
                     <div className="source-setup-callout">
                       <strong>
                         {detectedSourceSchema

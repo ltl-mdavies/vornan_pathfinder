@@ -1414,3 +1414,30 @@ Verification:
 - Local browser validation confirmed saved audit metadata, stale-schema warning, upload-again fallback, disabled save, guarded sample reset, and discard restoration.
 - 390x844 browser validation had no horizontal overflow.
 - No browser console warnings or errors.
+
+## 2026-07-19 - Per-Sheet Header Overrides And Parser Regression Suite
+
+Extended Import Method source parsing for customer workbooks whose tabs use different header layouts.
+
+What changed:
+
+- Added optional header row and header span overrides keyed to exact workbook sheet names.
+- Kept quantity-column selection, repeated-header filtering, and reference-row handling global so only layout-specific settings vary by sheet.
+- Added a focused Import Method control that shows the active workbook sheet, its inheritance/override state, and the number of configured overrides.
+- Applied the same per-sheet configuration during source schema detection and Manual Import parsing.
+- Included the normalized override map in schema freshness checks, so changing an override requires re-detection before `Save Method` is available.
+- Persisted only parser settings and detected schema metadata; workbook rows and cell values remain excluded.
+- Added a workspace-level `npm test` command and durable workbook parser regression tests for automatic single-row headers, two-row grouped headers, repeated-header audit rows, blank header cells, and exact-sheet overrides.
+
+Verification:
+
+- `npm test` (4 passing parser regressions)
+- `npm run check`
+- `npm run build`
+- `git diff --check`
+- Production build retained the existing Vite advisory for the admin bundle exceeding 500 kB; no build failed.
+- Disposable API persistence verification confirmed the exact `Catalog` header-row/span override and matching detected-schema parser snapshot survived reload.
+- Local browser validation confirmed the saved override hydrates on the exact sheet, changing it marks the schema `Refresh required`, and `Save Method` remains disabled until re-detection.
+- 390x844 browser validation confirmed the override controls collapse to one column with no horizontal overflow.
+- No browser console warnings or errors were observed.
+- No real Lift submit flags were enabled and no external Lift request was sent.

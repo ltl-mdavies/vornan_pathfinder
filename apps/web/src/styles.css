@@ -3646,6 +3646,59 @@ h1 {
   padding-top: 0;
 }
 
+.source-sheet-override-panel {
+  display: grid;
+  gap: 12px;
+  margin: 0 16px 16px;
+  padding: 14px;
+  background: rgba(243, 247, 241, 0.72);
+  border: 1px solid rgba(57, 82, 59, 0.14);
+  border-radius: 8px;
+}
+
+.source-sheet-override-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.source-sheet-override-heading strong,
+.source-sheet-override-heading span {
+  display: block;
+}
+
+.source-sheet-override-heading strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.source-sheet-override-heading div > span,
+.source-sheet-override-panel > p {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.source-sheet-override-heading > span {
+  flex: 0 0 auto;
+  color: var(--vornan-forest);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.source-sheet-override-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0;
+}
+
+.source-sheet-override-panel > p {
+  margin: 0;
+}
+
 .source-setup-callout {
   display: grid;
   gap: 4px;
@@ -7180,7 +7233,13 @@ td {
 
   .source-schema-sheet-list,
   .source-setup-summary,
-  .method-source-context {
+  .method-source-context,
+  .source-sheet-override-grid {
     grid-template-columns: 1fr;
+  }
+
+  .source-sheet-override-heading {
+    flex-direction: column;
+    gap: 6px;
   }
 }

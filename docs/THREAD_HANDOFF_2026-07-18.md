@@ -13,15 +13,16 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Current committed HEAD: `a6bceb5 Harden import methods and persist source schemas`
-- Branch state before the multi-row header sprint: `main`, synchronized with `origin/main`
+- Current committed HEAD: `e5dbbb5 Add multi-row header schema refresh`
+- Branch state before the per-sheet header override sprint: `main`, synchronized with `origin/main`
 - Commit `932d6eb` was deployed successfully to the admin app, status app, and API.
-- Commits `aaac73c` and `a6bceb5` have been pushed but have not been deployed.
-- The working tree now contains the intentional multi-row header detection and stale-schema refresh changes; they remain uncommitted pending review.
+- Commits `aaac73c`, `a6bceb5`, and `e5dbbb5` have been pushed but have not been deployed.
+- The working tree now contains the intentional per-sheet header override and parser regression-suite changes; they remain uncommitted pending review.
 
 Recent commits:
 
 ```text
+e5dbbb5 Add multi-row header schema refresh
 a6bceb5 Harden import methods and persist source schemas
 aaac73c Add route strategy remap assistance
 932d6eb Add multi-order status and row-level product mapping
@@ -39,6 +40,15 @@ d3cbd65 Add SES status link email foundation
 9410f2f Document GitHub deploy role policies
 b27991b Add secure public status request flow
 ```
+
+Current in-progress slice:
+
+- Adds header row/span overrides scoped to exact workbook sheet names while keeping quantity, repeated-header, and reference-row rules global.
+- Persists overrides in Import Method source configuration and includes them in detected-schema freshness checks.
+- Applies the same exact-sheet overrides during source detection and Manual Import parsing.
+- Adds a repeatable `npm test` parser suite covering automatic headers, grouped headers, blank header cells, repeated-header audit rows, and per-sheet layouts.
+- Isolated API and browser verification confirmed exact-sheet persistence, stale-schema save protection, a single-column 390px layout, and no browser console errors.
+- No production deployment or real Lift submit behavior is part of this slice.
 
 Recommended opening move in the next thread:
 
@@ -409,13 +419,15 @@ GitHub Actions deploys:
 - Import Methods can now detect and persist workbook schema metadata while keeping workbook rows and cell values session-only.
 - Workbook parsing can now auto-detect headers below title rows, handle two-row grouped headers, and audit ignored repeated header rows.
 - Import Methods block save when parser settings no longer match the detected schema and guide the operator through re-detection.
+- Import Methods can override the header row and one/two-row span for an exact workbook sheet while preserving global quantity, repeated-header, and reference-row rules.
+- The templates workspace now has durable parser regressions exposed through the root `npm test` command.
 
 ## Current Known Friction Or Risks
 
 - Google login may show Cross-Origin-Opener-Policy console warnings from Firebase popup behavior even when auth succeeds.
 - The Lift Product Catalog panel has been iterated several times and may still need simplification around pinned catalogs, refresh behavior, and product details hierarchy.
 - Automatic header detection is heuristic; live customer templates with unusually sparse or decorative headers should be checked before relying on the detected row.
-- One explicit header-row override currently applies to every sheet; per-sheet overrides may be needed for workbooks whose tabs use different layouts.
+- Per-sheet header overrides intentionally cover only header row/span; quantity, repeated-header, and reference-row rules remain global until live templates demonstrate a need for finer control.
 - Targets should eventually get the same single-save/unsaved-change treatment as Import Methods.
 - Public status gating must balance security with customer ease. Email-domain-based access has momentum, plus global allowed domains.
 - Mobile support is not required for the full admin app, but login, dashboard, overview, and public status should behave well on mobile.
@@ -525,9 +537,9 @@ Completed in the latest continuation slice:
 
 Recommended next slices:
 
-1. Add per-sheet header overrides for workbooks whose tabs do not share one layout.
-2. Add durable parser regression fixtures and focused method-level tests for schema and mapping persistence.
-3. Consider a schema version/history view if operators need to compare template changes over time.
+1. Add focused method-level/API regression tests for detected-schema and mapping persistence.
+2. Consider a schema version/history view if operators need to compare template changes over time.
+3. Validate the header heuristics and override controls against the next real customer workbook before adding more per-sheet parser settings.
 
 ## Canonical Registry Roadmap
 
@@ -581,7 +593,7 @@ Please read /Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/THREAD_HA
 
 If the next slice is not specified, the best candidates are:
 
-1. Import Methods per-sheet header overrides and durable parser regression fixtures.
+1. Import Methods method-level/API regression tests for schema and mapping persistence.
 2. Add confirmation and separation to the existing bulk product-map flow.
 3. Transactional email SES smoke test and production switch.
 4. Mobile polish for login, dashboard, overview, and public status.
