@@ -1558,4 +1558,30 @@ Verification:
 
 Planned follow-up:
 
-- Confirm Lift's uniqueness scope, maximum length, allowed characters, and lookup behavior before adding cross-job reservation or deterministic collision suffixes.
+- Simplify the naming workflow around customer identifiers, configured text, and submission date; keep Ext_ID identity separate from the readable order name.
+
+## 2026-07-19 - Simplified Order Identity Resolution
+
+Reframed the uncommitted Lift naming follow-up around the operator's actual workflow and removed the oversized route-level naming-contract setup.
+
+What changed:
+
+- Added fixed-text components alongside canonical-field components, enabling patterns such as `123987 - Empirical Web Order - 20260819`.
+- Changed the recommended new-method composite to customer external order ID, editable `Web Order` text, and `source.submitted_at` formatted as `yyyyMMdd`.
+- Added an explicit per-Import Method Lift Ext_ID source: the backward-compatible customer external order ID or a persisted Pathfinder-generated order ID.
+- Strengthened preview job and canonical-order IDs with random entropy and added a compact collision-resistant Pathfinder order ID to each persisted job snapshot.
+- Kept customer order, PO, and contract identifiers in the canonical record when Pathfinder supplies Lift Ext_ID.
+- Split duplicate order-name errors from duplicate Ext_ID errors. Only a verified duplicate-name rejection prepares the next retry with `-1`, then `-2`; Pathfinder does not automatically resubmit.
+- Removed the speculative Lift Order Name Contract UI and left unknown length/character constraints undefined.
+
+Verification:
+
+- `npm test` (8 API regressions and 11 template/parser regressions passing)
+- `npm run check`
+- `npm run build` (existing Vite chunk-size advisory only)
+- `git diff --check`
+- Isolated API preview resolved `123987 - Empirical Web Order - 20260719`, persisted a compact Pathfinder order ID, and emitted that identical ID in Lift header `Ext_ID` and body `order.ext_id`.
+- The isolated preview returned passing `ORDER_NAME_RESOLVED` validation and remained `Needs Mapping` only because the isolated product map was intentionally empty.
+- Confirmed the local admin and API servers remain available at `http://127.0.0.1:5183` and `http://127.0.0.1:3108`.
+
+The production deployment updates Pathfinder configuration, preview, and guarded retry preparation only. It does not enable external Lift submission or automatically submit an order.

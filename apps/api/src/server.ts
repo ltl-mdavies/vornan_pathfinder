@@ -39,6 +39,7 @@ import {
   type LiftTargetConfig
 } from "@pathfinder/lift-adapter";
 import {
+  appendOrderNameRetrySuffix,
   applyOrderNameResolution,
   createDefaultOrderNameResolutionConfig,
   mapSourceRowsToCanonicalOrder,
@@ -169,6 +170,7 @@ const liftMockScenario: LiftSubmitMockScenario =
   process.env.PATHFINDER_LIFT_MOCK_SCENARIO === "product_error" ||
   process.env.PATHFINDER_LIFT_MOCK_SCENARIO === "payload_error" ||
   process.env.PATHFINDER_LIFT_MOCK_SCENARIO === "duplicate_ext_id" ||
+  process.env.PATHFINDER_LIFT_MOCK_SCENARIO === "duplicate_order_name" ||
   process.env.PATHFINDER_LIFT_MOCK_SCENARIO === "endpoint_error"
     ? process.env.PATHFINDER_LIFT_MOCK_SCENARIO
     : "accepted";
@@ -3208,7 +3210,11 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
           ...(req.body?.order_name_resolution_config ?? {})
         },
         existingMethod?.order_name_resolution_config ?? createDefaultOrderNameResolutionConfig()
-      )
+      ),
+      ext_id_strategy:
+        req.body?.ext_id_strategy === "pathfinder_generated" || req.body?.ext_id_strategy === "customer_order_id"
+          ? req.body.ext_id_strategy
+          : existingMethod?.ext_id_strategy ?? "customer_order_id"
     };
     const outputRoute =
       workspace.output_routes.find((route) => route.output_route_id === method.output_route_id) ??
@@ -3229,8 +3235,13 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       outputRoute
     );
     const timestamp = new Date().toISOString();
-    const jobId = `job_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}`;
-    const canonicalOrderId = `co_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}`;
+    const compactTimestamp = timestamp.replace(/[-:.TZ]/g, "").slice(0, 14);
+    const idEntropy = randomBytes(3).toString("hex");
+    const jobId = `job_${compactTimestamp}_${idEntropy}`;
+    const canonicalOrderId = `co_${compactTimestamp}_${idEntropy}`;
+    const pathfinderOrderId = `PF${Date.parse(timestamp).toString(36).toUpperCase()}${randomBytes(2)
+      .toString("hex")
+      .toUpperCase()}`;
     const seenMappings = productResolutionResults.map((result, index) => {
       const row = orderRows[index];
       const existing = existingProductMappings.find(
@@ -3319,7 +3330,9 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     ];
     const rawLiftPayload = generateLiftPayload(canonicalOrder, {
       jobId,
-      canonicalOrderId
+      canonicalOrderId,
+      pathfinderOrderId,
+      extIdStrategy: method.ext_id_strategy
     });
     const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, outputRoute.value_normalization_rules);
     const liftPayload = normalizedLift.payload;
@@ -3358,6 +3371,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     });
     const job: ProcessingJobPreview = {
       job_id: jobId,
+      pathfinder_order_id: pathfinderOrderId,
       customer_id: customer.lift_customer_id,
       customer_name: customer.customer_name,
       source_customer_id: customer.lift_customer_id,
@@ -3879,11 +3893,62 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
         submitRequestMasked
       })
     );
-    const submittedJob = await getJob(customer, job.job_id);
+    let submittedJob = await getJob(customer, job.job_id);
+
+    if (
+      transportResult.error_translation?.category === "duplicate_order_name" &&
+      job.lift_payload.order.order_title
+    ) {
+      const attempts = await listSubmitAttemptsForJob(customer, job.job_id);
+      const duplicateNameAttemptCount = attempts.filter(
+        (candidate) => candidate.response.error_translation?.category === "duplicate_order_name"
+      ).length;
+      const nextOrderName = appendOrderNameRetrySuffix(
+        job.lift_payload.order.order_title,
+        duplicateNameAttemptCount
+      );
+      submittedJob = await persistJobSnapshot(customer, {
+        ...(submittedJob ?? job),
+        state: "Ready",
+        canonical_order: {
+          ...(submittedJob ?? job).canonical_order,
+          order: {
+            ...(submittedJob ?? job).canonical_order.order,
+            order_title: nextOrderName
+          }
+        },
+        order_name_resolution_result: (submittedJob ?? job).order_name_resolution_result
+          ? {
+              ...(submittedJob ?? job).order_name_resolution_result!,
+              value: nextOrderName
+            }
+          : undefined,
+        lift_payload: {
+          ...(submittedJob ?? job).lift_payload,
+          order: {
+            ...(submittedJob ?? job).lift_payload.order,
+            order_title: nextOrderName
+          }
+        },
+        submit_request_masked: {
+          ...(submittedJob ?? job).submit_request_masked,
+          body: {
+            ...(submittedJob ?? job).submit_request_masked.body,
+            order: {
+              ...(submittedJob ?? job).submit_request_masked.body.order,
+              order_title: nextOrderName
+            }
+          }
+        }
+      });
+    }
 
     if (transportResult.status === "rejected" || transportResult.status === "error") {
       res.status(502).json({
-        error: transportResult.message,
+        error:
+          transportResult.error_translation?.category === "duplicate_order_name" && submittedJob?.lift_payload.order.order_title
+            ? `${transportResult.message} Next retry prepared as ${submittedJob.lift_payload.order.order_title}.`
+            : transportResult.message,
         attempt,
         job: submittedJob ?? job,
         certification,

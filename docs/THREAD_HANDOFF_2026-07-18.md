@@ -13,12 +13,12 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Committed base immediately before the Order Name Resolution sprint: `04ae9e9 Add bulk product mapping confirmation`
+- Current committed base: `6a63f81 Add import method order name resolution`
 - Branch state before the Order Name Resolution sprint: `main`, synchronized with `origin/main`
 - Commit `932d6eb` was deployed successfully to the admin app, status app, and API.
 - Commits `aaac73c`, `a6bceb5`, `e5dbbb5`, `d45f2d1`, and `7b2865f` have been pushed but have not been deployed.
 - Commits `6a62fa4` and `04ae9e9` have been pushed but have not been deployed.
-- The implementation following that base is the intentional Import Method Order Name Resolution slice, including its tests, documentation, and review-driven UI polish.
+- The simplified Order Identity Resolution follow-up is validated and ready for its intentional production commit.
 
 Recent committed base history:
 
@@ -56,6 +56,16 @@ Current completed slice:
 - Applies the same resolver to API preview jobs and retains the result in persisted job snapshots.
 - Adds validation for required components, configured length, deterministic retries, duplicate names, persistence isolation, and legacy behavior.
 - No production deployment or real Lift submit behavior is part of this slice.
+
+Current working slice:
+
+- Removes the speculative route-level Lift Order Name Contract setup.
+- Adds ordered fixed text to composite order names, supporting customer identifier + configured label + submission date.
+- Adds an explicit customer-vs-Pathfinder Lift Ext_ID strategy while preserving header/body equality.
+- Persists a compact collision-resistant Pathfinder order ID with each preview job.
+- Classifies duplicate order-name failures separately and prepares an incremented suffix for an operator-requested retry.
+- Does not enable live Lift transport or automatically resubmit.
+- Validation passed with 8 API tests, 11 template/parser tests, full type checks, production builds, and an isolated API preview matching header/body Ext_ID and canonical/Lift order title.
 
 Recommended opening move in the next thread:
 

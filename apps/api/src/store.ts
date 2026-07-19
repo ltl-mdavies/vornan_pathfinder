@@ -37,6 +37,7 @@ import {
   normalizeOrderNameResolutionConfig,
   sampleSourceGrid,
   type FieldMapping,
+  type LiftExtIdStrategy,
   type OrderNameResolutionConfig as TemplateOrderNameResolutionConfig,
   type OrderNameResolutionResult,
   type ParsedSourceRow,
@@ -272,6 +273,7 @@ export interface ImportMethod {
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
   order_name_resolution_config: OrderNameResolutionConfig;
+  ext_id_strategy: LiftExtIdStrategy;
   last_run_at?: string | null;
   success_rate?: string | null;
   created_at: string;
@@ -380,6 +382,7 @@ export interface SubmitCertification {
 
 export interface ProcessingJobPreview {
   job_id: string;
+  pathfinder_order_id: string;
   customer_id: string;
   customer_name: string;
   source_customer_id: string;
@@ -1315,6 +1318,7 @@ function createSeedMethod(timestamp: string): ImportMethod {
     workbook_sheet_policy: "rows_with_quantity",
     product_resolution_config: createDefaultProductResolutionConfig(),
     order_name_resolution_config: createDefaultOrderNameResolutionConfig(),
+    ext_id_strategy: "customer_order_id",
     last_run_at: null,
     success_rate: null,
     created_at: timestamp,
@@ -2131,7 +2135,8 @@ function normalizeImportMethod(method: ImportMethod): ImportMethod {
       method.order_name_resolution_config
         ? createDefaultOrderNameResolutionConfig()
         : createLegacyOrderNameResolutionConfig()
-    )
+    ),
+    ext_id_strategy: method.ext_id_strategy === "pathfinder_generated" ? "pathfinder_generated" : "customer_order_id"
   };
 }
 
@@ -2500,19 +2505,23 @@ function recordCanonicalRegistryChange(
 
 function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderCustomerWorkspace {
   const route = createSeedOutputRoute();
-  const outputRoutes = (workspace.output_routes?.length ? workspace.output_routes : [route]).map((candidate) => ({
-    ...route,
-    ...candidate,
-    environment_id: candidate.environment_id ?? route.environment_id,
-    output_template_id: candidate.output_template_id ?? route.output_template_id,
-    submit_profiles: normalizeSubmitProfiles(candidate),
-    value_normalization_rules: candidate.value_normalization_rules?.length
-      ? candidate.value_normalization_rules
-      : route.value_normalization_rules,
-    order_lookup_url: candidate.order_lookup_url ?? route.order_lookup_url ?? null,
-    proof_report_url: candidate.proof_report_url ?? route.proof_report_url ?? null,
-    package_details_url: candidate.package_details_url ?? route.package_details_url ?? null
-  }));
+  const outputRoutes = (workspace.output_routes?.length ? workspace.output_routes : [route]).map((candidate) => {
+    const candidateWithoutLegacyContract = { ...candidate } as OutputRoute & { order_name_contract?: unknown };
+    delete candidateWithoutLegacyContract.order_name_contract;
+    return {
+      ...route,
+      ...candidateWithoutLegacyContract,
+      environment_id: candidate.environment_id ?? route.environment_id,
+      output_template_id: candidate.output_template_id ?? route.output_template_id,
+      submit_profiles: normalizeSubmitProfiles(candidate),
+      value_normalization_rules: candidate.value_normalization_rules?.length
+        ? candidate.value_normalization_rules
+        : route.value_normalization_rules,
+      order_lookup_url: candidate.order_lookup_url ?? route.order_lookup_url ?? null,
+      proof_report_url: candidate.proof_report_url ?? route.proof_report_url ?? null,
+      package_details_url: candidate.package_details_url ?? route.package_details_url ?? null
+    };
+  });
   const primaryOutputRouteId = workspace.primary_output_route_id ?? outputRoutes[0]?.output_route_id ?? route.output_route_id;
   const catalogPresets = workspace.catalog_presets?.length
     ? workspace.catalog_presets
@@ -3147,6 +3156,10 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
       },
       normalizedMethodSource.order_name_resolution_config
     ),
+    ext_id_strategy:
+      methodPatch.ext_id_strategy === "pathfinder_generated" || methodPatch.ext_id_strategy === "customer_order_id"
+        ? methodPatch.ext_id_strategy
+        : normalizedMethodSource.ext_id_strategy,
     updated_at: timestamp
   };
 
@@ -3182,9 +3195,11 @@ export async function updateOutputRoute(customer: LiftCustomer, routeId: string,
   const timestamp = now();
   const existingRoute =
     workspace.output_routes.find((route) => route.output_route_id === routeId) ?? createSeedOutputRoute(timestamp);
+  const routePatchWithoutLegacyContract = { ...routePatch } as Partial<OutputRoute> & { order_name_contract?: unknown };
+  delete routePatchWithoutLegacyContract.order_name_contract;
   const nextRoute: OutputRoute = {
     ...existingRoute,
-    ...routePatch,
+    ...routePatchWithoutLegacyContract,
     output_route_id: routeId,
     submit_profiles: normalizeSubmitProfiles({
       ...existingRoute,

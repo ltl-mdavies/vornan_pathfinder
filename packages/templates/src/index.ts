@@ -104,9 +104,12 @@ export interface CanonicalBuildOptions {
 export type OrderNameResolutionStrategy = "provided" | "composite" | "provided_then_composite";
 export type OrderNameResolutionCase = "preserve" | "upper" | "lower";
 export type OrderNameComponentFormat = "none" | "yyyyMMdd";
+export type LiftExtIdStrategy = "customer_order_id" | "pathfinder_generated";
 
 export interface OrderNameResolutionComponent {
+  kind?: "field" | "text";
   field: string;
+  value?: string;
   format: OrderNameComponentFormat;
   optional: boolean;
 }
@@ -143,13 +146,13 @@ export function createDefaultOrderNameResolutionConfig(): OrderNameResolutionCon
     strategy: "provided_then_composite",
     provided_field: "order.order_title",
     components: [
-      { field: "customer.destination_customer_id", format: "none", optional: false },
       { field: "order.external_order_id", format: "none", optional: false },
-      { field: "order.ship_date", format: "yyyyMMdd", optional: true }
+      { kind: "text", field: "", value: "Web Order", format: "none", optional: false },
+      { field: "source.submitted_at", format: "yyyyMMdd", optional: false }
     ],
     prefix: "",
     suffix: "",
-    separator: "-",
+    separator: " - ",
     case: "preserve",
     max_length: null,
     duplicate_behavior: "block"
@@ -186,16 +189,34 @@ export function normalizeOrderNameResolutionConfig(
         : fallback.max_length;
   const rawComponents = Array.isArray(source.components) ? source.components : fallback.components;
   const components: OrderNameResolutionComponent[] = rawComponents
-    .filter((component): component is OrderNameResolutionComponent => Boolean(component && typeof component.field === "string"))
-    .map((component) => ({
-      field: component.field.trim(),
-      format: component.format === "yyyyMMdd" ? ("yyyyMMdd" as const) : ("none" as const),
-      optional: Boolean(component.optional)
-    }))
+    .filter((component): component is OrderNameResolutionComponent =>
+      Boolean(component && (typeof component.field === "string" || component.kind === "text"))
+    )
+    .map((component) =>
+      component.kind === "text"
+        ? {
+            kind: "text" as const,
+            field: "",
+            value: typeof component.value === "string" ? component.value.trim().slice(0, 120) : "",
+            format: "none" as const,
+            optional: false
+          }
+        : {
+            field: component.field.trim(),
+            format: component.format === "yyyyMMdd" ? ("yyyyMMdd" as const) : ("none" as const),
+            optional: Boolean(component.optional)
+          }
+    )
     .filter(
       (component, index, allComponents) =>
-        component.field && allComponents.findIndex((candidate) => candidate.field === component.field) === index
-    );
+        (component.kind === "text" ? Boolean(component.value) : Boolean(component.field)) &&
+        allComponents.findIndex((candidate) =>
+          component.kind === "text"
+            ? candidate.kind === "text" && candidate.value === component.value
+            : candidate.kind !== "text" && candidate.field === component.field
+        ) === index
+    )
+    .slice(0, 12);
 
   return {
     enabled: typeof source.enabled === "boolean" ? source.enabled : fallback.enabled,
@@ -261,8 +282,12 @@ export function resolveOrderName(
   const config = normalizeOrderNameResolutionConfig(rawConfig);
   const providedValue = formatOrderNameComponent(nestedCanonicalValue(order, config.provided_field), "none") || null;
   const componentValues = config.components.map((component) => ({
-    field: component.field,
-    value: formatOrderNameComponent(nestedCanonicalValue(order, component.field), component.format) || null,
+    field: component.kind === "text" ? `text:${component.value}` : component.field,
+    value:
+      formatOrderNameComponent(
+        component.kind === "text" ? component.value : nestedCanonicalValue(order, component.field),
+        component.format
+      ) || null,
     optional: component.optional
   }));
   if (!config.enabled) {
@@ -376,6 +401,16 @@ export function findDuplicateOrderNames(results: OrderNameResolutionResult[]) {
   return Array.from(seen.entries())
     .filter(([, indexes]) => indexes.length > 1)
     .map(([normalized_name, indexes]) => ({ normalized_name, indexes }));
+}
+
+export function appendOrderNameRetrySuffix(value: string, retryNumber: number) {
+  const normalizedRetryNumber = Math.max(1, Math.floor(retryNumber));
+  const trimmedValue = value.trim();
+  const existingSuffix = trimmedValue.match(/^(.*?)-(\d+)$/);
+  if (existingSuffix && Number(existingSuffix[2]) < normalizedRetryNumber) {
+    return `${existingSuffix[1]}-${normalizedRetryNumber}`;
+  }
+  return `${trimmedValue}-${normalizedRetryNumber}`;
 }
 
 const sourceColumnAliases: Record<string, CanonicalTargetField> = {

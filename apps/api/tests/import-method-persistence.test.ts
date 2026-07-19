@@ -213,9 +213,9 @@ test("persists order name resolution independently for each import method", asyn
     strategy: "provided_then_composite",
     provided_field: "order.order_title",
     components: [
-      { field: "customer.destination_customer_id", format: "none", optional: false },
       { field: "order.external_order_id", format: "none", optional: false },
-      { field: "order.ship_date", format: "yyyyMMdd", optional: true }
+      { kind: "text", field: "", value: "Empirical Web Order", format: "none", optional: false },
+      { field: "source.submitted_at", format: "yyyyMMdd", optional: false }
     ],
     prefix: "REG",
     suffix: "",
@@ -226,13 +226,17 @@ test("persists order name resolution independently for each import method", asyn
   };
 
   const saved = await updateImportMethod(testCustomer, "manual-xlsx", {
-    order_name_resolution_config: orderNameConfig
+    order_name_resolution_config: orderNameConfig,
+    ext_id_strategy: "pathfinder_generated"
   } as any);
   assert.deepEqual(importMethod(saved, "manual-xlsx").order_name_resolution_config, orderNameConfig);
+  assert.equal(importMethod(saved, "manual-xlsx").ext_id_strategy, "pathfinder_generated");
   assert.deepEqual(importMethod(saved, "legacy-csv").order_name_resolution_config, secondaryBefore);
+  assert.equal(importMethod(saved, "legacy-csv").ext_id_strategy, "customer_order_id");
 
   const reloaded = await getOrCreateWorkspace(testCustomer);
   assert.deepEqual(importMethod(reloaded, "manual-xlsx").order_name_resolution_config, orderNameConfig);
+  assert.equal(importMethod(reloaded, "manual-xlsx").ext_id_strategy, "pathfinder_generated");
 });
 
 test("retains only the five most recent structural schema versions", async () => {

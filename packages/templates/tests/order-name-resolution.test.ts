@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sampleCanonicalOrder } from "@pathfinder/canonical";
 import {
+  appendOrderNameRetrySuffix,
   applyOrderNameResolution,
   createLegacyOrderNameResolutionConfig,
   findDuplicateOrderNames,
@@ -64,6 +65,27 @@ test("builds a stable composite fallback from canonical values and formats dates
   assert.equal(first.source, "composite");
   assert.equal(first.value, "MOM-1249-30904511-20260623");
   assert.equal(retry.value, first.value);
+});
+
+test("supports fixed text between a customer identifier and the submission date", () => {
+  const result = resolveOrderName(canonicalOrder({ orderTitle: null }), {
+    ...fallbackConfig,
+    prefix: "",
+    case: "preserve",
+    separator: " - ",
+    components: [
+      { field: "order.external_order_id", format: "none", optional: false },
+      { kind: "text", field: "", value: "Empirical Web Order", format: "none", optional: false },
+      { field: "source.submitted_at", format: "yyyyMMdd", optional: false }
+    ]
+  });
+
+  assert.equal(result.value, "30904511 - Empirical Web Order - 20260618");
+});
+
+test("increments an order-name suffix only when preparing a duplicate-name retry", () => {
+  assert.equal(appendOrderNameRetrySuffix("123987 - Empirical Web Order - 20260819", 1), "123987 - Empirical Web Order - 20260819-1");
+  assert.equal(appendOrderNameRetrySuffix("123987 - Empirical Web Order - 20260819-1", 2), "123987 - Empirical Web Order - 20260819-2");
 });
 
 test("blocks a composite when a required canonical component is missing", () => {

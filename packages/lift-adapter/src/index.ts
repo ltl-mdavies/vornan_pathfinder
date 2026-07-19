@@ -124,6 +124,7 @@ export type LiftSubmitMockScenario =
   | "product_error"
   | "payload_error"
   | "duplicate_ext_id"
+  | "duplicate_order_name"
   | "endpoint_error";
 
 export function buildLiftOrderLookupUrl(orderLookupUrl: string | null | undefined, orderNumber: string | null | undefined) {
@@ -207,6 +208,7 @@ export type LiftSubmitErrorCategory =
   | "auth"
   | "company"
   | "duplicate_ext_id"
+  | "duplicate_order_name"
   | "customer"
   | "unit_number"
   | "payload"
@@ -251,7 +253,13 @@ export const defaultLiftTargetConfig: LiftTargetConfig = {
   }
 };
 
-function resolveExtId(order: CanonicalOrder): string {
+function resolveExtId(
+  order: CanonicalOrder,
+  ids: { pathfinderOrderId?: string; extIdStrategy?: "customer_order_id" | "pathfinder_generated" }
+): string {
+  if (ids.extIdStrategy === "pathfinder_generated" && ids.pathfinderOrderId?.trim()) {
+    return ids.pathfinderOrderId.trim();
+  }
   return (
     order.order.external_order_id ||
     order.order.contract_number ||
@@ -262,12 +270,17 @@ function resolveExtId(order: CanonicalOrder): string {
 
 export function generateLiftPayload(
   canonicalOrder: CanonicalOrder,
-  ids: { jobId: string; canonicalOrderId: string } = {
+  ids: {
+    jobId: string;
+    canonicalOrderId: string;
+    pathfinderOrderId?: string;
+    extIdStrategy?: "customer_order_id" | "pathfinder_generated";
+  } = {
     jobId: "job_preview",
     canonicalOrderId: "co_preview"
   }
 ): LiftOrderPayload {
-  const extId = resolveExtId(canonicalOrder);
+  const extId = resolveExtId(canonicalOrder, ids);
 
   return {
     customer: {
@@ -677,7 +690,21 @@ export function translateLiftSubmitError(args: {
   }
 
   if (
-    /(duplicate|already exists|unique).*(ext[_ -]?id|external id|order)|(ext[_ -]?id|external id|order).*(duplicate|already exists|unique)/.test(
+    /(duplicate|already exists|unique).*(order[_ -]?(name|title)|order name|order title)|(order[_ -]?(name|title)|order name|order title).*(duplicate|already exists|unique)/.test(
+      text
+    )
+  ) {
+    return {
+      category: "duplicate_order_name",
+      operator_message: "Lift rejected the order because its order name is already in use.",
+      suggested_action: "Pathfinder can prepare the next retry with an incrementing -1, -2 suffix. Review the revised name before resubmitting.",
+      retryable: true,
+      source_message: sourceMessage
+    };
+  }
+
+  if (
+    /(duplicate|already exists|unique).*(ext[_ -]?id|external id)|(ext[_ -]?id|external id).*(duplicate|already exists|unique)/.test(
       text
     )
   ) {
@@ -829,6 +856,13 @@ function mockLiftSubmitResponse(request: LiftSubmitRequest, scenario: LiftSubmit
       status: 409,
       body: {
         error: `Order with Ext_ID ${extId} already exists.`,
+        ext_id: extId
+      }
+    },
+    duplicate_order_name: {
+      status: 409,
+      body: {
+        error: `Order name ${request.body.order.order_title ?? "UNKNOWN"} must be unique.`,
         ext_id: extId
       }
     },

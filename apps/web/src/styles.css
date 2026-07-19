@@ -4024,7 +4024,7 @@ h1 {
 
 .order-name-route-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0;
   background: rgba(243, 247, 241, 0.72);
   border-bottom: 1px solid var(--border-subtle);
@@ -4142,6 +4142,19 @@ h1 {
   font-weight: 850;
 }
 
+.order-name-static-component-input {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 9px;
+  color: var(--text-primary);
+  background: #fff;
+  border: 1px solid rgba(57, 82, 59, 0.18);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .order-name-component-row > div:nth-child(2) span {
   margin-top: 4px;
   color: var(--text-secondary);
@@ -4210,6 +4223,7 @@ h1 {
 
 .order-name-component-add {
   display: flex;
+  flex-wrap: wrap;
   align-items: end;
   gap: 8px;
 }
@@ -4218,8 +4232,22 @@ h1 {
   width: min(100%, 360px);
 }
 
+.order-name-component-text-control {
+  width: min(100%, 360px);
+}
+
 .order-name-component-field-control select {
   min-height: 44px;
+}
+
+.order-name-component-text-control input {
+  min-height: 44px;
+}
+
+.order-name-static-component-label {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 750;
 }
 
 .order-name-format-grid {

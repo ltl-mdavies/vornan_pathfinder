@@ -63,6 +63,7 @@ import {
   sampleSourceGrid,
   validateOrderNameResolution,
   type FieldMapping,
+  type LiftExtIdStrategy,
   type OrderNameResolutionCase,
   type OrderNameResolutionConfig,
   type OrderNameResolutionResult,
@@ -352,6 +353,7 @@ interface ImportMethod {
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
   order_name_resolution_config: OrderNameResolutionConfig;
+  ext_id_strategy: LiftExtIdStrategy;
   last_run_at?: string | null;
   success_rate?: string | null;
   created_at: string;
@@ -460,6 +462,7 @@ interface SubmitCertification {
 
 interface ProcessingJobPreview {
   job_id: string;
+  pathfinder_order_id: string;
   customer_id: string;
   customer_name: string;
   source_customer_id?: string;
@@ -1757,6 +1760,7 @@ const fallbackImportMethods: ImportMethod[] = [
     workbook_sheet_policy: "rows_with_quantity",
     product_resolution_config: defaultProductResolutionConfig,
     order_name_resolution_config: defaultOrderNameResolutionConfig,
+    ext_id_strategy: "customer_order_id",
     last_run_at: seedTimestamp,
     success_rate: "100%",
     created_at: seedTimestamp,
@@ -1779,6 +1783,7 @@ const fallbackImportMethods: ImportMethod[] = [
     workbook_sheet_policy: "rows_with_quantity",
     product_resolution_config: defaultProductResolutionConfig,
     order_name_resolution_config: defaultOrderNameResolutionConfig,
+    ext_id_strategy: "customer_order_id",
     last_run_at: null,
     success_rate: "98.7%",
     created_at: seedTimestamp,
@@ -1799,6 +1804,7 @@ const fallbackImportMethods: ImportMethod[] = [
     workbook_sheet_policy: "rows_with_quantity",
     product_resolution_config: defaultProductResolutionConfig,
     order_name_resolution_config: defaultOrderNameResolutionConfig,
+    ext_id_strategy: "customer_order_id",
     last_run_at: null,
     success_rate: null,
     created_at: seedTimestamp,
@@ -3227,6 +3233,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [productMappingDrafts, setProductMappingDrafts] = useState<Record<string, { unit: string; product: string }>>({});
   const [compositeColumnToAdd, setCompositeColumnToAdd] = useState("");
   const [orderNameComponentToAdd, setOrderNameComponentToAdd] = useState("");
+  const [orderNameTextToAdd, setOrderNameTextToAdd] = useState("");
   const [productExampleTestValue, setProductExampleTestValue] = useState("");
   const [unitMapSearch, setUnitMapSearch] = useState("");
   const [unitMapStatusFilter, setUnitMapStatusFilter] = useState<ProductMappingStatus | "All">("All");
@@ -3951,7 +3958,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           mappings,
           submit_profile_id: selectedSubmitProfile.profile_id,
           product_resolution_config: method.product_resolution_config,
-          order_name_resolution_config: method.order_name_resolution_config
+          order_name_resolution_config: method.order_name_resolution_config,
+          ext_id_strategy: method.ext_id_strategy
         })
       });
       const payload = await readJsonResponse<{ job: ProcessingJobPreview; workspace: PathfinderCustomerWorkspace }>(response);
@@ -4476,7 +4484,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const canonicalRegistryFields = canonicalRegistry?.fields ?? [];
   const orderNameComponentOptions = Array.from(
     new Set([
-      ...activeOrderNameConfig.components.map((component) => component.field),
+      ...activeOrderNameConfig.components.flatMap((component) =>
+        component.kind === "text" ? [] : [component.field]
+      ),
       ...canonicalRegistryFields
         .filter(
           (field) =>
@@ -4492,7 +4502,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     ])
   ).sort();
   const addableOrderNameComponentOptions = orderNameComponentOptions.filter(
-    (path) => !activeOrderNameConfig.components.some((component) => component.field === path)
+    (path) => !activeOrderNameConfig.components.some((component) => component.kind !== "text" && component.field === path)
   );
   const canonicalRegistrySections = canonicalRegistry?.sections ?? [];
   const canonicalRegistryPaths = new Set(canonicalRegistryFields.map((field) => field.path));
@@ -4856,7 +4866,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   ];
   const rawLiftPayload = generateLiftPayload(canonicalOrder, {
     jobId: "job_preview",
-    canonicalOrderId: "co_preview"
+    canonicalOrderId: "co_preview",
+    pathfinderOrderId: "PF-PREVIEW",
+    extIdStrategy: activeImportMethod?.ext_id_strategy ?? "customer_order_id"
   });
   const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, activeOutputRoute.value_normalization_rules ?? []);
   const liftPayload = normalizedLift.payload;
@@ -6665,6 +6677,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       workbook_sheet_policy: "rows_with_quantity",
       product_resolution_config: defaultProductResolutionConfig,
       order_name_resolution_config: defaultOrderNameResolutionConfig,
+      ext_id_strategy: "customer_order_id",
       last_run_at: null,
       success_rate: null,
       created_at: timestamp,
@@ -8564,6 +8577,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <span>Output Template</span>
                         <strong>{activeRouteTemplate?.name || activeOutputRoute.output_template}</strong>
                       </div>
+                      <div>
+                        <span>Lift Ext_ID</span>
+                        <strong>
+                          {activeImportMethod.ext_id_strategy === "pathfinder_generated"
+                            ? "Pathfinder-generated per job"
+                            : "Customer external order ID"}
+                        </strong>
+                      </div>
                     </div>
                     <div className="order-name-enable-row">
                       <div>
@@ -8612,6 +8633,33 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <p>{activeOrderNameStrategyCopy.body}</p>
                       </div>
                     </div>
+                    <div className="resolver-section-break" />
+                    <div className="resolver-strategy-row order-identity-strategy-row">
+                      <label className="setup-control resolver-strategy-control">
+                        <span>Lift Ext_ID Source</span>
+                        <select
+                          value={activeImportMethod.ext_id_strategy}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({ ext_id_strategy: event.target.value as LiftExtIdStrategy })
+                          }
+                        >
+                          <option value="customer_order_id">Customer external order ID</option>
+                          <option value="pathfinder_generated">Pathfinder-generated order ID</option>
+                        </select>
+                      </label>
+                      <div className="resolver-explainer">
+                        <strong>
+                          {activeImportMethod.ext_id_strategy === "pathfinder_generated"
+                            ? "Use Pathfinder's persisted unique ID"
+                            : "Use the customer's mapped external order ID"}
+                        </strong>
+                        <p>
+                          {activeImportMethod.ext_id_strategy === "pathfinder_generated"
+                            ? "Pathfinder writes the same generated value to the Lift Ext_ID header and order.ext_id body field. The customer order, PO, and contract values remain available in the canonical record and readable order name."
+                            : "This preserves the existing ecommerce pattern. Choose Pathfinder-generated when the customer's numbering may repeat in Lift."}
+                        </p>
+                      </div>
+                    </div>
                     {activeOrderNameConfig.strategy !== "provided" ? (
                       <>
                         <div className="resolver-section-break" />
@@ -8620,8 +8668,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <span>Ordered canonical values keep the rule stable when customer headers change.</span>
                         </div>
                         <div className="order-name-component-list">
-                          {activeOrderNameConfig.components.map((component, index) => (
-                            <div className="order-name-component-row" key={`${component.field}-${index}`}>
+                          {activeOrderNameConfig.components.map((component, index) => {
+                            const componentKey =
+                              component.kind === "text" ? `text:${component.value ?? ""}` : component.field;
+                            const componentPreview = orderNameResolution.result.component_values.find(
+                              (item) => item.field === componentKey
+                            )?.value;
+                            return (
+                            <div className="order-name-component-row" key={`${component.kind ?? "field"}-${index}`}>
                               <div className="order-name-component-order">
                                 <span>{index + 1}</span>
                                 <div>
@@ -8654,12 +8708,29 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 </div>
                               </div>
                               <div>
-                                <strong>{component.field}</strong>
-                                <span>
-                                  {orderNameResolution.result.component_values.find((item) => item.field === component.field)?.value ||
-                                    "No sample value"}
-                                </span>
+                                {component.kind === "text" ? (
+                                  <input
+                                    className="order-name-static-component-input"
+                                    value={component.value ?? ""}
+                                    maxLength={120}
+                                    aria-label={`Fixed text component ${index + 1}`}
+                                    onChange={(event) => {
+                                      const components = activeOrderNameConfig.components.map((candidate, componentIndex) =>
+                                        componentIndex === index ? { ...candidate, value: event.target.value } : candidate
+                                      );
+                                      updateActiveMethodDraft({
+                                        order_name_resolution_config: { ...activeOrderNameConfig, components }
+                                      });
+                                    }}
+                                  />
+                                ) : (
+                                  <strong>{component.field}</strong>
+                                )}
+                                <span>{component.kind === "text" ? "Fixed text" : componentPreview || "No sample value"}</span>
                               </div>
+                              {component.kind === "text" ? (
+                                <div className="order-name-static-component-label">Included exactly as entered</div>
+                              ) : (
                               <label className="setup-control order-name-inline-control">
                                 <span>Format</span>
                                 <select
@@ -8679,6 +8750,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   <option value="yyyyMMdd">Date · yyyyMMdd</option>
                                 </select>
                               </label>
+                              )}
+                              {component.kind === "text" ? <span /> : (
                               <label className="order-name-optional-control">
                                 <input
                                   type="checkbox"
@@ -8694,6 +8767,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 />
                                 Optional
                               </label>
+                              )}
                               <button
                                 type="button"
                                 className="order-name-remove-component"
@@ -8711,7 +8785,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 Remove
                               </button>
                             </div>
-                          ))}
+                          );})}
                           <div className="order-name-component-add">
                             <label className="setup-control order-name-component-field-control">
                               <span>Canonical Field</span>
@@ -8730,7 +8804,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <button
                               type="button"
                               className="secondary-button"
-                              disabled={!orderNameComponentToAdd}
+                              disabled={!orderNameComponentToAdd || activeOrderNameConfig.components.length >= 12}
                               onClick={() => {
                                 if (!orderNameComponentToAdd) {
                                   return;
@@ -8749,6 +8823,39 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             >
                               <Plus size={14} />
                               Add Component
+                            </button>
+                            <label className="setup-control order-name-component-text-control">
+                              <span>Fixed Text</span>
+                              <input
+                                value={orderNameTextToAdd}
+                                maxLength={120}
+                                placeholder="e.g. Empirical Web Order"
+                                onChange={(event) => setOrderNameTextToAdd(event.target.value)}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={!orderNameTextToAdd.trim() || activeOrderNameConfig.components.length >= 12}
+                              onClick={() => {
+                                const value = orderNameTextToAdd.trim();
+                                if (!value) {
+                                  return;
+                                }
+                                updateActiveMethodDraft({
+                                  order_name_resolution_config: {
+                                    ...activeOrderNameConfig,
+                                    components: [
+                                      ...activeOrderNameConfig.components,
+                                      { kind: "text", field: "", value, format: "none", optional: false }
+                                    ]
+                                  }
+                                });
+                                setOrderNameTextToAdd("");
+                              }}
+                            >
+                              <Plus size={14} />
+                              Add Text
                             </button>
                           </div>
                         </div>
