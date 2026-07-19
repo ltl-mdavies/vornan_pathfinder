@@ -13,15 +13,17 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Current committed HEAD: `7b2865f Add import method persistence tests`
-- Branch state before the Import Method schema history sprint: `main`, synchronized with `origin/main`
+- Current committed HEAD: `6a62fa4 Add import method schema history`
+- Branch state before the bulk product mapping safety sprint: `main`, one local commit ahead of `origin/main`
 - Commit `932d6eb` was deployed successfully to the admin app, status app, and API.
 - Commits `aaac73c`, `a6bceb5`, `e5dbbb5`, `d45f2d1`, and `7b2865f` have been pushed but have not been deployed.
-- The working tree now contains the intentional Import Method source-schema history and comparison changes; they remain uncommitted pending review.
+- Commit `6a62fa4` is local and has not been pushed or deployed.
+- The working tree now contains the intentional bulk product mapping confirmation changes and Lift order-name strategy documentation; they remain uncommitted pending review.
 
 Recent commits:
 
 ```text
+6a62fa4 Add import method schema history
 7b2865f Add import method persistence tests
 d45f2d1 Add per-sheet header overrides
 e5dbbb5 Add multi-row header schema refresh
@@ -45,11 +47,12 @@ b27991b Add secure public status request flow
 
 Current in-progress slice:
 
-- Archives the previous saved detected schema only when the workbook structure changes.
-- Deduplicates history by structure and retains the five most recent previous versions.
-- Applies the metadata-only persistence allowlist to current and historical schemas.
-- Adds a read-only Source Setup comparison for columns, sheets/layouts, column order, and parser settings.
-- Adds regression coverage for structural deduplication, version ordering, the history cap, and row/cell exclusion.
+- Requires at least two rows before the bulk product assignment path becomes available.
+- Shows the exact selected Pathfinder rows before catalog search and again in a final confirmation modal.
+- Routes both manual identifiers and catalog products through the same route-aware review.
+- Rechecks row and route strategy state at confirmation and leaves the row-level workflow unchanged.
+- Adds persistence coverage proving unselected neighboring rows are not changed.
+- Documents the proposed canonical/composite Lift order-name strategy as a separate planned slice.
 - No production deployment or real Lift submit behavior is part of this slice.
 
 Recommended opening move in the next thread:
@@ -425,6 +428,7 @@ GitHub Actions deploys:
 - The templates workspace now has durable parser regressions exposed through the root `npm test` command.
 - Import Method persistence now strips raw workbook rows/cell values at the store boundary and has regression coverage for schema reloads, mapping-template synchronization, method isolation, and legacy parser settings.
 - Import Methods retain up to five structurally distinct previous detected schemas and expose a read-only current-versus-previous comparison in Source Setup.
+- Bulk Output Product Map assignments now require exact-row review and confirmation before one route identifier is written to several mappings.
 
 ## Current Known Friction Or Risks
 
@@ -507,12 +511,15 @@ Completed in the continuation slice:
 - Unsaved strategy changes explicitly show the old and new identifier types and state that existing identifiers remain stored.
 - A save-and-review action opens a focused Output Product Map queue containing only active rows missing the newly selected identifier.
 - The queue updates as exact rows are remapped and shows a clear completion state when no gaps remain.
+- Bulk product assignment is visually separated from row-level mapping and requires at least two selected rows.
+- Both manual and catalog-based bulk assignments show an exact-row, route-aware confirmation before saving.
+- Selected-row chips make the active bulk scope removable and visible before confirmation.
 
 Recommended next slices:
 
 1. Refine the existing bulk map flow only when needed:
-   - Keep multi-row selection clearly separate from the primary row-level workflow.
-   - Add an explicit confirmation before one Lift product is assigned to several Pathfinder rows.
+   - Validate the new confirmation flow with live operator feedback.
+   - Keep automatic/rule-based bulk mapping out of scope until a real need appears.
 2. Clean details panel:
    - Show only real payload field names and values.
    - Avoid duplicate `unit_number` / `unit_numbers` display unless both are truly present in the payload and meaningful.
@@ -520,6 +527,29 @@ Recommended next slices:
    - If route strategy is `product_id`, Product Resolution should talk about "route product identifier", not unit number.
 4. Revisit catalog scope only where live operator feedback still shows friction:
    - Preserve the current active-scope treatment, catalog-name import, and preset deduplication behavior.
+
+## Lift Order Naming Roadmap
+
+The requested Lift order-name setup is documented in `docs/LIFT_ORDER_NAME_STRATEGY.md`.
+
+Recommended approach:
+
+- Use the existing canonical `order.order_title`; the Lift adapter and seeded output template already emit it to `order.order_title` in the JSON.
+- Add canonical `order.order_name` only if the verified Lift contract proves the unique name is a separate payload field.
+- Add an Import Method Order Naming setup with customer-provided, composite, and provided-with-composite-fallback strategies.
+- Build composites from canonical paths, not raw workbook columns, with optional prefix/suffix, separator, casing, and date formatting.
+- Prefer a stable customer-provided name, otherwise default to customer/destination code plus external order ID and an optional stable business date.
+- Do not use the current timestamp or a random value by default; retries must resolve to the same name.
+- Initially block duplicate resolved titles within the current import and retain the resolved value in preview and submit snapshots.
+- Add an atomic cross-job reservation only after Lift's uniqueness scope and lookup behavior are confirmed.
+- Validate the complete flow in sandbox before enabling any real Lift submission.
+
+Implementation sequence:
+
+1. Add Import Method order-name configuration and live preview targeting `order.order_title`.
+2. Resolve provided/composite/fallback titles after canonical field mapping.
+3. Add current-import duplicate validation and legacy-method coverage.
+4. Confirm Lift uniqueness scope, length/character constraints, and lookup behavior before cross-job reservation work.
 
 ## Import Methods Roadmap
 
@@ -597,7 +627,7 @@ Please read /Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/THREAD_HA
 
 If the next slice is not specified, the best candidates are:
 
-1. Add confirmation and separation to the existing bulk product-map flow.
+1. Add the `order.order_title` Order Name Resolution configuration and live-preview slice from `docs/LIFT_ORDER_NAME_STRATEGY.md`.
 2. Validate Import Method parsing/history against the next real customer workbook.
 3. Transactional email SES smoke test and production switch.
 4. Mobile polish for login, dashboard, overview, and public status.

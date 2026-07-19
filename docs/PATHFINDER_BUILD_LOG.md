@@ -1489,3 +1489,35 @@ Verification:
 - 390x844 browser validation confirmed a single-column comparison layout and no horizontal overflow.
 - No browser console warnings or errors were observed.
 - No production deployment or external Lift request is part of this slice.
+
+## 2026-07-19 - Bulk Product Mapping Confirmation
+
+Separated multi-row product assignment from the primary row-level `Map Product` workflow and added an explicit review boundary.
+
+What changed:
+
+- Bulk product mapping now requires at least two selected Pathfinder rows; a single row directs the operator back to its row-level `Map Product` action.
+- Added removable selected-row chips so the active bulk scope is visible before opening Lift catalog search or entering an identifier manually.
+- Manual identifiers and Lift catalog products now open the same confirmation modal instead of saving immediately.
+- The modal shows every exact Pathfinder row, its current identifier, the identifier after save, the output route, route strategy, Lift product ID/unit metadata, and active catalog/result scope.
+- Confirmation rechecks that the route strategy and selected rows have not changed before saving.
+- `product_id` and `unit_number` routes continue to require their matching identifier; incompatible catalog products remain unavailable.
+- Successful catalog confirmation closes the catalog drawer and clears the selection; cancellation leaves every row unchanged.
+- Added an automated persistence regression confirming the reviewed rows update while an unselected neighboring row remains untouched.
+
+Verification:
+
+- `npm test` (4 API persistence/product-map regressions and 4 workbook parser regressions passing)
+- `npm run check`
+- `npm run build`
+- `git diff --check`
+- Isolated local browser validation confirmed two selected rows received `BULK-REVIEW-001` while the neighboring row remained `Unmapped`.
+- Confirmed both manual identifier entry and Lift catalog selection open the exact-row review modal.
+- 390x844 browser validation confirmed a single-column modal and no horizontal overflow.
+- No browser console warnings or errors were observed.
+- No production deployment or external Lift request is part of this slice.
+
+Planned follow-up:
+
+- Added `docs/LIFT_ORDER_NAME_STRATEGY.md` with the recommended `order.order_title`, composite/fallback, duplicate safety, retry, and output-template approach for Lift order names.
+- The first implementation should add Import Method configuration and live preview while preserving the existing Lift `order.order_title` adapter/template path; cross-job reservations remain a later contract-dependent phase.

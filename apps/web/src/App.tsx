@@ -194,6 +194,25 @@ interface RouteStrategyChange {
   to: OutputProductIdentifierType;
 }
 
+interface BulkProductMappingReview {
+  mappings: Array<{
+    mapping_id: string;
+    customer_product_key: string;
+    display_label: string;
+    current_identifier: string | null;
+  }>;
+  route_id: string;
+  route_name: string;
+  identifier_type: OutputProductIdentifierType;
+  identifier_label: string;
+  identifier: string;
+  lift_unit_number: string | null;
+  lift_product_id: string | null;
+  product_name: string | null;
+  catalog_scope: string;
+  source: "manual" | "catalog";
+}
+
 interface LiftUnitCatalogItem {
   catalog_item_id: string;
   product_id: string | null;
@@ -3201,6 +3220,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [selectedUnitMapIds, setSelectedUnitMapIds] = useState<string[]>([]);
   const [bulkUnitNumber, setBulkUnitNumber] = useState("");
   const [bulkProductName, setBulkProductName] = useState("");
+  const [bulkProductMappingReview, setBulkProductMappingReview] = useState<BulkProductMappingReview | null>(null);
   const [preloadText, setPreloadText] = useState("");
   const [preloadSourceName, setPreloadSourceName] = useState("Customer product list");
   const [preloadGrid, setPreloadGrid] = useState<SourceGrid>({ columns: [], rows: [] });
@@ -6063,10 +6083,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     );
   }
 
-  async function bulkUpdateProductMappings(patch: Partial<CustomerProductMapping>, successMessage: string) {
-    if (selectedUnitMappings.length === 0) {
+  async function bulkUpdateProductMappings(
+    patch: Partial<CustomerProductMapping>,
+    successMessage: string,
+    mappingsToUpdate = selectedUnitMappings
+  ) {
+    if (mappingsToUpdate.length === 0) {
       setWorkspaceMessage("Select one or more customer keys before applying a bulk action.");
-      return;
+      return false;
     }
 
     setWorkspaceState("saving");
@@ -6075,7 +6099,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          product_mappings: selectedUnitMappings.map((mapping) => ({
+          product_mappings: mappingsToUpdate.map((mapping) => ({
             ...mapping,
             ...patch,
             status:
@@ -6098,31 +6122,115 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setBulkProductName("");
       setWorkspaceMessage(successMessage);
       setWorkspaceState("idle");
+      return true;
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Bulk product mapping save failed.");
       setWorkspaceState("error");
+      return false;
     }
   }
 
-  async function bulkAssignUnitNumber() {
+  function openBulkProductMappingReview(args: {
+    identifier: string;
+    liftUnitNumber: string | null;
+    liftProductId: string | null;
+    productName: string | null;
+    catalogScope: string;
+    source: "manual" | "catalog";
+  }) {
+    if (selectedUnitMappings.length < 2) {
+      setWorkspaceMessage("Select at least two Pathfinder rows for bulk mapping, or use Map Product on a single row.");
+      return;
+    }
+
+    setBulkProductMappingReview({
+      mappings: selectedUnitMappings.map((mapping) => ({
+        mapping_id: mapping.mapping_id,
+        customer_product_key: mapping.customer_product_key,
+        display_label: mapping.display_label || mapping.customer_product_key,
+        current_identifier: productMappingIdentifierForRoute(mapping, selectedOutputMapRoute) || null
+      })),
+      route_id: selectedOutputMapRoute.output_route_id,
+      route_name: selectedOutputMapRoute.name,
+      identifier_type: selectedOutputMapRoute.product_identifier_type,
+      identifier_label: selectedOutputMapRoute.product_identifier_label,
+      identifier: args.identifier,
+      lift_unit_number: args.liftUnitNumber,
+      lift_product_id: args.liftProductId,
+      product_name: args.productName,
+      catalog_scope: args.catalogScope,
+      source: args.source
+    });
+  }
+
+  function bulkAssignUnitNumber() {
     if (!bulkUnitNumber.trim()) {
       setWorkspaceMessage(`Enter a ${selectedOutputMapRoute.product_identifier_label} before assigning selected customer keys.`);
       return;
     }
-    await bulkUpdateProductMappings(
+    openBulkProductMappingReview({
+      identifier: bulkUnitNumber.trim(),
+      liftUnitNumber: selectedOutputMapRoute.product_identifier_type === "lift_unit_number" ? bulkUnitNumber.trim() : null,
+      liftProductId: selectedOutputMapRoute.product_identifier_type === "lift_product_id" ? bulkUnitNumber.trim() : null,
+      productName: bulkProductName.trim() || selectedUnitMappings[0]?.product_name || null,
+      catalogScope: activeCatalogScopeId ? `${activeCatalogScopeName} / ${activeCatalogScopeId}` : "Manual identifier entry",
+      source: "manual"
+    });
+  }
+
+  async function confirmBulkProductMappingReview() {
+    if (!bulkProductMappingReview) {
+      return;
+    }
+
+    const review = bulkProductMappingReview;
+    const reviewRoute = outputRoutes.find((route) => route.output_route_id === review.route_id);
+    if (!reviewRoute || reviewRoute.product_identifier_type !== review.identifier_type) {
+      setWorkspaceMessage("The output route strategy changed before confirmation. Review the bulk mapping again.");
+      setBulkProductMappingReview(null);
+      return;
+    }
+    if (
+      (review.identifier_type === "lift_product_id" && !review.lift_product_id) ||
+      (review.identifier_type === "lift_unit_number" && !review.lift_unit_number)
+    ) {
+      setWorkspaceMessage(`The selected product does not provide the ${review.identifier_label} required by this route.`);
+      setBulkProductMappingReview(null);
+      return;
+    }
+    const mappingsToUpdate = productMappings.filter(
+      (mapping) => mapping.output_route_id === review.route_id && review.mappings.some((item) => item.mapping_id === mapping.mapping_id)
+    );
+    if (mappingsToUpdate.length !== review.mappings.length) {
+      setWorkspaceMessage("One or more selected Pathfinder rows changed before confirmation. Review the bulk mapping again.");
+      setBulkProductMappingReview(null);
+      return;
+    }
+
+    const saved = await bulkUpdateProductMappings(
       {
-        output_route_id: selectedOutputMapRouteId,
-        target_id: selectedOutputMapRoute.target_id,
-        target_template: selectedOutputMapRoute.output_template,
-        product_identifier_type: selectedOutputMapRoute.product_identifier_type,
-        product_identifier_value: bulkUnitNumber.trim(),
-        lift_unit_number: selectedOutputMapRoute.product_identifier_type === "lift_unit_number" ? bulkUnitNumber.trim() : null,
-        lift_product_id: selectedOutputMapRoute.product_identifier_type === "lift_product_id" ? bulkUnitNumber.trim() : null,
-        product_name: bulkProductName.trim() || selectedUnitMappings[0]?.product_name || null,
+        output_route_id: review.route_id,
+        target_id: reviewRoute.target_id,
+        target_template: reviewRoute.output_template,
+        product_identifier_type: review.identifier_type,
+        product_identifier_value: review.identifier,
+        lift_unit_number: review.lift_unit_number,
+        lift_product_id: review.lift_product_id,
+        product_name: review.product_name,
         status: "Mapped"
       },
-      `${selectedUnitMappings.length} customer key${selectedUnitMappings.length === 1 ? "" : "s"} mapped to ${bulkUnitNumber.trim()}.`
+      `${review.mappings.length} customer keys mapped to ${review.identifier}.`,
+      mappingsToUpdate
     );
+    if (!saved) {
+      return;
+    }
+
+    setBulkProductMappingReview(null);
+    if (review.source === "catalog") {
+      setOpenProductMapTool(null);
+      setSelectedCatalogDetailId(null);
+    }
   }
 
   function catalogUnitNumbers(item: LiftUnitCatalogItem) {
@@ -6278,8 +6386,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return;
     }
 
-    if (!selectedUnitMappings.length) {
-      setWorkspaceMessage("Select one or more Pathfinder product-map rows before assigning a Lift product.");
+    if (selectedUnitMappings.length < 2) {
+      setWorkspaceMessage("Select at least two Pathfinder rows for bulk mapping, or use Map Product on a single row.");
       return;
     }
 
@@ -6291,20 +6399,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return;
     }
 
-    await bulkUpdateProductMappings(
-      {
-        output_route_id: selectedOutputMapRouteId,
-        target_id: selectedOutputMapRoute.target_id,
-        target_template: selectedOutputMapRoute.output_template,
-        product_identifier_type: selectedOutputMapRoute.product_identifier_type,
-        product_identifier_value: identifier,
-        lift_unit_number: selectedCatalogUnitNumber(item),
-        lift_product_id: item.product_id,
-        product_name: item.product_name,
-        status: "Mapped"
-      },
-      `${selectedUnitMappings.length} customer key${selectedUnitMappings.length === 1 ? "" : "s"} mapped to ${identifier}.`
-    );
+    openBulkProductMappingReview({
+      identifier,
+      liftUnitNumber: selectedCatalogUnitNumber(item),
+      liftProductId: item.product_id,
+      productName: item.product_name,
+      catalogScope:
+        item.catalog_name ??
+        item.catalog_id ??
+        (activeCatalogScopeId ? `${activeCatalogScopeName} / ${activeCatalogScopeId}` : "Current Lift result set"),
+      source: "catalog"
+    });
   }
 
   function setPreloadDefaultFromCatalog(item: LiftUnitCatalogItem) {
@@ -9111,12 +9216,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                       onClick={() => void assignCatalogItemToSelectedMappings(item)}
                                       disabled={
                                         workspaceState === "saving" ||
-                                        (!activeCatalogMapping && selectedUnitMappings.length === 0) ||
+                                        (!activeCatalogMapping && selectedUnitMappings.length < 2) ||
                                         !catalogIdentifierForRoute(item, selectedOutputMapRoute)
                                       }
                                       title={
                                         catalogIdentifierForRoute(item, selectedOutputMapRoute)
-                                          ? `Save ${selectedOutputMapRoute.product_identifier_label} to the active Pathfinder mapping row`
+                                          ? activeCatalogMapping
+                                            ? `Save ${selectedOutputMapRoute.product_identifier_label} to the active Pathfinder mapping row`
+                                            : `Review assignment of this ${selectedOutputMapRoute.product_identifier_label} to the selected Pathfinder rows`
                                           : `This product has no ${selectedOutputMapRoute.product_identifier_label}`
                                       }
                                     >
@@ -9203,22 +9310,32 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   ) : null}
 
                   <div className="unit-map-bulkbar">
-                    <div>
-                      <strong>{selectedUnitMappings.length} selected</strong>
-                      <span>Assign several customer values to one route-specific product identifier.</span>
+                    <div className="unit-map-bulk-intro">
+                      <strong>Bulk actions · {selectedUnitMappings.length} selected</strong>
+                      <span>
+                        {selectedUnitMappings.length < 2
+                          ? "Select at least two rows here. Use Map Product on a row for individual mapping."
+                          : "Review and confirm before one Lift product is assigned to all selected rows."}
+                      </span>
                     </div>
                     <input
                       value={bulkUnitNumber}
                       placeholder={outputIdentifierPlaceholder(selectedOutputMapRoute)}
                       onChange={(event) => setBulkUnitNumber(event.target.value)}
+                      disabled={selectedUnitMappings.length < 2}
                     />
                     <input
                       value={bulkProductName}
                       placeholder="Product name optional"
                       onChange={(event) => setBulkProductName(event.target.value)}
+                      disabled={selectedUnitMappings.length < 2}
                     />
-                    <button className="primary-button" onClick={() => void bulkAssignUnitNumber()} disabled={workspaceState === "saving"}>
-                      Bulk Assign
+                    <button
+                      className="primary-button"
+                      onClick={bulkAssignUnitNumber}
+                      disabled={workspaceState === "saving" || selectedUnitMappings.length < 2}
+                    >
+                      Review Assignment
                     </button>
                     <button
                       className="secondary-button"
@@ -9231,17 +9348,37 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         );
                         setOpenProductMapTool("unit-library");
                       }}
-                      disabled={selectedUnitMappings.length === 0}
+                      disabled={selectedUnitMappings.length < 2}
                     >
-                      Map Selected
+                      Choose Lift Product
                     </button>
                     <button
                       className="secondary-button"
                       onClick={() => void bulkUpdateProductMappings({ status: "Inactive" }, "Selected customer keys marked inactive.")}
-                      disabled={workspaceState === "saving"}
+                      disabled={workspaceState === "saving" || selectedUnitMappings.length === 0}
                     >
                       Mark Inactive
                     </button>
+                    <div className="unit-map-bulk-selection" aria-label="Selected Pathfinder product-map rows">
+                      <span>Selected rows</span>
+                      <div>
+                        {selectedUnitMappings.length ? (
+                          selectedUnitMappings.map((mapping) => (
+                            <button
+                              type="button"
+                              key={mapping.mapping_id}
+                              onClick={() => toggleUnitMapping(mapping.mapping_id)}
+                              aria-label={`Remove ${mapping.customer_product_key} from bulk selection`}
+                            >
+                              {mapping.customer_product_key}
+                              <X size={12} />
+                            </button>
+                          ))
+                        ) : (
+                          <small>No rows selected.</small>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="unit-map-table-wrap">
@@ -12752,6 +12889,96 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </section>
           </>
+        ) : null}
+
+        {bulkProductMappingReview ? (
+          <div className="product-map-modal-backdrop" role="presentation" onClick={() => setBulkProductMappingReview(null)}>
+            <section
+              className="product-map-modal bulk-product-mapping-review-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Confirm bulk product mapping"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-section-header">
+                <div>
+                  <p className="eyebrow">Bulk Product Mapping</p>
+                  <h2>Confirm one product for {bulkProductMappingReview.mappings.length} Pathfinder rows</h2>
+                  <span>Review the exact rows, route strategy, and Lift identifier before saving.</span>
+                </div>
+                <button
+                  className="modal-close-button"
+                  onClick={() => setBulkProductMappingReview(null)}
+                  aria-label="Cancel bulk product mapping"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="bulk-product-mapping-review-body">
+                <div className="bulk-product-mapping-review-summary">
+                  <div>
+                    <span>Output Route</span>
+                    <strong>{bulkProductMappingReview.route_name}</strong>
+                    <small>{bulkProductMappingReview.identifier_label} strategy</small>
+                  </div>
+                  <div>
+                    <span>Lift Product</span>
+                    <strong>{bulkProductMappingReview.product_name || "Product name not supplied"}</strong>
+                    <small>{bulkProductMappingReview.catalog_scope}</small>
+                    <small>
+                      Product ID {bulkProductMappingReview.lift_product_id || "unavailable"} · Unit number{" "}
+                      {bulkProductMappingReview.lift_unit_number || "unavailable"}
+                    </small>
+                  </div>
+                  <div>
+                    <span>Identifier To Save</span>
+                    <strong>{bulkProductMappingReview.identifier}</strong>
+                    <small>{bulkProductMappingReview.identifier_label}</small>
+                  </div>
+                </div>
+                <div className="bulk-product-mapping-review-list">
+                  <div className="bulk-product-mapping-review-list-heading">
+                    <strong>Selected Pathfinder rows</strong>
+                    <span>{bulkProductMappingReview.mappings.length} exact rows</span>
+                  </div>
+                  {bulkProductMappingReview.mappings.map((mapping) => (
+                    <div key={mapping.mapping_id} className="bulk-product-mapping-review-row">
+                      <div>
+                        <strong>{mapping.customer_product_key}</strong>
+                        <span>{mapping.display_label}</span>
+                      </div>
+                      <div>
+                        <span>Current</span>
+                        <strong>{mapping.current_identifier || "Unmapped"}</strong>
+                      </div>
+                      <div>
+                        <span>After save</span>
+                        <strong>{bulkProductMappingReview.identifier}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="bulk-product-mapping-review-note">
+                  <ShieldCheck size={18} />
+                  <span>
+                    Every listed row will receive the same route product identifier. Row-level Map Product remains unchanged for individual assignments.
+                  </span>
+                </div>
+              </div>
+              <div className="modal-action-row">
+                <button className="secondary-button" onClick={() => setBulkProductMappingReview(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="primary-button"
+                  onClick={() => void confirmBulkProductMappingReview()}
+                  disabled={workspaceState === "saving"}
+                >
+                  Confirm {bulkProductMappingReview.mappings.length} Assignments
+                </button>
+              </div>
+            </section>
+          </div>
         ) : null}
 
         {canonicalImpactReview ? (
