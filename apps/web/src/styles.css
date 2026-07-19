@@ -2125,6 +2125,26 @@ h1 {
   display: grid;
 }
 
+.method-table-header {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(250px, 1.1fr) 120px 104px 110px 108px;
+  gap: 14px;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px 0 16px;
+  color: var(--text-muted);
+  background: rgba(243, 247, 241, 0.62);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.method-table-header span:last-child {
+  text-align: right;
+}
+
 .method-workspace-panel {
   overflow: hidden;
 }
@@ -3433,6 +3453,129 @@ h1 {
 
 .source-setup-panel {
   overflow: hidden;
+}
+
+.source-schema-setup {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.source-schema-drop-zone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 94px;
+  padding: 16px;
+  color: inherit;
+  background: var(--vornan-stone);
+  border: 1px dashed rgba(57, 82, 59, 0.35);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.source-schema-drop-zone-busy {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.source-schema-drop-zone svg {
+  flex: 0 0 auto;
+  color: var(--vornan-forest);
+}
+
+.source-schema-drop-zone strong,
+.source-schema-drop-zone span,
+.source-schema-toolbar span,
+.source-schema-toolbar strong,
+.source-schema-sheet-list strong,
+.source-schema-sheet-list span {
+  display: block;
+}
+
+.source-schema-drop-zone strong {
+  color: var(--text-primary);
+  font-family: "Plus Jakarta Sans", Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.source-schema-drop-zone span {
+  max-width: 680px;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.source-schema-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(243, 247, 241, 0.6);
+  border: 1px solid rgba(57, 82, 59, 0.1);
+  border-radius: 7px;
+}
+
+.source-schema-toolbar span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.source-schema-toolbar strong {
+  margin-top: 3px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.source-schema-message {
+  margin: 0;
+  color: var(--forest);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.source-schema-message-error {
+  color: var(--danger);
+}
+
+.source-schema-sheet-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.source-schema-sheet-list > div {
+  min-width: 0;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+}
+
+.source-schema-sheet-list strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-schema-sheet-list span {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
 }
 
 .source-setup-summary,
@@ -6792,6 +6935,44 @@ td {
   }
 }
 
+@media (max-width: 1280px) {
+  .method-table-header {
+    display: none;
+  }
+
+  .method-select-area {
+    grid-template-columns: 1fr;
+    gap: 7px;
+    padding: 12px 0 4px;
+  }
+
+  .method-row-actions {
+    justify-content: flex-start;
+    padding-bottom: 10px;
+  }
+
+  .method-detail-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .method-step-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .method-workspace-panel .table-panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 0 16px 14px 0;
+  }
+
+  .source-setup-summary,
+  .method-source-context {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1100px) {
   body {
     min-width: 0;
@@ -6972,5 +7153,17 @@ td {
 @media (max-width: 600px) {
   h1 {
     max-width: 320px;
+  }
+
+  .source-schema-drop-zone,
+  .source-schema-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .source-schema-sheet-list,
+  .source-setup-summary,
+  .method-source-context {
+    grid-template-columns: 1fr;
   }
 }

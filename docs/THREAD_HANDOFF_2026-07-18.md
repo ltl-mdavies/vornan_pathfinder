@@ -13,14 +13,16 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
 - Main branch: `main`
 - Remote repo: `ltl-mdavies/vornan_pathfinder`
-- Current committed HEAD: `932d6eb Add multi-order status and row-level product mapping`
-- Branch state before the route-strategy sprint: `main`, synchronized with `origin/main`
+- Current committed HEAD: `aaac73c Add route strategy remap assistance`
+- Branch state before the Import Methods sprint: `main`, synchronized with `origin/main`
 - Commit `932d6eb` was deployed successfully to the admin app, status app, and API.
-- The working tree now contains the intentional route-strategy migration assistance changes; they remain uncommitted pending review.
+- Commit `aaac73c` has been pushed but has not been deployed.
+- The working tree now contains the intentional Import Methods single-save and persisted source-schema workflow changes; they remain uncommitted pending review.
 
 Recent commits:
 
 ```text
+aaac73c Add route strategy remap assistance
 932d6eb Add multi-order status and row-level product mapping
 a2f0bf0 Add Pathfinder thread handoff
 914622a Add global status access domain allowlist
@@ -402,17 +404,15 @@ GitHub Actions deploys:
 - Public status requests now accept up to 10 order numbers and issue one tokenized link with an order summary and individual details.
 - Output Product Map rows now open a scoped Lift catalog workflow and save the selected route identifier back to the exact row.
 - Output Route strategy changes now summarize identifier readiness and can open a focused remap queue without rewriting previously stored identifiers.
+- Import Methods now uses a list-first detail workflow with one explicit save, local-only new/duplicate drafts, and guarded discard/navigation behavior.
+- Import Methods can now detect and persist workbook schema metadata while keeping workbook rows and cell values session-only.
 
 ## Current Known Friction Or Risks
 
 - Google login may show Cross-Origin-Opener-Policy console warnings from Firebase popup behavior even when auth succeeds.
 - The Lift Product Catalog panel has been iterated several times and may still need simplification around pinned catalogs, refresh behavior, and product details hierarchy.
-- Import Methods layout needs continued cleanup:
-  - List first.
-  - Edit/drill-down for settings.
-  - Single save button for the method.
-  - Unsaved-change guard.
-  - No auto-created draft method on accidental navigation.
+- Import Methods persists detected sheets and columns, but changing parser settings currently requires re-uploading the template to refresh the detected schema.
+- Multi-row/secondary header handling still needs a focused parser workflow beyond the existing header-row override and repeated-header filter.
 - Targets should eventually get the same single-save/unsaved-change treatment as Import Methods.
 - Public status gating must balance security with customer ease. Email-domain-based access has momentum, plus global allowed domains.
 - Mobile support is not required for the full admin app, but login, dashboard, overview, and public status should behave well on mobile.
@@ -504,23 +504,27 @@ Recommended next slices:
 
 ## Import Methods Roadmap
 
+Completed in the latest continuation slice:
+
+- The main page is a method list; setup panels appear only after edit/new/duplicate opens a detail workspace.
+- Source setup, product resolution, and field mappings persist through one `Save Method` action.
+- New and duplicated methods remain local drafts until that save succeeds.
+- Dirty navigation offers save, discard, or keep-editing choices, and browser refresh/close receives the standard unsaved-work warning.
+- Saving validates the method name and output route; discarding reloads the persisted workspace.
+- Empty mapping sets remain empty when switching methods instead of inheriting stale mappings.
+- Source templates can be detected from XLSX, XLS, or CSV directly inside the method workspace.
+- Detected file name, sheet structure, columns, row counts, and detection time persist with the method; raw rows and cell values do not.
+- Matching mappings are preserved, recognized new columns are auto-mapped, and Manual Import reuses the active method's matching mappings.
+- Operators can return to clearly labeled sample columns as a guarded draft change.
+
 Recommended next slices:
 
-1. Restructure Import Methods like Targets:
-   - Main page is a list.
-   - Edit opens method setup.
-   - No settings panels visible until a method is selected.
-2. Add source template upload/sample setup:
-   - Column lists should come from uploaded customer workbook/template or a saved detected source schema.
-   - Avoid confusing seeded columns unless labeled as sample/default columns.
-3. Handle multi-row headers:
+1. Handle multi-row headers:
    - Add header row detection/override.
    - Support ignored secondary header rows.
    - Preserve sheet and row audit info.
-4. Single save:
-   - One Save Method button for all method settings.
-   - Warn on unsaved navigation.
-   - Do not auto-create draft methods.
+2. Add an explicit re-detect action or stale-schema signal after parser settings change.
+3. Add focused method-level tests for source-specific settings and mapping persistence as the workflow grows.
 
 ## Canonical Registry Roadmap
 
@@ -574,7 +578,7 @@ Please read /Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/THREAD_HA
 
 If the next slice is not specified, the best candidates are:
 
-1. Import Methods restructure with single save and unsaved-change guard.
+1. Import Methods multi-row/secondary-header detection and schema refresh handling.
 2. Add confirmation and separation to the existing bulk product-map flow.
 3. Transactional email SES smoke test and production switch.
 4. Mobile polish for login, dashboard, overview, and public status.

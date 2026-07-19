@@ -201,6 +201,21 @@ export interface SavedFieldMappingTemplate {
   updated_at: string;
 }
 
+export interface DetectedSourceSchemaSheet {
+  sheet_name: string;
+  columns: string[];
+  order_row_count: number;
+  reference_row_count: number;
+}
+
+export interface DetectedSourceSchema {
+  source_file_name: string;
+  selected_sheet_name: string;
+  columns: string[];
+  sheets: DetectedSourceSchemaSheet[];
+  detected_at: string;
+}
+
 export interface ImportMethod {
   import_method_id: string;
   name: string;
@@ -224,6 +239,7 @@ export interface ImportMethod {
     ignore_repeated_headers?: boolean;
     reference_rows_mode?: "rows_without_quantity" | "ignore";
     sample_template_name?: string | null;
+    detected_schema?: DetectedSourceSchema | null;
   };
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;

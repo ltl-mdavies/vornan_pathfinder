@@ -60,6 +60,7 @@ import {
   parseWorkbookArrayBuffer,
   sampleSourceGrid,
   type FieldMapping,
+  type ParsedWorkbook,
   type ParsedSourceRow,
   type ParsedWorkbookSheet,
   type SourceGrid
@@ -261,6 +262,21 @@ interface SavedFieldMappingTemplate {
   updated_at: string;
 }
 
+interface DetectedSourceSchemaSheet {
+  sheet_name: string;
+  columns: string[];
+  order_row_count: number;
+  reference_row_count: number;
+}
+
+interface DetectedSourceSchema {
+  source_file_name: string;
+  selected_sheet_name: string;
+  columns: string[];
+  sheets: DetectedSourceSchemaSheet[];
+  detected_at: string;
+}
+
 interface ImportMethod {
   import_method_id: string;
   name: string;
@@ -284,6 +300,7 @@ interface ImportMethod {
     ignore_repeated_headers?: boolean;
     reference_rows_mode?: "rows_without_quantity" | "ignore";
     sample_template_name?: string | null;
+    detected_schema?: DetectedSourceSchema | null;
   };
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
@@ -2785,6 +2802,31 @@ function sampleValuesForColumn(rows: SourceGrid["rows"], column: string) {
     .join(" · ");
 }
 
+function detectedSourceSchemaFromWorkbook(fileName: string, parsed: ParsedWorkbook): DetectedSourceSchema {
+  return {
+    source_file_name: fileName,
+    selected_sheet_name: parsed.sheetName,
+    columns: parsed.columns,
+    sheets: parsed.source_sheets.map((sheet) => ({
+      sheet_name: sheet.sheet_name,
+      columns: sheet.columns,
+      order_row_count: sheet.order_row_count,
+      reference_row_count: sheet.reference_row_count
+    })),
+    detected_at: new Date().toISOString()
+  };
+}
+
+function mappingsForSourceColumns(columns: string[], currentMappings: FieldMapping[]) {
+  const currentByColumn = new globalThis.Map(currentMappings.map((mapping) => [mapping.sourceColumn, mapping]));
+  const defaultsByColumn = new globalThis.Map(buildDefaultMappings(columns).map((mapping) => [mapping.sourceColumn, mapping]));
+
+  return columns.flatMap((column) => {
+    const mapping = currentByColumn.get(column) ?? defaultsByColumn.get(column);
+    return mapping ? [mapping] : [];
+  });
+}
+
 function productMappingSeenCount(mapping: CustomerProductMapping) {
   return mapping.last_seen_examples.length;
 }
@@ -2911,6 +2953,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }, [authSession?.token]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const methodTemplateInputRef = useRef<HTMLInputElement>(null);
   const productPreloadFileRef = useRef<HTMLInputElement>(null);
   const [activeGlobalView, setActiveGlobalView] = useState<GlobalView>("Customers");
   const [activeCustomerView, setActiveCustomerView] = useState<CustomerView>("Overview");
@@ -2922,6 +2965,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [sourceName, setSourceName] = useState("Sample workbook");
   const [sheetName, setSheetName] = useState("Sample");
   const [importError, setImportError] = useState<string | null>(null);
+  const [sourceSchemaState, setSourceSchemaState] = useState<"idle" | "detecting" | "error">("idle");
+  const [sourceSchemaMessage, setSourceSchemaMessage] = useState<string | null>(null);
   const [customers, setCustomers] = useState<LiftCustomer[]>([fallbackCustomer]);
   const [selectedCustomerId, setSelectedCustomerId] = useState(fallbackCustomer.lift_customer_id);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -2947,6 +2992,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [activeMethodId, setActiveMethodId] = useState("manual-xlsx");
   const [isImportMethodDetailOpen, setIsImportMethodDetailOpen] = useState(false);
   const [dirtyImportMethodIds, setDirtyImportMethodIds] = useState<string[]>([]);
+  const [localDraftImportMethodIds, setLocalDraftImportMethodIds] = useState<string[]>([]);
   const [dirtyTargetIds, setDirtyTargetIds] = useState<string[]>([]);
   const [dirtyOutputRouteIds, setDirtyOutputRouteIds] = useState<string[]>([]);
   const [routeStrategyChanges, setRouteStrategyChanges] = useState<Record<string, RouteStrategyChange>>({});
@@ -3095,6 +3141,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const loadedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       setWorkspace(loadedWorkspace);
       setDirtyImportMethodIds([]);
+      setLocalDraftImportMethodIds([]);
       setDirtyOutputRouteIds([]);
       setRouteStrategyChanges({});
       setMigrationQueueRouteId(null);
@@ -3669,6 +3716,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function saveImportMethod(method: ImportMethod, nextMappings = mappings) {
+    const normalizedName = method.name.trim();
+    if (!normalizedName) {
+      setWorkspaceMessage("Enter a method name before saving.");
+      return false;
+    }
+
+    if (!outputRoutes.some((route) => route.output_route_id === method.output_route_id)) {
+      setWorkspaceMessage("Choose a valid output route before saving.");
+      return false;
+    }
+
+    const isLocalDraft = localDraftImportMethodIds.includes(method.import_method_id);
     setWorkspaceState("saving");
     try {
       const response = await fetch(
@@ -3676,13 +3735,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...method, mappings: nextMappings })
+          body: JSON.stringify({ ...method, name: normalizedName, mappings: nextMappings })
         }
       );
       const nextWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       setWorkspace(nextWorkspace);
       setDirtyImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
-      setWorkspaceMessage("Import method saved.");
+      setLocalDraftImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
+      setWorkspaceMessage(isLocalDraft ? "Import method created." : "Import method saved.");
       setWorkspaceState("idle");
       return true;
     } catch (error) {
@@ -4042,6 +4102,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     [activeProductConfig, sourceGrid.columns]
   );
   const sourceConfig = activeImportMethod?.source_config ?? {};
+  const detectedSourceSchema = sourceConfig.detected_schema ?? null;
   const sourceHeaderRow = sourceConfig.header_row ?? 1;
   const sourceQuantityColumn =
     sourceConfig.quantity_column ??
@@ -4050,11 +4111,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     "";
   const sourceIgnoresRepeatedHeaders = sourceConfig.ignore_repeated_headers ?? true;
   const sourceReferenceRowsMode = sourceConfig.reference_rows_mode ?? "rows_without_quantity";
-  const isUsingSampleSource = sourceName === "Sample workbook";
-  const sourceColumnOrigin = isUsingSampleSource ? "Sample/demo columns" : "Loaded workbook columns";
-  const sourceColumnOriginDetail = isUsingSampleSource
-    ? "Upload or use a customer workbook in Manual Import to replace these starter columns."
-    : `${sourceName} · ${sourceGrid.columns.length} columns`;
+  const detectedOrderRowCount = detectedSourceSchema?.sheets.reduce((total, sheet) => total + sheet.order_row_count, 0) ?? 0;
+  const detectedReferenceRowCount =
+    detectedSourceSchema?.sheets.reduce((total, sheet) => total + sheet.reference_row_count, 0) ?? 0;
+  const sourceOrderRowCount = detectedSourceSchema
+    ? detectedOrderRowCount
+    : parsedOrderRows.length || sourceGrid.rows.length;
+  const sourceReferenceRowCount = detectedSourceSchema ? detectedReferenceRowCount : referenceRows.length;
+  const isUsingSampleSource = !detectedSourceSchema && sourceName === "Sample workbook";
+  const sourceColumnOrigin = detectedSourceSchema
+    ? "Detected workbook schema"
+    : isUsingSampleSource
+      ? "Sample/demo columns"
+      : "Loaded workbook columns";
+  const sourceColumnOriginDetail = detectedSourceSchema
+    ? `${detectedSourceSchema.source_file_name} · ${detectedSourceSchema.columns.length} columns · detected ${displayTimestamp(detectedSourceSchema.detected_at)}`
+    : isUsingSampleSource
+      ? "Detect a customer template here to replace these clearly labeled starter columns."
+      : `${sourceName} · ${sourceGrid.columns.length} columns`;
   const addableCompositeColumns = availableInputColumns.filter(
     (column) => !activeProductConfig.composite_columns.includes(column)
   );
@@ -4476,10 +4550,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   );
 
   useEffect(() => {
-    if (activeImportMethod?.mappings.length) {
+    if (activeImportMethod) {
       setMappings(activeImportMethod.mappings);
     }
   }, [activeImportMethod?.import_method_id, workspace?.updated_at]);
+
+  useEffect(() => {
+    if (dirtyImportMethodIds.length === 0) {
+      return;
+    }
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [dirtyImportMethodIds.length]);
 
   useEffect(() => {
     setSelectedUnitMapIds([]);
@@ -5109,6 +5197,124 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     action?.();
   }
 
+  function cancelLeavePrompt() {
+    setLeavePrompt(null);
+    pendingNavigationRef.current = null;
+  }
+
+  function applyImportMethodSourceContext(method: ImportMethod) {
+    const schema = method.source_config.detected_schema;
+    setSourceSchemaState("idle");
+    setSourceSchemaMessage(null);
+
+    if (schema?.columns.length) {
+      setSourceGrid({ columns: schema.columns, rows: [] });
+      setSourceSheets(
+        schema.sheets.map((sheet) => ({
+          ...sheet,
+          parsed_rows: []
+        }))
+      );
+      setParsedOrderRows([]);
+      setReferenceRows([]);
+      setSourceName(schema.source_file_name);
+      setSheetName(schema.selected_sheet_name || schema.sheets[0]?.sheet_name || "Detected schema");
+      return;
+    }
+
+    setSourceGrid(sampleSourceGrid);
+    setSourceSheets(sampleSourceSheets(sampleSourceGrid));
+    setParsedOrderRows(sampleParsedRows(sampleSourceGrid));
+    setReferenceRows([]);
+    setSourceName("Sample workbook");
+    setSheetName("Sample");
+  }
+
+  async function detectImportMethodSourceSchema(file: File) {
+    if (!activeImportMethod) {
+      setSourceSchemaState("error");
+      setSourceSchemaMessage("Choose an import method before detecting a source schema.");
+      return;
+    }
+
+    setSourceSchemaState("detecting");
+    setSourceSchemaMessage(null);
+
+    try {
+      const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer(), {
+        headerRow: activeImportMethod.source_config.header_row ?? 1,
+        quantityColumn: activeImportMethod.source_config.quantity_column ?? null,
+        ignoreRepeatedHeaders: activeImportMethod.source_config.ignore_repeated_headers ?? true,
+        referenceRowsMode: activeImportMethod.source_config.reference_rows_mode ?? "rows_without_quantity"
+      });
+
+      if (parsed.columns.length === 0) {
+        throw new Error("No source columns were detected. Check the header row and upload the template again.");
+      }
+
+      const detectedSchema = detectedSourceSchemaFromWorkbook(file.name, parsed);
+      const nextMappings = mappingsForSourceColumns(parsed.columns, activeImportMethod.mappings);
+
+      setSourceGrid({ columns: parsed.columns, rows: parsed.rows });
+      setSourceSheets(parsed.source_sheets);
+      setParsedOrderRows(parsed.parsed_order_rows);
+      setReferenceRows(parsed.reference_rows);
+      setSourceName(file.name);
+      setSheetName(parsed.sheetName);
+      setMappings(nextMappings);
+      setLastPreviewJob(null);
+      setLastSubmitAttempt(null);
+      updateActiveMethodDraft({
+        mappings: nextMappings,
+        source_config: {
+          ...activeImportMethod.source_config,
+          sample_template_name: file.name,
+          detected_schema: detectedSchema
+        }
+      });
+      setSourceSchemaState("idle");
+      setSourceSchemaMessage(
+        `${parsed.columns.length} columns detected across ${parsed.source_sheets.length} sheet${parsed.source_sheets.length === 1 ? "" : "s"}. Save Method to persist this schema.`
+      );
+    } catch (error) {
+      setSourceSchemaState("error");
+      setSourceSchemaMessage(error instanceof Error ? error.message : "Source schema detection failed.");
+    }
+  }
+
+  function handleMethodTemplateChange(event: ChangeEvent<HTMLInputElement>) {
+    const [file] = Array.from(event.target.files ?? []);
+    if (file) {
+      void detectImportMethodSourceSchema(file);
+    }
+    event.target.value = "";
+  }
+
+  function useSampleSourceColumns() {
+    if (!activeImportMethod) {
+      return;
+    }
+
+    const nextMappings = mappingsForSourceColumns(sampleSourceGrid.columns, activeImportMethod.mappings);
+    setSourceGrid(sampleSourceGrid);
+    setSourceSheets(sampleSourceSheets(sampleSourceGrid));
+    setParsedOrderRows(sampleParsedRows(sampleSourceGrid));
+    setReferenceRows([]);
+    setSourceName("Sample workbook");
+    setSheetName("Sample");
+    setMappings(nextMappings);
+    updateActiveMethodDraft({
+      mappings: nextMappings,
+      source_config: {
+        ...activeImportMethod.source_config,
+        sample_template_name: null,
+        detected_schema: null
+      }
+    });
+    setSourceSchemaState("idle");
+    setSourceSchemaMessage("Sample columns restored. Save Method to keep this source setup.");
+  }
+
   async function importWorkbook(file: File) {
     try {
       const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer(), {
@@ -5121,7 +5327,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setSourceSheets(parsed.source_sheets);
       setParsedOrderRows(parsed.parsed_order_rows);
       setReferenceRows(parsed.reference_rows);
-      setMappings(buildDefaultMappings(parsed.columns));
+      setMappings(mappingsForSourceColumns(parsed.columns, activeImportMethod?.mappings ?? mappings));
       setSourceName(file.name);
       setSheetName(parsed.sheetName);
       setLastPreviewJob(null);
@@ -6055,6 +6261,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
   }
 
+  function openImportMethodDetail(method: ImportMethod) {
+    setActiveMethodId(method.import_method_id);
+    setMappings(method.mappings);
+    applyImportMethodSourceContext(method);
+    setProductExampleTestValue("");
+    setIsImportMethodDetailOpen(true);
+  }
+
   function createDraftImportMethod() {
     if (!workspace) {
       setWorkspaceMessage("Workspace is still loading. Try again in a moment.");
@@ -6072,7 +6286,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       target_id: activeOutputRoute.target_id,
       target_template: activeOutputRoute.output_template,
       template_id: `template-${Date.now()}`,
-      mappings: buildDefaultMappings(sourceGrid.columns),
+      mappings: buildDefaultMappings(sampleSourceGrid.columns),
       source_config: {},
       workbook_sheet_policy: "rows_with_quantity",
       product_resolution_config: defaultProductResolutionConfig,
@@ -6087,14 +6301,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       import_methods: [method, ...workspace.import_methods]
     });
     setActiveMethodId(method.import_method_id);
+    setMappings(method.mappings);
+    applyImportMethodSourceContext(method);
     setIsImportMethodDetailOpen(true);
     setActiveCustomerView("Import Methods");
+    setLocalDraftImportMethodIds((current) =>
+      current.includes(method.import_method_id) ? current : [...current, method.import_method_id]
+    );
     setDirtyImportMethodIds((current) =>
       current.includes(method.import_method_id) ? current : [...current, method.import_method_id]
     );
+    setWorkspaceMessage("New import method is a local draft. Review it, then save when ready.");
   }
 
-  async function duplicateImportMethod(method: ImportMethod) {
+  function duplicateImportMethod(method: ImportMethod) {
     if (!workspace) {
       return;
     }
@@ -6118,13 +6338,34 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       import_methods: [duplicate, ...workspace.import_methods]
     });
     setActiveMethodId(methodId);
+    setMappings(duplicate.mappings);
+    applyImportMethodSourceContext(duplicate);
     setIsImportMethodDetailOpen(true);
-    await saveImportMethod(duplicate, duplicate.mappings);
+    setActiveCustomerView("Import Methods");
+    setLocalDraftImportMethodIds((current) =>
+      current.includes(methodId) ? current : [...current, methodId]
+    );
+    setDirtyImportMethodIds((current) => (current.includes(methodId) ? current : [...current, methodId]));
+    setWorkspaceMessage("Duplicated import method is a local draft. Review it, then save when ready.");
   }
 
   async function deleteImportMethod(method: ImportMethod) {
     if (!workspace || importMethods.length <= 1) {
       setWorkspaceMessage("Keep at least one import method for this customer.");
+      return;
+    }
+
+    if (localDraftImportMethodIds.includes(method.import_method_id)) {
+      const remainingMethods = workspace.import_methods.filter(
+        (candidate) => candidate.import_method_id !== method.import_method_id
+      );
+      const nextMethod = remainingMethods.find((candidate) => candidate.status !== "Archived");
+      setWorkspace({ ...workspace, import_methods: remainingMethods });
+      setDirtyImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
+      setLocalDraftImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
+      setActiveMethodId(nextMethod?.import_method_id ?? "manual-xlsx");
+      setIsImportMethodDetailOpen(false);
+      setWorkspaceMessage("Local import method draft discarded.");
       return;
     }
 
@@ -6138,6 +6379,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const nextMethod = nextWorkspace.import_methods.find((candidate) => candidate.status !== "Archived");
       setWorkspace(nextWorkspace);
       setDirtyImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
+      setLocalDraftImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
       setActiveMethodId(nextMethod?.import_method_id ?? "manual-xlsx");
       if (method.import_method_id === activeMethodId) {
         setIsImportMethodDetailOpen(false);
@@ -6931,6 +7173,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </button>
                   </div>
                   <div className="method-table">
+                    <div className="method-table-header" aria-hidden="true">
+                      <span>Method</span>
+                      <span>Output Route</span>
+                      <span>Source</span>
+                      <span>Status</span>
+                      <span>Last Run</span>
+                      <span>Actions</span>
+                    </div>
                     {importMethods.map((method) => (
                       <div
                         className={activeMethodId === method.import_method_id ? "method-row method-row-active" : "method-row"}
@@ -6938,10 +7188,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       >
                         <button
                           className="method-select-area"
-                          onClick={() => {
-                            setActiveMethodId(method.import_method_id);
-                            setIsImportMethodDetailOpen(true);
-                          }}
+                          onClick={() => openImportMethodDetail(method)}
+                          aria-label={`Edit ${method.name}`}
                         >
                           <div>
                             <strong>{method.name}</strong>
@@ -6954,18 +7202,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </button>
                         <div className="method-row-actions">
                           <button
-                            title="Edit import method"
-                            onClick={() => {
-                              setActiveMethodId(method.import_method_id);
-                              setIsImportMethodDetailOpen(true);
-                            }}
+                            title={`Edit ${method.name}`}
+                            aria-label={`Edit ${method.name}`}
+                            onClick={() => openImportMethodDetail(method)}
                           >
                             <Edit3 size={15} />
                           </button>
-                          <button title="Duplicate import method" onClick={() => void duplicateImportMethod(method)}>
+                          <button
+                            title={`Duplicate ${method.name}`}
+                            aria-label={`Duplicate ${method.name}`}
+                            onClick={() => duplicateImportMethod(method)}
+                          >
                             <Copy size={15} />
                           </button>
-                          <button title="Delete import method" onClick={() => void deleteImportMethod(method)}>
+                          <button
+                            title={localDraftImportMethodIds.includes(method.import_method_id) ? `Discard ${method.name}` : `Archive ${method.name}`}
+                            aria-label={localDraftImportMethodIds.includes(method.import_method_id) ? `Discard ${method.name}` : `Archive ${method.name}`}
+                            onClick={() => void deleteImportMethod(method)}
+                          >
                             <Trash2 size={15} />
                           </button>
                         </div>
@@ -6977,14 +7231,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 {isImportMethodDetailOpen && activeImportMethod ? (
                   <section className="panel method-workspace-panel">
                     <div className="table-panel-header">
-                      <PanelHeader icon={FileSpreadsheet} title={activeImportMethod.name} detail="Selected import method workspace" />
+                      <PanelHeader icon={FileSpreadsheet} title={activeImportMethod.name} detail="One save for source, resolution, and mappings" />
                       <div className="method-detail-actions">
                         <span
                           className={`method-save-state ${
                             activeImportMethodHasUnsavedChanges ? "method-save-state-dirty" : "method-save-state-clean"
                           }`}
                         >
-                          {activeImportMethodHasUnsavedChanges ? (
+                          {localDraftImportMethodIds.includes(activeImportMethod.import_method_id) ? (
+                            "Not saved yet"
+                          ) : activeImportMethodHasUnsavedChanges ? (
                             "Unsaved changes"
                           ) : (
                             <>
@@ -7005,7 +7261,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           disabled={!activeImportMethodHasUnsavedChanges || workspaceState === "saving"}
                           onClick={() => void saveImportMethod(activeImportMethod, mappings)}
                         >
-                          Save Changes
+                          Save Method
                         </button>
                       </div>
                     </div>
@@ -7013,7 +7269,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <span>1 Source setup</span>
                       <span>2 Product resolution</span>
                       <span>3 Field mapping</span>
-                      <span>4 Manual preview</span>
+                      <span>4 Review &amp; save</span>
                     </div>
                   </section>
                 ) : null}
@@ -7025,6 +7281,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <span>Name</span>
                         <input
                           value={activeImportMethod.name}
+                          aria-invalid={!activeImportMethod.name.trim()}
                           onChange={(event) => updateActiveMethodDraft({ name: event.target.value })}
                         />
                       </label>
@@ -7217,6 +7474,78 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 {isImportMethodDetailOpen && activeImportMethod ? (
                   <section className="panel setup-panel source-setup-panel">
                     <PanelHeader icon={Upload} title="Source Setup" detail={sourceColumnOrigin} />
+                    <div className="source-schema-setup">
+                      <label
+                        className={sourceSchemaState === "detecting" ? "source-schema-drop-zone source-schema-drop-zone-busy" : "source-schema-drop-zone"}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          const [file] = Array.from(event.dataTransfer.files);
+                          if (file && sourceSchemaState !== "detecting") {
+                            void detectImportMethodSourceSchema(file);
+                          }
+                        }}
+                      >
+                        <FileSpreadsheet size={26} />
+                        <div>
+                          <strong>
+                            {sourceSchemaState === "detecting"
+                              ? "Detecting workbook schema..."
+                              : detectedSourceSchema
+                                ? "Replace detected source template"
+                                : "Detect source template"}
+                          </strong>
+                          <span>
+                            Drop or browse for XLSX, XLS, or CSV. Pathfinder retains sheet and column metadata only—not workbook rows or cell values.
+                          </span>
+                        </div>
+                        <input
+                          ref={methodTemplateInputRef}
+                          className="file-input"
+                          type="file"
+                          accept=".xlsx,.xls,.csv"
+                          disabled={sourceSchemaState === "detecting"}
+                          onChange={handleMethodTemplateChange}
+                        />
+                      </label>
+                      <div className="source-schema-toolbar">
+                        <div>
+                          <span>Schema State</span>
+                          <strong>
+                            {detectedSourceSchema
+                              ? activeImportMethodHasUnsavedChanges
+                                ? "Included in method draft"
+                                : "Saved with method"
+                              : "Using sample columns"}
+                          </strong>
+                        </div>
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          disabled={isUsingSampleSource || sourceSchemaState === "detecting"}
+                          onClick={useSampleSourceColumns}
+                        >
+                          Use Sample Columns
+                        </button>
+                      </div>
+                      {sourceSchemaMessage ? (
+                        <p className={sourceSchemaState === "error" ? "source-schema-message source-schema-message-error" : "source-schema-message"}>
+                          {sourceSchemaMessage}
+                        </p>
+                      ) : null}
+                      {detectedSourceSchema ? (
+                        <div className="source-schema-sheet-list" aria-label="Detected source sheets">
+                          {detectedSourceSchema.sheets.map((sheet) => (
+                            <div key={sheet.sheet_name}>
+                              <strong>{sheet.sheet_name}</strong>
+                              <span>
+                                {sheet.columns.length} columns · {sheet.order_row_count} order rows · {sheet.reference_row_count} reference rows
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                     <div className="source-setup-summary">
                       <div>
                         <span>Column Source</span>
@@ -7225,17 +7554,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </div>
                       <div>
                         <span>Sheets Detected</span>
-                        <strong>{sourceSheets.length || 1}</strong>
+                        <strong>{detectedSourceSchema?.sheets.length || sourceSheets.length || 1}</strong>
                         <p>{sheetName}</p>
                       </div>
                       <div>
                         <span>Order Rows</span>
-                        <strong>{parsedOrderRows.length || sourceGrid.rows.length}</strong>
+                        <strong>{sourceOrderRowCount}</strong>
                         <p>Rows with a valid quantity</p>
                       </div>
                       <div>
                         <span>Reference Rows</span>
-                        <strong>{referenceRows.length}</strong>
+                        <strong>{sourceReferenceRowCount}</strong>
                         <p>No-quantity rows stay out of submit</p>
                       </div>
                     </div>
@@ -7316,15 +7645,23 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </label>
                     </div>
                     <div className="source-setup-callout">
-                      <strong>{isUsingSampleSource ? "Sample columns are currently shown." : "Loaded workbook columns are active."}</strong>
+                      <strong>
+                        {detectedSourceSchema
+                          ? "Detected source columns are active for this method."
+                          : isUsingSampleSource
+                            ? "Sample columns are currently shown."
+                            : "Loaded workbook columns are active."}
+                      </strong>
                       <span>
-                        {isUsingSampleSource
-                          ? "Open Manual Import and upload the customer's template or order workbook before finalizing product resolution and field mapping."
-                          : "Column selectors below are based on the loaded workbook. Save this method when the parser behavior and mappings look right."}
+                        {detectedSourceSchema
+                          ? "Matching field mappings were preserved and recognized new columns were mapped automatically. Re-upload after changing parser settings, then save the method."
+                          : isUsingSampleSource
+                            ? "Detect the customer's workbook template here before finalizing product resolution and field mapping."
+                            : "Column selectors below are based on the loaded workbook. Save this method when the parser behavior and mappings look right."}
                       </span>
                     </div>
                     <div className="panel-action-footer">
-                      <span>Parser settings apply the next time a workbook is loaded and save with this import method.</span>
+                      <span>Detected schema, parser settings, and field mappings save together with this import method.</span>
                       <div className="inline-action-row">
                         <button
                           className="secondary-button"
@@ -12160,7 +12497,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         ) : null}
 
         {leavePrompt ? (
-          <div className="product-map-modal-backdrop" role="presentation" onClick={() => setLeavePrompt(null)}>
+          <div className="product-map-modal-backdrop" role="presentation" onClick={cancelLeavePrompt}>
             <section
               className="product-map-modal unsaved-changes-modal"
               role="dialog"
@@ -12174,7 +12511,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <h2>{leavePrompt.title}</h2>
                   <span>{leavePrompt.body}</span>
                 </div>
-                <button className="modal-close-button" onClick={() => setLeavePrompt(null)} aria-label="Keep editing">
+                <button className="modal-close-button" onClick={cancelLeavePrompt} aria-label="Keep editing">
                   <X size={16} />
                 </button>
               </div>
@@ -12186,14 +12523,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
               </div>
               <div className="modal-action-row">
-                <button className="secondary-button" onClick={() => setLeavePrompt(null)}>
+                <button className="secondary-button" onClick={cancelLeavePrompt}>
                   Keep Editing
                 </button>
                 <button className="secondary-button" onClick={() => void discardPromptChangesAndContinue()}>
                   Continue Without Saving
                 </button>
                 <button className="primary-button" onClick={() => void savePromptChangesAndContinue()} disabled={workspaceState === "saving"}>
-                  Save Changes
+                  {leavePrompt.scope === "import-method" ? "Save Method" : "Save Changes"}
                 </button>
               </div>
             </section>

@@ -1327,3 +1327,58 @@ Verification:
 - Isolated API persistence assertion confirmed the remapped row retained `UNIT-ONLY-001` while adding `PROD-UNIT-001` and changing the route strategy to `lift_product_id`.
 - Browser console contained only Chrome extension message-channel noise; no Pathfinder application error was observed.
 - No real Lift submit flags were enabled and no external Lift request was sent.
+
+## 2026-07-18 - Import Methods Single-Save Workflow
+
+Hardened Import Methods into a list-first setup workflow with an explicit persistence boundary.
+
+What changed:
+
+- Kept the main Import Methods page focused on the method list and opened source, product-resolution, and field-mapping settings only for the selected method.
+- Added a clearer table header, row-specific accessible actions, and responsive list/detail layouts.
+- Kept new and duplicated methods as local drafts until the operator explicitly selects `Save Method`; duplicating no longer persists immediately.
+- Added distinct `Not saved yet`, `Unsaved changes`, and `Saved` states around the single method-level save action.
+- Added method-name and output-route validation before persistence.
+- Added guarded in-app navigation with save, discard, and keep-editing choices, plus a browser refresh/close warning while method changes are dirty.
+- Made discard reload the persisted workspace and added a local-only discard path for methods that have never been saved.
+- Fixed method switching so an intentionally empty mapping set cannot inherit mappings from the previously selected method.
+
+Verification:
+
+- `npm run check`
+- `npm run build`
+- `git diff --check`
+- Isolated local browser validation against a disposable store with auth disabled and real Lift submit flags left off.
+- Confirmed a duplicate was absent from the API before save and persisted only after `Save Method`.
+- Confirmed `Keep Editing` retained local changes and `Continue Without Saving` restored the persisted method.
+- Confirmed blank-name save attempts did not alter persisted state.
+- Confirmed both list and method-detail views had no horizontal overflow at 390x844.
+- No browser console warnings or errors.
+
+## 2026-07-18 - Persisted Import Source Schemas
+
+Added customer-template detection to Import Methods so source columns can come from a saved workbook schema instead of only the current session or seeded samples.
+
+What changed:
+
+- Added an Import Method source-template drop zone for XLSX, XLS, and CSV files.
+- Reused the existing workbook parser and current method parser settings to detect sheets, columns, order/reference row counts, and the selected sheet.
+- Persisted schema metadata inside the method's `source_config` through the existing single `Save Method` boundary.
+- Kept raw workbook rows and sample cell values out of persisted schema data; only file name and structural metadata are retained.
+- Preserved canonical mappings for matching column names and auto-mapped recognized new columns when a template is detected.
+- Added a deliberate `Use Sample Columns` reset that remains a guarded local draft until save.
+- Hydrated the exact method's detected columns, sheet summary, and mappings when its detail workspace opens.
+- Updated Manual Import workbook loading to reuse the active method's saved mappings for matching columns.
+- Added responsive source-schema, sheet-summary, and parser layouts.
+
+Verification:
+
+- `npm run check`
+- `npm run build`
+- `git diff --check`
+- Parser assertion against the existing CSV fixture confirmed the workbook parser detected the expected sheet and columns.
+- Disposable API persistence assertion confirmed three columns and two sheets survived reload with no `rows` property in the saved schema.
+- Local browser validation confirmed the saved schema, counts, and mappings hydrate into the selected method with no retained sample values.
+- Confirmed `Use Sample Columns` did not change the API before save and that guarded discard restored the persisted template schema.
+- 390x844 browser validation confirmed a single-column schema layout and no horizontal overflow.
+- No browser console warnings or errors.
