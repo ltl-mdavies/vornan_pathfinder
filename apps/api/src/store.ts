@@ -260,6 +260,7 @@ export interface ImportMethod {
     sheet_header_overrides?: Record<string, SourceSheetHeaderOverride>;
     sample_template_name?: string | null;
     detected_schema?: DetectedSourceSchema | null;
+    detected_schema_history?: DetectedSourceSchema[];
   };
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
@@ -2014,8 +2015,46 @@ function normalizeDetectedSourceSchema(value: unknown): DetectedSourceSchema | n
   };
 }
 
+function detectedSourceSchemaStructureKey(schema: DetectedSourceSchema) {
+  return JSON.stringify({
+    selected_sheet_name: schema.selected_sheet_name,
+    columns: schema.columns,
+    sheets: schema.sheets.map((sheet) => ({
+      sheet_name: sheet.sheet_name,
+      columns: sheet.columns,
+      header_row: sheet.header_row ?? null,
+      header_row_count: sheet.header_row_count ?? 1,
+      ignored_header_rows: sheet.ignored_header_rows ?? []
+    })),
+    parser_config: schema.parser_config ?? null
+  });
+}
+
+function normalizeDetectedSourceSchemaHistory(value: unknown, currentSchema: DetectedSourceSchema | null) {
+  const currentStructureKey = currentSchema ? detectedSourceSchemaStructureKey(currentSchema) : null;
+  const seen = new Set<string>();
+  return (Array.isArray(value) ? value : [])
+    .map(normalizeDetectedSourceSchema)
+    .filter((schema): schema is DetectedSourceSchema => Boolean(schema))
+    .filter((schema) => {
+      const structureKey = detectedSourceSchemaStructureKey(schema);
+      if (structureKey === currentStructureKey || seen.has(structureKey)) {
+        return false;
+      }
+      seen.add(structureKey);
+      return true;
+    })
+    .slice(0, 5);
+}
+
 function normalizeImportSourceConfig(sourceConfig: ImportMethod["source_config"] | undefined): ImportMethod["source_config"] {
   const source = asRecord(sourceConfig);
+  const detectedSchema =
+    source.detected_schema === null
+      ? null
+      : source.detected_schema === undefined
+        ? undefined
+        : normalizeDetectedSourceSchema(source.detected_schema);
   return {
     google_sheet_url:
       typeof source.google_sheet_url === "string" || source.google_sheet_url === null
@@ -2055,12 +2094,11 @@ function normalizeImportSourceConfig(sourceConfig: ImportMethod["source_config"]
       typeof source.sample_template_name === "string" || source.sample_template_name === null
         ? source.sample_template_name
         : undefined,
-    detected_schema:
-      source.detected_schema === null
-        ? null
-        : source.detected_schema === undefined
-          ? undefined
-          : normalizeDetectedSourceSchema(source.detected_schema)
+    detected_schema: detectedSchema,
+    detected_schema_history: normalizeDetectedSourceSchemaHistory(
+      source.detected_schema_history,
+      detectedSchema ?? null
+    )
   };
 }
 
@@ -3054,14 +3092,32 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
   }
 
   const methodSource = existingMethod ?? createSeedMethod(timestamp);
+  const normalizedMethodSource = normalizeImportMethod(methodSource);
+  let nextSourceConfig = normalizeImportSourceConfig({
+    ...(methodSource.source_config ?? {}),
+    ...(methodPatch.source_config ?? {})
+  });
+  const existingDetectedSchema = normalizedMethodSource.source_config.detected_schema ?? null;
+  const nextDetectedSchema = nextSourceConfig.detected_schema ?? null;
+  if (
+    existingMethod &&
+    existingDetectedSchema &&
+    (!nextDetectedSchema ||
+      detectedSourceSchemaStructureKey(existingDetectedSchema) !== detectedSourceSchemaStructureKey(nextDetectedSchema))
+  ) {
+    nextSourceConfig = {
+      ...nextSourceConfig,
+      detected_schema_history: normalizeDetectedSourceSchemaHistory(
+        [existingDetectedSchema, ...(nextSourceConfig.detected_schema_history ?? [])],
+        nextDetectedSchema
+      )
+    };
+  }
   const nextMethod: ImportMethod = {
-    ...normalizeImportMethod(methodSource),
+    ...normalizedMethodSource,
     ...methodPatch,
     import_method_id: methodId,
-    source_config: normalizeImportSourceConfig({
-      ...(methodSource.source_config ?? {}),
-      ...(methodPatch.source_config ?? {})
-    }),
+    source_config: nextSourceConfig,
     workbook_sheet_policy: methodPatch.workbook_sheet_policy ?? methodSource.workbook_sheet_policy ?? "rows_with_quantity",
     product_resolution_config: {
       ...createDefaultProductResolutionConfig(),

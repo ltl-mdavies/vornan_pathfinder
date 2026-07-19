@@ -1464,3 +1464,28 @@ Verification:
 - Production build retained the existing Vite advisory for the admin bundle exceeding 500 kB; no build failed.
 - Tests use an isolated temporary local store and remove it after completion.
 - No production deployment or external Lift request is part of this slice.
+
+## 2026-07-19 - Import Method Source Schema History
+
+Added bounded structural history and comparison for detected Import Method source schemas.
+
+What changed:
+
+- Saving a structurally changed detected schema now archives the previous saved schema with the Import Method.
+- Re-detecting an identical structure does not create a duplicate history entry, even when the file name or detection timestamp changes.
+- History is deduplicated by schema structure and capped at the five most recent previous versions.
+- Historical schemas use the same metadata allowlist as the current schema; workbook rows and cell values are never retained.
+- Added an inline Schema History comparison in Source Setup showing added/removed columns, added/removed/changed sheets, column-order changes, and parser-setting changes.
+- Kept history read-only; restoring an old schema is intentionally out of scope for this first slice.
+- Expanded Import Method persistence coverage to verify structural deduplication, the five-version cap, order, and metadata-only storage.
+
+Verification:
+
+- `npm test` (3 Import Method persistence/history regressions and 4 workbook parser regressions passing)
+- `npm run check`
+- `npm run build`
+- `git diff --check`
+- Isolated local API/browser validation showed a v1-to-v2 comparison with `PO Number` added and the Orders layout changed.
+- 390x844 browser validation confirmed a single-column comparison layout and no horizontal overflow.
+- No browser console warnings or errors were observed.
+- No production deployment or external Lift request is part of this slice.

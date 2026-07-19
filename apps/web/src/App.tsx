@@ -321,6 +321,7 @@ interface ImportMethod {
     sheet_header_overrides?: Record<string, SourceSheetHeaderOverride>;
     sample_template_name?: string | null;
     detected_schema?: DetectedSourceSchema | null;
+    detected_schema_history?: DetectedSourceSchema[];
   };
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
@@ -2899,6 +2900,42 @@ function detectedSourceSchemaFromWorkbook(
   };
 }
 
+function sourceSchemaComparison(current: DetectedSourceSchema, previous: DetectedSourceSchema) {
+  const currentColumns = new Set(current.columns);
+  const previousColumns = new Set(previous.columns);
+  const currentSheets = new globalThis.Map(current.sheets.map((sheet) => [sheet.sheet_name, sheet]));
+  const previousSheets = new globalThis.Map(previous.sheets.map((sheet) => [sheet.sheet_name, sheet]));
+  const addedColumns = current.columns.filter((column) => !previousColumns.has(column));
+  const removedColumns = previous.columns.filter((column) => !currentColumns.has(column));
+  const addedSheets = current.sheets.map((sheet) => sheet.sheet_name).filter((sheetName) => !previousSheets.has(sheetName));
+  const removedSheets = previous.sheets.map((sheet) => sheet.sheet_name).filter((sheetName) => !currentSheets.has(sheetName));
+  const changedSheets = current.sheets.flatMap((sheet) => {
+    const previousSheet = previousSheets.get(sheet.sheet_name);
+    if (!previousSheet) {
+      return [];
+    }
+    const changed =
+      JSON.stringify(sheet.columns) !== JSON.stringify(previousSheet.columns) ||
+      (sheet.header_row ?? null) !== (previousSheet.header_row ?? null) ||
+      (sheet.header_row_count ?? 1) !== (previousSheet.header_row_count ?? 1) ||
+      JSON.stringify(sheet.ignored_header_rows ?? []) !== JSON.stringify(previousSheet.ignored_header_rows ?? []);
+    return changed ? [sheet.sheet_name] : [];
+  });
+
+  return {
+    addedColumns,
+    removedColumns,
+    addedSheets,
+    removedSheets,
+    changedSheets,
+    columnOrderChanged:
+      addedColumns.length === 0 &&
+      removedColumns.length === 0 &&
+      JSON.stringify(current.columns) !== JSON.stringify(previous.columns),
+    parserSettingsChanged: JSON.stringify(current.parser_config ?? null) !== JSON.stringify(previous.parser_config ?? null)
+  };
+}
+
 function mappingsForSourceColumns(columns: string[], currentMappings: FieldMapping[]) {
   const currentByColumn = new globalThis.Map(currentMappings.map((mapping) => [mapping.sourceColumn, mapping]));
   const defaultsByColumn = new globalThis.Map(buildDefaultMappings(columns).map((mapping) => [mapping.sourceColumn, mapping]));
@@ -3051,6 +3088,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [sourceSchemaState, setSourceSchemaState] = useState<"idle" | "detecting" | "error">("idle");
   const [sourceSchemaMessage, setSourceSchemaMessage] = useState<string | null>(null);
   const [selectedSourceSchemaSheetName, setSelectedSourceSchemaSheetName] = useState("");
+  const [selectedSourceSchemaHistoryDetectedAt, setSelectedSourceSchemaHistoryDetectedAt] = useState("");
   const [customers, setCustomers] = useState<LiftCustomer[]>([fallbackCustomer]);
   const [selectedCustomerId, setSelectedCustomerId] = useState(fallbackCustomer.lift_customer_id);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -4192,6 +4230,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   );
   const sourceConfig = activeImportMethod?.source_config ?? {};
   const detectedSourceSchema = sourceConfig.detected_schema ?? null;
+  const detectedSourceSchemaHistory = sourceConfig.detected_schema_history ?? [];
+  const selectedSourceSchemaHistory =
+    detectedSourceSchemaHistory.find((schema) => schema.detected_at === selectedSourceSchemaHistoryDetectedAt) ??
+    detectedSourceSchemaHistory[0] ??
+    null;
+  const selectedSourceSchemaComparison =
+    detectedSourceSchema && selectedSourceSchemaHistory
+      ? sourceSchemaComparison(detectedSourceSchema, selectedSourceSchemaHistory)
+      : null;
   const sourceHeaderRow = sourceConfig.header_row ?? null;
   const sourceHeaderRowCount = sourceConfig.header_row_count ?? 1;
   const sourceQuantityColumn =
@@ -7723,6 +7770,82 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               </span>
                             </div>
                           ))}
+                        </div>
+                      ) : null}
+                      {detectedSourceSchemaHistory.length ? (
+                        <div className="source-schema-history-panel">
+                          <div className="source-schema-history-heading">
+                            <div>
+                              <strong>Schema History</strong>
+                              <span>
+                                {detectedSourceSchemaHistory.length} previous structural version
+                                {detectedSourceSchemaHistory.length === 1 ? "" : "s"} retained with this method.
+                              </span>
+                            </div>
+                            <span>Latest 5</span>
+                          </div>
+                          <label className="setup-control source-schema-history-select">
+                            <span>Compare With</span>
+                            <select
+                              value={selectedSourceSchemaHistory?.detected_at ?? ""}
+                              onChange={(event) => setSelectedSourceSchemaHistoryDetectedAt(event.target.value)}
+                            >
+                              {detectedSourceSchemaHistory.map((schema) => (
+                                <option key={`${schema.detected_at}-${schema.source_file_name}`} value={schema.detected_at}>
+                                  {schema.source_file_name} · {displayTimestamp(schema.detected_at)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          {detectedSourceSchema && selectedSourceSchemaHistory && selectedSourceSchemaComparison ? (
+                            <div className="source-schema-history-comparison">
+                              <div className="source-schema-history-context">
+                                <span>Current</span>
+                                <strong>{detectedSourceSchema.source_file_name}</strong>
+                                <span>Previous</span>
+                                <strong>{selectedSourceSchemaHistory.source_file_name}</strong>
+                              </div>
+                              <div className="source-schema-history-diff-grid">
+                                <div>
+                                  <span>Added Columns</span>
+                                  <strong>
+                                    {selectedSourceSchemaComparison.addedColumns.length
+                                      ? selectedSourceSchemaComparison.addedColumns.join(", ")
+                                      : "None"}
+                                  </strong>
+                                </div>
+                                <div>
+                                  <span>Removed Columns</span>
+                                  <strong>
+                                    {selectedSourceSchemaComparison.removedColumns.length
+                                      ? selectedSourceSchemaComparison.removedColumns.join(", ")
+                                      : "None"}
+                                  </strong>
+                                </div>
+                                <div>
+                                  <span>Sheet Changes</span>
+                                  <strong>
+                                    {[
+                                      ...selectedSourceSchemaComparison.addedSheets.map((sheet) => `${sheet} added`),
+                                      ...selectedSourceSchemaComparison.removedSheets.map((sheet) => `${sheet} removed`),
+                                      ...selectedSourceSchemaComparison.changedSheets.map((sheet) => `${sheet} layout changed`)
+                                    ].join(", ") || "None"}
+                                  </strong>
+                                </div>
+                                <div>
+                                  <span>Parser / Order</span>
+                                  <strong>
+                                    {[
+                                      selectedSourceSchemaComparison.parserSettingsChanged ? "Parser settings changed" : "",
+                                      selectedSourceSchemaComparison.columnOrderChanged ? "Column order changed" : ""
+                                    ].filter(Boolean).join(", ") || "No change"}
+                                  </strong>
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <p>Detect and save a new source template to compare it with this retained version.</p>
+                          )}
                         </div>
                       ) : null}
                     </div>

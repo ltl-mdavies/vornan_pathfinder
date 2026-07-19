@@ -204,3 +204,72 @@ test("keeps mappings isolated across methods and normalizes legacy parser settin
   assert.deepEqual(legacyAfter.mappings, secondaryMappings);
   assert.equal(legacyAfter.source_config.sample_template_name, undefined);
 });
+
+test("retains only the five most recent structural schema versions", async () => {
+  const historyCustomer = {
+    ...testCustomer,
+    lift_customer_id: "regression-schema-history",
+    customer_name: "Schema History Regression Customer"
+  };
+  await getOrCreateWorkspace(historyCustomer);
+
+  const detectedSchema = (fileName: string, changingColumn: string, detectedAt: string) => ({
+    source_file_name: fileName,
+    selected_sheet_name: "Orders",
+    columns: ["Order Number", changingColumn, "Qty"],
+    sheets: [
+      {
+        sheet_name: "Orders",
+        columns: ["Order Number", changingColumn, "Qty"],
+        order_row_count: 1,
+        reference_row_count: 0,
+        header_row: 1,
+        header_row_count: 1,
+        parsed_rows: [{ values: { [changingColumn]: "HISTORY_RAW_VALUE" } }]
+      }
+    ],
+    detected_at: detectedAt,
+    parser_config: {
+      header_row: 1,
+      header_row_count: 1,
+      quantity_column: "Qty",
+      ignore_repeated_headers: true,
+      reference_rows_mode: "rows_without_quantity",
+      sheet_header_overrides: {}
+    }
+  });
+
+  await updateImportMethod(historyCustomer, "manual-xlsx", {
+    source_config: {
+      detected_schema: detectedSchema("initial.xlsx", "SKU", "2026-07-19T13:00:00.000Z")
+    }
+  } as any);
+  const sameStructureWorkspace = await updateImportMethod(historyCustomer, "manual-xlsx", {
+    source_config: {
+      detected_schema: detectedSchema("renamed-only.xlsx", "SKU", "2026-07-19T13:01:00.000Z")
+    }
+  } as any);
+  assert.deepEqual(importMethod(sameStructureWorkspace, "manual-xlsx").source_config.detected_schema_history, []);
+
+  let workspace = sameStructureWorkspace;
+  for (let version = 1; version <= 6; version += 1) {
+    workspace = await updateImportMethod(historyCustomer, "manual-xlsx", {
+      source_config: {
+        detected_schema: detectedSchema(
+          `structure-${version}.xlsx`,
+          `Customer Field ${version}`,
+          `2026-07-19T13:0${version + 1}:00.000Z`
+        )
+      }
+    } as any);
+  }
+
+  const method = importMethod(workspace, "manual-xlsx");
+  assert.equal(method.source_config.detected_schema.source_file_name, "structure-6.xlsx");
+  assert.equal(method.source_config.detected_schema_history.length, 5);
+  assert.deepEqual(
+    method.source_config.detected_schema_history.map((schema: any) => schema.source_file_name),
+    ["structure-5.xlsx", "structure-4.xlsx", "structure-3.xlsx", "structure-2.xlsx", "structure-1.xlsx"]
+  );
+  assert.equal((await readFile(testStorePath, "utf8")).includes("HISTORY_RAW_VALUE"), false);
+});
