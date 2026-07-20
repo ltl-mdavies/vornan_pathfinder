@@ -2586,3 +2586,13 @@ Final pre-commit validation from the frozen combined tree:
 - `sam validate --lint` passed for both API and Proof CloudFormation templates.
 - GitHub workflow YAML, deployment/package shell scripts, credential-pattern scan, write-gate scan, and `git diff --check` passed.
 - Proof public reads, grant creation, link email, approval, revision, undo, public decisions, and Lift writes remain disabled by default. No Lift submit or Proof write was performed during release validation.
+
+## 2026-07-20 - Protected Proof Dev OIDC Trust
+
+The first dark Proof deployment passed repository validation but AWS rejected its protected-environment OIDC subject before any resource changed. The existing deploy role trusted only the `main` branch subject, while a GitHub Actions job attached to the protected `dev` environment presents an `environment:dev` subject.
+
+- Added only `repo:ltl-mdavies/vornan_pathfinder:environment:dev` alongside the existing `main` subject in the versioned deploy-role trust policy.
+- Kept a Proof `prod` environment subject out of scope so production Proof infrastructure still requires a separate reviewed trust change.
+- Preserved `public_read_enabled=false`, `read_only_qa_confirmed=false`, `production_public_read_approved=false`, managed WAF protection, and every Proof write/decision gate as disabled for the retry.
+- The failed run changed no AWS resource because credential assumption failed before deployment, artifact upload, or CloudFormation execution.
+- Added a deployment-safety regression test that requires exactly the reviewed `main` and protected `dev` subjects and rejects implicit Proof production trust; all 18 deployment-safety tests and the workspace type checks pass.

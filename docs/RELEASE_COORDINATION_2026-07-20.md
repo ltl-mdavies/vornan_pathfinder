@@ -164,6 +164,8 @@ First deploy the isolated Proof workflow to its approved non-production environm
 
 Run the workflow's dark read-only smoke and DNS-readiness checks. Only after isolated QA is complete should a production Proof stack be considered, still with public read disabled. Public DNS exposure, token exchange, grant creation, link email, and any customer decision capability require their own later approval gates.
 
+The GitHub deploy role trust policy intentionally admits the protected `dev` environment subject for this dark rollout in addition to the `main` branch subject used by the existing production workflows. It does not admit a Proof `prod` environment subject. Extending that trust requires a separate reviewed change when a production Proof stack is explicitly approved.
+
 ## Rollback plan
 
 Record the last known-good production SHA before deployment.
