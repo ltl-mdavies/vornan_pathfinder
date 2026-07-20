@@ -1,6 +1,6 @@
 import { SendEmailCommand, SESv2Client } from "@aws-sdk/client-sesv2";
 
-export type TransactionalEmailCategory = "status_link" | "order" | "system";
+export type TransactionalEmailCategory = "status_link" | "proof_link" | "order" | "system";
 export type TransactionalEmailMode = "log" | "ses";
 
 export type TransactionalEmail = {
@@ -23,6 +23,7 @@ export type EmailRuntimeConfig = {
   mode: TransactionalEmailMode;
   from: string;
   statusReplyTo: string;
+  proofReplyTo: string;
   ordersReplyTo: string;
   systemReplyTo: string;
   sesRegion: string;
@@ -47,6 +48,7 @@ export function getEmailRuntimeConfig(): EmailRuntimeConfig {
     mode: configuredMode,
     from: getEnvString("PATHFINDER_EMAIL_FROM", "Vornan Updates <notifications@notify.vornan.co>"),
     statusReplyTo: getEnvString("PATHFINDER_STATUS_REPLY_TO", "support@vornan.co"),
+    proofReplyTo: getEnvString("PATHFINDER_PROOF_REPLY_TO", "support@vornan.com"),
     ordersReplyTo: getEnvString("PATHFINDER_ORDERS_REPLY_TO", "orders@vornan.co"),
     systemReplyTo: getEnvString("PATHFINDER_SYSTEM_REPLY_TO", "ops@vornan.co"),
     sesRegion: getEnvString("PATHFINDER_SES_REGION", process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION ?? "us-east-1"),
@@ -55,6 +57,10 @@ export function getEmailRuntimeConfig(): EmailRuntimeConfig {
 }
 
 export function replyToForCategory(category: TransactionalEmailCategory, config = getEmailRuntimeConfig()) {
+  if (category === "proof_link") {
+    return config.proofReplyTo;
+  }
+
   if (category === "order") {
     return config.ordersReplyTo;
   }
@@ -64,6 +70,21 @@ export function replyToForCategory(category: TransactionalEmailCategory, config 
   }
 
   return config.statusReplyTo;
+}
+
+export function configurationSetForCategory(category: TransactionalEmailCategory, config = getEmailRuntimeConfig()) {
+  return category === "proof_link" ? undefined : config.sesConfigurationSet;
+}
+
+function easternDateTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat("en-US", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "America/New_York"
+      }).format(date);
 }
 
 export function maskEmailAddress(email: string) {
@@ -181,6 +202,71 @@ export function buildStatusLinkEmail(args: {
   };
 }
 
+export function buildProofLinkEmail(args: {
+  to: string;
+  accessUrl: string;
+  expiresAt: string;
+  orderNumber: string;
+  orderTitle?: string | null;
+}): TransactionalEmail {
+  const config = getEmailRuntimeConfig();
+  const expiresLabel = easternDateTime(args.expiresAt);
+  const title = args.orderTitle?.trim() || "Artwork proof review";
+  const safeAccessUrl = escapeHtml(args.accessUrl);
+  const safeExpiresLabel = escapeHtml(expiresLabel);
+  const safeOrderNumber = escapeHtml(args.orderNumber);
+  const safeTitle = escapeHtml(title);
+
+  return {
+    to: [args.to],
+    from: config.from,
+    replyTo: [config.proofReplyTo],
+    category: "proof_link",
+    subject: `Artwork proof ready for ${args.orderNumber}`,
+    text: [
+      `Artwork proofs for ${args.orderNumber} are ready for review.`,
+      title,
+      "",
+      args.accessUrl,
+      "",
+      `This private, one-time link expires ${expiresLabel}. Do not forward it.`,
+      "",
+      "Vornan Proof is currently view-only. Approval and revision requests are unavailable.",
+      "",
+      "Questions? Reply to this email to contact Vornan support."
+    ].join("\n"),
+    html: [
+      "<!doctype html>",
+      '<html lang="en">',
+      '<body style="margin:0;background:#f3f7f1;font-family:Inter,Arial,sans-serif;color:#191818;">',
+      '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f7f1;padding:36px 16px;">',
+      '<tr><td align="center">',
+      '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#fff;border:1px solid #d8e1d3;border-radius:12px;overflow:hidden;">',
+      '<tr><td style="padding:28px 30px 18px;">',
+      '<div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#39523b;font-weight:800;">Vornan Proof</div>',
+      '<h1 style="font-size:28px;line-height:1.15;margin:12px 0 10px;color:#191818;">Your artwork proof is ready.</h1>',
+      '<p style="font-size:16px;line-height:1.55;margin:0;color:#5c6859;">Use the private link below to review the latest available proof files.</p>',
+      '</td></tr>',
+      '<tr><td style="padding:0 30px 18px;">',
+      '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #d8e1d3;border-radius:8px;background:#f8faf5;">',
+      `<tr><td style="padding:14px 16px;border-bottom:1px solid #d8e1d3;"><div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#758070;font-weight:800;">Order</div><div style="font-size:17px;line-height:1.35;margin-top:4px;font-weight:800;">${safeOrderNumber}</div></td></tr>`,
+      `<tr><td style="padding:14px 16px;"><div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#758070;font-weight:800;">Proof packet</div><div style="font-size:15px;line-height:1.45;margin-top:4px;">${safeTitle}</div></td></tr>`,
+      '</table>',
+      '</td></tr>',
+      '<tr><td style="padding:0 30px 28px;">',
+      `<a href="${safeAccessUrl}" style="display:inline-block;background:#39523b;color:#fff;text-decoration:none;font-weight:800;font-size:16px;padding:14px 18px;border-radius:7px;">Review proofs</a>`,
+      `<p style="font-size:14px;line-height:1.5;margin:20px 0 0;color:#5c6859;">This private, one-time link expires ${safeExpiresLabel}. Do not forward it.</p>`,
+      '<p style="font-size:13px;line-height:1.5;margin:12px 0 0;color:#7b8477;">Vornan Proof is currently view-only. Approval and revision requests are unavailable.</p>',
+      '</td></tr>',
+      '</table>',
+      '</td></tr>',
+      '</table>',
+      '</body>',
+      '</html>'
+    ].join("")
+  };
+}
+
 export async function sendTransactionalEmail(email: TransactionalEmail): Promise<TransactionalEmailResult> {
   const config = getEmailRuntimeConfig();
   const from = email.from ?? config.from;
@@ -205,7 +291,10 @@ export async function sendTransactionalEmail(email: TransactionalEmail): Promise
         ToAddresses: email.to
       },
       ReplyToAddresses: replyTo,
-      ConfigurationSetName: config.sesConfigurationSet,
+      // Proof access URLs are bearer credentials. They intentionally bypass the
+      // general configuration set so this application never opts them into
+      // engagement/open/click tracking.
+      ConfigurationSetName: configurationSetForCategory(email.category, config),
       EmailTags: [
         {
           Name: "message_type",

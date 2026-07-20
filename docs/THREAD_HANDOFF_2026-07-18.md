@@ -601,6 +601,35 @@ Recommended next slices:
 2. Add endpoint-level request validation if live integrations begin sending malformed Import Method payloads.
 3. Consider explicit restore-from-history only if operators need recovery, not just comparison.
 
+## Destructive Action Confirmations
+
+Implemented in the current working tree:
+
+- Import Methods require explicit confirmation before an unsaved draft is discarded or a saved method is archived.
+- The confirmation is available from both the method list and method detail header and names the exact method affected.
+- Targets now have delete/discard actions in both the overview and detail header with an exact-item confirmation.
+- Target environments require confirmation before draft removal.
+- Saved Target deletion is rejected server-side while any customer workspace, output route, or Import Method references the Target.
+- Target dependency conflicts surface as readable operator guidance.
+
+Validation completed:
+
+- `npm run check`
+- `npm test --workspace @pathfinder/api` (12 tests passed)
+- `npm run build` with no chunk-size advisory
+- Browser verification covered Import Method confirm/cancel/local-draft removal and saved Target confirm/cancel without deleting persisted data.
+
+No production deployment or real Lift submission is part of this uncommitted slice.
+
+## Production Authentication Hotfix
+
+- Production Google sign-in was restored to Firebase `signInWithPopup`; the failing production-only redirect branch and redirect-result handler were removed.
+- Hotfix commit `eaf12af Restore popup authentication for Pathfinder` is pushed to `main`.
+- Admin deployment workflow `29699177429` completed successfully with CloudFront invalidation.
+- Live bundle `/assets/index-I64bNW4C.js` calls `signInWithPopup` and no longer includes the redirect-result flow.
+- Live browser verification confirmed the parent Pathfinder URL stays in place when the Google sign-in surface opens.
+- The Google console self-XSS warning is standard Google safety messaging and is not emitted by Pathfinder.
+
 ## Canonical Registry Roadmap
 
 The user wants production-grade canonical schema management so non-developers can evolve canonical fields without code edits.
@@ -643,6 +672,67 @@ Next steps:
 - For public status token links, avoid logging raw tokens.
 - Global status allowed domains should be explicit and conservative.
 
+## Manual Import Synchronization Follow-Up
+
+The current working tree includes a focused Manual Import correction discovered with the real Momentara setup:
+
+- Saved Import Method mappings now synchronize into Manual Import immediately after changes and saves.
+- Pre-preview product rows generate durable keys and display saved route product IDs instead of presenting a misleading unmapped placeholder.
+- The local Canonical Order and Lift payload previews now receive those resolved identifiers before validation, matching the persisted preview service instead of reporting missing products alongside mapped product rows.
+- Local certification now treats API-masked saved credentials as configured, matching route diagnostics while the real secret remains unavailable to the browser.
+- Manual readiness counts only mapping gaps used by the uploaded order, while Output Product Map and dashboard surfaces continue to show broader catalog coverage.
+- Preview-job actions now stay disabled until a source with valid order rows is loaded, reject empty requests defensively, and use consistent `Generate Preview Job` / `Regenerate Preview Job` labels.
+- Pre-persistence Ext_ID presentation now says the Pathfinder Order Number will be reserved when the preview is generated instead of displaying the misleading reusable `PF-PREVIEW` token.
+- Product Resolution Review now includes the canonical line quantity beside each generated customer product key.
+- Job detail now distinguishes a first `Submit to Lift` action from later `Retry Submit` attempts instead of labeling an untouched Ready job as a retry.
+- The local Momentara store was checked read-only: its saved field mappings and three mapped product IDs are correct.
+- Web typecheck, production build, and `git diff --check` pass. No preview, deployment, or Lift request was made during this correction.
+
+## First Live Lift Transport Attempt
+
+- `JOB-253878` is the current Momentara two-line Premium Graphics preview using Pathfinder Ext_ID `PFMRTM76KH9A9F` and sandbox submit customer LTL Demo / 1249.
+- Its first live transport attempt is preserved as Failed. The local runtime could not resolve the former internal `prod-lifterp` hostname, so Lift received no HTTP request and returned no order number.
+- The local PROD target now uses the operator-confirmed public Lift `create_order` endpoint. A non-submitting HEAD request returned HTTP 200.
+- Live submit requests now include `Accept: application/json`, matching the successful Postman header contract; credentials remain masked in stored submit snapshots and API responses.
+- API and web certification now allow an intentional retry from `Submit Failed` while continuing to block previews that failed canonical, Lift payload, or product-resolution validation.
+- Certification for `JOB-253878` has been refreshed and is currently eligible for retry. No retry has been sent.
+- Job detail now shows the required PROD + LTL Demo confirmation beside Submit/Retry, keeps the action disabled until confirmed, and displays `Submitting…` while the request is active. This fixes the prior silent no-op after a refresh cleared the transient confirmation.
+- Treat the Lift credential shown during troubleshooting as exposed and rotate it; never add it to source, docs, logs, or local store JSON.
+
+## First Confirmed Lift Order
+
+- `JOB-994730` / Ext_ID `PFMRTNIZAX18FE` was accepted by Lift and created order `A0226692` with two lines.
+- The successful Lift response returned the number inside `message: "Order Number: A0226692"` instead of a dedicated order-number field.
+- Pathfinder now extracts that response shape, persists the order number, transitions the job to `Order Confirmed`, and keeps order/proof/package/status controls available.
+- Read-time reconciliation repaired the already-submitted local job without sending another request.
+- A read-only Pathfinder lookup returned HTTP 200 and confirmed `A0226692`, `Pending Art`, quantities 17 and 7, product `One Sheet (30.375x46.375)`, and product `Pump topper (AOM)`.
+- The local API is running on port 3110 with real Lift submit still explicitly enabled. Do not send another order without the operator's confirmation.
+
+## Shared Lift Order Rollup Foundation
+
+The current working tree now contains the first shared order-view slice for authenticated Pathfinder and `status.vornan.co`:
+
+- `packages/order-rollup` owns Lift order/line normalization and the Standard Graphics job-flow `1006` step/status map transcribed from the operator-supplied January 26, 2026 status table.
+- The curated per-line rail follows the operator-supplied Lift sequence: Obtain Art, PDF Proof, Approve Art, Approved, Rip Art, Print, Cut, Special Finishing, Pack, Ship, Invoice, Completed.
+- Lift header `ORDER_STATUS` is displayed as order-wide context. Each order line independently displays its actual `LINE_STEP_ID` / `LINE_STEP_NUMBER` resolution and rail position.
+- `packages/order-rollup-ui` renders the shared responsive order context, metadata, line cards, status rail, proof preview/link area, and shipment/package area.
+- The line-step rail now uses a light Vornan forest/zinnia design; Lift's raw status colors are retained only as normalized source data and do not drive the UI palette.
+- Authenticated job detail uses the shared component and keeps raw JSON collapsed under Developer details. The public status app uses the same component after the API has applied its public redaction policy.
+- Job detail exposes one primary `View Order`/`Refresh Order` control. Secondary status-link and raw Lift/proof/package diagnostics live under Actions, while Submit/Retry is shown there only for eligible jobs.
+- The existing confirmed order `A0226692` was refreshed read-only and verified as `Pending Art`, with both lines at `6: Obtain Art`, real Lift line IDs, quantities, product names, material, and dimensions.
+- Desktop and 390px mobile browser checks passed without document-level horizontal overflow. On narrow screens the long production rail remains horizontally scrollable within each line card.
+- A local status token was created only for visual QA in log/local mode. No email, deployment, or Lift submit occurred.
+- During local status QA, a concurrent local JSON read/write race triggered the former catch-all seed fallback and reset `data/pathfinder-lift-submit.local.json`. Lift order `A0226692` and production were not affected, but the dedicated local dev file no longer contains the configured Momentara jobs/mappings. A local Time Machine snapshot exists from `2026-07-20 16:23:27`, before the reset, and is the safest recovery source.
+- The persistence path is now hardened: local writes replace atomically, malformed/transient reads fail closed, and the existing file is never replaced with seed unless it is genuinely absent. A regression test verifies malformed operator data remains byte-for-byte intact.
+- Proof-thread coordination details are recorded in `docs/PROOF_THREAD_ORDER_ROLLUP_NOTE_2026-07-20.md`.
+
+Recommended continuation:
+
+1. Add focused snapshot/API regression coverage for the enriched public and internal order contracts.
+2. Validate a real proof response once Lift posts a proof, including line matching by actual Lift `ORDER_LINE_ID`, proof thumbnail rendering, and high-resolution links.
+3. Add explicit refresh/last-updated affordances and decide whether confirmed orders should refresh on demand, on a bounded interval, or both.
+4. Extend the normalized header details only when confirmed Lift lookup fields are available (PO/contract, requested dates, destination, and other customer-safe fields).
+
 ## Suggested Prompt For New Thread
 
 Use this to start the next task:
@@ -653,7 +743,93 @@ Please read /Users/marcusdavies/Projects/ltl-workspace/pathfinder/docs/THREAD_HA
 
 If the next slice is not specified, the best candidates are:
 
-1. Confirm Lift naming constraints and uniqueness scope, then add cross-job safeguards only if the contract requires them.
-2. Validate Import Method parsing/history against the next real customer workbook.
-3. Transactional email SES smoke test and production switch.
-4. Mobile polish for dashboard, overview, and public status.
+1. Validate the shared Order Rollup against the first real Lift proof and harden proof-to-line matching.
+2. Add bounded refresh/last-updated behavior for confirmed Lift order snapshots.
+3. Validate Import Method parsing/history against the next real customer workbook.
+4. Transactional email SES smoke test and production switch.
+
+## Order Snapshot Freshness And Regression Slice
+
+The shared rollup now has an explicit, bounded freshness policy:
+
+- Public status links remain immutable snapshots and do not create Lift reads when customers open or revisit them.
+- Authenticated Pathfinder refreshes confirmed-order data only on `View Order` / `Refresh Order`.
+- Internal refresh responses are reused for 15 seconds to absorb double-clicks and repeated renders without duplicating the three Lift reads. Configure this with `PATHFINDER_ORDER_SNAPSHOT_REFRESH_MIN_MS` if production telemetry supports a different interval.
+- Internal responses identify `lift` versus `recent_snapshot`, the actual check time, and the next refresh time.
+- The shared rollup always displays `Last checked` internally or `Snapshot captured` publicly.
+- API regressions now preserve the enriched header/line/proof/package contract and the public redaction boundary.
+
+No polling, deployment, Lift submit, Proof decision route, Proof grant, email, or Lift Proof write was enabled by this slice.
+
+Recommended continuation after this slice:
+
+1. Extend customer-safe header details only from confirmed Lift fields (PO/contract, requested dates, and destination).
+2. Add refresh telemetry before considering any bounded interval polling; on-demand refresh remains the safer default.
+
+## Real Lift Proof Gallery Validation
+
+Proof ingestion is Lift-order-native. Any order available through the approved Lift order/proof read APIs can enter the normalized Vornan Proof cache; Pathfinder provenance is not a prerequisite.
+
+The shared Order Rollup was validated with the redacted real `A0221132` capture:
+
+- Four sibling attachments join once each to Lift `ORDER_LINE_ID` `9301338`.
+- Each proof retains a distinct filename, safe preview URL, safe high-resolution URL, state, and creation date.
+- Image assets render thumbnails; PDF/download-only assets never render as broken images.
+- Unsafe, non-HTTPS, or credential-bearing URLs are rejected again at the shared UI boundary.
+- The public projection retains customer-safe proof cards and summary counts while excluding attachment IDs, detailed reports, approver identity, grants, sessions, and all decision capability.
+- Order Rollup proof cards remain view-only. Approve/revision/upload behavior belongs only to the separately gated Vornan Proof experience.
+
+No live Lift call, Proof decision, grant creation, link email, deployment, or Lift write occurred during this validation.
+
+## Customer-Safe Lift Order Header Enrichment
+
+The shared Order Rollup now resolves its header fields with an explicit source boundary:
+
+- Confirmed Lift values take precedence for PO number, order title, requested ship date, actual ship date, order type, and overall order status whenever the order lookup returns them.
+- Submitted Pathfinder values remain the compatibility source for contract number, delivery/due date, and destination when Lift omits them.
+- The UI labels populated values as `Confirmed by Lift` or `Submitted order` so operators and customers can understand what has been verified without confronting a configuration contract.
+- Pathfinder and `status.vornan.co` use the same responsive metadata grid and date handling.
+- Date-only Lift values are formatted at local midday, preventing `YYYY-MM-DD` values from appearing one day early in US timezones.
+- Public status destination data is allowlisted to company, addressee, street address, city, state, postal code, and country. Phone, email, account/billing values, delivery instructions, and unknown shipping properties do not cross the public projection.
+- The real Lift lookup for completed order `A0219609` was inspected read-only and confirmed `PO_NUMBER`, `SHIP_DATE`, `ACTUAL_SHIP_DATE`, `ORDER_STATUS`, `ORDER_STEP_ID`, and `HEADER_STEP_NUMBER`. That response does not include contract or destination fields, so Pathfinder truthfully retains the submitted values for those fields.
+
+Recommended continuation after this slice:
+
+1. Add a compact customer-safe shipment summary as real package/tracking records become available, keeping negotiated rates and account data redacted.
+2. Validate the enriched shared header visually against a freshly captured internal snapshot and its public status token after the local operator store is safely restored.
+3. Consider a direct Lift-order browser in authenticated Pathfinder only as a separate explicit slice; the Proof cache already supports Lift orders that did not originate in Pathfinder.
+
+No polling, deployment, Lift submit, Proof decision, email, or Lift write was enabled by this slice.
+
+## Customer-Safe Shipment Summary
+
+The same Pathfinder/Status Order Rollup now includes an order-level shipment summary and clearer line package cards:
+
+- `@pathfinder/order-rollup` owns the package allowlist and summary aggregation.
+- Customer-safe package fields are tracking number, ship method, tracker message, box number, package type, and location name.
+- The summary exposes bounded package count, unique tracking-number count, ship-method count, ship methods, locations, and carrier messages. Its states are deliberately conservative: `pending`, `activity_recorded`, or `tracking_available`.
+- The public projection reconstructs every package from the allowlist. It does not spread internal package records into public status.
+- Negotiated rates, Lift header/shipping IDs, package dimensions, weight, account data, manufacturing/product fields, and unknown properties are absent from the public package JSON. Raw PackageDetails payloads remain internal-only.
+- Shared UI shows one compact responsive shipment panel and per-line cards that distinguish a package/box from its tracking number and carrier message.
+- Completed Lift order `A0219609` was inspected through the existing read-only PackageDetails endpoint: 81 line/package records, Courier activity, no tracking numbers in that capture, and `NEGOTIATED_RATE` present in the source contract. No customer values or rate data were added to fixtures or documentation.
+
+Recommended continuation after this slice:
+
+1. Visually validate the enriched header and shipment summary against a safely restored local operator snapshot and a newly generated public status token.
+2. Add carrier tracking links only if Lift begins returning an authoritative tracking URL or an approved carrier URL contract is defined; do not guess URLs from tracking-number formats.
+3. Consider an authenticated direct Lift-order browser as a separate slice if Pathfinder should show non-Pathfinder orders outside the existing Proof queue.
+
+No polling, deployment, Lift submit, status email, Proof decision, or Lift write was enabled by this slice.
+
+## Combined Release Checkpoint
+
+Pathfinder, the shared Order Rollup, and the Vornan Proof read-only foundation are frozen as one release candidate on `codex/vornan-proof-foundation`.
+
+- The complete file set has been reviewed and classified. Local Proof screenshots/comparison notes are ignored; the sanitized Proof architecture DOCX is intentional.
+- Pull requests and `main` pushes now run the non-deploying `Validate Pathfinder` workflow.
+- Production API, admin, and status workflows refuse feature-branch deployment and run the complete workspace tests before publishing.
+- The frozen tree passes all workspace checks, all 125 tests, all production builds, all 17 Proof deployment-safety tests, API/Proof Lambda packaging, both SAM lints, workflow/script syntax, write-gate scanning, and `git diff --check`.
+- Proof public reads and every Proof/Lift write capability remain disabled. The first Proof deployment must be dark and protected in non-production.
+- Release procedure, smoke tests, rollout ordering, and rollback are documented in `docs/RELEASE_COORDINATION_2026-07-20.md`.
+
+The next Git action is the intentional feature-branch checkpoint commit and push. Merge and production API/admin/status deployment must use the reviewed `main` SHA; Proof remains a separate dark non-production rollout first.

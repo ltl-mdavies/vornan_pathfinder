@@ -31,6 +31,7 @@ aws cloudformation deploy \
     PublicStatusEmailDebugReturnLink="${PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK:-false}" \
     EmailFrom="${PATHFINDER_EMAIL_FROM:-Vornan Updates <notifications@notify.vornan.co>}" \
     StatusReplyTo="${PATHFINDER_STATUS_REPLY_TO:-support@vornan.co}" \
+    ProofReplyTo="${PATHFINDER_PROOF_REPLY_TO:-support@vornan.com}" \
     OrdersReplyTo="${PATHFINDER_ORDERS_REPLY_TO:-orders@vornan.co}" \
     SystemReplyTo="${PATHFINDER_SYSTEM_REPLY_TO:-ops@vornan.co}" \
     SesRegion="${PATHFINDER_SES_REGION:-us-east-1}" \
@@ -48,7 +49,14 @@ aws cloudformation deploy \
     DataTablePrefix="${PATHFINDER_DATA_TABLE_PREFIX:-Pathfinder}" \
     SecretPrefix="${PATHFINDER_SECRET_PREFIX:-/vornan/pathfinder/}" \
     StorageDriver="${PATHFINDER_STORAGE_DRIVER:-dynamodb}" \
-    SecretsDriver="${PATHFINDER_SECRETS_DRIVER:-secrets-manager}"
+    SecretsDriver="${PATHFINDER_SECRETS_DRIVER:-secrets-manager}" \
+    ProofCoreTableName="${PATHFINDER_PROOF_CORE_TABLE:-}" \
+    ProofCoreTableArn="${PATHFINDER_PROOF_CORE_TABLE_ARN:-}" \
+    ProofAuditTableName="${PATHFINDER_PROOF_AUDIT_TABLE:-}" \
+    ProofAuditTableArn="${PATHFINDER_PROOF_AUDIT_TABLE_ARN:-}" \
+    ProofGrantCreationEnabled="${PATHFINDER_PROOF_ENABLE_GRANT_CREATION:-false}" \
+    ProofLinkEmailEnabled="${PATHFINDER_PROOF_ENABLE_LINK_EMAIL:-false}" \
+    ProofPublicBaseUrl="${PATHFINDER_PROOF_PUBLIC_BASE_URL:-https://proof.vornan.co}"
 
 echo "Stack outputs:"
 aws cloudformation describe-stacks \

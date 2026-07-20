@@ -1,0 +1,181 @@
+name: Deploy Vornan Proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment_name:
+        description: "Protected deployment environment"
+        required: true
+        default: "dev"
+      public_read_enabled:
+        description: "Enable view-only public reads after QA"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
+      managed_waf_enabled:
+        description: "Provision the Proof managed WAF when no shared ACL is configured"
+        required: true
+        type: choice
+        default: "true"
+        options: ["true", "false"]
+      read_only_qa_confirmed:
+        description: "Confirm the isolated Phase 2 read-only smoke lifecycle passed"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
+      production_public_read_approved:
+        description: "Independent approval for production public exposure"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
+
+jobs:
+  deploy-proof:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment_name }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install and verify
+        run: |
+          npm ci
+          npm run check
+          npm run test
+          npm run test:proof-deploy
+          npm run package:proof-lambdas
+          npm run build --workspace @pathfinder/proof
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Verify Proof deployment safety gates
+        env:
+          PATHFINDER_PROOF_ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+          PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT: ${{ inputs.environment_name }}
+          PATHFINDER_PROOF_LIFT_ORDER_READ_URL: ${{ vars.PATHFINDER_PROOF_LIFT_ORDER_READ_URL }}
+          PATHFINDER_PROOF_LIFT_REPORT_READ_URL: ${{ vars.PATHFINDER_PROOF_LIFT_REPORT_READ_URL }}
+          PATHFINDER_PROOF_ACKNOWLEDGE_PRODUCTION_READS: ${{ vars.PATHFINDER_PROOF_ACKNOWLEDGE_PRODUCTION_READS || 'false' }}
+          PATHFINDER_PROOF_ENABLE_PUBLIC_READ: ${{ inputs.public_read_enabled }}
+          PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: ${{ inputs.read_only_qa_confirmed }}
+          PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED: ${{ inputs.production_public_read_approved }}
+          PATHFINDER_PROOF_EDGE_SHARED_SECRET: ${{ secrets.PATHFINDER_PROOF_EDGE_SHARED_SECRET }}
+          PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED: ${{ inputs.managed_waf_enabled }}
+          PATHFINDER_PROOF_WEB_ACL_ARN: ${{ vars.PATHFINDER_PROOF_WEB_ACL_ARN }}
+          PATHFINDER_PROOF_DOMAIN_NAME: ${{ vars.PATHFINDER_PROOF_DOMAIN_NAME }}
+          PATHFINDER_PROOF_CERTIFICATE_ARN: ${{ secrets.PATHFINDER_PROOF_CERTIFICATE_ARN }}
+          PATHFINDER_PROOF_AUTO_REFRESH_MAX_INACTIVE_DAYS: ${{ vars.PATHFINDER_PROOF_AUTO_REFRESH_MAX_INACTIVE_DAYS || '14' }}
+        run: npm run verify:proof-deploy
+
+      - name: Upload Lambda artifact
+        id: artifact
+        env:
+          ARTIFACT_BUCKET: ${{ vars.PATHFINDER_API_ARTIFACT_BUCKET }}
+          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+        run: |
+          key="proof/${ENVIRONMENT_NAME}/vornan-proof-lambdas-${GITHUB_SHA}.zip"
+          aws s3 cp outputs/vornan-proof-lambdas.zip "s3://${ARTIFACT_BUCKET}/${key}"
+          echo "key=${key}" >> "${GITHUB_OUTPUT}"
+
+      - name: Deploy isolated Proof stack
+        env:
+          ARTIFACT_BUCKET: ${{ vars.PATHFINDER_API_ARTIFACT_BUCKET }}
+          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+          ARTIFACT_KEY: ${{ steps.artifact.outputs.key }}
+          PROOF_BUCKET: ${{ vars.PATHFINDER_PROOF_WEB_BUCKET }}
+          PROOF_DOMAIN: ${{ vars.PATHFINDER_PROOF_DOMAIN_NAME }}
+          PROOF_BASE_URL: ${{ vars.PATHFINDER_PROOF_PUBLIC_BASE_URL }}
+          CERTIFICATE_ARN: ${{ secrets.PATHFINDER_PROOF_CERTIFICATE_ARN }}
+          EDGE_SHARED_SECRET: ${{ secrets.PATHFINDER_PROOF_EDGE_SHARED_SECRET }}
+          SHARED_WEB_ACL_ARN: ${{ vars.PATHFINDER_PROOF_WEB_ACL_ARN }}
+          PUBLIC_READ_ENABLED: ${{ inputs.public_read_enabled }}
+          MANAGED_WAF_ENABLED: ${{ inputs.managed_waf_enabled }}
+          READ_ONLY_QA_CONFIRMED: ${{ inputs.read_only_qa_confirmed }}
+          PRODUCTION_PUBLIC_READ_APPROVED: ${{ inputs.production_public_read_approved }}
+          LIFT_ORDER_READ_URL: ${{ vars.PATHFINDER_PROOF_LIFT_ORDER_READ_URL }}
+          LIFT_REPORT_READ_URL: ${{ vars.PATHFINDER_PROOF_LIFT_REPORT_READ_URL }}
+          PRODUCTION_LIFT_READS_ACKNOWLEDGED: ${{ vars.PATHFINDER_PROOF_ACKNOWLEDGE_PRODUCTION_READS || 'false' }}
+          ALARM_TOPIC_ARN: ${{ vars.PATHFINDER_PROOF_ALARM_TOPIC_ARN }}
+          LOG_RETENTION_DAYS: ${{ vars.PATHFINDER_PROOF_LOG_RETENTION_DAYS || '30' }}
+          AUTOMATIC_REFRESH_MAX_INACTIVE_DAYS: ${{ vars.PATHFINDER_PROOF_AUTO_REFRESH_MAX_INACTIVE_DAYS || '14' }}
+        run: |
+          bucket="${PROOF_BUCKET:-vornan-pathfinder-proof-${ENVIRONMENT_NAME}}"
+          base_url="${PROOF_BASE_URL:-}"
+          if [[ -z "${base_url}" ]]; then
+            base_url="${PROOF_DOMAIN:+https://${PROOF_DOMAIN}}"
+          fi
+          base_url="${base_url:-https://proof.invalid}"
+          aws cloudformation deploy \
+            --stack-name "vornan-proof-${ENVIRONMENT_NAME}" \
+            --template-file infra/aws/proof-cloudformation.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              EnvironmentName="${ENVIRONMENT_NAME}" \
+              LiftReadEnvironment="${ENVIRONMENT_NAME}" \
+              LiftOrderReadUrl="${LIFT_ORDER_READ_URL}" \
+              LiftProofReportReadUrl="${LIFT_REPORT_READ_URL}" \
+              ProductionLiftReadsAcknowledged="${PRODUCTION_LIFT_READS_ACKNOWLEDGED}" \
+              DataTablePrefix="${{ vars.PATHFINDER_DATA_TABLE_PREFIX || 'Pathfinder' }}" \
+              PublicLambdaCodeS3Bucket="${ARTIFACT_BUCKET}" \
+              PublicLambdaCodeS3Key="${ARTIFACT_KEY}" \
+              PublicReadEnabled="${PUBLIC_READ_ENABLED}" \
+              ReadOnlyQaConfirmed="${READ_ONLY_QA_CONFIRMED}" \
+              ProductionPublicReadApproved="${PRODUCTION_PUBLIC_READ_APPROVED}" \
+              PublicBaseUrl="${base_url}" \
+              AutomaticRefreshMaxInactiveDays="${AUTOMATIC_REFRESH_MAX_INACTIVE_DAYS}" \
+              EdgeSharedSecret="${EDGE_SHARED_SECRET}" \
+              ProofWebBucketName="${bucket}" \
+              ProofDomainName="${PROOF_DOMAIN}" \
+              CertificateArn="${CERTIFICATE_ARN}" \
+              ProofWebAclArn="${SHARED_WEB_ACL_ARN}" \
+              ManagedWebAclEnabled="${MANAGED_WAF_ENABLED}" \
+              AlarmTopicArn="${ALARM_TOPIC_ARN}" \
+              LogRetentionDays="${LOG_RETENTION_DAYS}"
+
+      - name: Publish Proof SPA
+        env:
+          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+          PROOF_BUCKET: ${{ vars.PATHFINDER_PROOF_WEB_BUCKET }}
+        run: |
+          bucket="${PROOF_BUCKET:-vornan-pathfinder-proof-${ENVIRONMENT_NAME}}"
+          distribution_id="$(aws cloudformation describe-stacks --stack-name "vornan-proof-${ENVIRONMENT_NAME}" --query "Stacks[0].Outputs[?OutputKey=='ProofWebDistributionId'].OutputValue" --output text)"
+          aws s3 sync apps/proof/dist "s3://${bucket}" --delete --exclude index.html --cache-control "public,max-age=31536000,immutable"
+          aws s3 cp apps/proof/dist/index.html "s3://${bucket}/index.html" --cache-control "no-cache,no-store,must-revalidate" --content-type text/html
+          aws cloudfront create-invalidation --distribution-id "${distribution_id}" --paths "/*"
+
+      - name: Smoke isolated read-only boundary
+        env:
+          ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+          PROOF_DOMAIN: ${{ vars.PATHFINDER_PROOF_DOMAIN_NAME }}
+          EXPECT_PUBLIC_READ: ${{ inputs.public_read_enabled }}
+        run: |
+          stack_name="vornan-proof-${ENVIRONMENT_NAME}"
+          distribution_domain="$(aws cloudformation describe-stacks --stack-name "${stack_name}" --query "Stacks[0].Outputs[?OutputKey=='ProofWebDistributionDomainName'].OutputValue" --output text)"
+          direct_api_url="$(aws cloudformation describe-stacks --stack-name "${stack_name}" --query "Stacks[0].Outputs[?OutputKey=='ProofPublicApiEndpoint'].OutputValue" --output text)"
+          PATHFINDER_PROOF_SMOKE_BASE_URL="https://${distribution_domain}" \
+          PATHFINDER_PROOF_SMOKE_DIRECT_API_URL="${direct_api_url}" \
+          PATHFINDER_PROOF_EXPECT_PUBLIC_READ="${EXPECT_PUBLIC_READ}" \
+          npm run smoke:proof-read-only
+
+      - name: Publish dark DNS readiness handoff
+        if: inputs.public_read_enabled == 'false'
+        env:
+          PATHFINDER_PROOF_ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+          PATHFINDER_PROOF_DARK_SMOKE_CONFIRMED: "true"
+          PATHFINDER_PROOF_DNS_GITHUB_SUMMARY: "true"
+        run: npm run check:proof-dns

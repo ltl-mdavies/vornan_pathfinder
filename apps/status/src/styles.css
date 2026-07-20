@@ -237,6 +237,11 @@ p {
   overflow: hidden;
 }
 
+.status-shell > .order-rollup {
+  margin-top: 20px;
+  box-shadow: 0 24px 70px rgba(30, 45, 28, 0.07);
+}
+
 .progress-step {
   position: relative;
   display: flex;

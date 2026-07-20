@@ -49,6 +49,9 @@ Parameters:
   StatusReplyTo:
     Type: String
     Default: "support@vornan.co"
+  ProofReplyTo:
+    Type: String
+    Default: "support@vornan.com"
   OrdersReplyTo:
     Type: String
     Default: "orders@vornan.co"
@@ -127,11 +130,77 @@ Parameters:
       - local
       - secrets-manager
     Description: Runtime secrets driver. Keep local until the Secrets Manager adapter is enabled.
+  ProofCoreTableName:
+    Type: String
+    Default: ""
+    Description: Optional dedicated Proof core table name from the Vornan Proof stack.
+  ProofCoreTableArn:
+    Type: String
+    Default: ""
+  ProofAuditTableName:
+    Type: String
+    Default: ""
+    Description: Optional dedicated Proof audit table name from the Vornan Proof stack.
+  ProofAuditTableArn:
+    Type: String
+    Default: ""
+  ProofGrantCreationEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  ProofLinkEmailEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  ProofPublicBaseUrl:
+    Type: String
+    Default: "https://proof.vornan.co"
+    Description: Public origin used only when producing a one-time Proof fragment link.
+
+Rules:
+  ProofLinkEmailRequiresGrantCreation:
+    Assertions:
+      - Assert: !Or
+          - !Equals [!Ref ProofLinkEmailEnabled, "false"]
+          - !Equals [!Ref ProofGrantCreationEnabled, "true"]
+        AssertDescription: Proof link email requires authenticated Proof grant creation to be enabled.
+  ProofTablesMustBeConfiguredTogether:
+    Assertions:
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref ProofCoreTableName, ""]
+            - !Equals [!Ref ProofAuditTableName, ""]
+          - !And
+            - !Not [!Equals [!Ref ProofCoreTableName, ""]]
+            - !Not [!Equals [!Ref ProofAuditTableName, ""]]
+        AssertDescription: ProofCoreTableName and ProofAuditTableName must be configured together.
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref ProofCoreTableArn, ""]
+            - !Equals [!Ref ProofAuditTableArn, ""]
+          - !And
+            - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
+            - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
+        AssertDescription: ProofCoreTableArn and ProofAuditTableArn must be configured together.
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref ProofCoreTableName, ""]
+            - !Equals [!Ref ProofCoreTableArn, ""]
+          - !And
+            - !Not [!Equals [!Ref ProofCoreTableName, ""]]
+            - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
+        AssertDescription: Proof core table name and ARN must either both be present or both be absent.
 
 Conditions:
   HasApiCustomDomain: !And
     - !Not [!Equals [!Ref ApiDomainName, ""]]
     - !Not [!Equals [!Ref ApiCertificateArn, ""]]
+  HasProofCoreTable: !And
+    - !Not [!Equals [!Ref ProofCoreTableName, ""]]
+    - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
+  HasProofAuditTable: !And
+    - !Not [!Equals [!Ref ProofAuditTableName, ""]]
+    - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
 
 Resources:
   PathfinderApiRole:
@@ -178,6 +247,17 @@ Resources:
                   - !GetAtt PathfinderOrderStatusTokensTable.Arn
                   - !GetAtt PathfinderOrderStatusSnapshotsTable.Arn
                   - !GetAtt PathfinderCanonicalRegistryTable.Arn
+                  - !If [HasProofCoreTable, !Ref ProofCoreTableArn, !Ref "AWS::NoValue"]
+                  - !If [HasProofCoreTable, !Sub "${ProofCoreTableArn}/index/*", !Ref "AWS::NoValue"]
+              - !If
+                - HasProofAuditTable
+                - Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:PutItem
+                    - dynamodb:Query
+                  Resource: !Ref ProofAuditTableArn
+                - !Ref "AWS::NoValue"
               - Effect: Allow
                 Action:
                   - secretsmanager:CreateSecret
@@ -198,7 +278,7 @@ Resources:
     Properties:
       FunctionName: !Sub "${LambdaFunctionName}-${EnvironmentName}"
       Description: Pathfinder API Express shell behind API Gateway HTTP API.
-      Runtime: nodejs20.x
+      Runtime: nodejs22.x
       Handler: lambda.handler
       Role: !GetAtt PathfinderApiRole.Arn
       Code:
@@ -219,6 +299,7 @@ Resources:
           PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK: !Ref PublicStatusEmailDebugReturnLink
           PATHFINDER_EMAIL_FROM: !Ref EmailFrom
           PATHFINDER_STATUS_REPLY_TO: !Ref StatusReplyTo
+          PATHFINDER_PROOF_REPLY_TO: !Ref ProofReplyTo
           PATHFINDER_ORDERS_REPLY_TO: !Ref OrdersReplyTo
           PATHFINDER_SYSTEM_REPLY_TO: !Ref SystemReplyTo
           PATHFINDER_SES_REGION: !Ref SesRegion
@@ -248,6 +329,13 @@ Resources:
           PATHFINDER_ORDER_STATUS_TOKENS_TABLE: !Ref PathfinderOrderStatusTokensTable
           PATHFINDER_ORDER_STATUS_SNAPSHOTS_TABLE: !Ref PathfinderOrderStatusSnapshotsTable
           PATHFINDER_CANONICAL_REGISTRY_TABLE: !Ref PathfinderCanonicalRegistryTable
+          PATHFINDER_PROOF_STORAGE_DRIVER: !If [HasProofCoreTable, "dynamodb", "disabled"]
+          PATHFINDER_PROOF_CORE_TABLE: !If [HasProofCoreTable, !Ref ProofCoreTableName, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_AUDIT_TABLE: !If [HasProofAuditTable, !Ref ProofAuditTableName, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ENABLE_GRANT_CREATION: !Ref ProofGrantCreationEnabled
+          PATHFINDER_PROOF_ENABLE_LINK_EMAIL: !Ref ProofLinkEmailEnabled
+          PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"
+          PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref ProofPublicBaseUrl
 
   PathfinderCustomersTable:
     Type: AWS::DynamoDB::Table

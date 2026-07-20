@@ -1,0 +1,1140 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Vornan Proof read-only foundation - dedicated core persistence and isolated public API boundary.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, qa, prod]
+  LiftReadEnvironment:
+    Type: String
+    AllowedValues: [dev, qa, prod]
+    Description: Explicit classification of the configured Lift read endpoints; must match EnvironmentName.
+  LiftOrderReadUrl:
+    Type: String
+    AllowedPattern: "^https://[^ ]+/AS360Orders/N([?].*)?$"
+    Description: Stage-reviewed AS360Orders read endpoint. It is never used for Lift writes.
+  LiftProofReportReadUrl:
+    Type: String
+    AllowedPattern: "^https://[^ ]+/AS360ProofReport/N([?].*)?$"
+    Description: Stage-reviewed AS360ProofReport read endpoint. It is never used for Lift writes.
+  ProductionLiftReadsAcknowledged:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Explicit acknowledgement required when a non-production stack uses the recorded production read URLs.
+  DataTablePrefix:
+    Type: String
+    Default: Pathfinder
+    AllowedPattern: "^[A-Za-z0-9-]+$"
+  PublicLambdaCodeS3Bucket:
+    Type: String
+    Default: ""
+  PublicLambdaCodeS3Key:
+    Type: String
+    Default: ""
+  PublicReadEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  ReadOnlyQaConfirmed:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Confirms the isolated, view-only Phase 2 deployment smoke lifecycle passed.
+  ProductionPublicReadApproved:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Independent protected-environment approval for production public exposure.
+  PublicBaseUrl:
+    Type: String
+    Default: "https://proof.vornan.co"
+  AutomaticRefreshMaxInactiveDays:
+    Type: Number
+    Default: 14
+    MinValue: 1
+    MaxValue: 365
+    Description: Stop automatic stale-read refresh after this many days without a proof-state change; manual refresh remains available.
+  EdgeSharedSecret:
+    Type: String
+    MinLength: 32
+    NoEcho: true
+    Description: Shared header value used to reject direct execute-api bypass of the Proof CloudFront edge.
+  ProofWebBucketName:
+    Type: String
+    Default: "vornan-pathfinder-proof-dev"
+  ProofDomainName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[a-z0-9.-]+$"
+    Description: Optional Proof app alias, such as proof.vornan.co.
+  CertificateArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:aws[a-zA-Z-]*:acm:us-east-1:[0-9]{12}:certificate/[0-9a-fA-F-]+$"
+    Description: Optional us-east-1 ACM certificate ARN for the Proof CloudFront alias.
+  ProofWebAclArn:
+    Type: String
+    Default: ""
+    Description: Optional us-east-1 WAFv2 web ACL ARN for CloudFront.
+  ManagedWebAclEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Provision a Proof-specific managed-rules and token-exchange rate-limit ACL when no shared ACL is supplied.
+  AlarmTopicArn:
+    Type: String
+    Default: ""
+    Description: Optional SNS topic ARN for Proof operational alarms.
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [14, 30, 60, 90, 120, 180, 365]
+
+Conditions:
+  HasPublicLambdaCode: !And
+    - !Not [!Equals [!Ref PublicLambdaCodeS3Bucket, ""]]
+    - !Not [!Equals [!Ref PublicLambdaCodeS3Key, ""]]
+  HasProofAlias: !And
+    - !Not [!Equals [!Ref ProofDomainName, ""]]
+    - !Not [!Equals [!Ref CertificateArn, ""]]
+  HasProvidedWebAcl: !Not [!Equals [!Ref ProofWebAclArn, ""]]
+  CreateManagedWebAcl: !And
+    - !Equals [!Ref ManagedWebAclEnabled, "true"]
+    - !Not [!Condition HasProvidedWebAcl]
+  HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, ""]]
+
+Rules:
+  ProofAliasAndCertificateMustBePaired:
+    Assertions:
+      - Assert: !Or
+          - !And
+            - !Equals [!Ref ProofDomainName, ""]
+            - !Equals [!Ref CertificateArn, ""]
+          - !And
+            - !Not [!Equals [!Ref ProofDomainName, ""]]
+            - !Not [!Equals [!Ref CertificateArn, ""]]
+        AssertDescription: ProofDomainName and CertificateArn must either both be supplied or both be empty.
+  ProductionProofAliasMustBeCanonical:
+    RuleCondition: !And
+      - !Equals [!Ref EnvironmentName, prod]
+      - !Not [!Equals [!Ref ProofDomainName, ""]]
+    Assertions:
+      - Assert: !Equals [!Ref ProofDomainName, proof.vornan.co]
+        AssertDescription: The production Proof alias must be proof.vornan.co.
+  LiftEnvironmentMustMatchStack:
+    Assertions:
+      - Assert: !Equals [!Ref EnvironmentName, !Ref LiftReadEnvironment]
+        AssertDescription: LiftReadEnvironment must match EnvironmentName.
+  NonProductionReadsRequireAcknowledgement:
+    RuleCondition: !Not [!Equals [!Ref EnvironmentName, prod]]
+    Assertions:
+      - Assert: !Or
+          - !Equals [!Ref ProductionLiftReadsAcknowledged, "true"]
+          - !And
+            - !Not
+              - !Equals
+                - !Ref LiftOrderReadUrl
+                - "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360Orders/N?offset=0"
+            - !Not
+              - !Equals
+                - !Ref LiftProofReportReadUrl
+                - "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0"
+        AssertDescription: Non-production use of the recorded production Lift read endpoints requires explicit acknowledgement.
+  PublicReadRequiresEdgeSecret:
+    RuleCondition: !Equals [!Ref PublicReadEnabled, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref EdgeSharedSecret, ""]]
+        AssertDescription: EdgeSharedSecret must be configured before public read can be enabled.
+      - Assert: !Equals [!Ref ReadOnlyQaConfirmed, "true"]
+        AssertDescription: ReadOnlyQaConfirmed must be true before public read can be enabled.
+      - Assert: !Or
+          - !Not [!Equals [!Ref ProofWebAclArn, ""]]
+          - !Equals [!Ref ManagedWebAclEnabled, "true"]
+        AssertDescription: A managed or supplied WAF must be attached before public read can be enabled.
+      - Assert: !Or
+          - !Not [!Equals [!Ref EnvironmentName, prod]]
+          - !Equals [!Ref ProductionPublicReadApproved, "true"]
+        AssertDescription: ProductionPublicReadApproved must be true before production public read can be enabled.
+
+Resources:
+  ProofWebBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref ProofWebBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      Tags:
+        - Key: App
+          Value: VornanProof
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ProofManagedWebAcl:
+    Type: AWS::WAFv2::WebACL
+    Condition: CreateManagedWebAcl
+    Properties:
+      Name: !Sub "vornan-proof-${EnvironmentName}"
+      Scope: CLOUDFRONT
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "vornan-proof-${EnvironmentName}"
+        SampledRequestsEnabled: true
+      Rules:
+        - Name: AWSManagedCommon
+          Priority: 0
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: aws-managed-common
+            SampledRequestsEnabled: true
+        - Name: AWSManagedKnownBadInputs
+          Priority: 1
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: aws-known-bad-inputs
+            SampledRequestsEnabled: true
+        - Name: TokenExchangeRateLimit
+          Priority: 2
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 100
+              EvaluationWindowSec: 300
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  FieldToMatch:
+                    UriPath: {}
+                  PositionalConstraint: STARTS_WITH
+                  SearchString: /api/public/proof/sessions
+                  TextTransformations:
+                    - Priority: 0
+                      Type: NONE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: proof-token-exchange-rate-limit
+            SampledRequestsEnabled: true
+        - Name: ManualRefreshRateLimit
+          Priority: 3
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 60
+              EvaluationWindowSec: 300
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  FieldToMatch:
+                    UriPath: {}
+                  PositionalConstraint: EXACTLY
+                  SearchString: /api/public/proof/order/refresh
+                  TextTransformations:
+                    - Priority: 0
+                      Type: NONE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: proof-manual-refresh-rate-limit
+            SampledRequestsEnabled: true
+        - Name: ParticipantIdentityRateLimit
+          Priority: 4
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 30
+              EvaluationWindowSec: 300
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  FieldToMatch:
+                    UriPath: {}
+                  PositionalConstraint: EXACTLY
+                  SearchString: /api/public/proof/participants
+                  TextTransformations:
+                    - Priority: 0
+                      Type: NONE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: proof-participant-identity-rate-limit
+            SampledRequestsEnabled: true
+        - Name: PublicTaskRoutesRateLimit
+          Priority: 5
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 60
+              EvaluationWindowSec: 300
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  FieldToMatch:
+                    UriPath: {}
+                  PositionalConstraint: STARTS_WITH
+                  SearchString: /api/public/proof/tasks/
+                  TextTransformations:
+                    - Priority: 0
+                      Type: NONE
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: proof-public-task-routes-rate-limit
+            SampledRequestsEnabled: true
+
+  ProofWebOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "vornan-proof-${EnvironmentName}-oac"
+        Description: !Sub "CloudFront access control for ${ProofWebBucketName}"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  ProofWebResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "vornan-proof-${EnvironmentName}-security"
+        Comment: Vornan Proof browser security headers
+        SecurityHeadersConfig:
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: "default-src 'self'; connect-src 'self'; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
+            Override: true
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: no-referrer
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 63072000
+            IncludeSubdomains: true
+            Preload: true
+            Override: true
+        CustomHeadersConfig:
+          Items:
+            - Header: Permissions-Policy
+              Value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+              Override: true
+            - Header: Cross-Origin-Opener-Policy
+              Value: same-origin
+              Override: true
+
+  ProofApiResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "vornan-proof-${EnvironmentName}-api-security"
+        Comment: Vornan Proof public API security headers
+        SecurityHeadersConfig:
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+            Override: true
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: no-referrer
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 63072000
+            IncludeSubdomains: true
+            Preload: true
+            Override: true
+        CustomHeadersConfig:
+          Items:
+            - Header: Permissions-Policy
+              Value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+              Override: true
+
+  ProofSpaRewriteFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "vornan-proof-${EnvironmentName}-spa-rewrite"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Route extensionless Proof SPA requests to index.html
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          if (request.uri.endsWith('/')) {
+            request.uri += 'index.html';
+          } else if (request.uri.indexOf('.') === -1) {
+            request.uri = '/index.html';
+          }
+          return request;
+        }
+
+  ProofCoreTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-ProofCore-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: gsi1pk
+          AttributeType: S
+        - AttributeName: gsi1sk
+          AttributeType: S
+        - AttributeName: gsi2pk
+          AttributeType: S
+        - AttributeName: gsi2sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: AttachmentIndex
+          KeySchema:
+            - AttributeName: gsi1pk
+              KeyType: HASH
+            - AttributeName: gsi1sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: LineIndex
+          KeySchema:
+            - AttributeName: gsi2pk
+              KeyType: HASH
+            - AttributeName: gsi2sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl_epoch
+        Enabled: true
+      Tags:
+        - Key: App
+          Value: VornanProof
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Phase
+          Value: ReadOnlyFoundation
+
+  ProofAuditTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "${DataTablePrefix}-ProofAudit-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: VornanProof
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DataClass
+          Value: RestrictedAudit
+
+  ProofSyncDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "vornan-proof-sync-${EnvironmentName}-dlq.fifo"
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  ProofSyncQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "vornan-proof-sync-${EnvironmentName}.fifo"
+      FifoQueue: true
+      ContentBasedDeduplication: false
+      VisibilityTimeout: 90
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProofSyncDeadLetterQueue.Arn
+        maxReceiveCount: 5
+
+  ProofPublicFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/vornan-proof-public-${EnvironmentName}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  ProofSyncFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/vornan-proof-sync-${EnvironmentName}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  ProofApiAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/apigateway/vornan-proof-public-${EnvironmentName}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  ProofPublicLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: HasPublicLambdaCode
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ProofCorePublicReadSessions
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt ProofCoreTable.Arn
+                  - !Sub "${ProofCoreTable.Arn}/index/*"
+              - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt ProofSyncQueue.Arn
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt ProofAuditTable.Arn
+
+  ProofSyncLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: HasPublicLambdaCode
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ProofSyncReadAndPersist
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt ProofCoreTable.Arn
+                  - !Sub "${ProofCoreTable.Arn}/index/*"
+              - Effect: Allow
+                Action:
+                  - sqs:ChangeMessageVisibility
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ReceiveMessage
+                Resource: !GetAtt ProofSyncQueue.Arn
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt ProofAuditTable.Arn
+
+  ProofPublicFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasPublicLambdaCode
+    DependsOn: ProofPublicFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "vornan-proof-public-${EnvironmentName}"
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: public-lambda.handler
+      Role: !GetAtt ProofPublicLambdaRole.Arn
+      Timeout: 15
+      MemorySize: 512
+      ReservedConcurrentExecutions: 10
+      Code:
+        S3Bucket: !Ref PublicLambdaCodeS3Bucket
+        S3Key: !Ref PublicLambdaCodeS3Key
+      Environment:
+        Variables:
+          PATHFINDER_RUNTIME: lambda
+          PATHFINDER_PROOF_ENVIRONMENT_NAME: !Ref EnvironmentName
+          PATHFINDER_PROOF_STORAGE_DRIVER: dynamodb
+          PATHFINDER_PROOF_CORE_TABLE: !Ref ProofCoreTable
+          PATHFINDER_PROOF_AUDIT_TABLE: !Ref ProofAuditTable
+          PATHFINDER_PROOF_ENABLE_PUBLIC_READ: !Ref PublicReadEnabled
+          PATHFINDER_PROOF_ENABLE_GRANT_CREATION: "false"
+          PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref PublicBaseUrl
+          PATHFINDER_PROOF_SYNC_QUEUE_URL: !Ref ProofSyncQueue
+          PATHFINDER_PROOF_STALE_AFTER_MINUTES: "15"
+          PATHFINDER_PROOF_AUTO_REFRESH_MAX_INACTIVE_DAYS: !Ref AutomaticRefreshMaxInactiveDays
+          PATHFINDER_PROOF_EDGE_SHARED_SECRET: !Ref EdgeSharedSecret
+
+  ProofSyncFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasPublicLambdaCode
+    DependsOn: ProofSyncFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "vornan-proof-sync-${EnvironmentName}"
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: sync-lambda.handler
+      Role: !GetAtt ProofSyncLambdaRole.Arn
+      Timeout: 60
+      MemorySize: 512
+      ReservedConcurrentExecutions: 2
+      Code:
+        S3Bucket: !Ref PublicLambdaCodeS3Bucket
+        S3Key: !Ref PublicLambdaCodeS3Key
+      Environment:
+        Variables:
+          PATHFINDER_RUNTIME: lambda
+          PATHFINDER_PROOF_ENVIRONMENT_NAME: !Ref EnvironmentName
+          PATHFINDER_PROOF_STORAGE_DRIVER: dynamodb
+          PATHFINDER_PROOF_CORE_TABLE: !Ref ProofCoreTable
+          PATHFINDER_PROOF_AUDIT_TABLE: !Ref ProofAuditTable
+          PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"
+          PATHFINDER_PROOF_ENABLE_GRANT_CREATION: "false"
+          PATHFINDER_PROOF_LIFT_ORDER_READ_URL: !Ref LiftOrderReadUrl
+          PATHFINDER_PROOF_LIFT_REPORT_READ_URL: !Ref LiftProofReportReadUrl
+
+  ProofSyncEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: HasPublicLambdaCode
+    Properties:
+      EventSourceArn: !GetAtt ProofSyncQueue.Arn
+      FunctionName: !Ref ProofSyncFunction
+      Enabled: true
+      BatchSize: 1
+      ScalingConfig:
+        MaximumConcurrency: 2
+
+  ProofPublicHttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Condition: HasPublicLambdaCode
+    Properties:
+      Name: !Sub "vornan-proof-public-${EnvironmentName}"
+      ProtocolType: HTTP
+
+  ProofPublicIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Condition: HasPublicLambdaCode
+    Properties:
+      ApiId: !Ref ProofPublicHttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ProofPublicFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  ProofPublicRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Condition: HasPublicLambdaCode
+    Properties:
+      ApiId: !Ref ProofPublicHttpApi
+      RouteKey: "ANY /api/public/proof/{proxy+}"
+      Target: !Sub "integrations/${ProofPublicIntegration}"
+
+  ProofPublicStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Condition: HasPublicLambdaCode
+    Properties:
+      ApiId: !Ref ProofPublicHttpApi
+      StageName: "$default"
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 20
+      AccessLogSettings:
+        DestinationArn: !GetAtt ProofApiAccessLogGroup.Arn
+        Format: '{"request_id":"$context.requestId","route_key":"$context.routeKey","status":$context.status,"response_length":$context.responseLength}'
+
+  ProofPublicInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: HasPublicLambdaCode
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ProofPublicFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ProofPublicHttpApi}/*"
+
+  ProofWebDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "Vornan Proof customer app (${EnvironmentName})"
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        WebACLId: !If
+          - HasProvidedWebAcl
+          - !Ref ProofWebAclArn
+          - !If [CreateManagedWebAcl, !GetAtt ProofManagedWebAcl.Arn, !Ref "AWS::NoValue"]
+        Aliases: !If
+          - HasProofAlias
+          - [!Ref ProofDomainName]
+          - !Ref AWS::NoValue
+        Origins:
+          - Id: proof-web-s3-origin
+            DomainName: !GetAtt ProofWebBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt ProofWebOriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - !If
+            - HasPublicLambdaCode
+            - Id: proof-public-api-origin
+              DomainName: !Sub "${ProofPublicHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}"
+              CustomOriginConfig:
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+                OriginSSLProtocols: [TLSv1.2]
+              OriginCustomHeaders:
+                - HeaderName: X-Vornan-Proof-Edge
+                  HeaderValue: !Ref EdgeSharedSecret
+            - !Ref AWS::NoValue
+        DefaultCacheBehavior:
+          TargetOriginId: proof-web-s3-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          ResponseHeadersPolicyId: !Ref ProofWebResponseHeadersPolicy
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt ProofSpaRewriteFunction.FunctionARN
+        CacheBehaviors:
+          - !If
+            - HasPublicLambdaCode
+            - PathPattern: "/api/public/proof/*"
+              TargetOriginId: proof-public-api-origin
+              ViewerProtocolPolicy: https-only
+              AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+              CachedMethods: [GET, HEAD]
+              Compress: true
+              CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+              OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+              ResponseHeadersPolicyId: !Ref ProofApiResponseHeadersPolicy
+            - !Ref AWS::NoValue
+        ViewerCertificate: !If
+          - HasProofAlias
+          - AcmCertificateArn: !Ref CertificateArn
+            MinimumProtocolVersion: TLSv1.2_2021
+            SslSupportMethod: sni-only
+          - CloudFrontDefaultCertificate: true
+
+  ProofWebBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ProofWebBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${ProofWebBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${ProofWebDistribution}"
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt ProofWebBucket.Arn
+              - !Sub "${ProofWebBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+
+  ProofPublicServerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "vornan-proof-${EnvironmentName}-public-server-errors"
+      AlarmDescription: Public Proof API returned one or more server errors in five minutes.
+      Namespace: Vornan/Proof
+      MetricName: ServerErrors
+      Dimensions:
+        - Name: Service
+          Value: public-api
+        - Name: Environment
+          Value: !Ref EnvironmentName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref "AWS::NoValue"]
+
+  ProofPublicDenialSpikeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "vornan-proof-${EnvironmentName}-public-denial-spike"
+      AlarmDescription: Public Proof API observed a sustained invalid-session or edge-bypass spike.
+      Namespace: Vornan/Proof
+      MetricName: DeniedRequests
+      Dimensions:
+        - Name: Service
+          Value: public-api
+        - Name: Environment
+          Value: !Ref EnvironmentName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 25
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref "AWS::NoValue"]
+
+  ProofManagedWafBlockedRequestAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: CreateManagedWebAcl
+    Properties:
+      AlarmName: !Sub "vornan-proof-${EnvironmentName}-waf-block-spike"
+      AlarmDescription: Managed Proof WAF blocked a sustained request spike; review sampled metadata without enabling sensitive logging.
+      Namespace: AWS/WAFV2
+      MetricName: BlockedRequests
+      Dimensions:
+        - Name: WebACL
+          Value: !Sub "vornan-proof-${EnvironmentName}"
+        - Name: Region
+          Value: Global
+        - Name: Rule
+          Value: ALL
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 100
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref "AWS::NoValue"]
+
+  ProofCachedReadLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "vornan-proof-${EnvironmentName}-cached-read-p95"
+      AlarmDescription: Cached customer read p95 exceeded the initial 750 ms SLO.
+      Namespace: Vornan/Proof
+      MetricName: Duration
+      Dimensions:
+        - Name: Service
+          Value: public-api
+        - Name: Environment
+          Value: !Ref EnvironmentName
+        - Name: Operation
+          Value: cached_order_read
+      ExtendedStatistic: p95
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
+      Threshold: 750
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref "AWS::NoValue"]
+
+  ProofTokenExchangeLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "vornan-proof-${EnvironmentName}-token-exchange-p95"
+      AlarmDescription: Token exchange p95 exceeded the initial one-second SLO.
+      Namespace: Vornan/Proof
+      MetricName: Duration
+      Dimensions:
+        - Name: Service
+          Value: public-api
+        - Name: Environment
+          Value: !Ref EnvironmentName
+        - Name: Operation
+          Value: token_exchange
+      ExtendedStatistic: p95
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
+      Threshold: 1000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref "AWS::NoValue"]
+
+  ProofSyncFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "vornan-proof-${EnvironmentName}-sync-failures"
+      AlarmDescription: The read-only Lift synchronization worker reported a failure.
+      Namespace: Vornan/Proof
+      MetricName: ServerErrors
+      Dimensions:
+        - Name: Service
+          Value: sync-worker
+        - Name: Environment
+          Value: !Ref EnvironmentName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref "AWS::NoValue"]
+
+  ProofSyncLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "vornan-proof-${EnvironmentName}-sync-p95"
+      AlarmDescription: Asynchronous Lift read synchronization p95 exceeded the initial 30-second SLO.
+      Namespace: Vornan/Proof
+      MetricName: Duration
+      Dimensions:
+        - Name: Service
+          Value: sync-worker
+        - Name: Environment
+          Value: !Ref EnvironmentName
+        - Name: Operation
+          Value: sync_order
+      ExtendedStatistic: p95
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
+      Threshold: 30000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref "AWS::NoValue"]
+
+  ProofSyncLagAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "vornan-proof-${EnvironmentName}-sync-lag"
+      AlarmDescription: Oldest queued Proof refresh exceeded the normal 15-minute staleness target.
+      Namespace: AWS/SQS
+      MetricName: ApproximateAgeOfOldestMessage
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProofSyncQueue.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 900
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref "AWS::NoValue"]
+
+  ProofSyncDeadLetterAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "vornan-proof-${EnvironmentName}-sync-dlq"
+      AlarmDescription: Any Proof synchronization DLQ message is actionable; use the read-only QA runbook.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProofSyncDeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref "AWS::NoValue"]
+
+  ProofOperationalDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "vornan-proof-${EnvironmentName}"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Public API requests, errors, and denials",
+                "region": "${AWS::Region}",
+                "stat": "Sum",
+                "period": 300,
+                "metrics": [
+                  ["Vornan/Proof", "Requests", "Service", "public-api", "Environment", "${EnvironmentName}"],
+                  ["Vornan/Proof", "ServerErrors", "Service", "public-api", "Environment", "${EnvironmentName}"],
+                  ["Vornan/Proof", "DeniedRequests", "Service", "public-api", "Environment", "${EnvironmentName}"],
+                  ["AWS/WAFV2", "BlockedRequests", "WebACL", "vornan-proof-${EnvironmentName}", "Region", "Global", "Rule", "ALL", {"stat": "Sum", "yAxis": "right"}]
+                ]
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "title": "Read-only sync health",
+                "region": "${AWS::Region}",
+                "period": 300,
+                "metrics": [
+                  ["Vornan/Proof", "Duration", "Service", "sync-worker", "Environment", "${EnvironmentName}", "Operation", "sync_order", {"stat": "p95"}],
+                  ["Vornan/Proof", "ServerErrors", "Service", "sync-worker", "Environment", "${EnvironmentName}", {"stat": "Sum", "yAxis": "right"}],
+                  ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", "vornan-proof-sync-${EnvironmentName}.fifo", {"stat": "Maximum", "yAxis": "right"}],
+                  ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "vornan-proof-sync-${EnvironmentName}-dlq.fifo", {"stat": "Maximum", "yAxis": "right"}]
+                ]
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "title": "Customer read-only flow latency",
+                "region": "${AWS::Region}",
+                "stat": "p95",
+                "period": 300,
+                "metrics": [
+                  ["Vornan/Proof", "Duration", "Service", "public-api", "Environment", "${EnvironmentName}", "Operation", "token_exchange"],
+                  ["Vornan/Proof", "Duration", "Service", "public-api", "Environment", "${EnvironmentName}", "Operation", "cached_order_read"],
+                  ["Vornan/Proof", "Duration", "Service", "public-api", "Environment", "${EnvironmentName}", "Operation", "task_history"],
+                  ["Vornan/Proof", "Duration", "Service", "public-api", "Environment", "${EnvironmentName}", "Operation", "participant_identity"],
+                  ["Vornan/Proof", "Duration", "Service", "public-api", "Environment", "${EnvironmentName}", "Operation", "feedback_acknowledgement"],
+                  ["Vornan/Proof", "Duration", "Service", "public-api", "Environment", "${EnvironmentName}", "Operation", "manual_refresh"],
+                  ["Vornan/Proof", "Duration", "Service", "public-api", "Environment", "${EnvironmentName}", "Operation", "session_logout"]
+                ]
+              }
+            },
+            {
+              "type": "log",
+              "x": 0,
+              "y": 12,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "title": "Recent sanitized Proof failures",
+                "region": "${AWS::Region}",
+                "query": "SOURCE '/aws/lambda/vornan-proof-' | fields @timestamp, Service, Environment, Operation, correlation_id, failure_class, ServerErrors | filter Environment = '${EnvironmentName}' and ServerErrors = 1 | sort @timestamp desc | limit 50",
+                "view": "table"
+              }
+            }
+          ]
+        }
+
+Outputs:
+  ProofCoreTableName:
+    Description: Dedicated Vornan Proof core table for orders, tasks, and immutable proof versions.
+    Value: !Ref ProofCoreTable
+  ProofCoreTableArn:
+    Description: ARN to grant to the authenticated Pathfinder operator API and future Proof sync worker.
+    Value: !GetAtt ProofCoreTable.Arn
+  ProofAuditTableName:
+    Description: Dedicated append-only Vornan Proof audit table.
+    Value: !Ref ProofAuditTable
+  ProofAuditTableArn:
+    Description: Restricted audit table ARN for authenticated operator reads and lifecycle event appends.
+    Value: !GetAtt ProofAuditTable.Arn
+  ProofPublicApiEndpoint:
+    Condition: HasPublicLambdaCode
+    Description: Isolated public API endpoint. Keep PublicReadEnabled false until the deployment is ready.
+    Value: !GetAtt ProofPublicHttpApi.ApiEndpoint
+  ProofWebBucketName:
+    Description: Private bucket for the Vornan Proof SPA.
+    Value: !Ref ProofWebBucket
+  ProofWebDistributionId:
+    Description: CloudFront distribution ID for proof.vornan.co.
+    Value: !Ref ProofWebDistribution
+  ProofWebDistributionDomainName:
+    Description: CloudFront domain name for DNS validation and routing.
+    Value: !GetAtt ProofWebDistribution.DomainName
+  ProofDnsRecordType:
+    Condition: HasProofAlias
+    Description: DNS record type for the Vornan Proof CloudFront alias.
+    Value: CNAME
+  ProofDnsRecordName:
+    Condition: HasProofAlias
+    Description: Fully qualified DNS record name to create after the dark smoke gate passes.
+    Value: !Ref ProofDomainName
+  ProofDnsRecordValue:
+    Condition: HasProofAlias
+    Description: CloudFront CNAME target. Create the record only after the dark smoke gate passes.
+    Value: !GetAtt ProofWebDistribution.DomainName
+  ProofDnsProxyMode:
+    Condition: HasProofAlias
+    Description: Initial Cloudflare proxy mode required by the architecture handoff.
+    Value: DNS-only
+  ProofDnsTtl:
+    Condition: HasProofAlias
+    Description: Initial Cloudflare TTL setting.
+    Value: Auto
+  ProofSyncQueueUrl:
+    Description: Queue URL for cached Proof refresh requests.
+    Value: !Ref ProofSyncQueue
+  ProofSyncDeadLetterQueueUrl:
+    Description: Dead-letter queue for failed Proof synchronization requests.
+    Value: !Ref ProofSyncDeadLetterQueue
+  ProofOperationalDashboardName:
+    Description: CloudWatch dashboard for the read-only customer API and Lift synchronization worker.
+    Value: !Ref ProofOperationalDashboard

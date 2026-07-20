@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,9 +22,19 @@ import {
   type ValidationMessage
 } from "@pathfinder/canonical";
 import type { LiftCustomer } from "@pathfinder/customer-directory";
+import type {
+  LiftStepDefinition,
+  NormalizedLiftOrder,
+  OrderRollupHeaderFieldSource,
+  OrderRollupPackage,
+  OrderRollupProof,
+  OrderRollupProofSummary,
+  OrderRollupShipmentSummary
+} from "@pathfinder/order-rollup";
 import {
   buildLiftOrderLookupUrl,
   defaultLiftTargetConfig,
+  extractLiftOrderId,
   type LiftSubmitErrorTranslation,
   type LiftOrderPayload,
   type LiftSubmitRequest,
@@ -137,6 +147,8 @@ export interface CustomerProductMapping {
     description?: string | null;
     sign_type?: string | null;
     media_type?: string | null;
+    final_width?: string | null;
+    final_height?: string | null;
   }>;
   created_at: string;
   updated_at: string;
@@ -517,11 +529,26 @@ export interface PublicOrderStatusSnapshot {
   header: {
     ext_id: string;
     po_number?: string | null;
+    contract_number?: string | null;
     order_title?: string | null;
     requested_ship_date?: string | null;
     due_date?: string | null;
+    actual_ship_date?: string | null;
     shipping?: unknown;
+    field_sources?: {
+      po_number?: OrderRollupHeaderFieldSource;
+      contract_number?: OrderRollupHeaderFieldSource;
+      order_title?: OrderRollupHeaderFieldSource;
+      requested_ship_date?: OrderRollupHeaderFieldSource;
+      due_date?: OrderRollupHeaderFieldSource;
+      actual_ship_date?: OrderRollupHeaderFieldSource;
+      shipping?: OrderRollupHeaderFieldSource;
+    };
   };
+  live_order?: NormalizedLiftOrder | null;
+  order_status?: NormalizedLiftOrder["status"];
+  proof_summary?: OrderRollupProofSummary | null;
+  shipment_summary?: OrderRollupShipmentSummary | null;
   lines: Array<{
     line_number: number;
     order_line_id: string | number | null;
@@ -530,12 +557,16 @@ export interface PublicOrderStatusSnapshot {
     quantity: number;
     unit_number?: string | null;
     product_id?: string | null;
+    material?: string | null;
+    final_height?: number | null;
+    final_width?: number | null;
+    step?: LiftStepDefinition | null;
     proof_count: number;
     package_count: number;
     latest_proof_status: string | null;
     latest_tracking_message: string | null;
-    proofs: unknown[];
-    packages: unknown[];
+    proofs: OrderRollupProof[];
+    packages: OrderRollupPackage[];
   }>;
   lookups: {
     order: { ok: boolean; http_status: number; fetched_at: string } | null;
@@ -2609,7 +2640,9 @@ async function writeStore(store: PathfinderStore) {
 
   assertLocalStorageDriver();
   await mkdir(dirname(storePath), { recursive: true });
-  await writeFile(storePath, `${JSON.stringify(sanitizedStore, null, 2)}\n`, "utf8");
+  const temporaryStorePath = `${storePath}.${randomBytes(6).toString("hex")}.tmp`;
+  await writeFile(temporaryStorePath, `${JSON.stringify(sanitizedStore, null, 2)}\n`, "utf8");
+  await rename(temporaryStorePath, storePath);
 }
 
 export async function persistPublicOrderStatusSnapshot(snapshot: PublicOrderStatusSnapshot) {
@@ -2807,6 +2840,9 @@ export async function readStore(): Promise<PathfinderStore> {
     }
     normalizedTargets = await hydrateTargetsWithSecrets(normalizedTargets);
 
+    const normalizedSubmitAttempts = (parsed.submit_attempts ?? []).map(normalizeSubmitAttempt);
+    const normalizedJobs = (parsed.jobs ?? []).map((job) => reconcileConfirmedJob(job, normalizedSubmitAttempts));
+
     return {
       ...parsed,
       targets: normalizedTargets,
@@ -2816,8 +2852,8 @@ export async function readStore(): Promise<PathfinderStore> {
           normalizeWorkspace(workspace as PathfinderCustomerWorkspace)
         ])
       ),
-      jobs: parsed.jobs ?? [],
-      submit_attempts: parsed.submit_attempts ?? [],
+      jobs: normalizedJobs,
+      submit_attempts: normalizedSubmitAttempts,
       lift_unit_catalog: normalizeLiftUnitCatalog(parsed.lift_unit_catalog),
       order_status_tokens: parsed.order_status_tokens ?? [],
       order_status_snapshots: parsed.order_status_snapshots ?? [],
@@ -2826,6 +2862,13 @@ export async function readStore(): Promise<PathfinderStore> {
   } catch (error) {
     if (config.storage_driver === "dynamodb") {
       throw error;
+    }
+
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw new Error(
+        `Could not read the local Pathfinder store at ${storePath}; the existing file was preserved.`,
+        { cause: error }
+      );
     }
 
     const seed = createSeedStore();
@@ -3350,6 +3393,45 @@ export async function getSubmitAttemptByIdempotencyKey(customer: LiftCustomer, i
   );
 }
 
+function normalizeSubmitAttempt(attempt: SubmitAttempt): SubmitAttempt {
+  if (attempt.response.lift_order_id) {
+    return attempt;
+  }
+
+  const targetOrderNumber = extractLiftOrderId(attempt.response.raw_body, attempt.response.message);
+  return targetOrderNumber
+    ? {
+        ...attempt,
+        response: {
+          ...attempt.response,
+          lift_order_id: targetOrderNumber
+        }
+      }
+    : attempt;
+}
+
+function reconcileConfirmedJob(job: ProcessingJobPreview, attempts: SubmitAttempt[]): ProcessingJobPreview {
+  const confirmedAttempt = attempts.find(
+    (attempt) =>
+      attempt.job_id === job.job_id &&
+      attempt.customer_id === job.customer_id &&
+      attempt.state === "Submitted" &&
+      attempt.response.status === "accepted" &&
+      Boolean(attempt.response.lift_order_id)
+  );
+  const targetOrderNumber = job.target_order_number ?? confirmedAttempt?.response.lift_order_id ?? null;
+
+  if (!targetOrderNumber) {
+    return job;
+  }
+
+  return {
+    ...job,
+    state: job.state === "Submitted" ? "Order Confirmed" : job.state,
+    target_order_number: targetOrderNumber
+  };
+}
+
 export async function listSubmitAttemptsForJob(customer: LiftCustomer, jobId: string) {
   const store = await readStore();
   return store.submit_attempts.filter(
@@ -3360,9 +3442,25 @@ export async function listSubmitAttemptsForJob(customer: LiftCustomer, jobId: st
 export async function persistSubmitAttempt(customer: LiftCustomer, attempt: SubmitAttempt) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const targetOrderNumber =
+    attempt.response.lift_order_id ?? extractLiftOrderId(attempt.response.raw_body, attempt.response.message) ?? null;
+  const normalizedAttempt = targetOrderNumber && !attempt.response.lift_order_id
+    ? {
+        ...attempt,
+        response: {
+          ...attempt.response,
+          lift_order_id: targetOrderNumber
+        }
+      }
+    : attempt;
   const submitJobState: ProcessingState | null =
-    attempt.state === "Submitted" ? "Submitted" : attempt.state === "Failed" ? "Submit Failed" : null;
-  const targetOrderNumber = attempt.response.lift_order_id ?? null;
+    attempt.state === "Submitted"
+      ? targetOrderNumber
+        ? "Order Confirmed"
+        : "Submitted"
+      : attempt.state === "Failed"
+        ? "Submit Failed"
+        : null;
   const timestamp = attempt.updated_at;
   const submittedJob = store.jobs.find(
     (job) => job.job_id === attempt.job_id && job.customer_id === customer.lift_customer_id
@@ -3373,7 +3471,7 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
   const targetOrderLookupUrl = buildLiftOrderLookupUrl(submittedRoute?.order_lookup_url, targetOrderNumber);
 
   store.submit_attempts = [
-    attempt,
+    normalizedAttempt,
     ...(store.submit_attempts ?? []).filter((candidate) => candidate.attempt_id !== attempt.attempt_id)
   ];
   if (submitJobState) {
@@ -3395,7 +3493,7 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
   store.workspaces[customer.lift_customer_id] = workspace;
   await writeStore(store);
 
-  return attempt;
+  return normalizedAttempt;
 }
 
 export async function listProductMappings(customer: LiftCustomer) {
@@ -3658,6 +3756,51 @@ export async function listTargets(maskCredentials = true) {
   const store = await readStore();
   const targets = Object.values(store.targets);
   return maskCredentials ? targets.map(maskTargetConfig) : targets;
+}
+
+export class TargetNotFoundError extends Error {
+  constructor(targetId: string) {
+    super(`Target ${targetId} was not found.`);
+    this.name = "TargetNotFoundError";
+  }
+}
+
+export class TargetInUseError extends Error {
+  constructor(targetName: string, customerNames: string[]) {
+    const visibleCustomers = customerNames.slice(0, 3).join(", ");
+    const remainingCount = Math.max(0, customerNames.length - 3);
+    const customerSummary = `${visibleCustomers}${remainingCount ? ` and ${remainingCount} more` : ""}`;
+    super(
+      `${targetName} is still used by ${customerNames.length} customer workspace${customerNames.length === 1 ? "" : "s"}: ${customerSummary}. Reassign or remove those output routes before deleting this target.`
+    );
+    this.name = "TargetInUseError";
+  }
+}
+
+export async function deleteTarget(id: string) {
+  const store = await readStore();
+  const target = store.targets[id];
+
+  if (!target) {
+    throw new TargetNotFoundError(id);
+  }
+
+  const referencingCustomers = Object.values(store.workspaces)
+    .filter(
+      (workspace) =>
+        workspace.primary_target_id === id ||
+        workspace.output_routes.some((route) => route.target_id === id) ||
+        workspace.import_methods.some((method) => method.target_id === id)
+    )
+    .map((workspace) => workspace.customer.customer_name);
+
+  if (referencingCustomers.length) {
+    throw new TargetInUseError(target.name, referencingCustomers);
+  }
+
+  delete store.targets[id];
+  await writeStore(store);
+  return Object.values(store.targets).map(maskTargetConfig);
 }
 
 export async function getTarget(id = targetId, maskCredentials = true) {

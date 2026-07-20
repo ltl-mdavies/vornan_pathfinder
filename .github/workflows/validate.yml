@@ -1,0 +1,55 @@
+name: Validate Pathfinder
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck all workspaces
+        run: npm run check
+
+      - name: Test all workspaces
+        run: npm run test
+
+      - name: Build all workspaces
+        run: npm run build
+
+      - name: Verify Proof deployment contracts
+        run: npm run test:proof-deploy
+
+      - name: Package deployable Lambdas
+        run: |
+          npm run package:api-lambda
+          npm run package:proof-lambdas
+
+      - name: Parse deployment scripts
+        run: |
+          bash -n scripts/deploy-api-lambda.sh
+          bash -n scripts/deploy-admin-web.sh
+          bash -n scripts/deploy-web-hosting.sh
+          bash -n scripts/deploy-proof-stack.sh
+          bash -n scripts/deploy-proof-web.sh

@@ -109,6 +109,7 @@ export interface LiftSubmitRequest {
   endpoint_url: string;
   headers: {
     "Content-Type": "application/json";
+    Accept: "application/json";
     Ext_ID: string;
     User: string;
     Password: string;
@@ -549,6 +550,7 @@ export function buildLiftSubmitRequest(
     endpoint_url: config.environments[config.active_environment].endpoint_url,
     headers: {
       "Content-Type": "application/json",
+      Accept: "application/json",
       Ext_ID: extIdHeader,
       User: config.credentials.User,
       Password: config.credentials.Password,
@@ -633,6 +635,28 @@ function messageFromBody(body: unknown): string | null {
   }
 
   return valueFromBody(body, ["message", "status", "error", "error_message", "detail"]);
+}
+
+export function extractLiftOrderId(rawBody: unknown, message?: string | null): string | null {
+  const structuredValue = valueFromBody(rawBody, [
+    "lift_order_id",
+    "liftOrderId",
+    "lift_order_number",
+    "liftOrderNumber",
+    "order_number",
+    "orderNumber",
+    "ORDER_NUMBER",
+    "order_id",
+    "orderId",
+    "ORDER_ID",
+    "id"
+  ]);
+  if (structuredValue) {
+    return structuredValue;
+  }
+
+  const responseMessage = message ?? messageFromBody(rawBody);
+  return responseMessage?.match(/\border\s*(?:number|no\.?|#|id)?\s*[:#-]?\s*(A\d{7,8})\b/i)?.[1]?.toUpperCase() ?? null;
 }
 
 function rawTextFromBody(body: unknown): string {
@@ -779,20 +803,8 @@ export function translateLiftSubmitError(args: {
 export function normalizeLiftSubmitResponse(httpStatus: number, rawBody: unknown): LiftSubmitTransportResult {
   const acceptedHttpStatus = httpStatus >= 200 && httpStatus < 300;
   const failureSignal = bodyHasFailureSignal(rawBody);
-  const liftOrderId = valueFromBody(rawBody, [
-    "lift_order_id",
-    "liftOrderId",
-    "lift_order_number",
-    "liftOrderNumber",
-    "order_number",
-    "orderNumber",
-    "ORDER_NUMBER",
-    "order_id",
-    "orderId",
-    "ORDER_ID",
-    "id"
-  ]);
   const bodyMessage = messageFromBody(rawBody);
+  const liftOrderId = extractLiftOrderId(rawBody, bodyMessage);
   const status = acceptedHttpStatus && !failureSignal ? "accepted" : "rejected";
 
   return {

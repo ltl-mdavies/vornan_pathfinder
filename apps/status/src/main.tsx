@@ -1,6 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type {
+  LiftStepDefinition,
+  NormalizedLiftOrder,
+  OrderRollupDestination,
+  OrderRollupHeaderFieldSource,
+  OrderRollupProofSummary,
+  OrderRollupShipmentSummary
+} from "@pathfinder/order-rollup";
+import { OrderRollup } from "@pathfinder/order-rollup-ui";
+import { proofReviewProgress } from "./proof-state";
 import "./styles.css";
+import "@pathfinder/order-rollup-ui/styles.css";
 
 const apiBaseUrl =
   import.meta.env.VITE_STATUS_API_BASE_URL ??
@@ -42,6 +53,10 @@ type StatusLine = {
   quantity: number | null;
   unit_number?: string | null;
   product_id?: string | number | null;
+  material?: string | null;
+  final_height?: number | null;
+  final_width?: number | null;
+  step?: LiftStepDefinition | null;
   proof_count: number;
   package_count: number;
   latest_proof_status: string | null;
@@ -75,11 +90,26 @@ type PublicOrderStatusSnapshot = {
   header: {
     ext_id: string;
     po_number?: string | null;
+    contract_number?: string | null;
     order_title?: string | null;
     requested_ship_date?: string | null;
     due_date?: string | null;
-    shipping?: unknown | null;
+    actual_ship_date?: string | null;
+    shipping?: OrderRollupDestination | null;
+    field_sources?: {
+      po_number?: OrderRollupHeaderFieldSource;
+      contract_number?: OrderRollupHeaderFieldSource;
+      order_title?: OrderRollupHeaderFieldSource;
+      requested_ship_date?: OrderRollupHeaderFieldSource;
+      due_date?: OrderRollupHeaderFieldSource;
+      actual_ship_date?: OrderRollupHeaderFieldSource;
+      shipping?: OrderRollupHeaderFieldSource;
+    };
   };
+  live_order?: NormalizedLiftOrder | null;
+  order_status?: NormalizedLiftOrder["status"];
+  proof_summary?: OrderRollupProofSummary | null;
+  shipment_summary?: OrderRollupShipmentSummary | null;
   lines: StatusLine[];
   lookups: {
     order: LookupStatus | null;
@@ -139,6 +169,9 @@ function displayDate(value?: string | null) {
 }
 
 function statusLabel(snapshot: PublicOrderStatusSnapshot) {
+  if (snapshot.order_status?.label ?? snapshot.live_order?.status?.label) {
+    return snapshot.order_status?.label ?? snapshot.live_order?.status?.label ?? "Received";
+  }
   if (snapshot.issues.some((issue) => issue.severity === "error")) {
     return "Needs attention";
   }
@@ -170,27 +203,36 @@ function progressSteps(snapshot: PublicOrderStatusSnapshot) {
   const packages = countPackages(snapshot);
   const tracking = firstTracking(snapshot);
   const hasError = snapshot.issues.some((issue) => issue.severity === "error");
+  const headerStepNumber = Number(snapshot.order_status?.step?.step_number ?? snapshot.live_order?.status?.step?.step_number);
+  const hasHeaderStep = Number.isFinite(headerStepNumber);
+  const proofPhase = hasHeaderStep && headerStepNumber < 10;
+  const productionPhase = hasHeaderStep && headerStepNumber >= 10 && headerStepNumber < 15.29;
+  const shippingPhase = hasHeaderStep && headerStepNumber >= 15.29;
+  const completed = hasHeaderStep && headerStepNumber >= 18;
 
   return [
     {
       label: "Received",
-      detail: snapshot.job.state || "Order captured",
+      detail: statusLabel(snapshot),
       state: "complete"
     },
-    {
-      label: "Proof review",
-      detail: proofs ? `${proofs} proof file${proofs === 1 ? "" : "s"}` : "Awaiting proof files",
-      state: proofs ? "complete" : hasError ? "attention" : "pending"
-    },
+    proofReviewProgress(snapshot.proof_summary, {
+      proof_files: proofs,
+      proof_phase: proofPhase,
+      production_phase: productionPhase,
+      shipping_phase: shippingPhase,
+      completed,
+      has_error: hasError
+    }),
     {
       label: "Production",
       detail: packages || tracking ? "Production activity recorded" : "Production updates pending",
-      state: packages || tracking ? "complete" : proofs ? "current" : "pending"
+      state: packages || tracking || shippingPhase || completed ? "complete" : productionPhase ? "current" : proofs ? "current" : "pending"
     },
     {
       label: "Shipping",
       detail: tracking ? `Tracking ${tracking}` : "Tracking pending",
-      state: tracking ? "current" : "pending"
+      state: completed ? "complete" : tracking || shippingPhase ? "current" : "pending"
     }
   ];
 }
@@ -387,11 +429,8 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
   const snapshots = payload.snapshots?.length ? payload.snapshots : [payload.snapshot];
   const [selectedOrderKey, setSelectedOrderKey] = useState(snapshots[0].order_key);
   const snapshot = snapshots.find((candidate) => candidate.order_key === selectedOrderKey) ?? snapshots[0];
-  const trackingNumber = firstTracking(snapshot);
   const currentStatus = statusLabel(snapshot);
   const expiresAt = displayDate(payload.link.expires_at);
-  const proofs = countProofs(snapshot);
-  const packages = countPackages(snapshot);
   const steps = progressSteps(snapshot);
 
   return (
@@ -447,58 +486,7 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
         ))}
       </section>
 
-      {snapshot.issues.length ? (
-        <section className="issue-strip">
-          <strong>{snapshot.issues.length} visibility note{snapshot.issues.length === 1 ? "" : "s"}</strong>
-          <span>{snapshot.issues.map((issue) => issue.message).join(" ")}</span>
-        </section>
-      ) : null}
-
-      <section className="summary-grid">
-        <KeyValue label="Customer" value={snapshot.customer.source_customer_name} />
-        <KeyValue label="PO / Source ID" value={snapshot.header.po_number ?? snapshot.source_order_id} />
-        <KeyValue label="Requested ship" value={snapshot.header.requested_ship_date ?? snapshot.header.due_date} />
-        <KeyValue label="Tracking" value={trackingNumber ?? "Pending"} />
-      </section>
-
-      <section className="order-lines">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Order Details</p>
-            <h2>{snapshot.lines.length} order line{snapshot.lines.length === 1 ? "" : "s"}</h2>
-          </div>
-          <div className="line-summary-chips" aria-label="Visible order activity">
-            <span>{proofs} proof{proofs === 1 ? "" : "s"}</span>
-            <span>{packages} package{packages === 1 ? "" : "s"}</span>
-          </div>
-        </div>
-
-        {snapshot.lines.map((line) => (
-          <article className="line-card" key={`${line.line_number}-${line.product_id ?? line.unit_number ?? "line"}`}>
-            <div className="line-main">
-              <span className="line-number">{line.line_number}</span>
-              <div>
-                <h3>{line.product_name ?? line.description ?? "Order line"}</h3>
-                <p>{productIdentifier(line)} · Qty {line.quantity ?? "pending"}</p>
-              </div>
-            </div>
-            <div className="line-status">
-              <KeyValue label="Proof status" value={line.latest_proof_status ?? "Pending"} />
-              <KeyValue label="Shipment status" value={line.latest_tracking_message ?? "Pending"} />
-            </div>
-            <div className="line-detail">
-              <div>
-                <span className="line-detail-label">Proofs</span>
-                <ProofLinks proofs={line.proofs} />
-              </div>
-              <div>
-                <span className="line-detail-label">Packages</span>
-                <PackageList packages={line.packages} />
-              </div>
-            </div>
-          </article>
-        ))}
-      </section>
+      <OrderRollup snapshot={snapshot} audience="public" displayDate={displayDate} />
 
       <section className="privacy-note">
         <strong>Private link</strong>

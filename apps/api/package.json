@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:proof-public": "tsx watch src/proof/public-server.ts",
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json",
     "test": "node --import tsx/esm --test tests/*.test.ts"
@@ -13,9 +14,13 @@
     "@aws-sdk/client-dynamodb": "^3.1090.0",
     "@aws-sdk/client-secrets-manager": "^3.1090.0",
     "@aws-sdk/client-sesv2": "^3.1090.0",
+    "@aws-sdk/client-sqs": "^3.1090.0",
     "@pathfinder/canonical": "0.1.0",
     "@pathfinder/customer-directory": "0.1.0",
+    "@pathfinder/lift-proof-adapter": "0.1.0",
     "@pathfinder/lift-adapter": "0.1.0",
+    "@pathfinder/order-rollup": "0.1.0",
+    "@pathfinder/proof-domain": "0.1.0",
     "@pathfinder/templates": "0.1.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
@@ -27,6 +32,8 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.2",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
     "typescript": "^5.7.3"
   }
 }
