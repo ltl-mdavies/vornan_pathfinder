@@ -2596,3 +2596,13 @@ The first dark Proof deployment passed repository validation but AWS rejected it
 - Preserved `public_read_enabled=false`, `read_only_qa_confirmed=false`, `production_public_read_approved=false`, managed WAF protection, and every Proof write/decision gate as disabled for the retry.
 - The failed run changed no AWS resource because credential assumption failed before deployment, artifact upload, or CloudFormation execution.
 - Added a deployment-safety regression test that requires exactly the reviewed `main` and protected `dev` subjects and rejects implicit Proof production trust; all 18 deployment-safety tests and the workspace type checks pass.
+
+## 2026-07-20 - Proof Encrypted-Bucket Deployment Permission
+
+The first CloudFormation-backed dark deployment reached isolated resource creation, then rolled back because the versioned deploy policy's `s3:PutBucket*` pattern does not include AWS's separately named `s3:PutEncryptionConfiguration` action.
+
+- Added the explicit get/put encryption actions required for the Proof web bucket's server-side encryption configuration.
+- Added `s3:DeleteBucketPolicy` so a failed or intentionally removed Proof stack can roll back its bucket policy cleanly.
+- Kept every S3 permission scoped to `vornan-pathfinder-artifacts` and `vornan-pathfinder-proof-*`; no `s3:*` permission was added.
+- Added a deployment-safety regression test for the required actions, exact resource scope, and absence of a global S3 wildcard.
+- The failed stack entered CloudFormation rollback before SPA publication or smoke testing. Public Proof reads and every decision/write gate remained disabled.
