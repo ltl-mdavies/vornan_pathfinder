@@ -39,6 +39,18 @@ import {
   type LiftTargetConfig
 } from "@pathfinder/lift-adapter";
 import {
+  buildOrderRollupShipmentSummary,
+  matchLiftLineRecord,
+  normalizeLiftOrderLookupPayload,
+  toCustomerSafeOrderRollupDestination,
+  toCustomerSafeOrderRollupPackage
+} from "@pathfinder/order-rollup";
+import {
+  toCustomerSafeOrderRollupProof,
+  toOrderRollupProofProjection,
+  type ProofOrder
+} from "@pathfinder/proof-domain";
+import {
   appendOrderNameRetrySuffix,
   applyOrderNameResolution,
   createDefaultOrderNameResolutionConfig,
@@ -56,6 +68,7 @@ import {
   addCanonicalRegistryCustomField,
   bulkUpsertProductMappings,
   createDefaultProductResolutionConfig,
+  deleteTarget,
   deleteCatalogPreset,
   deleteCanonicalRegistryCustomField,
   getCanonicalRegistryGovernance,
@@ -87,6 +100,8 @@ import {
   updateOutputRoute,
   updateStatusAccessPolicy,
   updateTarget,
+  TargetInUseError,
+  TargetNotFoundError,
   renameCanonicalRegistryCustomField,
   upsertLiftProductCatalog,
   type CustomerProductMapping,
@@ -120,6 +135,10 @@ import {
   sendTransactionalEmail,
   type TransactionalEmailResult
 } from "./email.js";
+import { createProofAdminRouter } from "./proof/router.js";
+import { getProofRuntimeConfig } from "./proof/runtime-config.js";
+import { getProofOrder } from "./proof/store.js";
+import { BoundedSnapshotCache } from "./order-snapshot-cache.js";
 
 export const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -246,6 +265,15 @@ function mappingIdFromKey(key: string) {
 
 function rowValue(row: ParsedSourceRow, column: string) {
   return row.values[column];
+}
+
+function productDimensionValue(row: ParsedSourceRow, dimension: "width" | "height") {
+  const columns =
+    dimension === "width"
+      ? ["Final Size Width", "Final Width", "Width"]
+      : ["Final Size Height", "Final Size Length", "Final Height", "Height", "Length"];
+
+  return columns.map((column) => valueAsString(rowValue(row, column))).find(Boolean) ?? null;
 }
 
 function buildCompositeValue(row: ParsedSourceRow, columns: string[]) {
@@ -823,18 +851,7 @@ async function getJobLiftContext(customer: LiftCustomer, jobId: string) {
   };
 }
 
-function lineMatchesRecord(
-  line: LiftOrderPayload["lines"][number],
-  index: number,
-  record: { line_number?: string | number | null; order_line_id?: string | number | null }
-) {
-  if (record.line_number != null && Number(record.line_number) === line.line_number) {
-    return true;
-  }
-  return record.order_line_id != null && String(record.order_line_id) === String(line.line_number ?? index + 1);
-}
-
-function buildOrderSnapshot(args: {
+export function buildOrderSnapshot(args: {
   customer: LiftCustomer;
   job: ProcessingJobPreview;
   route: OutputRoute;
@@ -843,25 +860,66 @@ function buildOrderSnapshot(args: {
   orderNumber: string;
   orderLookup: Awaited<ReturnType<typeof fetchLiftOrderLookup>> | null;
   proofReport: Awaited<ReturnType<typeof fetchLiftProofReport>> | null;
+  proofOrder?: ProofOrder | null;
   packageDetails: Awaited<ReturnType<typeof fetchLiftPackageDetails>> | null;
   issues: Array<{ source: string; severity: "warning" | "error"; message: string }>;
 }) {
-  const proofs = args.proofReport?.proofs ?? [];
+  const proofProjection = args.proofOrder ? toOrderRollupProofProjection(args.proofOrder) : null;
+  const proofs = proofProjection?.proofs ?? args.proofReport?.proofs ?? [];
   const packages = args.packageDetails?.packages ?? [];
-  const lines = args.job.lift_payload.lines.map((line, index) => {
-    const lineProofs = proofs.filter((proof) => lineMatchesRecord(line, index, proof));
-    const linePackages = packages.filter((pkg) => lineMatchesRecord(line, index, pkg));
+  const liveOrder = normalizeLiftOrderLookupPayload(args.orderLookup?.payload ?? null);
+  const submittedHeader = args.job.lift_payload.order;
+  const resolvedHeader = {
+    ...submittedHeader,
+    po_number: liveOrder?.po_number ?? submittedHeader.po_number ?? null,
+    contract_number: liveOrder?.contract_number ?? submittedHeader.contract_number ?? null,
+    order_title: liveOrder?.order_title ?? submittedHeader.order_title ?? null,
+    requested_ship_date: liveOrder?.requested_ship_date ?? submittedHeader.requested_ship_date ?? null,
+    due_date: liveOrder?.due_date ?? submittedHeader.due_date ?? null,
+    actual_ship_date: liveOrder?.actual_ship_date ?? null,
+    shipping: liveOrder?.shipping ?? submittedHeader.shipping ?? null,
+    field_sources: {
+      po_number: liveOrder?.po_number ? "lift" : "submitted",
+      contract_number: liveOrder?.contract_number ? "lift" : "submitted",
+      order_title: liveOrder?.order_title ? "lift" : "submitted",
+      requested_ship_date: liveOrder?.requested_ship_date ? "lift" : "submitted",
+      due_date: liveOrder?.due_date ? "lift" : "submitted",
+      actual_ship_date: "lift",
+      shipping: liveOrder?.shipping ? "lift" : "submitted"
+    } as const
+  };
+  const lineContexts = args.job.lift_payload.lines.map((line, index) => {
+    const liveLine = liveOrder?.lines.find((candidate) => candidate.line_number === line.line_number) ?? null;
+    return {
+      index,
+      line,
+      liveLine,
+      line_number: line.line_number ?? index + 1,
+      order_line_id: liveLine?.order_line_id ?? null
+    };
+  });
+  const lines = lineContexts.map(({ index, line, liveLine }) => {
+    const lineProofs = proofs.filter((proof) => matchLiftLineRecord(lineContexts, proof)?.line.index === index);
+    const linePackages = packages.filter((pkg) => matchLiftLineRecord(lineContexts, pkg)?.line.index === index);
+    const latestProof = lineProofs[0];
+    const latestProofState = latestProof && "proof_state" in latestProof ? latestProof.proof_state : null;
     return {
       line_number: line.line_number,
-      order_line_id: lineProofs[0]?.order_line_id ?? linePackages[0]?.order_line_id ?? null,
-      product_name: line.product_name,
+      order_line_id: liveLine?.order_line_id ?? lineProofs[0]?.order_line_id ?? linePackages[0]?.order_line_id ?? null,
+      product_name: liveLine?.product_name ?? line.product_name,
       description: line.description,
-      quantity: line.quantity,
-      unit_number: line.unit_number,
+      quantity: liveLine?.quantity ?? line.quantity,
+      unit_number: liveLine?.unit_number ?? line.unit_number,
       product_id: line.product_id,
+      material:
+        liveLine?.material ??
+        (line.production?.material == null ? null : String(line.production.material)),
+      final_height: liveLine?.final_height ?? line.dimensions.final_height,
+      final_width: liveLine?.final_width ?? line.dimensions.final_width,
+      step: liveLine?.step ?? null,
       proof_count: lineProofs.length,
       package_count: linePackages.length,
-      latest_proof_status: lineProofs[0]?.proof_approval_status ?? null,
+      latest_proof_status: latestProof?.proof_approval_status ?? latestProofState ?? null,
       latest_tracking_message: linePackages[0]?.tracker_message ?? null,
       proofs: lineProofs,
       packages: linePackages
@@ -893,7 +951,11 @@ function buildOrderSnapshot(args: {
       environment_id: args.route.environment_id,
       template: args.route.output_template
     },
-    header: args.job.lift_payload.order,
+    header: resolvedHeader,
+    live_order: liveOrder,
+    order_status: liveOrder?.status ?? null,
+    proof_summary: proofProjection?.summary ?? null,
+    shipment_summary: buildOrderRollupShipmentSummary(lines),
     lines,
     proofs,
     packages,
@@ -955,6 +1017,21 @@ async function buildInternalOrderSnapshotForJob(
   }
 
   const issues: Array<{ source: string; severity: "warning" | "error"; message: string }> = [];
+  const proofStorageEnabled = getProofRuntimeConfig().storage_driver !== "disabled";
+  let proofOrder: ProofOrder | null = null;
+
+  if (proofStorageEnabled) {
+    try {
+      proofOrder = await getProofOrder(context.orderNumber);
+    } catch {
+      issues.push({
+        source: "proof_cache",
+        severity: "warning",
+        message: "The normalized Vornan Proof cache could not be read; the read-only Lift report fallback was used."
+      });
+    }
+  }
+
   const [orderLookupResult, proofReportResult, packageDetailsResult] = await Promise.allSettled([
     context.route.order_lookup_url
       ? fetchLiftOrderLookup({
@@ -963,7 +1040,7 @@ async function buildInternalOrderSnapshotForJob(
           orderNumber: context.orderNumber
         })
       : Promise.resolve(null),
-    context.route.proof_report_url
+    !proofOrder && context.route.proof_report_url
       ? fetchLiftProofReport({
           target: context.target,
           route: context.route,
@@ -986,7 +1063,7 @@ async function buildInternalOrderSnapshotForJob(
       message: "Output route has no Lift order lookup URL configured."
     });
   }
-  if (!context.route.proof_report_url) {
+  if (!proofOrder && !context.route.proof_report_url) {
     issues.push({
       source: "proof_report",
       severity: "warning",
@@ -1031,7 +1108,6 @@ async function buildInternalOrderSnapshotForJob(
               : "Lift package details failed."
         }),
         null);
-
   return {
     snapshot: buildOrderSnapshot({
       customer,
@@ -1042,6 +1118,7 @@ async function buildInternalOrderSnapshotForJob(
       orderNumber: context.orderNumber,
       orderLookup,
       proofReport,
+      proofOrder,
       packageDetails,
       issues
     }),
@@ -1049,7 +1126,12 @@ async function buildInternalOrderSnapshotForJob(
   };
 }
 
-function publicOrderStatusSnapshotFromInternal(snapshot: InternalOrderSnapshot): PublicOrderStatusSnapshot {
+export function publicOrderStatusSnapshotFromInternal(snapshot: InternalOrderSnapshot): PublicOrderStatusSnapshot {
+  const publicLines = snapshot.lines.map((line) => ({
+    ...line,
+    proofs: line.proofs.map(toCustomerSafeOrderRollupProof),
+    packages: line.packages.map(toCustomerSafeOrderRollupPackage)
+  }));
   return {
     snapshot_id: snapshot.snapshot_id,
     order_key: `${snapshot.customer.submit_customer_name}:${snapshot.order_number}:${snapshot.job.job_id}`,
@@ -1068,12 +1150,19 @@ function publicOrderStatusSnapshotFromInternal(snapshot: InternalOrderSnapshot):
     header: {
       ext_id: snapshot.header.ext_id,
       po_number: snapshot.header.po_number ?? null,
+      contract_number: snapshot.header.contract_number ?? null,
       order_title: snapshot.header.order_title ?? null,
       requested_ship_date: snapshot.header.requested_ship_date ?? null,
       due_date: snapshot.header.due_date ?? null,
-      shipping: snapshot.header.shipping ?? null
+      actual_ship_date: snapshot.header.actual_ship_date ?? null,
+      shipping: toCustomerSafeOrderRollupDestination(snapshot.header.shipping),
+      field_sources: snapshot.header.field_sources
     },
-    lines: snapshot.lines,
+    live_order: snapshot.live_order,
+    order_status: snapshot.order_status,
+    proof_summary: snapshot.proof_summary,
+    shipment_summary: buildOrderRollupShipmentSummary(publicLines),
+    lines: publicLines,
     lookups: {
       order: snapshot.lookups.order
         ? {
@@ -1088,10 +1177,55 @@ function publicOrderStatusSnapshotFromInternal(snapshot: InternalOrderSnapshot):
     issues: snapshot.issues,
     visibility_policy: {
       audience: "public_status",
-      redacted_fields: ["NEGOTIATED_RATE", "submit_history", "raw Lift lookup payloads"],
+      redacted_fields: [
+        "NEGOTIATED_RATE",
+        "package dimensions and weight",
+        "internal shipment identifiers",
+        "submit_history",
+        "raw Lift lookup payloads"
+      ],
       token_required: true
     },
     refreshed_at: snapshot.refreshed_at
+  };
+}
+
+const orderSnapshotRefreshMinMs = Math.max(
+  1_000,
+  Number(process.env.PATHFINDER_ORDER_SNAPSHOT_REFRESH_MIN_MS ?? 15_000) || 15_000
+);
+const orderSnapshotResponseCache = new BoundedSnapshotCache<InternalOrderSnapshot>(orderSnapshotRefreshMinMs);
+
+async function loadBoundedInternalOrderSnapshot(customer: LiftCustomer, jobId: string) {
+  const cacheKey = `${customer.lift_customer_id}:${jobId}`;
+  const cached = orderSnapshotResponseCache.getRecent(cacheKey);
+
+  if (cached) {
+    return {
+      snapshot: cached.snapshot,
+      refresh: {
+        source: "recent_snapshot" as const,
+        checked_at: cached.checked_at,
+        next_refresh_at: cached.next_refresh_at
+      }
+    };
+  }
+
+  const result = await buildInternalOrderSnapshotForJob(customer, jobId);
+  if ("error" in result) {
+    return result;
+  }
+
+  const cachedAt = Date.now();
+  const refreshWindow = orderSnapshotResponseCache.set(cacheKey, result.snapshot, cachedAt);
+
+  return {
+    snapshot: result.snapshot,
+    refresh: {
+      source: "lift" as const,
+      checked_at: refreshWindow.checked_at,
+      next_refresh_at: refreshWindow.next_refresh_at
+    }
   };
 }
 
@@ -1554,7 +1688,9 @@ function buildMappingFromRow(
         row_number: row.row_number,
         description: valueAsString(rowValue(row, "DESCRIPTION")) || null,
         sign_type: valueAsString(rowValue(row, "SIGN TYPE")) || null,
-        media_type: valueAsString(rowValue(row, "Media Type")) || null
+        media_type: valueAsString(rowValue(row, "Media Type")) || null,
+        final_width: productDimensionValue(row, "width"),
+        final_height: productDimensionValue(row, "height")
       }
     ],
     created_at: timestamp,
@@ -1946,6 +2082,7 @@ function buildSubmitCertification(args: {
   const canonicalFailures = args.canonicalValidation.filter((message) => message.severity === "FAIL");
   const liftFailures = args.liftValidation.filter((message) => message.severity === "FAIL");
   const submitFailures = args.submitValidation.filter((message) => message.severity === "FAIL");
+  const previewStateCanSubmit = args.state === "Ready" || args.state === "Submit Failed";
   const placeholderCredentialWarnings = args.submitValidation.filter((message) =>
     ["SUBMIT-USER", "SUBMIT-PASSWORD"].includes(message.code)
   );
@@ -1954,9 +2091,11 @@ function buildSubmitCertification(args: {
     certificationItem(
       "preview-state",
       "Preview state",
-      args.state === "Ready",
+      previewStateCanSubmit,
       `Preview is ${args.state}, not Ready.`,
-      "Preview job is Ready.",
+      args.state === "Submit Failed"
+        ? "The persisted preview remains eligible for an intentional retry."
+        : "Preview job is Ready.",
       "Resolve blocking preview validation or product mapping issues.",
       args.unresolvedProducts.length ? "product-map" : "manual-import"
     ),
@@ -2478,6 +2617,7 @@ app.post("/public/status/request-link", async (req, res) => {
 });
 
 app.use("/api", requirePathfinderAuth);
+app.use("/api/proof", createProofAdminRouter());
 
 app.get("/api/email/status", (_req, res) => {
   try {
@@ -3252,7 +3392,9 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
         row_number: result.source_row_number,
         description: valueAsString(rowValue(row, "DESCRIPTION")) || null,
         sign_type: valueAsString(rowValue(row, "SIGN TYPE")) || null,
-        media_type: valueAsString(rowValue(row, "Media Type")) || null
+        media_type: valueAsString(rowValue(row, "Media Type")) || null,
+        final_width: productDimensionValue(row, "width"),
+        final_height: productDimensionValue(row, "height")
       };
       return {
         ...(existing ?? buildMappingFromRow(row, method.product_resolution_config, timestamp, outputRoute)),
@@ -3606,7 +3748,7 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId/package-details", async (req
 app.get("/api/customers/:liftCustomerId/jobs/:jobId/order-snapshot", async (req, res) => {
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
-    const result = await buildInternalOrderSnapshotForJob(customer, req.params.jobId);
+    const result = await loadBoundedInternalOrderSnapshot(customer, req.params.jobId);
 
     if ("error" in result) {
       res.status(result.errorStatus ?? 500).json({
@@ -3615,7 +3757,7 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId/order-snapshot", async (req,
       return;
     }
 
-    res.json({ snapshot: result.snapshot });
+    res.json({ snapshot: result.snapshot, refresh: result.refresh });
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Pathfinder order snapshot failed."
@@ -3984,6 +4126,18 @@ app.put("/api/targets/:targetId", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Target save failed."
+    });
+  }
+});
+
+app.delete("/api/targets/:targetId", async (req, res) => {
+  try {
+    const targets = await deleteTarget(req.params.targetId);
+    res.json({ targets });
+  } catch (error) {
+    const status = error instanceof TargetNotFoundError ? 404 : error instanceof TargetInUseError ? 409 : 500;
+    res.status(status).json({
+      error: error instanceof Error ? error.message : "Target delete failed."
     });
   }
 });

@@ -1319,6 +1319,7 @@ Verification:
 - `npm run check`
 - `npm run build`
 - `git diff --check`
+
 - Local browser workflow against a disposable store:
   - a `unit_number` route with three mapping shapes reported `2 identifier ready / 1 need remap`
   - switching to `product_id` reported `2 identifier ready / 1 need remap` with the strategy-change warning
@@ -1649,3 +1650,939 @@ Production deployment:
 - Verified `https://api.pathfinder.vornan.co/health`, `https://pathfinder.vornan.co/`, and `https://status.vornan.co/` return HTTP 200.
 - Verified the live admin entrypoint references the split vendor assets and the 323,993-byte lazy workspace asset.
 - The explicit Lift-submit environment gate remains unset, so external Lift submission remains disabled and defaults to dry-run behavior.
+
+## 2026-07-19 - Destructive Action Confirmations
+
+Added explicit review steps before removing Import Method or Target configuration.
+
+What changed:
+
+- Import Method list and detail actions now open a named confirmation before discarding an unsaved draft or archiving a saved method.
+- Target overview and detail actions now open a named confirmation before discarding a draft or permanently deleting an unreferenced saved Target.
+- Target-environment removal uses the same confirmation pattern and explains that the draft change is not persisted until the Target is saved.
+- Saved Target deletion is protected in the API: any reference from a customer workspace, output route, or Import Method returns a conflict instead of leaving dangling configuration.
+- API error responses now surface their human-readable message in the admin interface rather than displaying raw JSON.
+- Added a focused regression test proving referenced Targets cannot be deleted and unreferenced Targets can be removed.
+
+Verification:
+
+- `npm run check`
+- `npm test --workspace @pathfinder/api` (12 tests passed)
+- `npm run build` with every emitted JavaScript chunk below the 500 kB advisory threshold
+- `git diff --check`
+- Browser-tested the Import Method confirmation, cancel path, and confirmed removal of a test-only local draft.
+- Browser-tested the saved Target confirmation and cancel path without deleting persisted Target data.
+- Real Lift submission remains disabled.
+
+## 2026-07-19 - Production Google Popup Authentication Hotfix
+
+Restored the previously working Firebase popup flow after the production redirect flow returned authenticated users to the signed-out screen.
+
+What changed:
+
+- Removed the production-only `signInWithRedirect` branch and redirect-result handler introduced by `6e7cd6f`.
+- All environments now use `signInWithPopup`, retaining explicit Google account selection and the existing approved-domain gate.
+- The Google console self-XSS warning was identified as standard Google console safety copy, not a Pathfinder application error.
+
+Verification and deployment:
+
+- `npm run check --workspace @pathfinder/web`
+- `npm run build --workspace @pathfinder/web`
+- Committed and pushed as `eaf12af Restore popup authentication for Pathfinder`.
+- Admin production workflow `29699177429` completed successfully, including CloudFront invalidation.
+- The live production entrypoint references `/assets/index-I64bNW4C.js`; inspection confirms it calls `signInWithPopup` and contains no redirect-result branch.
+- Browser verification confirmed clicking `Continue with Google` leaves `https://pathfinder.vornan.co/` in place while opening the Google sign-in surface.
+
+## 2026-07-20 - Vornan Proof Dark DNS Handoff
+
+Made the next read-only Proof slice safe to hand off for DNS without creating a record or enabling public customer reads.
+
+What changed:
+
+- Paired every Proof CloudFront alias with an issued `us-east-1` ACM certificate and reserved `proof.vornan.co` as the production alias.
+- Added CloudFormation outputs for the exact CNAME name, target, initial DNS-only proxy mode, and TTL.
+- Added a read-only DNS readiness command that checks stack completion, CloudFront deployment and alias, certificate status and coverage, the public-read-off gate, and explicit dark-smoke confirmation.
+- Updated the protected workflow to smoke the CloudFront distribution hostname before DNS exists and to publish the exact DNS handoff in the job summary.
+- Documented the Cloudflare cutover sequence and added Proof to the production hosting manifest.
+- Queried the `dev`, `qa`, and `prod` Proof stack names; none exists yet, so no real CloudFront CNAME target is currently available.
+- Kept customer grant creation, public read, and every Lift approval/revision/undo write disabled.
+
+Verification:
+
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run check`
+- `npm run test` (55 workspace tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid; the sandbox prevented SAM from updating its unrelated user-level metadata file)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh scripts/package-proof-lambdas.sh`
+- `git diff --check`
+
+## 2026-07-20 - Vornan Proof Queued Customer Refresh
+
+Closed the remaining Phase 2 manual-refresh gap without crossing into approval or revision implementation.
+
+What changed:
+
+- Added an authenticated `POST /api/public/proof/order/refresh` endpoint that queues read-only synchronization and returns immediately with `202`.
+- Kept all Lift traffic out of the public request path; the existing worker remains the only refresh executor and uses Lift `GET` requests only.
+- Added an IP rate rule and metric for the manual-refresh path to the managed Proof WAF.
+- Updated the customer SPA to keep cached proofs usable while refresh is queued, show truthful queued/completed/error states, and avoid replacing cached content if the follow-up read fails.
+- Extended telemetry, automated smoke coverage, API tests, the Phase 2 contract, and the isolated QA runbook.
+- Removed the redundant HTML meta CSP that blocked Vite's development-injected stylesheet. Production remains protected by the stricter CloudFront response-header CSP.
+- Browser-verified the styled demo and refresh lifecycle at desktop and 390×844; the mobile document width matched the viewport and produced no console errors.
+- Lift approve, revision, undo, and generic Proof writes remain literal `false`.
+
+Verification:
+
+- `npm run check`
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run test` (57 workspace tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid; the sandbox prevented SAM from updating its unrelated user-level metadata file)
+- `git diff --check`
+
+## 2026-07-20 - Vornan Proof Session Terminal States
+
+Completed the read-only customer session lifecycle required by the Phase 2 route and expiry contract.
+
+What changed:
+
+- Added distinct `#/link-unavailable` and `#/session-ended` customer states without exposing order, session, grant, or token details.
+- Added the short-lived session expiry deadline to the already-authenticated order response so the SPA proactively removes proof content when the browser session expires.
+- Routed authenticated `401` responses, revocation, expiry, and explicit logout to the session-ended state.
+- Canonicalized invalid and malformed access fragments to `#/link-unavailable`, removing token-shaped input from the visible URL.
+- Added a typed public API error boundary and pure session-route/deadline helpers with focused tests.
+- Preserved one generic unavailable presentation for unknown, expired, revoked, reused, and malformed grant links.
+- Browser-verified explicit logout, both terminal routes, malformed-fragment cleanup, zero proof content after termination, mobile width at 390×844, and a clean console.
+- Lift approve, revision, undo, and generic Proof writes remain literal `false`.
+
+Verification:
+
+- `npm run check`
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run test` (60 workspace tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `git diff --check`
+
+## 2026-07-20 - Vornan Proof Queue Accessibility And Empty States
+
+Completed the next read-only Phase 2 acceptance slice without adding a customer decision or Lift write surface.
+
+What changed:
+
+- Fixed queue filtering so a task hidden by the selected filter can never remain visible in the detail pane.
+- Added a single selected-option contract plus wrapping Arrow/Left/Right/Home/End keyboard navigation for desktop and horizontal mobile queues.
+- Added distinct no-proof, no-open-proof, and filter-empty presentations in both the queue and detail canvas.
+- Added independent desktop queue/detail scrolling, 44 px filter targets, visible detail focus, and narrow-layout overflow protection.
+- Limited embedded document preview to browser-native images and PDFs; non-previewable files now present an explicit full-resolution open/download fallback.
+- Routed an authenticated manual-refresh `401` through the existing session-ended cleanup so cached proof content cannot remain after session invalidation.
+- Kept Lift approve, revision, undo, and generic Proof writes literal `false`.
+
+Verification:
+
+- `npm run check`
+- `npm run test` (63 workspace tests passed, including 6 Proof SPA tests)
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `git diff --check`
+- Browser-tested filter integrity and keyboard focus/selection at desktop and 390×844.
+- Browser-tested independent scrolling and 44 px controls at 1366×768.
+- Browser-tested zero horizontal document overflow at 390×844 and 320×568 with a clean console.
+
+## 2026-07-20 - Vornan Proof Full-Viewport Review Frame
+
+Aligned the read-only Proof review surface with the Adspace workflow reference while preserving the Vornan visual system and every write gate.
+
+What changed:
+
+- Added contained proof thumbnails to each desktop inbox row with a safe fallback for non-image assets.
+- Rebuilt the desktop shell around the full browser viewport so the inbox, artwork viewer, and stable action transport share the available height at large and compact window sizes.
+- Kept inbox overflow independently scrollable while the artwork remains fully contained without crop, warp, or forced enlargement; the existing full-size action remains available.
+- Moved feedback and version history into native modal dialogs with keyboard focus restoration, freeing the main viewer for artwork.
+- Added the critical decision transport to desktop and mobile as an intentionally disabled QA surface. It has no approval or revision handlers and emits no Lift write request.
+- Replaced the narrow queue/detail treatment with an Instagram-like stacked proof-review feed, sticky inbox filters, per-proof actions, and 44 px mobile targets.
+- Added a design QA comparison record at `design-qa.md`; the final pass has no P0, P1, or P2 findings.
+- Kept Lift approve, revision, undo, and generic Proof writes literal `false`.
+
+Verification:
+
+- `npm run check`
+- `npm run test` (63 workspace tests passed, including 6 Proof SPA tests)
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `git diff --check`
+- Browser-tested exact full-viewport sizing and artwork containment at 1758×1201.
+- Browser-tested independent queue overflow, visible locked transport, and artwork containment at 1366×768.
+- Browser-tested the stacked feed, contained artwork, disabled decision controls, 44 px targets, and zero horizontal overflow at 390×844 and 320×568.
+- Browser-tested feedback dialog open/close behavior and focus restoration.
+
+## 2026-07-20 - Vornan Proof Read-Only Queue Discovery
+
+Closed the remaining Phase 2 queue-discovery and short-landscape acceptance gaps without entering participant, approval, or revision implementation.
+
+What changed:
+
+- Added compact Open, Reviewed, and Total counters sourced from the complete proof packet rather than the active filter.
+- Added one synchronized proof search across desktop and mobile that matches product, line, filename, or state after the selected queue filter is applied.
+- Added a distinct search-empty presentation in both the queue and detail canvas so hidden proofs cannot remain visible.
+- Added an explicit clear action that restores the filtered queue and selects its first visible proof.
+- Converted feedback/history dialogs into bottom sheets on narrow layouts with focus restoration unchanged.
+- Routed 844×390 and similar short-landscape windows to the mobile review feed instead of squeezing the desktop split.
+- Kept every Lift approval, revision, undo, and generic Proof write path disabled.
+
+Verification:
+
+- `npm run check --workspace @pathfinder/proof`
+- `npm run test --workspace @pathfinder/proof` (7 tests passed)
+- `npm run check`
+- `npm run test` (64 workspace tests passed)
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `git diff --check`
+- Browser-tested search by filename/product, search-empty detail clearing, clear/restore behavior, and accurate `4 / 1 / 5` counters at 1366×768.
+- Browser-tested the 390×844 feedback bottom sheet anchored 10 px above the viewport edge with focus returned to the exact opener.
+- Browser-tested the stacked feed at 844×390 with no horizontal overflow, fully contained artwork, 44 px controls, disabled decisions, and no new console warnings or errors.
+
+## 2026-07-20 - Vornan Proof Private Link Delivery Foundation
+
+Added the architecture-defined Proof notification path without enabling customer reads, sending an external message, or entering Lift decision work.
+
+What changed:
+
+- Added a `proof_link` transactional email contract with Vornan sender identity, `support@vornan.com` Reply-To, accessible text and HTML bodies, expiry/view-only guidance, and no application opt-in to the general SES engagement-tracking configuration set.
+- Added an independent `PATHFINDER_PROOF_ENABLE_LINK_EMAIL=false` runtime and CloudFormation gate. The template requires authenticated grant creation before link email can be enabled.
+- Added authenticated `POST /api/proof/grants/{grantId}/email`. It accepts a link only when its fragment token hashes to the exact unused, active grant at the configured Proof origin.
+- Added the operator recipient field and send control beside the one-time copy action. Log mode retains the raw link because no message was sent; SES success removes it from the screen.
+- Added masked delivery responses and append-only delivery audit actions containing mode/status only. Raw recipient addresses, URLs, tokens, provider IDs, and email bodies are excluded from API responses, persistence, and logs.
+- Added tests for email content/escaping, masked log behavior, bearer secrecy, grant/link mismatch rejection, redacted audit persistence, and the independent default-off gate.
+- Updated the Phase 2 contract and QA runbook with the log-first, approved-recipient delivery sequence.
+- Kept Proof public read, Lift approval, revision, undo, and generic Lift writes disabled. No deployment, DNS change, or external email occurred.
+
+Verification:
+
+- `npm run check`
+- `npm run test` (69 workspace tests passed)
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:api-lambda`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/api-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-api-lambda.sh`
+- `git diff --check`
+
+## 2026-07-20 - Vornan Proof Reviewer Identity Foundation
+
+Added the architecture-defined participant boundary to the read-only customer experience without adding any proof decision or Lift write route.
+
+What changed:
+
+- Added optional reviewer name/email capture while anonymous proof viewing remains available. The customer response exposes only the identity bound to the current session.
+- Bound participant, manual-refresh, and logout requests to a session-specific double-submit CSRF token. Only its SHA-256 hash is persisted; the raw token is never returned in JSON or written to logs/storage.
+- Added dedicated participant persistence under the access grant, plus redacted identified/updated audit actions containing participant and grant identifiers but no name or email.
+- Added authenticated operator reviewer counts and a restricted reviewer-detail endpoint/panel. Customer identities do not enter the public order aggregate.
+- Added a dedicated managed-WAF rate rule for participant identity requests.
+- Added the reviewer control and accessible identity dialog to the full-viewport desktop and mobile Proof UI. Viewing and every disabled decision control remain unchanged.
+- Extended the Phase 2 contract and isolated QA runbook with CSRF, identity, operator-visibility, and redacted-audit acceptance checks.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, and generic Lift writes remain literal `false`; no deployment, DNS change, external email, or Lift write occurred.
+
+Verification:
+
+- `npm run check`
+- `npm run test` (71 workspace tests passed)
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:api-lambda`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh scripts/package-proof-lambdas.sh scripts/deploy-api-lambda.sh`
+- `git diff --check`
+- Browser-tested anonymous viewing, reviewer create/update presentation, exact full-viewport sizing, and disabled decision controls at 1763×1200.
+- Browser-tested the 44 px reviewer control, bottom-sheet dialog, stacked feed, zero horizontal overflow, and disabled decision controls at 390×844 with no console warnings or errors.
+
+## 2026-07-20 - Vornan Proof Feedback Acknowledgement Foundation
+
+Added the architecture-defined current-feedback gate as an isolated Proof-local prerequisite without implementing a customer decision or Lift write.
+
+What changed:
+
+- Added a CSRF-protected participant-bound feedback acknowledgement route for the current task feedback.
+- Persisted acknowledgements beneath the access grant using participant + task identity and the current internal feedback fingerprint.
+- Made acknowledgement state automatically reset when the attachment/comment fingerprint changes; an unchanged repeated request is idempotent and does not duplicate audit activity.
+- Added customer-safe `feedback_required` and `feedback_acknowledged` task fields without exposing acknowledgement IDs or internal fingerprints.
+- Added append-only `proof.feedback_acknowledged` audit activity containing order/task/line/attachment/grant/participant identifiers but no comment text or feedback fingerprint.
+- Added a dedicated managed-WAF rate rule for public task acknowledgement traffic.
+- Extended the desktop modal and mobile bottom sheet with an explicit identity handoff, “Mark feedback reviewed” action, completed state, and clear copy that acknowledgement is not approval or revision.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, generic writes, JWT signing, uploads, and decision routes remain absent or literal `false`; no deployment, DNS change, external email, or Lift write occurred.
+
+Verification:
+
+- `npm run check`
+- `npm run test` (72 workspace tests passed)
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:api-lambda`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh scripts/package-proof-lambdas.sh scripts/deploy-api-lambda.sh`
+- `git diff --check`
+- Browser-tested anonymous feedback, identity handoff, acknowledgement completion, full-viewport modal layout, and disabled decision controls at 1763×1200.
+- Browser-tested the bottom-sheet acknowledgement state, 390×844 viewport fit, zero horizontal overflow, and disabled decision controls with no console warnings or errors.
+
+## 2026-07-20 - Manual Import Mapping Synchronization
+
+Corrected the Manual Import review state exposed by the first real Momentara order workbook.
+
+What changed:
+
+- Manual Import now refreshes its field mappings whenever the active Import Method's saved mapping set changes, including save responses whose workspace timestamp is unchanged.
+- Saving an Import Method explicitly places the returned saved mappings into the active Manual Import state.
+- Before a preview job exists, Product Resolution Review now generates the same customer product keys from the uploaded order and looks them up in the saved route-level Output Product Map.
+- Saved Lift product IDs and product names render immediately instead of showing every row as `Unmapped` with a `Generate preview to resolve` placeholder.
+- The local Canonical Order and Lift payload previews now apply those resolved route identifiers before validation, matching the persisted preview service and eliminating contradictory `product_id` failures while Product Resolution reports the same rows as mapped.
+- Local submit certification now recognizes API-masked saved Lift credentials as configured, matching route health and preflight instead of presenting the secure `********` response as a missing password.
+- Manual Import readiness and preflight now count mapping gaps only for products present in the uploaded order, rather than blocking on every unmapped item in the customer's broader preloaded catalog.
+- The persisted preview job remains the certification boundary; pre-preview results are clearly labeled as saved-route lookups that still require preview validation.
+- Preview generation is now disabled until an order source with at least one valid order row is loaded, and the action handler rejects empty-source requests defensively.
+- The duplicate `Persist Preview Job` label now uses the same `Generate Preview Job` / `Regenerate Preview Job` language as the upload workflow so both entry points describe the same persisted preview action.
+- The non-persisted Lift preview no longer presents `PF-PREVIEW` like a real Ext_ID. It explicitly marks the value as reserved-on-generation; a persisted preview still reserves one globally unique Pathfinder Order Number and uses it for both the Lift header and body Ext_ID.
+- Product Resolution Review now shows the canonical quantity for every resolved order line so operators can visually confirm product identity and submitted quantity together before generating the persisted preview.
+- A persisted Ready job with no prior attempt now presents `Submit to Lift` and uses the normal first-attempt idempotency path; `Retry Submit` and a fresh retry key appear only after an attempt exists.
+
+Verification:
+
+- Confirmed the saved Momentara Import Method has `FINISHING` ignored, `Notes` mapped to `lines[].line_note`, and `Creative` mapped to `lines[].artwork.file_url`.
+- Browser inspection confirmed Manual Import is rendering the saved eight-field Momentara mapping and applying the contract number, description, quantity, dimensions, ship date, and line note to the local Canonical Order.
+- Confirmed the saved route-level mappings for the test order are `ONE_SHEET_30_375X46_375 → 342219`, `PUMP_TOPPER_CLIP → 342197`, and `PUMP_TOPPER_AOM → 342197`.
+- `npm run check --workspace @pathfinder/web`
+- `npm run build --workspace @pathfinder/web`
+- `git diff --check`
+- No preview job, external Lift request, deployment, or real Lift submission was performed.
+
+## 2026-07-20 - Vornan Proof Task History Read Slice
+
+Completed the architecture-defined Phase 2 task history route and connected it to the existing file-history modal without entering any decision or Lift write work.
+
+What changed:
+
+- Added authenticated `GET /api/public/proof/tasks/{taskId}/history` on the isolated public router.
+- Bound task lookup to the session's single granted order; unknown and cross-order task identifiers return the same customer-safe not-available response.
+- Added a reusable public history serializer that excludes Lift attachment IDs, approver identity, detailed reports, feedback fingerprints, raw Lift rows, internal warnings, and customer-only order metadata.
+- Changed the desktop modal and mobile bottom sheet to open from cached order history, lazily check the task route, retain cached versions on failure, offer an explicit retry, and terminate correctly on an expired session.
+- Generalized the managed-WAF task-route rate limit so it covers both history reads and feedback acknowledgements.
+- Corrected the mobile native-dialog max-width override so the history sheet has symmetric 10 px viewport margins.
+- Extended the Phase 2 contract and isolated QA runbook with endpoint isolation, redaction, cache fallback, retry, and terminal-session acceptance checks.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, and public decision routes remain absent or literal `false`; no deployment, DNS change, external email, or Lift write occurred.
+
+Verification:
+
+- `npm run test` (75 workspace tests passed)
+- `npm run check`
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh`
+- `node --check scripts/smoke-proof-read-only.mjs`
+- `git diff --check`
+- Browser-tested the two-version history modal at 1366×768 with no horizontal overflow and every decision control disabled.
+- Browser-tested the bottom sheet at 390×844 with symmetric 10 px margins, 58 px version targets, zero horizontal overflow, exact focus restoration to the History opener, and no console errors.
+
+## 2026-07-20 - Vornan Proof Customer-Safe Technical History
+
+Completed the remaining Phase 2 file-history presentation gap for approval metadata and technical report results without exposing raw Lift report content or adding a write path.
+
+What changed:
+
+- Added bounded `technical_checks` to the customer-safe public version DTO for both the order packet and task history route.
+- Projected only allowlisted Lift `DETAILED_REPORT` check names and statuses from array, `checks`, `results`, or `rowset` shapes, including JSON-encoded report payloads.
+- Collapsed duplicate checks, capped the result set, and rejected URL/token-shaped or overlong values.
+- Continued to exclude raw detailed reports, report details, internal IDs, signed URLs, Lift attachment IDs, feedback fingerprints, and approver identity.
+- Expanded the history modal/bottom sheet with the selected version's approval status, approval date, and accessible technical-check result list.
+- Added explicit pass, warning/notice, and failure treatments that pair text with color rather than relying on color alone.
+- Extended the Phase 2 contract and isolated QA runbook with customer-safe technical-report acceptance and hostile-field redaction checks.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, and public decision routes remain absent or literal `false`; no deployment, DNS change, external email, or Lift write occurred.
+
+Verification:
+
+- `npm run test` (76 workspace tests passed)
+- `npm run check`
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh`
+- `node --check scripts/smoke-proof-read-only.mjs`
+- `git diff --check`
+- Browser-tested current and prior version selection at 1366×768, including approval metadata, pass/warning states, no modal scrolling, no horizontal overflow, and disabled decisions.
+- Browser-tested the 390×844 bottom sheet with symmetric 10 px margins, 58 px version targets, zero horizontal overflow, exact focus restoration, and no console errors.
+
+## 2026-07-20 - Vornan Proof Customer-Safe Feedback Attachments
+
+Completed the Phase 2 read-only feedback-attachment slice without adding any decision or Lift write capability.
+
+What changed:
+
+- Added bounded customer-safe attachment metadata to current feedback comments in the public proof DTO.
+- Projected supported Lift `COMMENT_ATTACHMENT` shapes from arrays, nested objects, JSON-encoded payloads, URL-only strings, and filename-only metadata.
+- Allowed only absolute HTTPS attachment URLs without embedded username/password credentials; unsafe schemes, opaque blobs, private IDs, thread identifiers, and arbitrary internal fields remain excluded.
+- Derived safe filenames where possible, bounded text fields and result counts, and collapsed duplicate attachments.
+- Added keyboard-operable feedback attachment actions to the desktop modal and mobile bottom sheet, with 44 px minimum targets and explicit metadata-only treatment when a safe URL is unavailable.
+- Extended the Phase 2 contract and isolated QA runbook with attachment projection, redaction, accessibility, acknowledgement-reset, and audit acceptance checks.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, and public decision routes remain absent or literal `false`; no deployment, DNS change, external email, attachment navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` (77 workspace tests passed)
+- `npm run check`
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh`
+- `node --check scripts/smoke-proof-read-only.mjs`
+- `git diff --check`
+- Browser-tested the feedback attachment modal at 1366×768: 44 px attachment target, no dialog overflow, no horizontal overflow, and every decision control disabled.
+- Browser-tested the 390×844 bottom sheet with symmetric 10 px margins, a 44 px attachment target, zero horizontal overflow, exact focus restoration to the Feedback opener, and no console errors.
+
+## 2026-07-20 - Vornan Proof Read-Only Lifecycle States
+
+Completed the Phase 2 lifecycle-state resilience slice without adding any customer decision or Lift write capability.
+
+What changed:
+
+- Added the normalized non-actionable `revised` task state for Lift revision-like approval statuses and presented it to customers as `Regenerating`.
+- Kept regenerating and waiting tasks in the open queue while approved and production-reference tasks remain in history; queue counters and state-label search now use the same classification.
+- Added bounded customer-facing explanations and text/icon treatments for waiting, regenerating, reference, cancelled, missing, and file-error tasks.
+- Projected an old active packet as `stale` only in the public response, leaving the stored Lift-derived aggregate unchanged and retaining every cached proof while the bounded background refresh is requested.
+- Added customer-safe cached-packet notices for stale, missing, and error aggregate health without exposing Lift or infrastructure details.
+- Added a development-only `#/proof/lifecycle-qa` fixture for responsive acceptance of revised, waiting, reference, error, and stale states.
+- Extended the Phase 2 contract and isolated QA runbook with revision-status normalization, non-actionability, cached-proof retention, counters, search, and responsive acceptance checks.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, and public decision routes remain absent or literal `false`; no deployment, DNS change, external email, attachment navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` (81 workspace tests passed)
+- `npm run check`
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh`
+- `node --check scripts/smoke-proof-read-only.mjs`
+- `git diff --check`
+- Browser-tested the stale/regenerating/waiting fixture at 1366×768: the workspace ended at 744 px in a 768 px viewport, cached-state notice was 44 px high, the queue stayed independently scrollable, no horizontal overflow occurred, and all decision controls remained disabled.
+- Browser-tested the same lifecycle states at 390×844 and 320×568 with 10/12 px contained surfaces, no horizontal overflow, 44 px decision targets, customer-facing state search, and all five task states available through the All filter.
+- Browser-tested 844×390 short landscape and confirmed the mobile feed remained active with zero horizontal overflow; no browser console warnings or errors were emitted.
+
+## 2026-07-20 - Vornan Proof Customer-Safe Asset Preview
+
+Completed the Phase 2 proof-asset descriptor and browser-preview slice without adding any customer decision or Lift write capability.
+
+What changed:
+
+- Added bounded proof content-type normalization from the supported Lift MIME fields and a server-owned `image`, `pdf`, `download`, or `unavailable` preview kind to the customer-safe DTO.
+- Applied deterministic low/high asset precedence: the safe low-resolution browser-native asset remains the contained preview and the safe high-resolution asset remains the open/download target; a surviving browser-native high-resolution asset can act as the preview fallback.
+- Accepted only same-origin paths or credential-free HTTPS asset references, rejecting HTTP, `javascript:`, protocol-relative, credential-bearing, malformed, and active SVG/HTML preview references.
+- Added a second client-side URL validation boundary so the SPA never embeds or exposes an asset rejected by the customer-safe descriptor rules.
+- Added contained PNG/JPEG/GIF/WebP rendering, a sandboxed contained PDF viewer with browser paging/zoom guidance and explicit Open/Download fallback, metadata/download treatment for non-browser-native prepress files, and an explicit conversion-unavailable state.
+- Added a valid one-page no-JavaScript PDF fixture and a development-only `#/proof/assets-qa` packet covering PDF, an intentionally long filename, PSD download-only presentation, TIFF unavailable presentation, and a safe raster proof.
+- Extended the Phase 2 contract and isolated QA runbook with URL-hostility, precedence, PDF controls/fallback, prepress-file, long-filename, responsive, and disabled-transport acceptance checks.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, and public decision routes remain absent or literal `false`; no deployment, DNS change, external email, file navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` (84 workspace tests passed)
+- `npm run check`
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh`
+- `node --check scripts/smoke-proof-read-only.mjs`
+- `pdfinfo apps/proof/public/brand/proof-placeholder.pdf` (one page, PDF 1.4, unencrypted, JavaScript disabled)
+- `git diff --check`
+- Browser-tested the asset fixture at 1366×768: PDF preview stayed contained with explicit full-resolution fallbacks, PSD used the metadata/download card, TIFF exposed no preview or action, the queue filenames remained bounded, the shell had no document overflow, and all decision controls remained disabled.
+- Browser-tested the same fixture at 390×844 and 320×568 with zero horizontal overflow, contained 368 px PDF presentation at the 390 px viewport, long-filename containment, and a 44 px minimum interactive target.
+- Browser-tested 844×390 short landscape and confirmed the mobile feed remained active with zero horizontal overflow; no browser console warnings or errors were emitted.
+
+## 2026-07-20 - Vornan Proof Read-Only Completion State
+
+Completed the remaining Phase 2 complete/read-only-success presentation gap without creating a completion event, customer decision, or Lift write path.
+
+What changed:
+
+- Added deterministic completion presentation that requires at least one reviewed task, allows approved/reference history, and rejects any pending, waiting, regenerating, missing, or file-error task.
+- Prevented stale, missing-order, and error-order health from producing a false success state even when cached tasks look reviewed.
+- Presented active all-approved orders as `All proofs reviewed` and complete/reference packets as `Proof packet complete`.
+- Kept the Open view truly empty after completion while adding a keyboard-accessible 44 px `View reviewed proofs` action that moves directly to the approved/reference queue on desktop and mobile.
+- Preserved approved and production-reference proof files, feedback, history, full-resolution actions, and the disabled decision transport after the reviewed queue opens.
+- Added development-only `#/proof/all-reviewed-qa` and `#/proof/complete-qa` fixtures for the two success variants.
+- Confirmed the authoritative handoff's optional original/customer-art source remains unavailable; no speculative Lift fields or two-up asset data were invented in this slice.
+- Extended the Phase 2 contract and isolated QA runbook with completion eligibility, false-success rejection, responsive navigation, and presentation-only acceptance checks.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, completion events, and public decision routes remain absent or literal `false`; no deployment, DNS change, external email, file navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` (85 workspace tests passed)
+- `npm run check`
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh`
+- `node --check scripts/smoke-proof-read-only.mjs`
+- `git diff --check`
+- Browser-tested active all-approved and complete/reference states at 1366×768: Open was 0, Reviewed was 5, the document had no overflow, the two customer-safe success messages stayed distinct, and reviewed files opened through the History filter.
+- Browser-tested the complete/reference state at 390×844 and 320×568 with zero horizontal overflow, a 44 px reviewed-proof action, and all five reviewed cards accessible after the handoff; all ten mobile decision buttons remained disabled.
+- Browser-tested 844×390 short landscape and confirmed the mobile feed remained active with zero horizontal overflow and a 44 px reviewed-proof action; no browser console warnings or errors were emitted.
+
+## 2026-07-20 - Vornan Proof Customer-Safe Quantity Metadata
+
+Completed the authoritative handoff's quantity-preservation slice without restoring Adspace allocation/location concepts or adding any customer decision or Lift write capability.
+
+What changed:
+
+- Copied each joined Lift line's normalized `QUANTITY`/`ORDER_QUANTITY` onto its attachment tasks and waiting-line shell; quantity now participates in task change detection.
+- Added a customer-safe public quantity projection that accepts only finite, non-negative numbers no greater than 1,000,000,000 and maps absent, invalid, negative, or oversized values to `null`.
+- Rendered compact `Qty` metadata on desktop queue cards, the selected-proof heading, and the mobile proof feed without allocation, assigned-location, or mismatch language.
+- Added representative demo quantities plus domain and public API regression assertions, including rejection of a non-finite task value.
+- Extended the Phase 2 contract and isolated QA runbook with source mapping, public bounds, responsive presentation, and explicit exclusion of allocation concepts.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, completion events, and public decision routes remain absent or literal `false`; no deployment, DNS change, external email, file navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` (85 workspace tests passed)
+- `npm run check`
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh`
+- `node --check scripts/smoke-proof-read-only.mjs`
+- `git diff --check`
+- Write-gate scan confirmed `lift_writes_enabled: false`; the deploy safety suite continued to reject approval, revision, undo, upload, and generic Proof write capability.
+- Browser-tested the normal quantity fixture at desktop sizing: all four open queue cards displayed `Qty 20`, the selected header displayed `Line 1 · Qty 20`, the contained preview and locked decision transport remained stable, and no allocation/location comparison appeared.
+- Browser-tested 390×844 and 320×568: `Qty 20` remained visible in each mobile feed card, document width exactly matched the viewport, all eight rendered decision buttons remained disabled, and each retained a 44 px target.
+- Browser-tested 844×390 short landscape: the mobile feed remained active with zero horizontal overflow, quantity metadata stayed visible, all eight decision buttons remained disabled, and no browser warnings or errors were emitted.
+
+## 2026-07-20 - Vornan Proof Server-Owned Lifecycle Counters
+
+Completed the authoritative command-bar counter slice without adding a customer decision or Lift write path.
+
+What changed:
+
+- Added customer-safe public order counts for pending, regenerating, waiting, reviewed, and total tasks; counts are derived from the same active normalized tasks returned by the DTO.
+- Replaced the collapsed Open/Reviewed/Total command bar with distinct Pending, Regenerating, and Waiting counters plus a compact Reviewed/Total ratio.
+- Kept approved and production-reference tasks together in the customer-safe Reviewed count so a retained production reference is never falsely presented as customer-approved.
+- Kept cancelled, missing, and file-error tasks in Total without classifying them as actionable or positively reviewed.
+- Recomputed demo counts for lifecycle and completion fixtures so visual QA cannot show stale summary metadata after task-state transformations.
+- Added domain, public API, and SPA lifecycle regression assertions for the exact counter contract.
+- Extended the Phase 2 contract and isolated QA runbook with server ownership, reference semantics, the mixed-state lifecycle fixture, and responsive acceptance.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, completion events, and public decision routes remain absent or literal `false`; no deployment, DNS change, external email, file navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` (86 workspace tests passed)
+- `npm run check`
+- `npm run test:proof-deploy` (14 tests passed)
+- `npm run build`
+- `npm run package:proof-lambdas`
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint` (template valid)
+- `bash -n scripts/deploy-proof-stack.sh scripts/deploy-proof-web.sh`
+- `node --check scripts/smoke-proof-read-only.mjs`
+- `git diff --check`
+- Write-gate scan reconfirmed literal `false` for approval, revision, undo, `lift_writes_enabled`, and public `decisions_enabled`.
+- Browser-tested `#/proof/lifecycle-qa` at 1366×768: Pending 1, Regenerating 1, Waiting 1, and Reviewed 1/5 remained compact; the queue scrolled independently, the document had no horizontal overflow, and the disabled decision transport ended at 727 px inside the 768 px viewport.
+- Browser-tested the same mixed-state counters at 390×844 and 320×568: all four cells remained equal and legible, the 320 px cells measured 68–69 px wide, the mobile feed remained active, and document overflow stayed zero.
+- Browser-tested 844×390 short landscape: the mobile feed remained active, the four counters stayed accurate, all six rendered decision buttons remained disabled, horizontal overflow stayed zero, and no browser warnings or errors were emitted.
+
+## 2026-07-20 - Vornan Proof Bounded Display Metadata
+
+Completed the customer-safe display metadata and deterministic fallback slice without adding a customer decision or Lift write path.
+
+What changed:
+
+- Added a second public-boundary normalization pass for Lift-derived order titles/statuses, line numbers, product names, approval labels, feedback text, and customer-visible version/comment timestamps.
+- Removed ASCII control characters, collapsed unstable whitespace, rejected oversized strings, and returned `null` for invalid public timestamps rather than allowing the SPA to render arbitrary raw values.
+- Bounded feedback to 100 entries per public version and 8,000 characters per feedback body while leaving the internal normalized aggregate unchanged.
+- Replaced the generic missing order-title text with the authoritative `Order A########` fallback and retained `Proof review` for a missing status.
+- Added development-only `#/proof/display-fallback-qa` coverage for missing title/status/product metadata without inventing customer or order data.
+- Added domain, public API, and SPA display regression assertions covering control characters, whitespace, invalid timestamps, oversized product metadata, and deterministic fallbacks.
+- Extended the Phase 2 contract and isolated QA runbook with explicit public limits, hostile-value acceptance, timestamp behavior, and responsive fallback review.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, completion events, and public decision routes remain absent or literal `false`; no deployment, DNS change, external email, file navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` passed all 87 workspace tests, including 42 API, 14 Proof UI, 5 Lift adapter, 15 proof-domain, and 11 template tests.
+- `npm run check`, `npm run build`, `npm run test:proof-deploy` (14 tests), and `npm run package:proof-lambdas` passed.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`, deployment-script shell parsing, smoke-script syntax validation, and `git diff --check` passed.
+- The write-gate scan confirmed approval, revision, undo, public decisions, and `lift_writes_enabled` remain literal `false`.
+- Browser-tested `#/proof/display-fallback-qa` at 1366×768, 320×568, 390×844, and 844×390: the deterministic order/product fallbacks rendered correctly, the mobile feed activated at compact sizes, decision controls remained disabled, horizontal overflow stayed zero, and no browser warnings or errors were emitted.
+
+## 2026-07-20 - First Live Lift Transport Attempt
+
+- Generated a certified two-line Momentara sandbox-customer preview on the Premium Graphics route and initiated the first operator-confirmed live transport attempt.
+- The attempt failed before reaching Lift because the configured internal `prod-lifterp` hostname did not resolve from the local Pathfinder runtime; no HTTP response or Lift order number was received.
+- Replaced the local PROD environment endpoint with the confirmed public Lift `create_order` URL and verified the route with a non-submitting HEAD request.
+- Aligned the live submit headers with the successful Postman contract by including `Accept: application/json`; saved credentials remain masked and unchanged.
+- Fixed submit certification so a persisted `Submit Failed` preview remains eligible for an intentional retry after route, credential, or endpoint correction; other failed preview states remain blocking.
+- Preserved the failed attempt, Ext_ID, masked submit request, and endpoint error in job history. No retry was sent automatically.
+- Corrected the job-detail state-pill selector so header metadata styling no longer overrides Ready/Failed chip colors.
+- Added the PROD sandbox-lane confirmation directly to job detail, disabled Submit/Retry until it is checked, and added an explicit `Submitting…` state so a cleared confirmation can no longer look like a dead button after refresh.
+
+Validation:
+
+- `npm run check --workspace @pathfinder/api`
+- `npm run check --workspace @pathfinder/web`
+- `npm run build --workspace @pathfinder/web`
+- `git diff --check`
+- Refreshed `JOB-253878` certification after the endpoint correction: certified, no blockers, eligible for intentional retry.
+
+## 2026-07-20 - Vornan Proof Accessible Dialog Focus Lifecycle
+
+Completed the Phase 2 modal and bottom-sheet focus-lifecycle slice without adding a customer decision or Lift write path.
+
+What changed:
+
+- Kept feedback, file history, and reviewer identity on the browser's native modal boundary while adding explicit accessible descriptions and deterministic initial focus.
+- Feedback and history focus Close on open; reviewer identity focuses Name. Close and Escape restore focus to the exact connected opener and fall back to the selected-proof region only if the opener disappeared.
+- Added a one-dialog transition from feedback to reviewer identity so background focus is never exposed and closing identity returns directly to the original Feedback control.
+- Added a defensive focus-restoration helper that rejects detached or failed targets plus focused unit coverage.
+- Extended the Phase 2 contract and isolated QA runbook with desktop, portrait bottom-sheet, short-landscape, Escape, modal isolation, and transition acceptance checks.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, completion events, and public decision routes remain absent or literal `false`; no deployment, external email, file navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` passed all 89 workspace tests, including 42 API, 16 Proof UI, 5 Lift adapter, 15 proof-domain, and 11 template tests.
+- `npm run check`, `npm run build`, `npm run test:proof-deploy` (14 tests), and `npm run package:proof-lambdas` passed.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`, deployment-script shell parsing, smoke-script syntax validation, and `git diff --check` passed.
+- The write-gate scan reconfirmed approval, revision, undo, public decisions, and `lift_writes_enabled` remain literal `false`.
+- Browser-tested feedback and file history at 1366×768: each opened as one named/described modal with Close focused and returned focus to its exact opener. Reviewer identity focused Name and returned to the header control.
+- Browser-tested the feedback-to-identity handoff: exactly one dialog remained open, identity received Name focus, and closing it returned directly to the original Feedback control.
+- Browser-tested feedback/history bottom sheets at 390×844 and feedback at 844×390: initial and returned focus remained deterministic, sheets stayed inside the viewport, document overflow stayed zero, mobile mode remained active in short landscape, all decision controls remained disabled, and no browser warnings or errors were emitted.
+
+## 2026-07-20 - Vornan Proof Bounded Automatic Refresh Lifecycle
+
+Completed the Phase 2 cached-read refresh-policy sprint without adding a customer decision or Lift write path.
+
+What changed:
+
+- Added one server-owned automatic-refresh eligibility policy using the normalized order health, last synchronization time, and proof-change `updated_at` timestamp.
+- Kept the 15-minute stale presentation threshold while allowing automatic queue activity only for active orders changed within 14 days by default.
+- Stopped customer page loads from continuously polling Lift for complete/reference, degraded, invalid-timestamp, or long-inactive packets; cached proofs remain visible and an old active packet may still display as stale.
+- Preserved authenticated manual refresh for inactive packets so the bounded automatic policy does not remove an intentional customer check.
+- Added a deployment parameter and preflight-validated `PATHFINDER_PROOF_AUTO_REFRESH_MAX_INACTIVE_DAYS` range of 1–365 whole days, wired through local and protected GitHub deployments.
+- Added policy, public-route, manual-refresh, and deployment-safety regression coverage.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, completion events, and public decision routes remain absent or literal `false`; no deployment, external email, file navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` passed all 93 workspace tests, including 46 API, 16 Proof UI, 5 Lift adapter, 15 proof-domain, and 11 template tests.
+- `npm run check`, `npm run build`, `npm run test:proof-deploy` (15 tests), and `npm run package:proof-lambdas` passed.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`, deployment-script shell parsing, preflight/smoke-script syntax validation, and `git diff --check` passed.
+- Policy tests confirmed fresh active packets do not queue; stale recently changed active packets do; complete, degraded, invalid-timestamp, and 14-day-inactive packets do not.
+- Public-route coverage confirmed the inactive packet stays visible as stale without auto-queue activity and still accepts an explicit authenticated manual refresh.
+- The write-gate scan reconfirmed approval, revision, undo, public decisions, and `lift_writes_enabled` remain literal `false`.
+
+## 2026-07-20 - First Confirmed Lift Order
+
+- Successfully submitted the first real Pathfinder-generated Momentara payload through the PROD endpoint under the LTL Demo / 1249 sandbox profile.
+- Lift accepted two mapped order lines and created order `A0226692` for Pathfinder job `JOB-994730` and Ext_ID `PFMRTNIZAX18FE`.
+- Diagnosed the initial product rejection as two inactive Lift product IDs and confirmed the replacement Momentara catalog products before generating a fresh preview.
+- Added Lift response normalization for accepted messages shaped as `Order Number: A#######`; the extracted number now persists on the submit attempt and job.
+- Added the `Order Confirmed` processing state when Lift acceptance includes an order number, while preserving `Submitted` for accepted responses that do not provide one.
+- Added read-time reconciliation so previously accepted jobs recover their Lift order number from stored response messages.
+- Verified the recovered job through Pathfinder's order lookup: Lift returned order `A0226692`, status `Pending Art`, two lines, quantities 17 and 7, and the expected Momentara products.
+
+Validation:
+
+- `npm run check --workspace @pathfinder/lift-adapter`
+- `npm run check --workspace @pathfinder/api`
+- `npm run check --workspace @pathfinder/web`
+- `node --import tsx/esm --test apps/api/tests/lift-submit-response.test.ts`
+- Live read-only order lookup returned HTTP 200 for `A0226692`; no additional submit was sent.
+
+## 2026-07-20 - Vornan Proof Adspace Artifact Rejection Gate
+
+Completed the Phase 2 customer-boundary artifact-rejection slice without adding a customer decision or Lift write path.
+
+What changed:
+
+- Converted the authoritative handoff's Adspace artifact rejection checklist into an automated deployment-safety test.
+- Scanned the Proof customer SPA, brand sources, fixtures/tests, public router and participant/feedback projection, proof-domain package, and Lift proof read adapter.
+- Rejected Adspace identity/domain/integration names, cross-repository imports, Adspace-style sample identifiers, and the excluded project, venue, inventory, room, allocation, location-assignment, transit, campaign, and tenant concepts.
+- Wired the gate into the existing `npm run test:proof-deploy` glob so any future customer-boundary regression blocks the deployment verification suite.
+- Extended the Phase 2 contract and isolated QA runbook with the enforced scan scope and no-bypass acceptance step.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, completion events, and public decision routes remain absent or literal `false`; no deployment, external email, file navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` passed all 93 workspace tests, including 46 API, 16 Proof UI, 5 Lift proof adapter, 15 proof-domain, and 11 template tests.
+- `npm run test:proof-deploy` passed all 17 deployment-safety tests, including both artifact-rejection gates.
+- `npm run check`, `npm run build`, and `npm run package:proof-lambdas` passed.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`, deployment-script shell parsing, preflight/smoke/DNS script syntax validation, and `git diff --check` passed.
+- The write-gate scan reconfirmed literal `false` for approval, revision, undo, public decisions, and `lift_writes_enabled`.
+
+## 2026-07-20 - Vornan Proof Fail-Closed Grant Prerequisite Sync
+
+Completed the architecture-defined “grant creation performs the first sync” lifecycle hardening without adding a customer decision or Lift write path.
+
+What changed:
+
+- Added deterministic dependency seams around only the authenticated grant route's cache lookup, stale check, read-only sync, and grant creation steps; production defaults remain the existing services.
+- Moved the default-off grant-creation gate ahead of cache lookup and synchronization so a disabled route causes zero Lift traffic and issues no grant.
+- Confirmed an uncached direct Lift order synchronizes before grant issuance and a stale cached order refreshes first, while a fresh cached order avoids an unnecessary Lift read.
+- Made the failure ordering explicit: a prerequisite Lift read failure returns its safe operator error and never calls grant creation or returns a raw link.
+- Added route-level regression coverage for disabled, uncached, stale, fresh, and failed-read paths, including normalized order numbers and redacted operator audit context.
+- Extended the Phase 2 contract and isolated QA runbook with the no-traffic disabled gate and first/stale-sync acceptance sequence.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, completion events, and public decision routes remain absent or literal `false`; no deployment, external email, file navigation, or Lift write occurred.
+
+Verification:
+
+- `npm run test` passed all 99 workspace tests, including 50 API tests with all four authenticated grant-route lifecycle cases.
+- `npm run test:proof-deploy` passed all 17 deployment-safety tests.
+- Proof SPA, Lift proof adapter, and proof-domain type checks passed; the Proof production build and Lambda packaging passed.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`, deployment-script shell parsing, preflight/smoke/DNS script syntax validation, and `git diff --check` passed.
+- After the coordinated Order Rollup handoff normalized the shared `material` field, repository-wide `npm run check` and `npm run build` passed across API, Proof, Status, web, Order Rollup, and all shared packages. The shared rollup/store changes were retained without duplicating them inside Proof.
+- The write-gate scan reconfirmed literal `false` for approval, revision, undo, public decisions, and `lift_writes_enabled`.
+
+## 2026-07-20 - Shared Lift Order Rollup Foundation
+
+- Added one reusable Order Rollup domain model and React presentation package for both authenticated Pathfinder job detail and the token-protected public status app.
+- Transcribed the supplied Lift Standard Graphics status table for job flow `1006` and added the operator-confirmed 12-step production rail from Obtain Art through Completed.
+- Kept Lift's header `ORDER_STATUS` authoritative for the entire order while resolving each line's independent `LINE_STEP_ID` and `LINE_STEP_NUMBER` into its current step and status.
+- Normalized read-only Lift order lookup data into the snapshot contract, including real Lift line IDs, product names, quantities, material, final dimensions, and line steps.
+- Replaced the basic internal snapshot table and duplicated public line cards with the shared responsive rollup: order context, current Lift status, line-level rails, proof previews/links when available, and package/tracking activity.
+- Reworked the line-step rail after operator review: the component now uses a light Vornan forest/zinnia treatment instead of Lift's dark blue/cyan visual palette. Lift status colors remain source data only and no longer determine presentation.
+- Reduced the job-detail header to status, one `View Order`/`Refresh Order` action, a compact Actions menu, and an icon-only close control. Status-link creation and diagnostic Lift/proof/package lookups remain available in the menu; Submit/Retry appears there only when the job is eligible.
+- Moved internal raw snapshot JSON behind a collapsed Developer details disclosure; public snapshots remain redacted before reaching the shared component.
+- Preserved the public multi-order selector, secure request flow, progress summary, and legacy token compatibility.
+- Verified the existing confirmed Lift order `A0226692` read-only: header status `Pending Art`; both lines at step `1040`, `6: Obtain Art`; quantities 17 and 7; expected product, material, and dimensions. No Lift submit was sent.
+- Hardened local JSON persistence after QA exposed a destructive read/write race: writes now use atomic temporary-file replacement, and only a genuinely missing store may initialize seed data. Parse/read failures preserve the existing file and surface an error instead of replacing operator data.
+
+Validation:
+
+- `npm run check --workspace @pathfinder/order-rollup`
+- `npm run test --workspace @pathfinder/order-rollup`
+- `npm run check --workspace @pathfinder/order-rollup-ui`
+- `npm run check --workspace @pathfinder/api`
+- `npm run check --workspace @pathfinder/web`
+- `npm run check --workspace @pathfinder/status`
+- `node --import tsx/esm --test apps/api/tests/local-store-durability.test.ts`
+- Browser verification at desktop and 390px mobile for internal and public rollups; no page-level horizontal overflow, and the long line rail scrolls only within its line card.
+- Added `docs/PROOF_THREAD_ORDER_ROLLUP_NOTE_2026-07-20.md` so the concurrent Proof thread can retain the new packages, snapshot contract, fixed API type mismatch, lockfile changes, and local-store durability behavior.
+
+## 2026-07-20 - Shared ORDER_LINE_ID Proof Matching Contract
+
+Completed the next Phase 1 integration slice by making real Lift line identity authoritative across Proof and the shared Order Rollup, without adding a customer decision or Lift write path.
+
+What changed:
+
+- Added one reusable `matchLiftLineRecord` contract to `@pathfinder/order-rollup`. It resolves `ORDER_LINE_ID` first across the complete candidate set and uses normalized `LINE_NUMBER` only as a compatibility fallback.
+- Replaced the API rollup's prior line-number-first proof/package assignment with the shared matcher, preventing a conflicting line number from overriding a valid Lift line ID or assigning the same record to multiple lines.
+- Made `@pathfinder/proof-domain` consume the same matcher while preserving its observable `line_number_fallback` warning.
+- Verified the redacted real `A0221132` Lift capture: all four sibling proof attachments join exactly once to real `ORDER_LINE_ID` `9301338`, with no fallback warning.
+- Added a conflicting-identity regression proving a valid `ORDER_LINE_ID` wins even when `LINE_NUMBER` points at another line, plus fallback and unmatched coverage.
+- Extended the Phase 0 contract and isolated QA runbook with the shared identity boundary and exact-once line-assignment acceptance check.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, and public decision routes remain absent or literal `false`; no deployment, DNS change, external email, Lift submit, or Lift Proof write occurred.
+
+Verification:
+
+- `npm run test` passed all 101 workspace tests: 51 API, 16 Proof UI, 5 Lift proof adapter, 3 Order Rollup, 15 proof-domain, and 11 template tests.
+- `npm run check`, `npm run build`, `npm run test:proof-deploy` (17 tests), and `npm run package:proof-lambdas` passed.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`, Proof deployment-script shell parsing, preflight/smoke/DNS script syntax validation, and `git diff --check` passed.
+- The write-gate scan reconfirmed literal `false` for approval, revision, undo, public decisions, and `lift_writes_enabled`.
+
+## 2026-07-20 - Cached Proof Projection Into Order Rollup And Status
+
+Completed a broader read-only integration pass that makes the normalized Vornan Proof aggregate the preferred proof source for shared Order Rollup and Status, without sharing Proof authorization or enabling a Lift write path.
+
+What changed:
+
+- Added a single `@pathfinder/proof-domain` projection from the normalized Proof aggregate into bounded Order Rollup proof records and server-owned pending, regenerating, waiting, reviewed, and total counts.
+- Excluded Proof task/attachment identities, grants, sessions, participants, feedback, audit data, and decision scope from that projection. Public Status re-allowlists proof filename, state, safe asset URL, preview kind, and creation date even when it uses the legacy raw-report fallback.
+- Made authenticated order snapshot construction read the Proof cache first and skip the second Lift proof-report request whenever a normalized aggregate exists. A missing, disabled, or safely failed cache retains the existing read-only Lift fallback.
+- Added the normalized proof review summary to the shared internal/public snapshot contract and Order Rollup UI. Status now distinguishes required review, regeneration, waiting, and completed review, while directing customers to their dedicated Vornan Proof email and remaining explicitly view-only.
+- Preserved immutable public Status snapshots: opening a Status token does not contact Lift, exchange a Proof grant, or confer access to any Proof route.
+- Added hostile-value sanitization, cached-source precedence, redaction, Status-state, and fallback regressions, and extended the Phase 0 contract plus isolated QA runbook with the shared projection boundary.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, and public decision routes remain absent or literal `false`; no deployment, external email, Lift submit, or Lift Proof write occurred.
+
+Verification:
+
+- `npm run test` passed all 117 workspace tests in the combined Proof/Order Rollup workspace: 61 API, 16 Proof UI, 2 Status, 2 web rollup UI, 5 Lift proof adapter, 3 Order Rollup, 17 proof-domain, and 11 template tests.
+- `npm run check`, `npm run build`, `npm run test:proof-deploy` (17 tests), and `npm run package:proof-lambdas` passed.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`, Proof deployment-script shell parsing, preflight/smoke/DNS script syntax validation, and `git diff --check` passed.
+- The write-gate scan reconfirmed literal `false` for approval, revision, undo, public decisions, and `lift_writes_enabled`.
+
+## 2026-07-20 - Order Snapshot Freshness And Contract Guardrails
+
+- Kept public status links immutable: opening a token reads the customer-safe snapshot already captured for that link and never polls Lift.
+- Kept authenticated confirmed-order refresh operator-driven. Pathfinder checks Lift only when `View Order` or `Refresh Order` is selected.
+- Added a 15-second server-side reuse window for internal order snapshots so double-clicks and repeated renders do not issue duplicate Lift order, proof, and package reads. The interval can be tuned with `PATHFINDER_ORDER_SNAPSHOT_REFRESH_MIN_MS`.
+- Added explicit refresh metadata to the internal snapshot response: whether the response came from Lift or a recent snapshot, the actual check time, and the next refresh time.
+- Shared rollups now always show `Last checked` internally and `Snapshot captured` publicly, even when a Lift header step is available.
+- Added internal contract regression coverage for Lift header status, line step, `ORDER_LINE_ID`, proof links, and package activity.
+- Added public projection coverage proving customer-safe rollup fields remain available while submit history, aggregate internal proof/package arrays, and raw Lift lookup payloads remain absent.
+- Added deterministic cache-window and bounded-eviction tests.
+
+Validation:
+
+- `npm run check --workspace @pathfinder/api`
+- `npm run check --workspace @pathfinder/web`
+- `npm run check --workspace @pathfinder/order-rollup-ui`
+- `node --import tsx/esm --test apps/api/tests/order-snapshot-cache.test.ts apps/api/tests/order-snapshot-contract.test.ts`
+
+## 2026-07-20 - Real Lift Proof Gallery Validation
+
+- Clarified the source boundary: Vornan Proof can ingest proofs for any Lift order exposed by the approved read APIs; an order does not need to originate in Pathfinder.
+- Validated the shared Order Rollup against the redacted real Lift capture for `A0221132`.
+- Confirmed all four sibling attachments join exactly once to authoritative Lift `ORDER_LINE_ID` `9301338`, with four distinct filenames, preview assets, and high-resolution assets.
+- Kept the normalized Vornan Proof cache as the preferred shared-rollup source, with the legacy read-only proof report retained only as a compatibility fallback.
+- Added explicit proof preview kinds so image thumbnails render as images while PDF/download-only files use a stable non-broken placeholder and link.
+- Enforced HTTPS-only, credential-free proof assets again at the shared UI boundary for internal and public rollups.
+- Reworked line proofs into responsive gallery cards with filename, state, posted date, preview, and de-duplicated preview/high-resolution actions.
+- Preserved the capability boundary: the shared Order Rollup contains no approve, revision, upload, grant, or session controls. Customer proof decisions remain exclusive to the separately gated Vornan Proof flow.
+- Added server-rendered UI coverage for four sibling proof cards and API coverage using the redacted real fixture.
+
+Validation:
+
+- `npm run test --workspace @pathfinder/web`
+- `node --import tsx/esm --test apps/api/tests/order-rollup-real-proof.test.ts apps/api/tests/order-snapshot-contract.test.ts`
+- `npm run check --workspace @pathfinder/order-rollup-ui`
+- `npm run check --workspace @pathfinder/proof-domain`
+- `npm run check --workspace @pathfinder/api`
+
+## 2026-07-20 - Customer-Safe Lift Order Header Enrichment
+
+- Extended the shared Order Rollup normalization with confirmed Lift header values for `PO_NUMBER`, `SHIP_DATE`, `ACTUAL_SHIP_DATE`, order title/type, and header status/step.
+- Kept the submitted Pathfinder order as the compatibility source for contract number, delivery/due date, and destination when the Lift order lookup does not return those fields.
+- Added per-field provenance so the shared Pathfinder and public Status views say `Confirmed by Lift` or `Submitted order` without exposing implementation details.
+- Expanded the shared order context to show Lift order, PO, contract, order type, requested ship, delivery/due, actual ship, destination, and proof/package activity.
+- Fixed date-only rendering so Lift `YYYY-MM-DD` values cannot shift by one day because of browser timezone conversion.
+- Added a customer-safe destination allowlist. Public status snapshots retain company/addressee/address/city/state/postal/country and remove phone, email, billing account, delivery instructions, and unrecognized shipping fields.
+- Verified the actual Lift lookup contract for completed order `A0219609` read-only: the endpoint returns `PO_NUMBER`, `SHIP_DATE`, `ACTUAL_SHIP_DATE`, `ORDER_STATUS`, `ORDER_STEP_ID`, and `HEADER_STEP_NUMBER`; it does not currently return contract or destination fields.
+- Preserved immutable token snapshots and on-demand internal refresh behavior. No polling, deployment, submit, email, Proof decision, or Lift write was added.
+
+Validation:
+
+- `npm run check --workspace @pathfinder/order-rollup`
+- `npm run test --workspace @pathfinder/order-rollup`
+- `npm run check --workspace @pathfinder/order-rollup-ui`
+- `npm run test --workspace @pathfinder/api`
+- `npm run test --workspace @pathfinder/web`
+- Repository-wide `npm run check`, all 119 workspace tests, `npm run build`, and `git diff --check` passed.
+
+## 2026-07-20 - Customer-Safe Shipment Summary
+
+- Added one shared shipment-summary contract to `@pathfinder/order-rollup` for Pathfinder and `status.vornan.co`.
+- The summary truthfully reports package count, unique tracking-number count, ship-method count, bounded ship methods/locations, and up to three tracker messages without inferring a delivered or in-transit state Lift did not explicitly return.
+- Added a strict customer-safe package allowlist for tracking number, ship method, tracker message, box number, package type, and location name.
+- Public status projection now structurally removes Lift header/shipping IDs, negotiated rates, dimensions, weight, account values, product/manufacturing package fields, and all unknown properties from each line package before snapshot persistence or rendering.
+- Added a compact responsive shipment summary and clearer per-line package cards with separate package identity, tracking state, carrier message, method, and location context.
+- Inspected completed Lift order `A0219609` through the existing PackageDetails GET endpoint read-only. The real response contains 81 line/package records, Courier activity, no tracking numbers in that capture, and a negotiated-rate field that remains redacted.
+- Preserved immutable public status links and operator-driven internal refresh. No polling, deployment, submit, email, Proof decision, or Lift write was added.
+
+Validation:
+
+- `npm run check --workspace @pathfinder/order-rollup`
+- `npm run test --workspace @pathfinder/order-rollup`
+- `npm run check --workspace @pathfinder/order-rollup-ui`
+- `npm run test --workspace @pathfinder/api`
+- `npm run test --workspace @pathfinder/web`
+- Repository-wide `npm run check`, all 121 workspace tests, `npm run build`, and `git diff --check` passed.
+
+## 2026-07-20 - Vornan Proof Local QA Store Durability
+
+Completed the next Phase 1 persistence-hardening slice without adding a customer decision or Lift write path.
+
+What changed:
+
+- Made the dedicated local Proof store distinguish a genuinely missing file from every other read, parse, or schema-shape failure. Existing malformed QA lifecycle data now fails closed and remains byte-for-byte intact.
+- Added structural validation for every top-level Proof store collection so valid JSON with an unsafe shape cannot be silently normalized to an empty store and overwritten.
+- Replaced direct writes with same-directory temporary files followed by atomic rename, preventing readers from observing a partially written JSON document.
+- Serialized all local Proof read-modify-write mutations within one API process so concurrent session, participant, acknowledgement, grant, order, and audit updates do not overwrite one another.
+- Added subprocess regression coverage for malformed JSON, invalid collection shapes, 25 concurrent session mutations, byte preservation, and temporary-file cleanup.
+- Recorded the remaining local-development boundary: separate API processes must use distinct `PATHFINDER_PROOF_LOCAL_STORE_PATH` values. Production remains on the dedicated DynamoDB tables.
+- Kept Proof public read, grant creation, and link delivery default off. Lift approve, revision, undo, uploads, generic writes, and public decision routes remain absent or literal `false`; no deployment, external email, Lift submit, or Lift Proof write occurred.
+
+Verification:
+
+- `npm run test` passed all 108 workspace tests: 58 API, 16 Proof UI, 5 Lift proof adapter, 3 Order Rollup, 15 proof-domain, and 11 template tests.
+- `npm run check`, `npm run build`, `npm run test:proof-deploy` (17 tests), and `npm run package:proof-lambdas` passed.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`, Proof deployment-script shell parsing, preflight/smoke/DNS script syntax validation, and `git diff --check` passed.
+- The write-gate scan reconfirmed literal `false` for approval, revision, undo, public decisions, and `lift_writes_enabled`.
+
+## 2026-07-20 - Proof Read-Only Operational Readiness Signals
+
+Completed a coordinated Phase 1 read-only pass across synchronization diagnostics, reviewer presence, and lifecycle observability without adding customer decisions, external event delivery, or Lift writes.
+
+What changed:
+
+- Added a bounded, sanitized sync-diagnostics summary to each internal Proof aggregate: line reads attempted/succeeded/failed, proof-row totals, fallback outcome, and normalization-warning count. Raw Lift URLs, line IDs, credentials, response bodies, and errors never enter the stored summary or operator response.
+- Exposed those diagnostics only in the authenticated operator Proof panel so operators can distinguish healthy line-scoped reads, fallback reads, and normalization warnings without receiving sensitive Lift request details.
+- Added aggregate-only reviewer activity to the customer packet: identified reviewer count and latest activity time. The public response returns the current session's optional identity separately and never exposes another participant's name or email.
+- Added read-derived `proof.review_ready`, `proof.all_reviewed`, and `proof.review_reopened` lifecycle transitions to the restricted immutable audit stream. No-op synchronization emits no duplicate transition, and each event contains only bounded review-state counts.
+- Kept lifecycle transitions observational: this slice does not dispatch an external event, send customer email, create a decision, or contact a Lift write endpoint.
+- Added a dedicated aggregate-activity visual-QA fixture and verified desktop and 390px mobile layouts. The page matched the viewport without horizontal overflow, the reviewer count remained compact, and all 10 rendered decision controls remained disabled.
+- Updated the Phase 0 contract and isolated QA runbook with the diagnostic redaction, aggregate-presence, transition-idempotency, and reviewer-privacy acceptance checks.
+- Preserved the concurrent Order Rollup header-source contract by retaining its literal field-source types.
+
+Verification:
+
+- `npm run test` passed all 120 workspace tests: 61 API, 17 Proof UI, 2 Status, 2 web rollup UI, 5 Lift proof adapter, 4 Order Rollup, 18 proof-domain, and 11 template tests.
+- `npm run check`, `npm run build`, `npm run test:proof-deploy` (17 tests), and `npm run package:proof-lambdas` passed.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`, Proof deployment-script shell parsing, and preflight/smoke/DNS script syntax validation passed.
+- The source scan reconfirmed literal `false` for approval, revision, undo, public decisions, and `lift_writes_enabled`; the public router still contains no decision route.
+- No deployment, DNS change, external email, Lift submit, Proof approval/revision/undo request, or Lift Proof write occurred.
+
+## 2026-07-20 - Proof Phase 2 Release-Readiness Hardening
+
+Completed the next coordinated Phase 2 batch around operator integration posture, complete public-route telemetry, and protected deployment validation without enabling customer decisions or changing external infrastructure.
+
+What changed:
+
+- Expanded the authenticated Proof health contract with safe sync-queue, freshness-policy, edge-boundary, public-host, and session/grant-policy configuration facts. The response exposes only booleans, bounded values, and hostnames; it excludes the edge secret, queue URL, Lift paths/queries, credentials, customer identifiers, and files.
+- Added an operator Integration health card that distinguishes local read-only QA, incomplete deployed configuration, dark-deploy readiness, and an active read-only public boundary. It keeps the approval, revision, undo, and Lift-write lock visible and never implies Phase 3 readiness.
+- Classified every existing Phase 2 public route into a fixed low-cardinality telemetry operation. Task history and feedback acknowledgement never use task IDs as dimensions, and unknown or future routes remain in the bounded `unknown_public_route` bucket.
+- Extended the CloudWatch dashboard with p95 latency for token exchange, cached reads, task history, participant identity, feedback acknowledgement, manual refresh, and logout.
+- Closed the Proof workflow validation gap by running `npm run test:proof-deploy` before AWS credential configuration or artifact upload. Preserved the shared repository validation workflow, main-branch deployment guards, and release coordination guide unchanged.
+- Classified `.codex-proof-qa/` and `design-qa.md` as local visual-QA scratch and added ignore rules so they cannot enter a broad release staging command. Retained `docs/VORNAN_PROOF_PATHFINDER_ARCHITECTURE_HANDOFF_2026-07-19.docx` as the intentional authoritative architecture artifact.
+- Updated the architecture contract and read-only QA runbook with the operator posture, health redaction, per-route telemetry, and protected workflow acceptance checks.
+
+Verification:
+
+- `npm run test` passed all 125 workspace tests: 63 API, 17 Proof UI, 2 Status, 4 web, 5 Lift proof adapter, 5 Order Rollup, 18 proof-domain, and 11 template tests.
+- `npm run check`, `npm run build`, `npm run test:proof-deploy` (17 tests), and `npm run package:proof-lambdas` passed.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`, Proof deployment-script shell parsing, preflight/smoke/DNS script syntax validation, and `git diff --check` passed.
+- Browser QA at 1440×1000 and 760×900 confirmed a legible operator health card, no horizontal overflow, correct local-QA posture, and visible locked capability copy.
+- The source scan reconfirmed literal `false` for approval, revision, undo, public decisions, and `lift_writes_enabled`; the public router still contains no decision route.
+- No commit, push, merge, deployment, DNS change, external email, Lift submit, Proof decision request, or Lift Proof write occurred in this pass.
+
+## 2026-07-20 - Combined Release Checkpoint
+
+Prepared the shared Pathfinder and Vornan Proof worktree as one reviewed release candidate on `codex/vornan-proof-foundation`.
+
+Release controls:
+
+- Added a non-deploying `Validate Pathfinder` workflow for pull requests and pushes to `main`.
+- Production API, admin-web, and status-web workflows now reject non-`main` refs and run the full workspace test suite before publishing.
+- Documented the branch, staging, rollout, smoke-test, and rollback procedure in `docs/RELEASE_COORDINATION_2026-07-20.md`.
+- Classified `.codex-proof-qa/` and `design-qa.md` as ignored local QA scratch; retained the sanitized Proof architecture DOCX as an intentional release artifact.
+- Independently reviewed the full tracked/untracked file set and found no unrelated repository changes, credential signatures, unexpected symlinks, or oversized source artifacts.
+
+Final pre-commit validation from the frozen combined tree:
+
+- `npm run check` passed all workspaces.
+- `npm run test` passed all 125 tests: 63 API, 17 Proof UI, 2 Status, 4 web, 5 Lift proof adapter, 5 Order Rollup, 18 proof-domain, and 11 template tests.
+- `npm run build` passed all production builds.
+- `npm run test:proof-deploy` passed all 17 deployment-safety tests.
+- `npm run package:api-lambda` and `npm run package:proof-lambdas` rebuilt both deployable archives.
+- `sam validate --lint` passed for both API and Proof CloudFormation templates.
+- GitHub workflow YAML, deployment/package shell scripts, credential-pattern scan, write-gate scan, and `git diff --check` passed.
+- Proof public reads, grant creation, link email, approval, revision, undo, public decisions, and Lift writes remain disabled by default. No Lift submit or Proof write was performed during release validation.

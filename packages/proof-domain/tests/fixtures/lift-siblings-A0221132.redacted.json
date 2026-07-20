@@ -1,0 +1,117 @@
+{
+  "fixture": {
+    "source": "Read-only Lift contract capture, redacted",
+    "captured_at": "2026-07-20",
+    "redactions": [
+      "customer identity",
+      "order title and PO",
+      "product and material names",
+      "proof filenames and URLs",
+      "feedback and report content"
+    ]
+  },
+  "order_number": "A0221132",
+  "order_payload": {
+    "rowset": [
+      {
+        "ORDER_NUMBER": "A0221132",
+        "ORDER_STATUS": "Pending Art Approval",
+        "HEADER_STEP_NUMBER": 7.02,
+        "ORDER_TITLE": "Redacted proof order",
+        "CUSTOMER_NAME": "Redacted customer",
+        "LINES": [
+          {
+            "ORDER_LINE_ID": 9301338,
+            "LINE_NUMBER": 1,
+            "LINE_STEP_ID": 1037,
+            "LINE_STEP_NUMBER": 7.02,
+            "PRODUCT_NAME": "Redacted product",
+            "QUANTITY": 20
+          }
+        ]
+      }
+    ]
+  },
+  "proof_payloads": [
+    {
+      "rowset": [
+        {
+          "ORDER_NUMBER": "A0221132",
+          "ORDER_LINE_ID": 9301338,
+          "LINE_NUMBER": 1,
+          "LINE_STEP_NUMBER": 7.02,
+          "ATTACHMENT_ID": 25435041,
+          "CREATION_DATE": "2026-07-19T10:00:00Z",
+          "PRODUCT_NAME": "Redacted product",
+          "PROOF_FILENAME": "redacted-proof-1.jpg",
+          "PROOF_LINK_LOW": "https://proof-assets.example.invalid/redacted-proof-1-low.jpg",
+          "PROOF_LINK_HIGH": "https://proof-assets.example.invalid/redacted-proof-1.jpg",
+          "PROOF_APPROVAL_STATUS": "PENDING",
+          "PROOF_APPROVED_BY": null,
+          "PROOF_APPROVED_DATE": null,
+          "PROOF_COMMENT": "[redacted feedback]",
+          "COMMENT_TS": "2026-07-19T11:00:00Z",
+          "COMMENT_ATTACHMENT": null,
+          "DETAILED_REPORT": [{ "name": "Redacted check", "status": "PASS" }]
+        },
+        {
+          "ORDER_NUMBER": "A0221132",
+          "ORDER_LINE_ID": 9301338,
+          "LINE_NUMBER": 1,
+          "LINE_STEP_NUMBER": 7.02,
+          "ATTACHMENT_ID": 25435036,
+          "CREATION_DATE": "2026-07-19T10:01:00Z",
+          "PRODUCT_NAME": "Redacted product",
+          "PROOF_FILENAME": "redacted-proof-2.jpg",
+          "PROOF_LINK_LOW": "https://proof-assets.example.invalid/redacted-proof-2-low.jpg",
+          "PROOF_LINK_HIGH": "https://proof-assets.example.invalid/redacted-proof-2.jpg",
+          "PROOF_APPROVAL_STATUS": "PENDING",
+          "PROOF_APPROVED_BY": null,
+          "PROOF_APPROVED_DATE": null,
+          "PROOF_COMMENT": "[redacted feedback]",
+          "COMMENT_TS": "2026-07-19T11:01:00Z",
+          "COMMENT_ATTACHMENT": null,
+          "DETAILED_REPORT": [{ "name": "Redacted check", "status": "PASS" }]
+        },
+        {
+          "ORDER_NUMBER": "A0221132",
+          "ORDER_LINE_ID": 9301338,
+          "LINE_NUMBER": 1,
+          "LINE_STEP_NUMBER": 7.02,
+          "ATTACHMENT_ID": 25435043,
+          "CREATION_DATE": "2026-07-19T10:02:00Z",
+          "PRODUCT_NAME": "Redacted product",
+          "PROOF_FILENAME": "redacted-proof-3.jpg",
+          "PROOF_LINK_LOW": "https://proof-assets.example.invalid/redacted-proof-3-low.jpg",
+          "PROOF_LINK_HIGH": "https://proof-assets.example.invalid/redacted-proof-3.jpg",
+          "PROOF_APPROVAL_STATUS": "PENDING",
+          "PROOF_APPROVED_BY": null,
+          "PROOF_APPROVED_DATE": null,
+          "PROOF_COMMENT": "[redacted feedback]",
+          "COMMENT_TS": "2026-07-19T11:02:00Z",
+          "COMMENT_ATTACHMENT": null,
+          "DETAILED_REPORT": [{ "name": "Redacted check", "status": "PASS" }]
+        },
+        {
+          "ORDER_NUMBER": "A0221132",
+          "ORDER_LINE_ID": 9301338,
+          "LINE_NUMBER": 1,
+          "LINE_STEP_NUMBER": 7.02,
+          "ATTACHMENT_ID": 25435039,
+          "CREATION_DATE": "2026-07-19T10:03:00Z",
+          "PRODUCT_NAME": "Redacted product",
+          "PROOF_FILENAME": "redacted-proof-4.jpg",
+          "PROOF_LINK_LOW": "https://proof-assets.example.invalid/redacted-proof-4-low.jpg",
+          "PROOF_LINK_HIGH": "https://proof-assets.example.invalid/redacted-proof-4.jpg",
+          "PROOF_APPROVAL_STATUS": "PENDING",
+          "PROOF_APPROVED_BY": null,
+          "PROOF_APPROVED_DATE": null,
+          "PROOF_COMMENT": "[redacted feedback]",
+          "COMMENT_TS": "2026-07-19T11:03:00Z",
+          "COMMENT_ATTACHMENT": null,
+          "DETAILED_REPORT": [{ "name": "Redacted check", "status": "PASS" }]
+        }
+      ]
+    }
+  ]
+}

@@ -21,8 +21,18 @@
       "http://localhost:5173"
     ]
   },
+  "proof": {
+    "domain": "proof.vornan.co",
+    "bucket": "vornan-pathfinder-proof-prod",
+    "build_directory": "apps/proof/dist",
+    "cloudformation_stack": "vornan-proof-prod",
+    "cloudfront_distribution_id_output": "ProofWebDistributionId",
+    "cloudfront_cname_target_output": "ProofDnsRecordValue",
+    "public_read_default": false,
+    "lift_writes_enabled": false
+  },
   "dns": {
-    "provider": "GoDaddy",
+    "provider": "Cloudflare",
     "zone": "vornan.co",
     "records": [
       {
@@ -39,6 +49,14 @@
         "host": "api.pathfinder",
         "type": "CNAME",
         "target": "API Gateway custom domain target"
+      },
+      {
+        "host": "proof",
+        "type": "CNAME",
+        "target": "CloudFormation ProofDnsRecordValue output",
+        "proxy": "DNS only initially",
+        "ttl": "Auto",
+        "cutover_gate": "npm run check:proof-dns reports ready_to_add_cname=true"
       }
     ]
   }

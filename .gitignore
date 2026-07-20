@@ -16,6 +16,10 @@ logo/
 logo_old.zip
 outputs/
 
+# Local Vornan Proof visual-QA evidence; contains screenshots and machine-local references.
+/.codex-proof-qa/
+/design-qa.md
+
 # Logs and editor noise
 *.log
 .env

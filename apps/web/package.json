@@ -7,12 +7,15 @@
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
-    "check": "tsc -b"
+    "check": "tsc -b",
+    "test": "node --import tsx/esm --test tests/*.test.tsx"
   },
   "dependencies": {
     "@pathfinder/canonical": "0.1.0",
     "@pathfinder/customer-directory": "0.1.0",
     "@pathfinder/lift-adapter": "0.1.0",
+    "@pathfinder/order-rollup": "0.1.0",
+    "@pathfinder/order-rollup-ui": "0.1.0",
     "@pathfinder/templates": "0.1.0",
     "@vitejs/plugin-react": "^4.3.4",
     "firebase": "^12.16.0",

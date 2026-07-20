@@ -53,6 +53,9 @@ import {
   type LiftTargetConfig,
   type ValueNormalizationRule
 } from "@pathfinder/lift-adapter";
+import type { LiftStepDefinition, NormalizedLiftOrder, OrderRollupShipmentSummary } from "@pathfinder/order-rollup";
+import { OrderRollup } from "@pathfinder/order-rollup-ui";
+import "@pathfinder/order-rollup-ui/styles.css";
 import {
   applyOrderNameResolution,
   buildDefaultMappings,
@@ -75,6 +78,7 @@ import {
 } from "@pathfinder/templates";
 import type { PathfinderAuthSession } from "./auth";
 import { WorkspaceLoading } from "./WorkspaceLoading";
+import { ProofOpsPanel } from "./ProofOpsPanel";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
@@ -193,6 +197,8 @@ interface CustomerProductMapping {
     description?: string | null;
     sign_type?: string | null;
     media_type?: string | null;
+    final_width?: string | null;
+    final_height?: string | null;
   }>;
   created_at: string;
   updated_at: string;
@@ -394,6 +400,17 @@ interface TargetEnvironment {
   last_test_at?: string | null;
   last_test_status?: "Not tested" | "Passed" | "Failed" | null;
 }
+
+type DestructiveConfirmation =
+  | { kind: "import-method"; method: ImportMethod }
+  | { kind: "target"; target: TargetConfig }
+  | {
+      kind: "target-environment";
+      target_id: string;
+      target_name: string;
+      environment_id: string;
+      environment_name: string;
+    };
 
 interface OutputTemplate {
   output_template_id: string;
@@ -681,7 +698,21 @@ interface PathfinderOrderSnapshot {
     environment_id: string;
     template: string;
   };
-  header: LiftOrderPayload["order"];
+  header: LiftOrderPayload["order"] & {
+    actual_ship_date?: string | null;
+    field_sources?: {
+      po_number?: "lift" | "submitted";
+      contract_number?: "lift" | "submitted";
+      order_title?: "lift" | "submitted";
+      requested_ship_date?: "lift" | "submitted";
+      due_date?: "lift" | "submitted";
+      actual_ship_date?: "lift" | "submitted";
+      shipping?: "lift" | "submitted";
+    };
+  };
+  live_order?: NormalizedLiftOrder | null;
+  order_status?: NormalizedLiftOrder["status"];
+  shipment_summary?: OrderRollupShipmentSummary | null;
   lines: Array<{
     line_number: number;
     order_line_id: string | number | null;
@@ -690,6 +721,10 @@ interface PathfinderOrderSnapshot {
     quantity: number;
     unit_number?: string | null;
     product_id?: string | number | null;
+    material?: string | null;
+    final_height?: number | null;
+    final_width?: number | null;
+    step?: LiftStepDefinition | null;
     proof_count: number;
     package_count: number;
     latest_proof_status: string | null;
@@ -716,6 +751,12 @@ interface PathfinderOrderSnapshot {
     message: string;
   }>;
   refreshed_at: string;
+}
+
+interface OrderSnapshotRefreshMetadata {
+  source: "lift" | "recent_snapshot";
+  checked_at: string;
+  next_refresh_at: string;
 }
 
 interface PublicStatusLinkResult {
@@ -928,6 +969,7 @@ const defaultProductResolutionConfig: ProductResolutionConfig = {
 };
 
 const defaultOrderNameResolutionConfig = createDefaultOrderNameResolutionConfig();
+const pendingPathfinderOrderNumber = "PF-{RESERVED-WHEN-PREVIEW-IS-GENERATED}";
 
 const defaultValueNormalizationRules: ValueNormalizationRule[] = [
   {
@@ -1739,7 +1781,19 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
   const body = await response.text();
 
   if (!response.ok) {
-    throw new Error(body || `Request failed with HTTP ${response.status}.`);
+    let message = body;
+    if (contentType.includes("application/json") && body) {
+      try {
+        const parsed = JSON.parse(body) as { error?: unknown; message?: unknown };
+        message =
+          (typeof parsed.error === "string" && parsed.error) ||
+          (typeof parsed.message === "string" && parsed.message) ||
+          body;
+      } catch {
+        // Keep the raw response body when the server returned malformed JSON.
+      }
+    }
+    throw new Error(message || `Request failed with HTTP ${response.status}.`);
   }
 
   if (!contentType.includes("application/json")) {
@@ -1872,7 +1926,7 @@ function StatePill({ state }: { state: ProcessingState }) {
       ? "pill pill-danger"
       : state === "Needs Mapping"
         ? "pill pill-warning"
-      : state === "Ready" || state === "Completed"
+      : state === "Ready" || state === "Order Confirmed" || state === "Completed"
         ? "pill pill-success"
         : "pill pill-neutral";
   return <span className={className}>{state}</span>;
@@ -2134,13 +2188,6 @@ function liftConfigForRoute(target: TargetConfig | null | undefined, route: Outp
   };
 }
 
-function isPlaceholderSecret(value?: string | null) {
-  if (!value) {
-    return true;
-  }
-  return /TBD|SECRET|REFERENCE|^\*+$/i.test(value);
-}
-
 function submitCertificationItem(
   item_id: string,
   label: string,
@@ -2173,13 +2220,16 @@ function buildLocalSubmitCertification(args: {
 }): SubmitCertification {
   const canonicalFailures = args.canonicalValidation.filter((message) => message.severity === "FAIL");
   const liftFailures = args.liftValidation.filter((message) => message.severity === "FAIL");
+  const previewStateCanSubmit = args.state === "Ready" || args.state === "Submit Failed";
   const items: SubmitCertificationItem[] = [
     submitCertificationItem(
       "preview-state",
       "Preview state",
-      args.state === "Ready",
+      previewStateCanSubmit,
       `Preview is ${args.state}, not Ready.`,
-      "Preview job is Ready.",
+      args.state === "Submit Failed"
+        ? "The persisted preview remains eligible for an intentional retry."
+        : "Preview job is Ready.",
       "Generate a Ready preview before external submit.",
       args.unresolvedProductCount ? "product-map" : "manual-import"
     ),
@@ -2249,9 +2299,9 @@ function buildLocalSubmitCertification(args: {
     submitCertificationItem(
       "credentials",
       "Lift credentials",
-      !isPlaceholderSecret(args.request.headers.User) && !isPlaceholderSecret(args.request.headers.Password),
-      "Lift import credentials are placeholders or masked values.",
-      "Lift import credentials are configured.",
+      configuredSecret(args.request.headers.User) && configuredSecret(args.request.headers.Password),
+      "Lift import credentials are missing or still use setup placeholders.",
+      "Lift import credentials are configured or saved securely.",
       "Enter the Lift import username and password in Target Environment settings.",
       "target-environments"
     ),
@@ -2374,6 +2424,34 @@ function productMappingStatusForRoute(mapping: CustomerProductMapping, route: Ou
 
 function productMappingHasIdentifierForRoute(mapping: CustomerProductMapping, route: OutputRoute) {
   return Boolean(productMappingIdentifierForRoute(mapping, route)?.trim());
+}
+
+function applyProductResolutionToCanonicalOrder(
+  order: CanonicalOrder,
+  results: ProductResolutionResult[],
+  route: OutputRoute
+): CanonicalOrder {
+  return {
+    ...order,
+    lines: order.lines.map((line, index) => {
+      const result = results[index];
+      const resolvedIdentifier = result?.resolved_product_identifier ?? null;
+
+      return {
+        ...line,
+        unit_number:
+          route.product_identifier_type === "lift_unit_number"
+            ? resolvedIdentifier ?? ""
+            : line.unit_number ?? "",
+        product_id:
+          route.product_identifier_type === "lift_product_id"
+            ? resolvedIdentifier ?? line.product_id ?? null
+            : line.product_id ?? null,
+        product_name: result?.product_name ?? line.product_name,
+        customer_sku: result?.customer_product_key ?? line.customer_sku
+      };
+    })
+  };
 }
 
 function sourceTypeLabel(source: ImportMethodSource) {
@@ -2902,6 +2980,8 @@ interface ProductMapPreloadRow {
   display_label: string;
   product_identifier_value: string;
   product_name: string;
+  final_width: string;
+  final_height: string;
   source_columns: string[];
   status: ProductMappingStatus;
   action: "New" | "Update" | "Duplicate" | "Missing key";
@@ -2988,8 +3068,38 @@ function productKeyFromCatalogRow(
   return sourceKey ? `${config.prefix ?? ""}${sourceKey}${config.suffix ?? ""}` : "";
 }
 
+function preloadDimensionValue(row: Record<string, unknown>, dimension: "width" | "height") {
+  const columns =
+    dimension === "width"
+      ? ["Final Size Width", "Final Width", "Width"]
+      : ["Final Size Height", "Final Size Length", "Final Height", "Height", "Length"];
+
+  return columns.map((column) => valueAsString(row[column])).find(Boolean) ?? "";
+}
+
+function findPreloadDimensionColumn(columns: string[], dimension: "width" | "height") {
+  const candidates =
+    dimension === "width"
+      ? ["Final Size Width", "Final Width", "Width"]
+      : ["Final Size Height", "Final Size Length", "Final Height", "Height", "Length"];
+
+  return (
+    candidates
+      .map((candidate) => columns.find((column) => column.trim().toLowerCase() === candidate.toLowerCase()))
+      .find(Boolean) ?? ""
+  );
+}
+
 function productMappingSourceLabel(mapping: CustomerProductMapping) {
   return mapping.mapping_source ?? (mapping.last_seen_examples.length ? "Observed order" : "Manual entry");
+}
+
+function productMappingFinalWidth(mapping: CustomerProductMapping) {
+  return mapping.last_seen_examples.find((example) => example.final_width)?.final_width ?? "—";
+}
+
+function productMappingFinalHeight(mapping: CustomerProductMapping) {
+  return mapping.last_seen_examples.find((example) => example.final_height)?.final_height ?? "—";
 }
 
 export function App({ authSession }: { authSession: PathfinderAuthSession | null }) {
@@ -3044,6 +3154,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [dirtyImportMethodIds, setDirtyImportMethodIds] = useState<string[]>([]);
   const [localDraftImportMethodIds, setLocalDraftImportMethodIds] = useState<string[]>([]);
   const [dirtyTargetIds, setDirtyTargetIds] = useState<string[]>([]);
+  const [localDraftTargetIds, setLocalDraftTargetIds] = useState<string[]>([]);
   const [dirtyOutputRouteIds, setDirtyOutputRouteIds] = useState<string[]>([]);
   const [routeStrategyChanges, setRouteStrategyChanges] = useState<Record<string, RouteStrategyChange>>({});
   const [leavePrompt, setLeavePrompt] = useState<{
@@ -3051,6 +3162,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     body: string;
     scope: "import-method" | "target";
   } | null>(null);
+  const [destructiveConfirmation, setDestructiveConfirmation] = useState<DestructiveConfirmation | null>(null);
   const pendingNavigationRef = useRef<(() => void) | null>(null);
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("loading");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
@@ -3139,6 +3251,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [preloadSourceColumn, setPreloadSourceColumn] = useState("");
   const [preloadProductNameColumn, setPreloadProductNameColumn] = useState("");
   const [preloadUnitColumn, setPreloadUnitColumn] = useState("");
+  const [preloadFinalWidthColumn, setPreloadFinalWidthColumn] = useState("");
+  const [preloadFinalHeightColumn, setPreloadFinalHeightColumn] = useState("");
   const [preloadDefaultUnit, setPreloadDefaultUnit] = useState("");
   const [preloadSelectedIds, setPreloadSelectedIds] = useState<string[]>([]);
   const [liftUnitCatalog, setLiftUnitCatalog] = useState<LiftUnitCatalogItem[]>([]);
@@ -3343,6 +3457,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const targetsPayload = await readJsonResponse<{ targets: TargetConfig[] }>(targetsResponse);
       const jobsPayload = await readJsonResponse<{ jobs: ProcessingJobPreview[] }>(jobsResponse);
       setTargets(targetsPayload.targets);
+      setLocalDraftTargetIds([]);
       setGlobalJobs(jobsPayload.jobs);
       setTargetsAndJobsState("idle");
     } catch (error) {
@@ -3574,9 +3689,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setOrderSnapshotState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/order-snapshot`);
-      const payload = await readJsonResponse<{ snapshot: PathfinderOrderSnapshot }>(response);
+      const payload = await readJsonResponse<{
+        snapshot: PathfinderOrderSnapshot;
+        refresh?: OrderSnapshotRefreshMetadata;
+      }>(response);
       setOrderSnapshotResult(payload.snapshot);
-      setWorkspaceMessage(`Order snapshot loaded for ${payload.snapshot.order_number}.`);
+      setWorkspaceMessage(
+        payload.refresh?.source === "recent_snapshot"
+          ? `Recent order snapshot reused for ${payload.snapshot.order_number}; another Lift check will be available shortly.`
+          : `Order refreshed from Lift for ${payload.snapshot.order_number}.`
+      );
       setOrderSnapshotState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Pathfinder order snapshot failed.");
@@ -3828,7 +3950,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         }
       );
       const nextWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      const savedMethod = nextWorkspace.import_methods.find(
+        (candidate) => candidate.import_method_id === method.import_method_id
+      );
       setWorkspace(nextWorkspace);
+      setMappings(savedMethod?.mappings ?? nextMappings);
       setDirtyImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
       setLocalDraftImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
       setWorkspaceMessage(isLocalDraft ? "Import method created." : "Import method saved.");
@@ -3846,6 +3972,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     const method = availableMethods.find((candidate) => candidate.import_method_id === activeMethodId) ?? availableMethods[0];
     if (!method) {
       setWorkspaceMessage("Choose an import method before generating a preview job.");
+      return;
+    }
+    if (!sourceGrid.rows.length || !parsedOrderRows.length) {
+      setWorkspaceMessage("Upload an order workbook with at least one valid quantity row before generating a preview job.");
       return;
     }
     if (method.status !== "Active") {
@@ -3981,6 +4111,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         return nextWorkspace ? { ...nextWorkspace, primary_target: savedTarget } : { ...current, primary_target: savedTarget };
       });
       setDirtyTargetIds((current) => current.filter((targetId) => targetId !== savedTarget.target_id));
+      setLocalDraftTargetIds((current) => current.filter((targetId) => targetId !== savedTarget.target_id));
       setDirtyOutputRouteIds((current) => {
         const savedRouteIds = new Set(
           (nextWorkspace?.output_routes ?? workspace?.output_routes ?? [])
@@ -4348,6 +4479,51 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     targetOutputTemplates.find((template) => template.output_template_id === activeOutputTemplateId) ??
     targetOutputTemplates[0] ??
     null;
+  const destructiveConfirmationCopy = destructiveConfirmation
+    ? destructiveConfirmation.kind === "import-method"
+      ? localDraftImportMethodIds.includes(destructiveConfirmation.method.import_method_id)
+        ? {
+            eyebrow: "Import Method",
+            title: "Discard this Import Method draft?",
+            item: destructiveConfirmation.method.name,
+            body: "This draft has not been saved. Discarding it removes the local setup and cannot be undone.",
+            confirmLabel: "Discard Draft"
+          }
+        : {
+            eyebrow: "Import Method",
+            title: "Archive this Import Method?",
+            item: destructiveConfirmation.method.name,
+            body: dirtyImportMethodIds.includes(destructiveConfirmation.method.import_method_id)
+              ? "The method will no longer be available for new imports, and the unsaved changes in this view will be discarded. Existing jobs and audit history remain intact."
+              : "The method will no longer be available for new imports. Existing jobs and audit history remain intact.",
+            confirmLabel: "Archive Method"
+          }
+      : destructiveConfirmation.kind === "target"
+        ? localDraftTargetIds.includes(destructiveConfirmation.target.target_id)
+          ? {
+              eyebrow: "Target",
+              title: "Discard this Target draft?",
+              item: destructiveConfirmation.target.name,
+              body: "This draft has not been saved. Discarding it removes the local target setup and cannot be undone.",
+              confirmLabel: "Discard Draft"
+            }
+          : {
+              eyebrow: "Target",
+              title: "Delete this Target?",
+              item: destructiveConfirmation.target.name,
+              body: dirtyTargetIds.includes(destructiveConfirmation.target.target_id)
+                ? "This permanently removes the reusable Target, its environments, and its output templates, including unsaved changes in this view. Pathfinder will block deletion if any customer workspace still references it."
+                : "This permanently removes the reusable Target, its environments, and its output templates. Pathfinder will block deletion if any customer workspace still references it.",
+              confirmLabel: "Delete Target"
+            }
+        : {
+            eyebrow: "Target Environment",
+            title: "Remove this environment?",
+            item: `${destructiveConfirmation.target_name} · ${destructiveConfirmation.environment_name}`,
+            body: "The environment will be removed from the Target draft. The change is not persisted until you save the Target.",
+            confirmLabel: "Remove Environment"
+          }
+    : null;
   const selectedOutputTemplateStats = selectedOutputTemplate ? templateMappingStats(selectedOutputTemplate) : null;
   const targetRowIds = targetRows.map((target) => target.target_id).join("|");
   const targetTemplateIds = targetOutputTemplates.map((template) => template.output_template_id).join("|");
@@ -4662,6 +4838,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         valueAsString(row["Product Name"]) ||
         valueAsString(row[effectivePreloadSourceColumn]);
       const status: ProductMappingStatus = unitValue ? "Mapped" : "Unmapped";
+      const finalWidth = valueAsString(row[preloadFinalWidthColumn]) || preloadDimensionValue(row, "width");
+      const finalHeight = valueAsString(row[preloadFinalHeightColumn]) || preloadDimensionValue(row, "height");
 
       return {
         row_id: `${index + 2}-${key || "missing"}`,
@@ -4674,6 +4852,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         display_label: productName || key || `Catalog row ${index + 2}`,
         product_identifier_value: unitValue,
         product_name: productName,
+        final_width: finalWidth,
+        final_height: finalHeight,
         source_columns:
           selectedOutputMapProductConfig.strategy === "composite_key"
             ? selectedOutputMapProductConfig.composite_columns
@@ -4688,6 +4868,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     effectivePreloadCompositeColumns,
     effectivePreloadSourceColumn,
     preloadDefaultUnit,
+    preloadFinalHeightColumn,
+    preloadFinalWidthColumn,
     preloadGrid.rows,
     preloadProductNameColumn,
     preloadUnitColumn,
@@ -4712,6 +4894,83 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   );
   const unmappedProductCount = routeProductMappings.filter((mapping) => mapping.status !== "Mapped").length;
   const productResolutionRows = lastPreviewJob?.product_resolution_results ?? [];
+  const manualPrePreviewProductResolutionRows = useMemo<ProductResolutionResult[]>(
+    () =>
+      parsedOrderRows.slice(0, 8).map((row, index) => {
+        const sourceColumn =
+          activeProductConfig.strategy === "direct_lift_unit_number"
+            ? activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column
+            : activeProductConfig.source_column;
+        const customerProductKey = productKeyFromCatalogRow(
+          row.values as Record<string, string>,
+          activeProductConfig,
+          sourceColumn,
+          activeProductConfig.composite_columns
+        );
+        const savedMapping = productMappings.find(
+          (mapping) =>
+            mapping.output_route_id === activeOutputRoute.output_route_id &&
+            mapping.customer_product_key === customerProductKey
+        );
+        const savedIdentifier = savedMapping
+          ? productMappingIdentifierForRoute(savedMapping, activeOutputRoute)
+          : null;
+        const resolvedIdentifier =
+          activeProductConfig.strategy === "direct_lift_unit_number" ||
+          activeProductConfig.mode === "send_derived_unit"
+            ? customerProductKey || null
+            : savedIdentifier;
+        const status =
+          activeProductConfig.strategy === "direct_lift_unit_number" ||
+          activeProductConfig.mode === "send_derived_unit"
+            ? resolvedIdentifier
+              ? "Mapped"
+              : "Unmapped"
+            : savedMapping
+              ? productMappingStatusForRoute(savedMapping, activeOutputRoute)
+              : "Unmapped";
+        const displayLabel = String(
+          row.values.DESCRIPTION ?? row.values["SIGN TYPE"] ?? savedMapping?.display_label ?? `Row ${row.row_number}`
+        );
+
+        return {
+          source_sheet_name: row.sheet_name,
+          source_row_number: row.row_number,
+          output_route_id: activeOutputRoute.output_route_id,
+          line_number: index + 1,
+          strategy: activeProductConfig.strategy,
+          mode: activeProductConfig.mode,
+          customer_product_key: customerProductKey,
+          display_label: savedMapping?.display_label ?? displayLabel,
+          source_columns:
+            activeProductConfig.strategy === "composite_key"
+              ? activeProductConfig.composite_columns
+              : [sourceColumn].filter(Boolean),
+          resolved_product_identifier: resolvedIdentifier,
+          resolved_unit_number:
+            activeOutputRoute.product_identifier_type === "lift_unit_number"
+              ? resolvedIdentifier
+              : savedMapping?.lift_unit_number ?? null,
+          resolved_product_id:
+            activeOutputRoute.product_identifier_type === "lift_product_id"
+              ? resolvedIdentifier
+              : savedMapping?.lift_product_id ?? null,
+          product_name: savedMapping?.product_name ?? displayLabel,
+          status,
+          message: resolvedIdentifier
+            ? `Resolved from the saved ${activeOutputRoute.product_identifier_label} mapping. Generate a preview to persist validation.`
+            : `No saved ${activeOutputRoute.product_identifier_label} mapping matches this generated key.`
+        };
+      }),
+    [activeOutputRoute, activeProductConfig, parsedOrderRows, productMappings]
+  );
+  const displayedProductResolutionRows = productResolutionRows.length
+    ? productResolutionRows
+    : manualPrePreviewProductResolutionRows;
+  const currentOrderProductBlockingCount = displayedProductResolutionRows.filter(
+    (result) => result.status !== "Mapped" || !result.resolved_product_identifier
+  ).length;
+  const currentOrderProductMapKnown = displayedProductResolutionRows.length > 0;
   const referenceRowCount = sourceSheets.reduce((total, sheet) => total + sheet.reference_row_count, 0);
   const foundInputElements = useMemo(
     () =>
@@ -4726,7 +4985,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     if (activeImportMethod) {
       setMappings(activeImportMethod.mappings);
     }
-  }, [activeImportMethod?.import_method_id, workspace?.updated_at]);
+  }, [activeImportMethod?.import_method_id, activeImportMethod?.mappings]);
 
   useEffect(() => {
     if (dirtyImportMethodIds.length === 0) {
@@ -4774,7 +5033,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     () => applyOrderNameResolution(mappedCanonicalOrder, activeOrderNameConfig),
     [activeOrderNameConfig, mappedCanonicalOrder]
   );
-  const canonicalOrder = orderNameResolution.canonical_order;
+  const canonicalOrder = useMemo(
+    () =>
+      applyProductResolutionToCanonicalOrder(
+        orderNameResolution.canonical_order,
+        manualPrePreviewProductResolutionRows,
+        activeOutputRoute
+      ),
+    [activeOutputRoute, manualPrePreviewProductResolutionRows, orderNameResolution.canonical_order]
+  );
 
   const canonicalMessages = [
     ...validateCanonicalOrder(canonicalOrder, {
@@ -4785,7 +5052,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const rawLiftPayload = generateLiftPayload(canonicalOrder, {
     jobId: "job_preview",
     canonicalOrderId: "co_preview",
-    pathfinderOrderId: "PF-PREVIEW",
+    pathfinderOrderId: pendingPathfinderOrderNumber,
     extIdStrategy: activeImportMethod?.ext_id_strategy ?? "pathfinder_generated"
   });
   const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, activeOutputRoute.value_normalization_rules ?? []);
@@ -4808,7 +5075,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     ? [...lastPreviewJob.canonical_validation, ...lastPreviewJob.lift_validation]
     : [...canonicalMessages, ...liftMessages];
   const hasBlockingFailure = allMessages.some((message) => message.severity === "FAIL");
-  const localCertificationState: ProcessingState = lastPreviewJob?.state ?? (hasBlockingFailure ? "Failed" : routeBlockingCount ? "Needs Mapping" : "Ready");
+  const localCertificationState: ProcessingState =
+    lastPreviewJob?.state ??
+    (hasBlockingFailure ? "Failed" : currentOrderProductBlockingCount ? "Needs Mapping" : "Validated");
   const submitCertification =
     lastPreviewJob?.submit_certification ??
     buildLocalSubmitCertification({
@@ -4819,12 +5088,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       payload: displayedLiftPayload,
       profile: selectedSubmitProfile,
       route: activeOutputRoute,
-      unresolvedProductCount: lastPreviewJob?.unresolved_products.length ?? routeBlockingCount
+      unresolvedProductCount: lastPreviewJob?.unresolved_products.length ?? currentOrderProductBlockingCount
     });
   const submitCertificationBlockingCount = submitCertification.items.filter((item) => item.blocking).length;
   const manualSourceReady = sourceGrid.rows.length > 0;
   const manualPreviewReady = Boolean(lastPreviewJob);
-  const manualFixesNeeded = submitCertificationBlockingCount > 0 || routeBlockingCount > 0;
+  const manualFixesNeeded = submitCertificationBlockingCount > 0 || currentOrderProductBlockingCount > 0;
   const activeRouteIsProd =
     activeRouteEnvironment?.role === "PROD" || activeRouteEnvironmentLabel.toUpperCase().includes("PROD");
   const prodSandboxConfirmationRequired = activeRouteIsProd && selectedSubmitProfile.mode === "sandbox_customer";
@@ -4880,11 +5149,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     },
     {
       label: "Product Map",
-      value: routeBlockingCount ? `${routeBlockingCount} gap${routeBlockingCount === 1 ? "" : "s"}` : "Mapped",
-      detail: productResolutionItem?.message ?? `Every line has a ${activeOutputRoute.product_identifier_label}.`,
-      status: routeBlockingCount ? "Blocked" : "Passed",
-      actionLabel: routeBlockingCount ? "Open map" : undefined,
-      action: routeBlockingCount
+      value: currentOrderProductMapKnown
+        ? currentOrderProductBlockingCount
+          ? `${currentOrderProductBlockingCount} gap${currentOrderProductBlockingCount === 1 ? "" : "s"}`
+          : "Mapped"
+        : "Load source",
+      detail: currentOrderProductMapKnown
+        ? productResolutionItem?.message ?? `Every imported line has a ${activeOutputRoute.product_identifier_label}.`
+        : "Upload an order to evaluate only the product keys used by that order.",
+      status: currentOrderProductMapKnown ? (currentOrderProductBlockingCount ? "Blocked" : "Passed") : "Warning",
+      actionLabel: currentOrderProductBlockingCount ? "Open map" : undefined,
+      action: currentOrderProductBlockingCount
         ? () => {
             setActiveGlobalView("Customers");
             setOutputMapRouteFilter(activeOutputRoute.output_route_id);
@@ -4981,17 +5256,31 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     },
     {
       label: "Product Map",
-      value: routeBlockingCount ? `${routeBlockingCount} unresolved` : "Complete",
-      detail: routeBlockingCount
-        ? "Resolve every generated product key before submit."
-        : `All lines have an approved ${activeOutputRoute.product_identifier_label}.`,
-      status: routeBlockingCount ? "Blocked" : "Passed"
+      value: currentOrderProductMapKnown
+        ? currentOrderProductBlockingCount
+          ? `${currentOrderProductBlockingCount} unresolved`
+          : "Complete"
+        : "Waiting",
+      detail: currentOrderProductMapKnown
+        ? currentOrderProductBlockingCount
+          ? "Resolve every generated product key used by this order before submit."
+          : `All imported lines have an approved ${activeOutputRoute.product_identifier_label}.`
+        : "Upload an order source before checking product mappings.",
+      status: currentOrderProductMapKnown ? (currentOrderProductBlockingCount ? "Blocked" : "Passed") : "Blocked"
     },
     {
       label: "Ext_ID",
-      value: extIdMatches ? displayedLiftPayload.order.ext_id : "Mismatch",
-      detail: extIdMatches
-        ? "Header Ext_ID matches body order.ext_id."
+      value:
+        !lastPreviewJob && activeImportMethod?.ext_id_strategy === "pathfinder_generated"
+          ? "Reserved on preview generation"
+          : extIdMatches
+            ? displayedLiftPayload.order.ext_id
+            : "Mismatch",
+      detail:
+        !lastPreviewJob && activeImportMethod?.ext_id_strategy === "pathfinder_generated"
+          ? "Pathfinder will reserve one unique order number and use it for both header Ext_ID and body order.ext_id."
+          : extIdMatches
+            ? "Header Ext_ID matches body order.ext_id."
         : "Lift requires header Ext_ID and body order.ext_id to be identical.",
       status: extIdMatches ? "Passed" : "Blocked"
     },
@@ -5104,7 +5393,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const dashboardNeedsMappingJobs = dashboardJobs.filter((job) => job.state === "Needs Mapping");
   const dashboardReadyJobs = dashboardJobs.filter((job) => job.state === "Ready");
   const dashboardSubmittedJobs = dashboardJobs.filter(
-    (job) => job.state === "Submitted" || job.state === "Completed" || Boolean(job.target_order_number)
+    (job) =>
+      job.state === "Submitted" ||
+      job.state === "Order Confirmed" ||
+      job.state === "Completed" ||
+      Boolean(job.target_order_number)
   );
   const dashboardOrderCount = dashboardJobs.length;
   const dashboardLineCount = dashboardJobs.reduce((total, job) => total + jobOrderCount(job), 0);
@@ -5988,6 +6281,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
     if (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed) {
       setWorkspaceMessage("Confirm the PROD sandbox submit lane in Lift Submit Preflight before requesting Lift submit.");
+      setWorkspaceState("error");
       return;
     }
 
@@ -6445,11 +6739,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       parsed.columns.find((column) => /product|description|label|name/i.test(column)) ?? "";
     const guessedUnitColumn =
       parsed.columns.find((column) => /unit|lift|sku|identifier/i.test(column)) ?? "";
+    const guessedFinalWidthColumn = findPreloadDimensionColumn(parsed.columns, "width");
+    const guessedFinalHeightColumn = findPreloadDimensionColumn(parsed.columns, "height");
 
     setPreloadGrid(parsed);
     setPreloadSourceColumn(defaultSourceColumn);
     setPreloadProductNameColumn(guessedProductColumn);
     setPreloadUnitColumn(guessedUnitColumn === defaultSourceColumn ? "" : guessedUnitColumn);
+    setPreloadFinalWidthColumn(guessedFinalWidthColumn);
+    setPreloadFinalHeightColumn(guessedFinalHeightColumn);
     setPreloadSelectedIds([]);
     setWorkspaceMessage(`${parsed.rows.length} customer product row${parsed.rows.length === 1 ? "" : "s"} parsed for review.`);
   }
@@ -6465,12 +6763,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         grid.columns.find((column) => /product|description|label|name/i.test(column)) ?? "";
       const guessedUnitColumn =
         grid.columns.find((column) => /unit|lift|sku|identifier/i.test(column)) ?? "";
+      const guessedFinalWidthColumn = findPreloadDimensionColumn(grid.columns, "width");
+      const guessedFinalHeightColumn = findPreloadDimensionColumn(grid.columns, "height");
 
       setPreloadGrid(grid);
       setPreloadSourceName(file.name);
       setPreloadSourceColumn(defaultSourceColumn);
       setPreloadProductNameColumn(guessedProductColumn);
       setPreloadUnitColumn(guessedUnitColumn === defaultSourceColumn ? "" : guessedUnitColumn);
+      setPreloadFinalWidthColumn(guessedFinalWidthColumn);
+      setPreloadFinalHeightColumn(guessedFinalHeightColumn);
       setPreloadSelectedIds([]);
       setWorkspaceMessage(`${grid.rows.length} product row${grid.rows.length === 1 ? "" : "s"} loaded from ${file.name}.`);
     } catch (error) {
@@ -6537,17 +6839,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               status: productIdentifierValue || liftUnitNumber || liftProductId ? "Mapped" : "Unmapped",
               mapping_source: "Preloaded catalog",
               source_file_name: preloadSourceName.trim() || "Customer product list",
-              last_seen_examples: row.existing_mapping?.last_seen_examples?.length
-                ? row.existing_mapping.last_seen_examples
-                : [
-                    {
-                      sheet_name: preloadSourceName.trim() || "Preloaded catalog",
-                      row_number: row.row_number,
-                      description: row.product_name || row.display_label,
-                      sign_type: row.source_value || null,
-                      media_type: null
-                    }
-                  ]
+              last_seen_examples: [
+                {
+                  sheet_name: preloadSourceName.trim() || "Preloaded catalog",
+                  row_number: row.row_number,
+                  description: row.product_name || row.display_label,
+                  sign_type: row.source_value || null,
+                  media_type: null,
+                  final_width: row.final_width || null,
+                  final_height: row.final_height || null
+                },
+                ...(row.existing_mapping?.last_seen_examples ?? []).filter(
+                  (example) =>
+                    example.sheet_name !== (preloadSourceName.trim() || "Preloaded catalog") ||
+                    example.row_number !== row.row_number
+                )
+              ].slice(0, 8)
             };
           })
         })
@@ -6655,9 +6962,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWorkspaceMessage("Duplicated import method is a local draft. Review it, then save when ready.");
   }
 
-  async function deleteImportMethod(method: ImportMethod) {
+  function requestImportMethodDelete(method: ImportMethod) {
     if (!workspace || importMethods.length <= 1) {
       setWorkspaceMessage("Keep at least one import method for this customer.");
+      return;
+    }
+
+    setDestructiveConfirmation({ kind: "import-method", method });
+  }
+
+  async function performImportMethodDelete(method: ImportMethod) {
+    if (!workspace) {
       return;
     }
 
@@ -6695,6 +7010,59 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Import method delete failed.");
       setWorkspaceState("error");
+    }
+  }
+
+  function requestTargetDelete(target: TargetConfig) {
+    const currentRouteCount = outputRoutes.filter((route) => route.target_id === target.target_id).length;
+    if (currentRouteCount > 0) {
+      setWorkspaceMessage(
+        `${target.name} is used by ${currentRouteCount} output route${currentRouteCount === 1 ? "" : "s"}. Reassign or remove those routes before deleting the target.`
+      );
+      return;
+    }
+    setDestructiveConfirmation({ kind: "target", target });
+  }
+
+  async function performTargetDelete(target: TargetConfig) {
+    if (localDraftTargetIds.includes(target.target_id)) {
+      setTargets((current) => current.filter((candidate) => candidate.target_id !== target.target_id));
+      setDirtyTargetIds((current) => current.filter((targetId) => targetId !== target.target_id));
+      setLocalDraftTargetIds((current) => current.filter((targetId) => targetId !== target.target_id));
+      setSelectedTargetId((current) => (current === target.target_id ? null : current));
+      setWorkspaceMessage("Local target draft discarded.");
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/targets/${target.target_id}`, { method: "DELETE" });
+      const payload = await readJsonResponse<{ targets: TargetConfig[] }>(response);
+      setTargets(payload.targets);
+      setDirtyTargetIds((current) => current.filter((targetId) => targetId !== target.target_id));
+      setLocalDraftTargetIds((current) => current.filter((targetId) => targetId !== target.target_id));
+      setSelectedTargetId((current) => (current === target.target_id ? null : current));
+      setWorkspaceMessage(`${target.name} deleted.`);
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Target delete failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  async function confirmDestructiveAction() {
+    const confirmation = destructiveConfirmation;
+    if (!confirmation) {
+      return;
+    }
+
+    setDestructiveConfirmation(null);
+    if (confirmation.kind === "import-method") {
+      await performImportMethodDelete(confirmation.method);
+    } else if (confirmation.kind === "target") {
+      await performTargetDelete(confirmation.target);
+    } else {
+      removeTargetEnvironmentDraft(confirmation.target_id, confirmation.environment_id);
     }
   }
 
@@ -6935,6 +7303,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setActiveTargetsView("Environments");
     setActiveOutputTemplateId(template.output_template_id);
     setDirtyTargetIds((current) => (current.includes(target.target_id) ? current : [...current, target.target_id]));
+    setLocalDraftTargetIds((current) => (current.includes(target.target_id) ? current : [...current, target.target_id]));
     setWorkspaceMessage("Draft target created. Save target details when ready.");
   }
 
@@ -7562,7 +7931,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <button
                             title={localDraftImportMethodIds.includes(method.import_method_id) ? `Discard ${method.name}` : `Archive ${method.name}`}
                             aria-label={localDraftImportMethodIds.includes(method.import_method_id) ? `Discard ${method.name}` : `Archive ${method.name}`}
-                            onClick={() => void deleteImportMethod(method)}
+                            onClick={() => requestImportMethodDelete(method)}
                           >
                             <Trash2 size={15} />
                           </button>
@@ -7601,6 +7970,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         >
                           <ArrowLeft size={15} />
                           All Import Methods
+                        </button>
+                        <button
+                          className="secondary-button table-header-action destructive-secondary-button"
+                          onClick={() => requestImportMethodDelete(activeImportMethod)}
+                          disabled={workspaceState === "saving"}
+                        >
+                          <Trash2 size={15} />
+                          {localDraftImportMethodIds.includes(activeImportMethod.import_method_id) ? "Discard Draft" : "Archive Method"}
                         </button>
                         <button
                           className="primary-button table-header-action"
@@ -9275,7 +9652,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <span>Paste Product List</span>
                         <textarea
                           value={preloadText}
-                          placeholder={"SIGN TYPE\tDESCRIPTION\tLift unit_number\n2 Sheet Poster\t2 Sheet Poster\t2SHEET_46x60_48PT"}
+                          placeholder={
+                            "DESCRIPTION\tSIGN TYPE\tFinal Size Width\tFinal Size Length\tLift product_id\nPump topper (Clip)\tPump Topper\t20.13\t12\t"
+                          }
                           onChange={(event) => setPreloadText(event.target.value)}
                         />
                       </label>
@@ -9307,6 +9686,34 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             onChange={(event) => setPreloadProductNameColumn(event.target.value)}
                           >
                             <option value="">Use generated label</option>
+                            {preloadColumns.map((column) => (
+                              <option key={column} value={column}>
+                                {column}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Final Width Column</span>
+                          <select
+                            value={preloadFinalWidthColumn}
+                            onChange={(event) => setPreloadFinalWidthColumn(event.target.value)}
+                          >
+                            <option value="">Auto-detect</option>
+                            {preloadColumns.map((column) => (
+                              <option key={column} value={column}>
+                                {column}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Final Height Column</span>
+                          <select
+                            value={preloadFinalHeightColumn}
+                            onChange={(event) => setPreloadFinalHeightColumn(event.target.value)}
+                          >
+                            <option value="">Auto-detect</option>
                             {preloadColumns.map((column) => (
                               <option key={column} value={column}>
                                 {column}
@@ -9389,6 +9796,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <th>Action</th>
                               <th>Customer Value</th>
                               <th>Generated Key</th>
+                              <th>Final Width</th>
+                              <th>Final Height</th>
                               <th>{selectedOutputMapRoute.product_identifier_label}</th>
                               <th>Product</th>
                             </tr>
@@ -9426,6 +9835,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   <strong>{row.customer_product_key || "No key generated"}</strong>
                                   <span className="cell-meta">{row.source_columns.join(", ") || "No source column"}</span>
                                 </td>
+                                <td>{row.final_width || "—"}</td>
+                                <td>{row.final_height || "—"}</td>
                                 <td>{row.product_identifier_value || "Needs mapping"}</td>
                                 <td>{row.product_name || row.display_label}</td>
                               </tr>
@@ -9914,6 +10325,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <th>Status</th>
                           <th>Source</th>
                           <th>Customer Value / Key</th>
+                          <th>Final Width</th>
+                          <th>Final Height</th>
                           <th>{selectedOutputMapRoute.product_identifier_label}</th>
                           <th>Product Name</th>
                           <th>Seen</th>
@@ -9953,6 +10366,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 <span className="cell-meta">{mapping.display_label}</span>
                                 <span className="cell-meta">Source: {mapping.source_columns.join(", ") || "Detected key"}</span>
                               </td>
+                              <td>{productMappingFinalWidth(mapping)}</td>
+                              <td>{productMappingFinalHeight(mapping)}</td>
                               <td>
                                 <input
                                   className="table-input"
@@ -10227,7 +10642,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       >
                         Save Mapping
                       </button>
-                      <button className="primary-button" onClick={() => void createPreviewJob()} disabled={workspaceState === "saving"}>
+                      <button
+                        className="primary-button"
+                        onClick={() => void createPreviewJob()}
+                        disabled={!manualSourceReady || workspaceState === "saving"}
+                      >
                         {workspaceState === "saving" ? "Saving Preview" : "Generate Preview Job"}
                       </button>
                     </div>
@@ -10273,7 +10692,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         label="Pathfinder Order Number"
                         value={lastPreviewJob?.pathfinder_order_id ?? "Reserved when preview is created"}
                       />
-                      <DetailItem label="Ext_ID" value={displayedSubmitRequest.headers.Ext_ID} />
+                      <DetailItem
+                        label="Ext_ID"
+                        value={
+                          !lastPreviewJob && activeImportMethod?.ext_id_strategy === "pathfinder_generated"
+                            ? "Same reserved Pathfinder Order Number"
+                            : displayedSubmitRequest.headers.Ext_ID
+                        }
+                      />
                       <DetailItem label="Company" value={displayedSubmitRequest.headers.Company || activeRouteCompanyId} />
                       <DetailItem label="Lift CustomerID" value={displayedLiftPayload.customer.lift_customer_id} />
                       <DetailItem label="Endpoint" value={displayedSubmitRequest.endpoint_url} />
@@ -10458,8 +10884,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                   <div className="panel-action-footer">
                     <span>{hasBlockingFailure ? "Blocking validation failures present" : "Current mapping passes preview validation"}</span>
-                    <button className="primary-button" onClick={() => void createPreviewJob()} disabled={workspaceState === "saving"}>
-                      Persist Preview Job
+                    <button
+                      className="primary-button"
+                      onClick={() => void createPreviewJob()}
+                      disabled={!manualSourceReady || workspaceState === "saving"}
+                    >
+                      {lastPreviewJob ? "Regenerate Preview Job" : "Generate Preview Job"}
                     </button>
                   </div>
                 </section>
@@ -10468,13 +10898,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <PanelHeader
                     icon={Database}
                     title="Product Resolution Review"
-                    detail={`${productResolutionRows.length || parsedOrderRows.length} order rows · ${referenceRowCount} reference rows`}
+                    detail={`${displayedProductResolutionRows.length} order rows · ${referenceRowCount} reference rows`}
                   />
                   <table>
                     <thead>
                       <tr>
                         <th>Source</th>
                         <th>Generated Key</th>
+                        <th>Qty</th>
                         <th>Status</th>
                         <th>{activeOutputRoute.product_identifier_label}</th>
                         <th>Product Name</th>
@@ -10482,26 +10913,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </tr>
                     </thead>
                     <tbody>
-                      {(productResolutionRows.length
-                        ? productResolutionRows
-                        : parsedOrderRows.slice(0, 8).map((row, index) => ({
-                            source_sheet_name: row.sheet_name,
-                            source_row_number: row.row_number,
-                            output_route_id: activeOutputRoute.output_route_id,
-                            line_number: index + 1,
-                            strategy: activeProductConfig.strategy,
-                            mode: activeProductConfig.mode,
-                            customer_product_key: "Generate preview to resolve",
-                            display_label: String(row.values.DESCRIPTION ?? row.values["SIGN TYPE"] ?? `Row ${row.row_number}`),
-                            source_columns: [activeProductConfig.source_column],
-                            resolved_product_identifier: null,
-                            resolved_unit_number: null,
-                            resolved_product_id: null,
-                            product_name: String(row.values.DESCRIPTION ?? ""),
-                            status: "Unmapped" as ProductMappingStatus,
-                            message: "Generate a preview job to create product resolution results."
-                          }))
-                      ).map((result) => {
+                      {displayedProductResolutionRows.map((result) => {
                         const savedMapping = productMappings.find(
                           (mapping) =>
                             mapping.output_route_id === result.output_route_id &&
@@ -10528,6 +10940,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <td>
                               <strong>{result.customer_product_key}</strong>
                               <span className="cell-meta">{result.display_label}</span>
+                            </td>
+                            <td>
+                              <strong>{displayedCanonicalOrder.lines[result.line_number - 1]?.quantity ?? "—"}</strong>
                             </td>
                             <td>
                               <span
@@ -10588,7 +11003,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </tbody>
                   </table>
                   {productResolutionRows.length === 0 ? (
-                    <p className="empty-state">Generate a preview job to create durable product keys and mapping results.</p>
+                    <p className="empty-state">
+                      Saved route mappings are shown before preview. Generate a preview job to persist validation and certification results.
+                    </p>
                   ) : null}
                 </section>
 
@@ -11160,13 +11577,25 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               </span>
                             </td>
                             <td>
-                              <button
-                                className="secondary-button table-inline-button"
-                                onClick={() => requestGuardedNavigation(() => selectTargetForEdit(target))}
-                              >
-                                <Edit3 size={14} />
-                                Edit
-                              </button>
+                              <div className="target-row-actions">
+                                <button
+                                  className="secondary-button table-inline-button"
+                                  onClick={() => requestGuardedNavigation(() => selectTargetForEdit(target))}
+                                >
+                                  <Edit3 size={14} />
+                                  Edit
+                                </button>
+                                <button
+                                  className="icon-button-danger"
+                                  type="button"
+                                  title={localDraftTargetIds.includes(target.target_id) ? `Discard ${target.name}` : `Delete ${target.name}`}
+                                  aria-label={localDraftTargetIds.includes(target.target_id) ? `Discard ${target.name}` : `Delete ${target.name}`}
+                                  onClick={() => requestTargetDelete(target)}
+                                  disabled={workspaceState === "saving"}
+                                >
+                                  <Trash2 size={15} />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -11206,6 +11635,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </>
                       )}
                     </span>
+                    <button
+                      className="secondary-button destructive-secondary-button"
+                      onClick={() => requestTargetDelete(selectedTarget)}
+                      disabled={workspaceState === "saving"}
+                    >
+                      <Trash2 size={15} />
+                      {localDraftTargetIds.includes(selectedTarget.target_id) ? "Discard Draft" : "Delete Target"}
+                    </button>
                     <button
                       className="primary-button"
                       onClick={() => void saveTarget(selectedTarget)}
@@ -11326,7 +11763,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <button
                                 className="icon-button-danger"
                                 title={deleteTitle}
-                                onClick={() => removeTargetEnvironmentDraft(selectedTarget.target_id, environment.environment_id)}
+                                onClick={() =>
+                                  setDestructiveConfirmation({
+                                    kind: "target-environment",
+                                    target_id: selectedTarget.target_id,
+                                    target_name: selectedTarget.name,
+                                    environment_id: environment.environment_id,
+                                    environment_name: environment.name
+                                  })
+                                }
                                 disabled={deleteDisabled}
                               >
                                 <Trash2 size={15} />
@@ -12249,6 +12694,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         {activeGlobalView === "Jobs" ? (
           <section className="panel jobs-panel">
             <PanelHeader icon={Archive} title="Processing Jobs" detail="Order history and internal status lookup" />
+            <ProofOpsPanel apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} />
             <div className="internal-order-lookup">
               <div>
                 <p className="eyebrow">Staff Status Lookup</p>
@@ -12411,26 +12857,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <div className="job-detail-actions">
                   <StatePill state={selectedJobDetail.state} />
                   <button
-                    className="primary-button"
-                    onClick={() => void requestLiftSubmit(selectedJobDetail, true)}
-                    disabled={!canRetrySelectedJob || workspaceState === "saving"}
-                  >
-                    <Send size={16} />
-                    Retry Submit
-                  </button>
-                  <button
-                    className="secondary-button"
-                    onClick={() => void lookupLiftOrder(selectedJobDetail)}
-                    disabled={
-                      orderLookupState === "loading" ||
-                      !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
-                    }
-                  >
-                    <Search size={16} />
-                    {orderLookupState === "loading" ? "Looking up" : "Lookup Lift Order"}
-                  </button>
-                  <button
-                    className="secondary-button"
+                    className="primary-button job-detail-view-order"
                     onClick={() => void loadOrderSnapshot(selectedJobDetail)}
                     disabled={
                       orderSnapshotState === "loading" ||
@@ -12438,43 +12865,114 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     }
                   >
                     <ClipboardList size={16} />
-                    {orderSnapshotState === "loading" ? "Building snapshot" : "Order Snapshot"}
+                    {orderSnapshotState === "loading"
+                      ? "Refreshing order…"
+                      : orderSnapshotResult
+                        ? "Refresh Order"
+                        : "View Order"}
                   </button>
+                  <details className="job-detail-action-menu">
+                    <summary className="secondary-button">
+                      Actions
+                      <ChevronDown size={16} />
+                    </summary>
+                    <div className="job-detail-action-popover">
+                      <strong>Job Actions</strong>
+                      <div className="topbar-menu-list">
+                        <button
+                          className="topbar-menu-item"
+                          onClick={() => void createStatusLink(selectedJobDetail)}
+                          disabled={
+                            statusLinkState === "loading" ||
+                            !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
+                          }
+                        >
+                          <Copy size={16} />
+                          <span>
+                            <strong>{statusLinkState === "loading" ? "Creating link…" : "Create Status Link"}</strong>
+                            <small>Generate a secure customer-facing order view.</small>
+                          </span>
+                        </button>
+                        <button
+                          className="topbar-menu-item"
+                          onClick={() => void lookupLiftOrder(selectedJobDetail)}
+                          disabled={
+                            orderLookupState === "loading" ||
+                            !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
+                          }
+                        >
+                          <Search size={16} />
+                          <span>
+                            <strong>{orderLookupState === "loading" ? "Looking up order…" : "Lookup Lift Order"}</strong>
+                            <small>Run the raw Lift order lookup for diagnostics.</small>
+                          </span>
+                        </button>
+                        <button
+                          className="topbar-menu-item"
+                          onClick={() => void lookupLiftProofs(selectedJobDetail)}
+                          disabled={
+                            proofReportState === "loading" ||
+                            !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
+                          }
+                        >
+                          <FileText size={16} />
+                          <span>
+                            <strong>{proofReportState === "loading" ? "Loading proofs…" : "Lookup Proofs"}</strong>
+                            <small>Refresh the raw Lift proof report.</small>
+                          </span>
+                        </button>
+                        <button
+                          className="topbar-menu-item"
+                          onClick={() => void lookupLiftPackages(selectedJobDetail)}
+                          disabled={
+                            packageDetailsState === "loading" ||
+                            !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
+                          }
+                        >
+                          <Archive size={16} />
+                          <span>
+                            <strong>{packageDetailsState === "loading" ? "Loading packages…" : "Lookup Packages"}</strong>
+                            <small>Refresh shipment and package diagnostics.</small>
+                          </span>
+                        </button>
+                      </div>
+                      {canRetrySelectedJob ? (
+                        <div className="job-detail-submit-menu">
+                          {prodSandboxConfirmationRequired ? (
+                            <label className="job-detail-submit-confirmation">
+                              <input
+                                type="checkbox"
+                                checked={prodSandboxSubmitConfirmed}
+                                onChange={(event) =>
+                                  setConfirmedProdSandboxSubmitKey(event.target.checked ? prodSandboxConfirmationKey : null)
+                                }
+                              />
+                              <span>Confirm PROD · LTL Demo / 1249</span>
+                            </label>
+                          ) : null}
+                          <button
+                            className="primary-button job-detail-submit-action"
+                            onClick={() => void requestLiftSubmit(selectedJobDetail, Boolean(latestJobAttempt))}
+                            disabled={
+                              workspaceState === "saving" ||
+                              (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed)
+                            }
+                          >
+                            <Send size={16} />
+                            {workspaceState === "saving"
+                              ? "Submitting…"
+                              : latestJobAttempt
+                                ? "Retry Submit"
+                                : "Submit to Lift"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </details>
                   <button
-                    className="secondary-button"
-                    onClick={() => void createStatusLink(selectedJobDetail)}
-                    disabled={
-                      statusLinkState === "loading" ||
-                      !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
-                    }
-                  >
-                    <Copy size={16} />
-                    {statusLinkState === "loading" ? "Creating link" : "Create Status Link"}
-                  </button>
-                  <button
-                    className="secondary-button"
-                    onClick={() => void lookupLiftProofs(selectedJobDetail)}
-                    disabled={
-                      proofReportState === "loading" ||
-                      !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
-                    }
-                  >
-                    <FileText size={16} />
-                    {proofReportState === "loading" ? "Loading proofs" : "Lookup Proofs"}
-                  </button>
-                  <button
-                    className="secondary-button"
-                    onClick={() => void lookupLiftPackages(selectedJobDetail)}
-                    disabled={
-                      packageDetailsState === "loading" ||
-                      !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
-                    }
-                  >
-                    <Archive size={16} />
-                    {packageDetailsState === "loading" ? "Loading packages" : "Lookup Packages"}
-                  </button>
-                  <button
-                    className="secondary-button"
+                    className="job-detail-close-button"
+                    aria-label="Close job detail"
+                    title="Close job detail"
                     onClick={() => {
                       setSelectedJobDetail(null);
                       setOrderLookupResult(null);
@@ -12489,7 +12987,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       setStatusLinkState("idle");
                     }}
                   >
-                    Close
+                    <X size={18} />
                   </button>
                 </div>
               </div>
@@ -12533,54 +13031,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     title="Pathfinder Order Snapshot"
                     detail={`${orderSnapshotResult.order_number} · ${orderSnapshotResult.lines.length} line${orderSnapshotResult.lines.length === 1 ? "" : "s"} · ${orderSnapshotResult.packages.length} package${orderSnapshotResult.packages.length === 1 ? "" : "s"}`}
                   />
-                  <dl className="customer-details job-detail-summary">
-                    <DetailItem label="Source Order" value={orderSnapshotResult.source_order_id} />
-                    <DetailItem label="Submit Customer" value={`${orderSnapshotResult.customer.submit_customer_name} / ${orderSnapshotResult.customer.submit_customer_id}`} />
-                    <DetailItem label="Route" value={orderSnapshotResult.route.name} />
-                    <DetailItem label="Proofs" value={`${orderSnapshotResult.proofs.length}`} />
-                    <DetailItem label="Packages" value={`${orderSnapshotResult.packages.length}`} />
-                    <DetailItem label="Redacted" value={orderSnapshotResult.visibility_policy.redacted_fields.join(", ") || "None"} />
-                  </dl>
-                  {orderSnapshotResult.issues.length ? (
-                    <div className="template-warning-strip">
-                      <AlertTriangle size={16} />
-                      <span>
-                        {orderSnapshotResult.issues.length} snapshot issue{orderSnapshotResult.issues.length === 1 ? "" : "s"}:
-                        {" "}
-                        {orderSnapshotResult.issues.map((issue) => issue.message).join(" ")}
-                      </span>
+                  <OrderRollup snapshot={orderSnapshotResult} audience="internal" displayDate={displayTimestamp} />
+                  <details className="order-snapshot-developer-details">
+                    <summary>Developer details</summary>
+                    <div className="customer-details job-detail-summary">
+                      <DetailItem label="Source Order" value={orderSnapshotResult.source_order_id} />
+                      <DetailItem label="Submit Customer" value={`${orderSnapshotResult.customer.submit_customer_name} / ${orderSnapshotResult.customer.submit_customer_id}`} />
+                      <DetailItem label="Route" value={orderSnapshotResult.route.name} />
+                      <DetailItem label="Redacted" value={orderSnapshotResult.visibility_policy.redacted_fields.join(", ") || "None"} />
                     </div>
-                  ) : null}
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Line</th>
-                        <th>Product</th>
-                        <th>Qty</th>
-                        <th>Proofs</th>
-                        <th>Packages</th>
-                        <th>Latest Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {orderSnapshotResult.lines.map((line) => (
-                        <tr key={`${line.line_number}-${line.order_line_id ?? "line"}`}>
-                          <td>{line.line_number}</td>
-                          <td>
-                            <strong>{line.product_name ?? line.description ?? "Unknown product"}</strong>
-                            <span className="cell-meta">
-                              {line.product_id ? `Product ID ${line.product_id}` : line.unit_number ? `Unit ${line.unit_number}` : "No product identifier"}
-                            </span>
-                          </td>
-                          <td>{line.quantity}</td>
-                          <td>{line.proof_count}</td>
-                          <td>{line.package_count}</td>
-                          <td>{line.latest_tracking_message ?? line.latest_proof_status ?? "No external status yet"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <pre>{formatJson(orderSnapshotResult)}</pre>
+                    <pre>{formatJson(orderSnapshotResult)}</pre>
+                  </details>
                 </div>
               ) : null}
               {orderLookupResult ? (
@@ -13653,6 +14114,63 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               ) : (
                 <p className="empty-state">Loading snapshot...</p>
               )}
+            </section>
+          </div>
+        ) : null}
+
+        {destructiveConfirmation && destructiveConfirmationCopy ? (
+          <div
+            className="product-map-modal-backdrop"
+            role="presentation"
+            onClick={() => workspaceState !== "saving" && setDestructiveConfirmation(null)}
+          >
+            <section
+              className="product-map-modal destructive-confirmation-modal"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="destructive-confirmation-title"
+              aria-describedby="destructive-confirmation-description"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-section-header">
+                <div>
+                  <p className="eyebrow">{destructiveConfirmationCopy.eyebrow}</p>
+                  <h2 id="destructive-confirmation-title">{destructiveConfirmationCopy.title}</h2>
+                  <span id="destructive-confirmation-description">Review the exact item before continuing.</span>
+                </div>
+                <button
+                  className="modal-close-button"
+                  onClick={() => setDestructiveConfirmation(null)}
+                  aria-label="Cancel deletion"
+                  disabled={workspaceState === "saving"}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="destructive-confirmation-body">
+                <AlertTriangle size={22} />
+                <div>
+                  <strong>{destructiveConfirmationCopy.item}</strong>
+                  <span>{destructiveConfirmationCopy.body}</span>
+                </div>
+              </div>
+              <div className="modal-action-row">
+                <button
+                  className="secondary-button"
+                  onClick={() => setDestructiveConfirmation(null)}
+                  disabled={workspaceState === "saving"}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="danger-button"
+                  onClick={() => void confirmDestructiveAction()}
+                  disabled={workspaceState === "saving"}
+                >
+                  <Trash2 size={16} />
+                  {destructiveConfirmationCopy.confirmLabel}
+                </button>
+              </div>
             </section>
           </div>
         ) : null}

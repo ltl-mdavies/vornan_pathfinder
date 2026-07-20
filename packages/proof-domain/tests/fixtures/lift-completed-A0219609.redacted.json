@@ -1,0 +1,61 @@
+{
+  "fixture": {
+    "source": "Read-only Lift contract capture, redacted representative line",
+    "captured_at": "2026-07-20",
+    "source_line_count": 86,
+    "redactions": [
+      "customer identity",
+      "order title and PO",
+      "product and material names",
+      "proof filenames and URLs",
+      "approver identity and report content",
+      "85 structurally equivalent completed lines"
+    ]
+  },
+  "order_number": "A0219609",
+  "order_payload": {
+    "rowset": [
+      {
+        "ORDER_NUMBER": "A0219609",
+        "ORDER_STATUS": "Invoiced",
+        "HEADER_STEP_NUMBER": 18,
+        "ORDER_TITLE": "Redacted completed order",
+        "CUSTOMER_NAME": "Redacted customer",
+        "LINES": [
+          {
+            "ORDER_LINE_ID": 9172310,
+            "LINE_NUMBER": 1,
+            "LINE_STEP_NUMBER": 18,
+            "PRODUCT_NAME": "Redacted product",
+            "QUANTITY": 1
+          }
+        ]
+      }
+    ]
+  },
+  "proof_payloads": [
+    {
+      "rowset": [
+        {
+          "ORDER_NUMBER": "A0219609",
+          "ORDER_LINE_ID": 9172310,
+          "LINE_NUMBER": 1,
+          "LINE_STEP_NUMBER": 18,
+          "ATTACHMENT_ID": 24942415,
+          "CREATION_DATE": "2026-06-15T10:00:00Z",
+          "PRODUCT_NAME": "Redacted product",
+          "PROOF_FILENAME": "redacted-completed-proof.jpg",
+          "PROOF_LINK_LOW": "https://proof-assets.example.invalid/redacted-completed-low.jpg",
+          "PROOF_LINK_HIGH": "https://proof-assets.example.invalid/redacted-completed.jpg",
+          "PROOF_APPROVAL_STATUS": "APPROVED",
+          "PROOF_APPROVED_BY": "[redacted approver]",
+          "PROOF_APPROVED_DATE": "2026-06-16T12:00:00Z",
+          "PROOF_COMMENT": null,
+          "COMMENT_TS": null,
+          "COMMENT_ATTACHMENT": null,
+          "DETAILED_REPORT": [{ "name": "Redacted check", "status": "PASS" }]
+        }
+      ]
+    }
+  ]
+}

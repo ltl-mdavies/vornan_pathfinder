@@ -15,6 +15,12 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Require merged main branch
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Production status-web deploys must run from the merged main branch. Selected ref: ${GITHUB_REF}"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -29,6 +35,9 @@ jobs:
 
       - name: Check
         run: npm run check
+
+      - name: Test
+        run: npm run test
 
       - name: Build status web
         env:
