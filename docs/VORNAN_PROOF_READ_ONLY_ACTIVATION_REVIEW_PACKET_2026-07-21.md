@@ -51,7 +51,7 @@ Only after the Proof PR is merged and the exact change is reviewed may the isola
 3. Store the Lambda response in a permission-restricted temporary file, hand the raw fragment link privately, and remove the file after use. Do not include the payload or response in command history, logs, evidence, or application email.
 4. Watch the operator/public telemetry, WAF, sync queue, and DLQ. Revoke active grants and restore `OperatorGrantCreationEnabled=false`, `PublicReadEnabled=false`, and `ReadOnlyQaConfirmed=false` at the deadline or on any rollback trigger.
 
-No step above has been executed by this branch.
+The implementation branch did not execute these steps. The subsequently approved, separately reviewed opening run is recorded in `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_QA_EVIDENCE_2026-07-21.md`.
 
 ## Immutable exclusions
 
@@ -95,4 +95,4 @@ The raw Lift application URL supplied earlier is not retained. QA evidence may r
 - `npm run check:proof-activation-review`: 4/4 scope, 6/6 operations, and 7/7 safety controls passed; every authorization remained false.
 - `git diff --check`: passed.
 
-Only read-only AWS inventory calls were made by this slice. No AWS mutation or Lift request occurred. Until merge and a separately reviewed deployment, `vornan-proof-dev` remains dark.
+Only read-only AWS inventory calls were made while preparing this review packet. The later approved deployment and GET-only lifecycle are recorded separately in `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_QA_EVIDENCE_2026-07-21.md`; this packet remains the authorization and control record rather than runtime evidence.
