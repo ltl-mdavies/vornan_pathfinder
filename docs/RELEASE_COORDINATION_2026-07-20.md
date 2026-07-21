@@ -191,3 +191,18 @@ For the final handoff, record:
 ## Immediate next action
 
 Wait for the active Proof hardening task to finish and classify its artifacts. Then freeze the shared branch, rerun the full combined validation gate, review the exact staged file list together, and create the intentional feature-branch commit. Pushing the feature branch is appropriate at that point. Production deployment is appropriate only after review and merge to `main`.
+
+## Release execution evidence — 2026-07-21
+
+The checkpoint described above is complete.
+
+- Combined release PR: #3; merged release SHA `5afbb69`.
+- API deployment: GitHub Actions run `29786460634`; production health HTTP 200 with DynamoDB and Secrets Manager ready.
+- Admin-web deployment: run `29786589756`; `https://pathfinder.vornan.co` HTTP 200.
+- Status-web deployment: run `29786666131`; `https://status.vornan.co` HTTP 200.
+- Proof dark deployment: run `29791214408` from merged SHA `f250f29`; stack `vornan-proof-dev` reached `CREATE_COMPLETE`, SPA publication succeeded, the dark smoke suite passed, and the DNS-readiness handoff completed.
+- Independent Proof verification reconfirmed public reads off, decisions off, direct API bypass rejected, managed WAF on, and both QA and production-public-read approvals false.
+
+No Proof DNS record was changed and no Proof customer capability was exposed. Production Proof trust, public reads, grant creation, link email, token exchange, customer decisions, and all Lift writes remain separately gated and out of this release.
+
+The next release action is not another deployment. First perform isolated read-only QA against the dark `dev` stack, record the results, and request separate approval before any DNS or public-read change.
