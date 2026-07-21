@@ -2626,3 +2626,13 @@ The clean dark-deployment retry passed the previously blocked API Gateway tag op
 - Kept those service-required operations in the existing observability statement with `Resource: "*"`; no `logs:*` wildcard or application data permission was added.
 - Expanded the deployment-safety regression test so the complete reviewed logging lifecycle remains present and full-service wildcards remain forbidden.
 - The failed retry rolled back before SPA publication or smoke testing. Public Proof reads, grant creation, link email, approval, revision, undo, public decisions, and Lift writes all remained disabled.
+
+## 2026-07-21 - Proof Event-Source Mapping Resource Scope
+
+The next dark-deployment retry passed HTTP API stage creation and created its encrypted tables, queues, log groups, and web bucket. CloudFormation then failed closed because the deploy policy allowed the Lambda event-source mapping actions only against function, table, and queue ARNs rather than Lambda's separately defined event-source-mapping ARN.
+
+- Added a dedicated lifecycle statement scoped to `arn:aws:lambda:us-east-1:744016783602:event-source-mapping:*` for read, update, delete, and tag operations.
+- Added `lambda:CreateEventSourceMapping` with the AWS-supported `lambda:FunctionArn` condition restricted to `vornan-proof-*` functions; mapping ARNs cannot scope creation because the mapping does not exist yet.
+- Added only `lambda:ListEventSourceMappings` with `Resource: "*"`, as required by the CloudFormation handler and AWS IAM's non-resource-scoped list operation.
+- Added regression coverage for the exact mapping ARN, lifecycle action set, and single global list action; no `lambda:*` wildcard was added.
+- The failed retry again rolled back before SPA publication or smoke testing. Public Proof reads and every Proof decision/write capability remained disabled.

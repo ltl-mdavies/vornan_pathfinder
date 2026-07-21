@@ -101,3 +101,44 @@ test("covers the CloudFormation handlers used by the Proof stack without global 
     assert.equal(allActions.includes(action), false, `Policy must not grant ${action}`);
   }
 });
+
+test("scopes the Proof event-source mapping lifecycle to mapping ARNs", () => {
+  const policy = JSON.parse(readFileSync(policyPath, "utf8"));
+  const mappingStatement = policy.Statement.find(
+    (statement) => statement.Sid === "ManageProofEventSourceMappings",
+  );
+  const listStatement = policy.Statement.find(
+    (statement) => statement.Sid === "ListProofEventSourceMappings",
+  );
+  const createStatement = policy.Statement.find(
+    (statement) => statement.Sid === "CreateProofEventSourceMappings",
+  );
+
+  assert.ok(mappingStatement);
+  assert.deepEqual(mappingStatement.Action, [
+    "lambda:DeleteEventSourceMapping",
+    "lambda:GetEventSourceMapping",
+    "lambda:ListTags",
+    "lambda:TagResource",
+    "lambda:UntagResource",
+    "lambda:UpdateEventSourceMapping",
+  ]);
+  assert.equal(
+    mappingStatement.Resource,
+    "arn:aws:lambda:us-east-1:744016783602:event-source-mapping:*",
+  );
+
+  assert.ok(createStatement);
+  assert.equal(createStatement.Action, "lambda:CreateEventSourceMapping");
+  assert.equal(createStatement.Resource, "*");
+  assert.deepEqual(createStatement.Condition, {
+    ArnLike: {
+      "lambda:FunctionArn":
+        "arn:aws:lambda:us-east-1:744016783602:function:vornan-proof-*",
+    },
+  });
+
+  assert.ok(listStatement);
+  assert.equal(listStatement.Action, "lambda:ListEventSourceMappings");
+  assert.equal(listStatement.Resource, "*");
+});

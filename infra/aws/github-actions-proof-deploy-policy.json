@@ -87,6 +87,36 @@
       ]
     },
     {
+      "Sid": "ManageProofEventSourceMappings",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:DeleteEventSourceMapping",
+        "lambda:GetEventSourceMapping",
+        "lambda:ListTags",
+        "lambda:TagResource",
+        "lambda:UntagResource",
+        "lambda:UpdateEventSourceMapping"
+      ],
+      "Resource": "arn:aws:lambda:us-east-1:744016783602:event-source-mapping:*"
+    },
+    {
+      "Sid": "CreateProofEventSourceMappings",
+      "Effect": "Allow",
+      "Action": "lambda:CreateEventSourceMapping",
+      "Resource": "*",
+      "Condition": {
+        "ArnLike": {
+          "lambda:FunctionArn": "arn:aws:lambda:us-east-1:744016783602:function:vornan-proof-*"
+        }
+      }
+    },
+    {
+      "Sid": "ListProofEventSourceMappings",
+      "Effect": "Allow",
+      "Action": "lambda:ListEventSourceMappings",
+      "Resource": "*"
+    },
+    {
       "Sid": "ManageProofObservability",
       "Effect": "Allow",
       "Action": [
