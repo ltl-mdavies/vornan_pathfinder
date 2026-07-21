@@ -1,11 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildPublicIntakeVerificationEmail,
   buildProofLinkEmail,
   configurationSetForCategory,
   replyToForCategory,
   sendTransactionalEmail
 } from "../src/email.ts";
+
+test("builds a branded order-dropbox verification code without exposing HTML", () => {
+  process.env.PATHFINDER_STATUS_EMAIL_MODE = "log";
+  const email = buildPublicIntakeVerificationEmail({
+    to: "buyer@example.com",
+    code: "482913",
+    expiresAt: "2026-07-21T22:10:00.000Z",
+    customerName: "Momentara <Demo>"
+  });
+
+  assert.equal(email.category, "intake_verification");
+  assert.deepEqual(email.replyTo, ["orders@vornan.co"]);
+  assert.match(email.subject, /Momentara/);
+  assert.match(email.text, /482913/);
+  assert.match(email.html, /Momentara &lt;Demo&gt;/);
+  assert.doesNotMatch(email.html, /Momentara <Demo>/);
+});
 
 test("builds the view-only Proof link contract with the dedicated support reply-to", () => {
   process.env.PATHFINDER_STATUS_EMAIL_MODE = "log";

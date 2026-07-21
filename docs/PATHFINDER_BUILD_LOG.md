@@ -2885,3 +2885,19 @@ Marcus explicitly approved a one-week internal read-only QA window for Lift LTL 
 - Validation passed all 144 workspace tests, all 48 Proof deployment-safety tests, every workspace typecheck, all production builds, both bounded readiness evaluators, and `git diff --check`.
 
 No stack flag was enabled and no deployment, AWS mutation, Lift request, DNS change, email, decision, or Lift write was performed by this slice. The branch prepares only the server-enforced boundary and a manual activation review.
+
+## 2026-07-21 - Customer Dropbox One-Time Email Verification Foundation
+
+Added the fail-closed work-email possession layer for published Customer Order Dropbox pages.
+
+- Import Methods can require a six-digit one-time verification code in addition to syntax/domain validation. Enabling verification also requires the work-email field.
+- Challenges are bound to the current private page key and normalized email, expire after ten minutes, allow at most five failed attempts, and store only keyed hashes plus a masked address.
+- Successful confirmation returns a narrow random verification token once. Preview may reuse it, but creating the preview job consumes it with a conditional DynamoDB write so concurrent or later submissions cannot create a second job.
+- Request traffic has separate page, email, and IP rate limits. Expired, exhausted, mismatched, and consumed challenges fail without exposing stored secrets.
+- The customer page has a compact send-code/confirm-code/verified flow and includes the verification context only in preview and submit requests.
+- The operator toggle is disabled with a clear runtime note until both Amazon SES delivery and the explicit `PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED` server gate are active.
+- CloudFormation and the API deployment workflow define that gate with a default of `false`. A local-only debug return-code mode is excluded from Lambda runtime.
+- Focused regression coverage proves fail-closed availability, domain rejection, successful verification, preview authorization, single-use consumption, expiry, and attempt exhaustion.
+- Full repository validation passed all workspace checks, all 150 tests, every production build, and `git diff --check`. Local browser QA completed the request/confirm/preview flow at desktop and 390px mobile with no horizontal overflow.
+
+Deployment posture remains unchanged: `notify.vornan.co` is verified with successful DKIM and custom MAIL FROM, but the SES account still lacks production access and the deploy workflow defaults to `log` mode. No real email was sent, no deployment occurred, and no Lift or Proof capability changed.

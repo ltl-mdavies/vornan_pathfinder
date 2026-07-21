@@ -158,6 +158,14 @@ type EmailStatusPayload = {
     region: string;
     configuration_set: string | null;
   };
+  public_intake_email_verification: {
+    gate_enabled: boolean;
+    available: boolean;
+    delivery_mode: "log" | "ses";
+    debug_code_enabled: boolean;
+    code_ttl_minutes: number;
+    max_attempts: number;
+  };
   readiness: {
     status: EmailReadinessStatus;
     items: {
@@ -347,6 +355,7 @@ interface PublicIntakeConfig {
   headline: string;
   instructions: string;
   require_email: boolean;
+  require_email_verification: boolean;
   allowed_email_domains: string[];
   submit_profile_id: string | null;
   max_order_rows: number;
@@ -1009,6 +1018,7 @@ const defaultPublicIntakeConfig: PublicIntakeConfig = {
   headline: "Put your print order in motion.",
   instructions: "Upload your completed order spreadsheet. We will validate the rows and send the order to our production team for review.",
   require_email: true,
+  require_email_verification: false,
   allowed_email_domains: [],
   submit_profile_id: null,
   max_order_rows: 250,
@@ -8871,7 +8881,46 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <span className="switch-field-track" aria-hidden="true" />
                         <span>Require a valid work email</span>
                       </label>
+                      <label
+                        className="switch-field public-intake-email-check"
+                        title={
+                          emailStatus?.public_intake_email_verification.available
+                            ? undefined
+                            : "Available after the one-time verification server gate and SES delivery are enabled."
+                        }
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label="Verify work email with a one-time code"
+                          checked={activeImportMethod.public_intake.require_email_verification}
+                          disabled={
+                            !emailStatus?.public_intake_email_verification.available &&
+                            !activeImportMethod.public_intake.require_email_verification
+                          }
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              public_intake: {
+                                ...activeImportMethod.public_intake,
+                                require_email: event.target.checked
+                                  ? true
+                                  : activeImportMethod.public_intake.require_email,
+                                require_email_verification: event.target.checked
+                              }
+                            })
+                          }
+                        />
+                        <span className="switch-field-track" aria-hidden="true" />
+                        <span>Verify email with a one-time code</span>
+                      </label>
                     </div>
+                    {!emailStatus?.public_intake_email_verification.available ? (
+                      <div className="public-intake-runtime-note" role="status">
+                        <ShieldCheck size={16} />
+                        <span>
+                          One-time email verification is safely unavailable until SES delivery and the server gate are enabled.
+                        </span>
+                      </div>
+                    ) : null}
                     <div className="public-intake-link-row">
                       <div>
                         <span>Customer page</span>

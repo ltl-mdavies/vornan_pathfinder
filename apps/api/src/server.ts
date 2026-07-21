@@ -2,7 +2,7 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { createHash, createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
@@ -68,6 +68,7 @@ import {
   archiveImportMethod,
   addCanonicalRegistryCustomField,
   bulkUpsertProductMappings,
+  consumePublicIntakeEmailVerification,
   createDefaultPublicIntakeConfig,
   createDefaultProductResolutionConfig,
   deleteTarget,
@@ -86,11 +87,13 @@ import {
   listTargets,
   getJob,
   getOrderStatusToken,
+  getPublicIntakeEmailVerification,
   getPublicIntakeMethodByKey,
   getPublicOrderStatusSnapshot,
   getSubmitAttemptByIdempotencyKey,
   maskTargetConfig,
   persistOrderStatusToken,
+  persistPublicIntakeEmailVerification,
   persistJobSnapshot,
   persistPreviewJob,
   persistPublicOrderStatusSnapshot,
@@ -123,6 +126,7 @@ import {
   type ProductResolutionResult,
   type ProcessingJobPreview,
   type PublicIntakeConfig,
+  type PublicIntakeEmailVerificationRecord,
   type PathfinderCustomerWorkspace,
   type PublicOrderStatusSnapshot,
   type StatusAccessPolicy,
@@ -137,6 +141,7 @@ import {
 } from "./store.js";
 import { getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 import {
+  buildPublicIntakeVerificationEmail,
   buildStatusLinkEmail,
   getEmailRuntimeConfig,
   maskEmailAddress,
@@ -211,6 +216,23 @@ const publicIntakeRateLimits = new Map<string, { count: number; resetAt: number 
 const publicIntakeRateLimitWindowMs = Number(process.env.PATHFINDER_PUBLIC_INTAKE_RATE_LIMIT_WINDOW_MS ?? 15 * 60 * 1000);
 const publicIntakeRateLimitMax = Number(process.env.PATHFINDER_PUBLIC_INTAKE_RATE_LIMIT_MAX ?? 20);
 const publicIntakeMaxFileBytes = Number(process.env.PATHFINDER_PUBLIC_INTAKE_MAX_FILE_BYTES ?? 5 * 1024 * 1024);
+const publicIntakeEmailVerificationEnabled = process.env.PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED === "true";
+const publicIntakeEmailVerificationDebugCode =
+  process.env.PATHFINDER_PUBLIC_INTAKE_EMAIL_DEBUG_RETURN_CODE === "true" &&
+  process.env.PATHFINDER_RUNTIME !== "lambda";
+const publicIntakeEmailVerificationTtlMs = Math.min(
+  30 * 60 * 1000,
+  Math.max(2 * 60 * 1000, Number(process.env.PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_TTL_MS ?? 10 * 60 * 1000))
+);
+const publicIntakeEmailVerificationMaxAttempts = Math.min(
+  10,
+  Math.max(1, Number(process.env.PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_MAX_ATTEMPTS ?? 5))
+);
+const publicIntakeEmailVerificationRateLimits = new Map<string, { count: number; resetAt: number }>();
+const publicIntakeEmailVerificationRateLimitMax = Math.min(
+  20,
+  Math.max(1, Number(process.env.PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_RATE_LIMIT_MAX ?? 5))
+);
 
 app.use((_req, res, next) => {
   res.setHeader("Referrer-Policy", "no-referrer");
@@ -1380,6 +1402,97 @@ function publicIntakeEmailAllowed(config: PublicIntakeConfig, email: string) {
   }
   const domain = email.split("@").pop() ?? "";
   return config.allowed_email_domains.includes(domain);
+}
+
+function publicIntakeSecretHash(namespace: string, value: string) {
+  return createHmac("sha256", publicStatusRateLimitPepper)
+    .update(`${namespace}\0${value}`)
+    .digest("hex");
+}
+
+function publicIntakeEmailVerificationKey(challengeId: string) {
+  return `intake-email:${publicIntakeSecretHash("challenge", challengeId)}`;
+}
+
+function publicIntakeEmailVerificationAvailable() {
+  return publicIntakeEmailVerificationEnabled && getEmailRuntimeConfig().mode === "ses";
+}
+
+function publicIntakeEmailVerificationDebugAvailable() {
+  return (
+    publicIntakeEmailVerificationEnabled &&
+    publicIntakeEmailVerificationDebugCode &&
+    getEmailRuntimeConfig().mode === "log"
+  );
+}
+
+function publicIntakeEmailVerificationOperational() {
+  return publicIntakeEmailVerificationAvailable() || publicIntakeEmailVerificationDebugAvailable();
+}
+
+function isPublicIntakeEmailVerificationRateLimited(req: Request, publicKey: string, email: string) {
+  const now = Date.now();
+  const keys = [
+    `intake-verify-ip:${hashPublicLogValue(publicStatusRequestIp(req))}`,
+    `intake-verify-page:${hashPublicLogValue(publicKey)}`,
+    `intake-verify-email:${hashPublicLogValue(email)}`
+  ];
+
+  for (const key of keys) {
+    const current = publicIntakeEmailVerificationRateLimits.get(key);
+    if (current && current.resetAt > now && current.count >= publicIntakeEmailVerificationRateLimitMax) {
+      return true;
+    }
+  }
+
+  for (const key of keys) {
+    const current = publicIntakeEmailVerificationRateLimits.get(key);
+    if (!current || current.resetAt <= now) {
+      publicIntakeEmailVerificationRateLimits.set(key, { count: 1, resetAt: now + publicIntakeRateLimitWindowMs });
+    } else {
+      current.count += 1;
+    }
+  }
+  return false;
+}
+
+async function verifiedPublicIntakeEmailRecord(
+  config: PublicIntakeConfig,
+  publicKey: string,
+  email: string,
+  body: Record<string, unknown>
+) {
+  if (!config.require_email_verification) {
+    return null;
+  }
+  if (!publicIntakeEmailVerificationOperational()) {
+    throw new Error("Email verification is temporarily unavailable for this order page.");
+  }
+
+  const challengeId = valueAsString(body.email_verification_challenge_id).trim();
+  const verificationToken = valueAsString(body.email_verification_token).trim();
+  if (!challengeId || !verificationToken) {
+    throw new Error("Verify your work email before continuing.");
+  }
+
+  const record = await getPublicIntakeEmailVerification(publicIntakeEmailVerificationKey(challengeId));
+  if (!record) {
+    throw new Error("Email verification has expired. Request a new code.");
+  }
+  if (record.expires_at_epoch <= Math.floor(Date.now() / 1000)) {
+    if (record.status !== "Expired") {
+      await persistPublicIntakeEmailVerification({ ...record, status: "Expired", updated_at: new Date().toISOString() });
+    }
+    throw new Error("Email verification has expired. Request a new code.");
+  }
+  const validContext =
+    record.public_key_hash === publicIntakeSecretHash("public-key", publicKey) &&
+    record.email_hash === publicIntakeSecretHash("email", email) &&
+    record.verification_token_hash === publicIntakeSecretHash("verification-token", verificationToken);
+  if (!validContext || record.status !== "Verified") {
+    throw new Error(record.status === "Consumed" ? "This verification has already been used." : "Verify your work email before continuing.");
+  }
+  return record;
 }
 
 function isPublicIntakeRateLimited(req: Request, publicKey: string, email: string) {
@@ -2800,12 +2913,17 @@ app.get("/public/intake/:publicKey", async (req, res) => {
       return;
     }
     const { customer, method } = intake;
+    if (method.public_intake.require_email_verification && !publicIntakeEmailVerificationOperational()) {
+      res.status(503).json({ error: "This order page is temporarily unavailable." });
+      return;
+    }
     res.json({
       customer_name: customer.customer_name,
       method_name: method.name,
       headline: method.public_intake.headline,
       instructions: method.public_intake.instructions,
       require_email: method.public_intake.require_email,
+      email_verification_required: method.public_intake.require_email_verification,
       max_order_rows: method.public_intake.max_order_rows,
       accepted_file_types: [".xlsx", ".xls", ".csv"],
       expected_columns: (method.source_config.detected_schema?.columns ?? []).slice(0, 50)
@@ -2816,6 +2934,168 @@ app.get("/public/intake/:publicKey", async (req, res) => {
       error: error instanceof Error ? error.message : "Public intake configuration failed."
     });
     res.status(500).json({ error: "This order page is temporarily unavailable." });
+  }
+});
+
+app.post("/public/intake/:publicKey/email-verification/request", async (req, res) => {
+  try {
+    const intake = await getPublicIntakeMethodByKey(req.params.publicKey);
+    if (!intake) {
+      res.status(404).json({ error: "This order page is unavailable." });
+      return;
+    }
+    if (!intake.method.public_intake.require_email_verification) {
+      res.status(400).json({ error: "Email verification is not required for this order page." });
+      return;
+    }
+    if (!publicIntakeEmailVerificationOperational()) {
+      res.status(503).json({ error: "Email verification is temporarily unavailable." });
+      return;
+    }
+
+    const email = normalizeEmail(req.body?.email);
+    if (!publicIntakeEmailAllowed(intake.method.public_intake, email)) {
+      res.status(400).json({ error: "Enter an approved work email address." });
+      return;
+    }
+    if (isPublicIntakeEmailVerificationRateLimited(req, req.params.publicKey, email)) {
+      res.status(429).json({ error: "Too many verification requests. Wait a few minutes and try again." });
+      return;
+    }
+
+    const challengeId = randomBytes(24).toString("base64url");
+    const code = String(randomInt(100000, 1000000));
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + publicIntakeEmailVerificationTtlMs);
+    let record: PublicIntakeEmailVerificationRecord = {
+      token_hash: publicIntakeEmailVerificationKey(challengeId),
+      public_key_hash: publicIntakeSecretHash("public-key", req.params.publicKey),
+      email_hash: publicIntakeSecretHash("email", email),
+      email_masked: maskEmailAddress(email),
+      code_hash: publicIntakeSecretHash("code", `${challengeId}:${code}`),
+      verification_token_hash: null,
+      status: "Pending",
+      attempts: 0,
+      created_at: now.toISOString(),
+      updated_at: now.toISOString(),
+      expires_at: expiresAt.toISOString(),
+      expires_at_epoch: Math.floor(expiresAt.getTime() / 1000),
+      verified_at: null,
+      consumed_at: null,
+      delivery_mode: getEmailRuntimeConfig().mode,
+      delivery_status: "Pending",
+      provider_message_id: null
+    };
+    await persistPublicIntakeEmailVerification(record);
+
+    try {
+      const result = await sendTransactionalEmail(
+        buildPublicIntakeVerificationEmail({
+          to: email,
+          code,
+          expiresAt: expiresAt.toISOString(),
+          customerName: intake.customer.customer_name
+        })
+      );
+      record = {
+        ...record,
+        delivery_status: result.status === "sent" ? "Sent" : "Logged",
+        provider_message_id: result.provider_message_id ?? null,
+        updated_at: new Date().toISOString()
+      };
+      await persistPublicIntakeEmailVerification(record);
+    } catch (error) {
+      await persistPublicIntakeEmailVerification({
+        ...record,
+        delivery_status: "Failed",
+        updated_at: new Date().toISOString()
+      });
+      throw error;
+    }
+
+    res.status(202).json({
+      status: "code_sent",
+      challenge_id: challengeId,
+      email_masked: record.email_masked,
+      expires_at: record.expires_at,
+      debug_code: publicIntakeEmailVerificationDebugAvailable() ? code : undefined
+    });
+  } catch (error) {
+    console.error("[pathfinder-public-intake-email-request-error]", {
+      public_key_hash: hashPublicLogValue(req.params.publicKey),
+      error: error instanceof Error ? error.message : "Verification email request failed."
+    });
+    res.status(503).json({ error: "The verification code could not be sent. Try again shortly." });
+  }
+});
+
+app.post("/public/intake/:publicKey/email-verification/confirm", async (req, res) => {
+  try {
+    const intake = await getPublicIntakeMethodByKey(req.params.publicKey);
+    if (!intake) {
+      res.status(404).json({ error: "This order page is unavailable." });
+      return;
+    }
+    if (!intake.method.public_intake.require_email_verification || !publicIntakeEmailVerificationOperational()) {
+      res.status(503).json({ error: "Email verification is temporarily unavailable." });
+      return;
+    }
+    const email = normalizeEmail(req.body?.email);
+    const challengeId = valueAsString(req.body?.challenge_id).trim();
+    const code = valueAsString(req.body?.code).trim();
+    if (!publicIntakeEmailAllowed(intake.method.public_intake, email) || !challengeId || !/^\d{6}$/.test(code)) {
+      res.status(400).json({ error: "The verification code is invalid or expired." });
+      return;
+    }
+
+    const record = await getPublicIntakeEmailVerification(publicIntakeEmailVerificationKey(challengeId));
+    const now = new Date();
+    const validContext =
+      record &&
+      record.public_key_hash === publicIntakeSecretHash("public-key", req.params.publicKey) &&
+      record.email_hash === publicIntakeSecretHash("email", email);
+    const expired = !record || record.expires_at_epoch <= Math.floor(now.getTime() / 1000);
+    const exhausted = Boolean(record && record.attempts >= publicIntakeEmailVerificationMaxAttempts);
+    if (!record || !validContext || expired || exhausted || record.status !== "Pending") {
+      if (record && (expired || exhausted) && record.status !== "Expired") {
+        await persistPublicIntakeEmailVerification({ ...record, status: "Expired", updated_at: now.toISOString() });
+      }
+      res.status(400).json({ error: "The verification code is invalid or expired." });
+      return;
+    }
+
+    if (record.code_hash !== publicIntakeSecretHash("code", `${challengeId}:${code}`)) {
+      const attempts = record.attempts + 1;
+      await persistPublicIntakeEmailVerification({
+        ...record,
+        attempts,
+        status: attempts >= publicIntakeEmailVerificationMaxAttempts ? "Expired" : "Pending",
+        updated_at: now.toISOString()
+      });
+      res.status(400).json({ error: "The verification code is invalid or expired." });
+      return;
+    }
+
+    const verificationToken = randomBytes(32).toString("base64url");
+    await persistPublicIntakeEmailVerification({
+      ...record,
+      verification_token_hash: publicIntakeSecretHash("verification-token", verificationToken),
+      status: "Verified",
+      verified_at: now.toISOString(),
+      updated_at: now.toISOString()
+    });
+    res.json({
+      status: "verified",
+      challenge_id: challengeId,
+      verification_token: verificationToken,
+      expires_at: record.expires_at
+    });
+  } catch (error) {
+    console.error("[pathfinder-public-intake-email-confirm-error]", {
+      public_key_hash: hashPublicLogValue(req.params.publicKey),
+      error: error instanceof Error ? error.message : "Verification confirmation failed."
+    });
+    res.status(500).json({ error: "Email verification could not be completed." });
   }
 });
 
@@ -2831,6 +3111,12 @@ app.post("/public/intake/:publicKey/preview", async (req, res) => {
       res.status(400).json({ error: "Enter an approved work email address." });
       return;
     }
+    await verifiedPublicIntakeEmailRecord(
+      intake.method.public_intake,
+      req.params.publicKey,
+      email,
+      req.body as Record<string, unknown>
+    );
     if (isPublicIntakeRateLimited(req, req.params.publicKey, email)) {
       res.status(429).json({ error: "Too many requests. Wait a few minutes and try again." });
       return;
@@ -2857,6 +3143,12 @@ app.post("/public/intake/:publicKey/submit", async (req, res) => {
       res.status(400).json({ error: "Enter an approved work email address." });
       return;
     }
+    const emailVerification = await verifiedPublicIntakeEmailRecord(
+      intake.method.public_intake,
+      req.params.publicKey,
+      email,
+      req.body as Record<string, unknown>
+    );
     if (isPublicIntakeRateLimited(req, req.params.publicKey, email)) {
       res.status(429).json({ error: "Too many requests. Wait a few minutes and try again." });
       return;
@@ -2874,6 +3166,13 @@ app.post("/public/intake/:publicKey/submit", async (req, res) => {
       intake.method.public_intake.submit_profile_id ??
       outputRoute.submit_profiles.find((profile) => profile.enabled && profile.mode === "live_customer")?.profile_id ??
       outputRoute.submit_profiles.find((profile) => profile.enabled)?.profile_id;
+    if (emailVerification) {
+      const consumed = await consumePublicIntakeEmailVerification(emailVerification);
+      if (!consumed) {
+        res.status(409).json({ error: "This email verification has already been used. Request a new code." });
+        return;
+      }
+    }
     const result = await createPreviewJobForRequest(
       intake.customer.lift_customer_id,
       {
@@ -2976,6 +3275,14 @@ app.get("/api/email/status", (_req, res) => {
           globalAllowedDomainCount > 0
             ? `${globalAllowedDomainCount} trusted domain${globalAllowedDomainCount === 1 ? "" : "s"} can request status links across customers.`
             : "No global trusted domains are configured for cross-customer status lookup."
+      },
+      {
+        item_id: "public-intake-email-verification",
+        status: publicIntakeEmailVerificationAvailable() ? "Ready" : "Warning",
+        label: "Order dropbox email verification",
+        message: publicIntakeEmailVerificationAvailable()
+          ? "One-time work-email verification is available for published customer order pages."
+          : "One-time work-email verification remains unavailable until its server gate and SES delivery are both enabled."
       }
     ];
 
@@ -2993,6 +3300,14 @@ app.get("/api/email/status", (_req, res) => {
       },
       public_status_access: {
         global_allowed_domains_configured: globalAllowedDomainCount
+      },
+      public_intake_email_verification: {
+        gate_enabled: publicIntakeEmailVerificationEnabled,
+        available: publicIntakeEmailVerificationAvailable(),
+        delivery_mode: config.mode,
+        debug_code_enabled: publicIntakeEmailVerificationDebugAvailable(),
+        code_ttl_minutes: Math.round(publicIntakeEmailVerificationTtlMs / 60_000),
+        max_attempts: publicIntakeEmailVerificationMaxAttempts
       },
       readiness: {
         status: items.some((item) => item.status === "Blocked")
