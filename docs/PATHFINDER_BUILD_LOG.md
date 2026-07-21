@@ -2617,3 +2617,12 @@ The next dark deployment passed encryption setup and advanced to API Gateway sta
 - Preserved Proof-only resource ARNs for compute/data/IAM and the existing service-required `Resource: "*"` statements for CloudWatch, logs, API Gateway, CloudFront, and WAF. No full-service action such as `lambda:*`, `iam:*`, `s3:*`, or `cloudfront:*` was added.
 - Expanded the deployment-safety regression test to require the reviewed lifecycle actions and reject global service action wildcards.
 - The failed deployment again rolled back before SPA publication or smoke testing. Public Proof reads and every decision/write gate remained disabled.
+
+## 2026-07-21 - Proof HTTP API Log-Delivery Permissions
+
+The clean dark-deployment retry passed the previously blocked API Gateway tag operation, then failed closed when CloudFormation configured access logging on the private Proof HTTP API stage without `logs:CreateLogDelivery` authorization.
+
+- Added the complete AWS-documented CloudWatch Logs delivery lifecycle required to activate and maintain HTTP API access logging: create, get, list, update, and delete log delivery, plus resource-policy read/write access.
+- Kept those service-required operations in the existing observability statement with `Resource: "*"`; no `logs:*` wildcard or application data permission was added.
+- Expanded the deployment-safety regression test so the complete reviewed logging lifecycle remains present and full-service wildcards remain forbidden.
+- The failed retry rolled back before SPA publication or smoke testing. Public Proof reads, grant creation, link email, approval, revision, undo, public decisions, and Lift writes all remained disabled.
