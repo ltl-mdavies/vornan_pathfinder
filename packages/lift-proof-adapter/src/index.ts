@@ -156,6 +156,7 @@ export async function readLiftProofOrder(
     fetcher?: LiftProofFetch;
     fetched_at?: string;
     isProofReadableOrderRow?: (row: Record<string, unknown>) => boolean;
+    validateOrderPayload?: (payload: unknown) => void;
   } = {}
 ): Promise<LiftProofReadSnapshot> {
   const normalizedOrderNumber = normalizeLiftOrderNumber(orderNumber);
@@ -163,6 +164,7 @@ export async function readLiftProofOrder(
   const fetcher = options.fetcher ?? fetch;
   const orderUrl = buildLiftProofOrderReadUrl(config.order_read_url, normalizedOrderNumber);
   const orderPayload = await readJson(fetcher, orderUrl, config.timeout_ms);
+  options.validateOrderPayload?.(orderPayload);
   const configuredEligibility =
     options.isProofReadableOrderRow ??
     (config.proof_readable_min_step == null

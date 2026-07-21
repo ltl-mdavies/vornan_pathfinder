@@ -134,3 +134,27 @@ test("does not read proof reports for cancelled or caller-ineligible order lines
 
   assert.deepEqual(lineIds, ["30"]);
 });
+
+test("validates the order header before any proof-report read", async () => {
+  const requested: string[] = [];
+  const fetcher: LiftProofFetch = async (input) => {
+    const url = new URL(String(input));
+    requested.push(url.pathname);
+    return jsonResponse({ rowset: [{ CUSTOMER_ID: 9999, ORDER_LINE_ID: 10 }] });
+  };
+
+  await assert.rejects(
+    () => readLiftProofOrder("A0221132", {
+      fetcher,
+      config: {
+        order_read_url: "https://admin.example/orders",
+        proof_report_read_url: "https://admin.example/proofs"
+      },
+      validateOrderPayload: () => {
+        throw new Error("outside cohort");
+      }
+    }),
+    /outside cohort/
+  );
+  assert.deepEqual(requested, ["/orders"]);
+});

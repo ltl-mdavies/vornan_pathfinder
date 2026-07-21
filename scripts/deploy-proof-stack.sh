@@ -37,6 +37,8 @@ aws cloudformation deploy \
     PublicLambdaCodeS3Key="${artifact_key}" \
     PublicReadEnabled="${public_read_enabled}" \
     ReadOnlyActivationExpiresAt="${PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT:-}" \
+    OperatorGrantCreationEnabled="${PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED:-false}" \
+    GrantAllowedCustomerIds="${PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS:-}" \
     SyntheticQaEnabled="${synthetic_qa_enabled}" \
     ReadOnlyQaConfirmed="${PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED:-false}" \
     ProductionPublicReadApproved="${PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED:-false}" \
