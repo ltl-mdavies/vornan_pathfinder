@@ -17,6 +17,20 @@ on:
         description: "UTC deadline for the approved read-only window (ISO 8601, required when public read is true)"
         required: false
         default: ""
+      operator_grant_creation_enabled:
+        description: "Open the dev-only IAM operator window for approved view grants"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
+      grant_allowed_customer_ids:
+        description: "Approved numeric Lift customer IDs (comma-separated; required for operator window)"
+        required: false
+        default: ""
+      public_base_url:
+        description: "Direct deployed Proof HTTPS origin used in access links; no DNS alias is required"
+        required: false
+        default: ""
       managed_waf_enabled:
         description: "Provision the Proof managed WAF when no shared ACL is configured"
         required: true
@@ -77,6 +91,10 @@ jobs:
           PATHFINDER_PROOF_ACKNOWLEDGE_PRODUCTION_READS: ${{ vars.PATHFINDER_PROOF_ACKNOWLEDGE_PRODUCTION_READS || 'false' }}
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: ${{ inputs.public_read_enabled }}
           PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: ${{ inputs.read_only_activation_expires_at }}
+          PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED: ${{ inputs.operator_grant_creation_enabled }}
+          PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: ${{ inputs.grant_allowed_customer_ids }}
+          PATHFINDER_PROOF_PUBLIC_BASE_URL: ${{ inputs.public_base_url || vars.PATHFINDER_PROOF_PUBLIC_BASE_URL || '' }}
+          PATHFINDER_PROOF_ENABLE_LINK_EMAIL: "false"
           PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: ${{ inputs.read_only_qa_confirmed }}
           PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED: ${{ inputs.production_public_read_approved }}
           PATHFINDER_PROOF_EDGE_SHARED_SECRET: ${{ secrets.PATHFINDER_PROOF_EDGE_SHARED_SECRET }}
@@ -104,12 +122,14 @@ jobs:
           ARTIFACT_KEY: ${{ steps.artifact.outputs.key }}
           PROOF_BUCKET: ${{ vars.PATHFINDER_PROOF_WEB_BUCKET }}
           PROOF_DOMAIN: ${{ vars.PATHFINDER_PROOF_DOMAIN_NAME }}
-          PROOF_BASE_URL: ${{ vars.PATHFINDER_PROOF_PUBLIC_BASE_URL }}
+          PROOF_BASE_URL: ${{ inputs.public_base_url || vars.PATHFINDER_PROOF_PUBLIC_BASE_URL || '' }}
           CERTIFICATE_ARN: ${{ secrets.PATHFINDER_PROOF_CERTIFICATE_ARN }}
           EDGE_SHARED_SECRET: ${{ secrets.PATHFINDER_PROOF_EDGE_SHARED_SECRET }}
           SHARED_WEB_ACL_ARN: ${{ vars.PATHFINDER_PROOF_WEB_ACL_ARN }}
           PUBLIC_READ_ENABLED: ${{ inputs.public_read_enabled }}
           READ_ONLY_ACTIVATION_EXPIRES_AT: ${{ inputs.read_only_activation_expires_at }}
+          OPERATOR_GRANT_CREATION_ENABLED: ${{ inputs.operator_grant_creation_enabled }}
+          GRANT_ALLOWED_CUSTOMER_IDS: ${{ inputs.grant_allowed_customer_ids }}
           MANAGED_WAF_ENABLED: ${{ inputs.managed_waf_enabled }}
           READ_ONLY_QA_CONFIRMED: ${{ inputs.read_only_qa_confirmed }}
           PRODUCTION_PUBLIC_READ_APPROVED: ${{ inputs.production_public_read_approved }}
@@ -141,6 +161,8 @@ jobs:
               PublicLambdaCodeS3Key="${ARTIFACT_KEY}" \
               PublicReadEnabled="${PUBLIC_READ_ENABLED}" \
               ReadOnlyActivationExpiresAt="${READ_ONLY_ACTIVATION_EXPIRES_AT}" \
+              OperatorGrantCreationEnabled="${OPERATOR_GRANT_CREATION_ENABLED}" \
+              GrantAllowedCustomerIds="${GRANT_ALLOWED_CUSTOMER_IDS}" \
               SyntheticQaEnabled="false" \
               ReadOnlyQaConfirmed="${READ_ONLY_QA_CONFIRMED}" \
               ProductionPublicReadApproved="${PRODUCTION_PUBLIC_READ_APPROVED}" \

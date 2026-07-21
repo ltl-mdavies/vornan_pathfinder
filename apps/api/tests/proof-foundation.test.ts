@@ -127,3 +127,40 @@ test("synchronizes a direct Lift order without a Pathfinder job and persists the
   assert.equal(lifecycleEvent?.metadata.reviewed_task_count, 1);
   assert.equal(lifecycleEvent?.metadata.total_task_count, 1);
 });
+
+test("rejects a non-cohort order header before proof reads or aggregate persistence", async () => {
+  const fetchedUrls: string[] = [];
+  const fetcher = async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    fetchedUrls.push(url.toString());
+    if (!url.pathname.includes("AS360Orders")) {
+      throw new Error("Proof report must not be read for a denied customer.");
+    }
+    return new Response(
+      JSON.stringify({
+        rowset: [{
+          ORDER_NUMBER: "A0999999",
+          CUSTOMER_ID: 9999,
+          ORDER_LINE_ID: 1,
+          LINE_NUMBER: 1
+        }]
+      }),
+      { headers: { "content-type": "application/json" } }
+    );
+  };
+
+  await assert.rejects(
+    () => syncProofOrder("A0999999", {
+      fetcher,
+      synced_at: "2026-07-21T12:00:00.000Z",
+      allowed_customer_ids: ["1249"]
+    }),
+    { name: "ProofSyncCohortDeniedError" }
+  );
+  assert.equal(fetchedUrls.length, 1);
+  assert.equal(fetchedUrls[0]?.includes("AS360Orders"), true);
+  assert.equal(await getProofOrder("A0999999"), null);
+  const audit = await listProofAuditEvents("A0999999", { limit: 10 });
+  assert.equal(audit.events[0]?.action, "proof.sync_failed");
+  assert.equal(audit.events[0]?.metadata.failure_class, "ProofSyncCohortDeniedError");
+});

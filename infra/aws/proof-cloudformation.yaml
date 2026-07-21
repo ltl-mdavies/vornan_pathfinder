@@ -42,6 +42,16 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
     Description: UTC deadline after which the public read boundary fails closed.
+  OperatorGrantCreationEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Dev-only IAM operator window for cohort-bound view grant creation; no public route is attached.
+  GrantAllowedCustomerIds:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{1,20}(,[0-9]{1,20}){0,19}$"
+    Description: Comma-separated Lift customer IDs approved for the temporary read-only operator window.
   SyntheticQaEnabled:
     Type: String
     Default: "false"
@@ -180,6 +190,27 @@ Rules:
           - !Not [!Equals [!Ref EnvironmentName, prod]]
           - !Equals [!Ref ProductionPublicReadApproved, "true"]
         AssertDescription: ProductionPublicReadApproved must be true before production public read can be enabled.
+  OperatorGrantCreationRequiresIsolatedDevWindow:
+    RuleCondition: !Equals [!Ref OperatorGrantCreationEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref EnvironmentName, dev]
+        AssertDescription: Operator grant creation is restricted to the isolated dev stack.
+      - Assert: !Equals [!Ref PublicReadEnabled, "true"]
+        AssertDescription: PublicReadEnabled must be true for the bounded customer-boundary window.
+      - Assert: !Equals [!Ref ReadOnlyQaConfirmed, "true"]
+        AssertDescription: ReadOnlyQaConfirmed must be true for the bounded customer-boundary window.
+      - Assert: !Equals [!Ref ProductionPublicReadApproved, "false"]
+        AssertDescription: ProductionPublicReadApproved must remain false in the dev operator window.
+      - Assert: !Equals [!Ref SyntheticQaEnabled, "false"]
+        AssertDescription: SyntheticQaEnabled must be false before the operator window opens.
+      - Assert: !Not [!Equals [!Ref GrantAllowedCustomerIds, ""]]
+        AssertDescription: GrantAllowedCustomerIds must define the explicitly approved cohort.
+      - Assert: !Not [!Equals [!Ref ReadOnlyActivationExpiresAt, ""]]
+        AssertDescription: ReadOnlyActivationExpiresAt must bound the operator window.
+      - Assert: !And
+          - !Equals [!Ref ProofDomainName, ""]
+          - !Equals [!Ref CertificateArn, ""]
+        AssertDescription: The isolated operator window must not configure a customer DNS alias.
 
 Resources:
   ProofWebBucket:
@@ -548,6 +579,14 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/vornan-proof-sync-${EnvironmentName}"
       RetentionInDays: !Ref LogRetentionDays
 
+  ProofOperatorFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/vornan-proof-operator-${EnvironmentName}"
+      RetentionInDays: !Ref LogRetentionDays
+
   ProofApiAccessLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Retain
@@ -626,6 +665,36 @@ Resources:
                 Action: dynamodb:PutItem
                 Resource: !GetAtt ProofAuditTable.Arn
 
+  ProofOperatorLambdaRole:
+    Type: AWS::IAM::Role
+    Condition: HasPublicLambdaCode
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ProofOperatorCohortReadAndGrantLifecycle
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt ProofCoreTable.Arn
+                  - !Sub "${ProofCoreTable.Arn}/index/*"
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt ProofAuditTable.Arn
+
   ProofPublicFunction:
     Type: AWS::Lambda::Function
     Condition: HasPublicLambdaCode
@@ -688,6 +757,39 @@ Resources:
           PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED: !Ref ProductionPublicReadApproved
           PATHFINDER_PROOF_DOMAIN_NAME: !Ref ProofDomainName
           PATHFINDER_PROOF_CERTIFICATE_ARN: !Ref CertificateArn
+          PATHFINDER_PROOF_LIFT_ORDER_READ_URL: !Ref LiftOrderReadUrl
+          PATHFINDER_PROOF_LIFT_REPORT_READ_URL: !Ref LiftProofReportReadUrl
+
+  ProofOperatorFunction:
+    Type: AWS::Lambda::Function
+    Condition: HasPublicLambdaCode
+    DependsOn: ProofOperatorFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "vornan-proof-operator-${EnvironmentName}"
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: operator-lambda.handler
+      Role: !GetAtt ProofOperatorLambdaRole.Arn
+      Timeout: 60
+      MemorySize: 512
+      ReservedConcurrentExecutions: 2
+      Code:
+        S3Bucket: !Ref PublicLambdaCodeS3Bucket
+        S3Key: !Ref PublicLambdaCodeS3Key
+      Environment:
+        Variables:
+          PATHFINDER_RUNTIME: lambda
+          PATHFINDER_PROOF_ENVIRONMENT_NAME: !Ref EnvironmentName
+          PATHFINDER_PROOF_STORAGE_DRIVER: dynamodb
+          PATHFINDER_PROOF_CORE_TABLE: !Ref ProofCoreTable
+          PATHFINDER_PROOF_AUDIT_TABLE: !Ref ProofAuditTable
+          PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"
+          PATHFINDER_PROOF_ENABLE_GRANT_CREATION: "true"
+          PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED: !Ref OperatorGrantCreationEnabled
+          PATHFINDER_PROOF_ENABLE_LINK_EMAIL: "false"
+          PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref GrantAllowedCustomerIds
+          PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ReadOnlyActivationExpiresAt
+          PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref PublicBaseUrl
           PATHFINDER_PROOF_LIFT_ORDER_READ_URL: !Ref LiftOrderReadUrl
           PATHFINDER_PROOF_LIFT_REPORT_READ_URL: !Ref LiftProofReportReadUrl
 
@@ -852,6 +954,26 @@ Resources:
       Dimensions:
         - Name: Service
           Value: public-api
+        - Name: Environment
+          Value: !Ref EnvironmentName
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: !If [HasAlarmTopic, [!Ref AlarmTopicArn], !Ref "AWS::NoValue"]
+
+  ProofOperatorServerErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "vornan-proof-${EnvironmentName}-operator-server-errors"
+      AlarmDescription: IAM-only Proof operator synchronization or grant lifecycle failed.
+      Namespace: Vornan/Proof
+      MetricName: ServerErrors
+      Dimensions:
+        - Name: Service
+          Value: operator-admin
         - Name: Environment
           Value: !Ref EnvironmentName
       Statistic: Sum
@@ -1063,12 +1185,14 @@ Resources:
               "width": 12,
               "height": 6,
               "properties": {
-                "title": "Read-only sync health",
+                "title": "Read-only sync and IAM operator health",
                 "region": "${AWS::Region}",
                 "period": 300,
                 "metrics": [
                   ["Vornan/Proof", "Duration", "Service", "sync-worker", "Environment", "${EnvironmentName}", "Operation", "sync_order", {"stat": "p95"}],
                   ["Vornan/Proof", "ServerErrors", "Service", "sync-worker", "Environment", "${EnvironmentName}", {"stat": "Sum", "yAxis": "right"}],
+                  ["Vornan/Proof", "Duration", "Service", "operator-admin", "Environment", "${EnvironmentName}", "Operation", "create_view_grant", {"stat": "p95"}],
+                  ["Vornan/Proof", "ServerErrors", "Service", "operator-admin", "Environment", "${EnvironmentName}", {"stat": "Sum", "yAxis": "right"}],
                   ["AWS/SQS", "ApproximateAgeOfOldestMessage", "QueueName", "vornan-proof-sync-${EnvironmentName}.fifo", {"stat": "Maximum", "yAxis": "right"}],
                   ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "vornan-proof-sync-${EnvironmentName}-dlq.fifo", {"stat": "Maximum", "yAxis": "right"}]
                 ]
@@ -1117,14 +1241,22 @@ Outputs:
     Description: Dedicated Vornan Proof core table for orders, tasks, and immutable proof versions.
     Value: !Ref ProofCoreTable
   ProofCoreTableArn:
-    Description: ARN to grant to the authenticated Pathfinder operator API and future Proof sync worker.
+    Description: ARN used by the isolated Proof operator and synchronization worker.
     Value: !GetAtt ProofCoreTable.Arn
   ProofAuditTableName:
     Description: Dedicated append-only Vornan Proof audit table.
     Value: !Ref ProofAuditTable
   ProofAuditTableArn:
-    Description: Restricted audit table ARN for authenticated operator reads and lifecycle event appends.
+    Description: Restricted audit table ARN for isolated operator and lifecycle event appends.
     Value: !GetAtt ProofAuditTable.Arn
+  ProofOperatorFunctionName:
+    Condition: HasPublicLambdaCode
+    Description: IAM-invoked dev operator function; no API Gateway route or public invoke permission is attached.
+    Value: !Ref ProofOperatorFunction
+  ProofOperatorFunctionArn:
+    Condition: HasPublicLambdaCode
+    Description: ARN for explicitly authorized internal invocations of the isolated Proof operator.
+    Value: !GetAtt ProofOperatorFunction.Arn
   ProofPublicApiEndpoint:
     Condition: HasPublicLambdaCode
     Description: Isolated public API endpoint. Keep PublicReadEnabled false until the deployment is ready.

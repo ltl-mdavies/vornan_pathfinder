@@ -45,6 +45,42 @@ function futureUtcTimestamp(env, name) {
   return new Date(timestamp).toISOString();
 }
 
+function customerIdCohort(env, name) {
+  const value = env[name]?.trim() ?? "";
+  if (!value) return [];
+  if (!/^\d{1,20}(,\d{1,20}){0,19}$/.test(value)) {
+    throw new Error(`${name} must contain 1 through 20 comma-separated numeric customer IDs without spaces.`);
+  }
+  const values = value.split(",");
+  if (new Set(values).size !== values.length) {
+    throw new Error(`${name} must not contain duplicate customer IDs.`);
+  }
+  return values;
+}
+
+function safePublicBaseUrl(env, name) {
+  const value = required(env, name);
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${name} must be a valid absolute URL.`);
+  }
+  if (
+    parsed.protocol !== "https:"
+    || parsed.username
+    || parsed.password
+    || (parsed.pathname !== "/" && parsed.pathname !== "")
+    || parsed.search
+    || parsed.hash
+    || parsed.hostname.endsWith(".invalid")
+    || !parsed.hostname.endsWith(".cloudfront.net")
+  ) {
+    throw new Error(`${name} must be the direct CloudFront HTTPS origin without credentials, path, query, or fragment.`);
+  }
+  return parsed.origin;
+}
+
 function liftReadUrl(value, name, expectedReport) {
   let parsed;
   try {
@@ -120,6 +156,8 @@ export function validateProofDeployment(env = process.env) {
 
   const publicReadEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ);
   const syntheticQaEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA);
+  const operatorGrantCreationEnabled = enabled(env.PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED);
+  const grantAllowedCustomerIds = customerIdCohort(env, "PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS");
   const managedWafEnabled = enabled(env.PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED);
   const sharedWebAclConfigured = Boolean(env.PATHFINDER_PROOF_WEB_ACL_ARN?.trim());
   let readOnlyActivationExpiresAt = null;
@@ -151,6 +189,27 @@ export function validateProofDeployment(env = process.env) {
       throw new Error("PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED=true is required for production public read.");
     }
   }
+  let operatorPublicBaseUrl = null;
+  if (operatorGrantCreationEnabled) {
+    if (
+      environmentName !== "dev"
+      || !publicReadEnabled
+      || !enabled(env.PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED)
+      || enabled(env.PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED)
+      || syntheticQaEnabled
+      || enabled(env.PATHFINDER_PROOF_ENABLE_LINK_EMAIL)
+      || Boolean(proofDomain)
+      || Boolean(certificateArn)
+    ) {
+      throw new Error(
+        "PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED=true requires the bounded dev-only read window with synthetic QA, production approval, email, and DNS disabled."
+      );
+    }
+    if (grantAllowedCustomerIds.length === 0) {
+      throw new Error("PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS is required for the operator window.");
+    }
+    operatorPublicBaseUrl = safePublicBaseUrl(env, "PATHFINDER_PROOF_PUBLIC_BASE_URL");
+  }
 
   return {
     environment_name: environmentName,
@@ -167,6 +226,9 @@ export function validateProofDeployment(env = process.env) {
     proof_domain: proofDomain || null,
     automatic_refresh_max_inactive_days: automaticRefreshMaxInactiveDays,
     synthetic_qa_enabled: syntheticQaEnabled,
+    operator_grant_creation_enabled: operatorGrantCreationEnabled,
+    operator_cohort_size: grantAllowedCustomerIds.length,
+    operator_public_base_url: operatorPublicBaseUrl,
     lift_writes_enabled: false
   };
 }

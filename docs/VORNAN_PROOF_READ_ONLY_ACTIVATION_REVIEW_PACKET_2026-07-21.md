@@ -37,19 +37,19 @@ Expected status after this change: `ready_for_manual_read_only_activation_review
 
 This branch adds two fail-closed controls that must be reviewed and deployed before an internal window can begin:
 
-1. The authenticated operator API accepts view-grant creation only when the synchronized order's internal Lift `CUSTOMER_ID` is in `PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS`. The proposed value is `1249`. An empty list, missing customer ID, or any other customer is denied before grant creation.
+1. The isolated stack's IAM-invoked operator Lambda accepts view-grant creation only when a fresh Lift order header reports a `CUSTOMER_ID` in `PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS`. The proposed value is `1249`. An empty list, missing customer ID, or any other customer is denied before proof-report reads, aggregate persistence, or grant creation.
 2. `PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT` bounds grant creation, requested grant expiry, token exchange, and session validity. The proposed value is `2026-07-28T21:49:50Z`. Missing, invalid, or elapsed configuration fails closed; default grant and session expiries are capped at the deadline.
 
-The internal customer ID is not added to the public Proof DTO or logs. CloudFormation requires the cohort and expiry before authenticated grant creation can be enabled, and requires the expiry before public read can be enabled.
+The internal customer ID is not added to the public Proof DTO or logs. CloudFormation requires the cohort and expiry before the IAM operator window can be enabled and requires the expiry before public read can be enabled. The operator has no API Gateway integration, Lambda URL, email path, SQS permission, or Lift write permission.
 
 ## Manual activation sequence
 
-Only after the stacked Proof PRs are merged and the exact change is reviewed may the two stacks be changed:
+Only after the Proof PR is merged and the exact change is reviewed may the isolated dev stack be changed:
 
-1. Deploy the isolated Proof stack with `ReadOnlyQaConfirmed=true`, `PublicReadEnabled=true`, managed/shared WAF intact, `ReadOnlyActivationExpiresAt=2026-07-28T21:49:50Z`, no alias, and production approval false.
-2. Deploy the authenticated API with Proof tables unchanged, `ProofGrantCreationEnabled=true`, `ProofGrantAllowedCustomerIds=1249`, `ProofReadOnlyActivationExpiresAt=2026-07-28T21:49:50Z`, and link email false.
-3. Create only view-scoped grants for aggregates that pass the server-side customer check. Hand raw links privately; do not send them through the application email path.
-4. Watch CloudWatch, WAF, sync queue, and DLQ. Revoke active grants and restore both public read and grant creation to false at the deadline or on any rollback trigger.
+1. Deploy `vornan-proof-dev` with `ReadOnlyQaConfirmed=true`, `PublicReadEnabled=true`, `OperatorGrantCreationEnabled=true`, `GrantAllowedCustomerIds=1249`, managed/shared WAF intact, `ReadOnlyActivationExpiresAt=2026-07-28T21:49:50Z`, the reviewed direct CloudFront HTTPS base URL, no alias/certificate, synthetic QA false, and production approval false.
+2. Invoke `vornan-proof-operator-dev` only through an explicitly authorized IAM principal. Its `create_view_grant` operation first performs the cohort-bound Lift GET synchronization and then creates a `view` grant. It cannot create approval or revision scope.
+3. Store the Lambda response in a permission-restricted temporary file, hand the raw fragment link privately, and remove the file after use. Do not include the payload or response in command history, logs, evidence, or application email.
+4. Watch the operator/public telemetry, WAF, sync queue, and DLQ. Revoke active grants and restore `OperatorGrantCreationEnabled=false`, `PublicReadEnabled=false`, and `ReadOnlyQaConfirmed=false` at the deadline or on any rollback trigger.
 
 No step above has been executed by this branch.
 
@@ -86,11 +86,13 @@ The raw Lift application URL supplied earlier is not retained. QA evidence may r
 ## Validation
 
 - `npm run check`: passed across every workspace.
-- `npm run test`: all 144 workspace tests passed.
-- `npm run test:proof-deploy`: all 48 deployment-safety tests passed.
+- `npm run test`: all 155 workspace tests passed on the rebased main baseline.
+- `npm run test:proof-deploy`: all 50 deployment-safety tests passed.
 - `npm run build`: API, Proof SPA, Status SPA, and admin web production builds passed.
+- `npm run package:proof-lambdas`: the artifact contains the public, sync, and IAM-only operator handlers.
+- `sam validate --template-file infra/aws/proof-cloudformation.yaml --lint`: passed.
 - `npm run check:proof-phase2`: 11/11 evidence, 8/8 dark guardrails, and 3/3 activation-review prerequisites passed; both change authorizations remained false.
 - `npm run check:proof-activation-review`: 4/4 scope, 6/6 operations, and 7/7 safety controls passed; every authorization remained false.
 - `git diff --check`: passed.
 
-No AWS or Lift request was made by this slice. Until merge and a separately reviewed deployment, `vornan-proof-dev` remains dark.
+Only read-only AWS inventory calls were made by this slice. No AWS mutation or Lift request occurred. Until merge and a separately reviewed deployment, `vornan-proof-dev` remains dark.
