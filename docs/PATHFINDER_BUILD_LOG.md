@@ -2,6 +2,15 @@
 
 This is the living implementation record for Pathfinder. It tracks completed milestones, product decisions, and verification against the master directive in `PATHFINDER_MASTER_SPEC.md`.
 
+## 2026-07-21 - Production Job Submit Access Hotfix
+
+- Restored the Ready/Submit Failed job's primary `Submit to Lift` / `Retry Submit` action directly in the Job Detail header, including the explicit PROD-to-LTL-Demo confirmation control.
+- Kept post-submit diagnostics in the compact Actions menu, removed the duplicate buried submit control, and made the popover viewport-bounded and vertically scrollable. Job Detail no longer clips the menu with `overflow: hidden`.
+- Import Methods now displays the current Output Route `name` resolved by `output_route_id`; it no longer reconstructs an outdated target/account/template label after a route rename.
+- Lift payload validation now blocks a missing `order.order_title`. Submit readiness independently rechecks the title so a previously persisted Ready job cannot bypass the current Lift order-name requirement.
+- Job Detail explains the exact recovery when an old preview has no order title: enable Order Name Resolution on the Import Method and generate a new preview job.
+- Added focused Lift adapter regression coverage for missing and resolved order titles.
+
 ## 2026-07-21 - Demo Auth Recovery And Durable Lift Submit Gates
 
 - Pathfinder API requests now obtain the current Firebase ID token instead of continuing to reuse the token captured when the workspace first opened.
