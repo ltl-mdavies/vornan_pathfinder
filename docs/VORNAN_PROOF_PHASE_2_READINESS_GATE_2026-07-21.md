@@ -36,6 +36,8 @@ These actions remain separate and require explicit approval before execution:
 2. Validate the deployed one-order customer boundary on desktop and mobile.
 3. Record explicit approval for read-only customer activation.
 
+The synthetic-only API harness and its fail-closed activation-window contract are now prepared, but preparation does not satisfy any of these three gates. The authenticated responsive UI review remains part of the deployed one-order boundary gate.
+
 Even when all three are eventually recorded as passed, the evaluator returns `ready_for_explicit_activation_review`; it never authorizes a deployment or mutation. A human must still review the evidence and separately approve any feature-flag change.
 
 ## Guardrails retained

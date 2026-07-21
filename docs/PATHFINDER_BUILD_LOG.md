@@ -2750,3 +2750,15 @@ Added a deterministic, non-mutating checkpoint that separates completed isolated
 - The current result is `isolated_read_qa_complete_activation_blocked`. Even a future fully passing input yields only `ready_for_explicit_activation_review`; the tool always reports public-read changes and mutations as unauthorized.
 
 This slice performs no AWS call, Lift request, email delivery, DNS change, deployment, decision, or production-surface mutation. It does not enter Phase 3.
+
+## 2026-07-21 - Proof Customer-Boundary QA Harness
+
+Prepared the next Phase 2 deployed-boundary validation without enabling or executing it.
+
+- Added a pure stack-contract evaluator that accepts only an alias-free, WAF-protected `vornan-proof-dev` window with public read and isolated read-only confirmation temporarily true, production approval false, the synthetic worker false, and all required isolated table/endpoint outputs present. The evaluator never authorizes deployment or mutation.
+- Added an explicitly confirmation-gated runner restricted to the retained reserved synthetic fixture. It creates one view-only grant directly against the isolated dev tables, exchanges it through CloudFront, verifies one-time token use, one-order/session scope, history isolation, CSRF-bound participant and feedback records, terminal logout, direct API bypass denial, bounded audit coverage, and automatic grant revocation.
+- The runner never emits its raw fragment token, cookies, CSRF value, access URL, or payload. It sets link email, approval, revision, undo, and generic Lift-write flags false and contains no Lift `PUT` transport.
+- Added regression coverage for environment, stack, WAF, alias, production-approval, output, synthetic-only, confirmation, no-email/no-write, bypass-denial, and finally-revocation gates.
+- Added the explicit approval, controlled run, responsive follow-up, rollback, and exact-fixture cleanup plan to the read-only QA runbook.
+
+The harness was typechecked and unit-tested but was not run against AWS. The stack remains dark; no grant, session, participant, feedback acknowledgement, deployment, email, custom domain, decision, or Lift request was created by this slice.

@@ -93,6 +93,21 @@ TTL:    Auto
 
 The target is an AWS-generated `*.cloudfront.net` hostname and does not exist until the Proof stack is deployed with the alias and issued certificate. After DNS propagation, repeat `npm run smoke:proof-read-only` against `https://proof.vornan.co` while public read remains off. This DNS gate does not authorize customer grant creation, public reads, or any Lift write.
 
+## Controlled customer-boundary QA window
+
+The deployed one-order/session boundary uses the purgeable synthetic fixture, not a customer order. Follow `docs/VORNAN_PROOF_CUSTOMER_BOUNDARY_QA_PLAN_2026-07-21.md` and obtain a new explicit approval before changing either `ReadOnlyQaConfirmed` or `PublicReadEnabled`.
+
+The prepared harness is restricted to `vornan-proof-dev`, the reserved synthetic order, an exact retained `vpqa-*` identity, an alias-free WAF-protected distribution, and the explicit confirmation string below. It refuses a dark or production-approved stack, creates only a view grant, never emits its raw token/cookies, checks direct API bypass denial, and revokes the grant in a `finally` path.
+
+```text
+PATHFINDER_PROOF_BOUNDARY_QA_CONFIRM=VORNAN_PROOF_CUSTOMER_BOUNDARY_QA \
+PATHFINDER_PROOF_QA_FIXTURE_ID=vpqa-<approved-id> \
+PATHFINDER_PROOF_STACK_NAME=vornan-proof-dev \
+npm run qa:proof-boundary
+```
+
+Do not run this command against the current dark stack and do not treat the command itself as deployment authorization. After the approved window, restore `PublicReadEnabled=false` and `ReadOnlyQaConfirmed=false` before using the exact-fixture purge. The API harness is necessary but not sufficient for the responsive acceptance gate; complete the authenticated desktop/mobile UI review through a separately approved private token handoff before marking the deployed customer boundary passed.
+
 ## Deployment sequence
 
 1. Record the target account, region, stack, Git commit, Lift read environment, endpoint hosts, reviewer, and maintenance window. Record no URL query strings.
