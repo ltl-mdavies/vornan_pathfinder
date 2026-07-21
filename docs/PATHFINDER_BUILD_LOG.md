@@ -2,6 +2,14 @@
 
 This is the living implementation record for Pathfinder. It tracks completed milestones, product decisions, and verification against the master directive in `PATHFINDER_MASTER_SPEC.md`.
 
+## 2026-07-21 - Demo Auth Recovery And Durable Lift Submit Gates
+
+- Pathfinder API requests now obtain the current Firebase ID token instead of continuing to reuse the token captured when the workspace first opened.
+- A 401 from the Pathfinder API forces one Firebase token refresh and retries the interrupted request once. If authorization still fails, the app signs out visibly and presents a session-expired message requiring Google sign-in rather than silently leaving saves unsatisfied.
+- The API CloudFormation stack now owns the external Lift submit gate, transport mode, and live-customer permission as explicit parameters, preventing later API deployments from silently reverting them to process defaults.
+- The production deploy workflow defaults to the approved certified sandbox lane: external submit enabled, live transport, and live-customer profiles disabled. Target, preview certification, credentials, product mapping, environment, submit-profile, and explicit PROD sandbox confirmation gates remain required.
+- Added focused browser-client regression coverage for token refresh, failed refresh handoff, and prevention of bearer-token leakage to non-Pathfinder origins.
+
 ## Current Build Snapshot
 
 **Date:** 2026-07-10  

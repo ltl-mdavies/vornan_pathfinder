@@ -23,6 +23,31 @@ on:
         description: "Optional API custom domain"
         required: true
         default: "api.pathfinder.vornan.co"
+      enable_lift_submit:
+        description: "Enable certified Lift submits at the API boundary"
+        required: true
+        type: choice
+        options:
+          - "true"
+          - "false"
+        default: "true"
+      lift_transport_mode:
+        description: "Lift submit transport mode"
+        required: true
+        type: choice
+        options:
+          - live
+          - dry_run
+          - mock
+        default: live
+      allow_live_customer_submit:
+        description: "Allow live-customer submit profiles (keep false for the LTL Demo sandbox lane)"
+        required: true
+        type: choice
+        options:
+          - "false"
+          - "true"
+        default: "false"
 
 jobs:
   deploy-api:
@@ -107,6 +132,9 @@ jobs:
               LiftCustomerListUrl="${{ vars.LIFT_CUSTOMER_LIST_URL }}" \
               LiftCustomerStatusUrl="${{ vars.LIFT_CUSTOMER_STATUS_URL }}" \
               LiftProductCatalogBaseUrl="${{ vars.LIFT_PRODUCT_CATALOG_BASE_URL || 'https://ltlco.lifterp.com/ords/api/lift/erp' }}" \
+              ExternalLiftSubmitEnabled="${{ inputs.enable_lift_submit }}" \
+              LiftTransportMode="${{ inputs.lift_transport_mode }}" \
+              AllowLiveCustomerSubmit="${{ inputs.allow_live_customer_submit }}" \
               ApiDomainName="${{ inputs.api_domain_name }}" \
               ApiCertificateArn="${{ secrets.PATHFINDER_API_CERTIFICATE_ARN }}" \
               DataTablePrefix="${{ vars.PATHFINDER_DATA_TABLE_PREFIX || 'Pathfinder' }}" \

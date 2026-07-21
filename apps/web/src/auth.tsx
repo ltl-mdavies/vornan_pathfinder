@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { FirebaseOptions } from "firebase/app";
 import type { Auth, User } from "firebase/auth";
 import { ArrowRight, CheckCircle2, LockKeyhole, ShieldCheck } from "lucide-react";
+import { PATHFINDER_SESSION_EXPIRED_MESSAGE } from "./api-client";
 
 export interface PathfinderAuthSession {
   displayName: string | null;
@@ -9,6 +10,8 @@ export interface PathfinderAuthSession {
   photoURL: string | null;
   token: string | null;
   domain: string | null;
+  getIdToken: (forceRefresh?: boolean) => Promise<string | null>;
+  expireSession: (message?: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
@@ -90,8 +93,14 @@ export function AuthGate({ children }: AuthGateProps) {
         unsubscribe = authModule.onIdTokenChanged(auth, async (nextUser) => {
           setLoading(true);
           setUser(nextUser);
-          setToken(nextUser ? await nextUser.getIdToken() : null);
-          setLoading(false);
+          try {
+            setToken(nextUser ? await nextUser.getIdToken() : null);
+          } catch {
+            setToken(null);
+            setError(PATHFINDER_SESSION_EXPIRED_MESSAGE);
+          } finally {
+            setLoading(false);
+          }
         });
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Firebase Auth could not be loaded.");
@@ -132,6 +141,14 @@ export function AuthGate({ children }: AuthGateProps) {
     }
   }
 
+  async function expireSession(message = PATHFINDER_SESSION_EXPIRED_MESSAGE) {
+    setError(message);
+    setToken(null);
+    if (runtime) {
+      await runtime.authModule.signOut(runtime.auth);
+    }
+  }
+
   if (!config && !authRequired) {
     return children(null);
   }
@@ -164,6 +181,7 @@ export function AuthGate({ children }: AuthGateProps) {
   }
 
   if (!user) {
+    const sessionExpired = error === PATHFINDER_SESSION_EXPIRED_MESSAGE;
     return (
       <AuthScreen
         eyebrow="Vornan Pathfinder"
@@ -171,6 +189,13 @@ export function AuthGate({ children }: AuthGateProps) {
         description="Map customer files, resolve product details, and prepare clean production handoffs from one focused workspace."
         statusLabel="Private access"
         statusTone="ready"
+        cardEyebrow={sessionExpired ? "Session expired" : undefined}
+        cardTitle={sessionExpired ? "Sign in again to continue." : undefined}
+        cardDescription={
+          sessionExpired
+            ? "Your workspace is protected. Sign in again, then retry the action that was interrupted."
+            : undefined
+        }
         error={error}
       >
         <button className="auth-google-button" type="button" onClick={handleSignIn} disabled={signingIn}>
@@ -224,6 +249,8 @@ export function AuthGate({ children }: AuthGateProps) {
     photoURL: user.photoURL,
     token,
     domain,
+    getIdToken: async (forceRefresh = false) => runtime?.auth.currentUser?.getIdToken(forceRefresh) ?? null,
+    expireSession,
     signOut: handleSignOut
   });
 }
