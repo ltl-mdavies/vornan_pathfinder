@@ -2,9 +2,9 @@
 
 ## Status
 
-Prepared but not authorized or executed.
+Executed and passed under the explicit temporary QA approval recorded on 2026-07-21.
 
-The isolated read-only evidence is complete, but the Proof dev stack remains dark. This plan defines the next Phase 2 validation window without changing the current stack, creating a grant, exposing a customer route, sending email, configuring a domain, or performing a Lift write.
+The approved window used fresh fixture `vpqa-20260721-boundary-01`, was closed immediately after the responsive validation, and left the Proof dev stack dark. The complete sanitized results and cleanup counts are recorded in `docs/VORNAN_PROOF_CUSTOMER_BOUNDARY_QA_EVIDENCE_2026-07-21.md`.
 
 ## Purpose
 
@@ -52,4 +52,4 @@ The harness revokes its temporary grant in a `finally` path. Any failed precondi
 
 ## Deferred authority
 
-This plan is not approval to execute the window. It is not permission for customer email, DNS, production public reads, approval/revision features, or any Lift write. Phase 3 remains blocked.
+The completed temporary QA approval was not permission for customer activation, customer email, DNS, production public reads, approval/revision features, or any Lift write. Phase 3 remains blocked.

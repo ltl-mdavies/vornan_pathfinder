@@ -11,7 +11,8 @@ Current result:
 - Status: `isolated_read_qa_complete_activation_blocked`.
 - Isolated read-only evidence: 11 of 11 gates passed.
 - Dark guardrails: 8 of 8 gates passed.
-- Activation-review prerequisites: 0 of 3 passed.
+- Activation-review prerequisites: 2 of 3 passed.
+- Next action: `request_explicit_read_only_activation_approval`.
 - Public-read change authorized: `false`.
 - Mutation authorized: `false`.
 
@@ -28,15 +29,14 @@ The bounded state is derived from the reviewed repository evidence for:
 
 The evaluator accepts only literal boolean values for its named gates. Missing values and strings such as `"true"` fail closed. Extra fields are ignored and cannot enter its output, preventing order numbers, customer details, email addresses, URLs, tokens, or free-form notes from becoming readiness telemetry.
 
-## Deliberately unmet activation gates
+## Activation-review status
 
-These actions remain separate and require explicit approval before execution:
+The temporary, purgeable dev-only QA window completed the first two prerequisites:
 
-1. Exercise the deployed grant/session lifecycle under a reviewed activation window.
-2. Validate the deployed one-order customer boundary on desktop and mobile.
-3. Record explicit approval for read-only customer activation.
+1. The deployed grant/session lifecycle passed through CloudFront.
+2. The deployed one-order customer boundary passed on desktop and mobile using the reserved synthetic fixture.
 
-The synthetic-only API harness and its fail-closed activation-window contract are now prepared, but preparation does not satisfy any of these three gates. The authenticated responsive UI review remains part of the deployed one-order boundary gate.
+The remaining prerequisite is separate explicit approval for read-only customer activation. The approval used for the completed run authorized only a temporary QA window and required immediate dark restoration, so it does not satisfy that activation gate. Full sanitized evidence is recorded in `docs/VORNAN_PROOF_CUSTOMER_BOUNDARY_QA_EVIDENCE_2026-07-21.md`.
 
 Even when all three are eventually recorded as passed, the evaluator returns `ready_for_explicit_activation_review`; it never authorizes a deployment or mutation. A human must still review the evidence and separately approve any feature-flag change.
 

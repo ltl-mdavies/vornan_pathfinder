@@ -2762,3 +2762,19 @@ Prepared the next Phase 2 deployed-boundary validation without enabling or execu
 - Added the explicit approval, controlled run, responsive follow-up, rollback, and exact-fixture cleanup plan to the read-only QA runbook.
 
 The harness was typechecked and unit-tested but was not run against AWS. The stack remains dark; no grant, session, participant, feedback acknowledgement, deployment, email, custom domain, decision, or Lift request was created by this slice.
+
+## 2026-07-21 - Proof Controlled Customer-Boundary QA
+
+Executed the explicitly approved temporary Phase 2 boundary window against the isolated `vornan-proof-dev` stack using fresh reserved fixture `vpqa-20260721-boundary-01`.
+
+- Enabled synthetic mode only while the stack was dark, created one cached line/task aggregate, and exercised deployed queue success plus a controlled five-attempt pre-Lift failure that reached the DLQ.
+- Disabled synthetic mode before temporarily enabling `ReadOnlyQaConfirmed` and public read. Production public approval, domain/certificate, email, decisions, and every Lift-write gate remained false.
+- Passed the CloudFront smoke and confirmation-gated boundary harness: one-time grant exchange, secure session/CSRF, exactly one order, scoped history, participant identity, feedback acknowledgement, terminal logout, direct API bypass denial, audit coverage, and automatic grant revocation.
+- Browser-tested the authenticated deployed UI at `1366×768`, `390×844`, `320×568`, and `844×390`. Desktop used the split queue/viewer, mobile widths used the proof feed, horizontal overflow was zero, the feedback modal fit the compact viewport, and both decision actions remained rendered but disabled.
+- Revoked the separate browser grant, restored all dark flags, passed the dark smoke, and purged exactly 13 core records, 22 audit records, and one DLQ message. Core, audit, queue, and DLQ residuals were all zero; temporary access files were deleted.
+- Allowed the intentional alarm evaluation windows to expire and verified all nine Proof dev alarms returned to `OK` without manual alarm-state changes.
+- Recorded sanitized evidence in `docs/VORNAN_PROOF_CUSTOMER_BOUNDARY_QA_EVIDENCE_2026-07-21.md` and advanced only the deployed lifecycle/boundary readiness booleans.
+- Refined the bounded evaluator's next action so the completed deployed boundary now requests separate read-only activation approval instead of another customer-boundary QA approval; public-read and mutation authorization remain hard-coded false.
+- Validation passed all workspace checks, all 138 workspace tests, all 39 Proof deployment-safety tests, every production build, the bounded readiness evaluator, and `git diff --check`.
+
+The temporary QA approval was not customer activation approval. The readiness state remains `isolated_read_qa_complete_activation_blocked` with two of three activation-review prerequisites complete. Public read, `ReadOnlyQaConfirmed`, production approval, DNS, email, decisions, and every Lift write remain disabled; no Pathfinder production surface was modified.

@@ -65,7 +65,10 @@ export function evaluateProofPhase2Readiness(input = {}) {
     nextAction = "complete_isolated_read_only_qa";
   } else if (!activation.complete) {
     status = "isolated_read_qa_complete_activation_blocked";
-    nextAction = "request_explicit_customer_boundary_approval";
+    nextAction = activation.unmet.length === 1
+      && activation.unmet[0] === "explicit_read_only_activation_approval_recorded"
+      ? "request_explicit_read_only_activation_approval"
+      : "request_explicit_customer_boundary_approval";
   } else {
     status = "ready_for_explicit_activation_review";
     nextAction = "perform_human_activation_review";

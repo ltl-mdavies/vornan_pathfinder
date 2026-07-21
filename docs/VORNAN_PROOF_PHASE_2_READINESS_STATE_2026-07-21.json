@@ -23,8 +23,8 @@
     "production_public_read_approval_disabled": true
   },
   "activation_review": {
-    "deployed_grant_session_lifecycle_passed": false,
-    "deployed_one_order_customer_boundary_passed": false,
+    "deployed_grant_session_lifecycle_passed": true,
+    "deployed_one_order_customer_boundary_passed": true,
     "explicit_read_only_activation_approval_recorded": false
   }
 }

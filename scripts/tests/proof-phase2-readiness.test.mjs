@@ -34,6 +34,20 @@ test("recognizes complete isolated read QA while keeping activation blocked", ()
   assert.equal(result.public_read_change_authorized, false);
   assert.equal(result.mutation_authorized, false);
   assert.deepEqual(result.unmet_gates.activation_review, REQUIRED_ACTIVATION_REVIEW);
+  assert.equal(result.next_action, "request_explicit_customer_boundary_approval");
+});
+
+test("requests activation approval after the deployed boundary prerequisites pass", () => {
+  const input = currentDarkState();
+  input.activation_review.deployed_grant_session_lifecycle_passed = true;
+  input.activation_review.deployed_one_order_customer_boundary_passed = true;
+  const result = evaluateProofPhase2Readiness(input);
+
+  assert.equal(result.status, "isolated_read_qa_complete_activation_blocked");
+  assert.deepEqual(result.unmet_gates.activation_review, ["explicit_read_only_activation_approval_recorded"]);
+  assert.equal(result.next_action, "request_explicit_read_only_activation_approval");
+  assert.equal(result.public_read_change_authorized, false);
+  assert.equal(result.mutation_authorized, false);
 });
 
 test("fails closed when any required read-only evidence is absent", () => {
