@@ -10,6 +10,9 @@ The platform is no longer just a local prototype. The admin web app, API, and pu
 
 Latest demo-readiness update:
 
+- Ready and Submit Failed jobs expose their primary Lift submit action directly in Job Detail. The diagnostics Actions menu is viewport-scrollable and no longer clipped by its panel.
+- Import Methods resolves the displayed Output Route name from the current route record, so route renames are reflected without rewriting the Import Method.
+- Lift submit now fails closed when `order.order_title` is missing, including for older persisted previews. Existing legacy Import Methods must enable Order Name Resolution and regenerate a preview before submit.
 - Authenticated API calls use a current Firebase ID token and retry one 401 after a forced refresh. An unrecoverable session visibly returns the operator to Google sign-in with a session-expired explanation.
 - Lift submit runtime switches are deployment-managed CloudFormation parameters. Production uses external submit enabled plus live transport for certified `Sandbox · LTL Demo` profiles while `PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT` remains false.
 - These server switches are intentionally not editable from Target setup. Operator-controlled Target, route, credentials, product map, certification, submit-profile, and explicit PROD sandbox confirmation gates still apply before any external POST.

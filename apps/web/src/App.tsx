@@ -2109,7 +2109,7 @@ function outputRouteForMethod(method: ImportMethod, routes: OutputRoute[]) {
 
 function methodTargetLabel(method: ImportMethod, routes: OutputRoute[] = [defaultOutputRoute]) {
   const route = outputRouteForMethod(method, routes);
-  return `${route.target_system} · ${route.destination_account_name} · ${route.output_template}`;
+  return route.name;
 }
 
 function submitProfileForRoute(route: OutputRoute, profileId?: string | null) {
@@ -4453,6 +4453,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const latestJobAttempt = visibleJobDetailAttempts[0] ?? null;
   const canRetrySelectedJob =
     selectedJobDetail?.state === "Ready" || selectedJobDetail?.state === "Submit Failed";
+  const selectedJobMissingOrderTitle = Boolean(
+    canRetrySelectedJob && !selectedJobDetail?.lift_payload.order.order_title?.trim()
+  );
   const primaryTarget = workspace?.primary_target ?? targets[0];
   const targetRows = targets.length ? targets : primaryTarget ? [primaryTarget] : [];
   const outputRoutes = workspace?.output_routes?.length ? workspace.output_routes : [defaultOutputRoute];
@@ -12892,21 +12895,54 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
                 <div className="job-detail-actions">
                   <StatePill state={selectedJobDetail.state} />
-                  <button
-                    className="primary-button job-detail-view-order"
-                    onClick={() => void loadOrderSnapshot(selectedJobDetail)}
-                    disabled={
-                      orderSnapshotState === "loading" ||
-                      !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
-                    }
-                  >
-                    <ClipboardList size={16} />
-                    {orderSnapshotState === "loading"
-                      ? "Refreshing order…"
-                      : orderSnapshotResult
-                        ? "Refresh Order"
-                        : "View Order"}
-                  </button>
+                  {canRetrySelectedJob ? (
+                    <>
+                      {prodSandboxConfirmationRequired && !selectedJobMissingOrderTitle ? (
+                        <label className="job-detail-submit-confirmation">
+                          <input
+                            type="checkbox"
+                            checked={prodSandboxSubmitConfirmed}
+                            onChange={(event) =>
+                              setConfirmedProdSandboxSubmitKey(event.target.checked ? prodSandboxConfirmationKey : null)
+                            }
+                          />
+                          <span>Confirm PROD · LTL Demo / 1249</span>
+                        </label>
+                      ) : null}
+                      <button
+                        className="primary-button job-detail-submit-action"
+                        onClick={() => void requestLiftSubmit(selectedJobDetail, Boolean(latestJobAttempt))}
+                        disabled={
+                          workspaceState === "saving" ||
+                          selectedJobMissingOrderTitle ||
+                          (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed)
+                        }
+                      >
+                        <Send size={16} />
+                        {workspaceState === "saving"
+                          ? "Submitting…"
+                          : latestJobAttempt
+                            ? "Retry Submit"
+                            : "Submit to Lift"}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="primary-button job-detail-view-order"
+                      onClick={() => void loadOrderSnapshot(selectedJobDetail)}
+                      disabled={
+                        orderSnapshotState === "loading" ||
+                        !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
+                      }
+                    >
+                      <ClipboardList size={16} />
+                      {orderSnapshotState === "loading"
+                        ? "Refreshing order…"
+                        : orderSnapshotResult
+                          ? "Refresh Order"
+                          : "View Order"}
+                    </button>
+                  )}
                   <details className="job-detail-action-menu">
                     <summary className="secondary-button">
                       Actions
@@ -12972,37 +13008,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           </span>
                         </button>
                       </div>
-                      {canRetrySelectedJob ? (
-                        <div className="job-detail-submit-menu">
-                          {prodSandboxConfirmationRequired ? (
-                            <label className="job-detail-submit-confirmation">
-                              <input
-                                type="checkbox"
-                                checked={prodSandboxSubmitConfirmed}
-                                onChange={(event) =>
-                                  setConfirmedProdSandboxSubmitKey(event.target.checked ? prodSandboxConfirmationKey : null)
-                                }
-                              />
-                              <span>Confirm PROD · LTL Demo / 1249</span>
-                            </label>
-                          ) : null}
-                          <button
-                            className="primary-button job-detail-submit-action"
-                            onClick={() => void requestLiftSubmit(selectedJobDetail, Boolean(latestJobAttempt))}
-                            disabled={
-                              workspaceState === "saving" ||
-                              (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed)
-                            }
-                          >
-                            <Send size={16} />
-                            {workspaceState === "saving"
-                              ? "Submitting…"
-                              : latestJobAttempt
-                                ? "Retry Submit"
-                                : "Submit to Lift"}
-                          </button>
-                        </div>
-                      ) : null}
                     </div>
                   </details>
                   <button
@@ -13027,6 +13032,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </button>
                 </div>
               </div>
+              {selectedJobMissingOrderTitle ? (
+                <div className="job-detail-submit-blocker" role="alert">
+                  <AlertTriangle size={18} />
+                  <span>
+                    <strong>Order title required before Lift submit.</strong>
+                    <small>Enable Order Name Resolution on the Import Method, then generate a new preview job.</small>
+                  </span>
+                </div>
+              ) : null}
               <dl className="customer-details job-detail-summary">
                 <DetailItem label="Pathfinder Order Number" value={selectedJobDetail.pathfinder_order_id} />
                 <DetailItem label="Lift Ext_ID" value={jobExtId(selectedJobDetail)} />

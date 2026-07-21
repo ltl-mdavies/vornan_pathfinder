@@ -1973,6 +1973,17 @@ function validateSubmitReadiness(
     });
   }
 
+  if (!payload.order.order_title?.trim()) {
+    messages.push({
+      severity: "FAIL",
+      code: "SUBMIT-ORDER-TITLE",
+      object: "submit.body",
+      field: "body.order.order_title",
+      message: "Lift submit requires a resolved order title.",
+      suggested_action: "Enable Order Name Resolution on the Import Method and generate a new preview job."
+    });
+  }
+
   if (!request.headers.Company?.trim()) {
     messages.push({
       severity: "FAIL",

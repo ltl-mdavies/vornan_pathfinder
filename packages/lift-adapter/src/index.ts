@@ -491,6 +491,17 @@ export function validateLiftPayload(payload: LiftOrderPayload, options: LiftPayl
     });
   }
 
+  if (!payload.order.order_title?.trim()) {
+    messages.push({
+      severity: "FAIL",
+      code: "LIFT-ORDER-TITLE",
+      object: "lift.order",
+      field: "order.order_title",
+      message: "Lift payload order.order_title is required.",
+      suggested_action: "Enable Order Name Resolution on the Import Method and generate a new preview job."
+    });
+  }
+
   if (!payload.lines.length) {
     messages.push({
       severity: "FAIL",

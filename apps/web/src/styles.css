@@ -5418,7 +5418,7 @@ h1 {
 }
 
 .job-detail-panel {
-  overflow: hidden;
+  overflow: visible;
 }
 
 .job-detail-header {
@@ -5487,7 +5487,10 @@ h1 {
   display: grid;
   gap: 10px;
   width: min(350px, calc(100vw - 40px));
+  max-height: min(70vh, 520px);
   padding: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border-subtle);
   border-radius: 9px;
   background: #fff;
@@ -5573,6 +5576,34 @@ h1 {
   font-size: 12px;
   font-weight: 800;
   line-height: 1.2;
+}
+
+.job-detail-submit-blocker {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 14px 18px 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(188, 127, 20, 0.32);
+  border-radius: 8px;
+  color: var(--text-primary);
+  background: rgba(255, 247, 229, 0.92);
+}
+
+.job-detail-submit-blocker > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: #9a6711;
+}
+
+.job-detail-submit-blocker span {
+  display: grid;
+  gap: 2px;
+}
+
+.job-detail-submit-blocker small {
+  color: var(--text-secondary);
+  font-weight: 700;
 }
 
 @media (max-width: 760px) {
