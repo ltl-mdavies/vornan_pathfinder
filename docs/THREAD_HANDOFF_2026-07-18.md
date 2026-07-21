@@ -957,3 +957,20 @@ Dropbox PR #18 was merged to `main` at `5a587a3`, and this follow-up branch was 
 Full repository validation passes: every workspace check, all 150 tests, every production build, and `git diff --check`. Local browser QA completed code request, code confirmation, the verified-email state, and row preview at desktop and 390px mobile with no horizontal overflow.
 
 Do not enable the production verification gate or SES mode until SES production access, recipient policy, delivery telemetry, bounce/complaint handling, and operator rollout approval are complete. This slice does not deploy, send real email, submit to Lift, or change Proof gates.
+
+## Wrike Ingestion Contract Foundation
+
+Email-verification PR #20 merged to `main` at `e4813d7`. The Wrike contract work then started from that synchronized baseline on `codex/wrike-ingestion-contract` in the isolated `/tmp/pathfinder-wrike-ingestion` worktree; the Proof branch in the main checkout was not changed.
+
+- `Wrike` is now a scheduled Import Method source with a compact operator contract for folder/project scope, ordered workflow status, polling or webhook-plus-reconciliation, attachment rules, and reconciliation interval.
+- A dedicated adapter package owns normalization, readiness, newest-workbook selection, and deterministic account/task/attachment/version identity.
+- The contract is dark and preview-only. It contains no credentials or customer workbook data and cannot submit to Lift.
+- `docs/WRIKE_INGESTION_STRATEGY.md` records the OAuth, webhook, attachment, idempotency, failure, and Momentara discovery decisions.
+- Full validation passes every workspace check, all 161 tests on the reconciled Proof baseline, every production build, and `git diff --check`.
+- Desktop and 390px local browser QA pass with the card spanning the setup grid, a clean single-column mobile layout, no horizontal overflow, and no browser errors.
+
+Recommended continuation:
+
+1. Validate and checkpoint this dark configuration slice.
+2. Confirm Momentara's Wrike folder/project ID, Ordered status/custom-field ID, workbook naming/version behavior, regional host, and technical-user/OAuth approval.
+3. Implement secret-backed read-only connection health before any task discovery or attachment download.

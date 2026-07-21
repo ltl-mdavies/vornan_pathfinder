@@ -76,6 +76,14 @@ import {
   type ParsedWorkbookSheet,
   type SourceGrid
 } from "@pathfinder/templates";
+import {
+  createDefaultWrikeSourceConfig,
+  getWrikeContractReadiness,
+  normalizeWrikeSourceConfig,
+  type WrikeSourceConfig,
+  type WrikeTriggerMode,
+  type WrikeWorkbookExtension
+} from "@pathfinder/wrike-adapter";
 import type { PathfinderAuthSession } from "./auth";
 import { configurePathfinderApiAuth, pathfinderFetch as fetch } from "./api-client";
 import { WorkspaceLoading } from "./WorkspaceLoading";
@@ -89,7 +97,7 @@ type JobSortField = "state" | "updated_at" | "created_at";
 type JobSortDirection = "asc" | "desc";
 
 type ImportMethodStatus = "Active" | "Inactive" | "Draft" | "Paused" | "Archived";
-type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP";
+type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP" | "Wrike";
 type ProductResolverStrategy = "derived_key" | "composite_key" | "direct_lift_unit_number";
 type ProductResolutionMode = "map_to_lift_unit" | "send_derived_unit";
 type ProductMappingStatus = "Mapped" | "Unmapped" | "Ambiguous" | "Inactive";
@@ -380,6 +388,7 @@ interface ImportMethod {
     pdf_review_mode?: "manual_review" | "assisted_extract";
     api_endpoint_url?: string | null;
     sftp_path?: string | null;
+    wrike?: WrikeSourceConfig;
     header_row?: number | null;
     header_row_count?: 1 | 2;
     quantity_column?: string | null;
@@ -996,7 +1005,8 @@ const importMethodSourceOptions: ImportMethodSource[] = [
   "PDF PO",
   "Clipboard",
   "REST API",
-  "SFTP"
+  "SFTP",
+  "Wrike"
 ];
 const importMethodStatusOptions: ImportMethodStatus[] = ["Active", "Inactive", "Draft", "Paused"];
 
@@ -3030,7 +3040,7 @@ function sourceTypeToMethodType(source: ImportMethodSource): ImportMethod["type"
   if (source === "Clipboard") {
     return "Manual paste";
   }
-  if (source === "SFTP" || source === "Google Sheet") {
+  if (source === "SFTP" || source === "Google Sheet" || source === "Wrike") {
     return "Scheduled";
   }
   return "Manual upload";
@@ -4716,6 +4726,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const activeImportMethodHasUnsavedChanges = activeImportMethod
     ? dirtyImportMethodIds.includes(activeImportMethod.import_method_id)
     : false;
+  const activeWrikeConfig = normalizeWrikeSourceConfig(
+    activeImportMethod?.source_config.wrike ?? createDefaultWrikeSourceConfig()
+  );
+  const activeWrikeReadiness = getWrikeContractReadiness(activeWrikeConfig);
   const activeProductConfig = workflowImportMethod?.product_resolution_config ?? defaultProductResolutionConfig;
   const activeOrderNameConfig =
     workflowImportMethod?.order_name_resolution_config ?? defaultOrderNameResolutionConfig;
@@ -8581,7 +8595,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             const source = event.target.value as ImportMethodSource;
                             updateActiveMethodDraft({
                               source,
-                              type: sourceTypeToMethodType(source)
+                              type: sourceTypeToMethodType(source),
+                              source_config:
+                                source === "Wrike"
+                                  ? {
+                                      ...activeImportMethod.source_config,
+                                      wrike:
+                                        activeImportMethod.source_config.wrike ?? createDefaultWrikeSourceConfig()
+                                    }
+                                  : activeImportMethod.source_config
                             });
                           }}
                         >
@@ -8734,6 +8756,183 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             }
                           />
                         </label>
+                      ) : null}
+                      {activeImportMethod.source === "Wrike" ? (
+                        <div className="wrike-source-contract setup-control-wide">
+                          <div className="wrike-contract-heading">
+                            <div>
+                              <span className="section-eyebrow">Wrike order intake</span>
+                              <strong>Bind one Wrike workflow to this Import Method</strong>
+                              <small>
+                                Save the durable task, trigger, and workbook rules now. API credentials remain outside the Import Method.
+                              </small>
+                            </div>
+                            <span
+                              className={
+                                activeWrikeReadiness.status === "Configured"
+                                  ? "mini-pill mini-pill-success"
+                                  : "mini-pill mini-pill-warning"
+                              }
+                            >
+                              {activeWrikeReadiness.status === "Configured" ? "Contract configured" : "Needs Wrike IDs"}
+                            </span>
+                          </div>
+
+                          <div className="wrike-contract-grid">
+                            <label className="setup-control">
+                              <span>Folder or project ID</span>
+                              <input
+                                value={activeWrikeConfig.folder_id}
+                                placeholder="Wrike API ID"
+                                onChange={(event) =>
+                                  updateActiveMethodDraft({
+                                    source_config: {
+                                      ...activeImportMethod.source_config,
+                                      wrike: { ...activeWrikeConfig, folder_id: event.target.value }
+                                    }
+                                  })
+                                }
+                              />
+                            </label>
+                            <label className="setup-control">
+                              <span>Trigger strategy</span>
+                              <select
+                                value={activeWrikeConfig.trigger_mode}
+                                onChange={(event) =>
+                                  updateActiveMethodDraft({
+                                    source_config: {
+                                      ...activeImportMethod.source_config,
+                                      wrike: {
+                                        ...activeWrikeConfig,
+                                        trigger_mode: event.target.value as WrikeTriggerMode
+                                      }
+                                    }
+                                  })
+                                }
+                              >
+                                <option value="scheduled_polling">Scheduled polling</option>
+                                <option value="webhook_with_reconciliation">Webhook + reconciliation</option>
+                              </select>
+                            </label>
+                            <label className="setup-control">
+                              <span>Ordered status ID</span>
+                              <input
+                                value={activeWrikeConfig.trigger_status_id}
+                                placeholder="Custom workflow status API ID"
+                                onChange={(event) =>
+                                  updateActiveMethodDraft({
+                                    source_config: {
+                                      ...activeImportMethod.source_config,
+                                      wrike: { ...activeWrikeConfig, trigger_status_id: event.target.value }
+                                    }
+                                  })
+                                }
+                              />
+                            </label>
+                            <label className="setup-control">
+                              <span>Status label</span>
+                              <input
+                                value={activeWrikeConfig.trigger_status_label}
+                                placeholder="Ordered"
+                                onChange={(event) =>
+                                  updateActiveMethodDraft({
+                                    source_config: {
+                                      ...activeImportMethod.source_config,
+                                      wrike: { ...activeWrikeConfig, trigger_status_label: event.target.value }
+                                    }
+                                  })
+                                }
+                              />
+                            </label>
+                            <label className="setup-control">
+                              <span>Workbook name contains</span>
+                              <input
+                                value={activeWrikeConfig.attachment_filename_contains}
+                                placeholder="Optional, e.g. print order"
+                                onChange={(event) =>
+                                  updateActiveMethodDraft({
+                                    source_config: {
+                                      ...activeImportMethod.source_config,
+                                      wrike: {
+                                        ...activeWrikeConfig,
+                                        attachment_filename_contains: event.target.value
+                                      }
+                                    }
+                                  })
+                                }
+                              />
+                            </label>
+                            <label className="setup-control">
+                              <span>Reconciliation interval</span>
+                              <select
+                                value={activeWrikeConfig.poll_interval_minutes}
+                                onChange={(event) =>
+                                  updateActiveMethodDraft({
+                                    source_config: {
+                                      ...activeImportMethod.source_config,
+                                      wrike: {
+                                        ...activeWrikeConfig,
+                                        poll_interval_minutes: Number(event.target.value)
+                                      }
+                                    }
+                                  })
+                                }
+                              >
+                                {[5, 10, 15, 30, 60].map((minutes) => (
+                                  <option value={minutes} key={minutes}>
+                                    Every {minutes} minutes
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                          </div>
+
+                          <div className="wrike-extension-row">
+                            <span>Accepted workbooks</span>
+                            <div>
+                              {(["xlsx", "xls", "csv"] as WrikeWorkbookExtension[]).map((extension) => (
+                                <label className="switch-field" key={extension}>
+                                  <input
+                                    type="checkbox"
+                                    checked={activeWrikeConfig.attachment_extensions.includes(extension)}
+                                    onChange={(event) => {
+                                      const attachmentExtensions = event.target.checked
+                                        ? Array.from(new Set([...activeWrikeConfig.attachment_extensions, extension]))
+                                        : activeWrikeConfig.attachment_extensions.filter((candidate) => candidate !== extension);
+                                      updateActiveMethodDraft({
+                                        source_config: {
+                                          ...activeImportMethod.source_config,
+                                          wrike: {
+                                            ...activeWrikeConfig,
+                                            attachment_extensions: attachmentExtensions
+                                          }
+                                        }
+                                      });
+                                    }}
+                                  />
+                                  <span className="switch-field-track" aria-hidden="true" />
+                                  <span>.{extension}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="wrike-contract-flow" aria-label="Wrike ingestion safety boundary">
+                            <span>1 Discover ordered task</span>
+                            <span>2 Select newest workbook</span>
+                            <span>3 Apply this Import Method</span>
+                            <span>4 Create preview job</span>
+                          </div>
+                          <div className="wrike-contract-safeguard">
+                            <ShieldCheck size={18} />
+                            <span>
+                              <strong>Operator review remains required.</strong> Duplicate protection uses Wrike account, task, attachment, and version IDs. This contract cannot submit to Lift.
+                            </span>
+                          </div>
+                          <p className="wrike-contract-note">
+                            Connection and activation remain unavailable until OAuth access, secret storage, webhook/polling runtime, and audit telemetry are approved.
+                          </p>
+                        </div>
                       ) : null}
                       <div className="setup-actions">
                         <span className="method-panel-save-note">Method setup saves with the selected import method.</span>
