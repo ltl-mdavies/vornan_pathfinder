@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { validateProofDeployment } from "../proof-deploy-preflight.mjs";
 
@@ -17,6 +18,41 @@ test("accepts an isolated default-off QA deployment", () => {
   assert.equal(result.public_read_enabled, false);
   assert.equal(result.automatic_refresh_max_inactive_days, 14);
   assert.equal(result.lift_writes_enabled, false);
+  assert.equal(result.synthetic_qa_enabled, false);
+});
+
+test("allows the synthetic fixture only in a fully dark dev deployment", () => {
+  const dev = {
+    ...qaEnvironment,
+    PATHFINDER_PROOF_ENVIRONMENT_NAME: "dev",
+    PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT: "dev",
+    PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA: "true"
+  };
+  assert.equal(validateProofDeployment(dev).synthetic_qa_enabled, true);
+  for (const unsafe of [
+    { PATHFINDER_PROOF_ENVIRONMENT_NAME: "qa", PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT: "qa" },
+    { PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "true", PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: "true" },
+    { PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: "true" },
+    { PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED: "true" },
+    { PATHFINDER_PROOF_ENABLE_LINK_EMAIL: "true" },
+    {
+      PATHFINDER_PROOF_DOMAIN_NAME: "proof-dev.vornan.co",
+      PATHFINDER_PROOF_CERTIFICATE_ARN:
+        "arn:aws:acm:us-east-1:123456789012:certificate/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+  ]) {
+    assert.throws(() => validateProofDeployment({ ...dev, ...unsafe }), /fully dark dev stack/);
+  }
+});
+
+test("keeps synthetic QA disabled in normal workflow deploys and isolated to the sync worker", () => {
+  const workflow = readFileSync(new URL("../../.github/workflows/deploy-proof.yml", import.meta.url), "utf8");
+  const template = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
+  assert.match(workflow, /SyntheticQaEnabled="false"/);
+  assert.match(template, /SyntheticQaMustRemainDarkDev:/);
+  assert.match(template, /PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA: !Ref SyntheticQaEnabled/);
+  const publicFunction = template.slice(template.indexOf("  ProofPublicFunction:"), template.indexOf("  ProofSyncFunction:"));
+  assert.doesNotMatch(publicFunction, /PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA/);
 });
 
 test("bounds the automatic stale-read refresh window", () => {

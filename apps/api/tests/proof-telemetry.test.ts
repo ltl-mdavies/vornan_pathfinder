@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
-import { proofMetricEnvelope, proofPublicOperation } from "../src/proof/telemetry.ts";
+import { proofMetricEnvelope, proofPublicOperation, proofPublicTelemetry } from "../src/proof/telemetry.ts";
 
 test("classifies every read-only public route without using customer identifiers as metric dimensions", () => {
   assert.deepEqual([
@@ -72,4 +73,57 @@ test("sanitizes untrusted correlation and failure labels", () => {
   assert.equal(envelope.Duration, 0);
   assert.match(envelope.correlation_id, /^[A-Za-z0-9_-]{1,80}$/);
   assert.equal(envelope.failure_class, "OtherError");
+});
+
+test("captures the public operation before mounted routers rewrite the request path", () => {
+  process.env.PATHFINDER_PROOF_TELEMETRY_MODE = "console";
+  const emitted: Record<string, unknown>[] = [];
+  const originalLog = console.log;
+  console.log = (value?: unknown) => {
+    if (typeof value === "string") emitted.push(JSON.parse(value));
+  };
+  try {
+    const response = new EventEmitter() as EventEmitter & {
+      statusCode: number;
+      setHeader(name: string, value: string): void;
+    };
+    response.statusCode = 200;
+    response.setHeader = () => undefined;
+    const request = { method: "GET", path: "/api/public/proof/order" } as never;
+    proofPublicTelemetry(request, response as never, () => {
+      (request as { path: string }).path = "/order";
+    });
+    response.emit("finish");
+  } finally {
+    console.log = originalLog;
+  }
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0]?.Operation, "cached_order_read");
+});
+
+test("classifies an intentionally disabled public lifecycle as a denial instead of a server error", () => {
+  process.env.PATHFINDER_PROOF_TELEMETRY_MODE = "console";
+  const emitted: Record<string, unknown>[] = [];
+  const originalLog = console.log;
+  console.log = (value?: unknown) => {
+    if (typeof value === "string") emitted.push(JSON.parse(value));
+  };
+  try {
+    const response = new EventEmitter() as EventEmitter & {
+      statusCode: number;
+      locals: Record<string, unknown>;
+      setHeader(name: string, value: string): void;
+    };
+    response.statusCode = 503;
+    response.locals = { proof_expected_denial: true };
+    response.setHeader = () => undefined;
+    proofPublicTelemetry({ method: "POST", path: "/api/public/proof/sessions" } as never, response as never, () => undefined);
+    response.emit("finish");
+  } finally {
+    console.log = originalLog;
+  }
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0]?.Operation, "token_exchange");
+  assert.equal(emitted[0]?.DeniedRequests, 1);
+  assert.equal(emitted[0]?.ServerErrors, 0);
 });

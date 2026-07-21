@@ -7,6 +7,7 @@ artifact_bucket="${PATHFINDER_API_ARTIFACT_BUCKET:?Set PATHFINDER_API_ARTIFACT_B
 artifact_key="${PATHFINDER_PROOF_ARTIFACT_KEY:-proof/${environment_name}/vornan-proof-lambdas-$(date +%Y%m%d%H%M%S).zip}"
 zip_path="outputs/vornan-proof-lambdas.zip"
 public_read_enabled="${PATHFINDER_PROOF_ENABLE_PUBLIC_READ:-false}"
+synthetic_qa_enabled="${PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA:-false}"
 edge_shared_secret="${PATHFINDER_PROOF_EDGE_SHARED_SECRET:-}"
 lift_read_environment="${PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT:?Set PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT to dev, qa, or prod.}"
 lift_order_read_url="${PATHFINDER_PROOF_LIFT_ORDER_READ_URL:?Set PATHFINDER_PROOF_LIFT_ORDER_READ_URL to the reviewed stage endpoint.}"
@@ -35,6 +36,7 @@ aws cloudformation deploy \
     PublicLambdaCodeS3Bucket="${artifact_bucket}" \
     PublicLambdaCodeS3Key="${artifact_key}" \
     PublicReadEnabled="${public_read_enabled}" \
+    SyntheticQaEnabled="${synthetic_qa_enabled}" \
     ReadOnlyQaConfirmed="${PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED:-false}" \
     ProductionPublicReadApproved="${PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED:-false}" \
     PublicBaseUrl="${PATHFINDER_PROOF_PUBLIC_BASE_URL:-https://proof.vornan.co}" \

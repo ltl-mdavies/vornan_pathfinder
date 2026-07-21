@@ -14,6 +14,7 @@ import { getProofOrder, listProofParticipants } from "./store.js";
 import { proofAutomaticRefreshState, queueProofSync } from "./sync-queue.js";
 import { identifyProofParticipant, publicProofActivity, publicProofParticipant } from "./participant-service.js";
 import { acknowledgeProofFeedback, proofFeedbackStates as loadProofFeedbackStates } from "./feedback-service.js";
+import { PROOF_EXPECTED_DENIAL_LOCAL } from "./telemetry.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
 export const PROOF_SESSION_COOKIE_PATH = "/api/public/proof";
@@ -68,6 +69,7 @@ function handlePublicError(error: unknown, res: Parameters<Parameters<Router["ge
     return;
   }
   if (error instanceof ProofAccessFeatureDisabledError) {
+    res.locals[PROOF_EXPECTED_DENIAL_LOCAL] = true;
     res.status(503).json({ error: "Proof access is not available." });
     return;
   }

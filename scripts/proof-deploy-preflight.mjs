@@ -107,8 +107,25 @@ export function validateProofDeployment(env = process.env) {
   }
 
   const publicReadEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ);
+  const syntheticQaEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA);
   const managedWafEnabled = enabled(env.PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED);
   const sharedWebAclConfigured = Boolean(env.PATHFINDER_PROOF_WEB_ACL_ARN?.trim());
+  if (
+    syntheticQaEnabled
+    && (
+      environmentName !== "dev"
+      || publicReadEnabled
+      || enabled(env.PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED)
+      || enabled(env.PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED)
+      || enabled(env.PATHFINDER_PROOF_ENABLE_LINK_EMAIL)
+      || Boolean(proofDomain)
+      || Boolean(certificateArn)
+    )
+  ) {
+    throw new Error(
+      "PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA=true is allowed only in the fully dark dev stack."
+    );
+  }
   if (publicReadEnabled) {
     if (!enabled(env.PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED)) {
       throw new Error("PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED=true is required before public read can be enabled.");
@@ -134,6 +151,7 @@ export function validateProofDeployment(env = process.env) {
     proof_alias_configured: Boolean(proofDomain),
     proof_domain: proofDomain || null,
     automatic_refresh_max_inactive_days: automaticRefreshMaxInactiveDays,
+    synthetic_qa_enabled: syntheticQaEnabled,
     lift_writes_enabled: false
   };
 }

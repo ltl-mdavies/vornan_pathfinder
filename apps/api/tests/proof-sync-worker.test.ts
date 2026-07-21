@@ -17,6 +17,15 @@ before(async () => {
   process.env.PATHFINDER_PROOF_STORAGE_DRIVER = "local";
   process.env.PATHFINDER_PROOF_LOCAL_STORE_PATH = join(testDirectory, "proof-store.json");
   process.env.PATHFINDER_PROOF_TELEMETRY_MODE = "off";
+  process.env.PATHFINDER_PROOF_ENVIRONMENT_NAME = "dev";
+  process.env.PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA = "true";
+  process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ = "false";
+  process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "false";
+  process.env.PATHFINDER_PROOF_ENABLE_LINK_EMAIL = "false";
+  process.env.PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED = "false";
+  process.env.PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED = "false";
+  process.env.PATHFINDER_PROOF_DOMAIN_NAME = "";
+  process.env.PATHFINDER_PROOF_CERTIFICATE_ARN = "";
   originalFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     methods.push(init?.method ?? "GET");
@@ -74,4 +83,43 @@ test("rejects malformed queue messages without contacting Lift or exposing the p
     (error: Error) => error.message === "Proof sync failed for correlation qa-2."
   );
   assert.equal(methods.length, beforeCount);
+});
+
+test("processes the reserved synthetic success envelope without contacting Lift", async () => {
+  const beforeCount = methods.length;
+  const result = await handler({ Records: [{
+    body: JSON.stringify({
+      order_number: "A00000000",
+      qa_fixture: { fixture_id: "vpqa-20260721-worker", outcome: "success" }
+    }),
+    messageId: "qa-synthetic-success"
+  }] });
+  const stored = await getProofOrder("A00000000");
+  const audit = await listProofAuditEvents("A00000000", { limit: 100 });
+  assert.equal(result.processed, 1);
+  assert.equal(stored?.customer_name, "SYNTHETIC QA — NOT A CUSTOMER");
+  assert.equal(stored?.lines.length, 1);
+  assert.equal(stored?.tasks[0]?.order_line_id, stored?.lines[0]?.order_line_id);
+  assert.equal(methods.length, beforeCount);
+  assert.equal(audit.events.filter((event) => event.action === "proof.sync_completed").length, 1);
+  assert.equal(audit.events.filter((event) => event.action === "proof.review_ready").length, 1);
+});
+
+test("routes the controlled synthetic failure through generic worker failure handling without Lift", async () => {
+  const beforeCount = methods.length;
+  await assert.rejects(
+    () => handler({ Records: [{
+      body: JSON.stringify({
+        order_number: "A00000000",
+        qa_fixture: { fixture_id: "vpqa-20260721-worker", outcome: "failure" }
+      }),
+      messageId: "qa-synthetic-failure"
+    }] }),
+    (error: Error) => error.message === "Proof sync failed for correlation qa-synthetic-failure."
+  );
+  const audit = await listProofAuditEvents("A00000000", { limit: 100 });
+  assert.equal(methods.length, beforeCount);
+  assert.ok(audit.events.some(
+    (event) => event.action === "proof.sync_failed" && event.metadata.failure_class === "ProofSyntheticQaFailure"
+  ));
 });

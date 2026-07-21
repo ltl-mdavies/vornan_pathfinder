@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 
 const METRIC_NAMESPACE = "Vornan/Proof";
+export const PROOF_EXPECTED_DENIAL_LOCAL = "proof_expected_denial";
 const SAFE_FAILURE_CLASSES = new Set([
   "Error",
   "LiftProofReadError",
+  "ProofSyntheticQaFailure",
   "ProofOrderNotFoundError",
   "ProofStorageDisabledError",
   "SyntaxError",
@@ -99,14 +101,16 @@ export function proofPublicOperation(method: string, path: string) {
 export function proofPublicTelemetry(req: Request, res: Response, next: NextFunction) {
   const startedAt = performance.now();
   const correlationId = randomUUID();
+  const operation = proofPublicOperation(req.method, req.path);
   res.setHeader("X-Request-ID", correlationId);
   res.on("finish", () => {
+    const expectedDenial = res.locals?.[PROOF_EXPECTED_DENIAL_LOCAL] === true;
     emitProofMetric({
       service: "public-api",
-      operation: proofPublicOperation(req.method, req.path),
+      operation,
       duration_ms: performance.now() - startedAt,
-      server_error: res.statusCode >= 500,
-      denied: res.statusCode === 401 || res.statusCode === 403 || res.statusCode === 429,
+      server_error: res.statusCode >= 500 && !expectedDenial,
+      denied: expectedDenial || res.statusCode === 401 || res.statusCode === 403 || res.statusCode === 429,
       correlation_id: correlationId
     });
   });
