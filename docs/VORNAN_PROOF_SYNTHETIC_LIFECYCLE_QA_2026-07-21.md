@@ -148,4 +148,4 @@ The following checks remain intentionally unperformed:
 - Proof retrieval for Lift-originated and Pathfinder-originated orders.
 - Cached refresh behavior using unchanged and changed real read-only data.
 
-Before any of those requests, an operator must explicitly approve one exact Lift QA order and confirm that it is appropriate for read-only validation. Until then the Proof stack remains dark and `ReadOnlyQaConfirmed` remains false.
+The operator subsequently approved `A0226701`. Its Lift-originated synchronization, correlation, proof retrieval, and corrected unchanged-refresh results are recorded in `docs/VORNAN_PROOF_LIFT_READ_ONLY_QA_A0226701_2026-07-21.md`. A separate Pathfinder-originated order is still required; the Proof stack remains dark and `ReadOnlyQaConfirmed` remains false.

@@ -2690,3 +2690,19 @@ Verification:
 - The post-cleanup deployed smoke passed with public read and decisions false and direct API bypass rejected.
 
 Public read, `ReadOnlyQaConfirmed`, production public approval, DNS, grant/link email, decisions, and every Lift write remain disabled. No Lift request or Pathfinder production-surface change occurred. The next step requires explicit approval for one exact read-only Lift QA order.
+
+## 2026-07-21 - Approved Lift Read-Only QA A0226701
+
+Completed the explicitly approved direct-Lift order slice for `A0226701` in the isolated dark `vornan-proof-dev` stack.
+
+- The first production Lift GET sync normalized 3 unique order lines and 3 unique Proof attachments. Every task matched a real cached `ORDER_LINE_ID`; all 3 line-scoped report reads succeeded with no fallback or normalization warning.
+- Exact read-only checks found no `A0226701` match in production Pathfinder jobs or submit attempts, classifying this as the Lift-originated case. No production Pathfinder record was changed.
+- The first unchanged refresh exposed rotating signed proof URL queries being treated as false file versions. Field-category and URL-identity checks confirmed only query signatures changed; all proof origins/paths and metadata remained stable.
+- Updated Proof-domain change detection to ignore query/fragment rotation while refreshing the current usable URLs and preserving version IDs/history. Genuine asset host/path or metadata changes still version normally.
+- Reset only the exact dev QA partition, deployed the correction only to the dark Proof dev stack, and repeated the first/unchanged sync pair. Order/task versions and history stayed at 1; the sanitized content hash remained identical; `proof.review_ready` remained single-shot.
+- Across discovery and confirmation, the worker completed 16 adapter GETs with no error, fallback, DLQ message, sensitive log field, public exposure, or Lift write. All nine alarms remained `OK`.
+- Recorded the sanitized evidence in `docs/VORNAN_PROOF_LIFT_READ_ONLY_QA_A0226701_2026-07-21.md`.
+
+Verification passed all workspace checks/builds, all 133 workspace tests, all 25 Proof deployment-safety tests, Proof Lambda packaging, the post-cache dark smoke, sanitized telemetry/log scans, queue/DLQ checks, and `git diff --check`.
+
+The corrected isolated cache retains only one profile, three tasks, and three versions for the approved order; it has no grant/session records. Public read, `ReadOnlyQaConfirmed`, production approval, DNS, email, decisions, and every Lift write remain disabled. A separately approved Pathfinder-originated order is still required.

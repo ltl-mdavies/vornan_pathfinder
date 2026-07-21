@@ -560,6 +560,26 @@ function actionableState(state: ProofTaskState) {
   return state === "pending";
 }
 
+function stableProofAssetIdentity(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}${url.pathname}`;
+  } catch {
+    return value.replace(/[?#].*$/, "");
+  }
+}
+
+function comparableProofVersion(version: ProofVersion | null) {
+  if (!version) return null;
+  const { version_id: _versionId, current: _current, archived_at: _archivedAt, ...content } = version;
+  return {
+    ...content,
+    preview_url: stableProofAssetIdentity(version.preview_url),
+    download_url: stableProofAssetIdentity(version.download_url)
+  };
+}
+
 function taskContentFingerprint(task: ProofTask) {
   return fingerprint({
     order_line_id: task.order_line_id,
@@ -571,8 +591,16 @@ function taskContentFingerprint(task: ProofTask) {
     actionable: task.actionable,
     sibling_index: task.sibling_index,
     sibling_count: task.sibling_count,
-    current_version: task.current_version
+    current_version: comparableProofVersion(task.current_version)
   });
+}
+
+function comparableStoredTask(task: ProofTask) {
+  return {
+    ...task,
+    current_version: comparableProofVersion(task.current_version),
+    versions: task.versions.map((version) => comparableProofVersion(version))
+  };
 }
 
 function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedAt: string) {
@@ -580,11 +608,26 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
     return incoming;
   }
   if (taskContentFingerprint(previous) === taskContentFingerprint(incoming)) {
+    const refreshedCurrentVersion = incoming.current_version && previous.current_version
+      ? {
+          ...incoming.current_version,
+          version_id: previous.current_version.version_id,
+          current: true,
+          archived_at: null
+        }
+      : incoming.current_version;
+    const refreshedVersions = refreshedCurrentVersion
+      ? [
+          refreshedCurrentVersion,
+          ...previous.versions.filter((version) => version.version_id !== previous.current_version?.version_id)
+        ]
+      : previous.versions;
     return {
       ...incoming,
       task_id: previous.task_id,
       version: previous.version,
-      versions: previous.versions,
+      current_version: refreshedCurrentVersion,
+      versions: refreshedVersions,
       created_at: previous.created_at,
       updated_at: previous.updated_at
     };
@@ -786,9 +829,19 @@ export function normalizeProofOrder(input: NormalizeProofOrderInput): ProofOrder
   const archivedTasks = [...newlyArchived, ...(previous?.archived_tasks ?? [])].filter(
     (task, index, all) => all.findIndex((candidate) => candidate.task_id === task.task_id) === index
   );
-  const activeContent = fingerprint({ lines, tasks, archivedTasks, warnings });
+  const activeContent = fingerprint({
+    lines,
+    tasks: tasks.map(comparableStoredTask),
+    archivedTasks: archivedTasks.map(comparableStoredTask),
+    warnings
+  });
   const previousContent = previous
-    ? fingerprint({ lines: previous.lines, tasks: previous.tasks, archivedTasks: previous.archived_tasks, warnings: previous.warnings })
+    ? fingerprint({
+        lines: previous.lines,
+        tasks: previous.tasks.map(comparableStoredTask),
+        archivedTasks: previous.archived_tasks.map(comparableStoredTask),
+        warnings: previous.warnings
+      })
     : null;
   const changed = !previous || activeContent !== previousContent;
   const health: ProofOrderHealth =

@@ -247,6 +247,73 @@ test("preserves task versions and timestamps on a no-op sync", () => {
   );
 });
 
+test("refreshes rotating signed proof URLs without creating false file versions", () => {
+  const first = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    synced_at: syncedAt
+  });
+  const rotatedPayload = {
+    rowset: (proofPayload.rowset as Array<Record<string, unknown>>).map((row) => ({
+      ...row,
+      ...(typeof row.PROOF_LINK_LOW === "string"
+        ? { PROOF_LINK_LOW: `${row.PROOF_LINK_LOW}?X-Amz-Signature=rotated-low` }
+        : {}),
+      ...(typeof row.PROOF_LINK_HIGH === "string"
+        ? { PROOF_LINK_HIGH: `${row.PROOF_LINK_HIGH}?X-Amz-Signature=rotated-high` }
+        : {})
+    }))
+  };
+  const second = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [rotatedPayload],
+    previous: first,
+    synced_at: "2026-07-20T12:15:00.000Z"
+  });
+
+  assert.equal(second.version, first.version);
+  assert.equal(second.updated_at, first.updated_at);
+  assert.equal(second.last_synced_at, "2026-07-20T12:15:00.000Z");
+  assert.deepEqual(second.tasks.map((task) => task.version), first.tasks.map((task) => task.version));
+  assert.deepEqual(second.tasks.map((task) => task.versions.length), first.tasks.map((task) => task.versions.length));
+  assert.deepEqual(
+    second.tasks.map((task) => task.current_version?.version_id),
+    first.tasks.map((task) => task.current_version?.version_id)
+  );
+  assert.ok(second.tasks.some((task) => task.current_version?.download_url?.includes("rotated-high")));
+  assert.ok(second.tasks.some((task) => task.versions[0]?.download_url?.includes("rotated-high")));
+});
+
+test("creates a new proof version when the asset path changes", () => {
+  const first = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    synced_at: syncedAt
+  });
+  const replacedPayload = {
+    rowset: (proofPayload.rowset as Array<Record<string, unknown>>).map((row) =>
+      row.ATTACHMENT_ID === 25435042
+        ? { ...row, PROOF_LINK_HIGH: "https://files.example/north-b-replacement.pdf?X-Amz-Signature=fresh" }
+        : row
+    )
+  };
+  const second = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [replacedPayload],
+    previous: first,
+    synced_at: "2026-07-20T12:15:00.000Z"
+  });
+  const changed = second.tasks.find((task) => task.attachment_id === "25435042");
+
+  assert.equal(second.version, first.version + 1);
+  assert.equal(changed?.version, 2);
+  assert.equal(changed?.versions.length, 2);
+});
+
 test("preserves the prior proof version when approval metadata changes on the same attachment", () => {
   const first = normalizeProofOrder({
     order_number: "A0221132",
