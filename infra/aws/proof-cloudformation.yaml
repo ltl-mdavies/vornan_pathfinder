@@ -37,6 +37,11 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
+  SyntheticQaEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Dev-only, dark-only synthetic worker fixture. Normal deployments force this off.
   ReadOnlyQaConfirmed:
     Type: String
     Default: "false"
@@ -127,6 +132,17 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref EnvironmentName, !Ref LiftReadEnvironment]
         AssertDescription: LiftReadEnvironment must match EnvironmentName.
+  SyntheticQaMustRemainDarkDev:
+    RuleCondition: !Equals [!Ref SyntheticQaEnabled, "true"]
+    Assertions:
+      - Assert: !And
+          - !Equals [!Ref EnvironmentName, dev]
+          - !Equals [!Ref PublicReadEnabled, "false"]
+          - !Equals [!Ref ReadOnlyQaConfirmed, "false"]
+          - !Equals [!Ref ProductionPublicReadApproved, "false"]
+          - !Equals [!Ref ProofDomainName, ""]
+          - !Equals [!Ref CertificateArn, ""]
+        AssertDescription: SyntheticQaEnabled is allowed only in the fully dark dev stack without an alias.
   NonProductionReadsRequireAcknowledgement:
     RuleCondition: !Not [!Equals [!Ref EnvironmentName, prod]]
     Assertions:
@@ -659,6 +675,11 @@ Resources:
           PATHFINDER_PROOF_AUDIT_TABLE: !Ref ProofAuditTable
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"
           PATHFINDER_PROOF_ENABLE_GRANT_CREATION: "false"
+          PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA: !Ref SyntheticQaEnabled
+          PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: !Ref ReadOnlyQaConfirmed
+          PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED: !Ref ProductionPublicReadApproved
+          PATHFINDER_PROOF_DOMAIN_NAME: !Ref ProofDomainName
+          PATHFINDER_PROOF_CERTIFICATE_ARN: !Ref CertificateArn
           PATHFINDER_PROOF_LIFT_ORDER_READ_URL: !Ref LiftOrderReadUrl
           PATHFINDER_PROOF_LIFT_REPORT_READ_URL: !Ref LiftProofReportReadUrl
 

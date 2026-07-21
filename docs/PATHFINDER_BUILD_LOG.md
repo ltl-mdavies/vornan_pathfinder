@@ -2684,3 +2684,43 @@ Completed the first isolated read-only QA slice against the deployed `vornan-pro
 - The focused evidence tree passed all 125 workspace tests, every workspace check and production build, all 21 Proof deployment-safety tests, Proof Lambda packaging, SAM lint, workflow/script syntax, literal write-gate scanning, and `git diff --check`.
 
 This is a pass for the zero-data dark boundary, not Phase 2 lifecycle confirmation. No QA order was invented; no Lift synchronization, grant, session, email, DNS, public read, customer decision, Lift submit, or Lift Proof write was performed. `ReadOnlyQaConfirmed` remains false.
+
+## 2026-07-21 - Proof Purgeable Synthetic Lifecycle QA
+
+Completed the first full non-customer lifecycle in the isolated `vornan-proof-dev` stack from `origin/main` commit `77a000b`.
+
+- Added a dev-only fixture using reserved order `A00000000`, marker `SYNTHETIC QA — NOT A CUSTOMER`, and bounded `vpqa-*` identities. CloudFormation and preflight reject it unless the stack is fully dark, alias-free, and unconfirmed.
+- Exercised the real FIFO worker path for a one-line/one-task cached aggregate and a controlled pre-Lift failure. The failure retried five times, entered the DLQ, and triggered both sync-failure and DLQ alarms.
+- Exercised one-time grant exchange, hardened session/CSRF cookies, cached order read, participant identity, task history, feedback acknowledgement, logout, post-logout denial, and grant revocation inside a non-listening process connected only to isolated dev tables.
+- Confirmed all required audit actions and bounded telemetry dimensions. The first attempt exposed an Express mount-path telemetry timing defect; it was purged, fixed with regression coverage, redeployed, and the second run emitted `cached_order_read` correctly.
+- Corrected a second telemetry edge case found by the post-cleanup smoke: a deliberately disabled public lifecycle now records its HTTP 503 as a denial instead of a server error, while genuine 503 failures remain alarmable.
+- Browser-tested fail-closed deployed states at `1366×768`, `390×844`, `320×568`, and `844×390`; there was no horizontal overflow or fixture exposure.
+- Purged the passing fixture exactly: 7 core records, 13 audit records, and one DLQ message. Verified zero residual records/messages, restored the 90-second queue visibility timeout, and redeployed with `SyntheticQaEnabled=false`.
+- Allowed the intentional CloudWatch evaluation windows to expire and verified all nine Proof dev alarms returned to `OK` without manually changing alarm state.
+- Recorded complete evidence and deferred real-data checks in `docs/VORNAN_PROOF_SYNTHETIC_LIFECYCLE_QA_2026-07-21.md`.
+
+Verification:
+
+- `npm run check`, `npm run build`, Proof Lambda packaging, SAM lint, script/workflow syntax, credential/write-gate scans, and `git diff --check` passed.
+- `npm run test` passed all 131 workspace tests.
+- `npm run test:proof-deploy` passed all 25 deployment-safety tests.
+- The lifecycle harness TypeScript check passed independently.
+- The post-cleanup deployed smoke passed with public read and decisions false and direct API bypass rejected.
+
+Public read, `ReadOnlyQaConfirmed`, production public approval, DNS, grant/link email, decisions, and every Lift write remain disabled. No Lift request or Pathfinder production-surface change occurred. The next step requires explicit approval for one exact read-only Lift QA order.
+
+## 2026-07-21 - Approved Lift Read-Only QA A0226701
+
+Completed the explicitly approved direct-Lift order slice for `A0226701` in the isolated dark `vornan-proof-dev` stack.
+
+- The first production Lift GET sync normalized 3 unique order lines and 3 unique Proof attachments. Every task matched a real cached `ORDER_LINE_ID`; all 3 line-scoped report reads succeeded with no fallback or normalization warning.
+- Exact read-only checks found no `A0226701` match in production Pathfinder jobs or submit attempts, classifying this as the Lift-originated case. No production Pathfinder record was changed.
+- The first unchanged refresh exposed rotating signed proof URL queries being treated as false file versions. Field-category and URL-identity checks confirmed only query signatures changed; all proof origins/paths and metadata remained stable.
+- Updated Proof-domain change detection to ignore query/fragment rotation while refreshing the current usable URLs and preserving version IDs/history. Genuine asset host/path or metadata changes still version normally.
+- Reset only the exact dev QA partition, deployed the correction only to the dark Proof dev stack, and repeated the first/unchanged sync pair. Order/task versions and history stayed at 1; the sanitized content hash remained identical; `proof.review_ready` remained single-shot.
+- Across discovery and confirmation, the worker completed 16 adapter GETs with no error, fallback, DLQ message, sensitive log field, public exposure, or Lift write. All nine alarms remained `OK`.
+- Recorded the sanitized evidence in `docs/VORNAN_PROOF_LIFT_READ_ONLY_QA_A0226701_2026-07-21.md`.
+
+Verification passed all workspace checks/builds, all 133 workspace tests, all 25 Proof deployment-safety tests, Proof Lambda packaging, the post-cache dark smoke, sanitized telemetry/log scans, queue/DLQ checks, and `git diff --check`.
+
+The corrected isolated cache retains only one profile, three tasks, and three versions for the approved order; it has no grant/session records. Public read, `ReadOnlyQaConfirmed`, production approval, DNS, email, decisions, and every Lift write remain disabled. A separately approved Pathfinder-originated order is still required.

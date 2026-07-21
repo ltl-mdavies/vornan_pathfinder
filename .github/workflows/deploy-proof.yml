@@ -134,6 +134,7 @@ jobs:
               PublicLambdaCodeS3Bucket="${ARTIFACT_BUCKET}" \
               PublicLambdaCodeS3Key="${ARTIFACT_KEY}" \
               PublicReadEnabled="${PUBLIC_READ_ENABLED}" \
+              SyntheticQaEnabled="false" \
               ReadOnlyQaConfirmed="${READ_ONLY_QA_CONFIRMED}" \
               ProductionPublicReadApproved="${PRODUCTION_PUBLIC_READ_APPROVED}" \
               PublicBaseUrl="${base_url}" \

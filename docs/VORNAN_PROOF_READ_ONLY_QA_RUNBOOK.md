@@ -42,6 +42,30 @@ PATHFINDER_PROOF_CERTIFICATE_ARN=<issued us-east-1 ACM certificate covering the 
 
 Run `npm run verify:proof-deploy` before packaging or uploading artifacts. The protected GitHub workflow executes the same preflight automatically.
 
+## Controlled synthetic lifecycle before Lift reads
+
+Before requesting approval for any real Lift order, validate the cache, grant/session, audit, queue, telemetry, alarm, log, and fail-closed UI lifecycle with the reserved non-customer fixture.
+
+- Use only stack `vornan-proof-dev`, reserved order `A00000000`, marker `SYNTHETIC QA — NOT A CUSTOMER`, and a unique bounded `vpqa-*` fixture ID.
+- Enable `SyntheticQaEnabled=true` only for the lifecycle window. CloudFormation and deployment preflight reject this flag unless environment is `dev`, public read/read-only QA/production approval are false, and domain/certificate inputs are empty.
+- Keep the fixture flag out of the public Lambda. The lifecycle harness enables grant/public handlers only inside an in-process test app connected to the isolated dev tables; it must not open a listener or change deployed public-read parameters.
+- Use the harness's controlled success and failure messages. The failure must occur before the Lift adapter and traverse the deployed retry/DLQ policy.
+- Never use `PurgeQueue`. Purge with the exact fixture ID; the cleanup selector must refuse any table record or queue message it cannot prove belongs to the reserved fixture.
+
+```text
+PATHFINDER_PROOF_QA_CONFIRM=VORNAN_PROOF_SYNTHETIC_QA \
+PATHFINDER_PROOF_QA_FIXTURE_ID=vpqa-<unique-id> \
+PATHFINDER_PROOF_STACK_NAME=vornan-proof-dev \
+npm run qa:proof-synthetic
+
+PATHFINDER_PROOF_QA_CONFIRM=VORNAN_PROOF_SYNTHETIC_QA \
+PATHFINDER_PROOF_QA_FIXTURE_ID=vpqa-<same-id> \
+PATHFINDER_PROOF_STACK_NAME=vornan-proof-dev \
+npm run purge:proof-synthetic
+```
+
+After evidence capture, verify zero fixture records and queue messages, restore the queue's original visibility timeout, redeploy with `SyntheticQaEnabled=false`, and wait for intentionally triggered alarms to return to `OK`. A passing synthetic lifecycle does not authorize a Lift read; stop and obtain explicit approval for one exact QA order.
+
 ## DNS cutover gate
 
 Do not create the Proof DNS record before the first dark deployment completes. `ProofDomainName` and `CertificateArn` must be supplied together; production accepts only `proof.vornan.co`, and CloudFront certificates must be issued by ACM in `us-east-1`.

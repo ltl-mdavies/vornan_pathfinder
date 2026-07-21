@@ -1,6 +1,7 @@
 import { normalizeLiftOrderNumber } from "@pathfinder/proof-domain";
 import { syncProofOrder } from "./proof/service.js";
 import { emitProofMetric } from "./proof/telemetry.js";
+import { parseProofSyntheticQaRequest, processProofSyntheticQaRequest } from "./proof/qa-fixture.js";
 
 interface QueueEvent {
   Records?: { body?: string; messageId?: string }[];
@@ -11,18 +12,23 @@ export async function handler(event: QueueEvent) {
     const startedAt = performance.now();
     const correlationId = record.messageId ?? "unknown";
     try {
-      const payload = JSON.parse(record.body ?? "{}") as { order_number?: unknown };
+      const payload = JSON.parse(record.body ?? "{}") as { order_number?: unknown; qa_fixture?: unknown };
       if (typeof payload.order_number !== "string") {
         throw new Error("InvalidProofSyncMessage");
       }
-      await syncProofOrder(normalizeLiftOrderNumber(payload.order_number), {
-        audit_context: {
-          actor_type: "system",
-          actor_id: "proof-sync-worker",
-          correlation_id: correlationId,
-          source: "sync_worker"
-        }
-      });
+      const orderNumber = normalizeLiftOrderNumber(payload.order_number);
+      const auditContext = {
+        actor_type: "system" as const,
+        actor_id: "proof-sync-worker",
+        correlation_id: correlationId,
+        source: "sync_worker" as const
+      };
+      const syntheticQa = parseProofSyntheticQaRequest(payload as Record<string, unknown>);
+      if (syntheticQa) {
+        await processProofSyntheticQaRequest({ order_number: orderNumber, request: syntheticQa, audit_context: auditContext });
+      } else {
+        await syncProofOrder(orderNumber, { audit_context: auditContext });
+      }
       emitProofMetric({
         service: "sync-worker",
         operation: "sync_order",

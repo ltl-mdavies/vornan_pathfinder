@@ -24,6 +24,8 @@
     "verify:proof-deploy": "node scripts/proof-deploy-preflight.mjs",
     "check:proof-dns": "node scripts/proof-dns-readiness.mjs",
     "smoke:proof-read-only": "node scripts/smoke-proof-read-only.mjs",
+    "qa:proof-synthetic": "node --import tsx/esm scripts/proof-synthetic-lifecycle-qa.ts run",
+    "purge:proof-synthetic": "node --import tsx/esm scripts/proof-synthetic-lifecycle-qa.ts purge",
     "deploy:proof-stack": "scripts/deploy-proof-stack.sh",
     "deploy:proof-web": "scripts/deploy-proof-web.sh",
     "package:api-lambda": "scripts/package-api-lambda.sh",
