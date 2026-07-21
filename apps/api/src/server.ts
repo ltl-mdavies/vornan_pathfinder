@@ -2619,6 +2619,15 @@ app.post("/public/status/request-link", async (req, res) => {
 app.use("/api", requirePathfinderAuth);
 app.use("/api/proof", createProofAdminRouter());
 
+app.get("/api/submit-runtime", (_req, res) => {
+  res.json({
+    external_submit_enabled: externalLiftSubmitEnabled,
+    transport_mode: liftSubmitTransportMode,
+    live_transport_enabled: liftSubmitTransportMode !== "dry_run",
+    live_customer_submit_allowed: liveCustomerSubmitAllowed
+  });
+});
+
 app.get("/api/email/status", (_req, res) => {
   try {
     const config = getEmailRuntimeConfig();

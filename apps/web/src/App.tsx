@@ -165,6 +165,13 @@ type EmailStatusPayload = {
   };
 };
 
+type SubmitRuntimeStatus = {
+  external_submit_enabled: boolean;
+  transport_mode: SubmitAttemptTransportMode;
+  live_transport_enabled: boolean;
+  live_customer_submit_allowed: boolean;
+};
+
 interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
   mode: ProductResolutionMode;
@@ -2203,6 +2210,7 @@ function buildLocalSubmitCertification(args: {
   profile: SubmitProfile;
   route: OutputRoute;
   unresolvedProductCount: number;
+  runtime: SubmitRuntimeStatus | null;
 }): SubmitCertification {
   const canonicalFailures = args.canonicalValidation.filter((message) => message.severity === "FAIL");
   const liftFailures = args.liftValidation.filter((message) => message.severity === "FAIL");
@@ -2318,29 +2326,47 @@ function buildLocalSubmitCertification(args: {
     {
       item_id: "lift-transport-mode",
       label: "Lift transport mode",
-      status: "Blocked",
-      blocking: true,
-      message: "Lift transport mode is dry_run; Pathfinder will not call Lift until the API is started in live transport mode.",
-      suggested_action: "Set PATHFINDER_LIFT_TRANSPORT_MODE=live for the first real sandbox-lane submit.",
-      action_key: "target-health"
+      status: args.runtime?.live_transport_enabled ? "Passed" : "Blocked",
+      blocking: !args.runtime?.live_transport_enabled,
+      message: args.runtime
+        ? args.runtime.transport_mode === "live"
+          ? "Lift transport mode is live; Pathfinder will make the external POST when all other gates pass."
+          : args.runtime.transport_mode === "mock"
+            ? "Lift transport mode is mock; Pathfinder will simulate the configured Lift response."
+            : "Lift transport mode is dry_run; Pathfinder will record a dry run instead of calling Lift."
+        : "Checking the Pathfinder API Lift transport configuration.",
+      suggested_action: args.runtime
+        ? args.runtime.live_transport_enabled
+          ? undefined
+          : "Set PATHFINDER_LIFT_TRANSPORT_MODE=live for the certified sandbox lane."
+        : "Wait for the runtime check, then generate a fresh preview.",
+      action_key: args.runtime?.live_transport_enabled ? undefined : "target-health"
     },
     {
       item_id: "external-submit-gate",
       label: "External submit feature gate",
-      status: "Blocked",
-      blocking: true,
-      message: "External Lift submit is still disabled in Pathfinder.",
-      suggested_action: "Enable the explicit submit gate only after credentials and response handling are approved.",
-      action_key: "target-health"
+      status: args.runtime?.external_submit_enabled ? "Passed" : "Blocked",
+      blocking: !args.runtime?.external_submit_enabled,
+      message: args.runtime?.external_submit_enabled
+        ? "External Lift submit is enabled for certified previews in this environment."
+        : args.runtime
+          ? "External Lift submit is disabled in Pathfinder."
+          : "Checking the Pathfinder API external submit gate.",
+      suggested_action: args.runtime
+        ? args.runtime.external_submit_enabled
+          ? undefined
+          : "Enable the deployment-controlled external submit gate."
+        : "Wait for the runtime check, then generate a fresh preview.",
+      action_key: args.runtime?.external_submit_enabled ? undefined : "target-health"
     }
   ];
   const blockingCount = items.filter((item) => item.blocking).length;
 
   return {
     can_submit: blockingCount === 0,
-    external_submit_enabled: false,
-    live_transport_enabled: false,
-    live_customer_submit_allowed: false,
+    external_submit_enabled: args.runtime?.external_submit_enabled ?? false,
+    live_transport_enabled: args.runtime?.live_transport_enabled ?? false,
+    live_customer_submit_allowed: args.runtime?.live_customer_submit_allowed ?? false,
     summary: `${blockingCount} submit certification item${blockingCount === 1 ? "" : "s"} blocking external submit.`,
     items
   };
@@ -3140,6 +3166,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [emailStatus, setEmailStatus] = useState<EmailStatusPayload | null>(null);
   const [emailStatusState, setEmailStatusState] = useState<"idle" | "loading" | "error">("idle");
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
+  const [submitRuntime, setSubmitRuntime] = useState<SubmitRuntimeStatus | null>(null);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [activeTargetsView, setActiveTargetsView] = useState<TargetDetailView>("Environments");
   const [activeOutputTemplateId, setActiveOutputTemplateId] = useState<string | null>(null);
@@ -3485,6 +3512,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     } catch (error) {
       setEmailStatusMessage(error instanceof Error ? error.message : "Email status load failed.");
       setEmailStatusState("error");
+    }
+  }
+
+  async function loadSubmitRuntime() {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/submit-runtime`);
+      setSubmitRuntime(await readJsonResponse<SubmitRuntimeStatus>(response));
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Lift submit runtime check failed.");
     }
   }
 
@@ -4220,6 +4256,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   useEffect(() => {
     void loadEmailStatus();
+  }, []);
+
+  useEffect(() => {
+    void loadSubmitRuntime();
   }, []);
 
   useEffect(() => {
@@ -5083,7 +5123,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       payload: displayedLiftPayload,
       profile: selectedSubmitProfile,
       route: activeOutputRoute,
-      unresolvedProductCount: lastPreviewJob?.unresolved_products.length ?? currentOrderProductBlockingCount
+      unresolvedProductCount: lastPreviewJob?.unresolved_products.length ?? currentOrderProductBlockingCount,
+      runtime: submitRuntime
     });
   const submitCertificationBlockingCount = submitCertification.items.filter((item) => item.blocking).length;
   const manualSourceReady = sourceGrid.rows.length > 0;
