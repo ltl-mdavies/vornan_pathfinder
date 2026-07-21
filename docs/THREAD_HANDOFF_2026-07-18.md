@@ -912,7 +912,15 @@ Before a release checkpoint, finish full checks/build/tests, browser-test the ad
 
 Recommended continuation after the foundation is validated:
 
-1. Add an operator intake indicator/filter so dropbox-created jobs are immediately recognizable in Jobs.
+1. Add an operator intake indicator/filter so dropbox-created jobs are immediately recognizable in Jobs. (Started on `codex/public-intake-job-visibility` after checkpoint `30d079e`.)
 2. Add explicit private-link rotation/revocation controls if customer URLs need scheduled rotation beyond the current publish/unpublish gate.
 3. Decide whether work-email possession must be verified with a one-time code/link after transactional email delivery moves beyond log mode.
 4. Keep Wrike GET/webhook automation separate; it can later feed the same saved Import Method and preview-job boundary.
+
+## Public Intake Job Visibility
+
+The Customer Order Dropbox foundation was committed as `30d079e`. The immediate operator follow-up is underway on `codex/public-intake-job-visibility`.
+
+- Customer and global Jobs lists now distinguish `Customer dropbox` from `Operator` intake.
+- The Intake filter narrows either list without changing the active/archive or sorting behavior.
+- Authenticated job detail exposes the dropbox submitter email and received timestamp; none of this provenance is added to the public status surface.

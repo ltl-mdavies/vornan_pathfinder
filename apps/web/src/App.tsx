@@ -84,6 +84,7 @@ import { ProofOpsPanel } from "./ProofOpsPanel";
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
 type JobArchiveFilter = "Active" | "Archived" | "All";
+type JobIntakeFilter = "All" | "Customer Dropbox" | "Operator";
 type JobSortField = "state" | "updated_at" | "created_at";
 type JobSortDirection = "asc" | "desc";
 
@@ -545,6 +546,11 @@ interface ProcessingJobPreview {
   updated_at: string;
   archived_at?: string | null;
   archived_by_email?: string | null;
+  public_intake?: {
+    channel: "customer_dropbox";
+    submitted_by_email: string;
+    submitted_at: string;
+  } | null;
 }
 
 interface NormalizedLiftSubmitResponse {
@@ -2129,14 +2135,18 @@ function upsertJob(jobs: ProcessingJobPreview[], job: ProcessingJobPreview) {
 function sortAndFilterJobs(
   jobs: ProcessingJobPreview[],
   archiveFilter: JobArchiveFilter,
+  intakeFilter: JobIntakeFilter,
   sortField: JobSortField,
   sortDirection: JobSortDirection
 ) {
   const visibleJobs = jobs.filter((job) => {
-    if (archiveFilter === "All") {
-      return true;
-    }
-    return archiveFilter === "Archived" ? Boolean(job.archived_at) : !job.archived_at;
+    const archiveMatches =
+      archiveFilter === "All" || (archiveFilter === "Archived" ? Boolean(job.archived_at) : !job.archived_at);
+    const isCustomerDropbox = job.public_intake?.channel === "customer_dropbox";
+    const intakeMatches =
+      intakeFilter === "All" ||
+      (intakeFilter === "Customer Dropbox" ? isCustomerDropbox : !isCustomerDropbox);
+    return archiveMatches && intakeMatches;
   });
   const direction = sortDirection === "asc" ? 1 : -1;
 
@@ -2153,19 +2163,23 @@ function sortAndFilterJobs(
 
 function JobListControls({
   archiveFilter,
+  intakeFilter,
   sortField,
   sortDirection,
   selectedCount,
   onArchiveFilterChange,
+  onIntakeFilterChange,
   onSortFieldChange,
   onSortDirectionChange,
   onBulkAction
 }: {
   archiveFilter: JobArchiveFilter;
+  intakeFilter: JobIntakeFilter;
   sortField: JobSortField;
   sortDirection: JobSortDirection;
   selectedCount: number;
   onArchiveFilterChange: (filter: JobArchiveFilter) => void;
+  onIntakeFilterChange: (filter: JobIntakeFilter) => void;
   onSortFieldChange: (field: JobSortField) => void;
   onSortDirectionChange: (direction: JobSortDirection) => void;
   onBulkAction: () => void;
@@ -2180,6 +2194,14 @@ function JobListControls({
             <option value="Active">Active jobs</option>
             <option value="Archived">Archived jobs</option>
             <option value="All">All jobs</option>
+          </select>
+        </label>
+        <label>
+          <span>Intake</span>
+          <select value={intakeFilter} onChange={(event) => onIntakeFilterChange(event.target.value as JobIntakeFilter)}>
+            <option value="All">All intake</option>
+            <option value="Customer Dropbox">Customer dropbox</option>
+            <option value="Operator">Operator workspace</option>
           </select>
         </label>
         <label>
@@ -2243,6 +2265,7 @@ function JobListTable({
             <th>Job</th>
             {includeCustomer ? <th>Customer</th> : null}
             <th>Source</th>
+            <th>Intake</th>
             <th>Ext ID</th>
             <th>Lift Order</th>
             <th>State</th>
@@ -2269,6 +2292,16 @@ function JobListTable({
               </td>
               {includeCustomer ? <td>{job.customer_name}</td> : null}
               <td>{job.import_method_name}</td>
+              <td>
+                {job.public_intake?.channel === "customer_dropbox" ? (
+                  <span className="job-intake-cell">
+                    <span className="job-intake-pill">Customer dropbox</span>
+                    <small>{job.public_intake.submitted_by_email || "Customer submission"}</small>
+                  </span>
+                ) : (
+                  <span className="job-intake-pill job-intake-pill-operator">Operator</span>
+                )}
+              </td>
               <td>{jobExtId(job)}</td>
               <td>{job.target_order_number ?? "—"}</td>
               <td>
@@ -3488,6 +3521,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [openTopbarMenu, setOpenTopbarMenu] = useState<"environment" | "notifications" | "actions" | null>(null);
   const [jobActionMenuOpen, setJobActionMenuOpen] = useState(false);
   const [jobArchiveFilter, setJobArchiveFilter] = useState<JobArchiveFilter>("Active");
+  const [jobIntakeFilter, setJobIntakeFilter] = useState<JobIntakeFilter>("All");
   const [jobSortField, setJobSortField] = useState<JobSortField>("updated_at");
   const [jobSortDirection, setJobSortDirection] = useState<JobSortDirection>("desc");
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
@@ -4570,7 +4604,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   useEffect(() => {
     setSelectedJobIds([]);
-  }, [activeGlobalView, activeCustomerView, selectedCustomerId, jobArchiveFilter]);
+  }, [activeGlobalView, activeCustomerView, selectedCustomerId, jobArchiveFilter, jobIntakeFilter]);
 
   useEffect(() => {
     const isJobViewActive =
@@ -4786,12 +4820,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const customerJobs = sortAndFilterJobs(
     customerJobsUnfiltered,
     jobArchiveFilter,
+    jobIntakeFilter,
     jobSortField,
     jobSortDirection
   );
   const overviewJobs = customerJobsUnfiltered.filter((job) => !job.archived_at).slice(0, 5);
   const allJobsUnfiltered = globalJobs.length ? globalJobs : customerJobsUnfiltered;
-  const allJobs = sortAndFilterJobs(allJobsUnfiltered, jobArchiveFilter, jobSortField, jobSortDirection);
+  const allJobs = sortAndFilterJobs(
+    allJobsUnfiltered,
+    jobArchiveFilter,
+    jobIntakeFilter,
+    jobSortField,
+    jobSortDirection
+  );
   const currentJobList = activeGlobalView === "Jobs" ? allJobs : customerJobs;
   const selectedJobs = currentJobList.filter((job) => selectedJobIds.includes(job.job_id));
   const visibleJobDetailAttempts = selectedJobAttempts.length
@@ -11702,10 +11743,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <PanelHeader icon={Archive} title="Customer Jobs" detail={selectedCustomer.customer_name} />
                 <JobListControls
                   archiveFilter={jobArchiveFilter}
+                  intakeFilter={jobIntakeFilter}
                   sortField={jobSortField}
                   sortDirection={jobSortDirection}
                   selectedCount={selectedJobs.length}
                   onArchiveFilterChange={setJobArchiveFilter}
+                  onIntakeFilterChange={setJobIntakeFilter}
                   onSortFieldChange={setJobSortField}
                   onSortDirectionChange={setJobSortDirection}
                   onBulkAction={() => requestJobsArchive(selectedJobs, jobArchiveFilter !== "Archived")}
@@ -13448,10 +13491,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             ) : null}
             <JobListControls
               archiveFilter={jobArchiveFilter}
+              intakeFilter={jobIntakeFilter}
               sortField={jobSortField}
               sortDirection={jobSortDirection}
               selectedCount={selectedJobs.length}
               onArchiveFilterChange={setJobArchiveFilter}
+              onIntakeFilterChange={setJobIntakeFilter}
               onSortFieldChange={setJobSortField}
               onSortDirectionChange={setJobSortDirection}
               onBulkAction={() => requestJobsArchive(selectedJobs, jobArchiveFilter !== "Archived")}
@@ -13502,6 +13547,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <span>
                     {selectedJobDetail.import_method_name} · {selectedJobDetail.source_file_name} · Pathfinder {selectedJobDetail.pathfinder_order_id}
                   </span>
+                  <div className="job-detail-intake-context">
+                    <span
+                      className={`job-intake-pill ${
+                        selectedJobDetail.public_intake?.channel === "customer_dropbox"
+                          ? ""
+                          : "job-intake-pill-operator"
+                      }`}
+                    >
+                      {selectedJobDetail.public_intake?.channel === "customer_dropbox" ? "Customer dropbox" : "Operator"}
+                    </span>
+                    {selectedJobDetail.public_intake?.submitted_by_email ? (
+                      <small>
+                        Submitted by {selectedJobDetail.public_intake.submitted_by_email} · {displayTimestamp(selectedJobDetail.public_intake.submitted_at)}
+                      </small>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="job-detail-actions">
                   <StatePill state={selectedJobDetail.state} />

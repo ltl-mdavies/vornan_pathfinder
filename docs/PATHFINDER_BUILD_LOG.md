@@ -2775,4 +2775,12 @@ Started the customer-facing intermediary intake workflow on `codex/customer-orde
 - Added regression coverage for safe public configuration, email-domain rejection, saved-method parsing, row preview, internal job creation, intake audit metadata, disabled-page behavior, and the absence of a Lift submission.
 - Refined the customer-facing default headline to the customer-neutral `Put your print order in motion.` and replaced the publication/email browser checkboxes with consistent accessible Pathfinder switches.
 
+## 2026-07-21 - Public Intake Job Visibility
+
+Started the first operational follow-up after the Customer Order Dropbox checkpoint.
+
+- Jobs now identifies customer-dropbox submissions separately from operator-created jobs and includes the submitting work email in the authenticated operator view.
+- Added an Intake filter for all jobs, customer dropbox jobs, or operator workspace jobs alongside the existing archive and sort controls.
+- Job detail repeats the intake origin and customer submission timestamp so operators do not have to infer provenance from the source filename.
+
 This is the first publish/review foundation. Transactional email verification, customer-managed authentication, automated Lift submission, and Wrike ingestion remain separate future policies and were not enabled.
