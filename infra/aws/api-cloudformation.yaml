@@ -99,6 +99,28 @@ Parameters:
   LiftProductCatalogBaseUrl:
     Type: String
     Default: "https://ltlco.lifterp.com/ords/api/lift/erp"
+  ExternalLiftSubmitEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Server-level gate for certified Lift submit requests.
+  LiftTransportMode:
+    Type: String
+    Default: dry_run
+    AllowedValues:
+      - dry_run
+      - mock
+      - live
+    Description: Lift submit transport. Live performs the external POST after every other gate passes.
+  AllowLiveCustomerSubmit:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Keep false for sandbox-profile submits through the production Lift endpoint.
   ApiDomainName:
     Type: String
     Default: ""
@@ -313,6 +335,9 @@ Resources:
           LIFT_CUSTOMER_LIST_URL: !Ref LiftCustomerListUrl
           LIFT_CUSTOMER_STATUS_URL: !Ref LiftCustomerStatusUrl
           LIFT_PRODUCT_CATALOG_BASE_URL: !Ref LiftProductCatalogBaseUrl
+          PATHFINDER_ENABLE_LIFT_SUBMIT: !Ref ExternalLiftSubmitEnabled
+          PATHFINDER_LIFT_TRANSPORT_MODE: !Ref LiftTransportMode
+          PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT: !Ref AllowLiveCustomerSubmit
           PATHFINDER_STORAGE_DRIVER: !Ref StorageDriver
           PATHFINDER_SECRETS_DRIVER: !Ref SecretsDriver
           PATHFINDER_SECRET_PREFIX: !Ref SecretPrefix

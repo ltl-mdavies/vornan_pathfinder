@@ -77,6 +77,7 @@ import {
   type SourceGrid
 } from "@pathfinder/templates";
 import type { PathfinderAuthSession } from "./auth";
+import { configurePathfinderApiAuth, pathfinderFetch as fetch } from "./api-client";
 import { WorkspaceLoading } from "./WorkspaceLoading";
 import { ProofOpsPanel } from "./ProofOpsPanel";
 
@@ -1760,21 +1761,6 @@ const fallbackCustomer: LiftCustomer = {
 };
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000";
-let pathfinderAuthToken: string | null = null;
-
-function setPathfinderAuthToken(token: string | null) {
-  pathfinderAuthToken = token;
-}
-
-const fetch: typeof globalThis.fetch = (input, init = {}) => {
-  if (!pathfinderAuthToken) {
-    return globalThis.fetch(input, init);
-  }
-
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${pathfinderAuthToken}`);
-  return globalThis.fetch(input, { ...init, headers });
-};
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") ?? "";
@@ -3104,8 +3090,17 @@ function productMappingFinalHeight(mapping: CustomerProductMapping) {
 
 export function App({ authSession }: { authSession: PathfinderAuthSession | null }) {
   useEffect(() => {
-    setPathfinderAuthToken(authSession?.token ?? null);
-  }, [authSession?.token]);
+    configurePathfinderApiAuth({
+      apiBaseUrl,
+      token: authSession?.token ?? null,
+      getToken: authSession?.getIdToken ?? null,
+      onSessionExpired: authSession?.expireSession ?? null
+    });
+
+    return () => {
+      configurePathfinderApiAuth({ apiBaseUrl, token: null });
+    };
+  }, [authSession]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const methodTemplateInputRef = useRef<HTMLInputElement>(null);

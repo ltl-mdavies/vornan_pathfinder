@@ -8,6 +8,12 @@ Pathfinder is a Vornan-branded order translation and routing platform. The curre
 
 The platform is no longer just a local prototype. The admin web app, API, and public status app have AWS production hosting paths, Firebase Google Auth, DynamoDB persistence, Secrets Manager support, SES transactional email planning, and GitHub Actions deployment workflows.
 
+Latest demo-readiness update:
+
+- Authenticated API calls use a current Firebase ID token and retry one 401 after a forced refresh. An unrecoverable session visibly returns the operator to Google sign-in with a session-expired explanation.
+- Lift submit runtime switches are deployment-managed CloudFormation parameters. Production uses external submit enabled plus live transport for certified `Sandbox · LTL Demo` profiles while `PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT` remains false.
+- These server switches are intentionally not editable from Target setup. Operator-controlled Target, route, credentials, product map, certification, submit-profile, and explicit PROD sandbox confirmation gates still apply before any external POST.
+
 ## Repo And Git
 
 - Local repo: `/Users/marcusdavies/Projects/ltl-workspace/pathfinder`
