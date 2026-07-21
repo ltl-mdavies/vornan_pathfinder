@@ -16,6 +16,7 @@ let store: typeof import("../src/proof/store.ts");
 const order: ProofOrder = {
   order_number: "A0221132",
   order_title: "QA artwork review",
+  customer_id: "1249",
   customer_name: "Private customer",
   order_status: "Pending Art Approval",
   health: "active",
@@ -36,9 +37,11 @@ before(async () => {
   process.env.PATHFINDER_PROOF_STORAGE_DRIVER = "local";
   process.env.PATHFINDER_PROOF_LOCAL_STORE_PATH = storePath;
   process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "true";
+  process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = "1249";
   process.env.PATHFINDER_PROOF_ENABLE_LINK_EMAIL = "true";
   process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ = "false";
   process.env.PATHFINDER_PROOF_PUBLIC_BASE_URL = "https://proof.vornan.co";
+  process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = "2099-07-28T21:49:50.000Z";
   process.env.PATHFINDER_STATUS_EMAIL_MODE = "log";
 
   const { createProofAdminRouter } = await import("../src/proof/router.ts");

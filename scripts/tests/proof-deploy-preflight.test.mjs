@@ -9,6 +9,7 @@ const qaEnvironment = {
   PATHFINDER_PROOF_LIFT_ORDER_READ_URL: "https://qa-lift.example.invalid/ords/91/AS360Orders/N?offset=0",
   PATHFINDER_PROOF_LIFT_REPORT_READ_URL: "https://qa-lift.example.invalid/ords/91/AS360ProofReport/N?offset=0",
   PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false",
+  PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: "2099-07-28T21:49:50.000Z",
   PATHFINDER_PROOF_EDGE_SHARED_SECRET: "x".repeat(32)
 };
 
@@ -55,6 +56,21 @@ test("keeps synthetic QA disabled in normal workflow deploys and isolated to the
   assert.doesNotMatch(publicFunction, /PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA/);
 });
 
+test("requires a bounded activation deadline and customer cohort in deployment contracts", () => {
+  const proofTemplate = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
+  const apiTemplate = readFileSync(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8");
+  const proofWorkflow = readFileSync(new URL("../../.github/workflows/deploy-proof.yml", import.meta.url), "utf8");
+  const apiWorkflow = readFileSync(new URL("../../.github/workflows/deploy-api.yml", import.meta.url), "utf8");
+  assert.match(proofTemplate, /ReadOnlyActivationExpiresAt:/);
+  assert.match(proofTemplate, /PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ReadOnlyActivationExpiresAt/);
+  assert.match(apiTemplate, /ProofGrantCreationRequiresBoundedCohort:/);
+  assert.match(apiTemplate, /PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref ProofGrantAllowedCustomerIds/);
+  assert.match(apiTemplate, /PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ProofReadOnlyActivationExpiresAt/);
+  assert.match(proofWorkflow, /ReadOnlyActivationExpiresAt="\$\{READ_ONLY_ACTIVATION_EXPIRES_AT\}"/);
+  assert.match(apiWorkflow, /ProofGrantAllowedCustomerIds=/);
+  assert.match(apiWorkflow, /ProofReadOnlyActivationExpiresAt=/);
+});
+
 test("bounds the automatic stale-read refresh window", () => {
   assert.equal(validateProofDeployment({
     ...qaEnvironment,
@@ -80,6 +96,16 @@ test("rejects a QA deployment that silently uses the production Lift read host",
 });
 
 test("requires the read-only QA, edge, and WAF gates before public exposure", () => {
+  assert.throws(
+    () => validateProofDeployment({
+      ...qaEnvironment,
+      PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "true",
+      PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: "true",
+      PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: "",
+      PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED: "true"
+    }),
+    /READ_ONLY_ACTIVATION_EXPIRES_AT/
+  );
   assert.throws(
     () => validateProofDeployment({ ...qaEnvironment, PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "true" }),
     /READ_ONLY_QA_CONFIRMED/

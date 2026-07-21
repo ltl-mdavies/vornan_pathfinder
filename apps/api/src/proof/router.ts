@@ -9,6 +9,7 @@ import {
   createProofGrant,
   listOrderProofGrants,
   ProofAccessFeatureDisabledError,
+  ProofGrantCohortDeniedError,
   ProofAccessValidationError,
   ProofOrderNotSynchronizedError,
   updateProofGrant
@@ -41,6 +42,9 @@ function errorStatus(error: unknown) {
   }
   if (error instanceof ProofAccessValidationError) {
     return 400;
+  }
+  if (error instanceof ProofGrantCohortDeniedError) {
+    return 403;
   }
   if (error instanceof ProofGrantNotFoundError) {
     return 404;
@@ -93,7 +97,9 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         edge_secret_configured: Boolean(config.access.edge_shared_secret),
         public_base_host: new URL(config.access.public_base_url).host,
         grant_ttl_days: config.access.grant_ttl_days,
-        session_ttl_minutes: config.access.session_ttl_minutes
+        session_ttl_minutes: config.access.session_ttl_minutes,
+        grant_cohort_configured: config.access.grant_allowed_customer_ids.length > 0,
+        activation_expiry_configured: Boolean(config.access.read_only_activation_expires_at)
       },
       feature_flags: config.feature_flags,
       qa_lifecycle: config.qa_lifecycle
@@ -178,8 +184,15 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
       }
       const orderNumber = normalizeLiftOrderNumber(req.params.orderNumber);
       const cached = await getOrderForGrant(orderNumber);
-      if (!cached || orderIsStale(cached.last_synced_at)) {
-        await syncOrderForGrant(orderNumber, { audit_context: operatorAuditContext(req, res) });
+      let eligibleOrder = cached;
+      if (!cached || !cached.customer_id || orderIsStale(cached.last_synced_at)) {
+        eligibleOrder = (await syncOrderForGrant(orderNumber, {
+          audit_context: operatorAuditContext(req, res)
+        })).order;
+      }
+      const allowedCustomerIds = getProofRuntimeConfig().access.grant_allowed_customer_ids;
+      if (!eligibleOrder?.customer_id || !allowedCustomerIds.includes(eligibleOrder.customer_id)) {
+        throw new ProofGrantCohortDeniedError();
       }
       const result = await createGrant({
         order_number: orderNumber,

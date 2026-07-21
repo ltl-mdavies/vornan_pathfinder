@@ -37,6 +37,11 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
+  ReadOnlyActivationExpiresAt:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+    Description: UTC deadline after which the public read boundary fails closed.
   SyntheticQaEnabled:
     Type: String
     Default: "false"
@@ -165,6 +170,8 @@ Rules:
         AssertDescription: EdgeSharedSecret must be configured before public read can be enabled.
       - Assert: !Equals [!Ref ReadOnlyQaConfirmed, "true"]
         AssertDescription: ReadOnlyQaConfirmed must be true before public read can be enabled.
+      - Assert: !Not [!Equals [!Ref ReadOnlyActivationExpiresAt, ""]]
+        AssertDescription: ReadOnlyActivationExpiresAt must be configured before public read can be enabled.
       - Assert: !Or
           - !Not [!Equals [!Ref ProofWebAclArn, ""]]
           - !Equals [!Ref ManagedWebAclEnabled, "true"]
@@ -643,6 +650,7 @@ Resources:
           PATHFINDER_PROOF_CORE_TABLE: !Ref ProofCoreTable
           PATHFINDER_PROOF_AUDIT_TABLE: !Ref ProofAuditTable
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: !Ref PublicReadEnabled
+          PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ReadOnlyActivationExpiresAt
           PATHFINDER_PROOF_ENABLE_GRANT_CREATION: "false"
           PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref PublicBaseUrl
           PATHFINDER_PROOF_SYNC_QUEUE_URL: !Ref ProofSyncQueue

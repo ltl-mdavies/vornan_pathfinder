@@ -142,7 +142,15 @@ npm run check:proof-phase2
 
 The default state file is `docs/VORNAN_PROOF_PHASE_2_READINESS_STATE_2026-07-21.json`; a reviewed alternate may be supplied with `PATHFINDER_PROOF_PHASE2_READINESS_FILE`. The evaluator is read-only and emits only fixed gate names, booleans, counts, and bounded status/next-action values. It ignores extra fields so identifiers, payloads, URLs, recipients, and free-form notes cannot enter the readiness output.
 
-`isolated_read_qa_complete_activation_blocked` is the expected result after dark, synthetic, and approved real-order QA while the deployed grant/session boundary and explicit activation approval remain outstanding. Even `ready_for_explicit_activation_review` is not deployment authorization: the evaluator always returns `public_read_change_authorized=false` and `mutation_authorized=false`.
+After the 2026-07-21 internal LTL Demo cohort approval, the bounded state may report `ready_for_explicit_activation_review`. This remains a review state, not deployment authorization: the evaluator always returns `public_read_change_authorized=false` and `mutation_authorized=false`.
+
+After the deployed boundary prerequisites pass, prepare the separate read-only activation packet and run:
+
+```text
+npm run check:proof-activation-review
+```
+
+The default bounded input is `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_REVIEW_STATE_2026-07-21.json`; a reviewed alternate may be supplied with `PATHFINDER_PROOF_ACTIVATION_REVIEW_FILE`. The checker requires exact dev/cohort/time scope, private link handoff, named monitoring and rollback ownership, support response/escalation, and the immutable no-production-approval/no-DNS/no-email/no-decision/no-Lift-write boundary. Its output never authorizes a flag change or deployment. The approved internal cohort is enforced at grant creation with the Lift customer ID, and the activation deadline caps grants and sessions and fails closed after expiry. Follow `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_REVIEW_PACKET_2026-07-21.md`.
 
 Record only identifiers safe for operational evidence:
 

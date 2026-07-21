@@ -13,6 +13,7 @@ let store: typeof import("../src/proof/store.ts");
 const order: ProofOrder = {
   order_number: "A0221132",
   order_title: "Retail launch",
+  customer_id: "1249",
   customer_name: "Internal customer name",
   order_status: "Pending Art Approval",
   health: "active",
@@ -65,8 +66,10 @@ before(async () => {
   process.env.PATHFINDER_PROOF_STORAGE_DRIVER = "local";
   process.env.PATHFINDER_PROOF_LOCAL_STORE_PATH = storePath;
   process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "true";
+  process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = "1249";
   process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ = "true";
   process.env.PATHFINDER_PROOF_PUBLIC_BASE_URL = "https://proof.vornan.co";
+  process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = "2099-07-28T21:49:50.000Z";
   access = await import("../src/proof/access-service.ts");
   store = await import("../src/proof/store.ts");
   await store.persistProofOrder(order);
@@ -111,6 +114,20 @@ test("rejects decision scopes while proof access is read-only", async () => {
   );
 });
 
+test("rejects direct grant-service calls outside the configured customer cohort", async () => {
+  const previous = process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS;
+  process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = "9999";
+  try {
+    await assert.rejects(
+      () => access.createProofGrant({ order_number: order.order_number }),
+      access.ProofGrantCohortDeniedError
+    );
+  } finally {
+    if (previous === undefined) delete process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS;
+    else process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = previous;
+  }
+});
+
 test("uses a 14-day default and regenerates by revoking the prior grant", async () => {
   const now = new Date("2026-07-20T12:00:00.000Z");
   const created = await access.createProofGrant({ order_number: order.order_number, label: "First link", now });
@@ -130,4 +147,41 @@ test("rejects expired sessions even while their grant remains active", async () 
     () => access.validateProofSession(exchanged.raw_session, new Date("2026-07-20T12:31:00.000Z")),
     access.ProofAccessDeniedError
   );
+});
+
+test("caps grants and sessions at the configured read-only activation deadline", async () => {
+  const previous = process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT;
+  process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = "2026-07-20T12:20:00.000Z";
+  const now = new Date("2026-07-20T12:00:00.000Z");
+  try {
+    const created = await access.createProofGrant({ order_number: order.order_number, now });
+    assert.equal(created.grant.expires_at, "2026-07-20T12:20:00.000Z");
+    const exchanged = await access.exchangeProofToken(created.access_url.split("/").at(-1)!, now);
+    assert.equal(exchanged.session.expires_at, "2026-07-20T12:20:00.000Z");
+    await assert.rejects(
+      () => access.validateProofSession(exchanged.raw_session, new Date("2026-07-20T12:20:00.000Z")),
+      access.ProofAccessDeniedError
+    );
+  } finally {
+    if (previous === undefined) delete process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT;
+    else process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = previous;
+  }
+});
+
+test("rejects an explicit grant expiry beyond the activation deadline", async () => {
+  const previous = process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT;
+  process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = "2026-07-21T12:00:00.000Z";
+  try {
+    await assert.rejects(
+      () => access.createProofGrant({
+        order_number: order.order_number,
+        now: new Date("2026-07-20T12:00:00.000Z"),
+        expires_at: "2026-07-22T12:00:00.000Z"
+      }),
+      /cannot exceed the read-only activation window/
+    );
+  } finally {
+    if (previous === undefined) delete process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT;
+    else process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = previous;
+  }
 });

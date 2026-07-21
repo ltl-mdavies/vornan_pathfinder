@@ -97,6 +97,7 @@ export function buildProofSyntheticQaOrder(fixtureId: string, now = new Date()):
   return {
     order_number: PROOF_SYNTHETIC_QA_ORDER_NUMBER,
     order_title: `Vornan Proof synthetic lifecycle ${fixtureId}`,
+    customer_id: "0",
     customer_name: PROOF_SYNTHETIC_QA_MARKER,
     order_status: "Synthetic review only",
     health: "active",

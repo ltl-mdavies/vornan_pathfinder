@@ -92,7 +92,9 @@ function configureServiceEnvironment(boundary: ReturnType<typeof stackBoundary>)
   process.env.PATHFINDER_PROOF_AUDIT_TABLE = boundary.audit_table;
   process.env.PATHFINDER_PROOF_PUBLIC_BASE_URL = "https://proof.invalid";
   process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "true";
+  process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = "0";
   process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ = "true";
+  process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   process.env.PATHFINDER_PROOF_ENABLE_LINK_EMAIL = "false";
   process.env.PATHFINDER_PROOF_SYNC_QUEUE_URL = "";
   process.env.PATHFINDER_PROOF_EDGE_SHARED_SECRET = "";

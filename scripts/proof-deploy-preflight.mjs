@@ -33,6 +33,18 @@ function boundedInteger(env, name, fallback, minimum, maximum) {
   return value;
 }
 
+function futureUtcTimestamp(env, name) {
+  const value = required(env, name);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) {
+    throw new Error(`${name} must be an ISO 8601 UTC timestamp ending in Z.`);
+  }
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp) || timestamp <= Date.now()) {
+    throw new Error(`${name} must be a future timestamp.`);
+  }
+  return new Date(timestamp).toISOString();
+}
+
 function liftReadUrl(value, name, expectedReport) {
   let parsed;
   try {
@@ -110,6 +122,7 @@ export function validateProofDeployment(env = process.env) {
   const syntheticQaEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA);
   const managedWafEnabled = enabled(env.PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED);
   const sharedWebAclConfigured = Boolean(env.PATHFINDER_PROOF_WEB_ACL_ARN?.trim());
+  let readOnlyActivationExpiresAt = null;
   if (
     syntheticQaEnabled
     && (
@@ -127,6 +140,7 @@ export function validateProofDeployment(env = process.env) {
     );
   }
   if (publicReadEnabled) {
+    readOnlyActivationExpiresAt = futureUtcTimestamp(env, "PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT");
     if (!enabled(env.PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED)) {
       throw new Error("PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED=true is required before public read can be enabled.");
     }
@@ -146,6 +160,7 @@ export function validateProofDeployment(env = process.env) {
     production_reads_acknowledged:
       environmentName === "prod" || !productionReads || enabled(env.PATHFINDER_PROOF_ACKNOWLEDGE_PRODUCTION_READS),
     public_read_enabled: publicReadEnabled,
+    read_only_activation_expires_at: readOnlyActivationExpiresAt,
     read_only_qa_confirmed: enabled(env.PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED),
     waf_configured: managedWafEnabled || sharedWebAclConfigured,
     proof_alias_configured: Boolean(proofDomain),

@@ -36,6 +36,7 @@ aws cloudformation deploy \
     PublicLambdaCodeS3Bucket="${artifact_bucket}" \
     PublicLambdaCodeS3Key="${artifact_key}" \
     PublicReadEnabled="${public_read_enabled}" \
+    ReadOnlyActivationExpiresAt="${PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT:-}" \
     SyntheticQaEnabled="${synthetic_qa_enabled}" \
     ReadOnlyQaConfirmed="${PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED:-false}" \
     ProductionPublicReadApproved="${PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED:-false}" \

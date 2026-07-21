@@ -25,6 +25,6 @@
   "activation_review": {
     "deployed_grant_session_lifecycle_passed": true,
     "deployed_one_order_customer_boundary_passed": true,
-    "explicit_read_only_activation_approval_recorded": false
+    "explicit_read_only_activation_approval_recorded": true
   }
 }

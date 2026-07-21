@@ -86,6 +86,8 @@ export interface ProofTask {
 export interface ProofOrder {
   order_number: string;
   order_title: string | null;
+  /** Internal Lift cohort boundary. Never include this field in the public Proof DTO. */
+  customer_id?: string | null;
   customer_name: string | null;
   order_status: string | null;
   health: ProofOrderHealth;
@@ -854,6 +856,7 @@ export function normalizeProofOrder(input: NormalizeProofOrderInput): ProofOrder
   return {
     order_number: orderNumber,
     order_title: text(header, "ORDER_TITLE", "ORDER_NAME", "order_title", "order_name"),
+    customer_id: text(header, "CUSTOMER_ID", "customer_id"),
     customer_name: text(header, "CUSTOMER_NAME", "customer_name"),
     order_status: text(header, "ORDER_STATUS", "STATUS", "order_status", "status"),
     health,

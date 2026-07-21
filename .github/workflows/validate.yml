@@ -44,6 +44,9 @@ jobs:
       - name: Evaluate Proof Phase 2 readiness
         run: npm run check:proof-phase2
 
+      - name: Evaluate Proof read-only activation review
+        run: npm run check:proof-activation-review
+
       - name: Package deployable Lambdas
         run: |
           npm run package:api-lambda

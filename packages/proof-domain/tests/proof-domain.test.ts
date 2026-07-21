@@ -33,6 +33,7 @@ const orderPayload = {
       LINE_STEP_NUMBER: 4,
       PRODUCT_NAME: "North wall panel",
       QUANTITY: 1,
+      CUSTOMER_ID: 1249,
       CUSTOMER_NAME: "Example Customer",
       ORDER_TITLE: "Summer refresh"
     },
@@ -479,6 +480,9 @@ test("creates a customer-safe DTO without Lift identities or internal proof meta
   normalized.tasks[1]!.product_name = "x".repeat(161);
   const publicOrder = toPublicProofOrder(normalized);
   const serialized = JSON.stringify(publicOrder);
+  assert.equal(normalized.customer_id, "1249");
+  assert.equal("customer_id" in publicOrder, false);
+  assert.equal(serialized.includes("1249"), false);
   assert.equal(publicOrder.tasks[0]?.current_version?.content_type, "application/pdf");
   assert.equal(publicOrder.tasks[0]?.current_version?.preview_kind, "pdf");
   assert.equal(publicOrder.tasks[0]?.current_version?.preview_url, "https://files.example/north-a-preview");
