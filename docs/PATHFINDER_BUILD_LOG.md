@@ -2651,3 +2651,18 @@ Release evidence:
 - No customer grant, link email, public token exchange, Proof decision, Lift submit, Lift Proof write, or DNS cutover was performed. The deployed Proof tables were created by the dark stack; no synchronization or customer data load was triggered by release verification.
 
 The only workflow annotation was GitHub's upstream Node.js action-runtime deprecation warning for current `@v4` actions being forced onto Node.js 24. It did not affect validation or deployment and can be addressed in a later maintenance slice when compatible action releases are available.
+
+## 2026-07-21 - Proof Isolated Zero-Data Dark QA
+
+Completed the first isolated read-only QA slice against the deployed `vornan-proof-dev` stack from `origin/main` commit `fda2f29` without changing Pathfinder production surfaces or any deployed feature gate.
+
+- Re-ran the repository dark smoke against the CloudFront distribution and direct API endpoint. Public read and decisions remained off, invalid exchange failed closed, unauthenticated reads were denied, decision/write routes were absent, and direct API bypass returned HTTP 403.
+- Confirmed the distribution is deployed without a custom alias and has managed WAF attached. The private SPA bucket blocks public access and remains encrypted and versioned.
+- Confirmed both dedicated DynamoDB tables are encrypted, PITR-enabled, and empty; the isolated queue and DLQ are encrypted and empty; the event-source mapping is enabled without processing a message.
+- Confirmed all nine Proof alarms are `OK`, the dashboard exists, log retention is 30 days, and the zero-data probes produced no retained log events or sensitive evidence.
+- Confirmed deployed metrics use only the bounded `Environment`, `Operation`, and `Service` dimensions.
+- Browser-tested the deployed production SPA at `1366×768`, `390×844`, `320×568`, and `844×390`: every viewport failed closed to the session-ended state, horizontal overflow remained zero, and development-only QA fixture hashes were not exposed.
+- Recorded the safe identifiers, results, and intentionally deferred lifecycle in `docs/VORNAN_PROOF_DARK_QA_EVIDENCE_2026-07-21.md`.
+- The focused evidence tree passed all 125 workspace tests, every workspace check and production build, all 21 Proof deployment-safety tests, Proof Lambda packaging, SAM lint, workflow/script syntax, literal write-gate scanning, and `git diff --check`.
+
+This is a pass for the zero-data dark boundary, not Phase 2 lifecycle confirmation. No QA order was invented; no Lift synchronization, grant, session, email, DNS, public read, customer decision, Lift submit, or Lift Proof write was performed. `ReadOnlyQaConfirmed` remains false.
