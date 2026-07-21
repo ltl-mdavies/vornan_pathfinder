@@ -766,6 +766,81 @@ button:disabled {
   text-transform: none;
 }
 
+.intake-verification {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 15px;
+  border: 1px solid #dce5d8;
+  border-radius: 8px;
+  background: #f7faf5;
+}
+
+.intake-verification.verified {
+  border-color: #bdd2b5;
+  background: #edf5e8;
+}
+
+.intake-verification-copy,
+.intake-verification-confirmed > div {
+  display: grid;
+  gap: 3px;
+}
+
+.intake-verification small {
+  color: #748071;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.intake-verification button {
+  flex: 0 0 auto;
+}
+
+.intake-verification-code-row {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.intake-verification-code-row input {
+  width: 118px;
+  min-width: 0;
+  text-align: center;
+  letter-spacing: 0.2em;
+  font-weight: 850;
+}
+
+.intake-verification-resend {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #315c3b;
+  font-size: 0.78rem;
+  text-decoration: underline;
+}
+
+.intake-verification-confirmed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #315c3b;
+}
+
+.intake-verification-confirmed > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  background: #315c3b;
+  color: #fff;
+  font-weight: 900;
+}
+
 .intake-drop-zone {
   display: grid;
   width: 100%;
@@ -1124,6 +1199,22 @@ button:disabled {
   .intake-preview-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .intake-verification,
+  .intake-verification-code-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .intake-verification-code-row {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .intake-verification-code-row input,
+  .intake-verification button {
+    width: 100%;
   }
 
   .preview-count {

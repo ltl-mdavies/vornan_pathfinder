@@ -1,6 +1,6 @@
 import { SendEmailCommand, SESv2Client } from "@aws-sdk/client-sesv2";
 
-export type TransactionalEmailCategory = "status_link" | "proof_link" | "order" | "system";
+export type TransactionalEmailCategory = "status_link" | "proof_link" | "intake_verification" | "order" | "system";
 export type TransactionalEmailMode = "log" | "ses";
 
 export type TransactionalEmail = {
@@ -65,6 +65,10 @@ export function replyToForCategory(category: TransactionalEmailCategory, config 
     return config.ordersReplyTo;
   }
 
+  if (category === "intake_verification") {
+    return config.ordersReplyTo;
+  }
+
   if (category === "system") {
     return config.systemReplyTo;
   }
@@ -105,6 +109,57 @@ export function escapeHtml(value: string) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+export function buildPublicIntakeVerificationEmail(args: {
+  to: string;
+  code: string;
+  expiresAt: string;
+  customerName: string;
+}): TransactionalEmail {
+  const config = getEmailRuntimeConfig();
+  const expiresLabel = easternDateTime(args.expiresAt);
+  const safeCode = escapeHtml(args.code);
+  const safeCustomerName = escapeHtml(args.customerName);
+  const safeExpiresLabel = escapeHtml(expiresLabel);
+
+  return {
+    to: [args.to],
+    from: config.from,
+    replyTo: [config.ordersReplyTo],
+    category: "intake_verification",
+    subject: `Your Vornan order upload code for ${args.customerName}`,
+    text: [
+      `Use this one-time code to continue uploading an order for ${args.customerName}:`,
+      "",
+      args.code,
+      "",
+      `This code expires ${expiresLabel}.`,
+      "",
+      "If you did not request this code, you can ignore this email."
+    ].join("\n"),
+    html: [
+      "<!doctype html>",
+      '<html lang="en">',
+      '<body style="margin:0;background:#f7f8f5;font-family:Inter,Arial,sans-serif;color:#191818;">',
+      '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f7f8f5;padding:36px 16px;">',
+      '<tr><td align="center">',
+      '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background:#ffffff;border:1px solid #dfe7da;border-radius:10px;overflow:hidden;">',
+      '<tr><td style="padding:30px;">',
+      '<div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#355b39;font-weight:800;">Vornan Pathfinder</div>',
+      '<h1 style="font-size:27px;line-height:1.15;margin:12px 0 10px;color:#191818;">Verify your work email.</h1>',
+      `<p style="font-size:16px;line-height:1.55;margin:0;color:#5c6859;">Use this one-time code to continue uploading an order for <strong>${safeCustomerName}</strong>.</p>`,
+      `<div style="margin:24px 0;background:#f3f7ee;border:1px solid #d8e3ce;border-radius:8px;padding:18px;text-align:center;font-size:32px;line-height:1;letter-spacing:.22em;font-weight:800;color:#345738;">${safeCode}</div>`,
+      `<p style="font-size:14px;line-height:1.5;margin:0;color:#6f796b;">This code expires ${safeExpiresLabel}.</p>`,
+      '<p style="font-size:13px;line-height:1.5;margin:14px 0 0;color:#7b8477;">If you did not request this code, you can ignore this email.</p>',
+      "</td></tr>",
+      "</table>",
+      "</td></tr>",
+      "</table>",
+      "</body>",
+      "</html>"
+    ].join("")
+  };
 }
 
 export function buildStatusLinkEmail(args: {

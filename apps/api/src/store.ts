@@ -85,6 +85,7 @@ export interface PublicIntakeConfig {
   headline: string;
   instructions: string;
   require_email: boolean;
+  require_email_verification: boolean;
   allowed_email_domains: string[];
   submit_profile_id: string | null;
   max_order_rows: number;
@@ -98,6 +99,7 @@ export function createDefaultPublicIntakeConfig(): PublicIntakeConfig {
     headline: "Put your print order in motion.",
     instructions: "Upload your completed order spreadsheet. We will validate the rows and send the order to our production team for review.",
     require_email: true,
+    require_email_verification: false,
     allowed_email_domains: [],
     submit_profile_id: null,
     max_order_rows: 250,
@@ -115,6 +117,27 @@ export type SubmitCertificationActionKey =
 export type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
 export type SubmitAttemptTransportMode = "dry_run" | "mock" | "live";
 export type OrderStatusTokenStatus = "Active" | "Revoked";
+export type PublicIntakeEmailVerificationStatus = "Pending" | "Verified" | "Consumed" | "Expired";
+
+export interface PublicIntakeEmailVerificationRecord {
+  token_hash: string;
+  public_key_hash: string;
+  email_hash: string;
+  email_masked: string;
+  code_hash: string;
+  verification_token_hash: string | null;
+  status: PublicIntakeEmailVerificationStatus;
+  attempts: number;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  expires_at_epoch: number;
+  verified_at: string | null;
+  consumed_at: string | null;
+  delivery_mode: "log" | "ses";
+  delivery_status: "Pending" | "Logged" | "Sent" | "Failed";
+  provider_message_id: string | null;
+}
 export type StatusAccessPolicyMode =
   | "Exact email only"
   | "Exact email or approved domain"
@@ -528,6 +551,7 @@ export interface PathfinderStore {
   submit_attempts: SubmitAttempt[];
   lift_unit_catalog: LiftUnitCatalogItem[];
   order_status_tokens?: OrderStatusTokenRecord[];
+  public_intake_email_verifications?: PublicIntakeEmailVerificationRecord[];
   order_status_snapshots?: PublicOrderStatusSnapshot[];
   canonical_registry?: {
     overrides: Record<string, CanonicalFieldOverride>;
@@ -1545,6 +1569,7 @@ function createSeedStore(): PathfinderStore {
     submit_attempts: [],
     lift_unit_catalog: createSeedLiftUnitCatalog(timestamp),
     order_status_tokens: [],
+    public_intake_email_verifications: [],
     order_status_snapshots: [],
     canonical_registry: {
       overrides: {},
@@ -1890,6 +1915,7 @@ async function readDynamoStore(): Promise<PathfinderStore | null> {
     submit_attempts: submitAttempts,
     lift_unit_catalog: liftUnitCatalog,
     order_status_tokens: [],
+    public_intake_email_verifications: [],
     order_status_snapshots: [],
     canonical_registry: canonicalRegistry
   };
@@ -2256,7 +2282,8 @@ function normalizePublicIntakeConfig(
       typeof value?.instructions === "string" && value.instructions.trim()
         ? value.instructions.trim().slice(0, 600)
         : fallback.instructions,
-    require_email: value?.require_email !== false,
+    require_email: value?.require_email_verification === true ? true : value?.require_email !== false,
+    require_email_verification: value?.require_email_verification === true,
     allowed_email_domains: domains,
     submit_profile_id:
       typeof value?.submit_profile_id === "string" && value.submit_profile_id.trim()
@@ -2784,6 +2811,106 @@ export async function getOrderStatusToken(tokenHash: string) {
   return (store.order_status_tokens ?? []).find((token) => token.token_hash === tokenHash) ?? null;
 }
 
+export async function persistPublicIntakeEmailVerification(record: PublicIntakeEmailVerificationRecord) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    await putDynamoData(
+      tables.order_status_tokens,
+      { token_hash: record.token_hash },
+      record,
+      { expires_at_epoch: { N: String(record.expires_at_epoch) } }
+    );
+    return record;
+  }
+
+  const store = await readStore();
+  store.public_intake_email_verifications = [
+    record,
+    ...(store.public_intake_email_verifications ?? []).filter(
+      (candidate) => candidate.token_hash !== record.token_hash
+    )
+  ];
+  await writeStore(store);
+  return record;
+}
+
+export async function getPublicIntakeEmailVerification(tokenHash: string) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    return getDynamoData<PublicIntakeEmailVerificationRecord>(tables.order_status_tokens, { token_hash: tokenHash });
+  }
+
+  const store = await readStore();
+  return (
+    (store.public_intake_email_verifications ?? []).find((record) => record.token_hash === tokenHash) ?? null
+  );
+}
+
+export async function consumePublicIntakeEmailVerification(record: PublicIntakeEmailVerificationRecord) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (
+    record.status !== "Verified" ||
+    !record.verification_token_hash ||
+    record.expires_at_epoch <= Math.floor(Date.now() / 1000)
+  ) {
+    return null;
+  }
+  const consumed: PublicIntakeEmailVerificationRecord = {
+    ...record,
+    status: "Consumed",
+    consumed_at: now(),
+    updated_at: now()
+  };
+
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    try {
+      await getDynamoClient().send(
+        new PutItemCommand({
+          TableName: tables.order_status_tokens,
+          Item: {
+            ...dynamoItem({ token_hash: record.token_hash }, consumed),
+            expires_at_epoch: { N: String(consumed.expires_at_epoch) }
+          },
+          ConditionExpression: "#stored_data = :expected_data",
+          ExpressionAttributeNames: { "#stored_data": "data" },
+          ExpressionAttributeValues: { ":expected_data": { S: JSON.stringify(record) } }
+        })
+      );
+      return consumed;
+    } catch (error) {
+      if ((error as { name?: string }).name === "ConditionalCheckFailedException") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  const store = await readStore();
+  const current = (store.public_intake_email_verifications ?? []).find(
+    (candidate) => candidate.token_hash === record.token_hash
+  );
+  if (
+    !current ||
+    current.status !== "Verified" ||
+    current.verification_token_hash !== record.verification_token_hash
+  ) {
+    return null;
+  }
+  store.public_intake_email_verifications = [
+    consumed,
+    ...(store.public_intake_email_verifications ?? []).filter(
+      (candidate) => candidate.token_hash !== record.token_hash
+    )
+  ];
+  await writeStore(store);
+  return consumed;
+}
+
 const placeholderCredentialValues = new Set([
   "",
   "********",
@@ -2930,6 +3057,7 @@ export async function readStore(): Promise<PathfinderStore> {
       submit_attempts: normalizedSubmitAttempts,
       lift_unit_catalog: normalizeLiftUnitCatalog(parsed.lift_unit_catalog),
       order_status_tokens: parsed.order_status_tokens ?? [],
+      public_intake_email_verifications: parsed.public_intake_email_verifications ?? [],
       order_status_snapshots: parsed.order_status_snapshots ?? [],
       canonical_registry: normalizeCanonicalRegistry(parsed.canonical_registry)
     };

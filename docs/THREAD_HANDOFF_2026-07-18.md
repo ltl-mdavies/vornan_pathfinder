@@ -941,3 +941,19 @@ Recommended continuation after this slice:
 1. Review and checkpoint the lifecycle branch after full validation and responsive browser QA.
 2. Decide whether customer work-email possession needs a one-time code/link once transactional email delivery is approved beyond log mode.
 3. Keep Wrike GET/webhook ingestion as a separate source adapter feeding the same saved Import Method and preview-job boundary.
+
+## Customer Dropbox Email Verification Foundation
+
+Dropbox PR #18 was merged to `main` at `5a587a3`, and this follow-up branch was started from the subsequently synchronized `origin/main` baseline `b53dc48` as `codex/public-intake-email-verification`.
+
+- `PublicIntakeConfig` now carries `require_email_verification`, defaulting false and forcing `require_email` true when enabled.
+- The public API provides request/confirm endpoints for a six-digit code. Challenge IDs, codes, emails, and verification tokens are never persisted in raw form.
+- Challenges expire in ten minutes, lock after five failed attempts, bind to one page key/email pair, and become consumed before the preview job is created.
+- DynamoDB reuses the existing TTL-enabled order-status-token table with a distinct prefixed key and a conditional compare-and-set consumption write. Local storage keeps a separate optional verification collection for development/tests.
+- The status application exposes a minimal verification step; changing the email clears the challenge, and submitting another order requires fresh verification.
+- Admin exposes the per-method toggle only when authenticated `/api/email/status` reports the runtime available. The deployment gate defaults false.
+- Current AWS read-only audit: SES identity, DKIM, and custom MAIL FROM are successful, but SES `ProductionAccessEnabled` is false and no GitHub `PATHFINDER_STATUS_EMAIL_MODE` variable is set, so deployments remain in `log` mode.
+
+Full repository validation passes: every workspace check, all 150 tests, every production build, and `git diff --check`. Local browser QA completed code request, code confirmation, the verified-email state, and row preview at desktop and 390px mobile with no horizontal overflow.
+
+Do not enable the production verification gate or SES mode until SES production access, recipient policy, delivery telemetry, bounce/complaint handling, and operator rollout approval are complete. This slice does not deploy, send real email, submit to Lift, or change Proof gates.

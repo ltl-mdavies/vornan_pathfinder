@@ -6,6 +6,7 @@ type IntakeConfig = {
   headline: string;
   instructions: string;
   require_email: boolean;
+  email_verification_required: boolean;
   max_order_rows: number;
   accepted_file_types: string[];
   expected_columns: string[];
@@ -38,6 +39,21 @@ type IntakeSubmission = {
   reference: string;
   order_row_count: number;
   review_required: boolean;
+};
+
+type IntakeVerificationChallenge = {
+  status: "code_sent";
+  challenge_id: string;
+  email_masked: string;
+  expires_at: string;
+  debug_code?: string;
+};
+
+type IntakeVerificationConfirmation = {
+  status: "verified";
+  challenge_id: string;
+  verification_token: string;
+  expires_at: string;
 };
 
 function fileAsBase64(file: File) {
@@ -75,12 +91,16 @@ export function CustomerIntake({ apiBaseUrl, publicKey }: { apiBaseUrl: string; 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [config, setConfig] = useState<IntakeConfig | null>(null);
   const [email, setEmail] = useState("");
+  const [verificationChallenge, setVerificationChallenge] = useState<IntakeVerificationChallenge | null>(null);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [verificationToken, setVerificationToken] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [pasteText, setPasteText] = useState("");
   const [preview, setPreview] = useState<IntakePreview | null>(null);
   const [submission, setSubmission] = useState<IntakeSubmission | null>(null);
   const [state, setState] = useState<"loading" | "idle" | "previewing" | "submitting" | "error">("loading");
   const [message, setMessage] = useState("");
+  const [verificationState, setVerificationState] = useState<"idle" | "sending" | "verifying">("idle");
 
   useEffect(() => {
     let ignore = false;
@@ -116,10 +136,69 @@ export function CustomerIntake({ apiBaseUrl, publicKey }: { apiBaseUrl: string; 
   async function requestBody() {
     return {
       email: email.trim(),
+      email_verification_challenge_id: verificationChallenge?.challenge_id ?? "",
+      email_verification_token: verificationToken,
       source_file_name: file?.name ?? "Pasted order grid.csv",
       file_base64: file ? await fileAsBase64(file) : "",
       paste_text: file ? "" : pasteText
     };
+  }
+
+  function clearEmailVerification() {
+    setVerificationChallenge(null);
+    setVerificationCode("");
+    setVerificationToken("");
+    setVerificationState("idle");
+  }
+
+  async function requestVerificationCode() {
+    setVerificationState("sending");
+    setMessage("");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/public/intake/${encodeURIComponent(publicKey)}/email-verification/request`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email.trim() })
+        }
+      );
+      setVerificationChallenge(await responseJson<IntakeVerificationChallenge>(response));
+      setVerificationCode("");
+      setVerificationToken("");
+      setVerificationState("idle");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The verification code could not be sent.");
+      setVerificationState("idle");
+    }
+  }
+
+  async function confirmVerificationCode() {
+    if (!verificationChallenge) {
+      return;
+    }
+    setVerificationState("verifying");
+    setMessage("");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/public/intake/${encodeURIComponent(publicKey)}/email-verification/confirm`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim(),
+            challenge_id: verificationChallenge.challenge_id,
+            code: verificationCode
+          })
+        }
+      );
+      const confirmation = await responseJson<IntakeVerificationConfirmation>(response);
+      setVerificationToken(confirmation.verification_token);
+      setVerificationState("idle");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The verification code could not be confirmed.");
+      setVerificationState("idle");
+    }
   }
 
   async function generatePreview() {
@@ -190,6 +269,7 @@ export function CustomerIntake({ apiBaseUrl, publicKey }: { apiBaseUrl: string; 
         <button type="button" onClick={() => {
           setSubmission(null);
           resetSource();
+          clearEmailVerification();
         }}>
           Submit another order
         </button>
@@ -224,12 +304,75 @@ export function CustomerIntake({ apiBaseUrl, publicKey }: { apiBaseUrl: string; 
             autoComplete="email"
             onChange={(event) => {
               setEmail(event.target.value);
+              clearEmailVerification();
               setPreview(null);
               setMessage("");
             }}
           />
           <small>Used to identify who submitted this order.</small>
         </label>
+
+        {config.email_verification_required ? (
+          <div className={`intake-verification ${verificationToken ? "verified" : ""}`}>
+            {verificationToken ? (
+              <div className="intake-verification-confirmed">
+                <span aria-hidden="true">✓</span>
+                <div>
+                  <strong>Work email verified</strong>
+                  <small>{verificationChallenge?.email_masked}</small>
+                </div>
+              </div>
+            ) : verificationChallenge ? (
+              <>
+                <div className="intake-verification-copy">
+                  <strong>Enter the six-digit code</strong>
+                  <small>Sent to {verificationChallenge.email_masked}. The code expires in 10 minutes.</small>
+                  {verificationChallenge.debug_code ? <small>Local test code: {verificationChallenge.debug_code}</small> : null}
+                </div>
+                <div className="intake-verification-code-row">
+                  <input
+                    value={verificationCode}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    aria-label="Six-digit verification code"
+                    placeholder="000000"
+                    onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                  />
+                  <button
+                    type="button"
+                    disabled={verificationCode.length !== 6 || verificationState === "verifying"}
+                    onClick={() => void confirmVerificationCode()}
+                  >
+                    {verificationState === "verifying" ? "Verifying…" : "Verify email"}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="intake-verification-resend"
+                  disabled={verificationState !== "idle"}
+                  onClick={() => void requestVerificationCode()}
+                >
+                  Send a new code
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="intake-verification-copy">
+                  <strong>Verify your work email</strong>
+                  <small>We’ll email a one-time code before you upload the order.</small>
+                </div>
+                <button
+                  type="button"
+                  disabled={!email.trim() || verificationState === "sending"}
+                  onClick={() => void requestVerificationCode()}
+                >
+                  {verificationState === "sending" ? "Sending…" : "Send verification code"}
+                </button>
+              </>
+            )}
+          </div>
+        ) : null}
 
         <button
           type="button"
@@ -293,7 +436,12 @@ export function CustomerIntake({ apiBaseUrl, publicKey }: { apiBaseUrl: string; 
           <button
             type="button"
             className="intake-primary"
-            disabled={state === "previewing" || (!file && !pasteText.trim()) || (config.require_email && !email.trim())}
+            disabled={
+              state === "previewing" ||
+              (!file && !pasteText.trim()) ||
+              (config.require_email && !email.trim()) ||
+              (config.email_verification_required && !verificationToken)
+            }
             onClick={() => void generatePreview()}
           >
             {state === "previewing" ? "Checking rows…" : "Review order rows"}

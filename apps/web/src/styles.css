@@ -4326,6 +4326,18 @@ h1 {
   min-height: 38px;
 }
 
+.public-intake-runtime-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  color: #725313;
+  background: #fff8e8;
+  border-top: 1px solid #eadbb5;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .public-intake-link-row {
   background: #fbfcfa;
 }
