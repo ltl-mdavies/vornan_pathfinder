@@ -2784,3 +2784,21 @@ Started the first operational follow-up after the Customer Order Dropbox checkpo
 - Job detail repeats the intake origin and customer submission timestamp so operators do not have to infer provenance from the source filename.
 
 This is the first publish/review foundation. Transactional email verification, customer-managed authentication, automated Lift submission, and Wrike ingestion remain separate future policies and were not enabled.
+
+## 2026-07-21 - Customer Dropbox Private-Link Lifecycle
+
+Completed the private-link security follow-up on `codex/public-intake-link-lifecycle` after committing and pushing the operator visibility checkpoint as `833c5ed`.
+
+- Added authenticated, explicit Rotate and Revoke operations to each published Customer Order Dropbox.
+- Rotation keeps the page published, issues a new high-entropy key, and invalidates the previous customer URL immediately.
+- Revocation invalidates the current URL immediately, clears the stored key and publication timestamp, and unpublishes the dropbox. Publishing it again creates a fresh key.
+- Both operations require a purpose-specific confirmation. Lifecycle controls are disabled while the Import Method has unsaved changes so a security action cannot silently discard draft configuration.
+- Public configuration and submission routes continue to resolve only the single current key for an Active, published Import Method. No previous key is returned or retained as a usable alias.
+- Regression coverage proves old-link rejection after rotation, replacement-link availability, rejection after revocation, and fresh-key issuance after republishing.
+
+This slice does not change Lift transport, preview certification, Proof gates, transactional email, or deployment state.
+
+Validation for this slice:
+
+- `npm run check`, `npm run test`, and `npm run build` passed across every workspace (149 tests total).
+- Local browser QA confirmed both purpose-specific confirmations, enabled saved-state controls, a full-width 390px action layout with no horizontal overflow, and no console warnings or errors.

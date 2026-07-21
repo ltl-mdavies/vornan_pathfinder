@@ -924,3 +924,20 @@ The Customer Order Dropbox foundation was committed as `30d079e`. The immediate 
 - Customer and global Jobs lists now distinguish `Customer dropbox` from `Operator` intake.
 - The Intake filter narrows either list without changing the active/archive or sorting behavior.
 - Authenticated job detail exposes the dropbox submitter email and received timestamp; none of this provenance is added to the public status surface.
+
+## Customer Dropbox Private-Link Lifecycle
+
+The operator visibility checkpoint was committed as `833c5ed` and pushed to `origin/codex/public-intake-job-visibility`. Private-link lifecycle work continues independently on `codex/public-intake-link-lifecycle`.
+
+- A published dropbox now offers `Rotate link` and `Revoke link` beside `Copy page`.
+- Rotation immediately invalidates the old URL, generates a new private key, and leaves publication enabled.
+- Revocation immediately invalidates the URL, clears the key and publication timestamp, and disables publication. A later saved republish generates a different key.
+- Both actions use explicit confirmation copy describing the immediate customer impact and are unavailable until ordinary Import Method edits are saved.
+- Focused API coverage exercises the complete current-key/old-key lifecycle. No Lift submit, public automation, email verification, or Proof capability is enabled.
+- Full workspace checks, all 149 tests, and all production builds pass. Local browser QA covered both confirmations and the 390px action layout without horizontal overflow or console errors.
+
+Recommended continuation after this slice:
+
+1. Review and checkpoint the lifecycle branch after full validation and responsive browser QA.
+2. Decide whether customer work-email possession needs a one-time code/link once transactional email delivery is approved beyond log mode.
+3. Keep Wrike GET/webhook ingestion as a separate source adapter feeding the same saved Import Method and preview-job boundary.

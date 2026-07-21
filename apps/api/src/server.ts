@@ -95,7 +95,10 @@ import {
   persistPreviewJob,
   persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
+  PublicIntakeLifecycleError,
   reservePathfinderOrderNumber,
+  revokeImportMethodPublicIntakeKey,
+  rotateImportMethodPublicIntakeKey,
   setJobsArchived,
   updateProductMapping,
   upsertCatalogPreset,
@@ -3465,6 +3468,40 @@ app.put("/api/customers/:liftCustomerId/import-methods/:methodId", async (req, r
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Import method save failed."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/import-methods/:methodId/public-intake/rotate", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const workspace = await rotateImportMethodPublicIntakeKey(customer, req.params.methodId);
+    const target = await getTarget(workspace.primary_target_id);
+
+    res.json({
+      ...workspace,
+      primary_target: target
+    });
+  } catch (error) {
+    res.status(error instanceof PublicIntakeLifecycleError ? error.statusCode : 500).json({
+      error: error instanceof Error ? error.message : "Customer Order Dropbox link rotation failed."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/import-methods/:methodId/public-intake/revoke", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const workspace = await revokeImportMethodPublicIntakeKey(customer, req.params.methodId);
+    const target = await getTarget(workspace.primary_target_id);
+
+    res.json({
+      ...workspace,
+      primary_target: target
+    });
+  } catch (error) {
+    res.status(error instanceof PublicIntakeLifecycleError ? error.statusCode : 500).json({
+      error: error instanceof Error ? error.message : "Customer Order Dropbox link revocation failed."
     });
   }
 });

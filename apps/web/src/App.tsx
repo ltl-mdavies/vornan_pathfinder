@@ -428,6 +428,7 @@ interface TargetEnvironment {
 
 type DestructiveConfirmation =
   | { kind: "import-method"; method: ImportMethod }
+  | { kind: "public-intake-link"; action: "rotate" | "revoke"; method: ImportMethod }
   | { kind: "target"; target: TargetConfig }
   | { kind: "jobs"; jobs: ProcessingJobPreview[]; archived: boolean }
   | {
@@ -4955,13 +4956,29 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 : "Restored jobs return to the active job list with their existing state and history unchanged.",
               confirmLabel: destructiveConfirmation.archived ? "Archive Jobs" : "Restore Jobs"
             }
-          : {
-              eyebrow: "Target Environment",
-              title: "Remove this environment?",
-              item: `${destructiveConfirmation.target_name} · ${destructiveConfirmation.environment_name}`,
-              body: "The environment will be removed from the Target draft. The change is not persisted until you save the Target.",
-              confirmLabel: "Remove Environment"
-            }
+          : destructiveConfirmation.kind === "public-intake-link"
+            ? destructiveConfirmation.action === "rotate"
+              ? {
+                  eyebrow: "Customer Order Dropbox",
+                  title: "Rotate this private link?",
+                  item: destructiveConfirmation.method.name,
+                  body: "The current customer URL will stop working immediately. Pathfinder will generate a new private URL and keep the dropbox published.",
+                  confirmLabel: "Rotate Link"
+                }
+              : {
+                  eyebrow: "Customer Order Dropbox",
+                  title: "Revoke this private link?",
+                  item: destructiveConfirmation.method.name,
+                  body: "The current customer URL will stop working immediately and the dropbox will be unpublished. Publishing it again later will generate a fresh private URL.",
+                  confirmLabel: "Revoke Link"
+                }
+            : {
+                eyebrow: "Target Environment",
+                title: "Remove this environment?",
+                item: `${destructiveConfirmation.target_name} · ${destructiveConfirmation.environment_name}`,
+                body: "The environment will be removed from the Target draft. The change is not persisted until you save the Target.",
+                confirmLabel: "Remove Environment"
+              }
     : null;
   const selectedOutputTemplateStats = selectedOutputTemplate ? templateMappingStats(selectedOutputTemplate) : null;
   const targetRowIds = targetRows.map((target) => target.target_id).join("|");
@@ -7503,6 +7520,32 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
   }
 
+  async function performPublicIntakeLinkLifecycle(method: ImportMethod, action: "rotate" | "revoke") {
+    if (!workspace) {
+      return;
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/import-methods/${method.import_method_id}/public-intake/${action}`,
+        { method: "POST" }
+      );
+      const nextWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      setWorkspace(nextWorkspace);
+      setDirtyImportMethodIds((current) => current.filter((methodId) => methodId !== method.import_method_id));
+      setWorkspaceMessage(
+        action === "rotate"
+          ? "Customer Order Dropbox link rotated. The previous URL no longer works."
+          : "Customer Order Dropbox link revoked and unpublished."
+      );
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : `Customer Order Dropbox link ${action} failed.`);
+      setWorkspaceState("error");
+    }
+  }
+
   function requestTargetDelete(target: TargetConfig) {
     const currentRouteCount = outputRoutes.filter((route) => route.target_id === target.target_id).length;
     if (currentRouteCount > 0) {
@@ -7549,6 +7592,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setDestructiveConfirmation(null);
     if (confirmation.kind === "import-method") {
       await performImportMethodDelete(confirmation.method);
+    } else if (confirmation.kind === "public-intake-link") {
+      await performPublicIntakeLinkLifecycle(confirmation.method, confirmation.action);
     } else if (confirmation.kind === "target") {
       await performTargetDelete(confirmation.target);
     } else if (confirmation.kind === "jobs") {
@@ -8839,17 +8884,59 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </strong>
                       </div>
                       {activeImportMethod.public_intake.public_key ? (
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          onClick={() => {
-                            const url = `${publicStatusBaseUrl.replace(/\/$/, "")}/intake/${activeImportMethod.public_intake.public_key}`;
-                            void navigator.clipboard.writeText(url).then(() => setWorkspaceMessage("Customer order page copied."));
-                          }}
-                        >
-                          <Copy size={15} />
-                          Copy page
-                        </button>
+                        <div className="public-intake-link-actions">
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => {
+                              const url = `${publicStatusBaseUrl.replace(/\/$/, "")}/intake/${activeImportMethod.public_intake.public_key}`;
+                              void navigator.clipboard.writeText(url).then(() => setWorkspaceMessage("Customer order page copied."));
+                            }}
+                          >
+                            <Copy size={15} />
+                            Copy page
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={dirtyImportMethodIds.includes(activeImportMethod.import_method_id)}
+                            title={
+                              dirtyImportMethodIds.includes(activeImportMethod.import_method_id)
+                                ? "Save this Import Method before rotating its private link."
+                                : undefined
+                            }
+                            onClick={() =>
+                              setDestructiveConfirmation({
+                                kind: "public-intake-link",
+                                action: "rotate",
+                                method: activeImportMethod
+                              })
+                            }
+                          >
+                            <RefreshCw size={15} />
+                            Rotate link
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary-button destructive-secondary-button"
+                            disabled={dirtyImportMethodIds.includes(activeImportMethod.import_method_id)}
+                            title={
+                              dirtyImportMethodIds.includes(activeImportMethod.import_method_id)
+                                ? "Save this Import Method before revoking its private link."
+                                : undefined
+                            }
+                            onClick={() =>
+                              setDestructiveConfirmation({
+                                kind: "public-intake-link",
+                                action: "revoke",
+                                method: activeImportMethod
+                              })
+                            }
+                          >
+                            <Trash2 size={15} />
+                            Revoke link
+                          </button>
+                        </div>
                       ) : null}
                     </div>
                     <div className="public-intake-safety-note">
@@ -14897,11 +14984,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   Cancel
                 </button>
                 <button
-                  className={destructiveConfirmation.kind === "jobs" ? "primary-button" : "danger-button"}
+                  className={
+                    destructiveConfirmation.kind === "jobs" ||
+                    (destructiveConfirmation.kind === "public-intake-link" && destructiveConfirmation.action === "rotate")
+                      ? "primary-button"
+                      : "danger-button"
+                  }
                   onClick={() => void confirmDestructiveAction()}
                   disabled={workspaceState === "saving"}
                 >
-                  {destructiveConfirmation.kind === "jobs" ? <Archive size={16} /> : <Trash2 size={16} />}
+                  {destructiveConfirmation.kind === "jobs" ? (
+                    <Archive size={16} />
+                  ) : destructiveConfirmation.kind === "public-intake-link" && destructiveConfirmation.action === "rotate" ? (
+                    <RefreshCw size={16} />
+                  ) : (
+                    <Trash2 size={16} />
+                  )}
                   {destructiveConfirmationCopy.confirmLabel}
                 </button>
               </div>

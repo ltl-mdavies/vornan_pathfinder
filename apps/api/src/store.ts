@@ -3000,6 +3000,88 @@ export async function getPublicIntakeMethodByKey(publicKey: string) {
   return null;
 }
 
+export class PublicIntakeLifecycleError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: 404 | 409
+  ) {
+    super(message);
+    this.name = "PublicIntakeLifecycleError";
+  }
+}
+
+export async function rotateImportMethodPublicIntakeKey(customer: LiftCustomer, methodId: string) {
+  const store = await readStore();
+  const existingWorkspace = store.workspaces[customer.lift_customer_id];
+  if (!existingWorkspace) {
+    throw new PublicIntakeLifecycleError("Customer workspace not found.", 404);
+  }
+
+  const workspace = normalizeWorkspace(existingWorkspace);
+  const methodIndex = workspace.import_methods.findIndex((method) => method.import_method_id === methodId);
+  if (methodIndex < 0) {
+    throw new PublicIntakeLifecycleError(`Import method ${methodId} was not found.`, 404);
+  }
+
+  const method = workspace.import_methods[methodIndex];
+  if (method.status !== "Active" || !method.public_intake.enabled || !method.public_intake.public_key) {
+    throw new PublicIntakeLifecycleError(
+      "Publish and save this active Customer Order Dropbox before rotating its private link.",
+      409
+    );
+  }
+
+  const timestamp = now();
+  workspace.import_methods[methodIndex] = {
+    ...method,
+    public_intake: {
+      ...method.public_intake,
+      public_key: randomBytes(18).toString("base64url"),
+      published_at: timestamp
+    },
+    updated_at: timestamp
+  };
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return workspace;
+}
+
+export async function revokeImportMethodPublicIntakeKey(customer: LiftCustomer, methodId: string) {
+  const store = await readStore();
+  const existingWorkspace = store.workspaces[customer.lift_customer_id];
+  if (!existingWorkspace) {
+    throw new PublicIntakeLifecycleError("Customer workspace not found.", 404);
+  }
+
+  const workspace = normalizeWorkspace(existingWorkspace);
+  const methodIndex = workspace.import_methods.findIndex((method) => method.import_method_id === methodId);
+  if (methodIndex < 0) {
+    throw new PublicIntakeLifecycleError(`Import method ${methodId} was not found.`, 404);
+  }
+
+  const method = workspace.import_methods[methodIndex];
+  if (!method.public_intake.public_key) {
+    throw new PublicIntakeLifecycleError("This Customer Order Dropbox does not have a private link to revoke.", 409);
+  }
+
+  const timestamp = now();
+  workspace.import_methods[methodIndex] = {
+    ...method,
+    public_intake: {
+      ...method.public_intake,
+      enabled: false,
+      public_key: "",
+      published_at: null
+    },
+    updated_at: timestamp
+  };
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return workspace;
+}
+
 export async function getCanonicalRegistryOverrides() {
   const store = await readStore();
   return normalizeCanonicalRegistry(store.canonical_registry);

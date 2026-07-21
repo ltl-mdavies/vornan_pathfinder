@@ -84,11 +84,39 @@ test("published customer intake previews a saved method and creates an internal 
       assert.equal(jobs[0].submit_attempts, undefined);
       assert.notEqual(jobs[0].state, "Submitted");
 
-      const disabled = await updateImportMethod(customer, "manual-xlsx", {
-        public_intake: { ...method.public_intake, enabled: false }
-      });
-      assert.equal(disabled.import_methods[0].public_intake.public_key, publicKey);
+      const rotated = await request(app)
+        .post("/api/customers/284619/import-methods/manual-xlsx/public-intake/rotate")
+        .expect(200);
+      const rotatedMethod = rotated.body.import_methods.find(
+        (candidate) => candidate.import_method_id === "manual-xlsx"
+      );
+      const rotatedKey = rotatedMethod.public_intake.public_key;
+      assert.notEqual(rotatedKey, publicKey);
+      assert.equal(rotatedMethod.public_intake.enabled, true);
+      assert.ok(rotatedMethod.public_intake.published_at);
       await request(app).get("/public/intake/" + publicKey).expect(404);
+      await request(app).get("/public/intake/" + rotatedKey).expect(200);
+
+      const revoked = await request(app)
+        .post("/api/customers/284619/import-methods/manual-xlsx/public-intake/revoke")
+        .expect(200);
+      const revokedMethod = revoked.body.import_methods.find(
+        (candidate) => candidate.import_method_id === "manual-xlsx"
+      );
+      assert.equal(revokedMethod.public_intake.enabled, false);
+      assert.equal(revokedMethod.public_intake.public_key, "");
+      assert.equal(revokedMethod.public_intake.published_at, null);
+      await request(app).get("/public/intake/" + rotatedKey).expect(404);
+
+      const republished = await updateImportMethod(customer, "manual-xlsx", {
+        public_intake: { ...revokedMethod.public_intake, enabled: true }
+      });
+      const republishedMethod = republished.import_methods.find(
+        (candidate) => candidate.import_method_id === "manual-xlsx"
+      );
+      assert.ok(republishedMethod.public_intake.public_key.length >= 20);
+      assert.notEqual(republishedMethod.public_intake.public_key, rotatedKey);
+      await request(app).get("/public/intake/" + republishedMethod.public_intake.public_key).expect(200);
     `;
     const result = spawnSync(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", script], {
       cwd: process.cwd(),

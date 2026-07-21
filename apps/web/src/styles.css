@@ -4348,6 +4348,14 @@ h1 {
   font-size: 12px;
 }
 
+.public-intake-link-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .public-intake-link-row .secondary-button {
   flex: 0 0 auto;
 }
@@ -9461,6 +9469,7 @@ td {
     flex-direction: column;
   }
 
+  .public-intake-link-actions,
   .public-intake-link-row .secondary-button {
     width: 100%;
   }
