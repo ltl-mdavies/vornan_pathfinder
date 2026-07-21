@@ -4180,6 +4180,188 @@ h1 {
   overflow: hidden;
 }
 
+.public-intake-setup {
+  overflow: hidden;
+}
+
+.public-intake-heading,
+.public-intake-link-row,
+.public-intake-safety-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.public-intake-heading {
+  background: rgba(243, 247, 241, 0.62);
+}
+
+.public-intake-heading strong,
+.public-intake-heading span,
+.public-intake-link-row span,
+.public-intake-link-row strong,
+.public-intake-safety-note strong,
+.public-intake-safety-note span {
+  display: block;
+}
+
+.public-intake-heading > div > strong,
+.public-intake-safety-note strong {
+  color: var(--text-primary);
+  font-family: "Plus Jakarta Sans", Inter, sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.public-intake-heading > div > span,
+.public-intake-safety-note span {
+  max-width: 920px;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.public-intake-heading .switch-field {
+  flex: 0 0 auto;
+}
+
+.switch-field {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.switch-field input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.switch-field-track {
+  position: relative;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  background: #e8ece7;
+  border: 1px solid rgba(57, 82, 59, 0.2);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 2px rgba(25, 39, 27, 0.08);
+  transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.switch-field-track::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(25, 39, 27, 0.25);
+  content: "";
+  transition: transform 160ms ease;
+}
+
+.switch-field input:checked + .switch-field-track {
+  background: var(--vornan-forest);
+  border-color: var(--vornan-forest);
+}
+
+.switch-field input:checked + .switch-field-track::after {
+  transform: translateX(16px);
+}
+
+.switch-field input:focus-visible + .switch-field-track {
+  box-shadow: 0 0 0 3px rgba(174, 202, 80, 0.24), inset 0 1px 2px rgba(25, 39, 27, 0.08);
+}
+
+.switch-field:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.public-intake-grid {
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.public-intake-grid .setup-control textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  padding: 10px;
+  color: var(--text-primary);
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.public-intake-grid .setup-control textarea:focus {
+  border-color: rgba(57, 82, 59, 0.42);
+  box-shadow: 0 0 0 3px rgba(57, 82, 59, 0.08);
+}
+
+.public-intake-email-check {
+  align-self: end;
+  min-height: 38px;
+}
+
+.public-intake-link-row {
+  background: #fbfcfa;
+}
+
+.public-intake-link-row > div {
+  min-width: 0;
+}
+
+.public-intake-link-row span {
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.public-intake-link-row strong {
+  overflow-wrap: anywhere;
+  color: var(--vornan-forest);
+  font-size: 12px;
+}
+
+.public-intake-link-row .secondary-button {
+  flex: 0 0 auto;
+}
+
+.public-intake-safety-note {
+  justify-content: flex-start;
+  background: rgba(231, 240, 219, 0.58);
+}
+
+.public-intake-safety-note > svg {
+  flex: 0 0 auto;
+  color: var(--vornan-forest);
+}
+
 .source-schema-setup {
   display: grid;
   gap: 10px;
@@ -9223,6 +9405,17 @@ td {
 
   .job-list-filters select,
   .job-list-controls > button {
+    width: 100%;
+  }
+
+  .public-intake-heading,
+  .public-intake-link-row,
+  .public-intake-safety-note {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .public-intake-link-row .secondary-button {
     width: 100%;
   }
 }

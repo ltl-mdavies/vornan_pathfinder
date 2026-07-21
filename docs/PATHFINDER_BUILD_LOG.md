@@ -2760,3 +2760,19 @@ Validation for the combined Jobs and Manual Import work:
 - `npm run test` passed all 140 tests.
 - `npm run build` passed all production builds.
 - Local browser verification confirmed saved/ad-hoc basis switching, complete Submit Profile content at a 477px panel width, styled Jobs selects, white warning-chip text, zero page overflow, and no console errors.
+
+## 2026-07-21 - Customer Order Dropbox Foundation
+
+Started the customer-facing intermediary intake workflow on `codex/customer-order-dropbox` after checkpointing and pushing the confirmed Jobs/Manual Import work as commit `c71663a` on `codex/jobs-management-ux`.
+
+- An Active Import Method can now publish a private customer order page with a server-generated high-entropy URL key, customer-specific headline/instructions, work-email/domain gate, row limit, and controlled submit profile.
+- The public page lives within the existing `status.vornan.co` application at `/intake/<private-key>` and accepts XLSX, XLS, CSV, drag/drop, or pasted grid data.
+- Source parsing, sheet/header behavior, field mappings, product resolution, order-name resolution, Ext_ID strategy, output route, and submit profile remain server-controlled by the saved Import Method; none of those controls are exposed publicly.
+- The customer sees only a bounded visual confirmation of product, quantity, final width/height, and whether each row is ready or needs Vornan review.
+- Confirming the intake creates a normal Pathfinder preview job, records the intake channel and submitting email, and returns a Pathfinder reference. It does not call Lift, bypass certification, or expose a public submit control.
+- Public configuration responses are allowlisted, file bodies default to a 5 MB ceiling, order rows are bounded per published method, and preview/submit endpoints use page, email, and IP rate limits.
+- Disabling the published dropbox immediately makes its page unavailable while retaining the key for safe reactivation.
+- Added regression coverage for safe public configuration, email-domain rejection, saved-method parsing, row preview, internal job creation, intake audit metadata, disabled-page behavior, and the absence of a Lift submission.
+- Refined the customer-facing default headline to the customer-neutral `Put your print order in motion.` and replaced the publication/email browser checkboxes with consistent accessible Pathfinder switches.
+
+This is the first publish/review foundation. Transactional email verification, customer-managed authentication, automated Lift submission, and Wrike ingestion remain separate future policies and were not enabled.

@@ -78,6 +78,32 @@ export type OutputDestinationMethod = "HTTP POST" | "SFTP file" | "Email attachm
 export type OutputFormat = "JSON" | "XML" | "CSV" | "XLSX";
 export type SubmitProfileMode = "live_customer" | "sandbox_customer";
 export type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
+
+export interface PublicIntakeConfig {
+  enabled: boolean;
+  public_key: string;
+  headline: string;
+  instructions: string;
+  require_email: boolean;
+  allowed_email_domains: string[];
+  submit_profile_id: string | null;
+  max_order_rows: number;
+  published_at: string | null;
+}
+
+export function createDefaultPublicIntakeConfig(): PublicIntakeConfig {
+  return {
+    enabled: false,
+    public_key: "",
+    headline: "Put your print order in motion.",
+    instructions: "Upload your completed order spreadsheet. We will validate the rows and send the order to our production team for review.",
+    require_email: true,
+    allowed_email_domains: [],
+    submit_profile_id: null,
+    max_order_rows: 250,
+    published_at: null
+  };
+}
 export type SubmitCertificationActionKey =
   | "manual-import"
   | "field-mapping"
@@ -287,6 +313,7 @@ export interface ImportMethod {
   product_resolution_config: ProductResolutionConfig;
   order_name_resolution_config: OrderNameResolutionConfig;
   ext_id_strategy: LiftExtIdStrategy;
+  public_intake: PublicIntakeConfig;
   last_run_at?: string | null;
   success_rate?: string | null;
   created_at: string;
@@ -435,6 +462,11 @@ export interface ProcessingJobPreview {
   updated_at: string;
   archived_at?: string | null;
   archived_by_email?: string | null;
+  public_intake?: {
+    channel: "customer_dropbox";
+    submitted_by_email: string;
+    submitted_at: string;
+  } | null;
 }
 
 export interface NormalizedLiftSubmitResponse {
@@ -1353,6 +1385,7 @@ function createSeedMethod(timestamp: string): ImportMethod {
     product_resolution_config: createDefaultProductResolutionConfig(),
     order_name_resolution_config: createDefaultOrderNameResolutionConfig(),
     ext_id_strategy: "pathfinder_generated",
+    public_intake: createDefaultPublicIntakeConfig(),
     last_run_at: null,
     success_rate: null,
     created_at: timestamp,
@@ -2199,6 +2232,44 @@ function normalizeImportSourceConfig(sourceConfig: ImportMethod["source_config"]
   };
 }
 
+function normalizePublicIntakeConfig(
+  value: Partial<PublicIntakeConfig> | null | undefined,
+  fallback = createDefaultPublicIntakeConfig()
+): PublicIntakeConfig {
+  const domains = Array.from(
+    new Set(
+      (Array.isArray(value?.allowed_email_domains) ? value.allowed_email_domains : fallback.allowed_email_domains)
+        .map((domain) => String(domain).trim().toLowerCase().replace(/^@/, ""))
+        .filter((domain) => /^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain))
+    )
+  ).slice(0, 20);
+  const maxRows = Number(value?.max_order_rows ?? fallback.max_order_rows);
+
+  return {
+    enabled: value?.enabled === true,
+    public_key: typeof value?.public_key === "string" ? value.public_key.trim() : fallback.public_key,
+    headline:
+      typeof value?.headline === "string" && value.headline.trim()
+        ? value.headline.trim().slice(0, 100)
+        : fallback.headline,
+    instructions:
+      typeof value?.instructions === "string" && value.instructions.trim()
+        ? value.instructions.trim().slice(0, 600)
+        : fallback.instructions,
+    require_email: value?.require_email !== false,
+    allowed_email_domains: domains,
+    submit_profile_id:
+      typeof value?.submit_profile_id === "string" && value.submit_profile_id.trim()
+        ? value.submit_profile_id.trim()
+        : null,
+    max_order_rows: Number.isFinite(maxRows) ? Math.min(1000, Math.max(1, Math.floor(maxRows))) : fallback.max_order_rows,
+    published_at:
+      typeof value?.published_at === "string" && !Number.isNaN(Date.parse(value.published_at))
+        ? value.published_at
+        : null
+  };
+}
+
 function normalizeImportMethod(method: ImportMethod): ImportMethod {
   const route = createSeedOutputRoute();
   return {
@@ -2219,7 +2290,8 @@ function normalizeImportMethod(method: ImportMethod): ImportMethod {
         ? createDefaultOrderNameResolutionConfig()
         : createLegacyOrderNameResolutionConfig()
     ),
-    ext_id_strategy: method.ext_id_strategy === "pathfinder_generated" ? "pathfinder_generated" : "customer_order_id"
+    ext_id_strategy: method.ext_id_strategy === "pathfinder_generated" ? "pathfinder_generated" : "customer_order_id",
+    public_intake: normalizePublicIntakeConfig(method.public_intake)
   };
 }
 
@@ -2901,6 +2973,33 @@ export async function getOrCreateWorkspace(customer: LiftCustomer) {
   return workspace;
 }
 
+export async function getPublicIntakeMethodByKey(publicKey: string) {
+  const normalizedKey = publicKey.trim();
+  if (!normalizedKey) {
+    return null;
+  }
+
+  const store = await readStore();
+  for (const workspace of Object.values(store.workspaces)) {
+    const normalized = normalizeWorkspace(workspace);
+    const method = normalized.import_methods.find(
+      (candidate) =>
+        candidate.status === "Active" &&
+        candidate.public_intake.enabled &&
+        candidate.public_intake.public_key === normalizedKey
+    );
+    if (method) {
+      return {
+        customer: normalized.customer,
+        workspace: normalized,
+        method
+      };
+    }
+  }
+
+  return null;
+}
+
 export async function getCanonicalRegistryOverrides() {
   const store = await readStore();
   return normalizeCanonicalRegistry(store.canonical_registry);
@@ -3255,6 +3354,24 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
       methodPatch.ext_id_strategy === "pathfinder_generated" || methodPatch.ext_id_strategy === "customer_order_id"
         ? methodPatch.ext_id_strategy
         : normalizedMethodSource.ext_id_strategy,
+    public_intake: (() => {
+      const nextConfig = normalizePublicIntakeConfig(
+        {
+          ...normalizedMethodSource.public_intake,
+          ...(methodPatch.public_intake ?? {})
+        },
+        normalizedMethodSource.public_intake
+      );
+      const nextStatus = methodPatch.status ?? normalizedMethodSource.status;
+      const shouldPublish = nextConfig.enabled && nextStatus === "Active";
+      return {
+        ...nextConfig,
+        public_key: normalizedMethodSource.public_intake.public_key || (shouldPublish ? randomBytes(18).toString("base64url") : ""),
+        published_at: shouldPublish
+          ? normalizedMethodSource.public_intake.published_at ?? timestamp
+          : normalizedMethodSource.public_intake.published_at
+      };
+    })(),
     updated_at: timestamp
   };
 

@@ -340,6 +340,18 @@ interface DetectedSourceSchema {
   parser_config?: DetectedSourceParserConfig;
 }
 
+interface PublicIntakeConfig {
+  enabled: boolean;
+  public_key: string;
+  headline: string;
+  instructions: string;
+  require_email: boolean;
+  allowed_email_domains: string[];
+  submit_profile_id: string | null;
+  max_order_rows: number;
+  published_at: string | null;
+}
+
 interface ImportMethod {
   import_method_id: string;
   name: string;
@@ -372,6 +384,7 @@ interface ImportMethod {
   product_resolution_config: ProductResolutionConfig;
   order_name_resolution_config: OrderNameResolutionConfig;
   ext_id_strategy: LiftExtIdStrategy;
+  public_intake: PublicIntakeConfig;
   last_run_at?: string | null;
   success_rate?: string | null;
   created_at: string;
@@ -983,6 +996,17 @@ const defaultProductResolutionConfig: ProductResolutionConfig = {
 };
 
 const defaultOrderNameResolutionConfig = createDefaultOrderNameResolutionConfig();
+const defaultPublicIntakeConfig: PublicIntakeConfig = {
+  enabled: false,
+  public_key: "",
+  headline: "Put your print order in motion.",
+  instructions: "Upload your completed order spreadsheet. We will validate the rows and send the order to our production team for review.",
+  require_email: true,
+  allowed_email_domains: [],
+  submit_profile_id: null,
+  max_order_rows: 250,
+  published_at: null
+};
 const pendingPathfinderOrderNumber = "PF-{RESERVED-WHEN-PREVIEW-IS-GENERATED}";
 
 const defaultValueNormalizationRules: ValueNormalizationRule[] = [
@@ -1774,6 +1798,7 @@ const fallbackCustomer: LiftCustomer = {
 };
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000";
+const publicStatusBaseUrl = import.meta.env.VITE_STATUS_BASE_URL ?? "https://status.vornan.co";
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") ?? "";
@@ -7326,6 +7351,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       product_resolution_config: defaultProductResolutionConfig,
       order_name_resolution_config: defaultOrderNameResolutionConfig,
       ext_id_strategy: "pathfinder_generated",
+      public_intake: { ...defaultPublicIntakeConfig },
       last_run_at: null,
       success_rate: null,
       created_at: timestamp,
@@ -8621,6 +8647,175 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         >
                           Open Manual Import
                         </button>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+                {isImportMethodDetailOpen && activeImportMethod ? (
+                  <section className="panel setup-panel public-intake-setup">
+                    <PanelHeader icon={Send} title="Customer Order Dropbox" detail="Published intake page" />
+                    <div className="public-intake-heading">
+                      <div>
+                        <strong>Give this customer a focused order-upload page</strong>
+                        <span>The saved parser, field mappings, product rules, order-name rules, route, and submit profile stay controlled in Pathfinder.</span>
+                      </div>
+                      <label className="switch-field public-intake-publish-switch">
+                        <input
+                          type="checkbox"
+                          aria-label="Publish customer order dropbox"
+                          checked={activeImportMethod.public_intake.enabled}
+                          disabled={activeImportMethod.status !== "Active"}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              public_intake: {
+                                ...activeImportMethod.public_intake,
+                                enabled: event.target.checked
+                              }
+                            })
+                          }
+                        />
+                        <span className="switch-field-track" aria-hidden="true" />
+                        <span>Publish dropbox</span>
+                      </label>
+                    </div>
+                    <div className="setup-grid public-intake-grid">
+                      <label className="setup-control setup-control-wide">
+                        <span>Page headline</span>
+                        <input
+                          value={activeImportMethod.public_intake.headline}
+                          maxLength={100}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              public_intake: {
+                                ...activeImportMethod.public_intake,
+                                headline: event.target.value
+                              }
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="setup-control setup-control-wide">
+                        <span>Customer instructions</span>
+                        <textarea
+                          value={activeImportMethod.public_intake.instructions}
+                          maxLength={600}
+                          rows={3}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              public_intake: {
+                                ...activeImportMethod.public_intake,
+                                instructions: event.target.value
+                              }
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="setup-control">
+                        <span>Allowed email domains</span>
+                        <input
+                          value={activeImportMethod.public_intake.allowed_email_domains.join(", ")}
+                          placeholder="customer.com"
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              public_intake: {
+                                ...activeImportMethod.public_intake,
+                                allowed_email_domains: event.target.value
+                                  .split(",")
+                                  .map((domain) => domain.trim().toLowerCase().replace(/^@/, ""))
+                                  .filter(Boolean)
+                              }
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="setup-control">
+                        <span>Submit profile</span>
+                        <select
+                          value={activeImportMethod.public_intake.submit_profile_id ?? ""}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              public_intake: {
+                                ...activeImportMethod.public_intake,
+                                submit_profile_id: event.target.value || null
+                              }
+                            })
+                          }
+                        >
+                          <option value="">Live customer when available</option>
+                          {activeOutputRoute.submit_profiles
+                            .filter((profile) => profile.enabled)
+                            .map((profile) => (
+                              <option key={profile.profile_id} value={profile.profile_id}>
+                                {profile.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <label className="setup-control">
+                        <span>Maximum order rows</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={1000}
+                          value={activeImportMethod.public_intake.max_order_rows}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              public_intake: {
+                                ...activeImportMethod.public_intake,
+                                max_order_rows: Math.min(1000, Math.max(1, Number.parseInt(event.target.value, 10) || 1))
+                              }
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="switch-field public-intake-email-check">
+                        <input
+                          type="checkbox"
+                          aria-label="Require a valid work email"
+                          checked={activeImportMethod.public_intake.require_email}
+                          onChange={(event) =>
+                            updateActiveMethodDraft({
+                              public_intake: {
+                                ...activeImportMethod.public_intake,
+                                require_email: event.target.checked
+                              }
+                            })
+                          }
+                        />
+                        <span className="switch-field-track" aria-hidden="true" />
+                        <span>Require a valid work email</span>
+                      </label>
+                    </div>
+                    <div className="public-intake-link-row">
+                      <div>
+                        <span>Customer page</span>
+                        <strong>
+                          {activeImportMethod.public_intake.public_key
+                            ? `${publicStatusBaseUrl.replace(/\/$/, "")}/intake/${activeImportMethod.public_intake.public_key}`
+                            : activeImportMethod.public_intake.enabled
+                              ? "Save Method to generate the private page address."
+                              : "Publish the dropbox when this method is ready."}
+                        </strong>
+                      </div>
+                      {activeImportMethod.public_intake.public_key ? (
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => {
+                            const url = `${publicStatusBaseUrl.replace(/\/$/, "")}/intake/${activeImportMethod.public_intake.public_key}`;
+                            void navigator.clipboard.writeText(url).then(() => setWorkspaceMessage("Customer order page copied."));
+                          }}
+                        >
+                          <Copy size={15} />
+                          Copy page
+                        </button>
+                      ) : null}
+                    </div>
+                    <div className="public-intake-safety-note">
+                      <ShieldCheck size={18} />
+                      <div>
+                        <strong>Operator review remains in control.</strong>
+                        <span>Customer submission creates a Pathfinder preview job only. This page cannot submit an order to Lift.</span>
                       </div>
                     </div>
                   </section>

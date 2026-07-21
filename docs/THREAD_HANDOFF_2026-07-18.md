@@ -894,3 +894,25 @@ Recommended continuation:
 1. Review and checkpoint the combined Jobs management + Manual Import saved-basis work, then push it for the normal review/deployment process when requested.
 2. Build the customer-specific public order dropbox around a deliberately published Import Method; do not expose parser, mapping, product, route, or submit-profile configuration to the customer.
 3. Keep the public intake boundary separate from external Lift submit: validate and persist the intake first, then use the existing operator certification/submit workflow unless a later explicitly approved automation policy is introduced.
+
+## Customer Order Dropbox Foundation
+
+The confirmed Jobs management and Manual Import saved-basis work was committed as `c71663a` and pushed to `origin/codex/jobs-management-ux`. The next slice is underway on `codex/customer-order-dropbox`.
+
+- Each Active Import Method now has a `Customer Order Dropbox` publication panel. Operators control the customer headline/instructions, approved email domains, row ceiling, submit profile, and whether the page is published.
+- Saving a published method creates a private server-generated key and displays the `status.vornan.co/intake/<private-key>` address. Disabling publication makes that page return unavailable without deleting the Import Method.
+- The existing status application renders the Vornan/Pathfinder customer page. It accepts spreadsheet upload or pasted grid content, requires the configured work-email gate, and shows only product, quantity, final dimensions, and ready/review status.
+- All parsing and order behavior comes from the saved Import Method. The public browser receives no parser configuration, mappings, route IDs, product identifiers, credentials, or email-domain allowlist.
+- Customer confirmation creates an ordinary Pathfinder preview job with `public_intake` audit metadata and a Pathfinder reference. The operator must still review/certify and explicitly submit from authenticated Pathfinder; the public route cannot call Lift.
+- Public upload requests default to a 5 MB maximum, obey the method's 1-1000 row ceiling, and are rate-limited by page, email, and IP.
+- Focused API coverage proves wrong-domain rejection, bounded preview data, internal-only job persistence, no submitted state/attempt, and immediate disable behavior.
+- The customer-facing default headline is customer-neutral (`Put your print order in motion.`), while the smaller customer label retains page context. Publication and email requirements use the same accessible Pathfinder switch treatment.
+
+Before a release checkpoint, finish full checks/build/tests, browser-test the admin publication controls and public page at desktop/mobile widths, and verify there is no horizontal overflow or public leakage. No production deployment or real Lift submit is authorized by this slice.
+
+Recommended continuation after the foundation is validated:
+
+1. Add an operator intake indicator/filter so dropbox-created jobs are immediately recognizable in Jobs.
+2. Add explicit private-link rotation/revocation controls if customer URLs need scheduled rotation beyond the current publish/unpublish gate.
+3. Decide whether work-email possession must be verified with a one-time code/link after transactional email delivery moves beyond log mode.
+4. Keep Wrike GET/webhook automation separate; it can later feed the same saved Import Method and preview-job boundary.
