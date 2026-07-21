@@ -2725,6 +2725,84 @@ Verification passed all workspace checks/builds, all 133 workspace tests, all 25
 
 The corrected isolated cache retains only one profile, three tasks, and three versions for the approved order; it has no grant/session records. Public read, `ReadOnlyQaConfirmed`, production approval, DNS, email, decisions, and every Lift write remain disabled. A separately approved Pathfinder-originated order is still required.
 
+## 2026-07-21 - Jobs Management And Drill-In UX
+
+Completed the first post-demo operator cleanup slice without changing Lift submit behavior or any Vornan Proof gate.
+
+- Customer and global Jobs views now open one job on a dedicated detail surface with an explicit `All jobs` return action instead of expanding the detail beneath the list.
+- Jobs can be filtered by Active, Archived, or All and sorted by Updated, Created, or State in ascending or descending order.
+- Added row selection, select-all, and confirmed single or bulk archive/restore actions. Archiving is a reversible visibility control: the job state, Lift order association, submit attempts, audit history, and status links remain intact.
+- Added authenticated API endpoints for single and bulk archive/restore plus durable archive timestamp and actor metadata.
+- Replaced the job-detail native disclosure with the app's controlled Actions menu and made both job and top-bar menus close on outside click or Escape.
+- Added API regression coverage proving that archive and restore preserve operational job state and that independently archived jobs remain archived.
+- Browser verification covered list-to-detail navigation, outside-click menu dismissal, single archive, Archived filtering, and bulk restore. No Lift submit or external write occurred.
+
+Validation for this slice:
+
+- `npm run check` passed every workspace.
+- `npm run test` passed all 139 tests on the merged Proof baseline, including 70 API tests and the new job archive durability test.
+- `npm run build` passed all production builds.
+
+## 2026-07-21 - Manual Import Saved Method Basis And UI Polish
+
+Completed the next Manual Import usability slice on top of the Jobs cleanup work without changing Lift transport, submit gates, or Vornan Proof behavior.
+
+- Manual Import now starts from an explicitly selected active Import Method and reuses that method's parser configuration, field mappings, product resolution, order-name resolution, Ext_ID strategy, and output route.
+- Operators can choose `Ad-hoc manual mapping` when a one-off upload should not use or modify a saved Import Method. Ad-hoc preview jobs persist normally while the temporary mappings remain isolated from saved method configuration.
+- The selected output route continues to provide the enabled submit profiles. Source and submit customer details now use a narrow-safe stacked layout so names and Lift Customer IDs remain visible without horizontal overflow.
+- Jobs filter and sort selects now use the application's standard compact select appearance, including the custom arrow and focus treatment.
+- The Transactional Email panel-header warning now uses accessible white text on the amber warning background.
+- Added regression coverage proving an ad-hoc preview does not create or mutate a saved Import Method and a saved-method preview continues to update that method's run metadata.
+
+Validation for the combined Jobs and Manual Import work:
+
+- `npm run check` passed every workspace.
+- `npm run test` passed all 140 tests.
+- `npm run build` passed all production builds.
+- Local browser verification confirmed saved/ad-hoc basis switching, complete Submit Profile content at a 477px panel width, styled Jobs selects, white warning-chip text, zero page overflow, and no console errors.
+
+## 2026-07-21 - Customer Order Dropbox Foundation
+
+Started the customer-facing intermediary intake workflow on `codex/customer-order-dropbox` after checkpointing and pushing the confirmed Jobs/Manual Import work as commit `c71663a` on `codex/jobs-management-ux`.
+
+- An Active Import Method can now publish a private customer order page with a server-generated high-entropy URL key, customer-specific headline/instructions, work-email/domain gate, row limit, and controlled submit profile.
+- The public page lives within the existing `status.vornan.co` application at `/intake/<private-key>` and accepts XLSX, XLS, CSV, drag/drop, or pasted grid data.
+- Source parsing, sheet/header behavior, field mappings, product resolution, order-name resolution, Ext_ID strategy, output route, and submit profile remain server-controlled by the saved Import Method; none of those controls are exposed publicly.
+- The customer sees only a bounded visual confirmation of product, quantity, final width/height, and whether each row is ready or needs Vornan review.
+- Confirming the intake creates a normal Pathfinder preview job, records the intake channel and submitting email, and returns a Pathfinder reference. It does not call Lift, bypass certification, or expose a public submit control.
+- Public configuration responses are allowlisted, file bodies default to a 5 MB ceiling, order rows are bounded per published method, and preview/submit endpoints use page, email, and IP rate limits.
+- Disabling the published dropbox immediately makes its page unavailable while retaining the key for safe reactivation.
+- Added regression coverage for safe public configuration, email-domain rejection, saved-method parsing, row preview, internal job creation, intake audit metadata, disabled-page behavior, and the absence of a Lift submission.
+- Refined the customer-facing default headline to the customer-neutral `Put your print order in motion.` and replaced the publication/email browser checkboxes with consistent accessible Pathfinder switches.
+
+## 2026-07-21 - Public Intake Job Visibility
+
+Started the first operational follow-up after the Customer Order Dropbox checkpoint.
+
+- Jobs now identifies customer-dropbox submissions separately from operator-created jobs and includes the submitting work email in the authenticated operator view.
+- Added an Intake filter for all jobs, customer dropbox jobs, or operator workspace jobs alongside the existing archive and sort controls.
+- Job detail repeats the intake origin and customer submission timestamp so operators do not have to infer provenance from the source filename.
+
+This is the first publish/review foundation. Transactional email verification, customer-managed authentication, automated Lift submission, and Wrike ingestion remain separate future policies and were not enabled.
+
+## 2026-07-21 - Customer Dropbox Private-Link Lifecycle
+
+Completed the private-link security follow-up on `codex/public-intake-link-lifecycle` after committing and pushing the operator visibility checkpoint as `833c5ed`.
+
+- Added authenticated, explicit Rotate and Revoke operations to each published Customer Order Dropbox.
+- Rotation keeps the page published, issues a new high-entropy key, and invalidates the previous customer URL immediately.
+- Revocation invalidates the current URL immediately, clears the stored key and publication timestamp, and unpublishes the dropbox. Publishing it again creates a fresh key.
+- Both operations require a purpose-specific confirmation. Lifecycle controls are disabled while the Import Method has unsaved changes so a security action cannot silently discard draft configuration.
+- Public configuration and submission routes continue to resolve only the single current key for an Active, published Import Method. No previous key is returned or retained as a usable alias.
+- Regression coverage proves old-link rejection after rotation, replacement-link availability, rejection after revocation, and fresh-key issuance after republishing.
+
+This slice does not change Lift transport, preview certification, Proof gates, transactional email, or deployment state.
+
+Validation for this slice:
+
+- `npm run check`, `npm run test`, and `npm run build` passed across every workspace (149 tests total).
+- Local browser QA confirmed both purpose-specific confirmations, enabled saved-state controls, a full-width 390px action layout with no horizontal overflow, and no console warnings or errors.
+
 ## 2026-07-21 - Approved Pathfinder-Originated Proof QA A0226753
 
 Completed the explicitly approved Pathfinder-originated read-only Proof validation for `A0226753` in the isolated dark `vornan-proof-dev` stack.

@@ -859,3 +859,85 @@ Recommended next slice:
 2. Record cache/sync diagnostics, security headers, direct-origin rejection, responsive UI evidence, and immutable audit behavior.
 3. Keep public reads and all write/decision gates off during QA.
 4. Treat any DNS alias, production Proof trust, public-read enablement, grant creation, or customer email as a new separately reviewed and approved change.
+
+## Jobs Management And Drill-In UX
+
+The next operator-facing sequence has started with the Jobs cleanup slice on branch `codex/jobs-management-ux`, based on `origin/main` commit `87c5706` in the isolated worktree `/tmp/pathfinder-jobs-management`.
+
+- Jobs list and job detail are now separate surfaces. Selecting a job opens its detail without leaving the surrounding customer/global Jobs context, and `All jobs` returns to the list.
+- Active/Archived/All filtering and Updated/Created/State sorting are shared by both Jobs entry points.
+- Operators can archive or restore one job from its row/detail Actions menu, or select visible rows for a confirmed bulk action.
+- Archive is soft and reversible. It records `archived_at` and the operator email while retaining job state, Lift order data, attempts, audit history, and status links.
+- Single and bulk archive APIs validate customer ownership; the bulk endpoint accepts 1-100 deduplicated job IDs.
+- Controlled action menus now dismiss on outside click or Escape.
+- Full repository validation passes on the merged Proof PR #11 baseline: every workspace check, all 139 tests, and all production builds.
+
+Recommended continuation:
+
+1. Checkpoint this Jobs slice after Proof PR #11 is reviewed and merged.
+2. Begin Manual Import method reuse: allow the operator to select a saved Import Method so parsing settings, field mappings, product resolution, order-name rules, output route, and submit profile are preloaded while preserving a clearly labeled ad-hoc mode.
+3. Follow with the customer-specific public order dropbox using a published Import Method, minimal pre-submit validation, customer branding/context, email verification, rate limits, durable intake audit, and no customer-facing mapping controls.
+
+## Manual Import Saved Method Basis And UI Polish
+
+The saved-method reuse slice is complete in the same `codex/jobs-management-ux` worktree and remains uncommitted pending an intentional checkpoint.
+
+- Manual Import exposes an `Import basis` selector containing active saved Import Methods plus an explicit `Ad-hoc manual mapping` option.
+- A saved basis drives workbook parsing, field mappings, product resolution, order-name resolution, Ext_ID strategy, output route, and that route's enabled submit profiles. Switching the basis immediately remaps the loaded column set and clears stale preview state.
+- Ad-hoc previews are intentionally ephemeral: the preview job is persisted, but no ad-hoc Import Method is created and no saved method's mappings or last-run metadata are changed.
+- The API rejects a stale explicitly selected method with a clear 400 response while retaining the legacy fallback for older callers that omit `import_method_id`.
+- Submit Profile customer data now wraps in a narrow-safe stacked layout. Jobs selects match standard application controls, and the Transactional Email header warning has white contrast text.
+- Full validation passes: every workspace check, all 140 tests, and every production build. Local browser verification found no horizontal overflow or console errors.
+
+Recommended continuation:
+
+1. Review and checkpoint the combined Jobs management + Manual Import saved-basis work, then push it for the normal review/deployment process when requested.
+2. Build the customer-specific public order dropbox around a deliberately published Import Method; do not expose parser, mapping, product, route, or submit-profile configuration to the customer.
+3. Keep the public intake boundary separate from external Lift submit: validate and persist the intake first, then use the existing operator certification/submit workflow unless a later explicitly approved automation policy is introduced.
+
+## Customer Order Dropbox Foundation
+
+The confirmed Jobs management and Manual Import saved-basis work was committed as `c71663a` and pushed to `origin/codex/jobs-management-ux`. The next slice is underway on `codex/customer-order-dropbox`.
+
+- Each Active Import Method now has a `Customer Order Dropbox` publication panel. Operators control the customer headline/instructions, approved email domains, row ceiling, submit profile, and whether the page is published.
+- Saving a published method creates a private server-generated key and displays the `status.vornan.co/intake/<private-key>` address. Disabling publication makes that page return unavailable without deleting the Import Method.
+- The existing status application renders the Vornan/Pathfinder customer page. It accepts spreadsheet upload or pasted grid content, requires the configured work-email gate, and shows only product, quantity, final dimensions, and ready/review status.
+- All parsing and order behavior comes from the saved Import Method. The public browser receives no parser configuration, mappings, route IDs, product identifiers, credentials, or email-domain allowlist.
+- Customer confirmation creates an ordinary Pathfinder preview job with `public_intake` audit metadata and a Pathfinder reference. The operator must still review/certify and explicitly submit from authenticated Pathfinder; the public route cannot call Lift.
+- Public upload requests default to a 5 MB maximum, obey the method's 1-1000 row ceiling, and are rate-limited by page, email, and IP.
+- Focused API coverage proves wrong-domain rejection, bounded preview data, internal-only job persistence, no submitted state/attempt, and immediate disable behavior.
+- The customer-facing default headline is customer-neutral (`Put your print order in motion.`), while the smaller customer label retains page context. Publication and email requirements use the same accessible Pathfinder switch treatment.
+
+Before a release checkpoint, finish full checks/build/tests, browser-test the admin publication controls and public page at desktop/mobile widths, and verify there is no horizontal overflow or public leakage. No production deployment or real Lift submit is authorized by this slice.
+
+Recommended continuation after the foundation is validated:
+
+1. Add an operator intake indicator/filter so dropbox-created jobs are immediately recognizable in Jobs. (Started on `codex/public-intake-job-visibility` after checkpoint `30d079e`.)
+2. Add explicit private-link rotation/revocation controls if customer URLs need scheduled rotation beyond the current publish/unpublish gate.
+3. Decide whether work-email possession must be verified with a one-time code/link after transactional email delivery moves beyond log mode.
+4. Keep Wrike GET/webhook automation separate; it can later feed the same saved Import Method and preview-job boundary.
+
+## Public Intake Job Visibility
+
+The Customer Order Dropbox foundation was committed as `30d079e`. The immediate operator follow-up is underway on `codex/public-intake-job-visibility`.
+
+- Customer and global Jobs lists now distinguish `Customer dropbox` from `Operator` intake.
+- The Intake filter narrows either list without changing the active/archive or sorting behavior.
+- Authenticated job detail exposes the dropbox submitter email and received timestamp; none of this provenance is added to the public status surface.
+
+## Customer Dropbox Private-Link Lifecycle
+
+The operator visibility checkpoint was committed as `833c5ed` and pushed to `origin/codex/public-intake-job-visibility`. Private-link lifecycle work continues independently on `codex/public-intake-link-lifecycle`.
+
+- A published dropbox now offers `Rotate link` and `Revoke link` beside `Copy page`.
+- Rotation immediately invalidates the old URL, generates a new private key, and leaves publication enabled.
+- Revocation immediately invalidates the URL, clears the key and publication timestamp, and disables publication. A later saved republish generates a different key.
+- Both actions use explicit confirmation copy describing the immediate customer impact and are unavailable until ordinary Import Method edits are saved.
+- Focused API coverage exercises the complete current-key/old-key lifecycle. No Lift submit, public automation, email verification, or Proof capability is enabled.
+- Full workspace checks, all 149 tests, and all production builds pass. Local browser QA covered both confirmations and the 390px action layout without horizontal overflow or console errors.
+
+Recommended continuation after this slice:
+
+1. Review and checkpoint the lifecycle branch after full validation and responsive browser QA.
+2. Decide whether customer work-email possession needs a one-time code/link once transactional email delivery is approved beyond log mode.
+3. Keep Wrike GET/webhook ingestion as a separate source adapter feeding the same saved Import Method and preview-job boundary.

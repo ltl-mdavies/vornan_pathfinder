@@ -10,6 +10,7 @@ import type {
 } from "@pathfinder/order-rollup";
 import { OrderRollup } from "@pathfinder/order-rollup-ui";
 import { proofReviewProgress } from "./proof-state";
+import { CustomerIntake } from "./intake";
 import "./styles.css";
 import "@pathfinder/order-rollup-ui/styles.css";
 
@@ -149,6 +150,18 @@ function tokenFromLocation() {
     .filter(Boolean)
     .find((part) => !["status", "order"].includes(part.toLowerCase()));
   return queryToken ?? pathToken ?? "";
+}
+
+function intakeKeyFromLocation() {
+  const parts = window.location.pathname.split("/").filter(Boolean);
+  if (parts[0]?.toLowerCase() !== "intake" || !parts[1]) {
+    return "";
+  }
+  try {
+    return decodeURIComponent(parts[1]);
+  } catch {
+    return "";
+  }
 }
 
 function displayDate(value?: string | null) {
@@ -567,8 +580,25 @@ function App() {
   );
 }
 
+function RootApp() {
+  const intakeKey = useMemo(intakeKeyFromLocation, []);
+  if (!intakeKey) {
+    return <App />;
+  }
+
+  return (
+    <main className="status-shell intake-shell">
+      <header className="brand-header">
+        <img src="/brand/vornan-wordmark.svg" alt="Vornan" className="vornan-wordmark" />
+        <img src="/brand/pathfinder-lockup-zinnia.svg" alt="Pathfinder" className="pathfinder-lockup" />
+      </header>
+      <CustomerIntake apiBaseUrl={apiBaseUrl} publicKey={intakeKey} />
+    </main>
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <RootApp />
   </React.StrictMode>
 );

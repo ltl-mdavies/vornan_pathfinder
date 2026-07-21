@@ -56,6 +56,7 @@ import {
   createDefaultOrderNameResolutionConfig,
   mapSourceRowsToCanonicalOrder,
   normalizeOrderNameResolutionConfig,
+  parseWorkbookArrayBuffer,
   sampleSourceGrid,
   validateOrderNameResolution,
   type FieldMapping,
@@ -67,6 +68,7 @@ import {
   archiveImportMethod,
   addCanonicalRegistryCustomField,
   bulkUpsertProductMappings,
+  createDefaultPublicIntakeConfig,
   createDefaultProductResolutionConfig,
   deleteTarget,
   deleteCatalogPreset,
@@ -84,6 +86,7 @@ import {
   listTargets,
   getJob,
   getOrderStatusToken,
+  getPublicIntakeMethodByKey,
   getPublicOrderStatusSnapshot,
   getSubmitAttemptByIdempotencyKey,
   maskTargetConfig,
@@ -92,7 +95,11 @@ import {
   persistPreviewJob,
   persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
+  PublicIntakeLifecycleError,
   reservePathfinderOrderNumber,
+  revokeImportMethodPublicIntakeKey,
+  rotateImportMethodPublicIntakeKey,
+  setJobsArchived,
   updateProductMapping,
   upsertCatalogPreset,
   updateImportMethod,
@@ -115,6 +122,7 @@ import {
   type ProductResolutionConfig,
   type ProductResolutionResult,
   type ProcessingJobPreview,
+  type PublicIntakeConfig,
   type PathfinderCustomerWorkspace,
   type PublicOrderStatusSnapshot,
   type StatusAccessPolicy,
@@ -199,6 +207,10 @@ const localCustomerSeedUrl = process.env.PATHFINDER_CUSTOMER_SEED_FILE
   ? pathToFileURL(process.env.PATHFINDER_CUSTOMER_SEED_FILE)
   : new URL("../../../data/lift-customers.sample.csv", import.meta.url);
 const publicStatusRateLimits = new Map<string, { count: number; resetAt: number; lastAt: number }>();
+const publicIntakeRateLimits = new Map<string, { count: number; resetAt: number }>();
+const publicIntakeRateLimitWindowMs = Number(process.env.PATHFINDER_PUBLIC_INTAKE_RATE_LIMIT_WINDOW_MS ?? 15 * 60 * 1000);
+const publicIntakeRateLimitMax = Number(process.env.PATHFINDER_PUBLIC_INTAKE_RATE_LIMIT_MAX ?? 20);
+const publicIntakeMaxFileBytes = Number(process.env.PATHFINDER_PUBLIC_INTAKE_MAX_FILE_BYTES ?? 5 * 1024 * 1024);
 
 app.use((_req, res, next) => {
   res.setHeader("Referrer-Policy", "no-referrer");
@@ -1354,6 +1366,159 @@ function jobOrderLookupCandidates(job: ProcessingJobPreview, attempts: SubmitAtt
 
 function normalizeEmail(value: unknown) {
   return valueAsString(value).trim().toLowerCase();
+}
+
+function publicIntakeEmailAllowed(config: PublicIntakeConfig, email: string) {
+  if (!config.require_email) {
+    return true;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return false;
+  }
+  if (!config.allowed_email_domains.length) {
+    return true;
+  }
+  const domain = email.split("@").pop() ?? "";
+  return config.allowed_email_domains.includes(domain);
+}
+
+function isPublicIntakeRateLimited(req: Request, publicKey: string, email: string) {
+  const now = Date.now();
+  const keys = [
+    `intake-ip:${hashPublicLogValue(publicStatusRequestIp(req))}`,
+    `intake-page:${hashPublicLogValue(publicKey)}`,
+    `intake-email:${hashPublicLogValue(email)}`
+  ];
+
+  for (const key of keys) {
+    const current = publicIntakeRateLimits.get(key);
+    if (current && current.resetAt > now && current.count >= publicIntakeRateLimitMax) {
+      return true;
+    }
+  }
+
+  for (const key of keys) {
+    const current = publicIntakeRateLimits.get(key);
+    if (!current || current.resetAt <= now) {
+      publicIntakeRateLimits.set(key, { count: 1, resetAt: now + publicIntakeRateLimitWindowMs });
+    } else {
+      current.count += 1;
+    }
+  }
+  return false;
+}
+
+function publicIntakeParseOptions(method: ImportMethod) {
+  const sourceConfig = method.source_config;
+  return {
+    preferredSheetName: sourceConfig.detected_schema?.selected_sheet_name || undefined,
+    headerRow: sourceConfig.header_row ?? undefined,
+    headerRowCount: sourceConfig.header_row_count ?? undefined,
+    quantityColumn: sourceConfig.quantity_column ?? undefined,
+    ignoreRepeatedHeaders: sourceConfig.ignore_repeated_headers ?? true,
+    referenceRowsMode: sourceConfig.reference_rows_mode ?? "rows_without_quantity",
+    sheetHeaderOverrides: Object.fromEntries(
+      Object.entries(sourceConfig.sheet_header_overrides ?? {}).map(([sheetName, override]) => [
+        sheetName,
+        {
+          headerRow: override.header_row,
+          headerRowCount: override.header_row_count
+        }
+      ])
+    )
+  } as const;
+}
+
+async function parsePublicIntakeSource(body: Record<string, unknown>, method: ImportMethod) {
+  const sourceFileName = valueAsString(body.source_file_name).trim();
+  const fileBase64 = valueAsString(body.file_base64).replace(/^data:[^;]+;base64,/, "").trim();
+  const pasteText = valueAsString(body.paste_text);
+
+  if (!fileBase64 && !pasteText.trim()) {
+    throw new Error("Upload an XLSX, XLS, or CSV file, or paste a grid before continuing.");
+  }
+  if (fileBase64 && pasteText.trim()) {
+    throw new Error("Use either an uploaded file or a pasted grid, not both.");
+  }
+  if (fileBase64 && !/^[A-Za-z0-9+/]*={0,2}$/.test(fileBase64)) {
+    throw new Error("The uploaded file could not be read.");
+  }
+
+  const bytes = fileBase64 ? Buffer.from(fileBase64, "base64") : Buffer.from(pasteText, "utf8");
+  if (!bytes.byteLength || bytes.byteLength > publicIntakeMaxFileBytes) {
+    throw new Error(`Order sources must be between 1 byte and ${Math.floor(publicIntakeMaxFileBytes / 1024 / 1024)} MB.`);
+  }
+  if (fileBase64 && !/\.(xlsx|xls|csv)$/i.test(sourceFileName)) {
+    throw new Error("Choose an XLSX, XLS, or CSV file.");
+  }
+
+  const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const parsed = await parseWorkbookArrayBuffer(arrayBuffer, publicIntakeParseOptions(method));
+  return {
+    parsed,
+    sourceFileName: fileBase64 ? sourceFileName : "Pasted order grid.csv"
+  };
+}
+
+function mappedRowValue(method: ImportMethod, row: ParsedSourceRow, targetField: string) {
+  const sourceColumn = method.mappings.find((mapping) => mapping.targetField === targetField)?.sourceColumn;
+  return sourceColumn ? row.values[sourceColumn] : null;
+}
+
+async function buildPublicIntakePreview(
+  intake: NonNullable<Awaited<ReturnType<typeof getPublicIntakeMethodByKey>>>,
+  body: Record<string, unknown>
+) {
+  const { customer, workspace, method } = intake;
+  const { parsed, sourceFileName } = await parsePublicIntakeSource(body, method);
+  const rows = parsed.parsed_order_rows.filter((row) => row.row_type === "order");
+  if (!rows.length) {
+    throw new Error("No order rows were found. Check the spreadsheet header and quantity column.");
+  }
+  if (rows.length > method.public_intake.max_order_rows) {
+    throw new Error(`This order page accepts up to ${method.public_intake.max_order_rows} order rows at a time.`);
+  }
+
+  const outputRoute =
+    workspace.output_routes.find((route) => route.output_route_id === method.output_route_id) ??
+    workspace.output_routes.find((route) => route.output_route_id === workspace.primary_output_route_id) ??
+    workspace.output_routes[0];
+  if (!outputRoute || outputRoute.status !== "Active") {
+    throw new Error("This order page is temporarily unavailable. Contact Vornan support.");
+  }
+  const resolutions = resolveProducts(rows, await listProductMappings(customer), method.product_resolution_config, outputRoute);
+  const previewRows = rows.map((row, index) => {
+    const resolution = resolutions[index];
+    const rawQuantity = mappedRowValue(method, row, "lines[].quantity");
+    const quantity = Number(rawQuantity);
+    const quantityReady = Number.isFinite(quantity) && quantity > 0;
+    const mapped = resolution?.status === "Mapped" && Boolean(resolution.resolved_product_identifier);
+    return {
+      sheet_name: row.sheet_name,
+      row_number: row.row_number,
+      product: resolution?.display_label || resolution?.customer_product_key || "Product not identified",
+      quantity: quantityReady ? quantity : null,
+      final_width: mappedRowValue(method, row, "lines[].dimensions.final_width"),
+      final_height: mappedRowValue(method, row, "lines[].dimensions.final_height"),
+      status: mapped && quantityReady ? "Ready" : "Needs review",
+      message: !quantityReady ? "Quantity is missing or invalid." : mapped ? "Product mapping found." : "Vornan will review this product mapping."
+    };
+  });
+  const reviewCount = previewRows.filter((row) => row.status !== "Ready").length;
+
+  return {
+    parsed,
+    sourceFileName,
+    response: {
+      source_file_name: sourceFileName,
+      sheet_name: parsed.sheetName,
+      order_row_count: rows.length,
+      reference_row_count: parsed.reference_rows.length,
+      ready_row_count: rows.length - reviewCount,
+      review_row_count: reviewCount,
+      rows: previewRows
+    }
+  };
 }
 
 const publicEmailDomains = new Set([
@@ -2627,6 +2792,128 @@ app.post("/public/status/request-link", async (req, res) => {
   }
 });
 
+app.get("/public/intake/:publicKey", async (req, res) => {
+  try {
+    const intake = await getPublicIntakeMethodByKey(req.params.publicKey);
+    if (!intake) {
+      res.status(404).json({ error: "This order page is unavailable." });
+      return;
+    }
+    const { customer, method } = intake;
+    res.json({
+      customer_name: customer.customer_name,
+      method_name: method.name,
+      headline: method.public_intake.headline,
+      instructions: method.public_intake.instructions,
+      require_email: method.public_intake.require_email,
+      max_order_rows: method.public_intake.max_order_rows,
+      accepted_file_types: [".xlsx", ".xls", ".csv"],
+      expected_columns: (method.source_config.detected_schema?.columns ?? []).slice(0, 50)
+    });
+  } catch (error) {
+    console.error("[pathfinder-public-intake-config-error]", {
+      public_key_hash: hashPublicLogValue(req.params.publicKey),
+      error: error instanceof Error ? error.message : "Public intake configuration failed."
+    });
+    res.status(500).json({ error: "This order page is temporarily unavailable." });
+  }
+});
+
+app.post("/public/intake/:publicKey/preview", async (req, res) => {
+  try {
+    const intake = await getPublicIntakeMethodByKey(req.params.publicKey);
+    if (!intake) {
+      res.status(404).json({ error: "This order page is unavailable." });
+      return;
+    }
+    const email = normalizeEmail(req.body?.email);
+    if (!publicIntakeEmailAllowed(intake.method.public_intake, email)) {
+      res.status(400).json({ error: "Enter an approved work email address." });
+      return;
+    }
+    if (isPublicIntakeRateLimited(req, req.params.publicKey, email)) {
+      res.status(429).json({ error: "Too many requests. Wait a few minutes and try again." });
+      return;
+    }
+
+    const preview = await buildPublicIntakePreview(intake, req.body as Record<string, unknown>);
+    res.json(preview.response);
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "The order source could not be previewed."
+    });
+  }
+});
+
+app.post("/public/intake/:publicKey/submit", async (req, res) => {
+  try {
+    const intake = await getPublicIntakeMethodByKey(req.params.publicKey);
+    if (!intake) {
+      res.status(404).json({ error: "This order page is unavailable." });
+      return;
+    }
+    const email = normalizeEmail(req.body?.email);
+    if (!publicIntakeEmailAllowed(intake.method.public_intake, email)) {
+      res.status(400).json({ error: "Enter an approved work email address." });
+      return;
+    }
+    if (isPublicIntakeRateLimited(req, req.params.publicKey, email)) {
+      res.status(429).json({ error: "Too many requests. Wait a few minutes and try again." });
+      return;
+    }
+
+    const preview = await buildPublicIntakePreview(intake, req.body as Record<string, unknown>);
+    const outputRoute =
+      intake.workspace.output_routes.find((route) => route.output_route_id === intake.method.output_route_id) ??
+      intake.workspace.output_routes.find((route) => route.output_route_id === intake.workspace.primary_output_route_id) ??
+      intake.workspace.output_routes[0];
+    if (!outputRoute) {
+      throw new Error("This order page is temporarily unavailable.");
+    }
+    const submitProfileId =
+      intake.method.public_intake.submit_profile_id ??
+      outputRoute.submit_profiles.find((profile) => profile.enabled && profile.mode === "live_customer")?.profile_id ??
+      outputRoute.submit_profiles.find((profile) => profile.enabled)?.profile_id;
+    const result = await createPreviewJobForRequest(
+      intake.customer.lift_customer_id,
+      {
+        source_grid: {
+          columns: preview.parsed.columns,
+          rows: preview.parsed.parsed_order_rows.map((row) => row.values)
+        },
+        source_sheets: preview.parsed.source_sheets,
+        parsed_order_rows: preview.parsed.parsed_order_rows,
+        reference_rows: preview.parsed.reference_rows,
+        source_file_name: preview.sourceFileName,
+        sheet_name: preview.parsed.sheetName,
+        import_method_id: intake.method.import_method_id,
+        submit_profile_id: submitProfileId
+      },
+      {
+        channel: "customer_dropbox",
+        submitted_by_email: email,
+        submitted_at: new Date().toISOString()
+      }
+    );
+
+    res.status(201).json({
+      status: "received",
+      message: "Your order file has been received for Vornan review.",
+      reference: result.job.pathfinder_order_id,
+      order_row_count: result.job.parsed_order_rows.length,
+      review_required: result.job.state !== "Ready"
+    });
+  } catch (error) {
+    console.error("[pathfinder-public-intake-submit-error]", {
+      public_key_hash: hashPublicLogValue(req.params.publicKey),
+      error: error instanceof Error ? error.message : "Public intake submission failed."
+    });
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "The order source could not be submitted."
+    });
+  }
+});
+
 app.use("/api", requirePathfinderAuth);
 app.use("/api/proof", createProofAdminRouter());
 
@@ -3185,6 +3472,40 @@ app.put("/api/customers/:liftCustomerId/import-methods/:methodId", async (req, r
   }
 });
 
+app.post("/api/customers/:liftCustomerId/import-methods/:methodId/public-intake/rotate", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const workspace = await rotateImportMethodPublicIntakeKey(customer, req.params.methodId);
+    const target = await getTarget(workspace.primary_target_id);
+
+    res.json({
+      ...workspace,
+      primary_target: target
+    });
+  } catch (error) {
+    res.status(error instanceof PublicIntakeLifecycleError ? error.statusCode : 500).json({
+      error: error instanceof Error ? error.message : "Customer Order Dropbox link rotation failed."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/import-methods/:methodId/public-intake/revoke", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const workspace = await revokeImportMethodPublicIntakeKey(customer, req.params.methodId);
+    const target = await getTarget(workspace.primary_target_id);
+
+    res.json({
+      ...workspace,
+      primary_target: target
+    });
+  } catch (error) {
+    res.status(error instanceof PublicIntakeLifecycleError ? error.statusCode : 500).json({
+      error: error instanceof Error ? error.message : "Customer Order Dropbox link revocation failed."
+    });
+  }
+});
+
 app.delete("/api/customers/:liftCustomerId/import-methods/:methodId", async (req, res) => {
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
@@ -3338,53 +3659,87 @@ app.post("/api/customers/:liftCustomerId/product-mappings/bulk", async (req, res
   }
 });
 
-app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
-  try {
-    const customer = await findLiftCustomer(req.params.liftCustomerId);
+async function createPreviewJobForRequest(
+  liftCustomerId: string,
+  body: Record<string, unknown>,
+  publicIntake?: ProcessingJobPreview["public_intake"]
+) {
+    const customer = await findLiftCustomer(liftCustomerId);
     const workspace = await getOrCreateWorkspace(customer);
-    const sourceGrid = (req.body?.source_grid ?? sampleSourceGrid) as SourceGrid;
-    const sourceSheets = (req.body?.source_sheets ?? sourceSheetsFromGrid(sourceGrid)) as ParsedWorkbookSheet[];
-    const requestIncludedParsedRows = Array.isArray(req.body?.parsed_order_rows);
+    const sourceGrid = (body.source_grid ?? sampleSourceGrid) as SourceGrid;
+    const sourceSheets = (body.source_sheets ?? sourceSheetsFromGrid(sourceGrid)) as ParsedWorkbookSheet[];
+    const requestIncludedParsedRows = Array.isArray(body.parsed_order_rows);
     const parsedOrderRows = (requestIncludedParsedRows
-      ? ((req.body.parsed_order_rows as ParsedSourceRow[]) ?? [])
+      ? ((body.parsed_order_rows as ParsedSourceRow[]) ?? [])
       : synthesizeParsedRows(sourceGrid)
     ).filter((row) => row.row_type === "order");
-    const referenceRows = ((req.body?.reference_rows as ParsedSourceRow[] | undefined) ?? []) as ParsedSourceRow[];
-    const sourceFileName = String(req.body?.source_file_name ?? "Sample workbook");
-    const sheetName = req.body?.sheet_name ? String(req.body.sheet_name) : null;
-    const requestedMethodId = String(req.body?.import_method_id ?? "manual-xlsx");
-    const existingMethod =
-      workspace.import_methods.find((method) => method.import_method_id === requestedMethodId) ??
-      workspace.import_methods[0];
-    const mappings = (req.body?.mappings ?? existingMethod?.mappings ?? []) as FieldMapping[];
-    const method = {
-      ...existingMethod,
-      mappings,
-      product_resolution_config: {
-        ...createDefaultProductResolutionConfig(),
-        ...(existingMethod?.product_resolution_config ?? {}),
-        ...(req.body?.product_resolution_config ?? {})
-      },
-      order_name_resolution_config: normalizeOrderNameResolutionConfig(
-        {
-          ...(existingMethod?.order_name_resolution_config ?? {}),
-          ...(req.body?.order_name_resolution_config ?? {})
-        },
-        existingMethod?.order_name_resolution_config ?? createDefaultOrderNameResolutionConfig()
-      ),
-      ext_id_strategy:
-        req.body?.ext_id_strategy === "pathfinder_generated" || req.body?.ext_id_strategy === "customer_order_id"
-          ? req.body.ext_id_strategy
-          : existingMethod?.ext_id_strategy ?? "pathfinder_generated"
-    };
+    const referenceRows = ((body.reference_rows as ParsedSourceRow[] | undefined) ?? []) as ParsedSourceRow[];
+    const sourceFileName = String(body.source_file_name ?? "Sample workbook");
+    const sheetName = body.sheet_name ? String(body.sheet_name) : null;
+    const requestedMethodId = body.import_method_id ? String(body.import_method_id) : null;
+    const isAdHocManualImport = requestedMethodId === "ad-hoc";
+    const existingMethod = requestedMethodId
+      ? workspace.import_methods.find((method) => method.import_method_id === requestedMethodId)
+      : workspace.import_methods.find((method) => method.import_method_id === "manual-xlsx") ?? workspace.import_methods[0];
+    if (!isAdHocManualImport && !existingMethod) {
+      throw Object.assign(new Error("The selected Import Method no longer exists. Choose another method and try again."), {
+        statusCode: 400
+      });
+    }
+    const requestedOutputRouteId = body.output_route_id ? String(body.output_route_id) : null;
     const outputRoute =
-      workspace.output_routes.find((route) => route.output_route_id === method.output_route_id) ??
+      workspace.output_routes.find((route) =>
+        route.output_route_id === (isAdHocManualImport ? requestedOutputRouteId : existingMethod?.output_route_id)
+      ) ??
       workspace.output_routes.find((route) => route.output_route_id === workspace.primary_output_route_id) ??
       workspace.output_routes[0];
     if (!outputRoute) {
       throw new Error("No output route is configured for this customer.");
     }
-    const submitProfile = submitProfileForRoute(outputRoute, req.body?.submit_profile_id ? String(req.body.submit_profile_id) : undefined);
+    const mappings = (body.mappings ?? existingMethod?.mappings ?? []) as FieldMapping[];
+    const timestamp = new Date().toISOString();
+    const method: ImportMethod = {
+      ...(existingMethod ?? {
+        import_method_id: "ad-hoc",
+        name: "Ad-hoc Manual Import",
+        type: "Manual upload" as const,
+        source: "XLSX" as const,
+        status: "Active" as const,
+        output_route_id: outputRoute.output_route_id,
+        target_id: outputRoute.target_id,
+        target_template: outputRoute.output_template,
+        template_id: "ad-hoc-manual-import",
+        mappings: [],
+        source_config: {},
+        workbook_sheet_policy: "rows_with_quantity" as const,
+        product_resolution_config: createDefaultProductResolutionConfig(),
+        order_name_resolution_config: createDefaultOrderNameResolutionConfig(),
+        ext_id_strategy: "pathfinder_generated" as const,
+        public_intake: createDefaultPublicIntakeConfig(),
+        last_run_at: null,
+        success_rate: null,
+        created_at: timestamp,
+        updated_at: timestamp
+      }),
+      mappings,
+      product_resolution_config: {
+        ...createDefaultProductResolutionConfig(),
+        ...(existingMethod?.product_resolution_config ?? {}),
+        ...((body.product_resolution_config as Partial<ProductResolutionConfig> | undefined) ?? {})
+      },
+      order_name_resolution_config: normalizeOrderNameResolutionConfig(
+        {
+          ...(existingMethod?.order_name_resolution_config ?? {}),
+          ...((body.order_name_resolution_config as Partial<ImportMethod["order_name_resolution_config"]> | undefined) ?? {})
+        },
+        existingMethod?.order_name_resolution_config ?? createDefaultOrderNameResolutionConfig()
+      ),
+      ext_id_strategy:
+        body.ext_id_strategy === "pathfinder_generated" || body.ext_id_strategy === "customer_order_id"
+          ? body.ext_id_strategy
+          : existingMethod?.ext_id_strategy ?? "pathfinder_generated"
+    };
+    const submitProfile = submitProfileForRoute(outputRoute, body.submit_profile_id ? String(body.submit_profile_id) : undefined);
     const submitCustomer = submitCustomerForProfile(customer, submitProfile);
     const orderRows = parsedOrderRows.length || requestIncludedParsedRows ? parsedOrderRows : synthesizeParsedRows(sourceGrid);
     const mappingRows = orderRows.map((row) => row.values);
@@ -3395,7 +3750,6 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       method.product_resolution_config,
       outputRoute
     );
-    const timestamp = new Date().toISOString();
     const compactTimestamp = timestamp.replace(/[-:.TZ]/g, "").slice(0, 14);
     const idEntropy = randomBytes(3).toString("hex");
     const jobId = `job_${compactTimestamp}_${idEntropy}`;
@@ -3567,19 +3921,29 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       submit_certification: submitCertification,
       submit_request_masked: submitRequest,
       created_at: timestamp,
-      updated_at: timestamp
+      updated_at: timestamp,
+      public_intake: publicIntake ?? null
     };
-    const nextWorkspace = await persistPreviewJob(customer, job, method);
+    const nextWorkspace = await persistPreviewJob(customer, job, method, {
+      persistMethod: !isAdHocManualImport
+    });
 
-    res.json({
+    return {
       job,
       workspace: {
         ...nextWorkspace,
         primary_target: maskTargetConfig(target)
       }
-    });
+    };
+}
+
+app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
+  try {
+    res.json(await createPreviewJobForRequest(req.params.liftCustomerId, req.body as Record<string, unknown>));
   } catch (error) {
-    res.status(500).json({
+    const statusCode =
+      error && typeof error === "object" && "statusCode" in error && error.statusCode === 400 ? 400 : 500;
+    res.status(statusCode).json({
       error: error instanceof Error ? error.message : "Preview job failed."
     });
   }
@@ -3610,6 +3974,90 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Job detail failed."
+    });
+  }
+});
+
+app.patch("/api/customers/:liftCustomerId/jobs/:jobId/archive", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const job = await getJob(customer, req.params.jobId);
+
+    if (!job) {
+      res.status(404).json({ error: "Preview job not found." });
+      return;
+    }
+
+    const archived = req.body?.archived !== false;
+    const result = await setJobsArchived(
+      customer,
+      [job.job_id],
+      archived,
+      typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null
+    );
+
+    res.json({
+      job: result.jobs[0],
+      jobs: result.workspace.jobs,
+      archived
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Job archive update failed."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/jobs/archive", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const requestedJobIds: unknown[] = Array.isArray(req.body?.job_ids) ? req.body.job_ids : [];
+    const jobIds = Array.from(
+      new Set<string>(
+        requestedJobIds.reduce<string[]>((result, jobId) => {
+          if (typeof jobId === "string" && jobId.trim()) {
+            result.push(jobId.trim());
+          }
+          return result;
+        }, [])
+      )
+    );
+
+    if (!jobIds.length || jobIds.length > 100) {
+      res.status(400).json({ error: "Choose between one and 100 jobs." });
+      return;
+    }
+
+    const customerJobIds = new Set(
+      (await listJobs())
+        .filter((job) => job.customer_id === customer.lift_customer_id)
+        .map((job) => job.job_id)
+    );
+    const missingJobIds = jobIds.filter((jobId) => !customerJobIds.has(jobId));
+    if (missingJobIds.length) {
+      res.status(404).json({
+        error: "One or more selected jobs could not be found.",
+        missing_job_ids: missingJobIds
+      });
+      return;
+    }
+
+    const archived = req.body?.archived !== false;
+    const result = await setJobsArchived(
+      customer,
+      jobIds,
+      archived,
+      typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null
+    );
+
+    res.json({
+      updated_jobs: result.jobs,
+      jobs: result.workspace.jobs,
+      archived
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Bulk job archive update failed."
     });
   }
 });
