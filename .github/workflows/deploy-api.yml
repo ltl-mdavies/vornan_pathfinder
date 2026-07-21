@@ -146,6 +146,8 @@ jobs:
               ProofAuditTableName="${{ vars.PATHFINDER_PROOF_AUDIT_TABLE || '' }}" \
               ProofAuditTableArn="${{ vars.PATHFINDER_PROOF_AUDIT_TABLE_ARN || '' }}" \
               ProofGrantCreationEnabled="${{ vars.PATHFINDER_PROOF_ENABLE_GRANT_CREATION || 'false' }}" \
+              ProofGrantAllowedCustomerIds="${{ vars.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS || '' }}" \
+              ProofReadOnlyActivationExpiresAt="${{ vars.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT || '' }}" \
               ProofLinkEmailEnabled="${{ vars.PATHFINDER_PROOF_ENABLE_LINK_EMAIL || 'false' }}" \
               ProofPublicBaseUrl="${{ vars.PATHFINDER_PROOF_PUBLIC_BASE_URL || 'https://proof.vornan.co' }}"
 

@@ -6,7 +6,7 @@ const TRUE = "true";
 
 export const REQUIRED_ACTIVATION_SCOPE = Object.freeze([
   "dev_stack_only_recorded",
-  "single_order_scope_recorded",
+  "demo_account_cohort_recorded",
   "time_bounded_window_recorded",
   "private_link_handoff_recorded"
 ]);

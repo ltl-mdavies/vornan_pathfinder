@@ -2794,3 +2794,16 @@ Prepared the next Phase 2 review slice without interpreting a general continuati
 No AWS call, deployment, DNS change, grant, email, decision, Lift request/write, or Pathfinder production-surface change was performed. The Proof dev stack remains dark and Phase 3 remains blocked.
 
 The user subsequently approved `A0226753` as the single-order scope. The bounded activation state now records scope 3/4 while leaving the time window and four operating controls false. The supplied Lift application URL was not retained, no Lift read was repeated, and this order approval was not treated as public-read, grant-creation, deployment, or customer-activation approval.
+
+## 2026-07-21 - Proof LTL Demo Read-Only Cohort Controls
+
+Marcus explicitly approved a one-week internal read-only QA window for Lift LTL Demo orders and assigned `mdavies@ltlco.com` as monitoring, rollback, support, and escalation owner.
+
+- Replaced the single-order review scope with the LTL Demo customer `1249` cohort so cancelled or replacement demo orders remain usable without broadening access beyond the sandbox account.
+- Added a fail-closed authenticated grant boundary: an empty cohort, missing Lift customer ID, or customer ID outside the configured list is denied before grant creation. The internal customer ID is excluded from the public Proof DTO.
+- Added an automatic UTC activation deadline that bounds grant creation, explicit grant expiry, token exchange, and session validity. Grant and session TTLs are capped at the deadline.
+- Added CloudFormation and deployment preflight requirements for the cohort and deadline before their respective read-only flags can be enabled.
+- Recorded the proposed window through `2026-07-28T21:49:50Z`, while retaining no DNS, email, decision, production-public-read approval, or Lift-write authorization.
+- Validation passed all 144 workspace tests, all 48 Proof deployment-safety tests, every workspace typecheck, all production builds, both bounded readiness evaluators, and `git diff --check`.
+
+No stack flag was enabled and no deployment, AWS mutation, Lift request, DNS change, email, decision, or Lift write was performed by this slice. The branch prepares only the server-enforced boundary and a manual activation review.

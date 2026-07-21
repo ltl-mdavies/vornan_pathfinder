@@ -32,7 +32,7 @@ function incompleteReviewState() {
   return {
     activation_scope: {
       dev_stack_only_recorded: true,
-      single_order_scope_recorded: false,
+      demo_account_cohort_recorded: false,
       time_bounded_window_recorded: false,
       private_link_handoff_recorded: true
     },
@@ -133,11 +133,11 @@ test("fails closed when Phase 2 evidence or the deployed boundary regresses", ()
 
 test("treats truthy strings and missing controls as unpassed", () => {
   const review = incompleteReviewState();
-  review.activation_scope.single_order_scope_recorded = "true";
+  review.activation_scope.demo_account_cohort_recorded = "true";
   delete review.safety_constraints.synthetic_mode_disabled;
   const result = evaluateProofReadOnlyActivationReview(phase2State(), review);
 
-  assert.equal(result.gates.activation_scope.single_order_scope_recorded, false);
+  assert.equal(result.gates.activation_scope.demo_account_cohort_recorded, false);
   assert.equal(result.gates.safety_constraints.synthetic_mode_disabled, false);
   assert.equal(result.status, "unsafe_activation_constraint_violation");
 });

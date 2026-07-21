@@ -40,6 +40,13 @@ export class ProofAccessValidationError extends Error {
   }
 }
 
+export class ProofGrantCohortDeniedError extends Error {
+  constructor() {
+    super("Proof access is outside the configured read-only grant cohort.");
+    this.name = "ProofGrantCohortDeniedError";
+  }
+}
+
 export class ProofOrderNotSynchronizedError extends Error {
   constructor(orderNumber: string) {
     super(`Proof order ${orderNumber} must be synchronized before access can be granted.`);
@@ -76,6 +83,16 @@ export function validateProofCsrf(session: ProofAccessSession, rawCsrf: string) 
 
 function addMilliseconds(now: Date, milliseconds: number) {
   return new Date(now.getTime() + milliseconds);
+}
+
+function activationDeadline(now: Date, publicRequest = false) {
+  const configured = getProofRuntimeConfig().access.read_only_activation_expires_at;
+  const deadline = configured ? new Date(configured) : null;
+  if (!deadline || !Number.isFinite(deadline.getTime()) || deadline.getTime() <= now.getTime()) {
+    if (publicRequest) throw new ProofAccessDeniedError();
+    throw new ProofAccessValidationError("The read-only Proof activation window is not configured or has expired.");
+  }
+  return deadline;
 }
 
 function activeGrant(grant: ProofAccessGrant | null, now: Date) {
@@ -142,19 +159,28 @@ export async function createProofGrant(input: {
     throw new ProofAccessFeatureDisabledError("grant creation");
   }
   const orderNumber = normalizeLiftOrderNumber(input.order_number);
-  if (!(await getProofOrder(orderNumber))) {
+  const order = await getProofOrder(orderNumber);
+  if (!order) {
     throw new ProofOrderNotSynchronizedError(orderNumber);
+  }
+  if (!order.customer_id || !config.access.grant_allowed_customer_ids.includes(order.customer_id)) {
+    throw new ProofGrantCohortDeniedError();
   }
   if (input.scope && input.scope !== "view") {
     throw new ProofAccessValidationError("Only view-scoped proof grants are available while Lift writes are disabled.");
   }
   const now = input.now ?? new Date();
+  const deadline = activationDeadline(now);
   const expiresAt = input.expires_at
     ? new Date(input.expires_at)
     : addMilliseconds(now, config.access.grant_ttl_days * 24 * 60 * 60 * 1000);
   if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) {
     throw new ProofAccessValidationError("Proof access expiry must be a valid future timestamp.");
   }
+  if (input.expires_at && expiresAt.getTime() > deadline.getTime()) {
+    throw new ProofAccessValidationError("Proof access expiry cannot exceed the read-only activation window.");
+  }
+  const boundedExpiresAt = expiresAt.getTime() > deadline.getTime() ? deadline : expiresAt;
   const rawToken = randomBytes(32).toString("base64url");
   const grant: ProofAccessGrant = {
     grant_id: `pgrant_${randomUUID()}`,
@@ -164,8 +190,8 @@ export async function createProofGrant(input: {
     status: "active",
     token_hash: hashSecret(rawToken),
     created_at: now.toISOString(),
-    expires_at: expiresAt.toISOString(),
-    expires_at_epoch: Math.floor(expiresAt.getTime() / 1000),
+    expires_at: boundedExpiresAt.toISOString(),
+    expires_at_epoch: Math.floor(boundedExpiresAt.getTime() / 1000),
     exchanged_at: null,
     revoked_at: null,
     last_used_at: null
@@ -239,6 +265,7 @@ export async function updateProofGrant(
   if (input.action === "revoke") {
     return { grant: await revokeProofGrant(grantId, now, auditContext), access_url: null };
   }
+  const deadline = activationDeadline(now);
   if (input.action === "regenerate") {
     await revokeProofGrant(grantId, now, auditContext);
     const regenerated = await createProofGrant({
@@ -264,6 +291,9 @@ export async function updateProofGrant(
     const parsed = new Date(input.expires_at);
     if (!Number.isFinite(parsed.getTime()) || parsed.getTime() <= now.getTime()) {
       throw new ProofAccessValidationError("Proof access expiry must be a valid future timestamp.");
+    }
+    if (parsed.getTime() > deadline.getTime()) {
+      throw new ProofAccessValidationError("Proof access expiry cannot exceed the read-only activation window.");
     }
     expiresAt = parsed.toISOString();
     expiresEpoch = Math.floor(parsed.getTime() / 1000);
@@ -291,6 +321,7 @@ export async function exchangeProofToken(rawToken: string, now = new Date()) {
   if (!config.feature_flags.public_read) {
     throw new ProofAccessFeatureDisabledError("public read");
   }
+  const deadline = activationDeadline(now, true);
   if (!/^[A-Za-z0-9_-]{43}$/.test(rawToken)) {
     throw new ProofAccessDeniedError();
   }
@@ -304,7 +335,8 @@ export async function exchangeProofToken(rawToken: string, now = new Date()) {
   }
   const rawSession = randomBytes(32).toString("base64url");
   const rawCsrf = randomBytes(32).toString("base64url");
-  const expiresAt = addMilliseconds(now, config.access.session_ttl_minutes * 60 * 1000);
+  const requestedSessionExpiry = addMilliseconds(now, config.access.session_ttl_minutes * 60 * 1000);
+  const expiresAt = requestedSessionExpiry.getTime() > deadline.getTime() ? deadline : requestedSessionExpiry;
   const session: ProofAccessSession = {
     session_id: `psession_${randomUUID()}`,
     session_hash: hashSecret(rawSession),
@@ -341,6 +373,7 @@ export async function validateProofSession(rawSession: string, now = new Date())
   if (!config.feature_flags.public_read || !/^[A-Za-z0-9_-]{43}$/.test(rawSession)) {
     throw new ProofAccessDeniedError();
   }
+  activationDeadline(now, true);
   const session = await getProofSessionByHash(hashSecret(rawSession));
   if (!session || session.ended_at || Date.parse(session.expires_at) <= now.getTime()) {
     throw new ProofAccessDeniedError();

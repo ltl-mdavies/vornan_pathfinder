@@ -1,15 +1,15 @@
 {
   "activation_scope": {
     "dev_stack_only_recorded": true,
-    "single_order_scope_recorded": true,
-    "time_bounded_window_recorded": false,
+    "demo_account_cohort_recorded": true,
+    "time_bounded_window_recorded": true,
     "private_link_handoff_recorded": true
   },
   "operating_controls": {
-    "rollback_operator_recorded": false,
-    "monitoring_operator_recorded": false,
-    "support_response_target_recorded": false,
-    "customer_escalation_path_recorded": false,
+    "rollback_operator_recorded": true,
+    "monitoring_operator_recorded": true,
+    "support_response_target_recorded": true,
+    "customer_escalation_path_recorded": true,
     "grant_revocation_plan_recorded": true,
     "dark_restore_plan_recorded": true
   },

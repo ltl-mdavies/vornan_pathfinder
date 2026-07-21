@@ -25,6 +25,8 @@ export interface ProofRuntimeConfig {
     grant_ttl_days: number;
     session_ttl_minutes: number;
     edge_shared_secret: string | null;
+    grant_allowed_customer_ids: string[];
+    read_only_activation_expires_at: string | null;
   };
   sync: {
     queue_url: string | null;
@@ -56,6 +58,14 @@ function optionalNumber(value: string | undefined) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function customerIds(value: string | undefined) {
+  return [...new Set((value ?? "")
+    .split(",")
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => /^\d{1,20}$/.test(candidate)))]
+    .slice(0, 20);
 }
 
 export function getProofRuntimeConfig(): ProofRuntimeConfig {
@@ -92,7 +102,10 @@ export function getProofRuntimeConfig(): ProofRuntimeConfig {
       public_base_url: (process.env.PATHFINDER_PROOF_PUBLIC_BASE_URL ?? "https://proof.vornan.co").replace(/\/$/, ""),
       grant_ttl_days: positiveNumber(process.env.PATHFINDER_PROOF_GRANT_TTL_DAYS, 14),
       session_ttl_minutes: Math.min(24 * 60, positiveNumber(process.env.PATHFINDER_PROOF_SESSION_TTL_MINUTES, 30)),
-      edge_shared_secret: process.env.PATHFINDER_PROOF_EDGE_SHARED_SECRET?.trim() || null
+      edge_shared_secret: process.env.PATHFINDER_PROOF_EDGE_SHARED_SECRET?.trim() || null,
+      grant_allowed_customer_ids: customerIds(process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS),
+      read_only_activation_expires_at:
+        process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT?.trim() || null
     },
     sync: {
       queue_url: process.env.PATHFINDER_PROOF_SYNC_QUEUE_URL?.trim() || null,

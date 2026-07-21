@@ -2,17 +2,17 @@
 
 ## Outcome
 
-The isolated read-only evidence set is complete, and the deployed Proof stack remains dark. Customer activation is still blocked.
+The isolated read-only evidence set and explicit internal LTL Demo read-only approval are complete. The deployed Proof stack remains dark pending a separate manual change review.
 
 The machine-readable state in `docs/VORNAN_PROOF_PHASE_2_READINESS_STATE_2026-07-21.json` records only bounded booleans. `npm run check:proof-phase2` evaluates that state without contacting AWS, changing infrastructure, sending a message, reading another Lift order, or enabling a feature flag.
 
 Current result:
 
-- Status: `isolated_read_qa_complete_activation_blocked`.
+- Status: `ready_for_explicit_activation_review`.
 - Isolated read-only evidence: 11 of 11 gates passed.
 - Dark guardrails: 8 of 8 gates passed.
-- Activation-review prerequisites: 2 of 3 passed.
-- Next action: `request_explicit_read_only_activation_approval`.
+- Activation-review prerequisites: 3 of 3 passed.
+- Next action: `perform_human_activation_review`.
 - Public-read change authorized: `false`.
 - Mutation authorized: `false`.
 
@@ -36,11 +36,11 @@ The temporary, purgeable dev-only QA window completed the first two prerequisite
 1. The deployed grant/session lifecycle passed through CloudFront.
 2. The deployed one-order customer boundary passed on desktop and mobile using the reserved synthetic fixture.
 
-The remaining prerequisite is separate explicit approval for read-only customer activation. The approval used for the completed run authorized only a temporary QA window and required immediate dark restoration, so it does not satisfy that activation gate. Full sanitized evidence is recorded in `docs/VORNAN_PROOF_CUSTOMER_BOUNDARY_QA_EVIDENCE_2026-07-21.md`.
+Marcus subsequently approved a one-week internal read-only window for the LTL Demo cohort, with `mdavies@ltlco.com` owning monitoring, rollback, support, and escalation. This satisfies the bounded approval prerequisite but does not authorize a deployment. Full boundary evidence is recorded in `docs/VORNAN_PROOF_CUSTOMER_BOUNDARY_QA_EVIDENCE_2026-07-21.md`.
 
-The activation-review packet adds the architecture-required order/time scope and operating ownership before that approval is requested. `npm run check:proof-activation-review` currently reports `activation_review_packet_incomplete` and always keeps public-read, grant-creation, deployment, DNS, email, decision, Lift-write, and Phase 3 authorization false. See `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_REVIEW_PACKET_2026-07-21.md`.
+The activation-review packet records the dev/cohort/time scope and operating ownership. `npm run check:proof-activation-review` reports `ready_for_manual_read_only_activation_review` while always keeping public-read, grant-creation, deployment, DNS, email, decision, Lift-write, and Phase 3 authorization false. See `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_REVIEW_PACKET_2026-07-21.md`.
 
-Even when all three are eventually recorded as passed, the evaluator returns `ready_for_explicit_activation_review`; it never authorizes a deployment or mutation. A human must still review the evidence and separately approve any feature-flag change.
+With all three recorded as passed, the evaluator returns `ready_for_explicit_activation_review`; it never authorizes a deployment or mutation. A human must still review the exact feature-flag change and rollback plan.
 
 ## Guardrails retained
 

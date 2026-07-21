@@ -29,6 +29,7 @@ function exchangeCredentials(exchange: request.Response) {
 
 const order: ProofOrder = {
   order_number: "A0221132",
+  customer_id: "1249",
   order_title: "QA proof packet",
   customer_name: "Must not leave the service",
   order_status: "Pending Art Approval",
@@ -102,7 +103,9 @@ before(async () => {
   process.env.PATHFINDER_PROOF_STORAGE_DRIVER = "local";
   process.env.PATHFINDER_PROOF_LOCAL_STORE_PATH = join(testDirectory, "proof-store.json");
   process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "true";
+  process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = "1249";
   process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ = "true";
+  process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = "2099-07-28T21:49:50.000Z";
   process.env.PATHFINDER_PROOF_SYNC_QUEUE_URL = "";
   process.env.PATHFINDER_PROOF_TELEMETRY_MODE = "off";
   ({ proofPublicApp: app } = await import("../src/proof/public-server.ts"));

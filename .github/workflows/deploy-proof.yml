@@ -13,6 +13,10 @@ on:
         type: choice
         default: "false"
         options: ["false", "true"]
+      read_only_activation_expires_at:
+        description: "UTC deadline for the approved read-only window (ISO 8601, required when public read is true)"
+        required: false
+        default: ""
       managed_waf_enabled:
         description: "Provision the Proof managed WAF when no shared ACL is configured"
         required: true
@@ -72,6 +76,7 @@ jobs:
           PATHFINDER_PROOF_LIFT_REPORT_READ_URL: ${{ vars.PATHFINDER_PROOF_LIFT_REPORT_READ_URL }}
           PATHFINDER_PROOF_ACKNOWLEDGE_PRODUCTION_READS: ${{ vars.PATHFINDER_PROOF_ACKNOWLEDGE_PRODUCTION_READS || 'false' }}
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: ${{ inputs.public_read_enabled }}
+          PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: ${{ inputs.read_only_activation_expires_at }}
           PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: ${{ inputs.read_only_qa_confirmed }}
           PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED: ${{ inputs.production_public_read_approved }}
           PATHFINDER_PROOF_EDGE_SHARED_SECRET: ${{ secrets.PATHFINDER_PROOF_EDGE_SHARED_SECRET }}
@@ -104,6 +109,7 @@ jobs:
           EDGE_SHARED_SECRET: ${{ secrets.PATHFINDER_PROOF_EDGE_SHARED_SECRET }}
           SHARED_WEB_ACL_ARN: ${{ vars.PATHFINDER_PROOF_WEB_ACL_ARN }}
           PUBLIC_READ_ENABLED: ${{ inputs.public_read_enabled }}
+          READ_ONLY_ACTIVATION_EXPIRES_AT: ${{ inputs.read_only_activation_expires_at }}
           MANAGED_WAF_ENABLED: ${{ inputs.managed_waf_enabled }}
           READ_ONLY_QA_CONFIRMED: ${{ inputs.read_only_qa_confirmed }}
           PRODUCTION_PUBLIC_READ_APPROVED: ${{ inputs.production_public_read_approved }}
@@ -134,6 +140,7 @@ jobs:
               PublicLambdaCodeS3Bucket="${ARTIFACT_BUCKET}" \
               PublicLambdaCodeS3Key="${ARTIFACT_KEY}" \
               PublicReadEnabled="${PUBLIC_READ_ENABLED}" \
+              ReadOnlyActivationExpiresAt="${READ_ONLY_ACTIVATION_EXPIRES_AT}" \
               SyntheticQaEnabled="false" \
               ReadOnlyQaConfirmed="${READ_ONLY_QA_CONFIRMED}" \
               ProductionPublicReadApproved="${PRODUCTION_PUBLIC_READ_APPROVED}" \

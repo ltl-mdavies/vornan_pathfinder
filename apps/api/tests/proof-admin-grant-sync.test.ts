@@ -7,17 +7,26 @@ import type { ProofOrder } from "@pathfinder/proof-domain";
 import { createProofAdminRouter, type ProofAdminRouterDependencies } from "../src/proof/router.ts";
 
 const previousGrantCreationFlag = process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION;
+const previousAllowedCustomerIds = process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS;
+const previousActivationExpiry = process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT;
 process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "true";
+process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = "1249";
+process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = "2099-07-28T21:49:50.000Z";
 
 after(() => {
   if (previousGrantCreationFlag === undefined) delete process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION;
   else process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = previousGrantCreationFlag;
+  if (previousAllowedCustomerIds === undefined) delete process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS;
+  else process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = previousAllowedCustomerIds;
+  if (previousActivationExpiry === undefined) delete process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT;
+  else process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = previousActivationExpiry;
 });
 
 const now = "2026-07-20T12:00:00.000Z";
 const cachedOrder: ProofOrder = {
   order_number: "A0221132",
   order_title: "QA proof packet",
+  customer_id: "1249",
   customer_name: null,
   order_status: "Pending Art Approval",
   health: "active",
@@ -110,7 +119,9 @@ test("reports a redacted operator integration-health posture without exposing se
       edge_secret_configured: true,
       public_base_host: "proof.qa.vornan.co",
       grant_ttl_days: 14,
-      session_ttl_minutes: 30
+      session_ttl_minutes: 30,
+      grant_cohort_configured: true,
+      activation_expiry_configured: true
     });
     assert.equal(response.body.lift_reads.order_host, "qa-lift.example.invalid");
     assert.equal(response.body.feature_flags.approve, false);
@@ -220,6 +231,67 @@ test("refreshes a stale cached order but does not re-read a fresh order before g
       .send({ scope: "view" })
       .expect(201);
     assert.deepEqual(lifecycle, expectedLifecycle);
+  }
+});
+
+test("refreshes a legacy cached order that predates the customer cohort field", async () => {
+  const lifecycle: string[] = [];
+  await request(appWith({
+    getOrderForGrant: async () => {
+      lifecycle.push("get");
+      return { ...cachedOrder, customer_id: null };
+    },
+    orderIsStale: () => {
+      lifecycle.push("stale-check");
+      return false;
+    },
+    syncOrderForGrant: async () => {
+      lifecycle.push("sync");
+      return successfulSync(cachedOrder);
+    },
+    createGrant: async () => {
+      lifecycle.push("grant");
+      return grantResult;
+    }
+  }))
+    .post("/api/proof/orders/A0221132/grants")
+    .send({ scope: "view" })
+    .expect(201);
+  assert.deepEqual(lifecycle, ["get", "sync", "grant"]);
+});
+
+test("fails closed before grant creation when the synchronized order is outside the configured customer cohort", async () => {
+  let grantCreated = false;
+  const response = await request(appWith({
+    getOrderForGrant: async () => ({ ...cachedOrder, customer_id: "9999" }),
+    orderIsStale: () => false,
+    createGrant: async () => {
+      grantCreated = true;
+      return grantResult;
+    }
+  }))
+    .post("/api/proof/orders/A0221132/grants")
+    .send({ scope: "view" })
+    .expect(403);
+
+  assert.equal(grantCreated, false);
+  assert.deepEqual(response.body, { error: "Proof access is outside the configured read-only grant cohort." });
+});
+
+test("fails closed when no grant customer cohort is configured", async () => {
+  const configured = process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS;
+  delete process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS;
+  try {
+    await request(appWith({
+      getOrderForGrant: async () => cachedOrder,
+      orderIsStale: () => false,
+      createGrant: async () => grantResult
+    }))
+      .post("/api/proof/orders/A0221132/grants")
+      .send({ scope: "view" })
+      .expect(403);
+  } finally {
+    if (configured !== undefined) process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = configured;
   }
 });
 

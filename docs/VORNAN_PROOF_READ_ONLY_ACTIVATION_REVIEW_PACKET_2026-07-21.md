@@ -2,11 +2,19 @@
 
 ## Decision
 
-The Phase 2 evidence is sufficient to prepare a narrowly scoped read-only activation review, but no customer activation is authorized. The `vornan-proof-dev` stack remains dark.
+Marcus explicitly approved a one-week internal read-only QA cohort on the dark `vornan-proof-dev` stack for orders owned by the Lift **LTL Demo** account. The approval is recorded for manual change review; it does not itself authorize a deployment or turn on a runtime flag.
 
-The architecture permits a read-only pilot before Phase 3 writes. That pilot still requires exact order/time scope, named monitoring and rollback ownership, support escalation, explicit approval, and a separate human review of the proposed flag changes. This packet records those requirements without enabling public read, grant creation, email, DNS, decisions, or any Lift write.
+The proposed window is:
 
-## Current bounded result
+- start: 2026-07-21 5:49:50 PM EDT (`2026-07-21T21:49:50Z`);
+- automatic stop: 2026-07-28 5:49:50 PM EDT (`2026-07-28T21:49:50Z`);
+- Lift cohort: customer `1249` (LTL Demo), using the reviewed company `91` read endpoint;
+- operational, monitoring, rollback, support, and escalation owner: `mdavies@ltlco.com`;
+- support target: best effort during the active internal QA window, with immediate rollback on a boundary or safety failure; no external customer SLA is claimed.
+
+Orders in the demo account may be cancelled or replaced during the window. Every grant request must therefore re-read or use a fresh cached aggregate and verify Lift `CUSTOMER_ID=1249`; approval is not tied to one order number.
+
+## Bounded result
 
 Run:
 
@@ -14,102 +22,75 @@ Run:
 npm run check:proof-activation-review
 ```
 
-Current status: `activation_review_packet_incomplete`.
+Expected status after this change: `ready_for_manual_read_only_activation_review`.
 
 - Phase 2 evidence: complete.
 - Dark guardrails: intact.
-- Deployed grant/session and responsive one-order boundary: complete.
-- Activation scope: 3 of 4 controls recorded.
-- Operating controls: 2 of 6 recorded.
+- Deployed grant/session and responsive boundary evidence: complete.
+- Activation scope: 4 of 4 controls recorded.
+- Operating controls: 6 of 6 recorded.
 - Safety constraints: 7 of 7 intact.
-- Public-read change authorized: `false`.
-- Grant-creation change authorized: `false`.
-- Deployment, DNS, email, decision, Lift-write, and Phase 3 authorization: `false`.
+- Explicit read-only activation approval: recorded.
+- Public-read, grant-creation, deployment, DNS, email, decision, Lift-write, and Phase 3 authorization: always `false` in the evaluator.
 
-## Approved order scope
+## Enforced cohort and time boundary
 
-The user explicitly approved Lift order `A0226753` for this future read-only window. It is the controlled Pathfinder-originated Momentara demo order previously validated in `docs/VORNAN_PROOF_PATHFINDER_ORIGIN_READ_ONLY_QA_A0226753_2026-07-21.md`.
+This branch adds two fail-closed controls that must be reviewed and deployed before an internal window can begin:
 
-- Pathfinder job: `job_20260721171005_2cf369`.
-- Pathfinder / Lift `Ext_ID`: `PFMRUWSQ4N1735`.
-- Destination: LTL Demo sandbox profile, customer `1249`, company `91`.
-- Cached shape: three mapped lines, total quantity 31, with exact `ORDER_LINE_ID` correlation already confirmed.
-- The supplied Lift application URL was not retained. Only the approved order identity is recorded.
-- This approval satisfies the single-order scope only. It does not authorize a time window, public-read change, grant creation, deployment, or customer activation.
+1. The authenticated operator API accepts view-grant creation only when the synchronized order's internal Lift `CUSTOMER_ID` is in `PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS`. The proposed value is `1249`. An empty list, missing customer ID, or any other customer is denied before grant creation.
+2. `PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT` bounds grant creation, requested grant expiry, token exchange, and session validity. The proposed value is `2026-07-28T21:49:50Z`. Missing, invalid, or elapsed configuration fails closed; default grant and session expiries are capped at the deadline.
 
-## Remaining scope and operating inputs
+The internal customer ID is not added to the public Proof DTO or logs. CloudFormation requires the cohort and expiry before authenticated grant creation can be enabled, and requires the expiry before public read can be enabled.
 
-Before requesting activation approval, record all of the following outside the bounded state file:
+## Manual activation sequence
 
-1. The start and stop time for the window, including timezone.
-2. The operator who will watch CloudWatch/WAF/queue/DLQ and the operator who can immediately restore the dark flags.
-3. The support response target and customer escalation path for the window.
-4. Confirmation that the raw fragment link will use the approved private handoff only; link email remains disabled.
+Only after the stacked Proof PRs are merged and the exact change is reviewed may the two stacks be changed:
 
-The machine-readable file stores only booleans. Do not add the order number, customer details, people/email addresses, access URL, token, cookie, signed asset URL, or free-form notes to it.
+1. Deploy the isolated Proof stack with `ReadOnlyQaConfirmed=true`, `PublicReadEnabled=true`, managed/shared WAF intact, `ReadOnlyActivationExpiresAt=2026-07-28T21:49:50Z`, no alias, and production approval false.
+2. Deploy the authenticated API with Proof tables unchanged, `ProofGrantCreationEnabled=true`, `ProofGrantAllowedCustomerIds=1249`, `ProofReadOnlyActivationExpiresAt=2026-07-28T21:49:50Z`, and link email false.
+3. Create only view-scoped grants for aggregates that pass the server-side customer check. Hand raw links privately; do not send them through the application email path.
+4. Watch CloudWatch, WAF, sync queue, and DLQ. Revoke active grants and restore both public read and grant creation to false at the deadline or on any rollback trigger.
 
-## Proposed read-only window
-
-Only after the missing controls and explicit approval are recorded may a human review a change limited to:
-
-- stack: `vornan-proof-dev` only;
-- one explicitly approved order only;
-- a fixed, time-bounded window;
-- `ReadOnlyQaConfirmed=true` and `PublicReadEnabled=true` only for that window;
-- authenticated operator grant creation only as needed for one view-only grant;
-- private raw-link handoff with link email disabled;
-- immediate grant revocation and dark restoration at the exit time or on any rollback trigger.
-
-Even a fully passing checker does not authorize those changes. It returns `ready_for_manual_read_only_activation_review`, after which the exact CloudFormation/admin change and rollback plan still require human review.
+No step above has been executed by this branch.
 
 ## Immutable exclusions
 
 - `ProductionPublicReadApproved=false`.
 - No Proof domain, certificate, CNAME, or DNS change.
-- No link email or external message delivery.
+- No application-generated grant/link email.
 - No approval, revision, upload, undo, or public decision route.
-- No Lift `PUT`, submit, Proof write, or other mutation.
+- No Lift `PUT`, submit, Proof write, or other mutation. The user's permission to test demo orders is interpreted only within the established read-only Phase 2 boundary.
 - No Pathfinder production API, web, status, store, infrastructure, or deployment change.
-- No synthetic fixture during the real-order window.
+- No synthetic fixture during the real demo-account window.
 - No Phase 3 implementation or test.
 
 ## Rollback triggers
 
-Restore public read and authenticated grant creation to off, revoke the grant, and stop the window immediately on any of the following:
+Revoke grants and restore both stacks dark immediately on:
 
-- unexpected order/task visibility or any cross-order response;
+- visibility of an order outside customer `1249`, a missing/mismatched customer ID, or any cross-order response;
 - direct API bypass acceptance;
-- server-error, denial-spike, latency, sync-failure, lag, WAF, or DLQ alarm;
-- any Lift method other than an approved `GET`, or any unreviewed Lift endpoint activity;
-- sensitive field/token/URL appearance in logs;
+- server errors, denial spikes, latency, sync failure, lag, WAF, queue, or DLQ alarm;
+- any Lift method other than the reviewed GETs;
+- a sensitive field, token, cookie, or signed URL appearing in logs;
 - session, CSRF, expiry, logout, or revocation mismatch;
-- decision control becoming enabled or a decision route appearing;
-- inability of the named rollback operator to confirm the dark state.
+- a decision capability becoming enabled;
+- loss of monitoring or rollback coverage by `mdavies@ltlco.com`.
 
-Rollback preserves the isolated tables, audit, logs, queue/DLQ, and cached real-order aggregate for reviewed evidence unless a separate exact-data cleanup is explicitly approved.
+Restore the dark flags no later than `2026-07-28T21:49:50Z` even if no operator action occurs; the application-level deadline also denies new exchanges and sessions after that instant.
 
-## Approval language
+## Evidence handling
 
-The approval should be explicit and should fill in every bracketed value:
-
-```text
-I explicitly approve a time-bounded read-only Vornan Proof activation window on
-vornan-proof-dev for Lift order A0226753 from [START WITH TIMEZONE] through
-[STOP WITH TIMEZONE]. Public read, ReadOnlyQaConfirmed, and authenticated operator
-grant creation may be enabled only for this one order and window. The raw view link
-must use the approved private handoff. Keep production approval, DNS/domain, link
-email, proof decisions, and every Lift write disabled. [MONITORING OWNER] owns the
-alarm/log watch; [ROLLBACK OWNER] owns immediate grant revocation and dark restore.
-The support response target is [TARGET], with escalation to [PATH].
-```
-
-A general request to “continue,” a prior synthetic QA authorization, or approval to merge a PR does not satisfy this activation approval.
+The raw Lift application URL supplied earlier is not retained. QA evidence may record sanitized order numbers, correlation fields, aggregate counts, audit actions, telemetry dimensions, and pass/fail results. It must not record tokens, cookies, signed asset URLs, credentials, or customer-private payloads.
 
 ## Validation
 
-- `npm run check:proof-activation-review`: passed with the expected incomplete/safe status and every authorization false.
-- `npm run test:proof-deploy`: all 46 deployment-safety tests passed.
-- `npm run check`: passed across all workspaces.
-- `npm run test`: all 138 workspace tests passed.
+- `npm run check`: passed across every workspace.
+- `npm run test`: all 144 workspace tests passed.
+- `npm run test:proof-deploy`: all 48 deployment-safety tests passed.
 - `npm run build`: API, Proof SPA, Status SPA, and admin web production builds passed.
+- `npm run check:proof-phase2`: 11/11 evidence, 8/8 dark guardrails, and 3/3 activation-review prerequisites passed; both change authorizations remained false.
+- `npm run check:proof-activation-review`: 4/4 scope, 6/6 operations, and 7/7 safety controls passed; every authorization remained false.
 - `git diff --check`: passed.
+
+No AWS or Lift request was made by this slice. Until merge and a separately reviewed deployment, `vornan-proof-dev` remains dark.

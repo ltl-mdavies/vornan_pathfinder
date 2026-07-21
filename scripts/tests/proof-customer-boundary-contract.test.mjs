@@ -8,6 +8,7 @@ function stack(overrides = {}) {
     EnvironmentName: "dev",
     PublicReadEnabled: "true",
     ReadOnlyQaConfirmed: "true",
+    ReadOnlyActivationExpiresAt: "2099-07-28T21:49:50.000Z",
     ProductionPublicReadApproved: "false",
     SyntheticQaEnabled: "false",
     ProofDomainName: "",
@@ -61,6 +62,14 @@ test("blocks a dark stack because the harness must never claim a deployed lifecy
   assert.equal(result.ready, false);
   assert.equal(result.gates.public_read_window_enabled, false);
   assert.equal(result.gates.isolated_read_qa_recorded, false);
+});
+
+test("blocks a public boundary without the automatic activation deadline", () => {
+  const result = evaluateProofCustomerBoundaryStack(stack({ parameters: {
+    ReadOnlyActivationExpiresAt: ""
+  } }));
+  assert.equal(result.ready, false);
+  assert.equal(result.gates.activation_deadline_active, false);
 });
 
 test("requires every isolated table and endpoint output", () => {

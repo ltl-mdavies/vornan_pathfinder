@@ -170,6 +170,16 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
+  ProofGrantAllowedCustomerIds:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{1,20}(,[0-9]{1,20}){0,19}$"
+    Description: Comma-separated Lift customer IDs eligible for authenticated view-only grant creation.
+  ProofReadOnlyActivationExpiresAt:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+    Description: UTC deadline after which grant creation, token exchange, and sessions fail closed.
   ProofLinkEmailEnabled:
     Type: String
     Default: "false"
@@ -180,6 +190,13 @@ Parameters:
     Description: Public origin used only when producing a one-time Proof fragment link.
 
 Rules:
+  ProofGrantCreationRequiresBoundedCohort:
+    RuleCondition: !Equals [!Ref ProofGrantCreationEnabled, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref ProofGrantAllowedCustomerIds, ""]]
+        AssertDescription: ProofGrantAllowedCustomerIds must be configured before grant creation can be enabled.
+      - Assert: !Not [!Equals [!Ref ProofReadOnlyActivationExpiresAt, ""]]
+        AssertDescription: ProofReadOnlyActivationExpiresAt must be configured before grant creation can be enabled.
   ProofLinkEmailRequiresGrantCreation:
     Assertions:
       - Assert: !Or
@@ -358,6 +375,8 @@ Resources:
           PATHFINDER_PROOF_CORE_TABLE: !If [HasProofCoreTable, !Ref ProofCoreTableName, !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_AUDIT_TABLE: !If [HasProofAuditTable, !Ref ProofAuditTableName, !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_ENABLE_GRANT_CREATION: !Ref ProofGrantCreationEnabled
+          PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref ProofGrantAllowedCustomerIds
+          PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ProofReadOnlyActivationExpiresAt
           PATHFINDER_PROOF_ENABLE_LINK_EMAIL: !Ref ProofLinkEmailEnabled
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"
           PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref ProofPublicBaseUrl
