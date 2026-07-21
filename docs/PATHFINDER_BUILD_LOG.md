@@ -2792,3 +2792,5 @@ Prepared the next Phase 2 review slice without interpreting a general continuati
 - Validation passed all workspace checks, all 138 workspace tests, all 46 Proof deployment-safety tests, every production build, the bounded activation checker, and `git diff --check`.
 
 No AWS call, deployment, DNS change, grant, email, decision, Lift request/write, or Pathfinder production-surface change was performed. The Proof dev stack remains dark and Phase 3 remains blocked.
+
+The user subsequently approved `A0226753` as the single-order scope. The bounded activation state now records scope 3/4 while leaving the time window and four operating controls false. The supplied Lift application URL was not retained, no Lift read was repeated, and this order approval was not treated as public-read, grant-creation, deployment, or customer-activation approval.

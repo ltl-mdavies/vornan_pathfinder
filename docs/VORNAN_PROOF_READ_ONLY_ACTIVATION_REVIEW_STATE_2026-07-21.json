@@ -1,7 +1,7 @@
 {
   "activation_scope": {
     "dev_stack_only_recorded": true,
-    "single_order_scope_recorded": false,
+    "single_order_scope_recorded": true,
     "time_bounded_window_recorded": false,
     "private_link_handoff_recorded": true
   },

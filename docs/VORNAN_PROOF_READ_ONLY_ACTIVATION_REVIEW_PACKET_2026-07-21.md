@@ -19,22 +19,32 @@ Current status: `activation_review_packet_incomplete`.
 - Phase 2 evidence: complete.
 - Dark guardrails: intact.
 - Deployed grant/session and responsive one-order boundary: complete.
-- Activation scope: 2 of 4 controls recorded.
+- Activation scope: 3 of 4 controls recorded.
 - Operating controls: 2 of 6 recorded.
 - Safety constraints: 7 of 7 intact.
 - Public-read change authorized: `false`.
 - Grant-creation change authorized: `false`.
 - Deployment, DNS, email, decision, Lift-write, and Phase 3 authorization: `false`.
 
-## Scope that must be recorded
+## Approved order scope
+
+The user explicitly approved Lift order `A0226753` for this future read-only window. It is the controlled Pathfinder-originated Momentara demo order previously validated in `docs/VORNAN_PROOF_PATHFINDER_ORIGIN_READ_ONLY_QA_A0226753_2026-07-21.md`.
+
+- Pathfinder job: `job_20260721171005_2cf369`.
+- Pathfinder / Lift `Ext_ID`: `PFMRUWSQ4N1735`.
+- Destination: LTL Demo sandbox profile, customer `1249`, company `91`.
+- Cached shape: three mapped lines, total quantity 31, with exact `ORDER_LINE_ID` correlation already confirmed.
+- The supplied Lift application URL was not retained. Only the approved order identity is recorded.
+- This approval satisfies the single-order scope only. It does not authorize a time window, public-read change, grant creation, deployment, or customer activation.
+
+## Remaining scope and operating inputs
 
 Before requesting activation approval, record all of the following outside the bounded state file:
 
-1. The exact approved Lift order and why it is safe for a customer-boundary read-only review.
-2. The start and stop time for the window, including timezone.
-3. The operator who will watch CloudWatch/WAF/queue/DLQ and the operator who can immediately restore the dark flags.
-4. The support response target and customer escalation path for the window.
-5. Confirmation that the raw fragment link will use the approved private handoff only; link email remains disabled.
+1. The start and stop time for the window, including timezone.
+2. The operator who will watch CloudWatch/WAF/queue/DLQ and the operator who can immediately restore the dark flags.
+3. The support response target and customer escalation path for the window.
+4. Confirmation that the raw fragment link will use the approved private handoff only; link email remains disabled.
 
 The machine-readable file stores only booleans. Do not add the order number, customer details, people/email addresses, access URL, token, cookie, signed asset URL, or free-form notes to it.
 
@@ -84,7 +94,7 @@ The approval should be explicit and should fill in every bracketed value:
 
 ```text
 I explicitly approve a time-bounded read-only Vornan Proof activation window on
-vornan-proof-dev for Lift order [ORDER] from [START WITH TIMEZONE] through
+vornan-proof-dev for Lift order A0226753 from [START WITH TIMEZONE] through
 [STOP WITH TIMEZONE]. Public read, ReadOnlyQaConfirmed, and authenticated operator
 grant creation may be enabled only for this one order and window. The raw view link
 must use the approved private handoff. Keep production approval, DNS/domain, link
