@@ -2636,3 +2636,18 @@ The next dark-deployment retry passed HTTP API stage creation and created its en
 - Added only `lambda:ListEventSourceMappings` with `Resource: "*"`, as required by the CloudFormation handler and AWS IAM's non-resource-scoped list operation.
 - Added regression coverage for the exact mapping ARN, lifecycle action set, and single global list action; no `lambda:*` wildcard was added.
 - The failed retry again rolled back before SPA publication or smoke testing. Public Proof reads and every Proof decision/write capability remained disabled.
+
+## 2026-07-21 - Combined Release And Proof Dark Deployment Complete
+
+Completed the coordinated release checkpoint across Pathfinder production surfaces and the isolated Vornan Proof `dev` foundation.
+
+Release evidence:
+
+- Merged the combined Pathfinder/Proof checkpoint through PR #3. Production API, admin web, and status web deployed successfully from merged `main` commit `5afbb69` in GitHub Actions runs `29786460634`, `29786589756`, and `29786666131`.
+- Production smoke checks returned HTTP 200 for API health, `pathfinder.vornan.co`, and `status.vornan.co`; API health reported the expected DynamoDB and Secrets Manager readiness.
+- Merged the protected Proof OIDC trust and narrowly scoped deployment-lifecycle corrections through PRs #4-#8. The final successful dark deployment used merged `main` commit `f250f29` in run `29791214408`.
+- The `vornan-proof-dev` CloudFormation stack reached `CREATE_COMPLETE`; the workflow published the SPA, passed the full dark read-only smoke suite, and completed the DNS-readiness handoff without changing DNS.
+- An independent post-workflow smoke confirmed `public_read_enabled: false`, `decisions_enabled: false`, and direct API bypass rejection. Stack parameters independently confirmed managed WAF enabled while `PublicReadEnabled`, `ReadOnlyQaConfirmed`, and `ProductionPublicReadApproved` remain false.
+- No customer grant, link email, public token exchange, Proof decision, Lift submit, Lift Proof write, or DNS cutover was performed. The deployed Proof tables were created by the dark stack; no synchronization or customer data load was triggered by release verification.
+
+The only workflow annotation was GitHub's upstream Node.js action-runtime deprecation warning for current `@v4` actions being forced onto Node.js 24. It did not affect validation or deployment and can be addressed in a later maintenance slice when compatible action releases are available.

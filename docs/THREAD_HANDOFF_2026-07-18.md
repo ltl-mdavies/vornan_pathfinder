@@ -833,3 +833,20 @@ Pathfinder, the shared Order Rollup, and the Vornan Proof read-only foundation a
 - Release procedure, smoke tests, rollout ordering, and rollback are documented in `docs/RELEASE_COORDINATION_2026-07-20.md`.
 
 The next Git action is the intentional feature-branch checkpoint commit and push. Merge and production API/admin/status deployment must use the reviewed `main` SHA; Proof remains a separate dark non-production rollout first.
+
+## Combined Release And Proof Dark Deployment Handoff
+
+The release checkpoint and initial protected Proof deployment are now complete.
+
+- Pathfinder API, authenticated admin web, and public status web deployed successfully from merged `main` SHA `5afbb69` in runs `29786460634`, `29786589756`, and `29786666131`.
+- The isolated `vornan-proof-dev` stack deployed successfully from merged `main` SHA `f250f29` in run `29791214408` after the reviewed OIDC trust and least-privilege CloudFormation lifecycle policy corrections landed through PRs #4-#8.
+- CloudFormation is `CREATE_COMPLETE`; the SPA is published behind CloudFront and managed WAF.
+- Workflow and independent smoke checks confirm public reads disabled, customer decisions disabled, direct API bypass rejected, and both QA/public-production approval parameters false.
+- DNS was not changed. No Proof grant, link email, public session, decision, Lift submit, Lift Proof write, or customer-data synchronization occurred.
+
+Recommended next slice:
+
+1. Run the isolated read-only QA lifecycle against the dark `dev` distribution using controlled non-customer fixtures or an explicitly approved read-only test order.
+2. Record cache/sync diagnostics, security headers, direct-origin rejection, responsive UI evidence, and immutable audit behavior.
+3. Keep public reads and all write/decision gates off during QA.
+4. Treat any DNS alias, production Proof trust, public-read enablement, grant creation, or customer email as a new separately reviewed and approved change.
