@@ -119,6 +119,16 @@ The target is an AWS-generated `*.cloudfront.net` hostname and does not exist un
 
 ## Evidence record
 
+Before requesting any activation review, update the bounded machine-readable evidence state and run:
+
+```text
+npm run check:proof-phase2
+```
+
+The default state file is `docs/VORNAN_PROOF_PHASE_2_READINESS_STATE_2026-07-21.json`; a reviewed alternate may be supplied with `PATHFINDER_PROOF_PHASE2_READINESS_FILE`. The evaluator is read-only and emits only fixed gate names, booleans, counts, and bounded status/next-action values. It ignores extra fields so identifiers, payloads, URLs, recipients, and free-form notes cannot enter the readiness output.
+
+`isolated_read_qa_complete_activation_blocked` is the expected result after dark, synthetic, and approved real-order QA while the deployed grant/session boundary and explicit activation approval remain outstanding. Even `ready_for_explicit_activation_review` is not deployment authorization: the evaluator always returns `public_read_change_authorized=false` and `mutation_authorized=false`.
+
 Record only identifiers safe for operational evidence:
 
 - Date/time, environment, AWS account, region, stack ID, commit SHA, CloudFormation change-set ID, distribution ID, API ID, and dashboard name.

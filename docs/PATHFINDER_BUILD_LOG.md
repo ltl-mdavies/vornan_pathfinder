@@ -2738,3 +2738,15 @@ Completed the explicitly approved Pathfinder-originated read-only Proof validati
 - Recorded complete sanitized evidence and the exact optional cleanup procedure in `docs/VORNAN_PROOF_PATHFINDER_ORIGIN_READ_ONLY_QA_A0226753_2026-07-21.md`.
 
 The isolated dev cache retains one profile, three tasks, and three versions for focused inspection, with no grant/session records. The production Pathfinder job, submit attempt, and Lift order were read only and were not modified or resubmitted. Public read, `ReadOnlyQaConfirmed`, production approval, DNS, email, decisions, and every Lift write remain disabled.
+
+## 2026-07-21 - Proof Phase 2 Activation-Readiness Gate
+
+Added a deterministic, non-mutating checkpoint that separates completed isolated read-only evidence from authorization to expose a customer boundary.
+
+- Added `npm run check:proof-phase2`, a bounded readiness-state artifact, and a repository validation-workflow step. The evaluator consumes only literal booleans and emits fixed gate names, counts, status, and next-action values; unknown fields cannot leak identifiers or free-form evidence into its output.
+- Recorded all 11 isolated read-only evidence gates as passed across the dark boundary, purgeable synthetic lifecycle, approved direct-Lift read, approved Pathfinder-originated read, stable refresh, line correlation, audit, queue failure, telemetry/alarms/logs, and responsive fail-closed checks.
+- Recorded all eight dark guardrails as intact. Public read, grant creation, link email, decisions, Lift writes, DNS, `ReadOnlyQaConfirmed`, and production public-read approval remain disabled.
+- Kept the three activation prerequisites false: deployed grant/session lifecycle, deployed one-order customer boundary, and explicit read-only activation approval.
+- The current result is `isolated_read_qa_complete_activation_blocked`. Even a future fully passing input yields only `ready_for_explicit_activation_review`; the tool always reports public-read changes and mutations as unauthorized.
+
+This slice performs no AWS call, Lift request, email delivery, DNS change, deployment, decision, or production-surface mutation. It does not enter Phase 3.

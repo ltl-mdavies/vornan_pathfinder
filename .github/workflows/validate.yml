@@ -41,6 +41,9 @@ jobs:
       - name: Verify Proof deployment contracts
         run: npm run test:proof-deploy
 
+      - name: Evaluate Proof Phase 2 readiness
+        run: npm run check:proof-phase2
+
       - name: Package deployable Lambdas
         run: |
           npm run package:api-lambda

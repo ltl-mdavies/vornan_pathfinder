@@ -1,0 +1,30 @@
+{
+  "evidence": {
+    "dark_boundary_passed": true,
+    "synthetic_lifecycle_passed": true,
+    "fixture_purged": true,
+    "lift_origin_read_passed": true,
+    "pathfinder_origin_read_passed": true,
+    "cached_refresh_passed": true,
+    "order_line_correlation_passed": true,
+    "audit_coverage_passed": true,
+    "queue_failure_handling_passed": true,
+    "telemetry_alarms_logs_passed": true,
+    "responsive_fail_closed_passed": true
+  },
+  "guardrails": {
+    "public_read_disabled": true,
+    "grant_creation_disabled": true,
+    "link_email_disabled": true,
+    "decisions_disabled": true,
+    "lift_writes_disabled": true,
+    "dns_absent": true,
+    "read_only_qa_confirmation_disabled": true,
+    "production_public_read_approval_disabled": true
+  },
+  "activation_review": {
+    "deployed_grant_session_lifecycle_passed": false,
+    "deployed_one_order_customer_boundary_passed": false,
+    "explicit_read_only_activation_approval_recorded": false
+  }
+}

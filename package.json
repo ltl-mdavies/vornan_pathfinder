@@ -22,6 +22,7 @@
     "package:proof-lambdas": "scripts/package-proof-lambdas.sh",
     "test:proof-deploy": "node --test scripts/tests/*.test.mjs",
     "verify:proof-deploy": "node scripts/proof-deploy-preflight.mjs",
+    "check:proof-phase2": "node scripts/proof-phase2-readiness.mjs",
     "check:proof-dns": "node scripts/proof-dns-readiness.mjs",
     "smoke:proof-read-only": "node scripts/smoke-proof-read-only.mjs",
     "qa:proof-synthetic": "node --import tsx/esm scripts/proof-synthetic-lifecycle-qa.ts run",
