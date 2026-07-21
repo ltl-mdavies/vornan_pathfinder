@@ -99,14 +99,21 @@
         "cloudwatch:PutMetricAlarm",
         "cloudwatch:TagResource",
         "cloudwatch:UntagResource",
+        "logs:CreateLogDelivery",
         "logs:CreateLogGroup",
+        "logs:DeleteLogDelivery",
         "logs:DeleteRetentionPolicy",
         "logs:DeleteLogGroup",
+        "logs:DescribeResourcePolicies",
         "logs:DescribeLogGroups",
+        "logs:GetLogDelivery",
         "logs:ListTagsForResource",
+        "logs:ListLogDeliveries",
+        "logs:PutResourcePolicy",
         "logs:PutRetentionPolicy",
         "logs:TagResource",
-        "logs:UntagResource"
+        "logs:UntagResource",
+        "logs:UpdateLogDelivery"
       ],
       "Resource": "*"
     },
