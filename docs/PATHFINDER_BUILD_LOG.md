@@ -2802,3 +2802,17 @@ Validation for this slice:
 
 - `npm run check`, `npm run test`, and `npm run build` passed across every workspace (149 tests total).
 - Local browser QA confirmed both purpose-specific confirmations, enabled saved-state controls, a full-width 390px action layout with no horizontal overflow, and no console warnings or errors.
+
+## 2026-07-21 - Approved Pathfinder-Originated Proof QA A0226753
+
+Completed the explicitly approved Pathfinder-originated read-only Proof validation for `A0226753` in the isolated dark `vornan-proof-dev` stack.
+
+- Reviewed and merged Proof lifecycle PR #11 to `main` at `b6a3838`, then created fresh branch `codex/proof-pathfinder-origin-readonly-qa` from that exact commit.
+- Exact production Pathfinder reads matched job `job_20260721171005_2cf369`, Pathfinder order / Lift `Ext_ID` `PFMRUWSQ4N1735`, accepted target order `A0226753`, sandbox destination `LTL Demo` / `1249` / company `91`, three lines, and total quantity 31.
+- The clean GET-only sync cached three Lift lines and three unique Proof tasks. All three tasks matched exactly one cached `ORDER_LINE_ID`; all three line-scoped report reads succeeded with no fallback, warning, unmatched task, or duplicate association.
+- The unchanged refresh preserved order/task versions, current version IDs, and one history entry per task. The sanitized stable-content hash remained `e31baa5dcfcc355f064de561c9cc94a43ede3599f2092b79801eaf6ac724d3c6`.
+- Audit idempotency produced exactly two `proof.sync_completed` records and one `proof.review_ready` record. CloudWatch recorded two bounded sync operations with zero server errors; queues and DLQ ended empty, all nine alarms remained `OK`, and sensitive log scans returned zero matches.
+- The post-run dark smoke passed with public read and decisions false and direct API bypass rejected. No Proof or Pathfinder production deployment was required.
+- Recorded complete sanitized evidence and the exact optional cleanup procedure in `docs/VORNAN_PROOF_PATHFINDER_ORIGIN_READ_ONLY_QA_A0226753_2026-07-21.md`.
+
+The isolated dev cache retains one profile, three tasks, and three versions for focused inspection, with no grant/session records. The production Pathfinder job, submit attempt, and Lift order were read only and were not modified or resubmitted. Public read, `ReadOnlyQaConfirmed`, production approval, DNS, email, decisions, and every Lift write remain disabled.
