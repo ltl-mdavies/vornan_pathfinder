@@ -2606,3 +2606,14 @@ The first CloudFormation-backed dark deployment reached isolated resource creati
 - Kept every S3 permission scoped to `vornan-pathfinder-artifacts` and `vornan-pathfinder-proof-*`; no `s3:*` permission was added.
 - Added a deployment-safety regression test for the required actions, exact resource scope, and absence of a global S3 wildcard.
 - The failed stack entered CloudFormation rollback before SPA publication or smoke testing. Public Proof reads and every decision/write gate remained disabled.
+
+## 2026-07-20 - Proof CloudFormation Handler Lifecycle Permissions
+
+The next dark deployment passed encryption setup and advanced to API Gateway stage creation, where CloudFormation failed closed because `AWS::ApiGatewayV2::Stage` requires the separately named `apigateway:TagResource` permission.
+
+- Audited every Proof template resource against the AWS-published CloudFormation resource-handler schemas rather than continuing one denial at a time.
+- Added only the handler actions relevant to the Proof stack's create, update, tagging, and rollback lifecycle: API Gateway tags, Lambda reserved concurrency/tags, SQS queue URL lookup, DynamoDB untags, observability tags/retention updates, IAM role inspection/update tags, CloudFront tag lifecycle, and WAF untags.
+- Reconciled handler operation names with IAM authorization: CloudFront's `CreateDistributionWithTags` API operation remains authorized by the existing `cloudfront:CreateDistribution` plus `cloudfront:TagResource` actions. The observed API Gateway stage denial and IAM policy simulator both require the newer `apigateway:TagResource` authorization even though Access Analyzer's action catalog has not yet caught up; that discrepancy is recorded rather than bypassed.
+- Preserved Proof-only resource ARNs for compute/data/IAM and the existing service-required `Resource: "*"` statements for CloudWatch, logs, API Gateway, CloudFront, and WAF. No full-service action such as `lambda:*`, `iam:*`, `s3:*`, or `cloudfront:*` was added.
+- Expanded the deployment-safety regression test to require the reviewed lifecycle actions and reject global service action wildcards.
+- The failed deployment again rolled back before SPA publication or smoke testing. Public Proof reads and every decision/write gate remained disabled.
