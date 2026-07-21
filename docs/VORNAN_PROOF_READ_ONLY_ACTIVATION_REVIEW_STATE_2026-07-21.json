@@ -1,0 +1,25 @@
+{
+  "activation_scope": {
+    "dev_stack_only_recorded": true,
+    "single_order_scope_recorded": false,
+    "time_bounded_window_recorded": false,
+    "private_link_handoff_recorded": true
+  },
+  "operating_controls": {
+    "rollback_operator_recorded": false,
+    "monitoring_operator_recorded": false,
+    "support_response_target_recorded": false,
+    "customer_escalation_path_recorded": false,
+    "grant_revocation_plan_recorded": true,
+    "dark_restore_plan_recorded": true
+  },
+  "safety_constraints": {
+    "production_public_read_approval_disabled": true,
+    "dns_change_excluded": true,
+    "link_email_disabled": true,
+    "decisions_disabled": true,
+    "lift_writes_disabled": true,
+    "pathfinder_production_surfaces_unchanged": true,
+    "synthetic_mode_disabled": true
+  }
+}

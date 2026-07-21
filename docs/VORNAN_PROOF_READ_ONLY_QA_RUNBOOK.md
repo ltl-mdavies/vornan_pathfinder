@@ -144,6 +144,14 @@ The default state file is `docs/VORNAN_PROOF_PHASE_2_READINESS_STATE_2026-07-21.
 
 `isolated_read_qa_complete_activation_blocked` is the expected result after dark, synthetic, and approved real-order QA while the deployed grant/session boundary and explicit activation approval remain outstanding. Even `ready_for_explicit_activation_review` is not deployment authorization: the evaluator always returns `public_read_change_authorized=false` and `mutation_authorized=false`.
 
+After the deployed boundary prerequisites pass, prepare the separate read-only activation packet and run:
+
+```text
+npm run check:proof-activation-review
+```
+
+The default bounded input is `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_REVIEW_STATE_2026-07-21.json`; a reviewed alternate may be supplied with `PATHFINDER_PROOF_ACTIVATION_REVIEW_FILE`. The checker requires exact dev/order/time scope, private link handoff, named monitoring and rollback ownership, support response/escalation, and the immutable no-production-approval/no-DNS/no-email/no-decision/no-Lift-write boundary. Its output never authorizes a flag change or deployment. Follow `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_REVIEW_PACKET_2026-07-21.md` and treat a general continuation request as insufficient activation approval.
+
 Record only identifiers safe for operational evidence:
 
 - Date/time, environment, AWS account, region, stack ID, commit SHA, CloudFormation change-set ID, distribution ID, API ID, and dashboard name.

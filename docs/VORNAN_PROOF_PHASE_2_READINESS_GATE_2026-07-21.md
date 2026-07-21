@@ -38,6 +38,8 @@ The temporary, purgeable dev-only QA window completed the first two prerequisite
 
 The remaining prerequisite is separate explicit approval for read-only customer activation. The approval used for the completed run authorized only a temporary QA window and required immediate dark restoration, so it does not satisfy that activation gate. Full sanitized evidence is recorded in `docs/VORNAN_PROOF_CUSTOMER_BOUNDARY_QA_EVIDENCE_2026-07-21.md`.
 
+The activation-review packet adds the architecture-required order/time scope and operating ownership before that approval is requested. `npm run check:proof-activation-review` currently reports `activation_review_packet_incomplete` and always keeps public-read, grant-creation, deployment, DNS, email, decision, Lift-write, and Phase 3 authorization false. See `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_REVIEW_PACKET_2026-07-21.md`.
+
 Even when all three are eventually recorded as passed, the evaluator returns `ready_for_explicit_activation_review`; it never authorizes a deployment or mutation. A human must still review the evidence and separately approve any feature-flag change.
 
 ## Guardrails retained
