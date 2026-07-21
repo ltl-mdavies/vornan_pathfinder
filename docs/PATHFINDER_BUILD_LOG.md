@@ -9,6 +9,7 @@ This is the living implementation record for Pathfinder. It tracks completed mil
 - The API CloudFormation stack now owns the external Lift submit gate, transport mode, and live-customer permission as explicit parameters, preventing later API deployments from silently reverting them to process defaults.
 - The production deploy workflow defaults to the approved certified sandbox lane: external submit enabled, live transport, and live-customer profiles disabled. Target, preview certification, credentials, product mapping, environment, submit-profile, and explicit PROD sandbox confirmation gates remain required.
 - Added focused browser-client regression coverage for token refresh, failed refresh handoff, and prevention of bearer-token leakage to non-Pathfinder origins.
+- Manual Import now reads the authenticated API submit-runtime posture before building an unpersisted preview certification, eliminating stale hard-coded disabled/dry-run blockers after a deployment gate change.
 
 ## Current Build Snapshot
 
