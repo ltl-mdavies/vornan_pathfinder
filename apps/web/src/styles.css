@@ -4176,6 +4176,108 @@ h1 {
   font-weight: 700;
 }
 
+.wrike-source-contract {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  background: linear-gradient(145deg, #f8faf6, #f2f6ed);
+  border: 1px solid rgba(57, 82, 59, 0.18);
+  border-radius: 9px;
+}
+
+.wrike-contract-heading,
+.wrike-extension-row,
+.wrike-contract-safeguard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.wrike-contract-heading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.wrike-contract-heading strong {
+  font-size: 16px;
+}
+
+.wrike-contract-heading small,
+.wrike-contract-note {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.section-eyebrow,
+.wrike-extension-row > span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wrike-contract-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.wrike-extension-row {
+  align-items: flex-start;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(57, 82, 59, 0.12);
+  border-radius: 7px;
+}
+
+.wrike-extension-row > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.wrike-contract-flow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wrike-contract-flow span {
+  min-width: 0;
+  padding: 11px;
+  color: var(--vornan-forest);
+  background: #fff;
+  border: 1px solid rgba(57, 82, 59, 0.14);
+  border-radius: 7px;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.wrike-contract-safeguard {
+  justify-content: flex-start;
+  padding: 12px;
+  color: var(--vornan-forest);
+  background: rgba(171, 198, 95, 0.14);
+  border: 1px solid rgba(111, 141, 61, 0.24);
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.wrike-contract-safeguard svg {
+  flex: 0 0 auto;
+}
+
+.wrike-contract-note {
+  margin: 0;
+}
+
 .source-setup-panel {
   overflow: hidden;
 }
@@ -9254,6 +9356,22 @@ td {
   .dashboard-secondary-grid,
   .workbench {
     grid-template-columns: 1fr;
+  }
+
+  .wrike-contract-grid,
+  .wrike-contract-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-control-wide,
+  .wrike-source-contract {
+    grid-column: 1 / -1;
+  }
+
+  .wrike-contract-heading,
+  .wrike-extension-row {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .dashboard-topbar-actions {

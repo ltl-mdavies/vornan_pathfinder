@@ -22,6 +22,7 @@
     "@pathfinder/order-rollup": "0.1.0",
     "@pathfinder/proof-domain": "0.1.0",
     "@pathfinder/templates": "0.1.0",
+    "@pathfinder/wrike-adapter": "0.1.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "firebase-admin": "^14.2.0",

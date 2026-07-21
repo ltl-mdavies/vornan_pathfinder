@@ -69,6 +69,45 @@ test("uses the Pathfinder Order Number for newly seeded Import Methods", async (
   assert.equal(importMethod(workspace, "manual-xlsx").ext_id_strategy, "pathfinder_generated");
 });
 
+test("persists a Wrike source contract without retaining credentials or weakening preview review", async () => {
+  const initialWorkspace = await getOrCreateWorkspace(testCustomer);
+  const basis = importMethod(initialWorkspace, "manual-xlsx");
+  const savedWorkspace = await updateImportMethod(testCustomer, "wrike-momentara", {
+    ...basis,
+    import_method_id: "wrike-momentara",
+    name: "Wrike - Momentara",
+    type: "Scheduled",
+    source: "Wrike",
+    status: "Draft",
+    template_id: "template-wrike-momentara",
+    source_config: {
+      ...basis.source_config,
+      wrike: {
+        enabled: false,
+        folder_id: " IEABFOLDER ",
+        trigger_mode: "webhook_with_reconciliation",
+        trigger_status_id: " IEABORDERED ",
+        trigger_status_label: "Ordered",
+        attachment_filename_contains: "Momentara order",
+        attachment_extensions: ["xlsx", "csv"],
+        attachment_selection: "newest_matching_workbook",
+        poll_interval_minutes: 15,
+        idempotency_strategy: "task_attachment_version",
+        create_preview_only: true,
+        access_token: "must-not-persist"
+      } as any
+    }
+  });
+  const saved = importMethod(savedWorkspace, "wrike-momentara");
+
+  assert.equal(saved.source, "Wrike");
+  assert.equal(saved.source_config.wrike.folder_id, "IEABFOLDER");
+  assert.equal(saved.source_config.wrike.trigger_status_id, "IEABORDERED");
+  assert.equal(saved.source_config.wrike.create_preview_only, true);
+  assert.equal(saved.source_config.wrike.idempotency_strategy, "task_attachment_version");
+  assert.equal("access_token" in saved.source_config.wrike, false);
+});
+
 test("persists detected schemas and mappings without retaining workbook rows", async () => {
   const initialWorkspace = await getOrCreateWorkspace(testCustomer);
   const initialMethod = importMethod(initialWorkspace, "manual-xlsx");

@@ -2901,3 +2901,18 @@ Added the fail-closed work-email possession layer for published Customer Order D
 - Full repository validation passed all workspace checks, all 150 tests, every production build, and `git diff --check`. Local browser QA completed the request/confirm/preview flow at desktop and 390px mobile with no horizontal overflow.
 
 Deployment posture remains unchanged: `notify.vornan.co` is verified with successful DKIM and custom MAIL FROM, but the SES account still lacks production access and the deploy workflow defaults to `log` mode. No real email was sent, no deployment occurred, and no Lift or Proof capability changed.
+
+## 2026-07-21 - Wrike Ingestion Contract Foundation
+
+Established the dark, operator-configured source contract for a future Wrike-to-Pathfinder adapter.
+
+- Added Wrike as a scheduled Import Method source with folder/project scope, ordered-status trigger identity, polling or webhook-plus-reconciliation strategy, workbook filename/extension rules, and a bounded reconciliation interval.
+- Added a dedicated `@pathfinder/wrike-adapter` package for normalized configuration, contract readiness, newest-workbook selection, and deterministic account/task/attachment/version ingestion identity.
+- Fixed the processing destination to an operator-reviewed Pathfinder preview job; Wrike configuration cannot auto-submit to Lift.
+- Kept OAuth credentials, refresh tokens, temporary attachment URLs, and workbook content out of the persisted Import Method contract.
+- Added a focused strategy and Momentara discovery checklist in `docs/WRIKE_INGESTION_STRATEGY.md`.
+- Added regression coverage for secret stripping, required identifiers, version-aware idempotency, fail-closed attachment selection, and Import Method persistence.
+- Full repository validation passed every workspace check, all 156 tests, every production build, and `git diff --check`.
+- Local browser QA verified the full-width admin contract at desktop and 390px mobile, including readiness-state changes, responsive single-column controls, no horizontal overflow, and no browser errors.
+
+No Wrike connection, token, webhook, polling worker, attachment download, preview creation, Lift submit, deployment, or Proof capability is enabled by this slice.

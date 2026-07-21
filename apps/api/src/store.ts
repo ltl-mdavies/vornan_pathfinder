@@ -55,11 +55,15 @@ import {
   type ParsedWorkbookSheet,
   type SourceGrid
 } from "@pathfinder/templates";
+import {
+  normalizeWrikeSourceConfig,
+  type WrikeSourceConfig
+} from "@pathfinder/wrike-adapter";
 import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
 import { assertLocalStorageDriver, getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 
 export type ImportMethodStatus = "Active" | "Inactive" | "Draft" | "Paused" | "Archived";
-export type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP";
+export type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP" | "Wrike";
 export type ProductResolverStrategy = "derived_key" | "composite_key" | "direct_lift_unit_number";
 export type ProductResolutionMode = "map_to_lift_unit" | "send_derived_unit";
 export type ProductMappingStatus = "Mapped" | "Unmapped" | "Ambiguous" | "Inactive";
@@ -322,6 +326,7 @@ export interface ImportMethod {
     pdf_review_mode?: "manual_review" | "assisted_extract";
     api_endpoint_url?: string | null;
     sftp_path?: string | null;
+    wrike?: WrikeSourceConfig;
     header_row?: number | null;
     header_row_count?: 1 | 2;
     quantity_column?: string | null;
@@ -2233,6 +2238,7 @@ function normalizeImportSourceConfig(sourceConfig: ImportMethod["source_config"]
         ? source.api_endpoint_url
         : undefined,
     sftp_path: typeof source.sftp_path === "string" || source.sftp_path === null ? source.sftp_path : undefined,
+    wrike: source.wrike === undefined ? undefined : normalizeWrikeSourceConfig(source.wrike),
     header_row: source.header_row === undefined ? undefined : normalizeSourceHeaderRow(source.header_row),
     header_row_count: source.header_row_count === undefined ? undefined : source.header_row_count === 2 ? 2 : 1,
     quantity_column:
