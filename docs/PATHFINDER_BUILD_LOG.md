@@ -2902,6 +2902,21 @@ Added the fail-closed work-email possession layer for published Customer Order D
 
 Deployment posture remains unchanged: `notify.vornan.co` is verified with successful DKIM and custom MAIL FROM, but the SES account still lacks production access and the deploy workflow defaults to `log` mode. No real email was sent, no deployment occurred, and no Lift or Proof capability changed.
 
+## 2026-07-21 - Proof Isolated IAM Operator Activation Boundary
+
+Prepared the deployable control plane for the approved LTL Demo internal read-only window without changing Pathfinder production.
+
+- Added an IAM-invoked operator Lambda to the isolated Proof stack with no API Gateway integration, Lambda URL, public invoke permission, schedule, or event source.
+- Limited operator operations to cohort-bound Lift GET synchronization, view-grant creation, token-free grant listing, and emergency revocation. Every invocation retains the global Lift-write assertion; approval, revision, undo, email, and Lift writes remain unavailable.
+- Enforced the Lift customer cohort against the order header before any proof-report read or aggregate persistence. The approved customer ID remains internal and does not enter public DTOs or metric dimensions.
+- Added fail-closed workflow, preflight, and CloudFormation gates requiring dev, WAF-backed temporary public read, isolated QA confirmation, a future activation deadline, an explicit numeric cohort, a deployed direct HTTPS base URL, and synthetic QA/production approval/email/DNS all false.
+- Added a least-privilege operator role scoped to the isolated core/audit tables, a dedicated retained log group, bounded telemetry, and a server-error alarm.
+- Packaged the operator with the existing isolated Proof artifact and documented private IAM invocation, secret-bearing response handling, grant revocation, deadline behavior, and dark-stack restoration.
+- Recorded the sanitized live starting inventory and exact proposed parameters in `docs/VORNAN_PROOF_ISOLATED_OPERATOR_ACTIVATION_PLAN_2026-07-21.md`.
+- Validation passed every workspace typecheck, all 155 workspace tests on the rebased main baseline, all 50 deployment-safety tests, every production build, Lambda packaging, SAM template lint, both bounded readiness evaluators, and `git diff --check`.
+
+This slice made only read-only AWS inventory calls. It did not deploy, invoke the operator, request Lift data, create a grant, change DNS, send email, enable a decision, perform a Lift write, or modify a Pathfinder production surface.
+
 ## 2026-07-21 - Wrike Ingestion Contract Foundation
 
 Established the dark, operator-configured source contract for a future Wrike-to-Pathfinder adapter.
@@ -2912,7 +2927,7 @@ Established the dark, operator-configured source contract for a future Wrike-to-
 - Kept OAuth credentials, refresh tokens, temporary attachment URLs, and workbook content out of the persisted Import Method contract.
 - Added a focused strategy and Momentara discovery checklist in `docs/WRIKE_INGESTION_STRATEGY.md`.
 - Added regression coverage for secret stripping, required identifiers, version-aware idempotency, fail-closed attachment selection, and Import Method persistence.
-- Full repository validation passed every workspace check, all 156 tests, every production build, and `git diff --check`.
+- Full repository validation passed every workspace check, all 161 tests on the reconciled Proof baseline, every production build, and `git diff --check`.
 - Local browser QA verified the full-width admin contract at desktop and 390px mobile, including readiness-state changes, responsive single-column controls, no horizontal overflow, and no browser errors.
 
 No Wrike connection, token, webhook, polling worker, attachment download, preview creation, Lift submit, deployment, or Proof capability is enabled by this slice.

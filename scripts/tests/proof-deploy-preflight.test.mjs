@@ -20,6 +20,46 @@ test("accepts an isolated default-off QA deployment", () => {
   assert.equal(result.automatic_refresh_max_inactive_days, 14);
   assert.equal(result.lift_writes_enabled, false);
   assert.equal(result.synthetic_qa_enabled, false);
+  assert.equal(result.operator_grant_creation_enabled, false);
+  assert.equal(result.operator_cohort_size, 0);
+});
+
+test("accepts only a bounded IAM operator window on the dark dev stack", () => {
+  const devWindow = {
+    ...qaEnvironment,
+    PATHFINDER_PROOF_ENVIRONMENT_NAME: "dev",
+    PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT: "dev",
+    PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "true",
+    PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: "true",
+    PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED: "true",
+    PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED: "true",
+    PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: "1249",
+    PATHFINDER_PROOF_PUBLIC_BASE_URL: "https://dpib8f02ljvrd.cloudfront.net"
+  };
+  const result = validateProofDeployment(devWindow);
+  assert.equal(result.operator_grant_creation_enabled, true);
+  assert.equal(result.operator_cohort_size, 1);
+  assert.equal(result.operator_public_base_url, "https://dpib8f02ljvrd.cloudfront.net");
+
+  for (const unsafe of [
+    { PATHFINDER_PROOF_ENVIRONMENT_NAME: "qa", PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT: "qa" },
+    { PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false" },
+    { PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: "false" },
+    { PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED: "true" },
+    { PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA: "true" },
+    { PATHFINDER_PROOF_ENABLE_LINK_EMAIL: "true" },
+    { PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: "" },
+    { PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: "1249, 91" },
+    { PATHFINDER_PROOF_PUBLIC_BASE_URL: "https://proof.invalid" },
+    { PATHFINDER_PROOF_PUBLIC_BASE_URL: "https://proof.vornan.co" },
+    {
+      PATHFINDER_PROOF_DOMAIN_NAME: "proof-dev.vornan.co",
+      PATHFINDER_PROOF_CERTIFICATE_ARN:
+        "arn:aws:acm:us-east-1:123456789012:certificate/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    }
+  ]) {
+    assert.throws(() => validateProofDeployment({ ...devWindow, ...unsafe }));
+  }
 });
 
 test("allows the synthetic fixture only in a fully dark dev deployment", () => {
@@ -63,12 +103,32 @@ test("requires a bounded activation deadline and customer cohort in deployment c
   const apiWorkflow = readFileSync(new URL("../../.github/workflows/deploy-api.yml", import.meta.url), "utf8");
   assert.match(proofTemplate, /ReadOnlyActivationExpiresAt:/);
   assert.match(proofTemplate, /PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ReadOnlyActivationExpiresAt/);
+  assert.match(proofTemplate, /OperatorGrantCreationRequiresIsolatedDevWindow:/);
+  assert.match(proofTemplate, /PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref GrantAllowedCustomerIds/);
   assert.match(apiTemplate, /ProofGrantCreationRequiresBoundedCohort:/);
   assert.match(apiTemplate, /PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref ProofGrantAllowedCustomerIds/);
   assert.match(apiTemplate, /PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ProofReadOnlyActivationExpiresAt/);
   assert.match(proofWorkflow, /ReadOnlyActivationExpiresAt="\$\{READ_ONLY_ACTIVATION_EXPIRES_AT\}"/);
+  assert.match(proofWorkflow, /OperatorGrantCreationEnabled="\$\{OPERATOR_GRANT_CREATION_ENABLED\}"/);
+  assert.match(proofWorkflow, /GrantAllowedCustomerIds="\$\{GRANT_ALLOWED_CUSTOMER_IDS\}"/);
   assert.match(apiWorkflow, /ProofGrantAllowedCustomerIds=/);
   assert.match(apiWorkflow, /ProofReadOnlyActivationExpiresAt=/);
+});
+
+test("packages an IAM-only operator without a public invocation surface", () => {
+  const proofTemplate = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
+  const buildScript = readFileSync(new URL("../build-proof-public-lambda.mjs", import.meta.url), "utf8");
+  assert.match(buildScript, /operator-lambda\.mjs/);
+  assert.match(buildScript, /apps\/api\/src\/proof-operator-lambda\.ts/);
+  assert.match(proofTemplate, /Handler: operator-lambda\.handler/);
+  assert.match(proofTemplate, /PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED: !Ref OperatorGrantCreationEnabled/);
+  assert.match(proofTemplate, /PATHFINDER_PROOF_ENABLE_LINK_EMAIL: "false"/);
+  assert.match(proofTemplate, /"Service", "operator-admin"/);
+  assert.doesNotMatch(proofTemplate, /IntegrationUri: !GetAtt ProofOperatorFunction\.Arn/);
+  assert.doesNotMatch(
+    proofTemplate,
+    /FunctionName: !Ref ProofOperatorFunction\n\s+Principal: apigateway\.amazonaws\.com/
+  );
 });
 
 test("bounds the automatic stale-read refresh window", () => {

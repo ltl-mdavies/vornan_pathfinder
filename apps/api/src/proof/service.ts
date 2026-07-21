@@ -6,6 +6,7 @@ import {
 import {
   normalizeLiftOrderNumber,
   normalizeProofOrder,
+  liftOrderCustomerId,
   proofReviewLifecycleState,
   proofReviewLifecycleTransitions,
   publicProofCounts,
@@ -39,9 +40,21 @@ export function summarizeProofSyncDiagnostics(
   };
 }
 
+export class ProofSyncCohortDeniedError extends Error {
+  constructor() {
+    super("Proof synchronization is outside the configured read-only cohort.");
+    this.name = "ProofSyncCohortDeniedError";
+  }
+}
+
 export async function syncProofOrder(
   rawOrderNumber: string,
-  options: { fetcher?: LiftProofFetch; synced_at?: string; audit_context?: ProofAuditContext } = {}
+  options: {
+    fetcher?: LiftProofFetch;
+    synced_at?: string;
+    audit_context?: ProofAuditContext;
+    allowed_customer_ids?: string[];
+  } = {}
 ) {
   const orderNumber = normalizeLiftOrderNumber(rawOrderNumber);
   try {
@@ -50,7 +63,15 @@ export async function syncProofOrder(
     const snapshot = await readLiftProofOrder(orderNumber, {
       config: config.read,
       fetcher: options.fetcher,
-      fetched_at: options.synced_at
+      fetched_at: options.synced_at,
+      validateOrderPayload: options.allowed_customer_ids
+        ? (payload) => {
+            const customerId = liftOrderCustomerId(payload);
+            if (!customerId || !options.allowed_customer_ids?.includes(customerId)) {
+              throw new ProofSyncCohortDeniedError();
+            }
+          }
+        : undefined
     });
     const normalizedOrder = normalizeProofOrder({
       order_number: orderNumber,

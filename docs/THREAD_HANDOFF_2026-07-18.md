@@ -966,7 +966,7 @@ Email-verification PR #20 merged to `main` at `e4813d7`. The Wrike contract work
 - A dedicated adapter package owns normalization, readiness, newest-workbook selection, and deterministic account/task/attachment/version identity.
 - The contract is dark and preview-only. It contains no credentials or customer workbook data and cannot submit to Lift.
 - `docs/WRIKE_INGESTION_STRATEGY.md` records the OAuth, webhook, attachment, idempotency, failure, and Momentara discovery decisions.
-- Full validation passes every workspace check, all 156 tests, every production build, and `git diff --check`.
+- Full validation passes every workspace check, all 161 tests on the reconciled Proof baseline, every production build, and `git diff --check`.
 - Desktop and 390px local browser QA pass with the card spanning the setup grid, a clean single-column mobile layout, no horizontal overflow, and no browser errors.
 
 Recommended continuation:

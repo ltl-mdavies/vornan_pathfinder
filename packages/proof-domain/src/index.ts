@@ -390,6 +390,12 @@ export function liftOrderLines(payload: unknown) {
   });
 }
 
+export function liftOrderCustomerId(payload: unknown) {
+  const header = liftRows(payload)[0];
+  const candidate = header?.CUSTOMER_ID ?? header?.customer_id;
+  return candidate === undefined || candidate === null ? null : String(candidate).trim() || null;
+}
+
 function value(record: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
     if (record[key] !== undefined && record[key] !== null && record[key] !== "") {
