@@ -2738,3 +2738,43 @@ Completed the explicitly approved Pathfinder-originated read-only Proof validati
 - Recorded complete sanitized evidence and the exact optional cleanup procedure in `docs/VORNAN_PROOF_PATHFINDER_ORIGIN_READ_ONLY_QA_A0226753_2026-07-21.md`.
 
 The isolated dev cache retains one profile, three tasks, and three versions for focused inspection, with no grant/session records. The production Pathfinder job, submit attempt, and Lift order were read only and were not modified or resubmitted. Public read, `ReadOnlyQaConfirmed`, production approval, DNS, email, decisions, and every Lift write remain disabled.
+
+## 2026-07-21 - Proof Phase 2 Activation-Readiness Gate
+
+Added a deterministic, non-mutating checkpoint that separates completed isolated read-only evidence from authorization to expose a customer boundary.
+
+- Added `npm run check:proof-phase2`, a bounded readiness-state artifact, and a repository validation-workflow step. The evaluator consumes only literal booleans and emits fixed gate names, counts, status, and next-action values; unknown fields cannot leak identifiers or free-form evidence into its output.
+- Recorded all 11 isolated read-only evidence gates as passed across the dark boundary, purgeable synthetic lifecycle, approved direct-Lift read, approved Pathfinder-originated read, stable refresh, line correlation, audit, queue failure, telemetry/alarms/logs, and responsive fail-closed checks.
+- Recorded all eight dark guardrails as intact. Public read, grant creation, link email, decisions, Lift writes, DNS, `ReadOnlyQaConfirmed`, and production public-read approval remain disabled.
+- Kept the three activation prerequisites false: deployed grant/session lifecycle, deployed one-order customer boundary, and explicit read-only activation approval.
+- The current result is `isolated_read_qa_complete_activation_blocked`. Even a future fully passing input yields only `ready_for_explicit_activation_review`; the tool always reports public-read changes and mutations as unauthorized.
+
+This slice performs no AWS call, Lift request, email delivery, DNS change, deployment, decision, or production-surface mutation. It does not enter Phase 3.
+
+## 2026-07-21 - Proof Customer-Boundary QA Harness
+
+Prepared the next Phase 2 deployed-boundary validation without enabling or executing it.
+
+- Added a pure stack-contract evaluator that accepts only an alias-free, WAF-protected `vornan-proof-dev` window with public read and isolated read-only confirmation temporarily true, production approval false, the synthetic worker false, and all required isolated table/endpoint outputs present. The evaluator never authorizes deployment or mutation.
+- Added an explicitly confirmation-gated runner restricted to the retained reserved synthetic fixture. It creates one view-only grant directly against the isolated dev tables, exchanges it through CloudFront, verifies one-time token use, one-order/session scope, history isolation, CSRF-bound participant and feedback records, terminal logout, direct API bypass denial, bounded audit coverage, and automatic grant revocation.
+- The runner never emits its raw fragment token, cookies, CSRF value, access URL, or payload. It sets link email, approval, revision, undo, and generic Lift-write flags false and contains no Lift `PUT` transport.
+- Added regression coverage for environment, stack, WAF, alias, production-approval, output, synthetic-only, confirmation, no-email/no-write, bypass-denial, and finally-revocation gates.
+- Added the explicit approval, controlled run, responsive follow-up, rollback, and exact-fixture cleanup plan to the read-only QA runbook.
+
+The harness was typechecked and unit-tested but was not run against AWS. The stack remains dark; no grant, session, participant, feedback acknowledgement, deployment, email, custom domain, decision, or Lift request was created by this slice.
+
+## 2026-07-21 - Proof Controlled Customer-Boundary QA
+
+Executed the explicitly approved temporary Phase 2 boundary window against the isolated `vornan-proof-dev` stack using fresh reserved fixture `vpqa-20260721-boundary-01`.
+
+- Enabled synthetic mode only while the stack was dark, created one cached line/task aggregate, and exercised deployed queue success plus a controlled five-attempt pre-Lift failure that reached the DLQ.
+- Disabled synthetic mode before temporarily enabling `ReadOnlyQaConfirmed` and public read. Production public approval, domain/certificate, email, decisions, and every Lift-write gate remained false.
+- Passed the CloudFront smoke and confirmation-gated boundary harness: one-time grant exchange, secure session/CSRF, exactly one order, scoped history, participant identity, feedback acknowledgement, terminal logout, direct API bypass denial, audit coverage, and automatic grant revocation.
+- Browser-tested the authenticated deployed UI at `1366×768`, `390×844`, `320×568`, and `844×390`. Desktop used the split queue/viewer, mobile widths used the proof feed, horizontal overflow was zero, the feedback modal fit the compact viewport, and both decision actions remained rendered but disabled.
+- Revoked the separate browser grant, restored all dark flags, passed the dark smoke, and purged exactly 13 core records, 22 audit records, and one DLQ message. Core, audit, queue, and DLQ residuals were all zero; temporary access files were deleted.
+- Allowed the intentional alarm evaluation windows to expire and verified all nine Proof dev alarms returned to `OK` without manual alarm-state changes.
+- Recorded sanitized evidence in `docs/VORNAN_PROOF_CUSTOMER_BOUNDARY_QA_EVIDENCE_2026-07-21.md` and advanced only the deployed lifecycle/boundary readiness booleans.
+- Refined the bounded evaluator's next action so the completed deployed boundary now requests separate read-only activation approval instead of another customer-boundary QA approval; public-read and mutation authorization remain hard-coded false.
+- Validation passed all workspace checks, all 138 workspace tests, all 39 Proof deployment-safety tests, every production build, the bounded readiness evaluator, and `git diff --check`.
+
+The temporary QA approval was not customer activation approval. The readiness state remains `isolated_read_qa_complete_activation_blocked` with two of three activation-review prerequisites complete. Public read, `ReadOnlyQaConfirmed`, production approval, DNS, email, decisions, and every Lift write remain disabled; no Pathfinder production surface was modified.
