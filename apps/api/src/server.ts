@@ -93,6 +93,7 @@ import {
   persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
   reservePathfinderOrderNumber,
+  setJobsArchived,
   updateProductMapping,
   upsertCatalogPreset,
   updateImportMethod,
@@ -3352,13 +3353,49 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
     const referenceRows = ((req.body?.reference_rows as ParsedSourceRow[] | undefined) ?? []) as ParsedSourceRow[];
     const sourceFileName = String(req.body?.source_file_name ?? "Sample workbook");
     const sheetName = req.body?.sheet_name ? String(req.body.sheet_name) : null;
-    const requestedMethodId = String(req.body?.import_method_id ?? "manual-xlsx");
-    const existingMethod =
-      workspace.import_methods.find((method) => method.import_method_id === requestedMethodId) ??
-      workspace.import_methods[0];
+    const requestedMethodId = req.body?.import_method_id ? String(req.body.import_method_id) : null;
+    const isAdHocManualImport = requestedMethodId === "ad-hoc";
+    const existingMethod = requestedMethodId
+      ? workspace.import_methods.find((method) => method.import_method_id === requestedMethodId)
+      : workspace.import_methods.find((method) => method.import_method_id === "manual-xlsx") ?? workspace.import_methods[0];
+    if (!isAdHocManualImport && !existingMethod) {
+      res.status(400).json({ error: "The selected Import Method no longer exists. Choose another method and try again." });
+      return;
+    }
+    const requestedOutputRouteId = req.body?.output_route_id ? String(req.body.output_route_id) : null;
+    const outputRoute =
+      workspace.output_routes.find((route) =>
+        route.output_route_id === (isAdHocManualImport ? requestedOutputRouteId : existingMethod?.output_route_id)
+      ) ??
+      workspace.output_routes.find((route) => route.output_route_id === workspace.primary_output_route_id) ??
+      workspace.output_routes[0];
+    if (!outputRoute) {
+      throw new Error("No output route is configured for this customer.");
+    }
     const mappings = (req.body?.mappings ?? existingMethod?.mappings ?? []) as FieldMapping[];
-    const method = {
-      ...existingMethod,
+    const timestamp = new Date().toISOString();
+    const method: ImportMethod = {
+      ...(existingMethod ?? {
+        import_method_id: "ad-hoc",
+        name: "Ad-hoc Manual Import",
+        type: "Manual upload" as const,
+        source: "XLSX" as const,
+        status: "Active" as const,
+        output_route_id: outputRoute.output_route_id,
+        target_id: outputRoute.target_id,
+        target_template: outputRoute.output_template,
+        template_id: "ad-hoc-manual-import",
+        mappings: [],
+        source_config: {},
+        workbook_sheet_policy: "rows_with_quantity" as const,
+        product_resolution_config: createDefaultProductResolutionConfig(),
+        order_name_resolution_config: createDefaultOrderNameResolutionConfig(),
+        ext_id_strategy: "pathfinder_generated" as const,
+        last_run_at: null,
+        success_rate: null,
+        created_at: timestamp,
+        updated_at: timestamp
+      }),
       mappings,
       product_resolution_config: {
         ...createDefaultProductResolutionConfig(),
@@ -3377,13 +3414,6 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
           ? req.body.ext_id_strategy
           : existingMethod?.ext_id_strategy ?? "pathfinder_generated"
     };
-    const outputRoute =
-      workspace.output_routes.find((route) => route.output_route_id === method.output_route_id) ??
-      workspace.output_routes.find((route) => route.output_route_id === workspace.primary_output_route_id) ??
-      workspace.output_routes[0];
-    if (!outputRoute) {
-      throw new Error("No output route is configured for this customer.");
-    }
     const submitProfile = submitProfileForRoute(outputRoute, req.body?.submit_profile_id ? String(req.body.submit_profile_id) : undefined);
     const submitCustomer = submitCustomerForProfile(customer, submitProfile);
     const orderRows = parsedOrderRows.length || requestIncludedParsedRows ? parsedOrderRows : synthesizeParsedRows(sourceGrid);
@@ -3395,7 +3425,6 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       method.product_resolution_config,
       outputRoute
     );
-    const timestamp = new Date().toISOString();
     const compactTimestamp = timestamp.replace(/[-:.TZ]/g, "").slice(0, 14);
     const idEntropy = randomBytes(3).toString("hex");
     const jobId = `job_${compactTimestamp}_${idEntropy}`;
@@ -3569,7 +3598,9 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       created_at: timestamp,
       updated_at: timestamp
     };
-    const nextWorkspace = await persistPreviewJob(customer, job, method);
+    const nextWorkspace = await persistPreviewJob(customer, job, method, {
+      persistMethod: !isAdHocManualImport
+    });
 
     res.json({
       job,
@@ -3610,6 +3641,90 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Job detail failed."
+    });
+  }
+});
+
+app.patch("/api/customers/:liftCustomerId/jobs/:jobId/archive", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const job = await getJob(customer, req.params.jobId);
+
+    if (!job) {
+      res.status(404).json({ error: "Preview job not found." });
+      return;
+    }
+
+    const archived = req.body?.archived !== false;
+    const result = await setJobsArchived(
+      customer,
+      [job.job_id],
+      archived,
+      typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null
+    );
+
+    res.json({
+      job: result.jobs[0],
+      jobs: result.workspace.jobs,
+      archived
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Job archive update failed."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/jobs/archive", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const requestedJobIds: unknown[] = Array.isArray(req.body?.job_ids) ? req.body.job_ids : [];
+    const jobIds = Array.from(
+      new Set<string>(
+        requestedJobIds.reduce<string[]>((result, jobId) => {
+          if (typeof jobId === "string" && jobId.trim()) {
+            result.push(jobId.trim());
+          }
+          return result;
+        }, [])
+      )
+    );
+
+    if (!jobIds.length || jobIds.length > 100) {
+      res.status(400).json({ error: "Choose between one and 100 jobs." });
+      return;
+    }
+
+    const customerJobIds = new Set(
+      (await listJobs())
+        .filter((job) => job.customer_id === customer.lift_customer_id)
+        .map((job) => job.job_id)
+    );
+    const missingJobIds = jobIds.filter((jobId) => !customerJobIds.has(jobId));
+    if (missingJobIds.length) {
+      res.status(404).json({
+        error: "One or more selected jobs could not be found.",
+        missing_job_ids: missingJobIds
+      });
+      return;
+    }
+
+    const archived = req.body?.archived !== false;
+    const result = await setJobsArchived(
+      customer,
+      jobIds,
+      archived,
+      typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null
+    );
+
+    res.json({
+      updated_jobs: result.jobs,
+      jobs: result.workspace.jobs,
+      archived
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Bulk job archive update failed."
     });
   }
 });

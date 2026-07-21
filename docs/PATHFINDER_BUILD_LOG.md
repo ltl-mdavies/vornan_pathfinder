@@ -2724,3 +2724,39 @@ Completed the explicitly approved direct-Lift order slice for `A0226701` in the 
 Verification passed all workspace checks/builds, all 133 workspace tests, all 25 Proof deployment-safety tests, Proof Lambda packaging, the post-cache dark smoke, sanitized telemetry/log scans, queue/DLQ checks, and `git diff --check`.
 
 The corrected isolated cache retains only one profile, three tasks, and three versions for the approved order; it has no grant/session records. Public read, `ReadOnlyQaConfirmed`, production approval, DNS, email, decisions, and every Lift write remain disabled. A separately approved Pathfinder-originated order is still required.
+
+## 2026-07-21 - Jobs Management And Drill-In UX
+
+Completed the first post-demo operator cleanup slice without changing Lift submit behavior or any Vornan Proof gate.
+
+- Customer and global Jobs views now open one job on a dedicated detail surface with an explicit `All jobs` return action instead of expanding the detail beneath the list.
+- Jobs can be filtered by Active, Archived, or All and sorted by Updated, Created, or State in ascending or descending order.
+- Added row selection, select-all, and confirmed single or bulk archive/restore actions. Archiving is a reversible visibility control: the job state, Lift order association, submit attempts, audit history, and status links remain intact.
+- Added authenticated API endpoints for single and bulk archive/restore plus durable archive timestamp and actor metadata.
+- Replaced the job-detail native disclosure with the app's controlled Actions menu and made both job and top-bar menus close on outside click or Escape.
+- Added API regression coverage proving that archive and restore preserve operational job state and that independently archived jobs remain archived.
+- Browser verification covered list-to-detail navigation, outside-click menu dismissal, single archive, Archived filtering, and bulk restore. No Lift submit or external write occurred.
+
+Validation for this slice:
+
+- `npm run check` passed every workspace.
+- `npm run test` passed all 139 tests on the merged Proof baseline, including 70 API tests and the new job archive durability test.
+- `npm run build` passed all production builds.
+
+## 2026-07-21 - Manual Import Saved Method Basis And UI Polish
+
+Completed the next Manual Import usability slice on top of the Jobs cleanup work without changing Lift transport, submit gates, or Vornan Proof behavior.
+
+- Manual Import now starts from an explicitly selected active Import Method and reuses that method's parser configuration, field mappings, product resolution, order-name resolution, Ext_ID strategy, and output route.
+- Operators can choose `Ad-hoc manual mapping` when a one-off upload should not use or modify a saved Import Method. Ad-hoc preview jobs persist normally while the temporary mappings remain isolated from saved method configuration.
+- The selected output route continues to provide the enabled submit profiles. Source and submit customer details now use a narrow-safe stacked layout so names and Lift Customer IDs remain visible without horizontal overflow.
+- Jobs filter and sort selects now use the application's standard compact select appearance, including the custom arrow and focus treatment.
+- The Transactional Email panel-header warning now uses accessible white text on the amber warning background.
+- Added regression coverage proving an ad-hoc preview does not create or mutate a saved Import Method and a saved-method preview continues to update that method's run metadata.
+
+Validation for the combined Jobs and Manual Import work:
+
+- `npm run check` passed every workspace.
+- `npm run test` passed all 140 tests.
+- `npm run build` passed all production builds.
+- Local browser verification confirmed saved/ad-hoc basis switching, complete Submit Profile content at a 477px panel width, styled Jobs selects, white warning-chip text, zero page overflow, and no console errors.

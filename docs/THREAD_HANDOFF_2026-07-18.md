@@ -859,3 +859,38 @@ Recommended next slice:
 2. Record cache/sync diagnostics, security headers, direct-origin rejection, responsive UI evidence, and immutable audit behavior.
 3. Keep public reads and all write/decision gates off during QA.
 4. Treat any DNS alias, production Proof trust, public-read enablement, grant creation, or customer email as a new separately reviewed and approved change.
+
+## Jobs Management And Drill-In UX
+
+The next operator-facing sequence has started with the Jobs cleanup slice on branch `codex/jobs-management-ux`, based on `origin/main` commit `87c5706` in the isolated worktree `/tmp/pathfinder-jobs-management`.
+
+- Jobs list and job detail are now separate surfaces. Selecting a job opens its detail without leaving the surrounding customer/global Jobs context, and `All jobs` returns to the list.
+- Active/Archived/All filtering and Updated/Created/State sorting are shared by both Jobs entry points.
+- Operators can archive or restore one job from its row/detail Actions menu, or select visible rows for a confirmed bulk action.
+- Archive is soft and reversible. It records `archived_at` and the operator email while retaining job state, Lift order data, attempts, audit history, and status links.
+- Single and bulk archive APIs validate customer ownership; the bulk endpoint accepts 1-100 deduplicated job IDs.
+- Controlled action menus now dismiss on outside click or Escape.
+- Full repository validation passes on the merged Proof PR #11 baseline: every workspace check, all 139 tests, and all production builds.
+
+Recommended continuation:
+
+1. Checkpoint this Jobs slice after Proof PR #11 is reviewed and merged.
+2. Begin Manual Import method reuse: allow the operator to select a saved Import Method so parsing settings, field mappings, product resolution, order-name rules, output route, and submit profile are preloaded while preserving a clearly labeled ad-hoc mode.
+3. Follow with the customer-specific public order dropbox using a published Import Method, minimal pre-submit validation, customer branding/context, email verification, rate limits, durable intake audit, and no customer-facing mapping controls.
+
+## Manual Import Saved Method Basis And UI Polish
+
+The saved-method reuse slice is complete in the same `codex/jobs-management-ux` worktree and remains uncommitted pending an intentional checkpoint.
+
+- Manual Import exposes an `Import basis` selector containing active saved Import Methods plus an explicit `Ad-hoc manual mapping` option.
+- A saved basis drives workbook parsing, field mappings, product resolution, order-name resolution, Ext_ID strategy, output route, and that route's enabled submit profiles. Switching the basis immediately remaps the loaded column set and clears stale preview state.
+- Ad-hoc previews are intentionally ephemeral: the preview job is persisted, but no ad-hoc Import Method is created and no saved method's mappings or last-run metadata are changed.
+- The API rejects a stale explicitly selected method with a clear 400 response while retaining the legacy fallback for older callers that omit `import_method_id`.
+- Submit Profile customer data now wraps in a narrow-safe stacked layout. Jobs selects match standard application controls, and the Transactional Email header warning has white contrast text.
+- Full validation passes: every workspace check, all 140 tests, and every production build. Local browser verification found no horizontal overflow or console errors.
+
+Recommended continuation:
+
+1. Review and checkpoint the combined Jobs management + Manual Import saved-basis work, then push it for the normal review/deployment process when requested.
+2. Build the customer-specific public order dropbox around a deliberately published Import Method; do not expose parser, mapping, product, route, or submit-profile configuration to the customer.
+3. Keep the public intake boundary separate from external Lift submit: validate and persist the intake first, then use the existing operator certification/submit workflow unless a later explicitly approved automation policy is introduced.

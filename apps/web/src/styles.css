@@ -2485,6 +2485,10 @@ h1 {
   font-size: 12px;
 }
 
+.panel-header .pill-warning {
+  color: #fff;
+}
+
 .drop-zone {
   display: flex;
   align-items: center;
@@ -5417,6 +5421,19 @@ h1 {
   margin-top: 18px;
 }
 
+.job-detail-backbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.job-detail-backbar > span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .job-detail-panel {
   overflow: visible;
 }
@@ -5461,21 +5478,16 @@ h1 {
   position: relative;
 }
 
-.job-detail-action-menu > summary {
+.job-detail-action-menu > button {
   display: inline-flex;
   min-height: 40px;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  list-style: none;
   cursor: pointer;
 }
 
-.job-detail-action-menu > summary::-webkit-details-marker {
-  display: none;
-}
-
-.job-detail-action-menu[open] > summary svg {
+.job-detail-action-menu > button[aria-expanded="true"] svg {
   transform: rotate(180deg);
 }
 
@@ -5817,6 +5829,119 @@ h1 {
   overflow-x: auto;
 }
 
+.job-list-controls {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(247, 249, 245, 0.7);
+}
+
+.job-list-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.job-list-filters label {
+  position: relative;
+  display: grid;
+  gap: 5px;
+}
+
+.job-list-filters label::after {
+  position: absolute;
+  right: 12px;
+  bottom: 14px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--vornan-forest);
+  border-bottom: 1.5px solid var(--vornan-forest);
+  content: "";
+  pointer-events: none;
+  transform: rotate(45deg) translateY(2px);
+}
+
+.job-list-filters label > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.job-list-filters select {
+  min-width: 132px;
+  min-height: 38px;
+  padding: 0 36px 0 12px;
+  color: var(--text-primary);
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  box-shadow: 0 1px 1px rgba(27, 39, 28, 0.03);
+  appearance: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+  outline: none;
+}
+
+.job-list-filters select:focus {
+  border-color: var(--vornan-green);
+  box-shadow: 0 0 0 3px rgba(174, 202, 80, 0.18);
+}
+
+.job-list-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.job-list-table {
+  min-width: 980px;
+}
+
+.job-list-table .selection-cell {
+  width: 44px;
+  padding-right: 4px;
+  text-align: center;
+}
+
+.job-row-action-heading,
+.job-row-action-cell {
+  width: 64px;
+  text-align: right;
+}
+
+.table-icon-button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  color: var(--vornan-forest);
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+}
+
+.table-icon-button:hover {
+  background: var(--surface-1);
+  border-color: rgba(57, 82, 59, 0.28);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .jobs-panel .panel-header > span {
   color: #075d2b;
   font-weight: 800;
@@ -6128,7 +6253,7 @@ td {
 
 .submit-profile-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) repeat(2, minmax(180px, 0.9fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   padding: 12px;
 }
@@ -6147,9 +6272,50 @@ td {
 .submit-profile-grid > div strong,
 .submit-profile-grid > div em {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.manual-import-basis {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin: 16px 16px 0;
+  padding: 12px;
+  background: rgba(243, 247, 241, 0.72);
+  border: 1px solid rgba(57, 82, 59, 0.12);
+  border-radius: 8px;
+}
+
+.manual-import-basis-summary {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid rgba(57, 82, 59, 0.12);
+  border-radius: 7px;
+}
+
+.manual-import-basis-summary span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.manual-import-basis-summary strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.manual-import-basis-summary small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .submit-profile-grid > div span {
@@ -9042,5 +9208,21 @@ td {
 
   .bulk-product-mapping-review-modal {
     width: calc(100vw - 24px);
+  }
+
+  .job-list-controls,
+  .job-detail-backbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .job-list-filters {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .job-list-filters select,
+  .job-list-controls > button {
+    width: 100%;
   }
 }

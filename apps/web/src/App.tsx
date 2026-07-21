@@ -83,6 +83,9 @@ import { ProofOpsPanel } from "./ProofOpsPanel";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
+type JobArchiveFilter = "Active" | "Archived" | "All";
+type JobSortField = "state" | "updated_at" | "created_at";
+type JobSortDirection = "asc" | "desc";
 
 type ImportMethodStatus = "Active" | "Inactive" | "Draft" | "Paused" | "Archived";
 type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP";
@@ -412,6 +415,7 @@ interface TargetEnvironment {
 type DestructiveConfirmation =
   | { kind: "import-method"; method: ImportMethod }
   | { kind: "target"; target: TargetConfig }
+  | { kind: "jobs"; jobs: ProcessingJobPreview[]; archived: boolean }
   | {
       kind: "target-environment";
       target_id: string;
@@ -526,6 +530,8 @@ interface ProcessingJobPreview {
   };
   created_at: string;
   updated_at: string;
+  archived_at?: string | null;
+  archived_by_email?: string | null;
 }
 
 interface NormalizedLiftSubmitResponse {
@@ -2095,6 +2101,170 @@ function upsertJob(jobs: ProcessingJobPreview[], job: ProcessingJobPreview) {
   return [job, ...jobs.filter((candidate) => candidate.job_id !== job.job_id)];
 }
 
+function sortAndFilterJobs(
+  jobs: ProcessingJobPreview[],
+  archiveFilter: JobArchiveFilter,
+  sortField: JobSortField,
+  sortDirection: JobSortDirection
+) {
+  const visibleJobs = jobs.filter((job) => {
+    if (archiveFilter === "All") {
+      return true;
+    }
+    return archiveFilter === "Archived" ? Boolean(job.archived_at) : !job.archived_at;
+  });
+  const direction = sortDirection === "asc" ? 1 : -1;
+
+  return [...visibleJobs].sort((first, second) => {
+    if (sortField === "state") {
+      const comparison = first.state.localeCompare(second.state);
+      return comparison === 0
+        ? Date.parse(second.updated_at) - Date.parse(first.updated_at)
+        : comparison * direction;
+    }
+    return (Date.parse(first[sortField]) - Date.parse(second[sortField])) * direction;
+  });
+}
+
+function JobListControls({
+  archiveFilter,
+  sortField,
+  sortDirection,
+  selectedCount,
+  onArchiveFilterChange,
+  onSortFieldChange,
+  onSortDirectionChange,
+  onBulkAction
+}: {
+  archiveFilter: JobArchiveFilter;
+  sortField: JobSortField;
+  sortDirection: JobSortDirection;
+  selectedCount: number;
+  onArchiveFilterChange: (filter: JobArchiveFilter) => void;
+  onSortFieldChange: (field: JobSortField) => void;
+  onSortDirectionChange: (direction: JobSortDirection) => void;
+  onBulkAction: () => void;
+}) {
+  const restoring = archiveFilter === "Archived";
+  return (
+    <div className="job-list-controls">
+      <div className="job-list-filters">
+        <label>
+          <span>Show</span>
+          <select value={archiveFilter} onChange={(event) => onArchiveFilterChange(event.target.value as JobArchiveFilter)}>
+            <option value="Active">Active jobs</option>
+            <option value="Archived">Archived jobs</option>
+            <option value="All">All jobs</option>
+          </select>
+        </label>
+        <label>
+          <span>Sort by</span>
+          <select value={sortField} onChange={(event) => onSortFieldChange(event.target.value as JobSortField)}>
+            <option value="updated_at">Updated</option>
+            <option value="created_at">Created</option>
+            <option value="state">State</option>
+          </select>
+        </label>
+        <label>
+          <span>Order</span>
+          <select
+            value={sortDirection}
+            onChange={(event) => onSortDirectionChange(event.target.value as JobSortDirection)}
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </select>
+        </label>
+      </div>
+      <button className="secondary-button" onClick={onBulkAction} disabled={!selectedCount}>
+        <Archive size={16} />
+        {restoring ? "Restore" : "Archive"} selected{selectedCount ? ` (${selectedCount})` : ""}
+      </button>
+    </div>
+  );
+}
+
+function JobListTable({
+  jobs,
+  includeCustomer,
+  selectedJobIds,
+  onToggleJob,
+  onToggleAll,
+  onOpenJob,
+  onArchiveJob
+}: {
+  jobs: ProcessingJobPreview[];
+  includeCustomer?: boolean;
+  selectedJobIds: string[];
+  onToggleJob: (jobId: string, selected: boolean) => void;
+  onToggleAll: (selected: boolean) => void;
+  onOpenJob: (job: ProcessingJobPreview) => void;
+  onArchiveJob: (job: ProcessingJobPreview) => void;
+}) {
+  const allSelected = Boolean(jobs.length) && jobs.every((job) => selectedJobIds.includes(job.job_id));
+  return (
+    <div className="job-list-table-wrap">
+      <table className="job-list-table">
+        <thead>
+          <tr>
+            <th className="selection-cell">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={(event) => onToggleAll(event.target.checked)}
+                aria-label="Select all visible jobs"
+              />
+            </th>
+            <th>Job</th>
+            {includeCustomer ? <th>Customer</th> : null}
+            <th>Source</th>
+            <th>Ext ID</th>
+            <th>Lift Order</th>
+            <th>State</th>
+            <th>Created</th>
+            <th>Updated</th>
+            <th className="job-row-action-heading">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {jobs.map((job) => (
+            <tr key={job.job_id}>
+              <td className="selection-cell">
+                <input
+                  type="checkbox"
+                  checked={selectedJobIds.includes(job.job_id)}
+                  onChange={(event) => onToggleJob(job.job_id, event.target.checked)}
+                  aria-label={`Select ${displayJobId(job.job_id)}`}
+                />
+              </td>
+              <td>
+                <button className="link-button" onClick={() => onOpenJob(job)}>
+                  {displayJobId(job.job_id)}
+                </button>
+              </td>
+              {includeCustomer ? <td>{job.customer_name}</td> : null}
+              <td>{job.import_method_name}</td>
+              <td>{jobExtId(job)}</td>
+              <td>{job.target_order_number ?? "—"}</td>
+              <td>
+                <StatePill state={job.state} />
+              </td>
+              <td>{displayTimestamp(job.created_at)}</td>
+              <td>{displayTimestamp(job.updated_at)}</td>
+              <td className="job-row-action-cell">
+                <button className="table-icon-button" onClick={() => onArchiveJob(job)} title={job.archived_at ? "Restore job" : "Archive job"}>
+                  {job.archived_at ? <RefreshCw size={15} /> : <Archive size={15} />}
+                  <span className="sr-only">{job.archived_at ? "Restore" : "Archive"} {displayJobId(job.job_id)}</span>
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function methodLastRun(method: ImportMethod) {
   return displayTimestamp(method.last_run_at);
 }
@@ -3172,6 +3342,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [activeOutputTemplateId, setActiveOutputTemplateId] = useState<string | null>(null);
   const [globalJobs, setGlobalJobs] = useState<ProcessingJobPreview[]>([]);
   const [activeMethodId, setActiveMethodId] = useState("manual-xlsx");
+  const [manualImportMethodId, setManualImportMethodId] = useState("manual-xlsx");
   const [isImportMethodDetailOpen, setIsImportMethodDetailOpen] = useState(false);
   const [dirtyImportMethodIds, setDirtyImportMethodIds] = useState<string[]>([]);
   const [localDraftImportMethodIds, setLocalDraftImportMethodIds] = useState<string[]>([]);
@@ -3290,6 +3461,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [selectedCatalogDetailId, setSelectedCatalogDetailId] = useState<string | null>(null);
   const [unitCatalogState, setUnitCatalogState] = useState<"idle" | "loading" | "error">("idle");
   const [openTopbarMenu, setOpenTopbarMenu] = useState<"environment" | "notifications" | "actions" | null>(null);
+  const [jobActionMenuOpen, setJobActionMenuOpen] = useState(false);
+  const [jobArchiveFilter, setJobArchiveFilter] = useState<JobArchiveFilter>("Active");
+  const [jobSortField, setJobSortField] = useState<JobSortField>("updated_at");
+  const [jobSortDirection, setJobSortDirection] = useState<JobSortDirection>("desc");
+  const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [openProductMapTool, setOpenProductMapTool] = useState<"preload" | "unit-library" | null>(null);
 
   async function loadCustomers(refresh = false) {
@@ -3350,6 +3526,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setLastSubmitAttempt(loadedWorkspace.submit_attempts?.[0] ?? null);
       setActiveMethodId(
         loadedWorkspace.import_methods.find((method) => method.status !== "Archived")?.import_method_id ?? "manual-xlsx"
+      );
+      setManualImportMethodId(
+        loadedWorkspace.import_methods.find((method) => method.status === "Active")?.import_method_id ?? "ad-hoc"
       );
       setWorkspaceMessage(null);
     } catch (error) {
@@ -3648,6 +3827,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function openJobDetail(job: ProcessingJobPreview) {
+    if (activeGlobalView === "Customers") {
+      setActiveCustomerView("Jobs");
+    } else {
+      setActiveGlobalView("Jobs");
+    }
+    setJobActionMenuOpen(false);
     setSelectedJobDetail(job);
     setSelectedJobAttempts([]);
     setOrderLookupResult(null);
@@ -3672,6 +3857,77 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return;
     }
     setJobDetailState("idle");
+  }
+
+  function closeJobDetail() {
+    setSelectedJobDetail(null);
+    setSelectedJobAttempts([]);
+    setJobActionMenuOpen(false);
+    setOrderLookupResult(null);
+    setOrderLookupState("idle");
+    setProofReportResult(null);
+    setProofReportState("idle");
+    setPackageDetailsResult(null);
+    setPackageDetailsState("idle");
+    setOrderSnapshotResult(null);
+    setOrderSnapshotState("idle");
+    setStatusLinkResult(null);
+    setStatusLinkState("idle");
+  }
+
+  function requestJobsArchive(jobs: ProcessingJobPreview[], archived: boolean) {
+    if (!jobs.length) {
+      setWorkspaceMessage("Choose at least one job.");
+      return;
+    }
+    setDestructiveConfirmation({ kind: "jobs", jobs, archived });
+  }
+
+  async function updateJobsArchived(jobs: ProcessingJobPreview[], archived: boolean) {
+    const jobsByCustomer = new globalThis.Map<string, ProcessingJobPreview[]>();
+    for (const job of jobs) {
+      jobsByCustomer.set(job.customer_id, [...(jobsByCustomer.get(job.customer_id) ?? []), job]);
+    }
+
+    setWorkspaceState("saving");
+    try {
+      const updatedJobs: ProcessingJobPreview[] = [];
+      for (const [customerId, customerJobsToUpdate] of jobsByCustomer) {
+        const response = await fetch(`${apiBaseUrl}/api/customers/${customerId}/jobs/archive`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            job_ids: customerJobsToUpdate.map((job) => job.job_id),
+            archived
+          })
+        });
+        const payload = await readJsonResponse<{ updated_jobs: ProcessingJobPreview[] }>(response);
+        updatedJobs.push(...payload.updated_jobs);
+      }
+
+      const updatedById = new globalThis.Map(updatedJobs.map((job) => [job.job_id, job]));
+      setGlobalJobs((current) => current.map((job) => updatedById.get(job.job_id) ?? job));
+      setWorkspace((current) =>
+        current
+          ? {
+              ...current,
+              jobs: current.jobs.map((job) => updatedById.get(job.job_id) ?? job)
+            }
+          : current
+      );
+      setSelectedJobDetail((current) => (current ? updatedById.get(current.job_id) ?? current : current));
+      setSelectedJobIds([]);
+      if (archived && selectedJobDetail && updatedById.has(selectedJobDetail.job_id)) {
+        closeJobDetail();
+      }
+      setWorkspaceMessage(
+        `${updatedJobs.length} job${updatedJobs.length === 1 ? "" : "s"} ${archived ? "archived" : "restored"}.`
+      );
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Job archive update failed.");
+      setWorkspaceState("error");
+    }
   }
 
   async function lookupLiftOrder(job: ProcessingJobPreview) {
@@ -3999,17 +4255,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function createPreviewJob() {
-    const availableMethods = workspace?.import_methods ?? [];
-    const method = availableMethods.find((candidate) => candidate.import_method_id === activeMethodId) ?? availableMethods[0];
-    if (!method) {
-      setWorkspaceMessage("Choose an import method before generating a preview job.");
+    const method = manualImportMethod;
+    const isAdHoc = manualImportMethodId === "ad-hoc";
+    if (!method && !isAdHoc) {
+      setWorkspaceMessage("Choose an Import Method or use ad-hoc manual mapping before generating a preview job.");
       return;
     }
     if (!sourceGrid.rows.length || !parsedOrderRows.length) {
       setWorkspaceMessage("Upload an order workbook with at least one valid quantity row before generating a preview job.");
       return;
     }
-    if (method.status !== "Active") {
+    if (method && method.status !== "Active") {
       setWorkspaceMessage("Activate this import method before generating a preview job.");
       return;
     }
@@ -4020,7 +4276,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          import_method_id: method.import_method_id,
+          import_method_id: method?.import_method_id ?? "ad-hoc",
+          output_route_id: activeOutputRoute.output_route_id,
           source_file_name: sourceName,
           sheet_name: sheetName,
           source_grid: sourceGrid,
@@ -4029,9 +4286,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           reference_rows: referenceRows,
           mappings,
           submit_profile_id: selectedSubmitProfile.profile_id,
-          product_resolution_config: method.product_resolution_config,
-          order_name_resolution_config: method.order_name_resolution_config,
-          ext_id_strategy: method.ext_id_strategy
+          product_resolution_config: method?.product_resolution_config ?? defaultProductResolutionConfig,
+          order_name_resolution_config: method?.order_name_resolution_config ?? defaultOrderNameResolutionConfig,
+          ext_id_strategy: method?.ext_id_strategy ?? "pathfinder_generated"
         })
       });
       const payload = await readJsonResponse<{ job: ProcessingJobPreview; workspace: PathfinderCustomerWorkspace }>(response);
@@ -4263,6 +4520,45 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }, []);
 
   useEffect(() => {
+    function dismissButtonMenus(event: PointerEvent) {
+      if (event.target instanceof Element && event.target.closest("[data-button-menu-root]")) {
+        return;
+      }
+      setOpenTopbarMenu(null);
+      setJobActionMenuOpen(false);
+    }
+
+    function dismissButtonMenusOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpenTopbarMenu(null);
+        setJobActionMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", dismissButtonMenus);
+    document.addEventListener("keydown", dismissButtonMenusOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", dismissButtonMenus);
+      document.removeEventListener("keydown", dismissButtonMenusOnEscape);
+    };
+  }, []);
+
+  useEffect(() => {
+    setSelectedJobIds([]);
+  }, [activeGlobalView, activeCustomerView, selectedCustomerId, jobArchiveFilter]);
+
+  useEffect(() => {
+    const isJobViewActive =
+      activeGlobalView === "Jobs" ||
+      (activeGlobalView === "Customers" && activeCustomerView === "Jobs");
+    const isDifferentCustomer =
+      activeGlobalView === "Customers" && selectedJobDetail?.customer_id !== selectedCustomerId;
+    if (selectedJobDetail && (!isJobViewActive || isDifferentCustomer)) {
+      closeJobDetail();
+    }
+  }, [activeGlobalView, activeCustomerView, selectedCustomerId]);
+
+  useEffect(() => {
     if (activeGlobalView === "Settings") {
       void loadEmailStatus();
     }
@@ -4327,15 +4623,32 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     ? customerSearch
     : `${selectedCustomer.customer_name} · ${selectedCustomer.lift_customer_id}`;
   const allImportMethods = workspace?.import_methods ?? [];
-  const importMethods = allImportMethods.filter((method) => method.status !== "Archived");
+  const importMethods = useMemo(
+    () => allImportMethods.filter((method) => method.status !== "Archived"),
+    [allImportMethods]
+  );
   const activeImportMethod =
     importMethods.find((method) => method.import_method_id === activeMethodId) ?? importMethods[0] ?? allImportMethods[0];
+  const activeManualImportMethods = useMemo(
+    () => importMethods.filter((method) => method.status === "Active"),
+    [importMethods]
+  );
+  const manualImportMethod =
+    manualImportMethodId === "ad-hoc"
+      ? null
+      : activeManualImportMethods.find((method) => method.import_method_id === manualImportMethodId) ??
+        activeManualImportMethods[0] ??
+        null;
+  const workflowImportMethod =
+    activeGlobalView === "Customers" && activeCustomerView === "Manual Import"
+      ? manualImportMethod
+      : activeImportMethod;
   const activeImportMethodHasUnsavedChanges = activeImportMethod
     ? dirtyImportMethodIds.includes(activeImportMethod.import_method_id)
     : false;
-  const activeProductConfig = activeImportMethod?.product_resolution_config ?? defaultProductResolutionConfig;
+  const activeProductConfig = workflowImportMethod?.product_resolution_config ?? defaultProductResolutionConfig;
   const activeOrderNameConfig =
-    activeImportMethod?.order_name_resolution_config ?? defaultOrderNameResolutionConfig;
+    workflowImportMethod?.order_name_resolution_config ?? defaultOrderNameResolutionConfig;
   const activeOrderNameStrategyCopy =
     !activeOrderNameConfig.enabled
       ? {
@@ -4382,7 +4695,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       ),
     [activeProductConfig, sourceGrid.columns]
   );
-  const sourceConfig = activeImportMethod?.source_config ?? {};
+  const sourceConfig = workflowImportMethod?.source_config ?? {};
   const detectedSourceSchema = sourceConfig.detected_schema ?? null;
   const detectedSourceSchemaHistory = sourceConfig.detected_schema_history ?? [];
   const selectedSourceSchemaHistory =
@@ -4444,9 +4757,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const addableCompositeColumns = availableInputColumns.filter(
     (column) => !activeProductConfig.composite_columns.includes(column)
   );
-  const customerJobs = workspace?.jobs ?? [];
-  const overviewJobs = customerJobs.slice(0, 5);
-  const allJobs = globalJobs.length ? globalJobs : customerJobs;
+  const customerJobsUnfiltered = workspace?.jobs ?? [];
+  const customerJobs = sortAndFilterJobs(
+    customerJobsUnfiltered,
+    jobArchiveFilter,
+    jobSortField,
+    jobSortDirection
+  );
+  const overviewJobs = customerJobsUnfiltered.filter((job) => !job.archived_at).slice(0, 5);
+  const allJobsUnfiltered = globalJobs.length ? globalJobs : customerJobsUnfiltered;
+  const allJobs = sortAndFilterJobs(allJobsUnfiltered, jobArchiveFilter, jobSortField, jobSortDirection);
+  const currentJobList = activeGlobalView === "Jobs" ? allJobs : customerJobs;
+  const selectedJobs = currentJobList.filter((job) => selectedJobIds.includes(job.job_id));
   const visibleJobDetailAttempts = selectedJobAttempts.length
     ? selectedJobAttempts
     : (workspace?.submit_attempts ?? []).filter((attempt) => attempt.job_id === selectedJobDetail?.job_id);
@@ -4554,13 +4876,26 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 : "This permanently removes the reusable Target, its environments, and its output templates. Pathfinder will block deletion if any customer workspace still references it.",
               confirmLabel: "Delete Target"
             }
-        : {
-            eyebrow: "Target Environment",
-            title: "Remove this environment?",
-            item: `${destructiveConfirmation.target_name} · ${destructiveConfirmation.environment_name}`,
-            body: "The environment will be removed from the Target draft. The change is not persisted until you save the Target.",
-            confirmLabel: "Remove Environment"
-          }
+        : destructiveConfirmation.kind === "jobs"
+          ? {
+              eyebrow: destructiveConfirmation.archived ? "Archive Jobs" : "Restore Jobs",
+              title: `${destructiveConfirmation.archived ? "Archive" : "Restore"} ${destructiveConfirmation.jobs.length} job${destructiveConfirmation.jobs.length === 1 ? "" : "s"}?`,
+              item:
+                destructiveConfirmation.jobs.length === 1
+                  ? displayJobId(destructiveConfirmation.jobs[0].job_id)
+                  : `${destructiveConfirmation.jobs.length} selected jobs`,
+              body: destructiveConfirmation.archived
+                ? "Archived jobs are hidden from the active list, but their Lift orders, submit attempts, audit history, and status links remain intact."
+                : "Restored jobs return to the active job list with their existing state and history unchanged.",
+              confirmLabel: destructiveConfirmation.archived ? "Archive Jobs" : "Restore Jobs"
+            }
+          : {
+              eyebrow: "Target Environment",
+              title: "Remove this environment?",
+              item: `${destructiveConfirmation.target_name} · ${destructiveConfirmation.environment_name}`,
+              body: "The environment will be removed from the Target draft. The change is not persisted until you save the Target.",
+              confirmLabel: "Remove Environment"
+            }
     : null;
   const selectedOutputTemplateStats = selectedOutputTemplate ? templateMappingStats(selectedOutputTemplate) : null;
   const targetRowIds = targetRows.map((target) => target.target_id).join("|");
@@ -4583,8 +4918,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }, [selectedTarget?.target_id, activeOutputTemplateId, targetTemplateIds]);
 
   const activeOutputRoute =
-    activeImportMethod
-      ? outputRouteForMethod(activeImportMethod, outputRoutes)
+    workflowImportMethod
+      ? outputRouteForMethod(workflowImportMethod, outputRoutes)
       : primaryOutputRoute;
   const activeRouteTarget =
     targetRows.find((target) => target.target_id === activeOutputRoute.target_id) ?? primaryRouteTarget ?? null;
@@ -4667,6 +5002,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setSelectedSubmitProfileId(submitProfileForRoute(activeOutputRoute).profile_id);
     }
   }, [activeOutputRoute.output_route_id, selectedSubmitProfileId]);
+
+  useEffect(() => {
+    if (
+      manualImportMethodId !== "ad-hoc" &&
+      !activeManualImportMethods.some((method) => method.import_method_id === manualImportMethodId)
+    ) {
+      setManualImportMethodId(activeManualImportMethods[0]?.import_method_id ?? "ad-hoc");
+    }
+  }, [activeManualImportMethods, manualImportMethodId]);
 
   const selectedOutputMapRouteId =
     outputMapRouteFilter === "All" ? activeOutputRoute.output_route_id : outputMapRouteFilter;
@@ -5020,10 +5364,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   );
 
   useEffect(() => {
+    if (activeCustomerView === "Manual Import") {
+      return;
+    }
     if (activeImportMethod) {
       setMappings(activeImportMethod.mappings);
     }
-  }, [activeImportMethod?.import_method_id, activeImportMethod?.mappings]);
+  }, [activeCustomerView, activeImportMethod?.import_method_id, activeImportMethod?.mappings]);
+
+  useEffect(() => {
+    if (activeCustomerView !== "Manual Import") {
+      return;
+    }
+    setMappings(
+      manualImportMethod
+        ? mappingsForSourceColumns(sourceGrid.columns, manualImportMethod.mappings)
+        : buildDefaultMappings(sourceGrid.columns)
+    );
+  }, [activeCustomerView, manualImportMethodId]);
 
   useEffect(() => {
     if (dirtyImportMethodIds.length === 0) {
@@ -5091,7 +5449,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     jobId: "job_preview",
     canonicalOrderId: "co_preview",
     pathfinderOrderId: pendingPathfinderOrderNumber,
-    extIdStrategy: activeImportMethod?.ext_id_strategy ?? "pathfinder_generated"
+    extIdStrategy: workflowImportMethod?.ext_id_strategy ?? "pathfinder_generated"
   });
   const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, activeOutputRoute.value_normalization_rules ?? []);
   const liftPayload = normalizedLift.payload;
@@ -5310,13 +5668,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     {
       label: "Ext_ID",
       value:
-        !lastPreviewJob && activeImportMethod?.ext_id_strategy === "pathfinder_generated"
+        !lastPreviewJob && workflowImportMethod?.ext_id_strategy === "pathfinder_generated"
           ? "Reserved on preview generation"
           : extIdMatches
             ? displayedLiftPayload.order.ext_id
             : "Mismatch",
       detail:
-        !lastPreviewJob && activeImportMethod?.ext_id_strategy === "pathfinder_generated"
+        !lastPreviewJob && workflowImportMethod?.ext_id_strategy === "pathfinder_generated"
           ? "Pathfinder will reserve one unique order number and use it for both header Ext_ID and body order.ext_id."
           : extIdMatches
             ? "Header Ext_ID matches body order.ext_id."
@@ -5865,7 +6223,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   async function importWorkbook(file: File) {
     try {
-      const parserConfig = sourceParserConfigFromMethod(activeImportMethod?.source_config ?? {});
+      const parserConfig = sourceParserConfigFromMethod(manualImportMethod?.source_config ?? {});
       const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer(), {
         headerRow: parserConfig.header_row,
         headerRowCount: parserConfig.header_row_count,
@@ -5878,7 +6236,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setSourceSheets(parsed.source_sheets);
       setParsedOrderRows(parsed.parsed_order_rows);
       setReferenceRows(parsed.reference_rows);
-      setMappings(mappingsForSourceColumns(parsed.columns, activeImportMethod?.mappings ?? mappings));
+      setMappings(
+        manualImportMethod
+          ? mappingsForSourceColumns(parsed.columns, manualImportMethod.mappings)
+          : buildDefaultMappings(parsed.columns)
+      );
       setSourceName(file.name);
       setSheetName(parsed.sheetName);
       setLastPreviewJob(null);
@@ -5904,12 +6266,34 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setSourceSheets(sampleSourceSheets(sampleSourceGrid));
     setParsedOrderRows(sampleParsedRows(sampleSourceGrid));
     setReferenceRows([]);
-    setMappings(buildDefaultMappings(sampleSourceGrid.columns));
+    setMappings(
+      manualImportMethod
+        ? mappingsForSourceColumns(sampleSourceGrid.columns, manualImportMethod.mappings)
+        : buildDefaultMappings(sampleSourceGrid.columns)
+    );
     setSourceName("Sample workbook");
     setSheetName("Sample");
     setLastPreviewJob(null);
     setLastSubmitAttempt(null);
     setImportError(null);
+  }
+
+  function changeManualImportBasis(nextMethodId: string) {
+    const nextMethod = activeManualImportMethods.find((method) => method.import_method_id === nextMethodId) ?? null;
+    setManualImportMethodId(nextMethod ? nextMethod.import_method_id : "ad-hoc");
+    setMappings(
+      nextMethod
+        ? mappingsForSourceColumns(sourceGrid.columns, nextMethod.mappings)
+        : buildDefaultMappings(sourceGrid.columns)
+    );
+    setLastPreviewJob(null);
+    setLastSubmitAttempt(null);
+    setImportError(null);
+    setWorkspaceMessage(
+      nextMethod
+        ? `${nextMethod.name} is now the basis for parser settings, mappings, product resolution, order naming, and output routing.`
+        : "Ad-hoc manual mapping is active. This upload will use the primary output route without changing a saved Import Method."
+    );
   }
 
   function updateActiveMethodDraft(patch: Partial<ImportMethod>) {
@@ -7100,6 +7484,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       await performImportMethodDelete(confirmation.method);
     } else if (confirmation.kind === "target") {
       await performTargetDelete(confirmation.target);
+    } else if (confirmation.kind === "jobs") {
+      await updateJobsArchived(confirmation.jobs, confirmation.archived);
     } else {
       removeTargetEnvironmentDraft(confirmation.target_id, confirmation.environment_id);
     }
@@ -7592,7 +7978,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </p>
               </div>
               <div className="topbar-actions">
-                <div className="topbar-menu-wrap">
+                <div className="topbar-menu-wrap" data-button-menu-root>
                   <button
                     className="environment-select"
                     onClick={() => setOpenTopbarMenu(openTopbarMenu === "environment" ? null : "environment")}
@@ -7638,7 +8024,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   ) : null}
                 </div>
 
-                <div className="topbar-menu-wrap">
+                <div className="topbar-menu-wrap" data-button-menu-root>
                   <button
                     className="notification-button"
                     aria-label="Notifications"
@@ -7669,7 +8055,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   ) : null}
                 </div>
 
-                <div className="topbar-menu-wrap">
+                <div className="topbar-menu-wrap" data-button-menu-root>
                   <button
                     className="primary-button actions-button"
                     onClick={() => setOpenTopbarMenu(openTopbarMenu === "actions" ? null : "actions")}
@@ -10596,6 +10982,32 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <section className="manual-import-grid">
                   <div className="panel upload-panel">
                     <PanelHeader icon={FileSpreadsheet} title="1. Upload Order Source" detail={sheetName} />
+                    <div className="manual-import-basis">
+                      <label className="setup-control">
+                        <span>Import basis</span>
+                        <select
+                          aria-label="Import basis"
+                          value={manualImportMethod?.import_method_id ?? "ad-hoc"}
+                          onChange={(event) => changeManualImportBasis(event.target.value)}
+                        >
+                          {activeManualImportMethods.map((method) => (
+                            <option key={method.import_method_id} value={method.import_method_id}>
+                              {method.name}
+                            </option>
+                          ))}
+                          <option value="ad-hoc">Ad-hoc manual mapping</option>
+                        </select>
+                      </label>
+                      <div className="manual-import-basis-summary">
+                        <span>{manualImportMethod ? "Saved Import Method" : "No saved basis"}</span>
+                        <strong>{manualImportMethod?.name ?? "Ad-hoc Manual Import"}</strong>
+                        <small>
+                          {manualImportMethod
+                            ? `${activeOutputRoute.name} · saved parser, field, product, and order-name rules`
+                            : `${activeOutputRoute.name} · primary route with mappings configured for this upload only`}
+                        </small>
+                      </div>
+                    </div>
                     <label
                       className="drop-zone"
                       onDragOver={(event) => event.preventDefault()}
@@ -10676,10 +11088,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </button>
                       <button
                         className="secondary-button"
-                        onClick={() => activeImportMethod ? void saveImportMethod(activeImportMethod, mappings) : undefined}
-                        disabled={!activeImportMethod}
+                        onClick={() => manualImportMethod ? void saveImportMethod(manualImportMethod, mappings) : undefined}
+                        disabled={!manualImportMethod}
                       >
-                        Save Mapping
+                        {manualImportMethod ? "Save Mapping" : "Ad-hoc Mapping"}
                       </button>
                       <button
                         className="primary-button"
@@ -10734,7 +11146,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <DetailItem
                         label="Ext_ID"
                         value={
-                          !lastPreviewJob && activeImportMethod?.ext_id_strategy === "pathfinder_generated"
+                          !lastPreviewJob && workflowImportMethod?.ext_id_strategy === "pathfinder_generated"
                             ? "Same reserved Pathfinder Order Number"
                             : displayedSubmitRequest.headers.Ext_ID
                         }
@@ -11090,39 +11502,37 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </>
             ) : null}
 
-            {activeCustomerView === "Jobs" ? (
+            {activeCustomerView === "Jobs" && !selectedJobDetail ? (
               <section className="panel jobs-panel">
                 <PanelHeader icon={Archive} title="Customer Jobs" detail={selectedCustomer.customer_name} />
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Job</th>
-                      <th>Source</th>
-                      <th>Ext ID</th>
-                      <th>Lift Order</th>
-                      <th>State</th>
-                      <th>Updated</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {customerJobs.map((job) => (
-                      <tr key={job.job_id}>
-                        <td>
-                          <button className="link-button" onClick={() => void openJobDetail(job)}>
-                            {displayJobId(job.job_id)}
-                          </button>
-                        </td>
-                        <td>{job.import_method_name}</td>
-                        <td>{jobExtId(job)}</td>
-                        <td>{job.target_order_number ?? "—"}</td>
-                        <td>
-                          <StatePill state={job.state} />
-                        </td>
-                        <td>{displayTimestamp(job.updated_at)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <JobListControls
+                  archiveFilter={jobArchiveFilter}
+                  sortField={jobSortField}
+                  sortDirection={jobSortDirection}
+                  selectedCount={selectedJobs.length}
+                  onArchiveFilterChange={setJobArchiveFilter}
+                  onSortFieldChange={setJobSortField}
+                  onSortDirectionChange={setJobSortDirection}
+                  onBulkAction={() => requestJobsArchive(selectedJobs, jobArchiveFilter !== "Archived")}
+                />
+                <JobListTable
+                  jobs={customerJobs}
+                  selectedJobIds={selectedJobIds}
+                  onToggleJob={(jobId, selected) =>
+                    setSelectedJobIds((current) =>
+                      selected ? Array.from(new Set([...current, jobId])) : current.filter((candidate) => candidate !== jobId)
+                    )
+                  }
+                  onToggleAll={(selected) =>
+                    setSelectedJobIds((current) =>
+                      selected
+                        ? Array.from(new Set([...current, ...customerJobs.map((job) => job.job_id)]))
+                        : current.filter((jobId) => !customerJobs.some((job) => job.job_id === jobId))
+                    )
+                  }
+                  onOpenJob={(job) => void openJobDetail(job)}
+                  onArchiveJob={(job) => requestJobsArchive([job], !job.archived_at)}
+                />
                 {customerJobs.length === 0 ? <p className="empty-state">No persisted jobs for this customer yet.</p> : null}
               </section>
             ) : null}
@@ -12730,7 +13140,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           </>
         ) : null}
 
-        {activeGlobalView === "Jobs" ? (
+        {activeGlobalView === "Jobs" && !selectedJobDetail ? (
           <section className="panel jobs-panel">
             <PanelHeader icon={Archive} title="Processing Jobs" detail="Order history and internal status lookup" />
             <ProofOpsPanel apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} />
@@ -12802,7 +13212,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <button
                     className="secondary-button"
                     onClick={() => {
-                      const matchedJob = allJobs.find(
+                      const matchedJob = allJobsUnfiltered.find(
                         (job) =>
                           job.customer_id === internalOrderLookupResult.match.customer_id &&
                           job.job_id === internalOrderLookupResult.match.job_id
@@ -12818,7 +13228,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <button
                     className="secondary-button"
                     onClick={() => {
-                      const matchedJob = allJobs.find(
+                      const matchedJob = allJobsUnfiltered.find(
                         (job) =>
                           job.customer_id === internalOrderLookupResult.match.customer_id &&
                           job.job_id === internalOrderLookupResult.match.job_id
@@ -12829,7 +13239,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     }}
                     disabled={
                       statusLinkState === "loading" ||
-                      !allJobs.some(
+                      !allJobsUnfiltered.some(
                         (job) =>
                           job.customer_id === internalOrderLookupResult.match.customer_id &&
                           job.job_id === internalOrderLookupResult.match.job_id
@@ -12841,44 +13251,49 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
               </div>
             ) : null}
-            <table>
-              <thead>
-                <tr>
-                  <th>Job</th>
-                  <th>Customer</th>
-                  <th>Source</th>
-                  <th>Ext ID</th>
-                  <th>Lift Order</th>
-                  <th>State</th>
-                  <th>Updated</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allJobs.map((job) => (
-                  <tr key={job.job_id}>
-                    <td>
-                      <button className="link-button" onClick={() => void openJobDetail(job)}>
-                        {displayJobId(job.job_id)}
-                      </button>
-                    </td>
-                    <td>{job.customer_name}</td>
-                    <td>{job.import_method_name}</td>
-                    <td>{jobExtId(job)}</td>
-                    <td>{job.target_order_number ?? "—"}</td>
-                    <td>
-                      <StatePill state={job.state} />
-                    </td>
-                    <td>{displayTimestamp(job.updated_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <JobListControls
+              archiveFilter={jobArchiveFilter}
+              sortField={jobSortField}
+              sortDirection={jobSortDirection}
+              selectedCount={selectedJobs.length}
+              onArchiveFilterChange={setJobArchiveFilter}
+              onSortFieldChange={setJobSortField}
+              onSortDirectionChange={setJobSortDirection}
+              onBulkAction={() => requestJobsArchive(selectedJobs, jobArchiveFilter !== "Archived")}
+            />
+            <JobListTable
+              jobs={allJobs}
+              includeCustomer
+              selectedJobIds={selectedJobIds}
+              onToggleJob={(jobId, selected) =>
+                setSelectedJobIds((current) =>
+                  selected ? Array.from(new Set([...current, jobId])) : current.filter((candidate) => candidate !== jobId)
+                )
+              }
+              onToggleAll={(selected) =>
+                setSelectedJobIds((current) =>
+                  selected
+                    ? Array.from(new Set([...current, ...allJobs.map((job) => job.job_id)]))
+                    : current.filter((jobId) => !allJobs.some((job) => job.job_id === jobId))
+                )
+              }
+              onOpenJob={(job) => void openJobDetail(job)}
+              onArchiveJob={(job) => requestJobsArchive([job], !job.archived_at)}
+            />
             {allJobs.length === 0 ? <p className="empty-state">No persisted jobs yet.</p> : null}
           </section>
         ) : null}
 
-        {selectedJobDetail && ["Customers", "Dashboard", "Jobs"].includes(activeGlobalView) ? (
+        {selectedJobDetail &&
+        (activeGlobalView === "Jobs" || (activeGlobalView === "Customers" && activeCustomerView === "Jobs")) ? (
           <section className="job-detail-layout">
+            <div className="job-detail-backbar">
+              <button className="secondary-button" onClick={closeJobDetail}>
+                <ArrowLeft size={16} />
+                All jobs
+              </button>
+              <span>{selectedJobDetail.archived_at ? `Archived ${displayTimestamp(selectedJobDetail.archived_at)}` : "Active job"}</span>
+            </div>
             <div className="panel job-detail-panel">
               <PanelHeader
                 icon={ClipboardList}
@@ -12943,17 +13358,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           : "View Order"}
                     </button>
                   )}
-                  <details className="job-detail-action-menu">
-                    <summary className="secondary-button">
+                  <div className="job-detail-action-menu" data-button-menu-root>
+                    <button
+                      className="secondary-button"
+                      onClick={() => setJobActionMenuOpen((current) => !current)}
+                      aria-expanded={jobActionMenuOpen}
+                    >
                       Actions
                       <ChevronDown size={16} />
-                    </summary>
-                    <div className="job-detail-action-popover">
+                    </button>
+                    {jobActionMenuOpen ? <div className="job-detail-action-popover">
                       <strong>Job Actions</strong>
                       <div className="topbar-menu-list">
                         <button
                           className="topbar-menu-item"
-                          onClick={() => void createStatusLink(selectedJobDetail)}
+                          onClick={() => {
+                            setJobActionMenuOpen(false);
+                            void createStatusLink(selectedJobDetail);
+                          }}
                           disabled={
                             statusLinkState === "loading" ||
                             !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
@@ -12967,7 +13389,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </button>
                         <button
                           className="topbar-menu-item"
-                          onClick={() => void lookupLiftOrder(selectedJobDetail)}
+                          onClick={() => {
+                            setJobActionMenuOpen(false);
+                            void lookupLiftOrder(selectedJobDetail);
+                          }}
                           disabled={
                             orderLookupState === "loading" ||
                             !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
@@ -12981,7 +13406,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </button>
                         <button
                           className="topbar-menu-item"
-                          onClick={() => void lookupLiftProofs(selectedJobDetail)}
+                          onClick={() => {
+                            setJobActionMenuOpen(false);
+                            void lookupLiftProofs(selectedJobDetail);
+                          }}
                           disabled={
                             proofReportState === "loading" ||
                             !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
@@ -12995,7 +13423,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </button>
                         <button
                           className="topbar-menu-item"
-                          onClick={() => void lookupLiftPackages(selectedJobDetail)}
+                          onClick={() => {
+                            setJobActionMenuOpen(false);
+                            void lookupLiftPackages(selectedJobDetail);
+                          }}
                           disabled={
                             packageDetailsState === "loading" ||
                             !(selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id)
@@ -13007,29 +13438,26 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <small>Refresh shipment and package diagnostics.</small>
                           </span>
                         </button>
+                        <button
+                          className="topbar-menu-item"
+                          onClick={() => {
+                            setJobActionMenuOpen(false);
+                            requestJobsArchive([selectedJobDetail], !selectedJobDetail.archived_at);
+                          }}
+                        >
+                          {selectedJobDetail.archived_at ? <RefreshCw size={16} /> : <Archive size={16} />}
+                          <span>
+                            <strong>{selectedJobDetail.archived_at ? "Restore Job" : "Archive Job"}</strong>
+                            <small>
+                              {selectedJobDetail.archived_at
+                                ? "Return this job to the active list."
+                                : "Hide this job without removing its history or status links."}
+                            </small>
+                          </span>
+                        </button>
                       </div>
-                    </div>
-                  </details>
-                  <button
-                    className="job-detail-close-button"
-                    aria-label="Close job detail"
-                    title="Close job detail"
-                    onClick={() => {
-                      setSelectedJobDetail(null);
-                      setOrderLookupResult(null);
-                      setOrderLookupState("idle");
-                      setProofReportResult(null);
-                      setProofReportState("idle");
-                      setPackageDetailsResult(null);
-                      setPackageDetailsState("idle");
-                      setOrderSnapshotResult(null);
-                      setOrderSnapshotState("idle");
-                      setStatusLinkResult(null);
-                      setStatusLinkState("idle");
-                    }}
-                  >
-                    <X size={18} />
-                  </button>
+                    </div> : null}
+                  </div>
                 </div>
               </div>
               {selectedJobMissingOrderTitle ? (
@@ -14191,7 +14619,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <button
                   className="modal-close-button"
                   onClick={() => setDestructiveConfirmation(null)}
-                  aria-label="Cancel deletion"
+                  aria-label="Cancel confirmation"
                   disabled={workspaceState === "saving"}
                 >
                   <X size={16} />
@@ -14213,11 +14641,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   Cancel
                 </button>
                 <button
-                  className="danger-button"
+                  className={destructiveConfirmation.kind === "jobs" ? "primary-button" : "danger-button"}
                   onClick={() => void confirmDestructiveAction()}
                   disabled={workspaceState === "saving"}
                 >
-                  <Trash2 size={16} />
+                  {destructiveConfirmation.kind === "jobs" ? <Archive size={16} /> : <Trash2 size={16} />}
                   {destructiveConfirmationCopy.confirmLabel}
                 </button>
               </div>

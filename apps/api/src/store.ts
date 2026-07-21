@@ -433,6 +433,8 @@ export interface ProcessingJobPreview {
   };
   created_at: string;
   updated_at: string;
+  archived_at?: string | null;
+  archived_by_email?: string | null;
 }
 
 export interface NormalizedLiftSubmitResponse {
@@ -3384,6 +3386,44 @@ export async function persistJobSnapshot(customer: LiftCustomer, job: Processing
   return nextJob;
 }
 
+export async function setJobsArchived(
+  customer: LiftCustomer,
+  jobIds: string[],
+  archived: boolean,
+  archivedByEmail?: string | null
+) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const requestedIds = new Set(jobIds.map((jobId) => jobId.trim()).filter(Boolean));
+  const timestamp = now();
+  const updatedJobs: ProcessingJobPreview[] = [];
+
+  store.jobs = store.jobs.map((job) => {
+    if (job.customer_id !== customer.lift_customer_id || !requestedIds.has(job.job_id)) {
+      return job;
+    }
+
+    const nextJob: ProcessingJobPreview = {
+      ...job,
+      archived_at: archived ? timestamp : null,
+      archived_by_email: archived ? archivedByEmail ?? null : null,
+      updated_at: timestamp
+    };
+    updatedJobs.push(nextJob);
+    return nextJob;
+  });
+
+  workspace.jobs = store.jobs.filter((candidate) => candidate.customer_id === customer.lift_customer_id);
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+
+  return {
+    jobs: updatedJobs,
+    workspace
+  };
+}
+
 export async function getSubmitAttemptByIdempotencyKey(customer: LiftCustomer, idempotencyKey: string) {
   const store = await readStore();
   return (
@@ -3892,7 +3932,12 @@ export async function updateTarget(id: string, patch: Partial<TargetConfig>) {
   return maskTargetConfig(nextTarget);
 }
 
-export async function persistPreviewJob(customer: LiftCustomer, job: ProcessingJobPreview, method: ImportMethod) {
+export async function persistPreviewJob(
+  customer: LiftCustomer,
+  job: ProcessingJobPreview,
+  method: ImportMethod,
+  options: { persistMethod?: boolean } = {}
+) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
   const timestamp = now();
@@ -3905,10 +3950,12 @@ export async function persistPreviewJob(customer: LiftCustomer, job: ProcessingJ
 
   store.jobs = [job, ...store.jobs.filter((candidate) => candidate.job_id !== job.job_id)];
   workspace.jobs = store.jobs.filter((candidate) => candidate.customer_id === customer.lift_customer_id);
-  workspace.import_methods = [
-    nextMethod,
-    ...workspace.import_methods.filter((candidate) => candidate.import_method_id !== method.import_method_id)
-  ];
+  if (options.persistMethod !== false) {
+    workspace.import_methods = [
+      nextMethod,
+      ...workspace.import_methods.filter((candidate) => candidate.import_method_id !== method.import_method_id)
+    ];
+  }
   workspace.updated_at = timestamp;
   store.workspaces[customer.lift_customer_id] = workspace;
   await writeStore(store);
