@@ -1090,3 +1090,22 @@ Recommended continuation:
 1. Create a focused commit, push the branch, and open a draft PR for this customer-owned connection boundary.
 2. After green validation and review, merge and deploy the complete app before entering Momentara's real Wrike credentials.
 3. Create or select Momentara's Wrike connection under Customer Settings, enter the client ID/secret, and complete OAuth. Keep connection-test and discovery-preview gates off until a separately approved read-only QA window.
+
+## Customer Settings Layout Follow-up
+
+The operator has confirmed the Momentara Wrike app client ID and secret were saved in the production customer-owned connection. No secret value was copied into source, documentation, browser QA, or logs.
+
+The focused `codex/customer-settings-layout` follow-up starts from deployed Source Connections merge `defd674` and contains only admin presentation changes:
+
+- Customer Settings panels are now full-width and vertically stacked.
+- Wrike fields and selects use the same shared `.setup-control` styling as established Pathfinder forms.
+- Desktop and 390px browser QA pass with aligned panels, standard 38px controls, and zero horizontal overflow.
+- Full workspace checks, all 184 tests, every production build, all 61 Proof deployment-safety tests, and diff hygiene pass.
+
+Recommended continuation:
+
+1. Commit, push, and open a focused PR for this two-file UI change plus its documentation.
+2. After green validation, merge and deploy the admin web; the API contract and runtime are unchanged.
+3. In production, complete **Connect Wrike** for the customer-owned Momentara connection. Authorization alone must remain read-only and must not enable connection testing or task discovery.
+4. Obtain the authoritative Larger Than Life routing field/value, the Ordered status/checkbox contract, and the two approved example Placard Order task IDs before a real discovery window.
+5. With separate explicit approval, temporarily enable only the two existing GET-only QA gates, run one identity check and one exact-task discovery preview, record sanitized evidence, and restore both gates to false. Continue to stop before attachment download, preview-job creation, polling, webhooks, Wrike writes, or Lift actions.

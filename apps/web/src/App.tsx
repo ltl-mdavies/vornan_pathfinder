@@ -12601,7 +12601,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             ) : null}
 
             {activeCustomerView === "Settings" ? (
-              <section className="customer-overview">
+              <section className="customer-overview customer-settings-stack">
                 <div className="panel customer-panel">
                   <PanelHeader icon={Settings} title="Customer Settings" detail="Defaults" />
                   <dl className="customer-details">
@@ -12735,7 +12735,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </div>
 
                       <div className="wrike-connection-form source-connection-metadata-form">
-                        <label>
+                        <label className="setup-control">
                           <span>Connection name</span>
                           <input
                             value={wrikeConnectionDraft.name}
@@ -12743,7 +12743,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             placeholder="Momentara Wrike"
                           />
                         </label>
-                        <label>
+                        <label className="setup-control">
                           <span>Environment</span>
                           <select
                             value={wrikeConnectionDraft.environment}
@@ -12758,7 +12758,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <option value="Sandbox">Sandbox</option>
                           </select>
                         </label>
-                        <label>
+                        <label className="setup-control">
                           <span>Status</span>
                           <select
                             value={wrikeConnectionDraft.status}
@@ -12774,7 +12774,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <option value="Inactive">Inactive</option>
                           </select>
                         </label>
-                        <label>
+                        <label className="setup-control">
                           <span>OAuth client ID</span>
                           <input
                             type="password"
@@ -12788,7 +12788,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             autoComplete="new-password"
                           />
                         </label>
-                        <label>
+                        <label className="setup-control">
                           <span>OAuth client secret</span>
                           <input
                             type="password"
@@ -12802,7 +12802,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             autoComplete="new-password"
                           />
                         </label>
-                        <label>
+                        <label className="setup-control">
                           <span>Authorized redirect URL</span>
                           <input
                             value={selectedWrikeConnectionStatus?.oauth_redirect_uri ?? "Loading callback URL"}

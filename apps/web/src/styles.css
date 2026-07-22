@@ -2126,6 +2126,15 @@ h1 {
   gap: 18px;
 }
 
+.customer-settings-stack {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+}
+
+.customer-settings-stack > .panel {
+  grid-column: 1 / -1;
+}
+
 .overview-grid-two {
   grid-template-columns: minmax(500px, 0.95fr) minmax(0, 1.05fr);
 }
@@ -8535,19 +8544,6 @@ td {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   padding: 16px;
-}
-
-.wrike-connection-form label {
-  display: grid;
-  gap: 7px;
-  min-width: 0;
-}
-
-.wrike-connection-form input,
-.wrike-connection-form select {
-  min-width: 0;
-  width: 100%;
-  min-height: 44px;
 }
 
 .wrike-connection-footer {
