@@ -3125,3 +3125,17 @@ Polished the customer-owned integration setup after the production Source Connec
 - Full validation passed `npm run check`, all 184 workspace tests, `npm run build`, all 61 Proof deployment-safety tests, and `git diff --check`.
 
 The operator confirmed the Momentara Wrike app credentials are saved in the production customer connection. This UI-only slice did not read or expose those credentials, authorize OAuth, enable either GET-only QA gate, call Wrike, create a job, write to Lift, or change Proof.
+
+## 2026-07-22 - Wrike Production Connection Health QA
+
+Completed the explicitly approved, bounded GET-only connection-health check for the production Empirical – Momentara Wrike connection.
+
+- Confirmed both Wrike GET-only gates were false before opening the window.
+- Enabled only `PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST`; discovery preview remained false.
+- Deployed the production API through successful GitHub Actions run `29963146758` without changing the existing Lift submit, live-customer, Proof, DNS, email, or public-intake posture.
+- Ran **Test connection** exactly once. OAuth refresh and the authorized-user `GET /contacts?me=true` check passed, and Wrike supplied the safe regional host `www.wrike.com`.
+- Restored the connection-test gate to false and completed successful closeout deployment `29963402984`.
+- Verified both Wrike gates are false in the final Lambda runtime and the production UI retains the sanitized Passed/Connected result while disabling the test action.
+- Recorded sanitized evidence in `docs/WRIKE_CONNECTION_HEALTH_QA_2026-07-22.md` and updated the runbook to separate connection health from exact-task discovery into independently approved windows.
+
+No task or attachment endpoint, workbook download, preview job, webhook, poll, Wrike write, Lift action, Proof change, DNS change, email action, or raw credential/provider payload was used or retained.

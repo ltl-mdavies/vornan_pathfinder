@@ -33,24 +33,31 @@ Do not place OAuth client secrets, refresh tokens, access tokens, attachment URL
 4. Confirm attachment download, preview-job creation, webhook, polling, Wrike-write, and Lift-action capabilities are false.
 5. Confirm there is no concurrent Pathfinder deployment or Proof change that modifies the shared API stack.
 
-## Open the bounded window
+## Open the bounded connection-health window
 
-Only after explicit approval, deploy the existing API with these two parameters true for the approved environment:
+Only after explicit approval, deploy the existing API with this parameter true for the approved environment:
 
 - `WrikeConnectionTestEnabled=true`
-- `WrikeDiscoveryPreviewEnabled=true`
 
-Do not change Lift submit, public intake, Proof, email, DNS, or customer-submit parameters as part of this window.
+Keep `WrikeDiscoveryPreviewEnabled=false`. Do not change Lift submit, public intake, Proof, email, DNS, or customer-submit parameters as part of this window.
 
 ## Run the checks
 
-1. In authenticated Pathfinder Settings, save the Wrike app client ID and client secret.
+1. In authenticated Pathfinder Settings, confirm the Wrike app credentials are configured. Do not re-enter them unless an approved rotation is required.
 2. Confirm the displayed authorized redirect URL exactly matches the redirect registered in Wrike.
-3. Click **Connect Wrike**, authorize the dedicated technical user, and confirm Pathfinder reports a connected read-only OAuth grant. Wrike supplies the regional host and rotating tokens directly to the server callback; do not copy tokens into the browser or this runbook.
+3. If the connection is not already authorized, click **Connect Wrike**, authorize the dedicated technical user, and confirm Pathfinder reports a connected read-only OAuth grant. Wrike supplies the regional host and rotating tokens directly to the server callback; do not copy tokens into the browser or this runbook.
 4. Run **Test read-only connection** once.
-5. Confirm the readiness panel advances to **Preview ready**.
-6. In the approved Wrike Import Method, run **Run approved task preview** once.
-7. Confirm:
+5. Confirm the connection reports **Passed**, then immediately close the connection-health window.
+
+## Open the exact-task discovery window
+
+Open this second window only after the connection-health window is closed, the approved folder/project, Ordered rule, exact task, and workbook rule are recorded, and the operator gives separate explicit approval.
+
+1. Deploy the existing API with `WrikeDiscoveryPreviewEnabled=true` for the approved environment.
+2. Keep `WrikeConnectionTestEnabled=false` unless a separately documented reason requires another identity check.
+3. Confirm the readiness panel advances to **Preview ready**.
+4. In the approved Wrike Import Method, run **Run approved task preview** once.
+5. Confirm:
    - the returned task ID is the exact approved task;
    - folder/project scope passed;
    - Ordered status passed or has an explained, reviewable warning;
@@ -73,12 +80,13 @@ The QA note may retain:
 
 Never retain credentials, access URLs, task copy, attachment filenames, workbook content, or raw Wrike responses.
 
-## Close the window
+## Close each window
 
-1. Restore both Wrike gates to false in the same environment.
-2. Confirm Settings shows the connection-test gate unavailable.
-3. Confirm the Import Method shows the discovery-preview gate off and the action disabled.
-4. Confirm no Pathfinder job or submit attempt was created by the QA.
-5. Record the close time and sanitized result.
+1. Restore the gate opened for that window to false in the same environment.
+2. After connection health, confirm Settings shows the connection-test action unavailable while retaining the sanitized result.
+3. After exact-task discovery, confirm the Import Method shows the discovery-preview gate off and the action disabled.
+4. Confirm both Wrike gates are false before ending the QA session.
+5. Confirm no Pathfinder job or submit attempt was created by the QA.
+6. Record the close time and sanitized result.
 
 Attachment selection/download remains a separate sprint and must not begin until this window closes successfully.
