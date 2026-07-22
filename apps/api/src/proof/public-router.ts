@@ -3,6 +3,7 @@ import { toPublicProofOrder, toPublicProofTaskHistory } from "@pathfinder/proof-
 import {
   endProofSession,
   exchangeProofToken,
+  getProofSessionForLogout,
   ProofAccessDeniedError,
   ProofAccessFeatureDisabledError,
   ProofAccessValidationError,
@@ -47,7 +48,7 @@ function deny(res: Parameters<Parameters<Router["get"]>[1]>[1]) {
   res.status(401).json({ error: "This proof access link is invalid or has expired." });
 }
 
-function requireCsrf(req: Request, session: Awaited<ReturnType<typeof validateProofSession>>["session"]) {
+function requireCsrf(req: Request, session: Parameters<typeof validateProofCsrf>[0]) {
   const header = req.get("x-vornan-proof-csrf") ?? "";
   const cookie = cookieValue(req, PROOF_CSRF_COOKIE) ?? "";
   if (!header || header !== cookie || !validateProofCsrf(session, header)) {
@@ -240,7 +241,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.delete("/sessions/current", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const session = await getProofSessionForLogout(rawSession);
       requireCsrf(req, session);
       await endProofSession(rawSession);
       res.clearCookie(PROOF_SESSION_COOKIE, {
