@@ -2931,3 +2931,23 @@ Established the dark, operator-configured source contract for a future Wrike-to-
 - Local browser QA verified the full-width admin contract at desktop and 390px mobile, including readiness-state changes, responsive single-column controls, no horizontal overflow, and no browser errors.
 
 No Wrike connection, token, webhook, polling worker, attachment download, preview creation, Lift submit, deployment, or Proof capability is enabled by this slice.
+
+## 2026-07-21 - Wrike Secret-Backed Read-Only Connection Health
+
+Merged the green Wrike ingestion-contract PR #21 into `main` at `b79730e`, then started a fresh isolated `codex/wrike-connection-health` branch from that baseline.
+
+- Added a platform-level Wrike OAuth connection in authenticated Settings, separate from customer Import Methods.
+- Stored the client ID, client secret, refresh token, rotated access token, rotated refresh token, expiry, and safe health metadata through Pathfinder's existing local/Secrets Manager secret boundary.
+- Added strict regional-host validation: only a bare HTTPS `wrike.com` hostname is accepted, and the OAuth response host controls subsequent API requests.
+- Added one explicit read-only connection test that refreshes OAuth and calls only `GET /api/v4/contacts?me=true` with `wsReadOnly` scope.
+- Added a server gate, `PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST`, defaulting false in local configuration, CloudFormation, and the API deployment workflow.
+- Kept task/folder discovery, attachment access, webhook creation, polling, background execution, Wrike writes, preview creation, Lift actions, deployment, and real credentials out of this slice.
+- Added regression coverage for host allowlisting, rotated-token persistence on both success and post-refresh failure, response redaction, secret-boundary persistence, safe errors, and the exact two-request external surface.
+
+Validation completed successfully:
+
+- `npm run check`
+- `npm run test` (169 tests across the workspace, including nine Wrike adapter tests and four connection API tests)
+- `npm run build`
+- `git diff --check`
+- Desktop and 390px mobile browser QA of the authenticated Settings panel, including the disabled gate posture, responsive controls, and no horizontal overflow

@@ -185,6 +185,37 @@ type EmailStatusPayload = {
   };
 };
 
+type WrikeConnectionStatusPayload = {
+  configured: boolean;
+  connection_test_enabled: boolean;
+  host: string | null;
+  credentials: {
+    client_id_configured: boolean;
+    client_secret_configured: boolean;
+    refresh_token_configured: boolean;
+    access_token_cached: boolean;
+    access_token_expires_at: string | null;
+  };
+  health: {
+    status: "Connected" | "Error" | "Not tested";
+    host: string | null;
+    checked_at: string | null;
+    identity_confirmed: boolean;
+    message: string;
+  };
+  capabilities: {
+    oauth_refresh: boolean;
+    identity_check: boolean;
+    requested_scope: "wsReadOnly";
+    task_discovery: false;
+    attachment_download: false;
+    webhook: false;
+    polling: false;
+    wrike_writes: false;
+    lift_actions: false;
+  };
+};
+
 type SubmitRuntimeStatus = {
   external_submit_enabled: boolean;
   transport_mode: SubmitAttemptTransportMode;
@@ -3415,6 +3446,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [emailStatus, setEmailStatus] = useState<EmailStatusPayload | null>(null);
   const [emailStatusState, setEmailStatusState] = useState<"idle" | "loading" | "error">("idle");
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
+  const [wrikeConnection, setWrikeConnection] = useState<WrikeConnectionStatusPayload | null>(null);
+  const [wrikeConnectionState, setWrikeConnectionState] = useState<"idle" | "loading" | "saving" | "testing" | "error">("idle");
+  const [wrikeConnectionMessage, setWrikeConnectionMessage] = useState<string | null>(null);
+  const [wrikeConnectionDraft, setWrikeConnectionDraft] = useState({
+    host: "",
+    client_id: "",
+    client_secret: "",
+    refresh_token: ""
+  });
   const [submitRuntime, setSubmitRuntime] = useState<SubmitRuntimeStatus | null>(null);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [activeTargetsView, setActiveTargetsView] = useState<TargetDetailView>("Environments");
@@ -3771,6 +3811,60 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     } catch (error) {
       setEmailStatusMessage(error instanceof Error ? error.message : "Email status load failed.");
       setEmailStatusState("error");
+    }
+  }
+
+  async function loadWrikeConnection() {
+    setWrikeConnectionState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/wrike/connection`);
+      const payload = await readJsonResponse<WrikeConnectionStatusPayload>(response);
+      setWrikeConnection(payload);
+      setWrikeConnectionDraft((current) => ({ ...current, host: payload.host ?? "" }));
+      setWrikeConnectionMessage(null);
+      setWrikeConnectionState("idle");
+    } catch (error) {
+      setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike connection status load failed.");
+      setWrikeConnectionState("error");
+    }
+  }
+
+  async function saveWrikeConnection() {
+    setWrikeConnectionState("saving");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/wrike/connection`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(wrikeConnectionDraft)
+      });
+      const payload = await readJsonResponse<WrikeConnectionStatusPayload>(response);
+      setWrikeConnection(payload);
+      setWrikeConnectionDraft({
+        host: payload.host ?? wrikeConnectionDraft.host,
+        client_id: "",
+        client_secret: "",
+        refresh_token: ""
+      });
+      setWrikeConnectionMessage("Wrike OAuth values saved in Pathfinder's secret boundary. No Wrike request was made.");
+      setWrikeConnectionState("idle");
+    } catch (error) {
+      setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike OAuth connection save failed.");
+      setWrikeConnectionState("error");
+    }
+  }
+
+  async function testWrikeConnection() {
+    setWrikeConnectionState("testing");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/wrike/connection/test`, { method: "POST" });
+      const payload = await readJsonResponse<WrikeConnectionStatusPayload>(response);
+      setWrikeConnection(payload);
+      setWrikeConnectionDraft((current) => ({ ...current, host: payload.host ?? current.host }));
+      setWrikeConnectionMessage("Wrike OAuth refresh and read-only identity check passed.");
+      setWrikeConnectionState("idle");
+    } catch (error) {
+      setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike read-only connection test failed.");
+      setWrikeConnectionState("error");
     }
   }
 
@@ -4641,6 +4735,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   useEffect(() => {
     if (activeGlobalView === "Settings") {
       void loadEmailStatus();
+      void loadWrikeConnection();
     }
   }, [activeGlobalView]);
 
@@ -14514,6 +14609,127 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <p className="empty-state">Checking transactional email settings...</p>
                 ) : null}
               </div>
+            </section>
+
+            <section className="panel wrike-connection-panel">
+              <div className="panel-header unit-map-panel-header">
+                <div className="panel-title">
+                  <Workflow size={18} strokeWidth={2.2} />
+                  <div>
+                    <h2>Wrike OAuth Connection</h2>
+                    <span>Secret-backed · read-only health boundary</span>
+                  </div>
+                </div>
+                <div className="email-health-header-actions">
+                  {wrikeConnection ? (
+                    <RouteDiagnosticPill
+                      status={wrikeConnection.health.status === "Connected" ? "Passed" : wrikeConnection.health.status === "Error" ? "Blocked" : "Warning"}
+                    />
+                  ) : null}
+                  <button
+                    className="secondary-button table-inline-button"
+                    onClick={() => void testWrikeConnection()}
+                    disabled={
+                      wrikeConnectionState === "testing" ||
+                      !wrikeConnection?.configured ||
+                      !wrikeConnection?.connection_test_enabled
+                    }
+                    title={!wrikeConnection?.connection_test_enabled ? "The API connection-test gate is off." : undefined}
+                  >
+                    <RefreshCw size={14} />
+                    {wrikeConnectionState === "testing" ? "Testing" : "Test read-only connection"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="wrike-connection-summary">
+                <div>
+                  <span>Connection</span>
+                  <strong>{wrikeConnection?.configured ? "Credentials configured" : "Configuration required"}</strong>
+                  <small>{wrikeConnection?.health.message ?? "Loading the server-owned Wrike connection posture."}</small>
+                </div>
+                <div>
+                  <span>Regional Host</span>
+                  <strong>{wrikeConnection?.host ?? "Not saved"}</strong>
+                  <small>Only a validated HTTPS *.wrike.com OAuth host is accepted.</small>
+                </div>
+                <div>
+                  <span>Last Check</span>
+                  <strong>{wrikeConnection?.health.status ?? "Loading"}</strong>
+                  <small>{wrikeConnection?.health.checked_at ? displayTimestamp(wrikeConnection.health.checked_at) : "No external request has run."}</small>
+                </div>
+                <div>
+                  <span>Scope</span>
+                  <strong>wsReadOnly</strong>
+                  <small>Current-user identity only; task and attachment discovery remain unavailable.</small>
+                </div>
+              </div>
+
+              <div className="wrike-connection-form">
+                <label>
+                  <span>Wrike regional host</span>
+                  <input
+                    value={wrikeConnectionDraft.host}
+                    onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, host: event.target.value }))}
+                    placeholder="www.wrike.com"
+                    autoComplete="off"
+                  />
+                </label>
+                <label>
+                  <span>OAuth client ID</span>
+                  <input
+                    type="password"
+                    value={wrikeConnectionDraft.client_id}
+                    onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, client_id: event.target.value }))}
+                    placeholder={wrikeConnection?.credentials.client_id_configured ? "Saved · enter only to replace" : "Required"}
+                    autoComplete="new-password"
+                  />
+                </label>
+                <label>
+                  <span>OAuth client secret</span>
+                  <input
+                    type="password"
+                    value={wrikeConnectionDraft.client_secret}
+                    onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, client_secret: event.target.value }))}
+                    placeholder={wrikeConnection?.credentials.client_secret_configured ? "Saved · enter only to replace" : "Required"}
+                    autoComplete="new-password"
+                  />
+                </label>
+                <label>
+                  <span>OAuth refresh token</span>
+                  <input
+                    type="password"
+                    value={wrikeConnectionDraft.refresh_token}
+                    onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, refresh_token: event.target.value }))}
+                    placeholder={wrikeConnection?.credentials.refresh_token_configured ? "Saved · enter only to replace" : "Required"}
+                    autoComplete="new-password"
+                  />
+                </label>
+              </div>
+
+              <div className="wrike-connection-footer">
+                <div className="wrike-connection-guardrail">
+                  <ShieldCheck size={18} />
+                  <span>
+                    Saving writes only to Pathfinder's secret store. Testing performs OAuth refresh and
+                    <code> GET /contacts?me=true</code>; it cannot discover tasks, download files, create webhooks, poll, write to Wrike, or act in Lift.
+                  </span>
+                </div>
+                <button
+                  className="primary-button"
+                  onClick={() => void saveWrikeConnection()}
+                  disabled={wrikeConnectionState === "saving"}
+                >
+                  {wrikeConnectionState === "saving" ? "Saving" : "Save secret connection"}
+                </button>
+              </div>
+
+              {wrikeConnectionMessage ? (
+                <div className={wrikeConnectionState === "error" ? "email-health-error" : "wrike-connection-message"}>
+                  {wrikeConnectionState === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+                  <span>{wrikeConnectionMessage}</span>
+                </div>
+              ) : null}
             </section>
 
             <section className="panel canonical-governance-panel">

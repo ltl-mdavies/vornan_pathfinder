@@ -65,6 +65,12 @@ import {
   type SourceGrid
 } from "@pathfinder/templates";
 import {
+  checkWrikeOAuthConnection,
+  normalizeWrikeHost,
+  WrikeConnectionError,
+  type WrikeOAuthCredentials
+} from "@pathfinder/wrike-adapter";
+import {
   archiveImportMethod,
   addCanonicalRegistryCustomField,
   bulkUpsertProductMappings,
@@ -152,6 +158,11 @@ import { createProofAdminRouter } from "./proof/router.js";
 import { getProofRuntimeConfig } from "./proof/runtime-config.js";
 import { getProofOrder } from "./proof/store.js";
 import { BoundedSnapshotCache } from "./order-snapshot-cache.js";
+import {
+  readWrikeConnectorSecrets,
+  writeWrikeConnectorSecrets,
+  type WrikeConnectorSecrets
+} from "./secrets-store.js";
 
 export const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -164,6 +175,7 @@ const liftCustomerStatusEndpoint =
 const liftProductCatalogBaseUrl =
   process.env.LIFT_PRODUCT_CATALOG_BASE_URL ?? "https://ltlco.lifterp.com/ords/api/lift/erp";
 const publicStatusBaseUrl = process.env.PATHFINDER_PUBLIC_STATUS_BASE_URL ?? "https://status.vornan.co";
+const wrikeConnectionTestEnabled = process.env.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST === "true";
 const publicStatusTokenDays = Number(process.env.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS ?? 30);
 const maxPublicStatusOrdersPerRequest = 10;
 const publicStatusReturnLink =
@@ -3215,6 +3227,173 @@ app.post("/public/intake/:publicKey/submit", async (req, res) => {
 
 app.use("/api", requirePathfinderAuth);
 app.use("/api/proof", createProofAdminRouter());
+
+function preserveWrikeSecret(nextValue: unknown, existingValue: string | undefined) {
+  if (typeof nextValue !== "string") {
+    return existingValue ?? "";
+  }
+  const trimmed = nextValue.trim();
+  if (!trimmed || /^\*+$/.test(trimmed) || trimmed === "••••••••") {
+    return existingValue ?? "";
+  }
+  return trimmed.slice(0, 16_384);
+}
+
+function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
+  const oauth = secrets.oauth ?? {};
+  const clientIdConfigured = Boolean(oauth.client_id?.trim());
+  const clientSecretConfigured = Boolean(oauth.client_secret?.trim());
+  const refreshTokenConfigured = Boolean(oauth.refresh_token?.trim());
+  let host: string | null = null;
+  try {
+    host = oauth.host ? normalizeWrikeHost(oauth.host) : null;
+  } catch {
+    host = null;
+  }
+
+  return {
+    configured: Boolean(clientIdConfigured && clientSecretConfigured && refreshTokenConfigured && host),
+    connection_test_enabled: wrikeConnectionTestEnabled,
+    host,
+    credentials: {
+      client_id_configured: clientIdConfigured,
+      client_secret_configured: clientSecretConfigured,
+      refresh_token_configured: refreshTokenConfigured,
+      access_token_cached: Boolean(oauth.access_token?.trim()),
+      access_token_expires_at: oauth.access_token_expires_at ?? null
+    },
+    health: secrets.health ?? {
+      status: "Not tested" as const,
+      host,
+      checked_at: null,
+      identity_confirmed: false,
+      message: "Save the OAuth connection, then run the explicit read-only connection test."
+    },
+    capabilities: {
+      oauth_refresh: true,
+      identity_check: true,
+      requested_scope: "wsReadOnly",
+      task_discovery: false,
+      attachment_download: false,
+      webhook: false,
+      polling: false,
+      wrike_writes: false,
+      lift_actions: false
+    }
+  };
+}
+
+app.get("/api/wrike/connection", async (_req, res) => {
+  try {
+    res.json(wrikeConnectionStatus(await readWrikeConnectorSecrets()));
+  } catch {
+    res.status(500).json({
+      error: "Wrike connection status could not be loaded."
+    });
+  }
+});
+
+app.put("/api/wrike/connection", async (req, res) => {
+  try {
+    const existing = await readWrikeConnectorSecrets();
+    const currentOauth = existing.oauth ?? {};
+    const requestedHost = typeof req.body?.host === "string" ? req.body.host.trim() : "";
+    const host = requestedHost ? normalizeWrikeHost(requestedHost) : currentOauth.host ?? "";
+    if (host) {
+      normalizeWrikeHost(host);
+    }
+
+    const oauth: WrikeOAuthCredentials = {
+      client_id: preserveWrikeSecret(req.body?.client_id, currentOauth.client_id),
+      client_secret: preserveWrikeSecret(req.body?.client_secret, currentOauth.client_secret),
+      refresh_token: preserveWrikeSecret(req.body?.refresh_token, currentOauth.refresh_token),
+      host,
+      access_token: currentOauth.access_token,
+      access_token_expires_at: currentOauth.access_token_expires_at
+    };
+    const changed =
+      oauth.client_id !== currentOauth.client_id ||
+      oauth.client_secret !== currentOauth.client_secret ||
+      oauth.refresh_token !== currentOauth.refresh_token ||
+      oauth.host !== currentOauth.host;
+    if (changed) {
+      delete oauth.access_token;
+      delete oauth.access_token_expires_at;
+    }
+
+    const next: WrikeConnectorSecrets = {
+      oauth,
+      health: changed
+        ? {
+            status: "Not tested",
+            host: host || null,
+            checked_at: null,
+            identity_confirmed: false,
+            message: "Credentials changed. Run the explicit read-only connection test."
+          }
+        : existing.health
+    };
+    await writeWrikeConnectorSecrets(next);
+    res.json(wrikeConnectionStatus(next));
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof WrikeConnectionError
+        ? error.message
+        : "Wrike OAuth connection could not be saved."
+    });
+  }
+});
+
+app.post("/api/wrike/connection/test", async (_req, res) => {
+  if (!wrikeConnectionTestEnabled) {
+    res.status(423).json({
+      error: "Wrike connection testing is disabled at the API boundary."
+    });
+    return;
+  }
+
+  const existing = await readWrikeConnectorSecrets();
+  try {
+    const oauth = existing.oauth as WrikeOAuthCredentials | undefined;
+    if (!oauth) {
+      throw new WrikeConnectionError("invalid_configuration", "Wrike OAuth credentials are not configured.");
+    }
+    const result = await checkWrikeOAuthConnection(oauth);
+    const next: WrikeConnectorSecrets = {
+      oauth: result.credentials,
+      health: {
+        ...result.health,
+        message: "OAuth refresh and the read-only authorized-user check succeeded."
+      }
+    };
+    await writeWrikeConnectorSecrets(next);
+    res.json(wrikeConnectionStatus(next));
+  } catch (error) {
+    const message = error instanceof WrikeConnectionError
+      ? error.message
+      : "The Wrike read-only connection check failed.";
+    const failed: WrikeConnectorSecrets = {
+      ...existing,
+      oauth: error instanceof WrikeConnectionError && error.rotated_credentials
+        ? error.rotated_credentials
+        : existing.oauth,
+      health: {
+        status: "Error",
+        host: error instanceof WrikeConnectionError && error.rotated_credentials
+          ? error.rotated_credentials.host
+          : existing.oauth?.host ?? null,
+        checked_at: new Date().toISOString(),
+        identity_confirmed: false,
+        message
+      }
+    };
+    await writeWrikeConnectorSecrets(failed);
+    res.status(error instanceof WrikeConnectionError && error.code === "invalid_configuration" ? 400 : 502).json({
+      ...wrikeConnectionStatus(failed),
+      error: message
+    });
+  }
+});
 
 app.get("/api/submit-runtime", (_req, res) => {
   res.json({

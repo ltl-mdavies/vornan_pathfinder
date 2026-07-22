@@ -8260,6 +8260,126 @@ td {
   margin-bottom: 18px;
 }
 
+.wrike-connection-panel {
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+
+.wrike-connection-panel .panel-title > div {
+  display: grid;
+  gap: 2px;
+}
+
+.wrike-connection-panel .panel-title span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wrike-connection-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(247, 250, 245, 0.5);
+}
+
+.wrike-connection-summary > div {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 102px;
+  padding: 15px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.wrike-connection-summary span,
+.wrike-connection-form label > span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.wrike-connection-summary strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.wrike-connection-summary small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.wrike-connection-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.wrike-connection-form label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.wrike-connection-form input {
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+}
+
+.wrike-connection-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 16px 16px;
+}
+
+.wrike-connection-guardrail {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 900px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.wrike-connection-guardrail svg {
+  flex: none;
+  color: var(--brand-forest);
+}
+
+.wrike-connection-guardrail code {
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.wrike-connection-message {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 16px 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(67, 105, 72, 0.2);
+  border-radius: 8px;
+  color: var(--brand-forest);
+  background: rgba(67, 105, 72, 0.08);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .email-health-header-actions {
   display: flex;
   align-items: center;
@@ -9156,6 +9276,11 @@ td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .wrike-connection-summary,
+  .wrike-connection-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .submit-readiness-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -9314,8 +9439,19 @@ td {
   }
 
   .email-health-grid,
-  .email-readiness-row {
+  .email-readiness-row,
+  .wrike-connection-summary,
+  .wrike-connection-form {
     grid-template-columns: 1fr;
+  }
+
+  .wrike-connection-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wrike-connection-footer .primary-button {
+    width: 100%;
   }
 
   .email-health-header-actions {
@@ -9460,6 +9596,23 @@ td {
 }
 
 @media (max-width: 600px) {
+  .wrike-connection-panel .panel-header {
+    align-items: stretch;
+    flex-direction: column;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+
+  .wrike-connection-panel .email-health-header-actions {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .wrike-connection-panel .email-health-header-actions .table-inline-button {
+    justify-content: center;
+    width: 100%;
+  }
+
   .auth-shell {
     align-items: stretch;
     padding: 0;
