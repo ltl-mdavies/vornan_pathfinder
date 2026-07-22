@@ -3112,3 +3112,16 @@ Replaced the single global Wrike setup with a provider-neutral, customer-owned S
 - Local browser QA passed at desktop and 390px mobile. The provider catalog, customer connection editor, and exact Wrike Import Method binding remained responsive with no horizontal overflow; planned providers exposed no creation action.
 
 No provider request, credential entry, authorization attempt, deployment, feature-gate change, Wrike write, Lift action, or Proof capability change occurred in this slice.
+
+## 2026-07-22 - Customer Settings Layout and Wrike Control Consistency
+
+Polished the customer-owned integration setup after the production Source Connections release.
+
+- Converted Customer Settings to one full-width panel column so Defaults, Source Connections, and Public Status Access stack consistently with comfortable spacing.
+- Routed every Wrike connection input and select through the established shared setup-control treatment instead of maintaining connector-specific field geometry.
+- Removed the local Wrike control overrides that had increased field height and diverged from the rest of Pathfinder.
+- Desktop browser QA confirmed all three panels share the same left edge and width; every Wrike field resolves to the standard 38px height, border, radius, padding, and type treatment.
+- 390px browser QA confirmed the panels and controls remain contained with zero horizontal overflow.
+- Full validation passed `npm run check`, all 184 workspace tests, `npm run build`, all 61 Proof deployment-safety tests, and `git diff --check`.
+
+The operator confirmed the Momentara Wrike app credentials are saved in the production customer connection. This UI-only slice did not read or expose those credentials, authorize OAuth, enable either GET-only QA gate, call Wrike, create a job, write to Lift, or change Proof.
