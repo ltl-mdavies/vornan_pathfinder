@@ -189,6 +189,10 @@ type EmailStatusPayload = {
 
 type WrikeConnectionStatusPayload = {
   configured: boolean;
+  oauth_connect_ready: boolean;
+  oauth_redirect_uri: string;
+  authorization_pending: boolean;
+  authorization_expires_at: string | null;
   connection_test_enabled: boolean;
   discovery_preview_enabled: boolean;
   host: string | null;
@@ -207,6 +211,7 @@ type WrikeConnectionStatusPayload = {
     message: string;
   };
   capabilities: {
+    oauth_authorization: boolean;
     oauth_refresh: boolean;
     identity_check: boolean;
     requested_scope: "wsReadOnly";
@@ -3451,16 +3456,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [emailStatusState, setEmailStatusState] = useState<"idle" | "loading" | "error">("idle");
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
   const [wrikeConnection, setWrikeConnection] = useState<WrikeConnectionStatusPayload | null>(null);
-  const [wrikeConnectionState, setWrikeConnectionState] = useState<"idle" | "loading" | "saving" | "testing" | "error">("idle");
+  const [wrikeConnectionState, setWrikeConnectionState] = useState<"idle" | "loading" | "saving" | "authorizing" | "testing" | "error">("idle");
   const [wrikeConnectionMessage, setWrikeConnectionMessage] = useState<string | null>(null);
+  const wrikeOAuthReturnMessageRef = useRef<string | null>(null);
   const [wrikeDiscoveryState, setWrikeDiscoveryState] = useState<"idle" | "loading" | "error">("idle");
   const [wrikeDiscoveryMessage, setWrikeDiscoveryMessage] = useState<string | null>(null);
   const [wrikeDiscoveryPreview, setWrikeDiscoveryPreview] = useState<WrikeTaskDiscoveryPreview | null>(null);
   const [wrikeConnectionDraft, setWrikeConnectionDraft] = useState({
-    host: "",
     client_id: "",
-    client_secret: "",
-    refresh_token: ""
+    client_secret: ""
   });
   const [submitRuntime, setSubmitRuntime] = useState<SubmitRuntimeStatus | null>(null);
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
@@ -3827,8 +3831,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const response = await fetch(`${apiBaseUrl}/api/wrike/connection`);
       const payload = await readJsonResponse<WrikeConnectionStatusPayload>(response);
       setWrikeConnection(payload);
-      setWrikeConnectionDraft((current) => ({ ...current, host: payload.host ?? "" }));
-      setWrikeConnectionMessage(null);
+      if (wrikeOAuthReturnMessageRef.current) {
+        setWrikeConnectionMessage(wrikeOAuthReturnMessageRef.current);
+        wrikeOAuthReturnMessageRef.current = null;
+      } else {
+        setWrikeConnectionMessage(null);
+      }
       setWrikeConnectionState("idle");
     } catch (error) {
       setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike connection status load failed.");
@@ -3847,15 +3855,39 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const payload = await readJsonResponse<WrikeConnectionStatusPayload>(response);
       setWrikeConnection(payload);
       setWrikeConnectionDraft({
-        host: payload.host ?? wrikeConnectionDraft.host,
         client_id: "",
-        client_secret: "",
-        refresh_token: ""
+        client_secret: ""
       });
-      setWrikeConnectionMessage("Wrike OAuth values saved in Pathfinder's secret boundary. No Wrike request was made.");
+      setWrikeConnectionMessage(
+        payload.oauth_connect_ready
+          ? "Wrike app credentials are saved securely. Continue with Wrike to authorize read-only access."
+          : "Wrike app credentials were not complete."
+      );
       setWrikeConnectionState("idle");
     } catch (error) {
       setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike OAuth connection save failed.");
+      setWrikeConnectionState("error");
+    }
+  }
+
+  async function startWrikeOAuthConnection() {
+    setWrikeConnectionState("authorizing");
+    setWrikeConnectionMessage(null);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/wrike/oauth/start`, { method: "POST" });
+      const payload = await readJsonResponse<{
+        authorization_url: string;
+        expires_at: string;
+        redirect_uri: string;
+        requested_scope: "wsReadOnly";
+      }>(response);
+      const authorizationUrl = new URL(payload.authorization_url);
+      if (authorizationUrl.origin !== "https://login.wrike.com") {
+        throw new Error("Pathfinder received an unexpected Wrike authorization destination.");
+      }
+      window.location.assign(authorizationUrl.toString());
+    } catch (error) {
+      setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike authorization could not be started.");
       setWrikeConnectionState("error");
     }
   }
@@ -3866,7 +3898,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const response = await fetch(`${apiBaseUrl}/api/wrike/connection/test`, { method: "POST" });
       const payload = await readJsonResponse<WrikeConnectionStatusPayload>(response);
       setWrikeConnection(payload);
-      setWrikeConnectionDraft((current) => ({ ...current, host: payload.host ?? current.host }));
       setWrikeConnectionMessage("Wrike OAuth refresh and read-only identity check passed.");
       setWrikeConnectionState("idle");
     } catch (error) {
@@ -4764,6 +4795,33 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       closeJobDetail();
     }
   }, [activeGlobalView, activeCustomerView, selectedCustomerId]);
+
+  useEffect(() => {
+    const currentUrl = new URL(window.location.href);
+    const oauthResult = currentUrl.searchParams.get("wrike_oauth");
+    if (oauthResult !== "connected" && oauthResult !== "error") {
+      return;
+    }
+
+    const reason = currentUrl.searchParams.get("reason");
+    const errorMessages: Record<string, string> = {
+      invalid_state: "Wrike authorization could not be verified. Start a new connection attempt.",
+      expired: "The Wrike authorization window expired. Start a new connection attempt.",
+      denied: "Wrike authorization was cancelled or denied.",
+      incomplete: "Wrike did not return a complete authorization response.",
+      exchange: "Wrike authorization could not be completed. Start a new connection attempt."
+    };
+    wrikeOAuthReturnMessageRef.current = oauthResult === "connected"
+      ? "Wrike is connected with read-only OAuth access. No task, attachment, job, webhook, or Lift action was performed."
+      : errorMessages[reason ?? ""] ?? "Wrike authorization could not be completed.";
+    setWrikeConnectionMessage(wrikeOAuthReturnMessageRef.current);
+    setWrikeConnectionState(oauthResult === "connected" ? "idle" : "error");
+    setActiveGlobalView("Settings");
+
+    currentUrl.searchParams.delete("wrike_oauth");
+    currentUrl.searchParams.delete("reason");
+    window.history.replaceState({}, "", `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
+  }, []);
 
   useEffect(() => {
     if (activeGlobalView === "Settings") {
@@ -14817,13 +14875,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <div className="wrike-connection-summary">
                 <div>
                   <span>Connection</span>
-                  <strong>{wrikeConnection?.configured ? "Credentials configured" : "Configuration required"}</strong>
+                  <strong>
+                    {wrikeConnection?.configured
+                      ? "Wrike connected"
+                      : wrikeConnection?.oauth_connect_ready
+                        ? "Ready to authorize"
+                        : "App credentials required"}
+                  </strong>
                   <small>{wrikeConnection?.health.message ?? "Loading the server-owned Wrike connection posture."}</small>
                 </div>
                 <div>
                   <span>Regional Host</span>
-                  <strong>{wrikeConnection?.host ?? "Not saved"}</strong>
-                  <small>Only a validated HTTPS *.wrike.com OAuth host is accepted.</small>
+                  <strong>{wrikeConnection?.host ?? "Returned by Wrike"}</strong>
+                  <small>Pathfinder accepts only the validated HTTPS *.wrike.com host returned during authorization.</small>
                 </div>
                 <div>
                   <span>Last Check</span>
@@ -14842,15 +14906,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
 
               <div className="wrike-connection-form">
-                <label>
-                  <span>Wrike regional host</span>
-                  <input
-                    value={wrikeConnectionDraft.host}
-                    onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, host: event.target.value }))}
-                    placeholder="www.wrike.com"
-                    autoComplete="off"
-                  />
-                </label>
                 <label>
                   <span>OAuth client ID</span>
                   <input
@@ -14872,13 +14927,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   />
                 </label>
                 <label>
-                  <span>OAuth refresh token</span>
+                  <span>Authorized redirect URL</span>
                   <input
-                    type="password"
-                    value={wrikeConnectionDraft.refresh_token}
-                    onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, refresh_token: event.target.value }))}
-                    placeholder={wrikeConnection?.credentials.refresh_token_configured ? "Saved · enter only to replace" : "Required"}
-                    autoComplete="new-password"
+                    value={wrikeConnection?.oauth_redirect_uri ?? "Loading callback URL"}
+                    readOnly
+                    aria-label="Wrike authorized redirect URL"
                   />
                 </label>
               </div>
@@ -14887,17 +14940,36 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <div className="wrike-connection-guardrail">
                   <ShieldCheck size={18} />
                   <span>
-                    Saving writes only to Pathfinder's secret store. Testing performs OAuth refresh and
-                    <code> GET /contacts?me=true</code>. The separately gated discovery preview may read one saved task and its attachment metadata, but it cannot return provider content, download files, create jobs or webhooks, poll, write to Wrike, or act in Lift.
+                    Connect Wrike authorizes server-side <code>wsReadOnly</code> access. It does not download files,
+                    create jobs or webhooks, start polling, write to Wrike, or act in Lift.
                   </span>
                 </div>
-                <button
-                  className="primary-button"
-                  onClick={() => void saveWrikeConnection()}
-                  disabled={wrikeConnectionState === "saving"}
-                >
-                  {wrikeConnectionState === "saving" ? "Saving" : "Save secret connection"}
-                </button>
+                <div className="wrike-connection-actions">
+                  <button
+                    className="secondary-button"
+                    onClick={() => void saveWrikeConnection()}
+                    disabled={wrikeConnectionState === "saving" || wrikeConnectionState === "authorizing"}
+                  >
+                    {wrikeConnectionState === "saving" ? "Saving" : "Save app credentials"}
+                  </button>
+                  <button
+                    className="primary-button"
+                    onClick={() => void startWrikeOAuthConnection()}
+                    disabled={
+                      wrikeConnectionState === "saving" ||
+                      wrikeConnectionState === "authorizing" ||
+                      !wrikeConnection?.oauth_connect_ready
+                    }
+                    title={!wrikeConnection?.oauth_connect_ready ? "Save the Wrike client ID and secret first." : undefined}
+                  >
+                    <Workflow size={16} />
+                    {wrikeConnectionState === "authorizing"
+                      ? "Opening Wrike"
+                      : wrikeConnection?.configured
+                        ? "Reconnect Wrike"
+                        : "Connect Wrike"}
+                  </button>
+                </div>
               </div>
 
               {wrikeConnectionMessage ? (

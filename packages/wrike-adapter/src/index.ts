@@ -29,10 +29,16 @@ export interface WrikeOAuthRefreshResult {
   refreshed_at: string;
 }
 
+export interface WrikeOAuthAuthorizationResult {
+  credentials: WrikeOAuthCredentials;
+  authorized_at: string;
+}
+
 export class WrikeConnectionError extends Error {
   constructor(
     public readonly code:
       | "invalid_configuration"
+      | "oauth_authorization_failed"
       | "oauth_refresh_failed"
       | "identity_check_failed"
       | "task_discovery_failed"
@@ -406,6 +412,23 @@ export function normalizeWrikeHost(value: unknown) {
   return hostname;
 }
 
+export function buildWrikeAuthorizationUrl(args: {
+  client_id: string;
+  redirect_uri: string;
+  state: string;
+}) {
+  const clientId = requiredCredential(args.client_id, "Wrike OAuth client ID");
+  const redirectUri = requiredCredential(args.redirect_uri, "Wrike OAuth redirect URI");
+  const state = requiredCredential(args.state, "Wrike OAuth state");
+  const authorizationUrl = new URL("https://login.wrike.com/oauth2/authorize");
+  authorizationUrl.searchParams.set("client_id", clientId);
+  authorizationUrl.searchParams.set("response_type", "code");
+  authorizationUrl.searchParams.set("redirect_uri", redirectUri);
+  authorizationUrl.searchParams.set("scope", "wsReadOnly");
+  authorizationUrl.searchParams.set("state", state);
+  return authorizationUrl.toString();
+}
+
 function requiredCredential(value: string, label: string) {
   if (!value.trim()) {
     throw new WrikeConnectionError("invalid_configuration", `${label} is required.`);
@@ -419,6 +442,83 @@ async function responseJson(response: Response) {
   } catch {
     throw new WrikeConnectionError("invalid_response", "Wrike returned an unreadable response.");
   }
+}
+
+export async function exchangeWrikeAuthorizationCode(
+  args: {
+    client_id: string;
+    client_secret: string;
+    code: string;
+    redirect_uri: string;
+  },
+  options: {
+    fetch_impl?: typeof fetch;
+    now?: () => Date;
+  } = {}
+): Promise<WrikeOAuthAuthorizationResult> {
+  const fetchImpl = options.fetch_impl ?? fetch;
+  const now = options.now ?? (() => new Date());
+  const clientId = requiredCredential(args.client_id, "Wrike OAuth client ID");
+  const clientSecret = requiredCredential(args.client_secret, "Wrike OAuth client secret");
+  const code = requiredCredential(args.code, "Wrike OAuth authorization code");
+  const redirectUri = requiredCredential(args.redirect_uri, "Wrike OAuth redirect URI");
+  const tokenBody = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri
+  });
+
+  let tokenResponse: Response;
+  try {
+    tokenResponse = await fetchImpl("https://login.wrike.com/oauth2/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: tokenBody
+    });
+  } catch {
+    throw new WrikeConnectionError(
+      "oauth_authorization_failed",
+      "Pathfinder could not reach the Wrike OAuth service."
+    );
+  }
+
+  if (!tokenResponse.ok) {
+    throw new WrikeConnectionError(
+      "oauth_authorization_failed",
+      `Wrike OAuth authorization was rejected (HTTP ${tokenResponse.status}).`
+    );
+  }
+
+  const tokenPayload = await responseJson(tokenResponse);
+  const accessToken = typeof tokenPayload.access_token === "string" ? tokenPayload.access_token.trim() : "";
+  const refreshToken = typeof tokenPayload.refresh_token === "string" ? tokenPayload.refresh_token.trim() : "";
+  const host = normalizeWrikeHost(tokenPayload.host);
+  if (!accessToken || !refreshToken) {
+    throw new WrikeConnectionError(
+      "invalid_response",
+      "Wrike OAuth did not return the required access and refresh tokens."
+    );
+  }
+
+  const authorizedAt = now();
+  const expiresIn = Number(tokenPayload.expires_in);
+  const accessTokenExpiresAt = Number.isFinite(expiresIn) && expiresIn > 0
+    ? new Date(authorizedAt.getTime() + expiresIn * 1000).toISOString()
+    : undefined;
+
+  return {
+    credentials: {
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: refreshToken,
+      access_token: accessToken,
+      access_token_expires_at: accessTokenExpiresAt,
+      host
+    },
+    authorized_at: authorizedAt.toISOString()
+  };
 }
 
 export async function refreshWrikeOAuthCredentials(

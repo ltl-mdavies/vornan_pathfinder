@@ -119,6 +119,8 @@ jobs:
               PublicIntakeEmailVerificationEnabled="${{ vars.PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED || 'false' }}" \
               WrikeConnectionTestEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST || 'false' }}" \
               WrikeDiscoveryPreviewEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW || 'false' }}" \
+              WrikeOAuthRedirectUri="${{ vars.PATHFINDER_WRIKE_OAUTH_REDIRECT_URI || 'https://api.pathfinder.vornan.co/oauth/wrike/callback' }}" \
+              PathfinderAppBaseUrl="${{ vars.PATHFINDER_APP_BASE_URL || 'https://pathfinder.vornan.co' }}" \
               EmailFrom="${{ vars.PATHFINDER_EMAIL_FROM || 'Vornan Updates <notifications@notify.vornan.co>' }}" \
               StatusReplyTo="${{ vars.PATHFINDER_STATUS_REPLY_TO || 'support@vornan.co' }}" \
               ProofReplyTo="${{ vars.PATHFINDER_PROOF_REPLY_TO || 'support@vornan.com' }}" \
