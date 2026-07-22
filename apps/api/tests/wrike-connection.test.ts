@@ -19,6 +19,7 @@ before(async () => {
   process.env.PATHFINDER_REQUIRE_AUTH = "false";
   process.env.PATHFINDER_ENABLE_LIFT_SUBMIT = "false";
   process.env.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST = "true";
+  process.env.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW = "true";
   originalFetch = globalThis.fetch;
   ({ app } = await import("../src/server.ts"));
 });
@@ -48,7 +49,10 @@ test("stores Wrike OAuth material only in the secret boundary and returns redact
     access_token_cached: false,
     access_token_expires_at: null
   });
-  assert.equal(saved.body.capabilities.task_discovery, false);
+  assert.equal(saved.body.discovery_preview_enabled, true);
+  assert.equal(saved.body.capabilities.task_discovery, true);
+  assert.equal(saved.body.capabilities.attachment_metadata, true);
+  assert.equal(saved.body.capabilities.attachment_download, false);
   assert.equal(saved.body.capabilities.wrike_writes, false);
   assert.equal(JSON.stringify(saved.body).includes("wrike-client-secret"), false);
   assert.equal(JSON.stringify(saved.body).includes("wrike-refresh-token"), false);
@@ -131,4 +135,101 @@ test("persists rotated OAuth credentials when the identity check fails", async (
   const stored = await readFile(join(testDirectory, "secrets.json"), "utf8");
   assert.equal(stored.includes("failure-path-refresh"), true);
   assert.equal(stored.includes("failure-path-access"), true);
+});
+
+test("runs a bounded saved-scope discovery preview without returning task or attachment content", async () => {
+  await request(app)
+    .put("/api/wrike/connection")
+    .send({
+      host: "www.wrike.com",
+      client_id: "discovery-client-id",
+      client_secret: "discovery-client-secret",
+      refresh_token: "discovery-refresh-token"
+    })
+    .expect(200);
+
+  await request(app)
+    .put("/api/customers/wrike-discovery/import-methods/manual-xlsx")
+    .send({
+      source: "Wrike",
+      type: "Scheduled",
+      source_config: {
+        wrike: {
+          folder_id: "IEAPPROVEDFOLDER",
+          approved_discovery_task_id: "IEAPPROVEDTASK",
+          trigger_status_id: "IEORDEREDSTATUS",
+          trigger_status_label: "Ordered",
+          attachment_filename_contains: "order",
+          attachment_extensions: ["xlsx"]
+        }
+      }
+    })
+    .expect(200);
+
+  const calls: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.endsWith("/oauth2/token")) {
+      return new Response(
+        JSON.stringify({
+          access_token: "discovery-access-token",
+          refresh_token: "discovery-rotated-refresh-token",
+          host: "www.wrike.com"
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (url.includes("/attachments")) {
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "IEATTACHMENT0001",
+              version: 2,
+              name: "Private Momentara order.xlsx",
+              url: "https://temporary.example/private-download"
+            }
+          ]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        data: [
+          {
+            id: "IEAPPROVEDTASK",
+            accountId: "IEACCOUNT",
+            parentIds: ["IEAPPROVEDFOLDER"],
+            customStatusId: "IEORDEREDSTATUS",
+            attachmentCount: 1,
+            title: "Private Momentara order task"
+          }
+        ]
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  };
+
+  const response = await request(app)
+    .post("/api/customers/wrike-discovery/import-methods/manual-xlsx/wrike/discovery-preview")
+    .expect(200);
+
+  assert.equal(response.body.status, "Confirmed");
+  assert.equal(response.body.observed.task_id, "IEAPPROVEDTASK");
+  assert.equal(response.body.observed.workbook_candidate_count, 1);
+  assert.equal(response.body.capabilities.attachment_download, false);
+  assert.deepEqual(calls, [
+    "https://www.wrike.com/oauth2/token",
+    "https://www.wrike.com/api/v4/tasks/IEAPPROVEDTASK?fields=%5B%22attachmentCount%22%5D",
+    "https://www.wrike.com/api/v4/tasks/IEAPPROVEDTASK/attachments?versions=false&withUrls=false"
+  ]);
+  const publicPayload = JSON.stringify(response.body);
+  assert.equal(publicPayload.includes("Private Momentara"), false);
+  assert.equal(publicPayload.includes("temporary.example"), false);
+  assert.equal(publicPayload.includes("discovery-access-token"), false);
+
+  const stored = await readFile(join(testDirectory, "secrets.json"), "utf8");
+  assert.equal(stored.includes("discovery-rotated-refresh-token"), true);
 });

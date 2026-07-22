@@ -3014,3 +3014,26 @@ Prepared a non-mutating, fail-closed closure control for the approved internal r
 - Validation passed every workspace typecheck, all 169 workspace tests, all 61 Proof deployment-safety tests, every production build, both bounded readiness evaluators, the live preparation check, and the deliberately premature deadline refusal.
 
 The running dev window remains unchanged and is still governed by its existing expiry. Actual dark restoration remains deferred until the deadline or a separately approved rollback trigger.
+
+## 2026-07-21 - Wrike Approved-Scope Discovery Preview
+
+Merged the green connection-health PR #24 into `main` at `1ffbb44`, then started the bounded discovery work from that exact baseline in the isolated `/private/tmp/pathfinder-wrike-discovery-preview` worktree on `codex/wrike-discovery-preview`; the Proof checkout was not modified.
+
+- Added one operator-saved approved Wrike task ID to the Import Method contract.
+- Added a separately gated, authenticated discovery preview that refreshes OAuth, reads exactly that task, verifies its configured folder/project and ordered-status IDs, and reads attachment metadata only after the folder scope matches.
+- Supports tasks nested beneath the configured folder/project through Wrike super-parent IDs while still requiring the exact approved task response.
+- Returns only safe provider IDs, counts, and operator checks. Task copy, attachment filenames, temporary URLs, file contents, OAuth values, and arbitrary Wrike payload fields are not returned or persisted.
+- Added a compact Import Method preview card with clear save/connection/contract/gate prerequisites and responsive identifier/count summaries.
+- Added `PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW`, default false in local configuration, CloudFormation, and the API deployment workflow.
+- Added adapter, API, dark-gate, credential-rotation, response-redaction, folder-mismatch, and Import Method persistence regression coverage.
+
+This slice does not download or select an attachment, persist discovery output, create a preview job, enable polling or webhooks, write to Wrike, act in Lift, use real credentials, enable the gate, or deploy.
+
+Release-checkpoint validation passed:
+
+- `npm run check`
+- `npm run test` (all 173 workspace tests)
+- `npm run build`
+- `npm run test:proof-deploy` (all 61 deployment-safety tests on the merged Proof baseline)
+- `git diff --check`
+- Local in-app browser QA with the discovery gate disabled at 1280px desktop and 390px mobile, including the disabled action, explicit safety copy, responsive single-column layout, and no horizontal overflow

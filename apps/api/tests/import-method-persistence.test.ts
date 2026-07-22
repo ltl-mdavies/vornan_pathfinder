@@ -85,6 +85,7 @@ test("persists a Wrike source contract without retaining credentials or weakenin
       wrike: {
         enabled: false,
         folder_id: " IEABFOLDER ",
+        approved_discovery_task_id: " IEABAPPROVEDTASK ",
         trigger_mode: "webhook_with_reconciliation",
         trigger_status_id: " IEABORDERED ",
         trigger_status_label: "Ordered",
@@ -102,6 +103,7 @@ test("persists a Wrike source contract without retaining credentials or weakenin
 
   assert.equal(saved.source, "Wrike");
   assert.equal(saved.source_config.wrike.folder_id, "IEABFOLDER");
+  assert.equal(saved.source_config.wrike.approved_discovery_task_id, "IEABAPPROVEDTASK");
   assert.equal(saved.source_config.wrike.trigger_status_id, "IEABORDERED");
   assert.equal(saved.source_config.wrike.create_preview_only, true);
   assert.equal(saved.source_config.wrike.idempotency_strategy, "task_attachment_version");

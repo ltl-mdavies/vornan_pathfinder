@@ -81,6 +81,7 @@ import {
   getWrikeContractReadiness,
   normalizeWrikeSourceConfig,
   type WrikeSourceConfig,
+  type WrikeTaskDiscoveryPreview,
   type WrikeTriggerMode,
   type WrikeWorkbookExtension
 } from "@pathfinder/wrike-adapter";
@@ -188,6 +189,7 @@ type EmailStatusPayload = {
 type WrikeConnectionStatusPayload = {
   configured: boolean;
   connection_test_enabled: boolean;
+  discovery_preview_enabled: boolean;
   host: string | null;
   credentials: {
     client_id_configured: boolean;
@@ -207,8 +209,9 @@ type WrikeConnectionStatusPayload = {
     oauth_refresh: boolean;
     identity_check: boolean;
     requested_scope: "wsReadOnly";
-    task_discovery: false;
-    attachment_download: false;
+    task_discovery: boolean;
+    attachment_metadata: boolean;
+    attachment_download: boolean;
     webhook: false;
     polling: false;
     wrike_writes: false;
@@ -3449,6 +3452,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [wrikeConnection, setWrikeConnection] = useState<WrikeConnectionStatusPayload | null>(null);
   const [wrikeConnectionState, setWrikeConnectionState] = useState<"idle" | "loading" | "saving" | "testing" | "error">("idle");
   const [wrikeConnectionMessage, setWrikeConnectionMessage] = useState<string | null>(null);
+  const [wrikeDiscoveryState, setWrikeDiscoveryState] = useState<"idle" | "loading" | "error">("idle");
+  const [wrikeDiscoveryMessage, setWrikeDiscoveryMessage] = useState<string | null>(null);
+  const [wrikeDiscoveryPreview, setWrikeDiscoveryPreview] = useState<WrikeTaskDiscoveryPreview | null>(null);
   const [wrikeConnectionDraft, setWrikeConnectionDraft] = useState({
     host: "",
     client_id: "",
@@ -3865,6 +3871,32 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     } catch (error) {
       setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike read-only connection test failed.");
       setWrikeConnectionState("error");
+    }
+  }
+
+  async function previewWrikeDiscovery() {
+    if (!selectedCustomerId || !activeImportMethod) {
+      return;
+    }
+    setWrikeDiscoveryState("loading");
+    setWrikeDiscoveryMessage(null);
+    setWrikeDiscoveryPreview(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/import-methods/${encodeURIComponent(activeImportMethod.import_method_id)}/wrike/discovery-preview`,
+        { method: "POST" }
+      );
+      const payload = await readJsonResponse<WrikeTaskDiscoveryPreview>(response);
+      setWrikeDiscoveryPreview(payload);
+      setWrikeDiscoveryMessage(
+        payload.status === "Confirmed"
+          ? "The approved Wrike task and saved workbook rule were confirmed. No file was downloaded and no job was created."
+          : "Wrike returned the approved task, but one or more saved-scope checks need operator review."
+      );
+      setWrikeDiscoveryState("idle");
+    } catch (error) {
+      setWrikeDiscoveryMessage(error instanceof Error ? error.message : "Wrike discovery preview failed.");
+      setWrikeDiscoveryState("error");
     }
   }
 
@@ -4825,6 +4857,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     activeImportMethod?.source_config.wrike ?? createDefaultWrikeSourceConfig()
   );
   const activeWrikeReadiness = getWrikeContractReadiness(activeWrikeConfig);
+  useEffect(() => {
+    setWrikeDiscoveryPreview(null);
+    setWrikeDiscoveryMessage(null);
+    setWrikeDiscoveryState("idle");
+    if (isImportMethodDetailOpen && activeImportMethod?.source === "Wrike") {
+      void loadWrikeConnection();
+    }
+  }, [activeImportMethod?.import_method_id, activeImportMethod?.source, isImportMethodDetailOpen, selectedCustomerId]);
   const activeProductConfig = workflowImportMethod?.product_resolution_config ?? defaultProductResolutionConfig;
   const activeOrderNameConfig =
     workflowImportMethod?.order_name_resolution_config ?? defaultOrderNameResolutionConfig;
@@ -6515,6 +6555,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     if (methodId) {
       setDirtyImportMethodIds((current) => (current.includes(methodId) ? current : [...current, methodId]));
     }
+  }
+
+  function updateActiveWrikeConfig(patch: Partial<WrikeSourceConfig>) {
+    if (!activeImportMethod) {
+      return;
+    }
+    setWrikeDiscoveryPreview(null);
+    setWrikeDiscoveryMessage(null);
+    setWrikeDiscoveryState("idle");
+    updateActiveMethodDraft({
+      source_config: {
+        ...activeImportMethod.source_config,
+        wrike: { ...activeWrikeConfig, ...patch }
+      }
+    });
   }
 
   function updateOutputRouteDraft(routeId: string, patch: Partial<OutputRoute>) {
@@ -8879,13 +8934,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <input
                                 value={activeWrikeConfig.folder_id}
                                 placeholder="Wrike API ID"
+                                onChange={(event) => updateActiveWrikeConfig({ folder_id: event.target.value })}
+                              />
+                            </label>
+                            <label className="setup-control">
+                              <span>Approved discovery task ID</span>
+                              <input
+                                value={activeWrikeConfig.approved_discovery_task_id}
+                                placeholder="One operator-approved Wrike task"
                                 onChange={(event) =>
-                                  updateActiveMethodDraft({
-                                    source_config: {
-                                      ...activeImportMethod.source_config,
-                                      wrike: { ...activeWrikeConfig, folder_id: event.target.value }
-                                    }
-                                  })
+                                  updateActiveWrikeConfig({ approved_discovery_task_id: event.target.value })
                                 }
                               />
                             </label>
@@ -8894,15 +8952,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <select
                                 value={activeWrikeConfig.trigger_mode}
                                 onChange={(event) =>
-                                  updateActiveMethodDraft({
-                                    source_config: {
-                                      ...activeImportMethod.source_config,
-                                      wrike: {
-                                        ...activeWrikeConfig,
-                                        trigger_mode: event.target.value as WrikeTriggerMode
-                                      }
-                                    }
-                                  })
+                                  updateActiveWrikeConfig({ trigger_mode: event.target.value as WrikeTriggerMode })
                                 }
                               >
                                 <option value="scheduled_polling">Scheduled polling</option>
@@ -8914,14 +8964,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <input
                                 value={activeWrikeConfig.trigger_status_id}
                                 placeholder="Custom workflow status API ID"
-                                onChange={(event) =>
-                                  updateActiveMethodDraft({
-                                    source_config: {
-                                      ...activeImportMethod.source_config,
-                                      wrike: { ...activeWrikeConfig, trigger_status_id: event.target.value }
-                                    }
-                                  })
-                                }
+                                onChange={(event) => updateActiveWrikeConfig({ trigger_status_id: event.target.value })}
                               />
                             </label>
                             <label className="setup-control">
@@ -8929,14 +8972,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <input
                                 value={activeWrikeConfig.trigger_status_label}
                                 placeholder="Ordered"
-                                onChange={(event) =>
-                                  updateActiveMethodDraft({
-                                    source_config: {
-                                      ...activeImportMethod.source_config,
-                                      wrike: { ...activeWrikeConfig, trigger_status_label: event.target.value }
-                                    }
-                                  })
-                                }
+                                onChange={(event) => updateActiveWrikeConfig({ trigger_status_label: event.target.value })}
                               />
                             </label>
                             <label className="setup-control">
@@ -8945,15 +8981,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 value={activeWrikeConfig.attachment_filename_contains}
                                 placeholder="Optional, e.g. print order"
                                 onChange={(event) =>
-                                  updateActiveMethodDraft({
-                                    source_config: {
-                                      ...activeImportMethod.source_config,
-                                      wrike: {
-                                        ...activeWrikeConfig,
-                                        attachment_filename_contains: event.target.value
-                                      }
-                                    }
-                                  })
+                                  updateActiveWrikeConfig({ attachment_filename_contains: event.target.value })
                                 }
                               />
                             </label>
@@ -8962,15 +8990,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <select
                                 value={activeWrikeConfig.poll_interval_minutes}
                                 onChange={(event) =>
-                                  updateActiveMethodDraft({
-                                    source_config: {
-                                      ...activeImportMethod.source_config,
-                                      wrike: {
-                                        ...activeWrikeConfig,
-                                        poll_interval_minutes: Number(event.target.value)
-                                      }
-                                    }
-                                  })
+                                  updateActiveWrikeConfig({ poll_interval_minutes: Number(event.target.value) })
                                 }
                               >
                                 {[5, 10, 15, 30, 60].map((minutes) => (
@@ -8994,15 +9014,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                       const attachmentExtensions = event.target.checked
                                         ? Array.from(new Set([...activeWrikeConfig.attachment_extensions, extension]))
                                         : activeWrikeConfig.attachment_extensions.filter((candidate) => candidate !== extension);
-                                      updateActiveMethodDraft({
-                                        source_config: {
-                                          ...activeImportMethod.source_config,
-                                          wrike: {
-                                            ...activeWrikeConfig,
-                                            attachment_extensions: attachmentExtensions
-                                          }
-                                        }
-                                      });
+                                      updateActiveWrikeConfig({ attachment_extensions: attachmentExtensions });
                                     }}
                                   />
                                   <span className="switch-field-track" aria-hidden="true" />
@@ -9010,6 +9022,104 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 </label>
                               ))}
                             </div>
+                          </div>
+
+                          <div className="wrike-discovery-preview">
+                            <div className="wrike-discovery-heading">
+                              <div>
+                                <span className="section-eyebrow">Read-only discovery preview</span>
+                                <strong>Confirm one saved Wrike task before automation work begins</strong>
+                                <small>
+                                  Pathfinder returns provider IDs and counts only. Task copy, filenames, URLs, file contents, and customer data are not shown or persisted.
+                                </small>
+                              </div>
+                              <div className="wrike-discovery-actions">
+                                <span
+                                  className={
+                                    wrikeConnection?.discovery_preview_enabled
+                                      ? "mini-pill mini-pill-success"
+                                      : "mini-pill mini-pill-warning"
+                                  }
+                                >
+                                  {wrikeConnection?.discovery_preview_enabled ? "Preview gate on" : "Preview gate off"}
+                                </span>
+                                <button
+                                  className="secondary-button table-inline-button"
+                                  onClick={() => void previewWrikeDiscovery()}
+                                  disabled={
+                                    wrikeDiscoveryState === "loading" ||
+                                    !wrikeConnection?.discovery_preview_enabled ||
+                                    !wrikeConnection?.configured ||
+                                    activeImportMethodHasUnsavedChanges ||
+                                    activeWrikeReadiness.status !== "Configured" ||
+                                    !activeWrikeConfig.approved_discovery_task_id
+                                  }
+                                  title={
+                                    !wrikeConnection?.discovery_preview_enabled
+                                      ? "The server discovery-preview gate is off."
+                                      : activeImportMethodHasUnsavedChanges
+                                        ? "Save this Import Method before previewing its approved scope."
+                                        : activeWrikeReadiness.status !== "Configured" || !activeWrikeConfig.approved_discovery_task_id
+                                          ? "Save the folder, status, workbook rule, and approved task ID first."
+                                          : !wrikeConnection?.configured
+                                            ? "Configure the secret-backed Wrike OAuth connection first."
+                                            : undefined
+                                  }
+                                >
+                                  <Search size={14} />
+                                  {wrikeDiscoveryState === "loading" ? "Checking approved task" : "Run approved task preview"}
+                                </button>
+                              </div>
+                            </div>
+
+                            {wrikeDiscoveryPreview ? (
+                              <>
+                                <div className="wrike-discovery-summary">
+                                  <div>
+                                    <span>Task ID</span>
+                                    <strong>{wrikeDiscoveryPreview.observed.task_id}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Folder scope</span>
+                                    <strong>
+                                      {wrikeDiscoveryPreview.checks.find((check) => check.check_id === "folder_scope")?.status === "Passed"
+                                        ? "Matched"
+                                        : "Needs review"}
+                                    </strong>
+                                  </div>
+                                  <div>
+                                    <span>Status ID</span>
+                                    <strong>{wrikeDiscoveryPreview.observed.custom_status_id ?? "Not returned"}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Attachments</span>
+                                    <strong>{wrikeDiscoveryPreview.observed.attachment_metadata_count ?? "Not read"}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Workbook candidates</span>
+                                    <strong>{wrikeDiscoveryPreview.observed.workbook_candidate_count ?? "Not evaluated"}</strong>
+                                  </div>
+                                </div>
+                                <div className="wrike-discovery-checks">
+                                  {wrikeDiscoveryPreview.checks.map((check) => (
+                                    <div key={check.check_id}>
+                                      <RouteDiagnosticPill status={check.status} />
+                                      <span>{check.message}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            ) : null}
+
+                            {wrikeDiscoveryMessage ? (
+                              <div className={wrikeDiscoveryState === "error" ? "email-health-error" : "wrike-discovery-message"}>
+                                {wrikeDiscoveryState === "error" ? <AlertTriangle size={16} /> : <ShieldCheck size={16} />}
+                                <span>{wrikeDiscoveryMessage}</span>
+                              </div>
+                            ) : null}
+                            <p className="wrike-contract-note">
+                              This preview cannot download an attachment, create a Pathfinder job, enable polling or webhooks, write to Wrike, or act in Lift.
+                            </p>
                           </div>
 
                           <div className="wrike-contract-flow" aria-label="Wrike ingestion safety boundary">
@@ -9025,7 +9135,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             </span>
                           </div>
                           <p className="wrike-contract-note">
-                            Connection and activation remain unavailable until OAuth access, secret storage, webhook/polling runtime, and audit telemetry are approved.
+                            Automated attachment selection, download, polling, webhooks, and activation remain unavailable until their separate safety and audit slices are approved.
                           </p>
                         </div>
                       ) : null}
@@ -14661,7 +14771,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <div>
                   <span>Scope</span>
                   <strong>wsReadOnly</strong>
-                  <small>Current-user identity only; task and attachment discovery remain unavailable.</small>
+                  <small>
+                    {wrikeConnection?.discovery_preview_enabled
+                      ? "Connection health plus one saved, operator-approved task preview; automation remains unavailable."
+                      : "Current-user identity only; the separate approved-task preview gate is off."}
+                  </small>
                 </div>
               </div>
 
@@ -14712,7 +14826,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <ShieldCheck size={18} />
                   <span>
                     Saving writes only to Pathfinder's secret store. Testing performs OAuth refresh and
-                    <code> GET /contacts?me=true</code>; it cannot discover tasks, download files, create webhooks, poll, write to Wrike, or act in Lift.
+                    <code> GET /contacts?me=true</code>. The separately gated discovery preview may read one saved task and its attachment metadata, but it cannot return provider content, download files, create jobs or webhooks, poll, write to Wrike, or act in Lift.
                   </span>
                 </div>
                 <button
