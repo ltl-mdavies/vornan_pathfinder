@@ -25,6 +25,7 @@
     "check:proof-phase2": "node scripts/proof-phase2-readiness.mjs",
     "check:proof-activation-review": "node scripts/proof-readonly-activation-review.mjs",
     "check:proof-window": "node scripts/proof-readonly-window-status.mjs",
+    "check:proof-dark-restore": "node scripts/proof-dark-restore-preflight.mjs",
     "check:proof-dns": "node scripts/proof-dns-readiness.mjs",
     "smoke:proof-read-only": "node scripts/smoke-proof-read-only.mjs",
     "qa:proof-synthetic": "node --import tsx/esm scripts/proof-synthetic-lifecycle-qa.ts run",

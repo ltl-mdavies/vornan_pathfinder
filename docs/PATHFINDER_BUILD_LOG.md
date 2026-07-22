@@ -2999,3 +2999,18 @@ Completed a broader real-order coverage pass inside the approved internal LTL De
 - Validation passed every workspace typecheck, all 169 workspace tests on the rebased main baseline, all 55 Proof deployment-safety tests, every production build, both bounded readiness evaluators, the corrected live aggregate check, the sensitive-value diff scan, and `git diff --check`.
 
 No Proof stack deployment, public email, DNS, decision, Lift write, synthetic fixture, or Pathfinder production change occurred. The approved internal window remains active only through its existing deadline and contains no active customer access.
+
+## 2026-07-21 - Proof Dark-Restoration Preflight
+
+Prepared a non-mutating, fail-closed closure control for the approved internal read-only window without restoring the live stack early.
+
+- Added an aggregate preflight layered on the live window inventory. It requires a complete dev stack, zero active grants/sessions, parseable access records, all ten alarms present and `OK`, empty sync/DLQ queues, intact WAF, absent custom domain, and every retained resource output.
+- Defined an exact flag-only target: public read, operator grant creation, synthetic QA, read-only QA confirmation, and production public approval false; activation expiry, customer cohort, domain, and certificate empty.
+- Required `UsePreviousValue` for all other CloudFormation parameters so tables, queues, bucket, logs, WAF, endpoints, dashboard, and deployed artifacts remain unchanged.
+- Added distinct preparation, deadline, and rollback triggers. Deadline review fails before the recorded expiry; rollback review requires an explicit approval boolean.
+- Hard-coded deployment, DNS, email, decision, Lift-write, grant/public-read change, and Phase 3 authorization false in every result, including a satisfied deadline or approved rollback trigger.
+- Documented the preflight ahead of the existing rollback sequence. The current slice prepares review evidence only and does not create or execute a CloudFormation change set.
+- Recorded the exact target, retained resources, live preparation pass, and live premature-deadline refusal in `docs/VORNAN_PROOF_DARK_RESTORE_PREFLIGHT_EVIDENCE_2026-07-21.md`.
+- Validation passed every workspace typecheck, all 169 workspace tests, all 61 Proof deployment-safety tests, every production build, both bounded readiness evaluators, the live preparation check, and the deliberately premature deadline refusal.
+
+The running dev window remains unchanged and is still governed by its existing expiry. Actual dark restoration remains deferred until the deadline or a separately approved rollback trigger.
