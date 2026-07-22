@@ -3,6 +3,42 @@ export type WrikeWorkbookExtension = "xlsx" | "xls" | "csv";
 export type WrikeAttachmentSelectionPolicy = "newest_matching_workbook";
 export type WrikeIdempotencyStrategy = "task_attachment_version";
 
+export interface WrikeOAuthCredentials {
+  client_id: string;
+  client_secret: string;
+  refresh_token: string;
+  access_token?: string;
+  access_token_expires_at?: string;
+  host: string;
+}
+
+export interface WrikeConnectionHealth {
+  status: "Connected";
+  host: string;
+  checked_at: string;
+  identity_confirmed: true;
+}
+
+export interface WrikeConnectionCheckResult {
+  credentials: WrikeOAuthCredentials;
+  health: WrikeConnectionHealth;
+}
+
+export class WrikeConnectionError extends Error {
+  constructor(
+    public readonly code:
+      | "invalid_configuration"
+      | "oauth_refresh_failed"
+      | "identity_check_failed"
+      | "invalid_response",
+    message: string,
+    public readonly rotated_credentials?: WrikeOAuthCredentials
+  ) {
+    super(message);
+    this.name = "WrikeConnectionError";
+  }
+}
+
 export interface WrikeSourceConfig {
   enabled: boolean;
   folder_id: string;
@@ -133,6 +169,170 @@ export function buildWrikeIngestionIdentity(args: {
   return ["wrike", args.account_id, args.task_id, args.attachment_id, args.version_id]
     .map((part) => encodeURIComponent(part.trim()))
     .join(":");
+}
+
+export function normalizeWrikeHost(value: unknown) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) {
+    throw new WrikeConnectionError("invalid_configuration", "Wrike regional host is required.");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw.includes("://") ? raw : `https://${raw}`);
+  } catch {
+    throw new WrikeConnectionError("invalid_configuration", "Wrike regional host is invalid.");
+  }
+
+  const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
+  const isWrikeHost = hostname === "wrike.com" || hostname.endsWith(".wrike.com");
+  if (
+    parsed.protocol !== "https:" ||
+    !isWrikeHost ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    (parsed.pathname !== "/" && parsed.pathname !== "") ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      "Use only the HTTPS Wrike regional host returned by OAuth, such as www.wrike.com."
+    );
+  }
+
+  return hostname;
+}
+
+function requiredCredential(value: string, label: string) {
+  if (!value.trim()) {
+    throw new WrikeConnectionError("invalid_configuration", `${label} is required.`);
+  }
+  return value.trim();
+}
+
+async function responseJson(response: Response) {
+  try {
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    throw new WrikeConnectionError("invalid_response", "Wrike returned an unreadable response.");
+  }
+}
+
+export async function checkWrikeOAuthConnection(
+  credentials: WrikeOAuthCredentials,
+  options: {
+    fetch_impl?: typeof fetch;
+    now?: () => Date;
+  } = {}
+): Promise<WrikeConnectionCheckResult> {
+  const fetchImpl = options.fetch_impl ?? fetch;
+  const now = options.now ?? (() => new Date());
+  const host = normalizeWrikeHost(credentials.host);
+  const clientId = requiredCredential(credentials.client_id, "Wrike OAuth client ID");
+  const clientSecret = requiredCredential(credentials.client_secret, "Wrike OAuth client secret");
+  const refreshToken = requiredCredential(credentials.refresh_token, "Wrike OAuth refresh token");
+  const tokenBody = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    scope: "wsReadOnly"
+  });
+
+  let tokenResponse: Response;
+  try {
+    tokenResponse = await fetchImpl(`https://${host}/oauth2/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: tokenBody
+    });
+  } catch {
+    throw new WrikeConnectionError("oauth_refresh_failed", "Pathfinder could not reach the Wrike OAuth host.");
+  }
+
+  if (!tokenResponse.ok) {
+    throw new WrikeConnectionError(
+      "oauth_refresh_failed",
+      `Wrike OAuth refresh was rejected (HTTP ${tokenResponse.status}).`
+    );
+  }
+
+  const tokenPayload = await responseJson(tokenResponse);
+  const accessToken = typeof tokenPayload.access_token === "string" ? tokenPayload.access_token.trim() : "";
+  const nextRefreshToken =
+    typeof tokenPayload.refresh_token === "string" && tokenPayload.refresh_token.trim()
+      ? tokenPayload.refresh_token.trim()
+      : refreshToken;
+  const responseHost = normalizeWrikeHost(tokenPayload.host ?? host);
+  if (!accessToken) {
+    throw new WrikeConnectionError("invalid_response", "Wrike OAuth did not return an access token.");
+  }
+
+  const checkedAt = now();
+  const expiresIn = Number(tokenPayload.expires_in);
+  const accessTokenExpiresAt = Number.isFinite(expiresIn) && expiresIn > 0
+    ? new Date(checkedAt.getTime() + expiresIn * 1000).toISOString()
+    : undefined;
+  const rotatedCredentials: WrikeOAuthCredentials = {
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: nextRefreshToken,
+    access_token: accessToken,
+    access_token_expires_at: accessTokenExpiresAt,
+    host: responseHost
+  };
+
+  let identityResponse: Response;
+  try {
+    identityResponse = await fetchImpl(`https://${responseHost}/api/v4/contacts?me=true`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+    });
+  } catch {
+    throw new WrikeConnectionError(
+      "identity_check_failed",
+      "Pathfinder could not reach the Wrike API host.",
+      rotatedCredentials
+    );
+  }
+
+  if (!identityResponse.ok) {
+    throw new WrikeConnectionError(
+      "identity_check_failed",
+      `Wrike rejected the read-only identity check (HTTP ${identityResponse.status}).`,
+      rotatedCredentials
+    );
+  }
+
+  let identityPayload: Record<string, unknown>;
+  try {
+    identityPayload = await responseJson(identityResponse);
+  } catch {
+    throw new WrikeConnectionError(
+      "invalid_response",
+      "Wrike returned an unreadable identity response.",
+      rotatedCredentials
+    );
+  }
+  if (!Array.isArray(identityPayload.data) || identityPayload.data.length === 0) {
+    throw new WrikeConnectionError(
+      "invalid_response",
+      "Wrike did not return the authorized user identity.",
+      rotatedCredentials
+    );
+  }
+
+  return {
+    credentials: rotatedCredentials,
+    health: {
+      status: "Connected",
+      host: responseHost,
+      checked_at: checkedAt.toISOString(),
+      identity_confirmed: true
+    }
+  };
 }
 
 function attachmentExtension(fileName: string) {

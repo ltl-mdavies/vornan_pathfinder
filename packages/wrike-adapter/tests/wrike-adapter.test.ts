@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildWrikeIngestionIdentity,
+  checkWrikeOAuthConnection,
   createDefaultWrikeSourceConfig,
   getWrikeContractReadiness,
+  normalizeWrikeHost,
   normalizeWrikeSourceConfig,
-  selectWrikeWorkbookAttachment
+  selectWrikeWorkbookAttachment,
+  WrikeConnectionError
 } from "../src/index.ts";
 
 test("normalizes a fail-closed Wrike intake contract without retaining secrets", () => {
@@ -111,5 +114,126 @@ test("selects the newest matching workbook and fails closed on a timestamp tie",
       config
     ).status,
     "ambiguous"
+  );
+});
+
+test("accepts only a bare HTTPS Wrike regional host", () => {
+  assert.equal(normalizeWrikeHost("app-eu.wrike.com"), "app-eu.wrike.com");
+  assert.equal(normalizeWrikeHost("https://WWW.WRIKE.COM/"), "www.wrike.com");
+  assert.throws(() => normalizeWrikeHost("http://www.wrike.com"), WrikeConnectionError);
+  assert.throws(() => normalizeWrikeHost("https://wrike.example.com"), WrikeConnectionError);
+  assert.throws(() => normalizeWrikeHost("https://www.wrike.com/api/v4/tasks"), WrikeConnectionError);
+});
+
+test("refreshes OAuth and performs only the read-only current-user health check", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({ url, init });
+    if (url.endsWith("/oauth2/token")) {
+      return new Response(
+        JSON.stringify({
+          access_token: "rotated-access-token",
+          refresh_token: "rotated-refresh-token",
+          expires_in: 3600,
+          host: "app-eu.wrike.com"
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return new Response(JSON.stringify({ data: [{ id: "CURRENTUSER" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" }
+    });
+  };
+
+  const result = await checkWrikeOAuthConnection(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    { fetch_impl: fetchImpl, now: () => new Date("2026-07-21T20:00:00.000Z") }
+  );
+
+  assert.deepEqual(calls.map((call) => call.url), [
+    "https://www.wrike.com/oauth2/token",
+    "https://app-eu.wrike.com/api/v4/contacts?me=true"
+  ]);
+  assert.equal(calls.some((call) => /tasks|folders|attachments|webhooks/.test(call.url)), false);
+  assert.match(String(calls[1].init?.headers && (calls[1].init.headers as Record<string, string>).Authorization), /^Bearer /);
+  assert.equal(result.credentials.refresh_token, "rotated-refresh-token");
+  assert.equal(result.credentials.host, "app-eu.wrike.com");
+  assert.equal(result.credentials.access_token_expires_at, "2026-07-21T21:00:00.000Z");
+  assert.deepEqual(result.health, {
+    status: "Connected",
+    host: "app-eu.wrike.com",
+    checked_at: "2026-07-21T20:00:00.000Z",
+    identity_confirmed: true
+  });
+});
+
+test("returns safe OAuth errors without echoing provider secrets", async () => {
+  const secret = "never-echo-this-token";
+  await assert.rejects(
+    checkWrikeOAuthConnection(
+      {
+        client_id: "client-id",
+        client_secret: "client-secret",
+        refresh_token: secret,
+        host: "www.wrike.com"
+      },
+      {
+        fetch_impl: async () =>
+          new Response(JSON.stringify({ errorDescription: `invalid ${secret}` }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" }
+          })
+      }
+    ),
+    (error: unknown) =>
+      error instanceof WrikeConnectionError &&
+      error.code === "oauth_refresh_failed" &&
+      !error.message.includes(secret)
+  );
+});
+
+test("retains rotated OAuth credentials when the identity check fails", async () => {
+  await assert.rejects(
+    checkWrikeOAuthConnection(
+      {
+        client_id: "client-id",
+        client_secret: "client-secret",
+        refresh_token: "original-refresh-token",
+        host: "www.wrike.com"
+      },
+      {
+        fetch_impl: async (input) => {
+          const url = String(input);
+          if (url.endsWith("/oauth2/token")) {
+            return new Response(
+              JSON.stringify({
+                access_token: "rotated-access-token",
+                refresh_token: "rotated-refresh-token",
+                expires_in: 3600,
+                host: "app-eu.wrike.com"
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            );
+          }
+          return new Response(JSON.stringify({ error: "identity unavailable" }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" }
+          });
+        },
+        now: () => new Date("2026-07-21T20:00:00.000Z")
+      }
+    ),
+    (error: unknown) =>
+      error instanceof WrikeConnectionError &&
+      error.code === "identity_check_failed" &&
+      error.rotated_credentials?.refresh_token === "rotated-refresh-token" &&
+      error.rotated_credentials?.host === "app-eu.wrike.com"
   );
 });

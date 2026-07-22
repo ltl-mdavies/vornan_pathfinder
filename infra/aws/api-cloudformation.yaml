@@ -50,6 +50,13 @@ Parameters:
       - "true"
       - "false"
     Description: Fail-closed server gate for one-time customer order dropbox email verification.
+  WrikeConnectionTestEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Explicit operator-only gate for OAuth refresh plus the read-only Wrike current-user health check.
   EmailFrom:
     Type: String
     Default: "Vornan Updates <notifications@notify.vornan.co>"
@@ -344,6 +351,7 @@ Resources:
           PATHFINDER_STATUS_EMAIL_MODE: !Ref PublicStatusEmailMode
           PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK: !Ref PublicStatusEmailDebugReturnLink
           PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED: !Ref PublicIntakeEmailVerificationEnabled
+          PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST: !Ref WrikeConnectionTestEnabled
           PATHFINDER_EMAIL_FROM: !Ref EmailFrom
           PATHFINDER_STATUS_REPLY_TO: !Ref StatusReplyTo
           PATHFINDER_PROOF_REPLY_TO: !Ref ProofReplyTo

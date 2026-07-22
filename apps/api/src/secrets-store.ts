@@ -6,6 +6,7 @@ import {
   SecretsManagerClient
 } from "@aws-sdk/client-secrets-manager";
 import type { LiftTargetConfig } from "@pathfinder/lift-adapter";
+import type { WrikeOAuthCredentials } from "@pathfinder/wrike-adapter";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,9 +26,23 @@ export interface TargetSecrets {
   };
 }
 
+export interface WrikeConnectorSecrets {
+  oauth?: Partial<WrikeOAuthCredentials>;
+  health?: {
+    status: "Connected" | "Error" | "Not tested";
+    host: string | null;
+    checked_at: string | null;
+    identity_confirmed: boolean;
+    message: string;
+  };
+}
+
 interface LocalSecretsStore {
   version: 1;
   targets: Record<string, TargetSecrets>;
+  connectors: {
+    wrike?: WrikeConnectorSecrets;
+  };
 }
 
 const secretsPath =
@@ -52,16 +67,22 @@ export function targetSecretName(targetId: string) {
   return `${normalizeSecretPrefix(config.secret_prefix)}targets/${targetId}`;
 }
 
+export function wrikeConnectorSecretName() {
+  const config = getPathfinderPersistenceRuntimeConfig();
+  return `${normalizeSecretPrefix(config.secret_prefix)}connectors/wrike`;
+}
+
 async function readLocalSecrets(): Promise<LocalSecretsStore> {
   try {
     const content = await readFile(secretsPath, "utf8");
     const parsed = JSON.parse(content) as LocalSecretsStore;
     return {
       version: 1,
-      targets: parsed.targets ?? {}
+      targets: parsed.targets ?? {},
+      connectors: parsed.connectors ?? {}
     };
   } catch {
-    return { version: 1, targets: {} };
+    return { version: 1, targets: {}, connectors: {} };
   }
 }
 
@@ -79,6 +100,18 @@ function normalizeTargetSecrets(value: unknown): TargetSecrets {
   return {
     environments: parsed.environments ?? {},
     lift: parsed.lift ?? {}
+  };
+}
+
+function normalizeWrikeConnectorSecrets(value: unknown): WrikeConnectorSecrets {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const parsed = value as WrikeConnectorSecrets;
+  return {
+    oauth: parsed.oauth ?? {},
+    health: parsed.health
   };
 }
 
@@ -124,6 +157,41 @@ async function writeSecretsManagerTargetSecrets(targetId: string, targetSecrets:
   }
 }
 
+async function readSecretsManagerWrikeConnectorSecrets(): Promise<WrikeConnectorSecrets> {
+  const secretName = wrikeConnectorSecretName();
+  try {
+    const response = await getSecretsManagerClient().send(new GetSecretValueCommand({ SecretId: secretName }));
+    if (!response.SecretString) {
+      return {};
+    }
+    return normalizeWrikeConnectorSecrets(JSON.parse(response.SecretString));
+  } catch (error) {
+    if (error instanceof ResourceNotFoundException) {
+      return {};
+    }
+    throw error;
+  }
+}
+
+async function writeSecretsManagerWrikeConnectorSecrets(connectorSecrets: WrikeConnectorSecrets) {
+  const secretName = wrikeConnectorSecretName();
+  const secretString = JSON.stringify(normalizeWrikeConnectorSecrets(connectorSecrets));
+  try {
+    await getSecretsManagerClient().send(new PutSecretValueCommand({ SecretId: secretName, SecretString: secretString }));
+  } catch (error) {
+    if (!(error instanceof ResourceNotFoundException)) {
+      throw error;
+    }
+    await getSecretsManagerClient().send(
+      new CreateSecretCommand({
+        Name: secretName,
+        SecretString: secretString,
+        Description: "Pathfinder Wrike OAuth connector credentials"
+      })
+    );
+  }
+}
+
 export async function readTargetSecrets(targetId: string): Promise<TargetSecrets> {
   const config = getPathfinderPersistenceRuntimeConfig();
   if (config.secrets_driver === "secrets-manager") {
@@ -143,5 +211,26 @@ export async function writeTargetSecrets(targetId: string, targetSecrets: Target
 
   const secrets = await readLocalSecrets();
   secrets.targets[targetId] = targetSecrets;
+  await writeLocalSecrets(secrets);
+}
+export async function readWrikeConnectorSecrets(): Promise<WrikeConnectorSecrets> {
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.secrets_driver === "secrets-manager") {
+    return readSecretsManagerWrikeConnectorSecrets();
+  }
+
+  const secrets = await readLocalSecrets();
+  return secrets.connectors.wrike ?? {};
+}
+
+export async function writeWrikeConnectorSecrets(connectorSecrets: WrikeConnectorSecrets) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.secrets_driver === "secrets-manager") {
+    await writeSecretsManagerWrikeConnectorSecrets(connectorSecrets);
+    return;
+  }
+
+  const secrets = await readLocalSecrets();
+  secrets.connectors.wrike = normalizeWrikeConnectorSecrets(connectorSecrets);
   await writeLocalSecrets(secrets);
 }

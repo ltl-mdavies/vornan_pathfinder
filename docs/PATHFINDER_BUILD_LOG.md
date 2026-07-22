@@ -2961,3 +2961,24 @@ Started the post-activation operational-hardening slice from merged main without
 - Validation passed every workspace typecheck, all 161 workspace tests, all 55 Proof deployment-safety tests, every production build, both bounded readiness evaluators, the live aggregate status check, and `git diff --check`.
 
 No deployment or AWS mutation is part of this slice. The live read-only window remains governed by its original expiry and cohort, with decisions, email, DNS, production public approval, synthetic QA, and every Lift write disabled.
+
+## 2026-07-21 - Wrike Secret-Backed Read-Only Connection Health
+
+Merged the green Wrike ingestion-contract PR #21 into `main` at `b79730e`, then started a fresh isolated `codex/wrike-connection-health` branch from that baseline and reconciled the completed work with the later Proof checkpoints on `main`.
+
+- Added a platform-level Wrike OAuth connection in authenticated Settings, separate from customer Import Methods.
+- Stored the client ID, client secret, refresh token, rotated access token, rotated refresh token, expiry, and safe health metadata through Pathfinder's existing local/Secrets Manager secret boundary.
+- Added strict regional-host validation: only a bare HTTPS `wrike.com` hostname is accepted, and the OAuth response host controls subsequent API requests.
+- Added one explicit read-only connection test that refreshes OAuth and calls only `GET /api/v4/contacts?me=true` with `wsReadOnly` scope.
+- Added a server gate, `PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST`, defaulting false in local configuration, CloudFormation, and the API deployment workflow.
+- Kept task/folder discovery, attachment access, webhook creation, polling, background execution, Wrike writes, preview creation, Lift actions, deployment, and real credentials out of this slice.
+- Added regression coverage for host allowlisting, rotated-token persistence on both success and post-refresh failure, response redaction, secret-boundary persistence, safe errors, and the exact two-request external surface.
+
+Validation completed successfully after reconciling the later Proof checkpoints:
+
+- `npm run check`
+- `npm run test` (169 tests across the workspace, including nine Wrike adapter tests and four connection API tests)
+- `npm run build`
+- `npm run test:proof-deploy` (55 deployment-safety tests)
+- `git diff --check`
+- Desktop and 390px mobile browser QA of the authenticated Settings panel, including the disabled gate posture, responsive controls, and no horizontal overflow

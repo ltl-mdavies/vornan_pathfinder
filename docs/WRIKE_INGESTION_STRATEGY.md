@@ -74,10 +74,23 @@ It intentionally does not store:
 
 ## Delivery sequence
 
-1. Configuration contract and operator UI — this slice, dark only.
-2. OAuth/secret storage and read-only connection health.
+1. Configuration contract and operator UI — complete, dark only.
+2. OAuth/secret storage and read-only connection health — complete, dark by default.
 3. Controlled read-only discovery against one approved non-customer or Momentara test task.
 4. Attachment selection/download and durable source audit.
 5. Preview-job creation through the existing Import Method boundary.
 6. Webhook endpoint plus scheduled reconciliation and telemetry.
 7. Optional Wrike write-back, only after explicit authorization.
+
+## Read-only connection-health boundary
+
+Pathfinder now has one platform-level Wrike OAuth connection in the authenticated Settings area. The regional host, OAuth client ID, client secret, refresh token, rotated access token, and rotated refresh token are stored only through the existing Pathfinder secret driver. API responses expose configured/not-configured booleans, the validated regional hostname, and safe health metadata; they never return tokens or client secrets.
+
+The explicit connection test is separately gated by `PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST`, which defaults to `false` locally, in CloudFormation, and in the production deployment workflow. Saving credentials does not contact Wrike. When the gate is deliberately enabled and an authenticated operator clicks the test action, Pathfinder performs exactly:
+
+1. `POST https://<regional-host>/oauth2/token` with the saved refresh token and `wsReadOnly` scope;
+2. `GET https://<regional-host>/api/v4/contacts?me=true` with the rotated bearer token.
+
+Only HTTPS hosts under `wrike.com` are accepted, and the OAuth response's `host` remains authoritative for the API request. Wrike documents that OAuth tokens are regional-host aware, access tokens expire, refresh tokens rotate, and the current-user Contacts query supports `wsReadOnly`. See [Wrike OAuth 2.0 authorization](https://developers.wrike.com/docs/oauth-20-authorization) and [Query Contacts](https://developers.wrike.com/reference/getcontactsempty).
+
+This health boundary does not implement or authorize task/folder discovery, attachment reads, webhook creation, polling, background work, Wrike writes, preview creation, or any Lift action. The next slice requires one explicitly approved Wrike test task plus confirmed folder/project and workflow-status IDs before any discovery request is added.

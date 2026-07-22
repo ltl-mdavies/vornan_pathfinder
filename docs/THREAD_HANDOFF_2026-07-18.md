@@ -974,3 +974,23 @@ Recommended continuation:
 1. Validate and checkpoint this dark configuration slice.
 2. Confirm Momentara's Wrike folder/project ID, Ordered status/custom-field ID, workbook naming/version behavior, regional host, and technical-user/OAuth approval.
 3. Implement secret-backed read-only connection health before any task discovery or attachment download.
+
+## Wrike OAuth Connection Health
+
+Wrike ingestion-contract PR #21 was green and merged to `main` as `b79730e`. The next slice started from that exact baseline in the isolated `/tmp/pathfinder-wrike-connection-health` worktree on `codex/wrike-connection-health`; the Proof checkout was not modified.
+
+- Authenticated Settings now owns one platform-level Wrike OAuth connection; credentials do not live in an Import Method or browser response.
+- The local and AWS Secrets Manager drivers support a dedicated `<secret-prefix>/connectors/wrike` record.
+- Saving credentials performs no external request. The explicit test is server-gated by `PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST`, default false.
+- When deliberately enabled, the health test refreshes OAuth and performs only the Wrike `GET /contacts?me=true` authorized-user query under `wsReadOnly`.
+- Regional hosts are restricted to bare HTTPS `wrike.com` hostnames, token rotation is persisted, and responses expose only configured flags and safe health metadata.
+- Rotated OAuth credentials are retained inside the secret boundary even when the subsequent current-user health check fails, so a post-refresh outage does not strand the next retry.
+- No task/folder discovery, attachment download, webhook, polling, background worker, Wrike write, preview creation, Lift action, real credential entry, or deployment is part of this checkpoint.
+
+Full validation passed 169 workspace tests, all 55 Proof deployment-safety tests, every workspace check/build, diff hygiene, and responsive desktop/390px browser QA with the server gate disabled.
+
+Recommended continuation after review:
+
+1. Confirm and explicitly approve one Wrike test task, folder/project ID, workflow status/custom-field ID, regional host, and dedicated technical-user OAuth grant.
+2. Add a bounded read-only discovery preview for only that approved scope; return identifiers/counts needed for operator confirmation without downloading attachments.
+3. Keep attachment retrieval and preview-job creation as later, separately reviewable slices.
