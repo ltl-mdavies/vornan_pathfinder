@@ -3037,3 +3037,17 @@ Release-checkpoint validation passed:
 - `npm run test:proof-deploy` (all 61 deployment-safety tests on the merged Proof baseline)
 - `git diff --check`
 - Local in-app browser QA with the discovery gate disabled at 1280px desktop and 390px mobile, including the disabled action, explicit safety copy, responsive single-column layout, and no horizontal overflow
+
+## 2026-07-22 - Approved Mixed-State Proof QA A0224897
+
+Completed the explicitly approved, GET-only mixed-state validation for `A0224897` inside the bounded `vornan-proof-dev` LTL Demo window.
+
+- Confirmed the cached aggregate contains five authoritative line mappings: four `7.02` pending tasks plus one `7.05` approved, non-actionable task.
+- Closed the deferred real-order approved-line UI case across desktop, portrait mobile, and short landscape with contained previews, zero horizontal overflow, and every decision control disabled.
+- Did not claim revised/regenerating coverage: the current Lift payload exposes the described revised artwork as pending current proofs with no revision status or retained historical row. Filename version text was not treated as lifecycle authority.
+- Completed one short-lived view-only grant/session lifecycle, ended the session, revoked the grant, and removed all seven exact temporary files including the secret-bearing response.
+- Verified the seven-event audit sequence, fixed operator/public telemetry operations, zero sensitive markers across the bounded log scan, empty queues, all ten alarms `OK`, and final `healthy_no_active_access` with zero active access.
+- Recorded sanitized evidence in `docs/VORNAN_PROOF_MIXED_STATE_READ_ONLY_QA_A0224897_2026-07-22.md`.
+- Validation passed every workspace typecheck and test, all 61 Proof deployment-safety tests, every production build, both bounded readiness evaluators, the complete sensitive-value scan, and `git diff --check`.
+
+No stack parameter, Proof deployment, DNS, email, decision, Lift write, production public-read approval, synthetic QA mode, Pathfinder production surface, or Phase 3 capability changed. This evidence-only checkpoint records the completed bounded QA lifecycle for review.
