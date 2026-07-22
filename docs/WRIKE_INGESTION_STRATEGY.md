@@ -2,14 +2,14 @@
 
 ## Outcome
 
-Wrike is a source adapter for one saved Pathfinder Import Method. It retrieves an approved workbook from a scoped Wrike task, runs the same parser, field mappings, product resolution, order-name resolution, Ext_ID strategy, output route, and submit profile already configured on that Import Method, then creates an operator-reviewed Pathfinder preview job.
+Wrike is a customer-owned Source Connection that can be bound to one or more saved Pathfinder Import Methods for that same customer. It retrieves an approved workbook from a scoped Wrike task, runs the same parser, field mappings, product resolution, order-name resolution, Ext_ID strategy, output route, and submit profile already configured on the bound Import Method, then creates an operator-reviewed Pathfinder preview job.
 
 The Wrike adapter must never submit directly to Lift. Lift submission remains a separate authenticated operator action after normal Pathfinder certification.
 
 ## Recommended production pattern
 
 1. Register a Vornan Wrike OAuth application and authorize it with a dedicated technical user that can see only the required Momentara folder/project.
-2. Request read-only workspace access and store OAuth client credentials and refresh tokens in the Pathfinder secret boundary, never in an Import Method or browser payload.
+2. Create the Wrike Source Connection under that customer's Settings, request read-only workspace access, and store OAuth client credentials and refresh tokens in the customer/connection-scoped Pathfinder secret boundary, never in an Import Method or browser payload.
 3. Scope discovery to the configured Wrike folder/project API ID.
 4. Trigger when a task enters the configured custom workflow status, initially `Ordered`.
 5. Prefer a folder/project webhook for fast notification, with low-frequency scheduled reconciliation so missed or suspended webhook deliveries are recovered.
@@ -29,6 +29,7 @@ Wrike attachment URLs are temporary, so Pathfinder must download the selected wo
 
 The first dark configuration slice stores only:
 
+- the customer Source Connection ID used by this Import Method;
 - Wrike folder/project API ID;
 - trigger strategy;
 - ordered workflow status ID and operator-friendly label;
@@ -86,9 +87,24 @@ It intentionally does not store:
 
 ## Read-only connection-health boundary
 
-Pathfinder now has one platform-level Wrike OAuth connection in the authenticated Settings area. An operator first saves the Wrike app client ID and client secret, then uses **Connect Wrike**. Pathfinder creates a ten-minute authorization request, stores only a SHA-256 hash of the one-time state, and exchanges the returned authorization code through the public server callback. The one-time state is consumed before token exchange and cannot be replayed.
+Pathfinder now stores Wrike OAuth connections under each customer's authenticated **Settings → Source Connections** area. An operator creates a customer Wrike connection, saves that connection's Wrike app client ID and client secret, then uses **Connect Wrike**. Pathfinder creates a ten-minute authorization request bound to the exact connection, stores only a SHA-256 hash of the one-time state, and exchanges the returned authorization code through the public server callback. The one-time state is consumed before token exchange and cannot be replayed.
 
-Wrike supplies the regional host, refresh token, access token, and expiry directly to the server. Those values and the app credentials are stored only through the existing Pathfinder secret driver. API responses expose configured/not-configured booleans, the validated regional hostname, and safe health metadata; they never return tokens, authorization codes, raw state, or client secrets. The production callback is `https://api.pathfinder.vornan.co/oauth/wrike/callback`; CORS is not required because the exchange is server-to-server.
+Wrike supplies the regional host, refresh token, access token, and expiry directly to the server. Those values and the app credentials are stored only through the existing Pathfinder secret driver at a customer-and-connection-specific secret path. API responses expose configured/not-configured booleans, the validated regional hostname, and safe health metadata; they never return tokens, authorization codes, raw state, or client secrets. The production callback is `https://api.pathfinder.vornan.co/oauth/wrike/callback`; CORS is not required because the exchange is server-to-server. The callback returns to that customer's Settings and selects the exact connection that initiated authorization.
+
+Import Methods store only `source_config.wrike.connection_id` plus their folder, trigger, and workbook contract. A method cannot use a connection owned by another customer. The prior global Wrike endpoints are retired with HTTP 410 and existing global secret material is not automatically assigned to any customer.
+
+## Source connector template catalog
+
+The reusable Source Connections registry currently publishes:
+
+- **Wrike** — available and operational for the current read-only onboarding work;
+- **Odoo** — planned ERP connector template;
+- **Asana** — planned work-management connector template;
+- **Microsoft SharePoint** — planned content-platform connector template;
+- **Salesforce** — planned CRM connector template;
+- **Generic REST API** — planned constrained API connector template.
+
+Planned templates communicate the intended provider-neutral architecture but cannot be created, authorized, or used by an Import Method. Promoting any template to available requires its own adapter, secret contract, capability gates, tests, and rollout review.
 
 The explicit connection test is separately gated by `PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST`, which defaults to `false` locally, in CloudFormation, and in the production deployment workflow. Saving credentials does not contact Wrike. When the gate is deliberately enabled and an authenticated operator clicks the test action, Pathfinder performs exactly:
 

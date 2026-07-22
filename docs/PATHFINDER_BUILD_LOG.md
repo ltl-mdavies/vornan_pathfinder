@@ -3095,3 +3095,20 @@ Followed the successful production deployment of merged Wrike OAuth commit `1b4f
 - Full validation passed `npm run check`, all 182 workspace tests, `npm run build`, and `git diff --check`.
 
 This slice changes presentation only. It does not alter target data, credentials, submit behavior, Wrike gates, Proof capabilities, or any external integration.
+
+## 2026-07-22 - Customer-Owned Source Connections
+
+Replaced the single global Wrike setup with a provider-neutral, customer-owned Source Connections boundary.
+
+- Added a reusable connector-definition package and customer workspace records for source connection metadata.
+- Published Wrike as the only available connector. Odoo, Asana, Microsoft SharePoint, Salesforce, and Generic REST are visible as clearly labeled planned templates and cannot be created or used.
+- Moved Wrike app credentials, OAuth authorization, connection health, and customer-specific controls into **Customer Settings → Source Connections**.
+- Isolated Wrike secrets by customer ID and connection ID in both local storage and AWS Secrets Manager naming, while keeping all credentials and rotating tokens out of workspace records and browser responses.
+- Bound OAuth state and callback completion to one exact customer connection. The callback returns operators to that customer's Settings and selects the originating connection.
+- Added `source_config.wrike.connection_id` to the Import Method contract. Wrike discovery resolves only that same customer's saved connection and fails closed if it is missing or unavailable.
+- Retired the old global Wrike API endpoints with HTTP 410. Existing global secret material remains untouched and is not implicitly assigned to a customer.
+- Preserved all existing GET-only feature gates. This slice does not enter credentials, authorize Wrike, enable discovery or polling, download attachments, create jobs, write to Wrike, or act in Lift.
+- Validation passed `npm run check`, all 184 workspace tests, `npm run build`, all 61 Proof deployment-safety tests, and `git diff --check`; focused API coverage verifies customer-scoped secret storage, one-time OAuth state, replay rejection, connection health, discovery binding, redaction, and dark-gate behavior.
+- Local browser QA passed at desktop and 390px mobile. The provider catalog, customer connection editor, and exact Wrike Import Method binding remained responsive with no horizontal overflow; planned providers exposed no creation action.
+
+No provider request, credential entry, authorization attempt, deployment, feature-gate change, Wrike write, Lift action, or Proof capability change occurred in this slice.

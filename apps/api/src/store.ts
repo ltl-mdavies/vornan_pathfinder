@@ -22,6 +22,14 @@ import {
   type ValidationMessage
 } from "@pathfinder/canonical";
 import type { LiftCustomer } from "@pathfinder/customer-directory";
+import {
+  getSourceConnectorDefinition,
+  normalizeCustomerSourceConnection,
+  type CustomerSourceConnection,
+  type SourceConnectionEnvironment,
+  type SourceConnectionStatus,
+  type SourceConnectorProvider
+} from "@pathfinder/source-connections";
 import type {
   LiftStepDefinition,
   NormalizedLiftOrder,
@@ -535,6 +543,7 @@ export interface SubmitAttempt {
 
 export interface PathfinderCustomerWorkspace {
   customer: LiftCustomer;
+  source_connections: CustomerSourceConnection[];
   import_methods: ImportMethod[];
   output_routes: OutputRoute[];
   templates: SavedFieldMappingTemplate[];
@@ -1538,6 +1547,7 @@ function createWorkspace(customer: LiftCustomer): PathfinderCustomerWorkspace {
 
   return {
     customer,
+    source_connections: [],
     import_methods: [method],
     output_routes: [route],
     templates: [
@@ -2717,6 +2727,7 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
 
   return {
     ...workspace,
+    source_connections: (workspace.source_connections ?? []).map(normalizeCustomerSourceConnection),
     import_methods: (workspace.import_methods ?? []).map(normalizeImportMethod),
     output_routes: outputRoutes,
     product_mappings: (workspace.product_mappings ?? []).map(normalizeProductMapping),
@@ -3105,6 +3116,104 @@ export async function getOrCreateWorkspace(customer: LiftCustomer) {
   store.workspaces[customer.lift_customer_id] = workspace;
   await writeStore(store);
   return workspace;
+}
+
+export class SourceConnectionNotFoundError extends Error {
+  constructor(connectionId: string) {
+    super(`Source connection ${connectionId} was not found.`);
+    this.name = "SourceConnectionNotFoundError";
+  }
+}
+
+export class SourceConnectorUnavailableError extends Error {
+  constructor(provider: SourceConnectorProvider) {
+    super(`${getSourceConnectorDefinition(provider)?.name ?? provider} is planned but is not available yet.`);
+    this.name = "SourceConnectorUnavailableError";
+  }
+}
+
+export async function createCustomerSourceConnection(
+  customer: LiftCustomer,
+  input: {
+    provider: SourceConnectorProvider;
+    name?: string;
+    environment?: SourceConnectionEnvironment;
+  }
+) {
+  const definition = getSourceConnectorDefinition(input.provider);
+  if (!definition || definition.availability !== "Available") {
+    throw new SourceConnectorUnavailableError(input.provider);
+  }
+
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const timestamp = now();
+  const connection = normalizeCustomerSourceConnection({
+    connection_id: `source_${input.provider}_${randomBytes(6).toString("hex")}`,
+    name: input.name?.trim() || `${customer.customer_name} ${definition.name}`,
+    provider: input.provider,
+    status: "Draft",
+    environment: input.environment === "Sandbox" ? "Sandbox" : "Production",
+    auth_strategy: definition.auth_strategy,
+    created_at: timestamp,
+    updated_at: timestamp
+  });
+
+  workspace.source_connections = [...workspace.source_connections, connection];
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return connection;
+}
+
+export async function updateCustomerSourceConnection(
+  customer: LiftCustomer,
+  connectionId: string,
+  patch: {
+    name?: string;
+    status?: SourceConnectionStatus;
+    environment?: SourceConnectionEnvironment;
+  }
+) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const current = workspace.source_connections.find((connection) => connection.connection_id === connectionId);
+  if (!current) {
+    throw new SourceConnectionNotFoundError(connectionId);
+  }
+  const timestamp = now();
+  const next = normalizeCustomerSourceConnection({
+    ...current,
+    name: patch.name ?? current.name,
+    status: patch.status ?? current.status,
+    environment: patch.environment ?? current.environment,
+    updated_at: timestamp
+  });
+  workspace.source_connections = workspace.source_connections.map((connection) =>
+    connection.connection_id === connectionId ? next : connection
+  );
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return next;
+}
+
+export async function findCustomerSourceConnection(customer: LiftCustomer, connectionId: string) {
+  const workspace = await getOrCreateWorkspace(customer);
+  return workspace.source_connections.find((connection) => connection.connection_id === connectionId) ?? null;
+}
+
+export async function findCustomerSourceConnectionById(connectionId: string) {
+  const store = await readStore();
+  for (const workspace of Object.values(store.workspaces)) {
+    const connection = (workspace.source_connections ?? []).find(
+      (candidate) => candidate.connection_id === connectionId
+    );
+    if (connection) {
+      return { customer: workspace.customer, connection: normalizeCustomerSourceConnection(connection) };
+    }
+  }
+  return null;
 }
 
 export async function getPublicIntakeMethodByKey(publicKey: string) {

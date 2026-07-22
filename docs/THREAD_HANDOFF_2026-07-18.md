@@ -1070,3 +1070,23 @@ Recommended continuation:
 1. Commit and push this focused UI branch and open a small PR.
 2. After green validation and review, merge and deploy the admin web only; the API is unchanged by this slice.
 3. Resume Wrike onboarding when Momentara provides the OAuth app credentials and the remaining routing/status/task-example answers.
+
+## Customer-Owned Source Connections Checkpoint
+
+The Wrike onboarding boundary has been corrected before real credentials are entered:
+
+- integrations are now customer-owned Source Connections under Customer Settings, not platform-wide Settings or output Target environments;
+- Wrike is available; Odoo, Asana, Microsoft SharePoint, Salesforce, and Generic REST are planned templates only;
+- each customer connection owns its own OAuth metadata and secret path;
+- a Wrike Import Method must select that customer's connection through `source_config.wrike.connection_id`;
+- OAuth callbacks are bound to the initiating connection and return to the correct customer Settings view;
+- the old global Wrike endpoints return HTTP 410 and no existing global secret is migrated automatically;
+- the connection-test and discovery-preview gates remain false by default and no external provider action occurred during development.
+
+Current branch: `codex/customer-source-connections`. Full checks, all 184 tests, production builds, all 61 Proof deployment-safety tests, diff hygiene, and responsive desktop/390px browser QA pass. Customer Settings and the Wrike Import Method show the exact same customer connection without horizontal overflow, and planned providers expose no creation action.
+
+Recommended continuation:
+
+1. Create a focused commit, push the branch, and open a draft PR for this customer-owned connection boundary.
+2. After green validation and review, merge and deploy the complete app before entering Momentara's real Wrike credentials.
+3. Create or select Momentara's Wrike connection under Customer Settings, enter the client ID/secret, and complete OAuth. Keep connection-test and discovery-preview gates off until a separately approved read-only QA window.

@@ -51,6 +51,14 @@ import {
   type ProofOrder
 } from "@pathfinder/proof-domain";
 import {
+  SOURCE_CONNECTOR_DEFINITIONS,
+  getSourceConnectorDefinition,
+  type CustomerSourceConnection,
+  type SourceConnectionEnvironment,
+  type SourceConnectionStatus,
+  type SourceConnectorProvider
+} from "@pathfinder/source-connections";
+import {
   appendOrderNameRetrySuffix,
   applyOrderNameResolution,
   createDefaultOrderNameResolutionConfig,
@@ -80,6 +88,7 @@ import {
   addCanonicalRegistryCustomField,
   bulkUpsertProductMappings,
   consumePublicIntakeEmailVerification,
+  createCustomerSourceConnection,
   createDefaultPublicIntakeConfig,
   createDefaultProductResolutionConfig,
   deleteTarget,
@@ -89,6 +98,8 @@ import {
   getCanonicalRegistryOverrides,
   getCanonicalRegistryUsageByPath,
   getOrCreateWorkspace,
+  findCustomerSourceConnection,
+  findCustomerSourceConnectionById,
   getTarget,
   listProductMappings,
   listCatalogPresets,
@@ -118,6 +129,7 @@ import {
   upsertCatalogPreset,
   updateImportMethod,
   updateCanonicalRegistryFieldOverride,
+  updateCustomerSourceConnection,
   updateOutputRoute,
   updateStatusAccessPolicy,
   updateTarget,
@@ -164,8 +176,8 @@ import { getProofRuntimeConfig } from "./proof/runtime-config.js";
 import { getProofOrder } from "./proof/store.js";
 import { BoundedSnapshotCache } from "./order-snapshot-cache.js";
 import {
-  readWrikeConnectorSecrets,
-  writeWrikeConnectorSecrets,
+  readCustomerSourceConnectionSecrets,
+  writeCustomerSourceConnectionSecrets,
   type WrikeConnectorSecrets
 } from "./secrets-store.js";
 
@@ -3252,11 +3264,22 @@ function normalizedOAuthEndpoint(value: string, label: string) {
   return parsed;
 }
 
-function wrikeOAuthAppRedirect(status: "connected" | "error", reason?: string) {
+function wrikeOAuthAppRedirect(
+  status: "connected" | "error",
+  reason?: string,
+  customerId?: string,
+  connectionId?: string
+) {
   const target = normalizedOAuthEndpoint(pathfinderAppBaseUrl, "Pathfinder app base URL");
   target.searchParams.set("wrike_oauth", status);
   if (reason) {
     target.searchParams.set("reason", reason);
+  }
+  if (customerId) {
+    target.searchParams.set("wrike_customer_id", customerId);
+  }
+  if (connectionId) {
+    target.searchParams.set("wrike_connection_id", connectionId);
   }
   return target.toString();
 }
@@ -3278,29 +3301,43 @@ app.get("/oauth/wrike/callback", async (req, res) => {
   const providerError = typeof req.query.error === "string" ? req.query.error : "";
 
   try {
-    const existing = await readWrikeConnectorSecrets();
-    const pending = existing.oauth_pending;
-    if (!pending || !state || !matchesWrikeOAuthState(state, pending.state_hash)) {
+    const connectionId = state.split(".", 1)[0] ?? "";
+    const match = connectionId ? await findCustomerSourceConnectionById(connectionId) : null;
+    if (!match || match.connection.provider !== "wrike") {
       res.redirect(303, wrikeOAuthAppRedirect("error", "invalid_state"));
       return;
     }
+    const customerId = match.customer.lift_customer_id;
+    const connectionSecrets = await readCustomerSourceConnectionSecrets(customerId, connectionId);
+    const existing = connectionSecrets.wrike ?? {};
+    const pending = existing.oauth_pending;
+    if (!pending || !state || !matchesWrikeOAuthState(state, pending.state_hash)) {
+      res.redirect(303, wrikeOAuthAppRedirect("error", "invalid_state", customerId, connectionId));
+      return;
+    }
     if (Date.parse(pending.expires_at) <= Date.now()) {
-      await writeWrikeConnectorSecrets({ ...existing, oauth_pending: undefined });
-      res.redirect(303, wrikeOAuthAppRedirect("error", "expired"));
+      await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+        provider: "wrike",
+        wrike: { ...existing, oauth_pending: undefined }
+      });
+      res.redirect(303, wrikeOAuthAppRedirect("error", "expired", customerId, connectionId));
       return;
     }
 
     const oauth = existing.oauth ?? {};
     const clientId = oauth.client_id?.trim() ?? "";
     const clientSecret = oauth.client_secret?.trim() ?? "";
-    await writeWrikeConnectorSecrets({ ...existing, oauth_pending: undefined });
+    await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+      provider: "wrike",
+      wrike: { ...existing, oauth_pending: undefined }
+    });
 
     if (providerError) {
-      res.redirect(303, wrikeOAuthAppRedirect("error", "denied"));
+      res.redirect(303, wrikeOAuthAppRedirect("error", "denied", customerId, connectionId));
       return;
     }
     if (!code || !clientId || !clientSecret) {
-      res.redirect(303, wrikeOAuthAppRedirect("error", "incomplete"));
+      res.redirect(303, wrikeOAuthAppRedirect("error", "incomplete", customerId, connectionId));
       return;
     }
 
@@ -3310,17 +3347,21 @@ app.get("/oauth/wrike/callback", async (req, res) => {
       code,
       redirect_uri: pending.redirect_uri
     });
-    await writeWrikeConnectorSecrets({
-      oauth: result.credentials,
-      health: {
-        status: "Not tested",
-        host: result.credentials.host,
-        checked_at: null,
-        identity_confirmed: false,
-        message: "Wrike authorization is connected. Run the separately gated read-only identity test when approved."
+    await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+      provider: "wrike",
+      wrike: {
+        oauth: result.credentials,
+        health: {
+          status: "Not tested",
+          host: result.credentials.host,
+          checked_at: null,
+          identity_confirmed: false,
+          message: "Wrike authorization is connected. Run the separately gated read-only identity test when approved."
+        }
       }
     });
-    res.redirect(303, wrikeOAuthAppRedirect("connected"));
+    await updateCustomerSourceConnection(match.customer, connectionId, { status: "Active" });
+    res.redirect(303, wrikeOAuthAppRedirect("connected", undefined, customerId, connectionId));
   } catch {
     res.redirect(303, wrikeOAuthAppRedirect("error", "exchange"));
   }
@@ -3393,133 +3434,175 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
   };
 }
 
-app.get("/api/wrike/connection", async (_req, res) => {
+async function customerSourceConnectionPayload(customerId: string, connection: CustomerSourceConnection) {
+  const definition = getSourceConnectorDefinition(connection.provider);
+  if (connection.provider !== "wrike") {
+    return { ...connection, definition, provider_status: null };
+  }
+  const secrets = await readCustomerSourceConnectionSecrets(customerId, connection.connection_id);
+  return {
+    ...connection,
+    definition,
+    provider_status: wrikeConnectionStatus(secrets.wrike ?? {})
+  };
+}
+
+app.get("/api/source-connector-definitions", (_req, res) => {
+  res.json({ definitions: SOURCE_CONNECTOR_DEFINITIONS });
+});
+
+app.get("/api/customers/:liftCustomerId/source-connections", async (req, res) => {
   try {
-    res.json(wrikeConnectionStatus(await readWrikeConnectorSecrets()));
-  } catch {
-    res.status(500).json({
-      error: "Wrike connection status could not be loaded."
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const workspace = await getOrCreateWorkspace(customer);
+    res.json({
+      definitions: SOURCE_CONNECTOR_DEFINITIONS,
+      connections: await Promise.all(
+        workspace.source_connections.map((connection) =>
+          customerSourceConnectionPayload(customer.lift_customer_id, connection)
+        )
+      )
     });
+  } catch {
+    res.status(500).json({ error: "Customer source connections could not be loaded." });
   }
 });
 
-app.post("/api/wrike/oauth/start", async (_req, res) => {
+app.post("/api/customers/:liftCustomerId/source-connections", async (req, res) => {
   try {
-    const existing = await readWrikeConnectorSecrets();
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const provider = String(req.body?.provider ?? "") as SourceConnectorProvider;
+    const definition = getSourceConnectorDefinition(provider);
+    if (!definition) {
+      res.status(400).json({ error: "Select a supported source connector." });
+      return;
+    }
+    if (definition.availability !== "Available") {
+      res.status(409).json({ error: `${definition.name} is planned but is not available yet.` });
+      return;
+    }
+    const connection = await createCustomerSourceConnection(customer, {
+      provider,
+      name: typeof req.body?.name === "string" ? req.body.name : undefined,
+      environment: req.body?.environment === "Sandbox" ? "Sandbox" : "Production"
+    });
+    res.status(201).json(await customerSourceConnectionPayload(customer.lift_customer_id, connection));
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Source connection could not be created." });
+  }
+});
+
+app.put("/api/customers/:liftCustomerId/source-connections/:connectionId", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const current = await findCustomerSourceConnection(customer, req.params.connectionId);
+    if (!current) {
+      res.status(404).json({ error: "The selected source connection does not exist." });
+      return;
+    }
+    const next = await updateCustomerSourceConnection(customer, current.connection_id, {
+      name: typeof req.body?.name === "string" ? req.body.name : undefined,
+      status: (["Draft", "Active", "Inactive"].includes(req.body?.status)
+        ? req.body.status
+        : current.status) as SourceConnectionStatus,
+      environment: (req.body?.environment === "Sandbox" || req.body?.environment === "Production"
+        ? req.body.environment
+        : current.environment) as SourceConnectionEnvironment
+    });
+
+    if (current.provider === "wrike") {
+      const connectionSecrets = await readCustomerSourceConnectionSecrets(customer.lift_customer_id, current.connection_id);
+      const existing = connectionSecrets.wrike ?? {};
+      const currentOauth = existing.oauth ?? {};
+      const clientId = preserveWrikeSecret(req.body?.client_id, currentOauth.client_id);
+      const clientSecret = preserveWrikeSecret(req.body?.client_secret, currentOauth.client_secret);
+      const changed = clientId !== currentOauth.client_id || clientSecret !== currentOauth.client_secret;
+      const oauth: WrikeOAuthCredentials = {
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: changed ? "" : currentOauth.refresh_token ?? "",
+        host: changed ? "" : currentOauth.host ?? "",
+        access_token: changed ? undefined : currentOauth.access_token,
+        access_token_expires_at: changed ? undefined : currentOauth.access_token_expires_at
+      };
+      await writeCustomerSourceConnectionSecrets(customer.lift_customer_id, current.connection_id, {
+        provider: "wrike",
+        wrike: {
+          oauth,
+          oauth_pending: changed ? undefined : existing.oauth_pending,
+          health: changed
+            ? {
+                status: "Not tested",
+                host: null,
+                checked_at: null,
+                identity_confirmed: false,
+                message: "App credentials changed. Authorize this customer connection before any read-only test."
+              }
+            : existing.health
+        }
+      });
+    }
+
+    res.json(await customerSourceConnectionPayload(customer.lift_customer_id, next));
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "Source connection could not be saved." });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/source-connections/:connectionId/wrike/oauth/start", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const connection = await findCustomerSourceConnection(customer, req.params.connectionId);
+    if (!connection || connection.provider !== "wrike") {
+      res.status(404).json({ error: "The selected Wrike connection does not exist." });
+      return;
+    }
+    const connectionSecrets = await readCustomerSourceConnectionSecrets(customer.lift_customer_id, connection.connection_id);
+    const existing = connectionSecrets.wrike ?? {};
     const clientId = existing.oauth?.client_id?.trim() ?? "";
     const clientSecret = existing.oauth?.client_secret?.trim() ?? "";
     if (!clientId || !clientSecret) {
-      res.status(400).json({
-        error: "Save the Wrike OAuth client ID and client secret before connecting Wrike."
-      });
+      res.status(400).json({ error: "Save the Wrike OAuth client ID and client secret before connecting Wrike." });
       return;
     }
 
     const redirectUri = normalizedOAuthEndpoint(wrikeOAuthRedirectUri, "Wrike OAuth redirect URI").toString();
-    const state = randomBytes(32).toString("base64url");
+    const state = `${connection.connection_id}.${randomBytes(32).toString("base64url")}`;
     const expiresAt = new Date(Date.now() + wrikeOAuthStateTtlMs).toISOString();
-    await writeWrikeConnectorSecrets({
-      ...existing,
-      oauth_pending: {
-        state_hash: wrikeOAuthStateHash(state),
-        expires_at: expiresAt,
-        redirect_uri: redirectUri
+    await writeCustomerSourceConnectionSecrets(customer.lift_customer_id, connection.connection_id, {
+      provider: "wrike",
+      wrike: {
+        ...existing,
+        oauth_pending: { state_hash: wrikeOAuthStateHash(state), expires_at: expiresAt, redirect_uri: redirectUri }
       }
     });
 
     res.setHeader("Cache-Control", "no-store");
     res.json({
-      authorization_url: buildWrikeAuthorizationUrl({
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        state
-      }),
+      authorization_url: buildWrikeAuthorizationUrl({ client_id: clientId, redirect_uri: redirectUri, state }),
       expires_at: expiresAt,
       redirect_uri: redirectUri,
       requested_scope: "wsReadOnly"
     });
   } catch (error) {
-    res.status(400).json({
-      error: error instanceof Error ? error.message : "Wrike authorization could not be started."
-    });
+    res.status(400).json({ error: error instanceof Error ? error.message : "Wrike authorization could not be started." });
   }
 });
 
-app.put("/api/wrike/connection", async (req, res) => {
-  try {
-    const existing = await readWrikeConnectorSecrets();
-    const currentOauth = existing.oauth ?? {};
-    const requestedHost = typeof req.body?.host === "string" ? req.body.host.trim() : "";
-    const requestedRefreshToken = typeof req.body?.refresh_token === "string"
-      ? req.body.refresh_token.trim()
-      : "";
-    const clientId = preserveWrikeSecret(req.body?.client_id, currentOauth.client_id);
-    const clientSecret = preserveWrikeSecret(req.body?.client_secret, currentOauth.client_secret);
-    const appCredentialsChanged =
-      clientId !== currentOauth.client_id || clientSecret !== currentOauth.client_secret;
-    const completeDirectGrantReplacement = Boolean(requestedHost && requestedRefreshToken);
-    const host = appCredentialsChanged && !completeDirectGrantReplacement
-      ? ""
-      : requestedHost
-        ? normalizeWrikeHost(requestedHost)
-        : currentOauth.host ?? "";
-    if (host) {
-      normalizeWrikeHost(host);
-    }
-
-    const oauth: WrikeOAuthCredentials = {
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: appCredentialsChanged && !completeDirectGrantReplacement
-        ? ""
-        : preserveWrikeSecret(req.body?.refresh_token, currentOauth.refresh_token),
-      host,
-      access_token: currentOauth.access_token,
-      access_token_expires_at: currentOauth.access_token_expires_at
-    };
-    const changed =
-      oauth.client_id !== currentOauth.client_id ||
-      oauth.client_secret !== currentOauth.client_secret ||
-      oauth.refresh_token !== currentOauth.refresh_token ||
-      oauth.host !== currentOauth.host;
-    if (changed) {
-      delete oauth.access_token;
-      delete oauth.access_token_expires_at;
-    }
-
-    const next: WrikeConnectorSecrets = {
-      oauth,
-      oauth_pending: changed ? undefined : existing.oauth_pending,
-      health: changed
-        ? {
-            status: "Not tested",
-            host: host || null,
-            checked_at: null,
-            identity_confirmed: false,
-            message: "App credentials changed. Authorize Wrike before running any read-only test."
-          }
-        : existing.health
-    };
-    await writeWrikeConnectorSecrets(next);
-    res.json(wrikeConnectionStatus(next));
-  } catch (error) {
-    res.status(400).json({
-      error: error instanceof WrikeConnectionError
-        ? error.message
-        : "Wrike OAuth connection could not be saved."
-    });
-  }
-});
-
-app.post("/api/wrike/connection/test", async (_req, res) => {
+app.post("/api/customers/:liftCustomerId/source-connections/:connectionId/wrike/test", async (req, res) => {
   if (!wrikeConnectionTestEnabled) {
-    res.status(423).json({
-      error: "Wrike connection testing is disabled at the API boundary."
-    });
+    res.status(423).json({ error: "Wrike connection testing is disabled at the API boundary." });
     return;
   }
 
-  const existing = await readWrikeConnectorSecrets();
+  const customer = await findLiftCustomer(req.params.liftCustomerId);
+  const connection = await findCustomerSourceConnection(customer, req.params.connectionId);
+  if (!connection || connection.provider !== "wrike") {
+    res.status(404).json({ error: "The selected Wrike connection does not exist." });
+    return;
+  }
+  const connectionSecrets = await readCustomerSourceConnectionSecrets(customer.lift_customer_id, connection.connection_id);
+  const existing = connectionSecrets.wrike ?? {};
   try {
     const oauth = existing.oauth as WrikeOAuthCredentials | undefined;
     if (!oauth) {
@@ -3528,22 +3611,18 @@ app.post("/api/wrike/connection/test", async (_req, res) => {
     const result = await checkWrikeOAuthConnection(oauth);
     const next: WrikeConnectorSecrets = {
       oauth: result.credentials,
-      health: {
-        ...result.health,
-        message: "OAuth refresh and the read-only authorized-user check succeeded."
-      }
+      health: { ...result.health, message: "OAuth refresh and the read-only authorized-user check succeeded." }
     };
-    await writeWrikeConnectorSecrets(next);
-    res.json(wrikeConnectionStatus(next));
+    await writeCustomerSourceConnectionSecrets(customer.lift_customer_id, connection.connection_id, {
+      provider: "wrike",
+      wrike: next
+    });
+    res.json(await customerSourceConnectionPayload(customer.lift_customer_id, connection));
   } catch (error) {
-    const message = error instanceof WrikeConnectionError
-      ? error.message
-      : "The Wrike read-only connection check failed.";
+    const message = error instanceof WrikeConnectionError ? error.message : "The Wrike read-only connection check failed.";
     const failed: WrikeConnectorSecrets = {
       ...existing,
-      oauth: error instanceof WrikeConnectionError && error.rotated_credentials
-        ? error.rotated_credentials
-        : existing.oauth,
+      oauth: error instanceof WrikeConnectionError && error.rotated_credentials ? error.rotated_credentials : existing.oauth,
       health: {
         status: "Error",
         host: error instanceof WrikeConnectionError && error.rotated_credentials
@@ -3554,12 +3633,19 @@ app.post("/api/wrike/connection/test", async (_req, res) => {
         message
       }
     };
-    await writeWrikeConnectorSecrets(failed);
+    await writeCustomerSourceConnectionSecrets(customer.lift_customer_id, connection.connection_id, {
+      provider: "wrike",
+      wrike: failed
+    });
     res.status(error instanceof WrikeConnectionError && error.code === "invalid_configuration" ? 400 : 502).json({
       ...wrikeConnectionStatus(failed),
       error: message
     });
   }
+});
+
+app.all(["/api/wrike/connection", "/api/wrike/oauth/start", "/api/wrike/connection/test"], (_req, res) => {
+  res.status(410).json({ error: "Wrike is configured per customer in Customer Settings → Source Connections." });
 });
 
 app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discovery-preview", async (req, res) => {
@@ -3570,9 +3656,12 @@ app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discover
     return;
   }
 
-  const existing = await readWrikeConnectorSecrets();
+  let customerId = "";
+  let connectionId = "";
+  let existing: WrikeConnectorSecrets = {};
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
+    customerId = customer.lift_customer_id;
     const workspace = await getOrCreateWorkspace(customer);
     const method = workspace.import_methods.find(
       (candidate) => candidate.import_method_id === req.params.methodId
@@ -3588,23 +3677,36 @@ app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discover
 
     const config = normalizeWrikeSourceConfig(method.source_config.wrike);
     const readiness = getWrikeContractReadiness(config);
-    if (readiness.status !== "Configured" || !config.approved_discovery_task_id) {
+    if (readiness.status !== "Configured" || !config.approved_discovery_task_id || !config.connection_id) {
       res.status(400).json({
-        error: "Save the Wrike folder, ordered status, workbook rule, and approved discovery task ID first."
+        error: "Select a customer Wrike connection and save the folder, ordered status, workbook rule, and approved discovery task ID first."
       });
       return;
     }
+    connectionId = config.connection_id;
+    const connection = await findCustomerSourceConnection(customer, connectionId);
+    if (!connection || connection.provider !== "wrike") {
+      res.status(400).json({ error: "The Import Method's customer Wrike connection is not available." });
+      return;
+    }
+    existing = (await readCustomerSourceConnectionSecrets(customerId, connectionId)).wrike ?? {};
     const oauth = existing.oauth as WrikeOAuthCredentials | undefined;
     if (!oauth) {
       throw new WrikeConnectionError("invalid_configuration", "Wrike OAuth credentials are not configured.");
     }
 
     const result = await discoverApprovedWrikeTask(oauth, config);
-    await writeWrikeConnectorSecrets({ ...existing, oauth: result.credentials });
+    await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+      provider: "wrike",
+      wrike: { ...existing, oauth: result.credentials }
+    });
     res.json(result.preview);
   } catch (error) {
-    if (error instanceof WrikeConnectionError && error.rotated_credentials) {
-      await writeWrikeConnectorSecrets({ ...existing, oauth: error.rotated_credentials });
+    if (customerId && connectionId && error instanceof WrikeConnectionError && error.rotated_credentials) {
+      await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+        provider: "wrike",
+        wrike: { ...existing, oauth: error.rotated_credentials }
+      });
     }
     const message = error instanceof WrikeConnectionError
       ? error.message

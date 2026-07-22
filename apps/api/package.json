@@ -21,6 +21,7 @@
     "@pathfinder/lift-adapter": "0.1.0",
     "@pathfinder/order-rollup": "0.1.0",
     "@pathfinder/proof-domain": "0.1.0",
+    "@pathfinder/source-connections": "0.1.0",
     "@pathfinder/templates": "0.1.0",
     "@pathfinder/wrike-adapter": "0.1.0",
     "cors": "^2.8.5",
