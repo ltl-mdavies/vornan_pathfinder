@@ -3051,3 +3051,17 @@ Completed the explicitly approved, GET-only mixed-state validation for `A0224897
 - Validation passed every workspace typecheck and test, all 61 Proof deployment-safety tests, every production build, both bounded readiness evaluators, the complete sensitive-value scan, and `git diff --check`.
 
 No stack parameter, Proof deployment, DNS, email, decision, Lift write, production public-read approval, synthetic QA mode, Pathfinder production surface, or Phase 3 capability changed. This evidence-only checkpoint records the completed bounded QA lifecycle for review.
+
+## 2026-07-22 - Wrike Read-Only QA Readiness
+
+Prepared the operator-facing checkpoint required before any real Wrike discovery or attachment work.
+
+- Added a pure, fail-closed readiness evaluator covering the saved Import Method, folder/status/workbook contract, exact approved task, secret-backed OAuth configuration, both server gates, and authorized-user identity confirmation.
+- Added four explicit states: setup required, ready to request an approved QA window, identity check next, and exact-task preview ready.
+- Added the readiness checklist directly above the existing discovery preview so the next operator action and every blocked prerequisite are visible in one place.
+- Kept attachment download, preview-job creation, polling, webhooks, Wrike writes, and Lift actions false in every readiness result.
+- Avoided false setup warnings while server posture loads by showing a neutral progress state until the authenticated connection response is available.
+- Added the bounded approval, preflight, evidence, stop, and closeout procedure in `docs/WRIKE_READ_ONLY_QA_RUNBOOK.md`.
+- Full workspace checks, all 175 tests, every production build, all 61 Proof deployment-safety tests, and diff hygiene passed. Desktop and 390px local browser QA passed with no horizontal overflow or console warnings.
+
+No Wrike request, credential entry, gate activation, deployment, attachment read, job creation, Lift action, or Proof capability change occurred in this slice.

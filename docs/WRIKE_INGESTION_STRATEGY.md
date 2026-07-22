@@ -106,3 +106,18 @@ Pathfinder now has a second, independently gated read-only operation for one ope
 The response contains provider identifiers, counts, and pass/warning/blocked checks only. Task titles, descriptions, attachment names, temporary URLs, file contents, OAuth material, and other provider payload fields are neither returned to the browser nor persisted. A folder mismatch stops before the attachment-metadata request. Wrike documents the task-by-ID and task-attachment endpoints as read operations available to `wsReadOnly`: [Query Tasks](https://developers.wrike.com/reference/gettasksmulti) and [Query task attachments](https://developers.wrike.com/reference/gettaskssingleattachments).
 
 This slice does not download or select an attachment, persist discovery results, create a Pathfinder job, enable polling or webhooks, write to Wrike, or perform any Lift action. Enabling the gate or using real OAuth credentials requires a separate, explicitly approved QA window. The next implementation slice should own attachment selection/download and durable source-audit evidence as a separate checkpoint, still stopping before preview-job creation.
+
+## Bounded QA readiness
+
+The Wrike Import Method now evaluates a fixed, fail-closed QA readiness sequence before the discovery action can be considered ready:
+
+1. the Import Method is saved;
+2. folder/project, ordered-status, and workbook rules are complete;
+3. one explicitly approved task ID is recorded;
+4. the secret-backed read-only OAuth connection is configured;
+5. the connection-test and discovery-preview gates are open only for an explicitly approved window;
+6. the authorized-user identity check has passed.
+
+The panel distinguishes incomplete setup, readiness to request an explicit QA window, the identity-check step, and readiness for the exact-task preview. Its capability contract always keeps attachment download, preview-job creation, polling, webhooks, Wrike writes, and Lift actions false.
+
+The operator procedure, evidence boundary, stop conditions, and closeout steps are documented in `docs/WRIKE_READ_ONLY_QA_RUNBOOK.md`. Adding this readiness layer does not open a gate, contact Wrike, store a provider response, or authorize a deployment.
