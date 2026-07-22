@@ -22,3 +22,22 @@ export function sessionExpiryDelay(expiresAt: string, nowMs = Date.now()) {
   if (!Number.isFinite(expiresAtMs)) return 0;
   return Math.max(0, expiresAtMs - nowMs);
 }
+
+export function createFailClosedSessionTerminator(
+  endRemoteSession: () => Promise<void>,
+  endLocalSession: () => void
+) {
+  let started = false;
+  return () => {
+    if (started) return null;
+    started = true;
+    endLocalSession();
+    let cleanup: Promise<void>;
+    try {
+      cleanup = Promise.resolve(endRemoteSession());
+    } catch {
+      cleanup = Promise.resolve();
+    }
+    return cleanup.catch(() => undefined);
+  };
+}

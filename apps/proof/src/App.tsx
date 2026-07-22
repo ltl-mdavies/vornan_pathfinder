@@ -36,7 +36,7 @@ import {
 } from "./queue-state";
 import { proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation } from "./lifecycle-state";
 import { ProofPreview } from "./proof-preview";
-import { proofEntryState, sessionExpiryDelay } from "./session-state";
+import { createFailClosedSessionTerminator, proofEntryState, sessionExpiryDelay } from "./session-state";
 import type { ProofActivity, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
 
 type TerminalState = "link_unavailable" | "session_ended";
@@ -196,6 +196,14 @@ export function App() {
     window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#/session-ended`);
     setLoadState(terminalState("session_ended"));
   };
+  const sessionTerminator = useRef<ReturnType<typeof createFailClosedSessionTerminator> | null>(null);
+  const terminateSession = () => {
+    sessionTerminator.current ??= createFailClosedSessionTerminator(
+      () => demoEnabled ? Promise.resolve() : endSession(),
+      endLocalSession
+    );
+    void sessionTerminator.current();
+  };
 
   const load = (silent = false) => {
     const entry = proofEntryState(window.location.hash);
@@ -222,7 +230,7 @@ export function App() {
       },
       (error) => {
         if (error instanceof ProofApiError && error.status === 401) {
-          endLocalSession();
+          terminateSession();
           return;
         }
         if (proofEntryState(window.location.hash).kind === "link_unavailable") {
@@ -254,7 +262,7 @@ export function App() {
       }, 3000);
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
-        endLocalSession();
+        terminateSession();
         return;
       }
       setRefreshState("error");
@@ -268,10 +276,10 @@ export function App() {
     if (loadState.status !== "ready") return;
     const delay = sessionExpiryDelay(loadState.session_expires_at);
     if (delay === 0) {
-      endLocalSession();
+      terminateSession();
       return;
     }
-    const timer = window.setTimeout(endLocalSession, delay);
+    const timer = window.setTimeout(terminateSession, delay);
     return () => window.clearTimeout(timer);
   }, [loadState.status === "ready" ? loadState.session_expires_at : null]);
 
@@ -334,7 +342,7 @@ export function App() {
       setHistoryByTask((current) => ({ ...current, [taskId]: { status: "ready", versions: history.versions } }));
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
-        endLocalSession();
+        terminateSession();
         return;
       }
       setHistoryByTask((current) => ({
@@ -397,7 +405,7 @@ export function App() {
       identityDialogElement.current?.close();
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
-        endLocalSession();
+        terminateSession();
         return;
       }
       setIdentityError(error instanceof Error ? error.message : "Reviewer details could not be saved.");
@@ -423,7 +431,7 @@ export function App() {
       });
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
-        endLocalSession();
+        terminateSession();
         return;
       }
       setFeedbackError(error instanceof Error ? error.message : "Feedback could not be acknowledged.");
@@ -499,7 +507,7 @@ export function App() {
             type="button"
             aria-label="End secure session"
             title="End secure session"
-            onClick={() => void endSession().catch(() => undefined).finally(endLocalSession)}
+            onClick={terminateSession}
           >
             <LogOut aria-hidden="true" />
           </button>
