@@ -5,6 +5,7 @@ import {
   checkWrikeOAuthConnection,
   createDefaultWrikeSourceConfig,
   discoverApprovedWrikeTask,
+  evaluateWrikeReadOnlyQaReadiness,
   getWrikeContractReadiness,
   normalizeWrikeHost,
   normalizeWrikeSourceConfig,
@@ -48,6 +49,60 @@ test("reports the durable identifiers still needed before connection", () => {
     status: "Incomplete",
     missing: ["folder_id", "trigger_status_id"]
   });
+});
+
+test("keeps Wrike QA dark until an explicit bounded window opens", () => {
+  const config = normalizeWrikeSourceConfig({
+    folder_id: "IEABFOLDER",
+    approved_discovery_task_id: "IETESTTASK",
+    trigger_status_id: "IEABORDERED",
+    attachment_extensions: ["xlsx"]
+  });
+  const readiness = evaluateWrikeReadOnlyQaReadiness({
+    config,
+    method_saved: true,
+    connection_configured: true,
+    connection_test_enabled: false,
+    discovery_preview_enabled: false,
+    identity_confirmed: false
+  });
+
+  assert.equal(readiness.status, "ready_for_explicit_qa_window");
+  assert.equal(readiness.capabilities.approved_task_preview, false);
+  assert.equal(readiness.capabilities.attachment_download, false);
+  assert.equal(readiness.capabilities.preview_job_creation, false);
+  assert.equal(readiness.capabilities.wrike_writes, false);
+  assert.equal(readiness.capabilities.lift_actions, false);
+});
+
+test("requires identity confirmation before the exact-task preview", () => {
+  const config = normalizeWrikeSourceConfig({
+    folder_id: "IEABFOLDER",
+    approved_discovery_task_id: "IETESTTASK",
+    trigger_status_id: "IEABORDERED",
+    attachment_extensions: ["xlsx"]
+  });
+  const waiting = evaluateWrikeReadOnlyQaReadiness({
+    config,
+    method_saved: true,
+    connection_configured: true,
+    connection_test_enabled: true,
+    discovery_preview_enabled: true,
+    identity_confirmed: false
+  });
+  assert.equal(waiting.status, "run_identity_check");
+  assert.equal(waiting.capabilities.approved_task_preview, false);
+
+  const ready = evaluateWrikeReadOnlyQaReadiness({
+    config,
+    method_saved: true,
+    connection_configured: true,
+    connection_test_enabled: true,
+    discovery_preview_enabled: true,
+    identity_confirmed: true
+  });
+  assert.equal(ready.status, "ready_for_approved_task_preview");
+  assert.equal(ready.capabilities.approved_task_preview, true);
 });
 
 test("uses account, task, attachment, and version for deterministic ingestion identity", () => {

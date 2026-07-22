@@ -1013,3 +1013,21 @@ Recommended continuation:
 1. Checkpoint this completed dark slice.
 2. Before any real Wrike preview, explicitly approve one task/folder/status scope, least-privilege technical-user OAuth credentials, the environment, and a bounded QA window; enable only the discovery gate for that window.
 3. After successful read-only QA, implement attachment selection/download plus durable source-audit evidence as the next separate slice. Continue to stop before Pathfinder preview-job creation.
+
+## Wrike Read-Only QA Readiness
+
+Proof evidence PR #28 merged to `main` at `d3dc9bb`. Pathfinder then started `codex/wrike-readonly-qa-readiness` from that clean synchronized baseline; Proof remains parked in monitor-only mode.
+
+- The Wrike Import Method now shows a fail-closed readiness checklist for the saved source contract, exact approved task, secret-backed OAuth connection, both server gates, and identity confirmation.
+- The evaluator distinguishes setup work, readiness to request a bounded QA window, the identity-test step, and readiness for the exact approved-task preview.
+- The UI uses a neutral loading state until server posture arrives and remains responsive at desktop and 390px without horizontal overflow.
+- `docs/WRIKE_READ_ONLY_QA_RUNBOOK.md` defines the explicit approval record, safe evidence, stop conditions, and gate closeout.
+- Attachment download, preview-job creation, polling, webhooks, Wrike writes, and Lift actions remain unavailable in every state.
+- Full workspace checks, all 175 tests, every production build, all 61 Proof deployment-safety tests, diff hygiene, and desktop/390px browser QA pass.
+
+Recommended continuation:
+
+1. Complete full repository validation and checkpoint this dark readiness branch.
+2. Obtain the approved environment, QA window, regional host, least-privilege technical-user OAuth approval, folder/project ID, Ordered status ID, exact task ID, and workbook rule.
+3. Open only the two Wrike GET-only gates for the approved window, run connection health and exact-task discovery once, record sanitized evidence, then restore both gates to false.
+4. Only after a successful closed window, begin the separately gated attachment selection/download and durable source-audit sprint. Continue to stop before preview-job creation.

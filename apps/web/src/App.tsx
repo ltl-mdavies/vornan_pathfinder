@@ -78,6 +78,7 @@ import {
 } from "@pathfinder/templates";
 import {
   createDefaultWrikeSourceConfig,
+  evaluateWrikeReadOnlyQaReadiness,
   getWrikeContractReadiness,
   normalizeWrikeSourceConfig,
   type WrikeSourceConfig,
@@ -4857,6 +4858,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     activeImportMethod?.source_config.wrike ?? createDefaultWrikeSourceConfig()
   );
   const activeWrikeReadiness = getWrikeContractReadiness(activeWrikeConfig);
+  const activeWrikeQaReadiness = evaluateWrikeReadOnlyQaReadiness({
+    config: activeWrikeConfig,
+    method_saved: Boolean(activeImportMethod) && !activeImportMethodHasUnsavedChanges,
+    connection_configured: Boolean(wrikeConnection?.configured),
+    connection_test_enabled: Boolean(wrikeConnection?.connection_test_enabled),
+    discovery_preview_enabled: Boolean(wrikeConnection?.discovery_preview_enabled),
+    identity_confirmed: Boolean(wrikeConnection?.health.identity_confirmed)
+  });
   useEffect(() => {
     setWrikeDiscoveryPreview(null);
     setWrikeDiscoveryMessage(null);
@@ -9025,6 +9034,59 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           </div>
 
                           <div className="wrike-discovery-preview">
+                            {wrikeConnection ? (
+                              <div className="wrike-qa-readiness">
+                                <div className="wrike-qa-readiness-heading">
+                                  <div>
+                                    <span className="section-eyebrow">Bounded QA readiness</span>
+                                    <strong>{activeWrikeQaReadiness.summary}</strong>
+                                    <small>{activeWrikeQaReadiness.next_action}</small>
+                                  </div>
+                                  <span
+                                    className={
+                                      activeWrikeQaReadiness.status === "ready_for_approved_task_preview"
+                                        ? "mini-pill mini-pill-success"
+                                        : "mini-pill mini-pill-warning"
+                                    }
+                                  >
+                                    {activeWrikeQaReadiness.status === "needs_setup"
+                                      ? "Setup required"
+                                      : activeWrikeQaReadiness.status === "ready_for_explicit_qa_window"
+                                        ? "Approval required"
+                                        : activeWrikeQaReadiness.status === "run_identity_check"
+                                          ? "Identity check next"
+                                          : "Preview ready"}
+                                  </span>
+                                </div>
+                                <div className="wrike-qa-readiness-grid">
+                                  {activeWrikeQaReadiness.items.map((item) => (
+                                    <div key={item.item_id}>
+                                      <RouteDiagnosticPill
+                                        status={
+                                          item.status === "Passed"
+                                            ? "Passed"
+                                            : item.status === "Blocked"
+                                              ? "Blocked"
+                                              : "Warning"
+                                        }
+                                      />
+                                      <span>
+                                        <strong>{item.label}</strong>
+                                        <small>{item.message}</small>
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                                <p className="wrike-contract-note">
+                                  Readiness never authorizes attachment download, preview-job creation, polling, webhooks, Wrike writes, or Lift actions.
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="wrike-qa-readiness wrike-qa-readiness-loading" aria-live="polite">
+                                <RefreshCw size={16} className="spin" />
+                                <span>Checking the server-owned Wrike QA posture…</span>
+                              </div>
+                            )}
                             <div className="wrike-discovery-heading">
                               <div>
                                 <span className="section-eyebrow">Read-only discovery preview</span>

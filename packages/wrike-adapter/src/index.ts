@@ -123,6 +123,42 @@ export interface WrikeContractReadiness {
   missing: Array<"folder_id" | "trigger_status_id" | "attachment_extensions">;
 }
 
+export type WrikeReadOnlyQaReadinessStatus =
+  | "needs_setup"
+  | "ready_for_explicit_qa_window"
+  | "run_identity_check"
+  | "ready_for_approved_task_preview";
+
+export interface WrikeReadOnlyQaReadinessItem {
+  item_id:
+    | "saved_method"
+    | "source_contract"
+    | "approved_task"
+    | "oauth_credentials"
+    | "connection_gate"
+    | "discovery_gate"
+    | "identity_check";
+  status: "Passed" | "Waiting" | "Blocked";
+  label: string;
+  message: string;
+}
+
+export interface WrikeReadOnlyQaReadiness {
+  status: WrikeReadOnlyQaReadinessStatus;
+  summary: string;
+  next_action: string;
+  items: WrikeReadOnlyQaReadinessItem[];
+  capabilities: {
+    approved_task_preview: boolean;
+    attachment_download: false;
+    preview_job_creation: false;
+    webhook: false;
+    polling: false;
+    wrike_writes: false;
+    lift_actions: false;
+  };
+}
+
 export function createDefaultWrikeSourceConfig(): WrikeSourceConfig {
   return {
     enabled: false,
@@ -209,6 +245,119 @@ export function getWrikeContractReadiness(config: WrikeSourceConfig): WrikeContr
   return {
     status: missing.length ? "Incomplete" : "Configured",
     missing
+  };
+}
+
+export function evaluateWrikeReadOnlyQaReadiness(args: {
+  config: WrikeSourceConfig;
+  method_saved: boolean;
+  connection_configured: boolean;
+  connection_test_enabled: boolean;
+  discovery_preview_enabled: boolean;
+  identity_confirmed: boolean;
+}): WrikeReadOnlyQaReadiness {
+  const contract = getWrikeContractReadiness(args.config);
+  const approvedTaskConfigured = Boolean(args.config.approved_discovery_task_id);
+  const items: WrikeReadOnlyQaReadinessItem[] = [
+    {
+      item_id: "saved_method",
+      status: args.method_saved ? "Passed" : "Blocked",
+      label: "Saved Import Method",
+      message: args.method_saved
+        ? "The QA check will use the persisted Import Method contract."
+        : "Save the Import Method before requesting any provider read."
+    },
+    {
+      item_id: "source_contract",
+      status: contract.status === "Configured" ? "Passed" : "Blocked",
+      label: "Wrike source contract",
+      message: contract.status === "Configured"
+        ? "Folder, ordered-status, and workbook rules are configured."
+        : "Configure the folder/project, ordered-status ID, and workbook rule."
+    },
+    {
+      item_id: "approved_task",
+      status: approvedTaskConfigured ? "Passed" : "Blocked",
+      label: "Approved task scope",
+      message: approvedTaskConfigured
+        ? "One exact task ID is recorded for the bounded discovery preview."
+        : "Record one explicitly approved Wrike task ID."
+    },
+    {
+      item_id: "oauth_credentials",
+      status: args.connection_configured ? "Passed" : "Blocked",
+      label: "Read-only OAuth connection",
+      message: args.connection_configured
+        ? "Secret-backed OAuth credentials and a regional host are configured."
+        : "Configure the least-privilege technical-user OAuth connection in Settings."
+    },
+    {
+      item_id: "connection_gate",
+      status: args.connection_test_enabled ? "Passed" : "Waiting",
+      label: "Connection-test gate",
+      message: args.connection_test_enabled
+        ? "The bounded read-only identity test is available."
+        : "Gate remains dark until an explicit QA window is approved."
+    },
+    {
+      item_id: "discovery_gate",
+      status: args.discovery_preview_enabled ? "Passed" : "Waiting",
+      label: "Approved-task preview gate",
+      message: args.discovery_preview_enabled
+        ? "Exact-task and attachment-metadata reads are available."
+        : "Gate remains dark until the same explicit QA window is approved."
+    },
+    {
+      item_id: "identity_check",
+      status: args.identity_confirmed ? "Passed" : args.connection_test_enabled ? "Waiting" : "Blocked",
+      label: "Authorized-user identity",
+      message: args.identity_confirmed
+        ? "The read-only Wrike identity check has passed."
+        : args.connection_test_enabled
+          ? "Run the read-only connection test before task discovery."
+          : "Identity remains unverified while the QA gate is dark."
+    }
+  ];
+
+  const setupComplete =
+    args.method_saved &&
+    contract.status === "Configured" &&
+    approvedTaskConfigured &&
+    args.connection_configured;
+
+  let status: WrikeReadOnlyQaReadinessStatus = "needs_setup";
+  let summary = "Complete the saved scope and read-only connection setup.";
+  let nextAction = "Resolve the blocked setup items before requesting a QA window.";
+
+  if (setupComplete && (!args.connection_test_enabled || !args.discovery_preview_enabled)) {
+    status = "ready_for_explicit_qa_window";
+    summary = "Setup is complete; provider access remains dark.";
+    nextAction = "Request explicit approval for a bounded read-only QA window before enabling either server gate.";
+  } else if (setupComplete && !args.identity_confirmed) {
+    status = "run_identity_check";
+    summary = "The bounded QA gates are open, but identity is not confirmed.";
+    nextAction = "Run the read-only connection test, then review this readiness check again.";
+  } else if (setupComplete && args.identity_confirmed) {
+    status = "ready_for_approved_task_preview";
+    summary = "The exact approved task is ready for a bounded read-only preview.";
+    nextAction = "Run the approved task preview and record sanitized evidence; do not download an attachment or create a job.";
+  }
+
+  return {
+    status,
+    summary,
+    next_action: nextAction,
+    items,
+    capabilities: {
+      approved_task_preview:
+        status === "ready_for_approved_task_preview" && args.discovery_preview_enabled,
+      attachment_download: false,
+      preview_job_creation: false,
+      webhook: false,
+      polling: false,
+      wrike_writes: false,
+      lift_actions: false
+    }
   };
 }
 
