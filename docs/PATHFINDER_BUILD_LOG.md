@@ -2982,3 +2982,20 @@ Validation completed successfully after reconciling the later Proof checkpoints:
 - `npm run test:proof-deploy` (55 deployment-safety tests)
 - `git diff --check`
 - Desktop and 390px mobile browser QA of the authenticated Settings panel, including the disabled gate posture, responsive controls, and no horizontal overflow
+
+## 2026-07-21 - Proof LTL Demo Multi-Order Read-Only QA
+
+Completed a broader real-order coverage pass inside the approved internal LTL Demo window.
+
+- Selected six confirmed LTL Demo orders through bounded Lift Orders GET queries and synchronized all six through the IAM-only Proof operator.
+- Covered two real waiting/no-file aggregates plus one-, two-, and three-line pending JPEG aggregates. All 12 line reads succeeded, nine proof rows normalized, no fallback read ran, and no normalization warning was produced.
+- Exercised temporary view-grant/session/revocation lifecycles for two-line waiting, single-proof, and three-proof orders at `1366×768` and `390×844`.
+- Confirmed zero document overflow, the stacked mobile feed, contained preview artwork, three queue thumbnails with independent queue scrolling, terminal session cleanup, and disabled decision controls throughout.
+- Verified the single-proof case projected a JPEG preview and separate HTTPS PDF full-resolution action without retaining the asset URL in evidence.
+- Confirmed the bounded audit sequence for every UI order, revoked all three grants, and finished with all ten alarms `OK`, both queues empty, zero active grants, and zero active sessions.
+- Fixed the non-mutating window monitor to classify production-shaped session records before grants; real sessions also contain a parent `grant_id`. Added regression coverage and reconciled the live inventory to five grants plus three ended sessions.
+- Removed and verified absence of all 24 exact temporary request/response files, including token-bearing grant responses.
+- Recorded the sanitized results and explicitly deferred unavailable revised/completed/non-image real-order states in `docs/VORNAN_PROOF_LTL_DEMO_MULTI_ORDER_QA_EVIDENCE_2026-07-21.md`.
+- Validation passed every workspace typecheck, all 169 workspace tests on the rebased main baseline, all 55 Proof deployment-safety tests, every production build, both bounded readiness evaluators, the corrected live aggregate check, the sensitive-value diff scan, and `git diff --check`.
+
+No Proof stack deployment, public email, DNS, decision, Lift write, synthetic fixture, or Pathfinder production change occurred. The approved internal window remains active only through its existing deadline and contains no active customer access.
