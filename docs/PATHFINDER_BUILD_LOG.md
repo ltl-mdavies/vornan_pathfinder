@@ -2931,3 +2931,19 @@ Established the dark, operator-configured source contract for a future Wrike-to-
 - Local browser QA verified the full-width admin contract at desktop and 390px mobile, including readiness-state changes, responsive single-column controls, no horizontal overflow, and no browser errors.
 
 No Wrike connection, token, webhook, polling worker, attachment download, preview creation, Lift submit, deployment, or Proof capability is enabled by this slice.
+
+## 2026-07-21 - Proof Internal Read-Only Activation Opening QA
+
+Opened the explicitly approved one-week internal read-only QA window on the isolated `vornan-proof-dev` stack after Proof PR #19 merged to `main` at `0ae7e8e`.
+
+- Reviewed and executed change set `proof-readonly-activation-0ae7e8e`, which added only the IAM-invoked operator boundary and its isolated telemetry resources and modified no Pathfinder stack or DNS resource.
+- Activated only the LTL Demo customer `1249` cohort through `2026-07-28T21:49:50Z` using the generated CloudFront hostname. Synthetic QA, production public approval, domain/certificate, link email, decisions, and every Lift-write flag remained false.
+- Used approved order `A0226753` for cohort-bound Lift GET synchronization and two temporary view-only grant lifecycles. Both sessions ended, both grants were revoked, and zero active grants remain.
+- Confirmed the public DTO exposed one order with three proofs and no internal customer, grant, participant, attachment, or decision scope. Direct API bypass remained denied.
+- Browser-tested the deployed SPA at `1366×768`, `390×844`, `320×568`, and `844×390`. The desktop viewer, independently scrolling thumbnail queue, contained artwork, mobile feed, 44-pixel mobile controls, terminal session state, and disabled decision transport all passed with no horizontal overflow.
+- Verified the expected bounded audit sequence, zero sensitive-value log matches across 92 records, all ten alarms `OK`, and both the sync queue and DLQ empty.
+- Deleted and verified absence of every exact token-bearing temporary file.
+- Recorded sanitized evidence in `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_QA_EVIDENCE_2026-07-21.md`.
+- Revalidated every workspace typecheck, all 161 workspace tests, all 50 Proof deployment-safety tests, every production build, both bounded evaluators, and `git diff --check`.
+
+The activation flags intentionally remain enabled only for the approved internal window, but no active customer grant exists. At the deadline or on any rollback trigger, revoke active grants and restore the isolated stack's operator, public-read, and read-only QA flags to false. This checkpoint does not authorize DNS, email, decisions, Lift writes, production public read, Pathfinder production changes, or Phase 3.
