@@ -69,4 +69,4 @@ The application deadline independently fails closed even if the rollback deploym
 
 ## Evidence status
 
-This branch prepares code, infrastructure assertions, automated tests, and the operator runbook. It does not deploy the stack or invoke Lift. Live activation and customer-session evidence remain pending a merged commit, reviewed dev change set, deployment, and controlled private link handoff.
+The implementation branch prepared code, infrastructure assertions, automated tests, and the operator runbook without deployment or Lift invocation. The subsequently approved, separately reviewed deployment and GET-only customer-session evidence are recorded in `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_QA_EVIDENCE_2026-07-21.md`.

@@ -987,7 +987,7 @@ Wrike ingestion-contract PR #21 was green and merged to `main` as `b79730e`. The
 - Rotated OAuth credentials are retained inside the secret boundary even when the subsequent current-user health check fails, so a post-refresh outage does not strand the next retry.
 - No task/folder discovery, attachment download, webhook, polling, background worker, Wrike write, preview creation, Lift action, real credential entry, or deployment is part of this checkpoint.
 
-Full workspace validation passed 169 tests, every workspace check/build, diff hygiene, and responsive desktop/390px browser QA with the server gate disabled.
+Full validation passed 169 workspace tests, all 55 Proof deployment-safety tests, every workspace check/build, diff hygiene, and responsive desktop/390px browser QA with the server gate disabled.
 
 Recommended continuation after review:
 

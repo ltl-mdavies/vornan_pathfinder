@@ -2932,9 +2932,39 @@ Established the dark, operator-configured source contract for a future Wrike-to-
 
 No Wrike connection, token, webhook, polling worker, attachment download, preview creation, Lift submit, deployment, or Proof capability is enabled by this slice.
 
+## 2026-07-21 - Proof Internal Read-Only Activation Opening QA
+
+Opened the explicitly approved one-week internal read-only QA window on the isolated `vornan-proof-dev` stack after Proof PR #19 merged to `main` at `0ae7e8e`.
+
+- Reviewed and executed change set `proof-readonly-activation-0ae7e8e`, which added only the IAM-invoked operator boundary and its isolated telemetry resources and modified no Pathfinder stack or DNS resource.
+- Activated only the LTL Demo customer `1249` cohort through `2026-07-28T21:49:50Z` using the generated CloudFront hostname. Synthetic QA, production public approval, domain/certificate, link email, decisions, and every Lift-write flag remained false.
+- Used approved order `A0226753` for cohort-bound Lift GET synchronization and two temporary view-only grant lifecycles. Both sessions ended, both grants were revoked, and zero active grants remain.
+- Confirmed the public DTO exposed one order with three proofs and no internal customer, grant, participant, attachment, or decision scope. Direct API bypass remained denied.
+- Browser-tested the deployed SPA at `1366×768`, `390×844`, `320×568`, and `844×390`. The desktop viewer, independently scrolling thumbnail queue, contained artwork, mobile feed, 44-pixel mobile controls, terminal session state, and disabled decision transport all passed with no horizontal overflow.
+- Verified the expected bounded audit sequence, zero sensitive-value log matches across 92 records, all ten alarms `OK`, and both the sync queue and DLQ empty.
+- Deleted and verified absence of every exact token-bearing temporary file.
+- Recorded sanitized evidence in `docs/VORNAN_PROOF_READ_ONLY_ACTIVATION_QA_EVIDENCE_2026-07-21.md`.
+- Revalidated every workspace typecheck, all 161 workspace tests, all 50 Proof deployment-safety tests, every production build, both bounded evaluators, and `git diff --check`.
+
+The activation flags intentionally remain enabled only for the approved internal window, but no active customer grant exists. At the deadline or on any rollback trigger, revoke active grants and restore the isolated stack's operator, public-read, and read-only QA flags to false. This checkpoint does not authorize DNS, email, decisions, Lift writes, production public read, Pathfinder production changes, or Phase 3.
+
+## 2026-07-21 - Proof Read-Only Window Operations Guard
+
+Started the post-activation operational-hardening slice from merged main without changing the isolated stack or any Pathfinder production surface.
+
+- Added a dev-stack-only, non-mutating status command that inventories the deployed activation posture, deadline, expected alarms, queue/DLQ depth, and aggregate active grant/session counts.
+- Bounded the output to fixed gate names, timestamps, cohort/count totals, and next-action values. Customer IDs, order numbers, access identifiers, tokens, URLs, stored payloads, and AWS error bodies are never printed.
+- Made every non-healthy state fail closed, including configuration drift, expiry, missing/non-OK alarms, queue activity, malformed access records, or active access requiring operator review.
+- Hard-coded public-read changes, grant-creation changes, deployment, DNS, email, decisions, Lift writes, and Phase 3 authorization false in every result.
+- Documented the check as the opening/closing control for each internal operator session and before dark restoration.
+- Ran the new command against `vornan-proof-dev` at `2026-07-22T00:04:33.238Z`. It returned `healthy_no_active_access`: all ten alarms were `OK`, both queues were empty, both retained grants were inactive, no active session existed, every access record was parseable, and the window remained bounded through `2026-07-28T21:49:50.000Z`.
+- Validation passed every workspace typecheck, all 161 workspace tests, all 55 Proof deployment-safety tests, every production build, both bounded readiness evaluators, the live aggregate status check, and `git diff --check`.
+
+No deployment or AWS mutation is part of this slice. The live read-only window remains governed by its original expiry and cohort, with decisions, email, DNS, production public approval, synthetic QA, and every Lift write disabled.
+
 ## 2026-07-21 - Wrike Secret-Backed Read-Only Connection Health
 
-Merged the green Wrike ingestion-contract PR #21 into `main` at `b79730e`, then started a fresh isolated `codex/wrike-connection-health` branch from that baseline.
+Merged the green Wrike ingestion-contract PR #21 into `main` at `b79730e`, then started a fresh isolated `codex/wrike-connection-health` branch from that baseline and reconciled the completed work with the later Proof checkpoints on `main`.
 
 - Added a platform-level Wrike OAuth connection in authenticated Settings, separate from customer Import Methods.
 - Stored the client ID, client secret, refresh token, rotated access token, rotated refresh token, expiry, and safe health metadata through Pathfinder's existing local/Secrets Manager secret boundary.
@@ -2944,10 +2974,11 @@ Merged the green Wrike ingestion-contract PR #21 into `main` at `b79730e`, then 
 - Kept task/folder discovery, attachment access, webhook creation, polling, background execution, Wrike writes, preview creation, Lift actions, deployment, and real credentials out of this slice.
 - Added regression coverage for host allowlisting, rotated-token persistence on both success and post-refresh failure, response redaction, secret-boundary persistence, safe errors, and the exact two-request external surface.
 
-Validation completed successfully:
+Validation completed successfully after reconciling the later Proof checkpoints:
 
 - `npm run check`
 - `npm run test` (169 tests across the workspace, including nine Wrike adapter tests and four connection API tests)
 - `npm run build`
+- `npm run test:proof-deploy` (55 deployment-safety tests)
 - `git diff --check`
 - Desktop and 390px mobile browser QA of the authenticated Settings panel, including the disabled gate posture, responsive controls, and no horizontal overflow
