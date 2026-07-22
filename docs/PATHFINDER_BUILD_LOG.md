@@ -3082,3 +3082,16 @@ Completed the production-shaped authorization layer for Pathfinder's existing se
 - Full release validation passed every workspace typecheck, all 182 tests on the reconciled Proof baseline, every production build, all 61 Proof deployment-safety tests, and diff hygiene.
 
 No real Wrike credential was entered, no provider authorization was attempted, no gate was enabled, and no deployment or external Wrike/Lift request occurred.
+
+## 2026-07-22 - Targets Table and Status-Chip Consistency
+
+Followed the successful production deployment of merged Wrike OAuth commit `1b4fa1a` with a focused admin UI cleanup.
+
+- Expanded the fixed Targets action column to contain Edit and Delete controls and right-aligned the action group inside the table cell.
+- Replaced an overly broad target-header descendant selector with an explicit title-container class so header status chips are not converted into block text with inherited top margin.
+- Matched the Saved state to the adjacent health chip at a 36px control height with centered icon/text geometry.
+- Added a shared alignment baseline for status-chip classes used across headers, tables, cards, authentication, and status-access surfaces while retaining their contextual sizes and tones.
+- Local browser QA passed at 1651px, 1280px, and 1024px. Target action controls remained inside the table at every size, Saved and health chips shared the same top position and height, and document width never exceeded the viewport.
+- Full validation passed `npm run check`, all 182 workspace tests, `npm run build`, and `git diff --check`.
+
+This slice changes presentation only. It does not alter target data, credentials, submit behavior, Wrike gates, Proof capabilities, or any external integration.

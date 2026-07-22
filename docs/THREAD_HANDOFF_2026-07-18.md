@@ -1052,3 +1052,21 @@ Recommended continuation:
 3. Obtain the authoritative Larger Than Life routing field/value, Ordered status/checkbox contract, and the two agreed task examples before any attachment retrieval work.
 4. Open the existing GET-only QA gates only inside an approved window, run identity and exact-task preview once, then close the gates.
 5. After that evidence passes, implement attachment selection/download plus durable source audit as a separate sprint, still stopping before preview-job creation.
+
+## Targets Table and Status-Chip Consistency
+
+Wrike OAuth merged to `main` as `1b4fa1a` and was deployed successfully to the production API and admin web. The deployed Wrike connection-test and discovery-preview gates remain false. No Wrike authorization or provider data request occurred.
+
+The follow-up UI branch `codex/target-table-chip-consistency` starts from that merged production baseline.
+
+- The Targets overview action column now contains both row controls instead of allowing Delete to extend beyond the panel edge.
+- Target detail title copy now has an explicit container selector; nested Saved and health chips no longer inherit title-span block layout or margin.
+- Saved and health states align at 36px in the target header, and the application now has a shared geometry baseline for recurring status-chip classes.
+- Browser QA passed at 1651px, 1280px, and 1024px with no document overflow. Full checks, all 182 tests, every production build, and diff hygiene pass.
+- No runtime behavior, target configuration, integration gate, credential, Proof surface, or deployment changed in this follow-up.
+
+Recommended continuation:
+
+1. Commit and push this focused UI branch and open a small PR.
+2. After green validation and review, merge and deploy the admin web only; the API is unchanged by this slice.
+3. Resume Wrike onboarding when Momentara provides the OAuth app credentials and the remaining routing/status/task-example answers.

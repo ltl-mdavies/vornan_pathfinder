@@ -12958,7 +12958,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     <ArrowLeft size={16} />
                     All targets
                   </button>
-                  <div>
+                  <div className="target-detail-heading">
                     <p className="eyebrow">Target setup</p>
                     <h1>{selectedTarget.name}</h1>
                     <span>{selectedTarget.target_type} · {selectedTarget.status}</span>

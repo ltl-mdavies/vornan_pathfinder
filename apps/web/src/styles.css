@@ -3332,7 +3332,7 @@ h1 {
   letter-spacing: 0;
 }
 
-.target-detail-header span {
+.target-detail-heading > span {
   display: block;
   margin-top: 4px;
   color: var(--text-secondary);
@@ -3420,6 +3420,17 @@ h1 {
   flex: 0 0 auto;
 }
 
+.target-header-status .method-save-state {
+  min-height: 36px;
+  margin: 0;
+  padding: 0 13px;
+  font-size: 12px;
+}
+
+.target-header-status .method-save-state svg {
+  flex: 0 0 auto;
+}
+
 .target-card-heading .mini-pill,
 .output-route-heading .mini-pill,
 .output-route-heading .pill,
@@ -3483,7 +3494,7 @@ h1 {
 
 .targets-overview-table th:nth-child(7),
 .targets-overview-table td:nth-child(7) {
-  width: 105px;
+  width: 132px;
 }
 
 .target-card-stack {
@@ -3549,7 +3560,10 @@ h1 {
 .target-row-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+  width: 100%;
+  min-width: 0;
 }
 
 .target-card-heading strong,
@@ -6715,6 +6729,32 @@ td {
 .pill-neutral {
   color: var(--vornan-forest);
   background: var(--vornan-stone);
+}
+
+/* Shared geometry keeps status chips aligned across tables, cards, and headers. */
+:is(
+  .active-tag,
+  .pill,
+  .mini-pill,
+  .health-chip,
+  .method-save-state,
+  .job-intake-pill,
+  .status-access-domain-pill,
+  .auth-status-chip
+) {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0;
+  line-height: 1;
+  text-align: center;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+:is(.pill, .mini-pill, .health-chip, .method-save-state, .job-intake-pill) > svg {
+  flex: 0 0 auto;
 }
 
 .sheet-summary {
