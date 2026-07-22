@@ -128,6 +128,9 @@ h1, h2, h3, p { margin-top: 0; }
 .button.secondary { border: 1px solid var(--line); color: var(--forest); background: white; }
 .button svg { width: 15px; }
 .preview-stage { min-width: 0; min-height: 0; height: 100%; display: grid; place-items: center; overflow: hidden; border: 1px solid #dfe2d6; border-radius: 13px; background: #e9ecdf; }
+.proof-image-link { width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; place-items: center; overflow: hidden; border-radius: inherit; cursor: zoom-in; }
+.proof-image-link:hover .proof-image { filter: brightness(.97); transform: scale(1.002); }
+.proof-image-link:focus-visible { outline-offset: -4px; }
 .proof-image { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; min-width: 0; min-height: 0; object-fit: contain; object-position: center; }
 .proof-frame { width: 100%; height: 100%; border: 0; background: white; }
 .preview-document { width: 100%; height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; background: white; }
