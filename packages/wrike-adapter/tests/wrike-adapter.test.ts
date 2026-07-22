@@ -18,6 +18,7 @@ import {
 test("normalizes a fail-closed Wrike intake contract without retaining secrets", () => {
   const normalized = normalizeWrikeSourceConfig({
     enabled: true,
+    connection_id: " source_wrike_momentara ",
     folder_id: "  IEABFOLDER  ",
     approved_discovery_task_id: " IETESTTASK ",
     trigger_mode: "webhook_with_reconciliation",
@@ -31,6 +32,7 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
   });
 
   assert.equal(normalized.enabled, false);
+  assert.equal(normalized.connection_id, "source_wrike_momentara");
   assert.equal(normalized.folder_id, "IEABFOLDER");
   assert.equal(normalized.approved_discovery_task_id, "IETESTTASK");
   assert.equal(normalized.trigger_status_id, "IEABORDERED");
@@ -49,12 +51,13 @@ test("snaps reconciliation intervals to the operator-visible presets", () => {
 test("reports the durable identifiers still needed before connection", () => {
   assert.deepEqual(getWrikeContractReadiness(createDefaultWrikeSourceConfig()), {
     status: "Incomplete",
-    missing: ["folder_id", "trigger_status_id"]
+    missing: ["connection_id", "folder_id", "trigger_status_id"]
   });
 });
 
 test("keeps Wrike QA dark until an explicit bounded window opens", () => {
   const config = normalizeWrikeSourceConfig({
+    connection_id: "source_wrike_momentara",
     folder_id: "IEABFOLDER",
     approved_discovery_task_id: "IETESTTASK",
     trigger_status_id: "IEABORDERED",
@@ -79,6 +82,7 @@ test("keeps Wrike QA dark until an explicit bounded window opens", () => {
 
 test("requires identity confirmation before the exact-task preview", () => {
   const config = normalizeWrikeSourceConfig({
+    connection_id: "source_wrike_momentara",
     folder_id: "IEABFOLDER",
     approved_discovery_task_id: "IETESTTASK",
     trigger_status_id: "IEABORDERED",

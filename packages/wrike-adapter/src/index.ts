@@ -54,6 +54,7 @@ export class WrikeConnectionError extends Error {
 
 export interface WrikeSourceConfig {
   enabled: boolean;
+  connection_id: string;
   folder_id: string;
   approved_discovery_task_id: string;
   trigger_mode: WrikeTriggerMode;
@@ -126,7 +127,7 @@ export interface WrikeAttachmentSelectionResult {
 
 export interface WrikeContractReadiness {
   status: "Incomplete" | "Configured";
-  missing: Array<"folder_id" | "trigger_status_id" | "attachment_extensions">;
+  missing: Array<"connection_id" | "folder_id" | "trigger_status_id" | "attachment_extensions">;
 }
 
 export type WrikeReadOnlyQaReadinessStatus =
@@ -168,6 +169,7 @@ export interface WrikeReadOnlyQaReadiness {
 export function createDefaultWrikeSourceConfig(): WrikeSourceConfig {
   return {
     enabled: false,
+    connection_id: "",
     folder_id: "",
     approved_discovery_task_id: "",
     trigger_mode: "scheduled_polling",
@@ -214,6 +216,7 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
 
   return {
     enabled: false,
+    connection_id: cleanIdentifier(source.connection_id),
     folder_id: cleanIdentifier(source.folder_id),
     approved_discovery_task_id: cleanIdentifier(source.approved_discovery_task_id),
     trigger_mode:
@@ -239,6 +242,9 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
 
 export function getWrikeContractReadiness(config: WrikeSourceConfig): WrikeContractReadiness {
   const missing: WrikeContractReadiness["missing"] = [];
+  if (!config.connection_id) {
+    missing.push("connection_id");
+  }
   if (!config.folder_id) {
     missing.push("folder_id");
   }

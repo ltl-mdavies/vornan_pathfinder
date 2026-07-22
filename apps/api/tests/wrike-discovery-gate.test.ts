@@ -23,10 +23,12 @@ test("keeps Wrike discovery preview dark when the server gate is not enabled", a
         .expect(423);
       assert.match(response.body.error, /disabled at the API boundary/i);
       assert.equal(fetchCalls, 0);
-      const posture = await request(app).get("/api/wrike/connection").expect(200);
-      assert.equal(posture.body.discovery_preview_enabled, false);
-      assert.equal(posture.body.capabilities.task_discovery, false);
-      assert.equal(posture.body.capabilities.attachment_download, false);
+      const legacy = await request(app).get("/api/wrike/connection").expect(410);
+      assert.match(legacy.body.error, /per customer/i);
+      const catalog = await request(app).get("/api/source-connector-definitions").expect(200);
+      const wrike = catalog.body.definitions.find((definition) => definition.provider === "wrike");
+      assert.equal(wrike.availability, "Available");
+      assert.equal(wrike.capabilities.writes, false);
     `;
     const result = spawnSync(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", script], {
       cwd: process.cwd(),

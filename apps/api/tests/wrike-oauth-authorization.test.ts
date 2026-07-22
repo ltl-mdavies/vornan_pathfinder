@@ -5,9 +5,15 @@ import { join } from "node:path";
 import test, { after, before } from "node:test";
 import request from "supertest";
 
+const customerId = "284619";
 let testDirectory = "";
+let connectionId = "";
 let app: typeof import("../src/server.ts")["app"];
 let originalFetch: typeof fetch;
+
+function connectionPath(suffix = "") {
+  return `/api/customers/${customerId}/source-connections/${connectionId}${suffix}`;
+}
 
 before(async () => {
   testDirectory = await mkdtemp(join(tmpdir(), "pathfinder-wrike-oauth-test-"));
@@ -31,16 +37,28 @@ after(async () => {
   await rm(testDirectory, { recursive: true, force: true });
 });
 
-test("authorizes Wrike with expiring one-time state and stores tokens only in the secret boundary", async () => {
-  const saved = await request(app)
-    .put("/api/wrike/connection")
-    .send({ client_id: "wrike-client-id", client_secret: "wrike-client-secret" })
-    .expect(200);
-  assert.equal(saved.body.oauth_connect_ready, true);
-  assert.equal(saved.body.configured, false);
-  assert.equal(saved.body.oauth_redirect_uri, "https://api.pathfinder.vornan.co/oauth/wrike/callback");
+test("authorizes one customer Wrike connection with expiring state and isolated secrets", async () => {
+  const created = await request(app)
+    .post(`/api/customers/${customerId}/source-connections`)
+    .send({ provider: "wrike", name: "Momentara Wrike" })
+    .expect(201);
+  connectionId = created.body.connection_id;
 
-  const started = await request(app).post("/api/wrike/oauth/start").expect(200);
+  const saved = await request(app)
+    .put(connectionPath())
+    .send({
+      name: "Momentara Wrike",
+      status: "Draft",
+      environment: "Production",
+      client_id: "wrike-client-id",
+      client_secret: "wrike-client-secret"
+    })
+    .expect(200);
+  assert.equal(saved.body.provider_status.oauth_connect_ready, true);
+  assert.equal(saved.body.provider_status.configured, false);
+  assert.equal(saved.body.provider_status.oauth_redirect_uri, "https://api.pathfinder.vornan.co/oauth/wrike/callback");
+
+  const started = await request(app).post(connectionPath("/wrike/oauth/start")).expect(200);
   const authorizationUrl = new URL(started.body.authorization_url);
   const state = authorizationUrl.searchParams.get("state") ?? "";
   assert.equal(authorizationUrl.origin, "https://login.wrike.com");
@@ -49,7 +67,8 @@ test("authorizes Wrike with expiring one-time state and stores tokens only in th
     authorizationUrl.searchParams.get("redirect_uri"),
     "https://api.pathfinder.vornan.co/oauth/wrike/callback"
   );
-  assert.ok(state.length >= 32);
+  assert.ok(state.startsWith(`${connectionId}.`));
+  assert.ok(state.length >= connectionId.length + 33);
 
   const pendingSecret = await readFile(join(testDirectory, "secrets.json"), "utf8");
   assert.equal(pendingSecret.includes(state), false);
@@ -74,7 +93,11 @@ test("authorizes Wrike with expiring one-time state and stores tokens only in th
     .get("/oauth/wrike/callback")
     .query({ code: "one-time-code", state })
     .expect(303);
-  assert.equal(callback.headers.location, "https://pathfinder.vornan.co/?wrike_oauth=connected");
+  const callbackLocation = new URL(callback.headers.location);
+  assert.equal(callbackLocation.origin, "https://pathfinder.vornan.co");
+  assert.equal(callbackLocation.searchParams.get("wrike_oauth"), "connected");
+  assert.equal(callbackLocation.searchParams.get("wrike_customer_id"), customerId);
+  assert.equal(callbackLocation.searchParams.get("wrike_connection_id"), connectionId);
   assert.equal(callback.headers["cache-control"], "no-store");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, "https://login.wrike.com/oauth2/token");
@@ -87,26 +110,30 @@ test("authorizes Wrike with expiring one-time state and stores tokens only in th
   assert.equal(stored.includes("authorized-refresh-token"), true);
   assert.equal(stored.includes("oauth_pending"), false);
 
-  const status = await request(app).get("/api/wrike/connection").expect(200);
-  assert.equal(status.body.configured, true);
-  assert.equal(status.body.host, "app-us2.wrike.com");
-  assert.equal(status.body.health.status, "Not tested");
-  assert.equal(status.body.connection_test_enabled, false);
-  assert.equal(status.body.discovery_preview_enabled, false);
-  assert.equal(status.body.capabilities.task_discovery, false);
-  assert.equal(JSON.stringify(status.body).includes("authorized-access-token"), false);
-  assert.equal(JSON.stringify(status.body).includes("authorized-refresh-token"), false);
+  const status = await request(app)
+    .get(`/api/customers/${customerId}/source-connections`)
+    .expect(200);
+  const connection = status.body.connections.find((candidate: { connection_id: string }) => candidate.connection_id === connectionId);
+  assert.equal(connection.status, "Active");
+  assert.equal(connection.provider_status.configured, true);
+  assert.equal(connection.provider_status.host, "app-us2.wrike.com");
+  assert.equal(connection.provider_status.health.status, "Not tested");
+  assert.equal(connection.provider_status.connection_test_enabled, false);
+  assert.equal(connection.provider_status.discovery_preview_enabled, false);
+  assert.equal(connection.provider_status.capabilities.task_discovery, false);
+  assert.equal(JSON.stringify(connection).includes("authorized-access-token"), false);
+  assert.equal(JSON.stringify(connection).includes("authorized-refresh-token"), false);
 
-  await request(app)
+  const replay = await request(app)
     .get("/oauth/wrike/callback")
     .query({ code: "replayed-code", state })
-    .expect(303)
-    .expect("Location", "https://pathfinder.vornan.co/?wrike_oauth=error&reason=invalid_state");
+    .expect(303);
+  assert.equal(new URL(replay.headers.location).searchParams.get("reason"), "invalid_state");
   assert.equal(calls.length, 1);
 });
 
 test("does not consume a valid pending authorization when an unrelated state is presented", async () => {
-  const started = await request(app).post("/api/wrike/oauth/start").expect(200);
+  const started = await request(app).post(connectionPath("/wrike/oauth/start")).expect(200);
   const state = new URL(started.body.authorization_url).searchParams.get("state") ?? "";
 
   await request(app)
@@ -120,17 +147,23 @@ test("does not consume a valid pending authorization when an unrelated state is 
   assert.equal(stored.includes(state), false);
 });
 
-test("invalidates the prior Wrike grant when app credentials change", async () => {
+test("invalidates only this customer connection's prior Wrike grant when app credentials change", async () => {
   const response = await request(app)
-    .put("/api/wrike/connection")
-    .send({ client_id: "replacement-client-id", client_secret: "replacement-client-secret" })
+    .put(connectionPath())
+    .send({
+      name: "Momentara Wrike",
+      status: "Active",
+      environment: "Production",
+      client_id: "replacement-client-id",
+      client_secret: "replacement-client-secret"
+    })
     .expect(200);
 
-  assert.equal(response.body.oauth_connect_ready, true);
-  assert.equal(response.body.configured, false);
-  assert.equal(response.body.host, null);
-  assert.equal(response.body.authorization_pending, false);
-  assert.equal(response.body.health.identity_confirmed, false);
+  assert.equal(response.body.provider_status.oauth_connect_ready, true);
+  assert.equal(response.body.provider_status.configured, false);
+  assert.equal(response.body.provider_status.host, null);
+  assert.equal(response.body.provider_status.authorization_pending, false);
+  assert.equal(response.body.provider_status.health.identity_confirmed, false);
 
   const stored = await readFile(join(testDirectory, "secrets.json"), "utf8");
   assert.equal(stored.includes("authorized-access-token"), false);

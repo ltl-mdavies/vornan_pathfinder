@@ -8543,7 +8543,8 @@ td {
   min-width: 0;
 }
 
-.wrike-connection-form input {
+.wrike-connection-form input,
+.wrike-connection-form select {
   min-width: 0;
   width: 100%;
   min-height: 44px;
@@ -8598,6 +8599,157 @@ td {
   background: rgba(67, 105, 72, 0.08);
   font-size: 12px;
   font-weight: 800;
+}
+
+.source-connections-panel {
+  grid-column: 1 / -1;
+  overflow: hidden;
+}
+
+.source-connections-intro,
+.source-connection-detail-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+}
+
+.source-connections-intro > div,
+.source-connection-detail-heading > div {
+  display: grid;
+  gap: 5px;
+}
+
+.source-connections-intro strong,
+.source-connection-detail-heading strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.source-connections-intro p,
+.source-connection-detail-heading small {
+  max-width: 900px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.source-connector-catalog {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 0 18px 18px;
+}
+
+.source-connector-card {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  min-height: 142px;
+  padding: 15px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: rgba(247, 250, 245, 0.66);
+}
+
+.source-connector-card > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.source-connector-card > div > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.source-connector-card strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.source-connector-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.source-connector-card .mini-pill,
+.source-connector-card button {
+  flex: none;
+}
+
+.source-connection-selector {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(247, 250, 245, 0.5);
+}
+
+.source-connection-selector > button {
+  display: grid;
+  gap: 3px;
+  min-width: 210px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.source-connection-selector > button.is-active {
+  border-color: var(--brand-lime);
+  box-shadow: inset 3px 0 0 var(--brand-lime);
+}
+
+.source-connection-selector span,
+.source-connection-selector small {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.source-connection-selector strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.source-connections-empty {
+  margin: 0 18px 18px;
+}
+
+.source-connection-detail {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.source-connection-detail-heading {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.source-connection-metadata-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .email-health-header-actions {
@@ -9501,6 +9653,10 @@ td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .source-connector-catalog {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .submit-readiness-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -9836,6 +9992,23 @@ td {
 }
 
 @media (max-width: 600px) {
+  .source-connector-catalog,
+  .source-connection-metadata-form {
+    grid-template-columns: 1fr;
+  }
+
+  .source-connections-intro,
+  .source-connection-detail-heading,
+  .source-connector-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .source-connector-card button,
+  .source-connector-card .mini-pill {
+    align-self: flex-start;
+  }
+
   .wrike-connection-panel .panel-header {
     align-items: stretch;
     flex-direction: column;

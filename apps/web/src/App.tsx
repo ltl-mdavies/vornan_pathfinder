@@ -57,6 +57,12 @@ import type { LiftStepDefinition, NormalizedLiftOrder, OrderRollupShipmentSummar
 import { OrderRollup } from "@pathfinder/order-rollup-ui";
 import "@pathfinder/order-rollup-ui/styles.css";
 import {
+  SOURCE_CONNECTOR_DEFINITIONS,
+  type CustomerSourceConnection,
+  type SourceConnectorDefinition,
+  type SourceConnectorProvider
+} from "@pathfinder/source-connections";
+import {
   applyOrderNameResolution,
   buildDefaultMappings,
   canonicalTargetFields,
@@ -223,6 +229,16 @@ type WrikeConnectionStatusPayload = {
     wrike_writes: false;
     lift_actions: false;
   };
+};
+
+type CustomerSourceConnectionPayload = CustomerSourceConnection & {
+  definition: SourceConnectorDefinition | null;
+  provider_status: WrikeConnectionStatusPayload | null;
+};
+
+type SourceConnectionsPayload = {
+  definitions: SourceConnectorDefinition[];
+  connections: CustomerSourceConnectionPayload[];
 };
 
 type SubmitRuntimeStatus = {
@@ -673,6 +689,7 @@ interface StatusAccessPolicy {
 
 interface PathfinderCustomerWorkspace {
   customer: LiftCustomer;
+  source_connections: CustomerSourceConnection[];
   import_methods: ImportMethod[];
   output_routes: OutputRoute[];
   templates: SavedFieldMappingTemplate[];
@@ -3455,14 +3472,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [emailStatus, setEmailStatus] = useState<EmailStatusPayload | null>(null);
   const [emailStatusState, setEmailStatusState] = useState<"idle" | "loading" | "error">("idle");
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
-  const [wrikeConnection, setWrikeConnection] = useState<WrikeConnectionStatusPayload | null>(null);
+  const [sourceConnectorDefinitions, setSourceConnectorDefinitions] = useState<SourceConnectorDefinition[]>(
+    SOURCE_CONNECTOR_DEFINITIONS
+  );
+  const [sourceConnections, setSourceConnections] = useState<CustomerSourceConnectionPayload[]>([]);
+  const [selectedSourceConnectionId, setSelectedSourceConnectionId] = useState("");
   const [wrikeConnectionState, setWrikeConnectionState] = useState<"idle" | "loading" | "saving" | "authorizing" | "testing" | "error">("idle");
   const [wrikeConnectionMessage, setWrikeConnectionMessage] = useState<string | null>(null);
   const wrikeOAuthReturnMessageRef = useRef<string | null>(null);
+  const wrikeOAuthReturnConnectionIdRef = useRef("");
   const [wrikeDiscoveryState, setWrikeDiscoveryState] = useState<"idle" | "loading" | "error">("idle");
   const [wrikeDiscoveryMessage, setWrikeDiscoveryMessage] = useState<string | null>(null);
   const [wrikeDiscoveryPreview, setWrikeDiscoveryPreview] = useState<WrikeTaskDiscoveryPreview | null>(null);
   const [wrikeConnectionDraft, setWrikeConnectionDraft] = useState({
+    name: "",
+    environment: "Production" as "Production" | "Sandbox",
+    status: "Draft" as "Draft" | "Active" | "Inactive",
     client_id: "",
     client_secret: ""
   });
@@ -3649,6 +3674,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         return;
       }
       setWorkspace(loadedWorkspace);
+      await loadSourceConnections(liftCustomerId, wrikeOAuthReturnConnectionIdRef.current);
+      wrikeOAuthReturnConnectionIdRef.current = "";
       setDirtyImportMethodIds([]);
       setLocalDraftImportMethodIds([]);
       setDirtyOutputRouteIds([]);
@@ -3825,12 +3852,58 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
   }
 
-  async function loadWrikeConnection() {
+  function updateSourceConnectionPayload(payload: CustomerSourceConnectionPayload) {
+    setSourceConnections((current) =>
+      current.some((connection) => connection.connection_id === payload.connection_id)
+        ? current.map((connection) => connection.connection_id === payload.connection_id ? payload : connection)
+        : [...current, payload]
+    );
+    setSelectedSourceConnectionId(payload.connection_id);
+    setWrikeConnectionDraft({
+      name: payload.name,
+      environment: payload.environment,
+      status: payload.status,
+      client_id: "",
+      client_secret: ""
+    });
+  }
+
+  function selectSourceConnection(connection: CustomerSourceConnectionPayload) {
+    setSelectedSourceConnectionId(connection.connection_id);
+    setWrikeConnectionDraft({
+      name: connection.name,
+      environment: connection.environment,
+      status: connection.status,
+      client_id: "",
+      client_secret: ""
+    });
+    setWrikeConnectionMessage(null);
+    setWrikeConnectionState("idle");
+  }
+
+  async function loadSourceConnections(liftCustomerId = selectedCustomerId, preferredConnectionId = "") {
+    if (!liftCustomerId) {
+      return;
+    }
     setWrikeConnectionState("loading");
     try {
-      const response = await fetch(`${apiBaseUrl}/api/wrike/connection`);
-      const payload = await readJsonResponse<WrikeConnectionStatusPayload>(response);
-      setWrikeConnection(payload);
+      const response = await fetch(`${apiBaseUrl}/api/customers/${encodeURIComponent(liftCustomerId)}/source-connections`);
+      const payload = await readJsonResponse<SourceConnectionsPayload>(response);
+      setSourceConnectorDefinitions(payload.definitions);
+      setSourceConnections(payload.connections);
+      const selected = payload.connections.find((connection) => connection.connection_id === preferredConnectionId)
+        ?? payload.connections.find((connection) => connection.connection_id === selectedSourceConnectionId)
+        ?? payload.connections.find((connection) => connection.provider === "wrike")
+        ?? payload.connections[0]
+        ?? null;
+      setSelectedSourceConnectionId(selected?.connection_id ?? "");
+      setWrikeConnectionDraft({
+        name: selected?.name ?? "",
+        environment: selected?.environment ?? "Production",
+        status: selected?.status ?? "Draft",
+        client_id: "",
+        client_secret: ""
+      });
       if (wrikeOAuthReturnMessageRef.current) {
         setWrikeConnectionMessage(wrikeOAuthReturnMessageRef.current);
         wrikeOAuthReturnMessageRef.current = null;
@@ -3839,27 +3912,63 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       }
       setWrikeConnectionState("idle");
     } catch (error) {
-      setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike connection status load failed.");
+      setWrikeConnectionMessage(error instanceof Error ? error.message : "Customer source connections could not be loaded.");
+      setWrikeConnectionState("error");
+    }
+  }
+
+  async function createSourceConnection(provider: SourceConnectorProvider) {
+    if (!selectedCustomerId) {
+      return;
+    }
+    setWrikeConnectionState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/source-connections`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider, environment: "Production" })
+        }
+      );
+      const payload = await readJsonResponse<CustomerSourceConnectionPayload>(response);
+      updateSourceConnectionPayload(payload);
+      const definition = sourceConnectorDefinitions.find((candidate) => candidate.provider === provider);
+      setWrikeConnectionMessage(
+        `${definition?.name ?? "Source"} connection created for this customer. Save its credentials to continue.`
+      );
+      setWrikeConnectionState("idle");
+    } catch (error) {
+      setWrikeConnectionMessage(error instanceof Error ? error.message : "Source connection could not be created.");
       setWrikeConnectionState("error");
     }
   }
 
   async function saveWrikeConnection() {
+    if (!selectedCustomerId || !selectedSourceConnectionId) {
+      return;
+    }
     setWrikeConnectionState("saving");
     try {
-      const response = await fetch(`${apiBaseUrl}/api/wrike/connection`, {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/source-connections/${encodeURIComponent(selectedSourceConnectionId)}`,
+        {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(wrikeConnectionDraft)
-      });
-      const payload = await readJsonResponse<WrikeConnectionStatusPayload>(response);
-      setWrikeConnection(payload);
+        }
+      );
+      const payload = await readJsonResponse<CustomerSourceConnectionPayload>(response);
+      updateSourceConnectionPayload(payload);
       setWrikeConnectionDraft({
+        name: payload.name,
+        environment: payload.environment,
+        status: payload.status,
         client_id: "",
         client_secret: ""
       });
       setWrikeConnectionMessage(
-        payload.oauth_connect_ready
+        payload.provider_status?.oauth_connect_ready
           ? "Wrike app credentials are saved securely. Continue with Wrike to authorize read-only access."
           : "Wrike app credentials were not complete."
       );
@@ -3871,10 +3980,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function startWrikeOAuthConnection() {
+    if (!selectedCustomerId || !selectedSourceConnectionId) {
+      return;
+    }
     setWrikeConnectionState("authorizing");
     setWrikeConnectionMessage(null);
     try {
-      const response = await fetch(`${apiBaseUrl}/api/wrike/oauth/start`, { method: "POST" });
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/source-connections/${encodeURIComponent(selectedSourceConnectionId)}/wrike/oauth/start`,
+        { method: "POST" }
+      );
       const payload = await readJsonResponse<{
         authorization_url: string;
         expires_at: string;
@@ -3893,11 +4008,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function testWrikeConnection() {
+    if (!selectedCustomerId || !selectedSourceConnectionId) {
+      return;
+    }
     setWrikeConnectionState("testing");
     try {
-      const response = await fetch(`${apiBaseUrl}/api/wrike/connection/test`, { method: "POST" });
-      const payload = await readJsonResponse<WrikeConnectionStatusPayload>(response);
-      setWrikeConnection(payload);
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/source-connections/${encodeURIComponent(selectedSourceConnectionId)}/wrike/test`,
+        { method: "POST" }
+      );
+      const payload = await readJsonResponse<CustomerSourceConnectionPayload>(response);
+      updateSourceConnectionPayload(payload);
       setWrikeConnectionMessage("Wrike OAuth refresh and read-only identity check passed.");
       setWrikeConnectionState("idle");
     } catch (error) {
@@ -4804,6 +4925,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
 
     const reason = currentUrl.searchParams.get("reason");
+    const customerId = currentUrl.searchParams.get("wrike_customer_id") ?? "";
+    const connectionId = currentUrl.searchParams.get("wrike_connection_id") ?? "";
     const errorMessages: Record<string, string> = {
       invalid_state: "Wrike authorization could not be verified. Start a new connection attempt.",
       expired: "The Wrike authorization window expired. Start a new connection attempt.",
@@ -4816,17 +4939,26 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       : errorMessages[reason ?? ""] ?? "Wrike authorization could not be completed.";
     setWrikeConnectionMessage(wrikeOAuthReturnMessageRef.current);
     setWrikeConnectionState(oauthResult === "connected" ? "idle" : "error");
-    setActiveGlobalView("Settings");
+    wrikeOAuthReturnConnectionIdRef.current = connectionId;
+    if (customerId) {
+      setSelectedCustomerId(customerId);
+    }
+    if (connectionId) {
+      setSelectedSourceConnectionId(connectionId);
+    }
+    setActiveGlobalView("Customers");
+    setActiveCustomerView("Settings");
 
     currentUrl.searchParams.delete("wrike_oauth");
     currentUrl.searchParams.delete("reason");
+    currentUrl.searchParams.delete("wrike_customer_id");
+    currentUrl.searchParams.delete("wrike_connection_id");
     window.history.replaceState({}, "", `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
   }, []);
 
   useEffect(() => {
     if (activeGlobalView === "Settings") {
       void loadEmailStatus();
-      void loadWrikeConnection();
     }
   }, [activeGlobalView]);
 
@@ -4915,21 +5047,31 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const activeWrikeConfig = normalizeWrikeSourceConfig(
     activeImportMethod?.source_config.wrike ?? createDefaultWrikeSourceConfig()
   );
+  const selectedSourceConnection =
+    sourceConnections.find((connection) => connection.connection_id === selectedSourceConnectionId) ?? null;
+  const selectedWrikeConnection = selectedSourceConnection?.provider === "wrike" ? selectedSourceConnection : null;
+  const selectedWrikeConnectionStatus = selectedWrikeConnection?.provider_status ?? null;
+  const activeWrikeConnection =
+    sourceConnections.find(
+      (connection) =>
+        connection.connection_id === activeWrikeConfig.connection_id && connection.provider === "wrike"
+    ) ?? null;
+  const activeWrikeConnectionStatus = activeWrikeConnection?.provider_status ?? null;
   const activeWrikeReadiness = getWrikeContractReadiness(activeWrikeConfig);
   const activeWrikeQaReadiness = evaluateWrikeReadOnlyQaReadiness({
     config: activeWrikeConfig,
     method_saved: Boolean(activeImportMethod) && !activeImportMethodHasUnsavedChanges,
-    connection_configured: Boolean(wrikeConnection?.configured),
-    connection_test_enabled: Boolean(wrikeConnection?.connection_test_enabled),
-    discovery_preview_enabled: Boolean(wrikeConnection?.discovery_preview_enabled),
-    identity_confirmed: Boolean(wrikeConnection?.health.identity_confirmed)
+    connection_configured: Boolean(activeWrikeConnectionStatus?.configured),
+    connection_test_enabled: Boolean(activeWrikeConnectionStatus?.connection_test_enabled),
+    discovery_preview_enabled: Boolean(activeWrikeConnectionStatus?.discovery_preview_enabled),
+    identity_confirmed: Boolean(activeWrikeConnectionStatus?.health.identity_confirmed)
   });
   useEffect(() => {
     setWrikeDiscoveryPreview(null);
     setWrikeDiscoveryMessage(null);
     setWrikeDiscoveryState("idle");
-    if (isImportMethodDetailOpen && activeImportMethod?.source === "Wrike") {
-      void loadWrikeConnection();
+    if (isImportMethodDetailOpen && activeImportMethod?.source === "Wrike" && selectedCustomerId) {
+      void loadSourceConnections(selectedCustomerId, activeWrikeConfig.connection_id);
     }
   }, [activeImportMethod?.import_method_id, activeImportMethod?.source, isImportMethodDetailOpen, selectedCustomerId]);
   const activeProductConfig = workflowImportMethod?.product_resolution_config ?? defaultProductResolutionConfig;
@@ -8996,6 +9138,25 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           </div>
 
                           <div className="wrike-contract-grid">
+                            <label className="setup-control setup-control-wide">
+                              <span>Customer Wrike connection</span>
+                              <select
+                                value={activeWrikeConfig.connection_id}
+                                onChange={(event) => updateActiveWrikeConfig({ connection_id: event.target.value })}
+                              >
+                                <option value="">Choose a customer connection</option>
+                                {sourceConnections
+                                  .filter((connection) => connection.provider === "wrike")
+                                  .map((connection) => (
+                                    <option key={connection.connection_id} value={connection.connection_id}>
+                                      {connection.name} · {connection.environment} · {connection.status}
+                                    </option>
+                                  ))}
+                              </select>
+                              <small>
+                                Credentials are managed in Customer Settings. This Import Method stores only the connection reference.
+                              </small>
+                            </label>
                             <label className="setup-control">
                               <span>Folder or project ID</span>
                               <input
@@ -9092,7 +9253,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           </div>
 
                           <div className="wrike-discovery-preview">
-                            {wrikeConnection ? (
+                            {activeWrikeConnectionStatus ? (
                               <div className="wrike-qa-readiness">
                                 <div className="wrike-qa-readiness-heading">
                                   <div>
@@ -9141,8 +9302,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               </div>
                             ) : (
                               <div className="wrike-qa-readiness wrike-qa-readiness-loading" aria-live="polite">
-                                <RefreshCw size={16} className="spin" />
-                                <span>Checking the server-owned Wrike QA posture…</span>
+                                <AlertTriangle size={16} />
+                                <span>
+                                  {activeWrikeConfig.connection_id
+                                    ? "The selected customer connection is unavailable."
+                                    : "Choose a customer Wrike connection before running discovery checks."}
+                                </span>
                               </div>
                             )}
                             <div className="wrike-discovery-heading">
@@ -9156,33 +9321,33 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <div className="wrike-discovery-actions">
                                 <span
                                   className={
-                                    wrikeConnection?.discovery_preview_enabled
+                                    activeWrikeConnectionStatus?.discovery_preview_enabled
                                       ? "mini-pill mini-pill-success"
                                       : "mini-pill mini-pill-warning"
                                   }
                                 >
-                                  {wrikeConnection?.discovery_preview_enabled ? "Preview gate on" : "Preview gate off"}
+                                  {activeWrikeConnectionStatus?.discovery_preview_enabled ? "Preview gate on" : "Preview gate off"}
                                 </span>
                                 <button
                                   className="secondary-button table-inline-button"
                                   onClick={() => void previewWrikeDiscovery()}
                                   disabled={
                                     wrikeDiscoveryState === "loading" ||
-                                    !wrikeConnection?.discovery_preview_enabled ||
-                                    !wrikeConnection?.configured ||
+                                    !activeWrikeConnectionStatus?.discovery_preview_enabled ||
+                                    !activeWrikeConnectionStatus?.configured ||
                                     activeImportMethodHasUnsavedChanges ||
                                     activeWrikeReadiness.status !== "Configured" ||
                                     !activeWrikeConfig.approved_discovery_task_id
                                   }
                                   title={
-                                    !wrikeConnection?.discovery_preview_enabled
+                                    !activeWrikeConnectionStatus?.discovery_preview_enabled
                                       ? "The server discovery-preview gate is off."
                                       : activeImportMethodHasUnsavedChanges
                                         ? "Save this Import Method before previewing its approved scope."
                                         : activeWrikeReadiness.status !== "Configured" || !activeWrikeConfig.approved_discovery_task_id
                                           ? "Save the folder, status, workbook rule, and approved task ID first."
-                                          : !wrikeConnection?.configured
-                                            ? "Configure the secret-backed Wrike OAuth connection first."
+                                          : !activeWrikeConnectionStatus?.configured
+                                            ? "Configure and authorize this customer's Wrike connection first."
                                             : undefined
                                   }
                                 >
@@ -12448,6 +12613,271 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     <DetailItem label="Automation" value={scheduledMethodCount ? `${scheduledMethodCount} configured` : "None configured"} />
                   </dl>
                 </div>
+                <div className="panel customer-panel source-connections-panel">
+                  <PanelHeader icon={Workflow} title="Source Connections" detail="Customer-owned intake systems" />
+                  <div className="source-connections-intro">
+                    <div>
+                      <strong>Connect the systems this customer uses to send order data.</strong>
+                      <p>
+                        Credentials and authorization stay isolated to {selectedCustomer.customer_name}. Import Methods reference a
+                        saved connection without copying its secrets.
+                      </p>
+                    </div>
+                    <span className="mini-pill mini-pill-neutral">
+                      {sourceConnections.length} connection{sourceConnections.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+
+                  <div className="source-connector-catalog" aria-label="Source connector templates">
+                    {sourceConnectorDefinitions.map((definition) => (
+                      <div className="source-connector-card" key={definition.provider}>
+                        <div>
+                          <span>{definition.category}</span>
+                          <strong>{definition.name}</strong>
+                          <p>{definition.description}</p>
+                        </div>
+                        {definition.availability === "Available" ? (
+                          <button
+                            className="secondary-button table-inline-button"
+                            onClick={() => void createSourceConnection(definition.provider)}
+                            disabled={wrikeConnectionState === "saving"}
+                          >
+                            <Plus size={14} />
+                            Add {definition.name}
+                          </button>
+                        ) : (
+                          <span className="mini-pill mini-pill-neutral">Planned</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {sourceConnections.length ? (
+                    <div className="source-connection-selector" role="list" aria-label="Saved customer source connections">
+                      {sourceConnections.map((connection) => (
+                        <button
+                          className={connection.connection_id === selectedSourceConnectionId ? "is-active" : ""}
+                          key={connection.connection_id}
+                          onClick={() => selectSourceConnection(connection)}
+                          type="button"
+                        >
+                          <span>{connection.provider === "wrike" ? "Wrike" : connection.provider}</span>
+                          <strong>{connection.name}</strong>
+                          <small>{connection.environment} · {connection.status}</small>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="empty-state source-connections-empty">
+                      No source connections are configured for this customer. Wrike is available now; the other templates are roadmap placeholders.
+                    </p>
+                  )}
+
+                  {!selectedWrikeConnection && wrikeConnectionMessage ? (
+                    <div className={wrikeConnectionState === "error" ? "email-health-error" : "wrike-connection-message"}>
+                      {wrikeConnectionState === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+                      <span>{wrikeConnectionMessage}</span>
+                    </div>
+                  ) : null}
+
+                  {selectedWrikeConnection ? (
+                    <div className="wrike-connection-panel source-connection-detail">
+                      <div className="source-connection-detail-heading">
+                        <div>
+                          <span className="section-eyebrow">Wrike · {selectedWrikeConnection.environment}</span>
+                          <strong>{selectedWrikeConnection.name}</strong>
+                          <small>OAuth 2.0 · least-privilege <code>wsReadOnly</code> access</small>
+                        </div>
+                        {selectedWrikeConnectionStatus ? (
+                          <RouteDiagnosticPill
+                            status={
+                              selectedWrikeConnectionStatus.health.status === "Connected"
+                                ? "Passed"
+                                : selectedWrikeConnectionStatus.health.status === "Error"
+                                  ? "Blocked"
+                                  : "Warning"
+                            }
+                          />
+                        ) : null}
+                      </div>
+
+                      <div className="wrike-connection-summary">
+                        <div>
+                          <span>Connection</span>
+                          <strong>
+                            {selectedWrikeConnectionStatus?.configured
+                              ? "Wrike connected"
+                              : selectedWrikeConnectionStatus?.oauth_connect_ready
+                                ? "Ready to authorize"
+                                : "App credentials required"}
+                          </strong>
+                          <small>{selectedWrikeConnectionStatus?.health.message ?? "Connection health has not been loaded."}</small>
+                        </div>
+                        <div>
+                          <span>Regional Host</span>
+                          <strong>{selectedWrikeConnectionStatus?.host ?? "Returned by Wrike"}</strong>
+                          <small>Only validated HTTPS Wrike hosts are accepted during authorization.</small>
+                        </div>
+                        <div>
+                          <span>Last Check</span>
+                          <strong>{selectedWrikeConnectionStatus?.health.status ?? "Not tested"}</strong>
+                          <small>
+                            {selectedWrikeConnectionStatus?.health.checked_at
+                              ? displayTimestamp(selectedWrikeConnectionStatus.health.checked_at)
+                              : "No external request has run."}
+                          </small>
+                        </div>
+                        <div>
+                          <span>Capabilities</span>
+                          <strong>Read-only</strong>
+                          <small>No Wrike writes, Lift actions, polling, or webhooks are enabled by this setup.</small>
+                        </div>
+                      </div>
+
+                      <div className="wrike-connection-form source-connection-metadata-form">
+                        <label>
+                          <span>Connection name</span>
+                          <input
+                            value={wrikeConnectionDraft.name}
+                            onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, name: event.target.value }))}
+                            placeholder="Momentara Wrike"
+                          />
+                        </label>
+                        <label>
+                          <span>Environment</span>
+                          <select
+                            value={wrikeConnectionDraft.environment}
+                            onChange={(event) =>
+                              setWrikeConnectionDraft((current) => ({
+                                ...current,
+                                environment: event.target.value as "Production" | "Sandbox"
+                              }))
+                            }
+                          >
+                            <option value="Production">Production</option>
+                            <option value="Sandbox">Sandbox</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span>Status</span>
+                          <select
+                            value={wrikeConnectionDraft.status}
+                            onChange={(event) =>
+                              setWrikeConnectionDraft((current) => ({
+                                ...current,
+                                status: event.target.value as "Draft" | "Active" | "Inactive"
+                              }))
+                            }
+                          >
+                            <option value="Draft">Draft</option>
+                            <option value="Active">Active</option>
+                            <option value="Inactive">Inactive</option>
+                          </select>
+                        </label>
+                        <label>
+                          <span>OAuth client ID</span>
+                          <input
+                            type="password"
+                            value={wrikeConnectionDraft.client_id}
+                            onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, client_id: event.target.value }))}
+                            placeholder={
+                              selectedWrikeConnectionStatus?.credentials.client_id_configured
+                                ? "Saved · enter only to replace"
+                                : "Required"
+                            }
+                            autoComplete="new-password"
+                          />
+                        </label>
+                        <label>
+                          <span>OAuth client secret</span>
+                          <input
+                            type="password"
+                            value={wrikeConnectionDraft.client_secret}
+                            onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, client_secret: event.target.value }))}
+                            placeholder={
+                              selectedWrikeConnectionStatus?.credentials.client_secret_configured
+                                ? "Saved · enter only to replace"
+                                : "Required"
+                            }
+                            autoComplete="new-password"
+                          />
+                        </label>
+                        <label>
+                          <span>Authorized redirect URL</span>
+                          <input
+                            value={selectedWrikeConnectionStatus?.oauth_redirect_uri ?? "Loading callback URL"}
+                            readOnly
+                            aria-label="Wrike authorized redirect URL"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="wrike-connection-footer">
+                        <div className="wrike-connection-guardrail">
+                          <ShieldCheck size={18} />
+                          <span>
+                            Saving stores credentials in the server secret store for this customer connection. Connecting does not
+                            download files, create jobs, or change Wrike.
+                          </span>
+                        </div>
+                        <div className="wrike-connection-actions">
+                          <button
+                            className="secondary-button"
+                            onClick={() => void testWrikeConnection()}
+                            disabled={
+                              wrikeConnectionState === "testing" ||
+                              !selectedWrikeConnectionStatus?.configured ||
+                              !selectedWrikeConnectionStatus?.connection_test_enabled
+                            }
+                            title={
+                              !selectedWrikeConnectionStatus?.connection_test_enabled
+                                ? "The API connection-test gate is off."
+                                : undefined
+                            }
+                          >
+                            <RefreshCw size={14} />
+                            {wrikeConnectionState === "testing" ? "Testing" : "Test connection"}
+                          </button>
+                          <button
+                            className="secondary-button"
+                            onClick={() => void saveWrikeConnection()}
+                            disabled={wrikeConnectionState === "saving" || wrikeConnectionState === "authorizing"}
+                          >
+                            {wrikeConnectionState === "saving" ? "Saving" : "Save connection"}
+                          </button>
+                          <button
+                            className="primary-button"
+                            onClick={() => void startWrikeOAuthConnection()}
+                            disabled={
+                              wrikeConnectionState === "saving" ||
+                              wrikeConnectionState === "authorizing" ||
+                              !selectedWrikeConnectionStatus?.oauth_connect_ready
+                            }
+                            title={
+                              !selectedWrikeConnectionStatus?.oauth_connect_ready
+                                ? "Save the Wrike client ID and secret first."
+                                : undefined
+                            }
+                          >
+                            <Workflow size={16} />
+                            {wrikeConnectionState === "authorizing"
+                              ? "Opening Wrike"
+                              : selectedWrikeConnectionStatus?.configured
+                                ? "Reconnect Wrike"
+                                : "Connect Wrike"}
+                          </button>
+                        </div>
+                      </div>
+
+                      {wrikeConnectionMessage ? (
+                        <div className={wrikeConnectionState === "error" ? "email-health-error" : "wrike-connection-message"}>
+                          {wrikeConnectionState === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+                          <span>{wrikeConnectionMessage}</span>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
                 <div className="panel customer-panel status-access-panel">
                   <PanelHeader icon={ShieldCheck} title="Public Status Access" detail="Secure status links" />
                   <div className="status-access-body">
@@ -14839,145 +15269,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <p className="empty-state">Checking transactional email settings...</p>
                 ) : null}
               </div>
-            </section>
-
-            <section className="panel wrike-connection-panel">
-              <div className="panel-header unit-map-panel-header">
-                <div className="panel-title">
-                  <Workflow size={18} strokeWidth={2.2} />
-                  <div>
-                    <h2>Wrike OAuth Connection</h2>
-                    <span>Secret-backed · read-only health boundary</span>
-                  </div>
-                </div>
-                <div className="email-health-header-actions">
-                  {wrikeConnection ? (
-                    <RouteDiagnosticPill
-                      status={wrikeConnection.health.status === "Connected" ? "Passed" : wrikeConnection.health.status === "Error" ? "Blocked" : "Warning"}
-                    />
-                  ) : null}
-                  <button
-                    className="secondary-button table-inline-button"
-                    onClick={() => void testWrikeConnection()}
-                    disabled={
-                      wrikeConnectionState === "testing" ||
-                      !wrikeConnection?.configured ||
-                      !wrikeConnection?.connection_test_enabled
-                    }
-                    title={!wrikeConnection?.connection_test_enabled ? "The API connection-test gate is off." : undefined}
-                  >
-                    <RefreshCw size={14} />
-                    {wrikeConnectionState === "testing" ? "Testing" : "Test read-only connection"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="wrike-connection-summary">
-                <div>
-                  <span>Connection</span>
-                  <strong>
-                    {wrikeConnection?.configured
-                      ? "Wrike connected"
-                      : wrikeConnection?.oauth_connect_ready
-                        ? "Ready to authorize"
-                        : "App credentials required"}
-                  </strong>
-                  <small>{wrikeConnection?.health.message ?? "Loading the server-owned Wrike connection posture."}</small>
-                </div>
-                <div>
-                  <span>Regional Host</span>
-                  <strong>{wrikeConnection?.host ?? "Returned by Wrike"}</strong>
-                  <small>Pathfinder accepts only the validated HTTPS *.wrike.com host returned during authorization.</small>
-                </div>
-                <div>
-                  <span>Last Check</span>
-                  <strong>{wrikeConnection?.health.status ?? "Loading"}</strong>
-                  <small>{wrikeConnection?.health.checked_at ? displayTimestamp(wrikeConnection.health.checked_at) : "No external request has run."}</small>
-                </div>
-                <div>
-                  <span>Scope</span>
-                  <strong>wsReadOnly</strong>
-                  <small>
-                    {wrikeConnection?.discovery_preview_enabled
-                      ? "Connection health plus one saved, operator-approved task preview; automation remains unavailable."
-                      : "Current-user identity only; the separate approved-task preview gate is off."}
-                  </small>
-                </div>
-              </div>
-
-              <div className="wrike-connection-form">
-                <label>
-                  <span>OAuth client ID</span>
-                  <input
-                    type="password"
-                    value={wrikeConnectionDraft.client_id}
-                    onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, client_id: event.target.value }))}
-                    placeholder={wrikeConnection?.credentials.client_id_configured ? "Saved · enter only to replace" : "Required"}
-                    autoComplete="new-password"
-                  />
-                </label>
-                <label>
-                  <span>OAuth client secret</span>
-                  <input
-                    type="password"
-                    value={wrikeConnectionDraft.client_secret}
-                    onChange={(event) => setWrikeConnectionDraft((current) => ({ ...current, client_secret: event.target.value }))}
-                    placeholder={wrikeConnection?.credentials.client_secret_configured ? "Saved · enter only to replace" : "Required"}
-                    autoComplete="new-password"
-                  />
-                </label>
-                <label>
-                  <span>Authorized redirect URL</span>
-                  <input
-                    value={wrikeConnection?.oauth_redirect_uri ?? "Loading callback URL"}
-                    readOnly
-                    aria-label="Wrike authorized redirect URL"
-                  />
-                </label>
-              </div>
-
-              <div className="wrike-connection-footer">
-                <div className="wrike-connection-guardrail">
-                  <ShieldCheck size={18} />
-                  <span>
-                    Connect Wrike authorizes server-side <code>wsReadOnly</code> access. It does not download files,
-                    create jobs or webhooks, start polling, write to Wrike, or act in Lift.
-                  </span>
-                </div>
-                <div className="wrike-connection-actions">
-                  <button
-                    className="secondary-button"
-                    onClick={() => void saveWrikeConnection()}
-                    disabled={wrikeConnectionState === "saving" || wrikeConnectionState === "authorizing"}
-                  >
-                    {wrikeConnectionState === "saving" ? "Saving" : "Save app credentials"}
-                  </button>
-                  <button
-                    className="primary-button"
-                    onClick={() => void startWrikeOAuthConnection()}
-                    disabled={
-                      wrikeConnectionState === "saving" ||
-                      wrikeConnectionState === "authorizing" ||
-                      !wrikeConnection?.oauth_connect_ready
-                    }
-                    title={!wrikeConnection?.oauth_connect_ready ? "Save the Wrike client ID and secret first." : undefined}
-                  >
-                    <Workflow size={16} />
-                    {wrikeConnectionState === "authorizing"
-                      ? "Opening Wrike"
-                      : wrikeConnection?.configured
-                        ? "Reconnect Wrike"
-                        : "Connect Wrike"}
-                  </button>
-                </div>
-              </div>
-
-              {wrikeConnectionMessage ? (
-                <div className={wrikeConnectionState === "error" ? "email-health-error" : "wrike-connection-message"}>
-                  {wrikeConnectionState === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
-                  <span>{wrikeConnectionMessage}</span>
-                </div>
-              ) : null}
             </section>
 
             <section className="panel canonical-governance-panel">
