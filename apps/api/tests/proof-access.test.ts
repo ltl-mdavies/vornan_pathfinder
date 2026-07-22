@@ -169,6 +169,34 @@ test("uses a 14-day default and regenerates by revoking the prior grant", async 
   assert.equal((await store.getProofGrantById(created.grant.grant_id))?.status, "revoked");
 });
 
+test("caps a session at its grant expiry when the remaining grant lifetime is shorter", async () => {
+  const createdAt = new Date("2026-07-20T12:00:00.000Z");
+  const grantExpiresAt = "2026-07-20T12:10:00.000Z";
+  const created = await access.createProofGrant({
+    order_number: order.order_number,
+    expires_at: grantExpiresAt,
+    now: createdAt
+  });
+  const exchanged = await access.exchangeProofToken(
+    created.access_url.split("/").at(-1)!,
+    new Date("2026-07-20T12:09:00.000Z")
+  );
+
+  assert.equal(exchanged.session.expires_at, grantExpiresAt);
+  assert.equal(exchanged.session.expires_at_epoch, Date.parse(grantExpiresAt) / 1000);
+  assert.equal(
+    (await access.validateProofSession(
+      exchanged.raw_session,
+      new Date("2026-07-20T12:09:59.999Z")
+    )).session.session_id,
+    exchanged.session.session_id
+  );
+  await assert.rejects(
+    () => access.validateProofSession(exchanged.raw_session, new Date(grantExpiresAt)),
+    access.ProofAccessDeniedError
+  );
+});
+
 test("rejects expired sessions even while their grant remains active", async () => {
   const now = new Date("2026-07-20T12:00:00.000Z");
   const created = await access.createProofGrant({ order_number: order.order_number, now });

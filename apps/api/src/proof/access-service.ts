@@ -336,7 +336,11 @@ export async function exchangeProofToken(rawToken: string, now = new Date()) {
   const rawSession = randomBytes(32).toString("base64url");
   const rawCsrf = randomBytes(32).toString("base64url");
   const requestedSessionExpiry = addMilliseconds(now, config.access.session_ttl_minutes * 60 * 1000);
-  const expiresAt = requestedSessionExpiry.getTime() > deadline.getTime() ? deadline : requestedSessionExpiry;
+  const expiresAt = new Date(Math.min(
+    requestedSessionExpiry.getTime(),
+    deadline.getTime(),
+    Date.parse(claimed.expires_at)
+  ));
   const session: ProofAccessSession = {
     session_id: `psession_${randomUUID()}`,
     session_hash: hashSecret(rawSession),
