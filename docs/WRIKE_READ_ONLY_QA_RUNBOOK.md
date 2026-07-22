@@ -13,7 +13,7 @@ Record these values outside application logs before opening the window:
 - target Pathfinder environment;
 - QA start and end time;
 - dedicated technical-user owner and confirmation that its Wrike access is least privilege;
-- Wrike regional host returned by OAuth;
+- confirmation that the production Wrike app uses the exact Pathfinder callback shown in Settings;
 - customer and saved Import Method;
 - approved folder/project API ID;
 - exact approved task API ID;
@@ -44,11 +44,13 @@ Do not change Lift submit, public intake, Proof, email, DNS, or customer-submit 
 
 ## Run the checks
 
-1. In authenticated Pathfinder Settings, save the approved regional host and secret-backed OAuth values.
-2. Run **Test read-only connection** once.
-3. Confirm the readiness panel advances to **Preview ready**.
-4. In the approved Wrike Import Method, run **Run approved task preview** once.
-5. Confirm:
+1. In authenticated Pathfinder Settings, save the Wrike app client ID and client secret.
+2. Confirm the displayed authorized redirect URL exactly matches the redirect registered in Wrike.
+3. Click **Connect Wrike**, authorize the dedicated technical user, and confirm Pathfinder reports a connected read-only OAuth grant. Wrike supplies the regional host and rotating tokens directly to the server callback; do not copy tokens into the browser or this runbook.
+4. Run **Test read-only connection** once.
+5. Confirm the readiness panel advances to **Preview ready**.
+6. In the approved Wrike Import Method, run **Run approved task preview** once.
+7. Confirm:
    - the returned task ID is the exact approved task;
    - folder/project scope passed;
    - Ordered status passed or has an explained, reviewable warning;

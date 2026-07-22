@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildWrikeAuthorizationUrl,
   buildWrikeIngestionIdentity,
   checkWrikeOAuthConnection,
   createDefaultWrikeSourceConfig,
   discoverApprovedWrikeTask,
+  exchangeWrikeAuthorizationCode,
   evaluateWrikeReadOnlyQaReadiness,
   getWrikeContractReadiness,
   normalizeWrikeHost,
@@ -181,6 +183,89 @@ test("accepts only a bare HTTPS Wrike regional host", () => {
   assert.throws(() => normalizeWrikeHost("http://www.wrike.com"), WrikeConnectionError);
   assert.throws(() => normalizeWrikeHost("https://wrike.example.com"), WrikeConnectionError);
   assert.throws(() => normalizeWrikeHost("https://www.wrike.com/api/v4/tasks"), WrikeConnectionError);
+});
+
+test("builds a read-only Wrike authorization request with opaque state", () => {
+  const authorizationUrl = new URL(
+    buildWrikeAuthorizationUrl({
+      client_id: "client-id",
+      redirect_uri: "https://api.pathfinder.vornan.co/oauth/wrike/callback",
+      state: "opaque-state"
+    })
+  );
+
+  assert.equal(authorizationUrl.origin, "https://login.wrike.com");
+  assert.equal(authorizationUrl.pathname, "/oauth2/authorize");
+  assert.equal(authorizationUrl.searchParams.get("client_id"), "client-id");
+  assert.equal(authorizationUrl.searchParams.get("response_type"), "code");
+  assert.equal(authorizationUrl.searchParams.get("scope"), "wsReadOnly");
+  assert.equal(authorizationUrl.searchParams.get("state"), "opaque-state");
+  assert.equal(
+    authorizationUrl.searchParams.get("redirect_uri"),
+    "https://api.pathfinder.vornan.co/oauth/wrike/callback"
+  );
+});
+
+test("exchanges an authorization code without returning provider error details", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const result = await exchangeWrikeAuthorizationCode(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      code: "authorization-code",
+      redirect_uri: "https://api.pathfinder.vornan.co/oauth/wrike/callback"
+    },
+    {
+      now: () => new Date("2026-07-22T15:00:00.000Z"),
+      fetch_impl: async (input, init) => {
+        calls.push({ url: String(input), init });
+        return new Response(
+          JSON.stringify({
+            access_token: "access-token",
+            refresh_token: "refresh-token",
+            expires_in: 3600,
+            host: "app-us2.wrike.com"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://login.wrike.com/oauth2/token");
+  assert.equal(calls[0].init?.method, "POST");
+  const body = calls[0].init?.body as URLSearchParams;
+  assert.equal(body.get("grant_type"), "authorization_code");
+  assert.equal(body.get("code"), "authorization-code");
+  assert.equal(body.get("redirect_uri"), "https://api.pathfinder.vornan.co/oauth/wrike/callback");
+  assert.equal(result.credentials.host, "app-us2.wrike.com");
+  assert.equal(result.credentials.refresh_token, "refresh-token");
+  assert.equal(result.credentials.access_token_expires_at, "2026-07-22T16:00:00.000Z");
+  assert.equal(result.authorized_at, "2026-07-22T15:00:00.000Z");
+
+  const providerSecret = "do-not-echo";
+  await assert.rejects(
+    exchangeWrikeAuthorizationCode(
+      {
+        client_id: "client-id",
+        client_secret: "client-secret",
+        code: "rejected-code",
+        redirect_uri: "https://api.pathfinder.vornan.co/oauth/wrike/callback"
+      },
+      {
+        fetch_impl: async () =>
+          new Response(JSON.stringify({ error_description: providerSecret }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" }
+          })
+      }
+    ),
+    (error: unknown) =>
+      error instanceof WrikeConnectionError &&
+      error.code === "oauth_authorization_failed" &&
+      !error.message.includes(providerSecret)
+  );
 });
 
 test("refreshes OAuth and performs only the read-only current-user health check", async () => {

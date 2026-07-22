@@ -64,10 +64,12 @@ It intentionally does not store:
 - Confirm Wrike account and regional host.
 - Identify the least-privilege technical user and approve OAuth access.
 - Confirm the folder/project API ID that contains production order tasks.
-- Confirm whether `Ordered` is a workflow status or custom field, and capture its API ID.
-- Confirm whether one task always represents one Lift order.
-- Confirm whether one current order workbook exists per task and how its filename is formed.
-- Confirm how corrected/replacement workbooks are versioned.
+- Confirm how Pathfinder can determine that a Placard Order task belongs to Larger Than Life rather than another production partner. This is a required routing guardrail, not an inferred title match.
+- Confirm whether `Ordered` is the task workflow status or a separate custom-field checkbox and capture the authoritative API ID/value.
+- Treat each workbook attached to one Placard Order task as a separate order.
+- Obtain two representative examples: one Placard Order task with one workbook and another with multiple workbooks.
+- Confirm the workbook naming convention; prefer a stable contract number in the filename when available.
+- Treat edits or replacement workbooks after a Lift submission as manual exceptions initially. Lift order mutation is not yet supported by this workflow.
 - Confirm whether historical tasks need a one-time backfill and the earliest safe date.
 - Confirm who owns failed-ingestion review and how Pathfinder should notify them.
 - Decide whether Pathfinder should write a link/status back to Wrike in a later, separately approved write-enabled slice.
@@ -75,7 +77,7 @@ It intentionally does not store:
 ## Delivery sequence
 
 1. Configuration contract and operator UI — complete, dark only.
-2. OAuth/secret storage and read-only connection health — complete, dark by default.
+2. Server-owned OAuth authorization, secret storage, and read-only connection health — complete, downstream reads dark by default.
 3. Controlled read-only discovery against one approved non-customer or Momentara test task — implemented dark, default off.
 4. Attachment selection/download and durable source audit.
 5. Preview-job creation through the existing Import Method boundary.
@@ -84,7 +86,9 @@ It intentionally does not store:
 
 ## Read-only connection-health boundary
 
-Pathfinder now has one platform-level Wrike OAuth connection in the authenticated Settings area. The regional host, OAuth client ID, client secret, refresh token, rotated access token, and rotated refresh token are stored only through the existing Pathfinder secret driver. API responses expose configured/not-configured booleans, the validated regional hostname, and safe health metadata; they never return tokens or client secrets.
+Pathfinder now has one platform-level Wrike OAuth connection in the authenticated Settings area. An operator first saves the Wrike app client ID and client secret, then uses **Connect Wrike**. Pathfinder creates a ten-minute authorization request, stores only a SHA-256 hash of the one-time state, and exchanges the returned authorization code through the public server callback. The one-time state is consumed before token exchange and cannot be replayed.
+
+Wrike supplies the regional host, refresh token, access token, and expiry directly to the server. Those values and the app credentials are stored only through the existing Pathfinder secret driver. API responses expose configured/not-configured booleans, the validated regional hostname, and safe health metadata; they never return tokens, authorization codes, raw state, or client secrets. The production callback is `https://api.pathfinder.vornan.co/oauth/wrike/callback`; CORS is not required because the exchange is server-to-server.
 
 The explicit connection test is separately gated by `PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST`, which defaults to `false` locally, in CloudFormation, and in the production deployment workflow. Saving credentials does not contact Wrike. When the gate is deliberately enabled and an authenticated operator clicks the test action, Pathfinder performs exactly:
 

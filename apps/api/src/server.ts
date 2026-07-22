@@ -2,7 +2,7 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { createHash, createHmac, randomBytes, randomInt } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import {
@@ -65,8 +65,10 @@ import {
   type SourceGrid
 } from "@pathfinder/templates";
 import {
+  buildWrikeAuthorizationUrl,
   checkWrikeOAuthConnection,
   discoverApprovedWrikeTask,
+  exchangeWrikeAuthorizationCode,
   getWrikeContractReadiness,
   normalizeWrikeHost,
   normalizeWrikeSourceConfig,
@@ -180,6 +182,13 @@ const liftProductCatalogBaseUrl =
 const publicStatusBaseUrl = process.env.PATHFINDER_PUBLIC_STATUS_BASE_URL ?? "https://status.vornan.co";
 const wrikeConnectionTestEnabled = process.env.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST === "true";
 const wrikeDiscoveryPreviewEnabled = process.env.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW === "true";
+const wrikeOAuthRedirectUri = process.env.PATHFINDER_WRIKE_OAUTH_REDIRECT_URI ??
+  (process.env.PATHFINDER_RUNTIME === "lambda"
+    ? "https://api.pathfinder.vornan.co/oauth/wrike/callback"
+    : `http://127.0.0.1:${port}/oauth/wrike/callback`);
+const pathfinderAppBaseUrl = process.env.PATHFINDER_APP_BASE_URL ??
+  (process.env.PATHFINDER_RUNTIME === "lambda" ? "https://pathfinder.vornan.co" : "http://127.0.0.1:5183");
+const wrikeOAuthStateTtlMs = 10 * 60 * 1000;
 const publicStatusTokenDays = Number(process.env.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS ?? 30);
 const maxPublicStatusOrdersPerRequest = 10;
 const publicStatusReturnLink =
@@ -3229,6 +3238,94 @@ app.post("/public/intake/:publicKey/submit", async (req, res) => {
   }
 });
 
+function normalizedOAuthEndpoint(value: string, label: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${label} must be an absolute URL.`);
+  }
+  const localHost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+  if ((parsed.protocol !== "https:" && !(localHost && parsed.protocol === "http:")) || parsed.username || parsed.password) {
+    throw new Error(`${label} must use HTTPS, except for local development.`);
+  }
+  return parsed;
+}
+
+function wrikeOAuthAppRedirect(status: "connected" | "error", reason?: string) {
+  const target = normalizedOAuthEndpoint(pathfinderAppBaseUrl, "Pathfinder app base URL");
+  target.searchParams.set("wrike_oauth", status);
+  if (reason) {
+    target.searchParams.set("reason", reason);
+  }
+  return target.toString();
+}
+
+function wrikeOAuthStateHash(state: string) {
+  return createHash("sha256").update(state).digest("hex");
+}
+
+function matchesWrikeOAuthState(state: string, expectedHash: string) {
+  const actual = Buffer.from(wrikeOAuthStateHash(state), "hex");
+  const expected = Buffer.from(expectedHash, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+app.get("/oauth/wrike/callback", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const state = typeof req.query.state === "string" ? req.query.state : "";
+  const code = typeof req.query.code === "string" ? req.query.code : "";
+  const providerError = typeof req.query.error === "string" ? req.query.error : "";
+
+  try {
+    const existing = await readWrikeConnectorSecrets();
+    const pending = existing.oauth_pending;
+    if (!pending || !state || !matchesWrikeOAuthState(state, pending.state_hash)) {
+      res.redirect(303, wrikeOAuthAppRedirect("error", "invalid_state"));
+      return;
+    }
+    if (Date.parse(pending.expires_at) <= Date.now()) {
+      await writeWrikeConnectorSecrets({ ...existing, oauth_pending: undefined });
+      res.redirect(303, wrikeOAuthAppRedirect("error", "expired"));
+      return;
+    }
+
+    const oauth = existing.oauth ?? {};
+    const clientId = oauth.client_id?.trim() ?? "";
+    const clientSecret = oauth.client_secret?.trim() ?? "";
+    await writeWrikeConnectorSecrets({ ...existing, oauth_pending: undefined });
+
+    if (providerError) {
+      res.redirect(303, wrikeOAuthAppRedirect("error", "denied"));
+      return;
+    }
+    if (!code || !clientId || !clientSecret) {
+      res.redirect(303, wrikeOAuthAppRedirect("error", "incomplete"));
+      return;
+    }
+
+    const result = await exchangeWrikeAuthorizationCode({
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+      redirect_uri: pending.redirect_uri
+    });
+    await writeWrikeConnectorSecrets({
+      oauth: result.credentials,
+      health: {
+        status: "Not tested",
+        host: result.credentials.host,
+        checked_at: null,
+        identity_confirmed: false,
+        message: "Wrike authorization is connected. Run the separately gated read-only identity test when approved."
+      }
+    });
+    res.redirect(303, wrikeOAuthAppRedirect("connected"));
+  } catch {
+    res.redirect(303, wrikeOAuthAppRedirect("error", "exchange"));
+  }
+});
+
 app.use("/api", requirePathfinderAuth);
 app.use("/api/proof", createProofAdminRouter());
 
@@ -3257,6 +3354,12 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
 
   return {
     configured: Boolean(clientIdConfigured && clientSecretConfigured && refreshTokenConfigured && host),
+    oauth_connect_ready: Boolean(clientIdConfigured && clientSecretConfigured),
+    oauth_redirect_uri: wrikeOAuthRedirectUri,
+    authorization_pending: Boolean(
+      secrets.oauth_pending && Date.parse(secrets.oauth_pending.expires_at) > Date.now()
+    ),
+    authorization_expires_at: secrets.oauth_pending?.expires_at ?? null,
     connection_test_enabled: wrikeConnectionTestEnabled,
     discovery_preview_enabled: wrikeDiscoveryPreviewEnabled,
     host,
@@ -3272,9 +3375,10 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
       host,
       checked_at: null,
       identity_confirmed: false,
-      message: "Save the OAuth connection, then run the explicit read-only connection test."
+      message: "Save the Wrike app credentials, then authorize the read-only connection."
     },
     capabilities: {
+      oauth_authorization: true,
       oauth_refresh: true,
       identity_check: true,
       requested_scope: "wsReadOnly",
@@ -3299,20 +3403,76 @@ app.get("/api/wrike/connection", async (_req, res) => {
   }
 });
 
+app.post("/api/wrike/oauth/start", async (_req, res) => {
+  try {
+    const existing = await readWrikeConnectorSecrets();
+    const clientId = existing.oauth?.client_id?.trim() ?? "";
+    const clientSecret = existing.oauth?.client_secret?.trim() ?? "";
+    if (!clientId || !clientSecret) {
+      res.status(400).json({
+        error: "Save the Wrike OAuth client ID and client secret before connecting Wrike."
+      });
+      return;
+    }
+
+    const redirectUri = normalizedOAuthEndpoint(wrikeOAuthRedirectUri, "Wrike OAuth redirect URI").toString();
+    const state = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + wrikeOAuthStateTtlMs).toISOString();
+    await writeWrikeConnectorSecrets({
+      ...existing,
+      oauth_pending: {
+        state_hash: wrikeOAuthStateHash(state),
+        expires_at: expiresAt,
+        redirect_uri: redirectUri
+      }
+    });
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      authorization_url: buildWrikeAuthorizationUrl({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        state
+      }),
+      expires_at: expiresAt,
+      redirect_uri: redirectUri,
+      requested_scope: "wsReadOnly"
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: error instanceof Error ? error.message : "Wrike authorization could not be started."
+    });
+  }
+});
+
 app.put("/api/wrike/connection", async (req, res) => {
   try {
     const existing = await readWrikeConnectorSecrets();
     const currentOauth = existing.oauth ?? {};
     const requestedHost = typeof req.body?.host === "string" ? req.body.host.trim() : "";
-    const host = requestedHost ? normalizeWrikeHost(requestedHost) : currentOauth.host ?? "";
+    const requestedRefreshToken = typeof req.body?.refresh_token === "string"
+      ? req.body.refresh_token.trim()
+      : "";
+    const clientId = preserveWrikeSecret(req.body?.client_id, currentOauth.client_id);
+    const clientSecret = preserveWrikeSecret(req.body?.client_secret, currentOauth.client_secret);
+    const appCredentialsChanged =
+      clientId !== currentOauth.client_id || clientSecret !== currentOauth.client_secret;
+    const completeDirectGrantReplacement = Boolean(requestedHost && requestedRefreshToken);
+    const host = appCredentialsChanged && !completeDirectGrantReplacement
+      ? ""
+      : requestedHost
+        ? normalizeWrikeHost(requestedHost)
+        : currentOauth.host ?? "";
     if (host) {
       normalizeWrikeHost(host);
     }
 
     const oauth: WrikeOAuthCredentials = {
-      client_id: preserveWrikeSecret(req.body?.client_id, currentOauth.client_id),
-      client_secret: preserveWrikeSecret(req.body?.client_secret, currentOauth.client_secret),
-      refresh_token: preserveWrikeSecret(req.body?.refresh_token, currentOauth.refresh_token),
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: appCredentialsChanged && !completeDirectGrantReplacement
+        ? ""
+        : preserveWrikeSecret(req.body?.refresh_token, currentOauth.refresh_token),
       host,
       access_token: currentOauth.access_token,
       access_token_expires_at: currentOauth.access_token_expires_at
@@ -3329,13 +3489,14 @@ app.put("/api/wrike/connection", async (req, res) => {
 
     const next: WrikeConnectorSecrets = {
       oauth,
+      oauth_pending: changed ? undefined : existing.oauth_pending,
       health: changed
         ? {
             status: "Not tested",
             host: host || null,
             checked_at: null,
             identity_confirmed: false,
-            message: "Credentials changed. Run the explicit read-only connection test."
+            message: "App credentials changed. Authorize Wrike before running any read-only test."
           }
         : existing.health
     };

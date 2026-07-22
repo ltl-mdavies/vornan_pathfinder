@@ -3065,3 +3065,20 @@ Prepared the operator-facing checkpoint required before any real Wrike discovery
 - Full workspace checks, all 175 tests, every production build, all 61 Proof deployment-safety tests, and diff hygiene passed. Desktop and 390px local browser QA passed with no horizontal overflow or console warnings.
 
 No Wrike request, credential entry, gate activation, deployment, attachment read, job creation, Lift action, or Proof capability change occurred in this slice.
+
+## 2026-07-22 - Wrike Server-Owned OAuth Authorization
+
+Completed the production-shaped authorization layer for Pathfinder's existing secret-backed Wrike connection.
+
+- Authenticated Settings now saves only the Wrike app client ID and client secret, displays the exact registered callback, and offers a clear **Connect Wrike** action.
+- The API generates 256-bit one-time state, persists only its SHA-256 hash with a ten-minute expiry, and consumes the attempt before exchanging the returned authorization code.
+- The public callback exchanges the code only with `https://login.wrike.com/oauth2/token`, validates the returned `*.wrike.com` regional host, and stores access/refresh tokens only in the existing connector secret boundary.
+- Callback responses redirect to the configured Pathfinder app with safe result codes only. Tokens, codes, provider bodies, client secrets, and raw state never enter the URL or browser payload.
+- CloudFormation, GitHub deployment, and the direct deployment script now carry the exact production callback and admin-app return URL.
+- The settings return flow opens the correct panel, reports connected/expired/denied/invalid outcomes, and removes OAuth query parameters from browser history.
+- The Wrike connection-test and exact-task discovery gates remain independent and default off. Authorization does not test identity, read tasks or attachments, download files, create jobs/webhooks, poll, write to Wrike, or act in Lift.
+- Focused adapter/API coverage proves the read-only authorization URL, safe token exchange, state hashing, single use, replay rejection, response redaction, and preservation of an unrelated valid pending attempt.
+- Local browser QA passed at desktop and 390px mobile, including callback-return feedback and zero horizontal overflow.
+- Full release validation passed every workspace typecheck, all 182 tests on the reconciled Proof baseline, every production build, all 61 Proof deployment-safety tests, and diff hygiene.
+
+No real Wrike credential was entered, no provider authorization was attempted, no gate was enabled, and no deployment or external Wrike/Lift request occurred.

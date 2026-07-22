@@ -8492,7 +8492,7 @@ td {
 
 .wrike-connection-form {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   padding: 16px;
 }
@@ -8536,6 +8536,14 @@ td {
 .wrike-connection-guardrail code {
   color: var(--text-primary);
   font-size: 11px;
+}
+
+.wrike-connection-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex: none;
 }
 
 .wrike-connection-message {
@@ -9623,6 +9631,15 @@ td {
   }
 
   .wrike-connection-footer .primary-button {
+    width: 100%;
+  }
+
+  .wrike-connection-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wrike-connection-actions .secondary-button {
     width: 100%;
   }
 

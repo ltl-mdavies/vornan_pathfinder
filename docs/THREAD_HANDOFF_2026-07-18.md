@@ -1031,3 +1031,24 @@ Recommended continuation:
 2. Obtain the approved environment, QA window, regional host, least-privilege technical-user OAuth approval, folder/project ID, Ordered status ID, exact task ID, and workbook rule.
 3. Open only the two Wrike GET-only gates for the approved window, run connection health and exact-task discovery once, record sanitized evidence, then restore both gates to false.
 4. Only after a successful closed window, begin the separately gated attachment selection/download and durable source-audit sprint. Continue to stop before preview-job creation.
+
+## Wrike Server-Owned OAuth Authorization
+
+Wrike readiness PR #29 merged to `main` at `68e7e4a`. The next slice started from that synchronized baseline on `codex/wrike-oauth-connect`; Proof remains parked in monitor-only mode.
+
+- Authenticated Settings now accepts the Wrike app client ID and secret, shows the exact callback URL, and starts a server-owned `wsReadOnly` authorization flow.
+- The authorization attempt uses 256-bit random state, stores only its hash for ten minutes, and is consumed before the code exchange. Replays do not call Wrike.
+- The callback is public only to receive Wrike's code; possession of the expiring state binds it to an authenticated start request. It returns safe status codes to the admin app and strips them from browser history after display.
+- Wrike returns the authoritative regional host and rotating tokens directly to Pathfinder's connector secret. Operators no longer paste a host, refresh token, or permanent access token.
+- Production defaults are `https://api.pathfinder.vornan.co/oauth/wrike/callback` and `https://pathfinder.vornan.co`; both are carried through CloudFormation and both deploy paths.
+- Connection testing and approved-task discovery remain separately gated and default off. Attachment download, preview creation, polling, webhooks, Wrike writes, and Lift actions remain unavailable.
+- Momentara discovery now explicitly requires an authoritative Larger Than Life routing signal, clarification of workflow status versus checkbox, and two example Placard Order tasks (one workbook and multiple workbooks). Each workbook is a separate order; post-submit replacement is manual initially.
+- Full release validation passed every workspace typecheck, all 182 tests on the reconciled Proof baseline, every production build, all 61 Proof deployment-safety tests, and diff hygiene.
+
+Recommended continuation:
+
+1. Checkpoint this validated OAuth slice.
+2. Register the exact production callback in the Momentara Wrike app, enter the issued client ID/secret in Pathfinder Settings, and authorize the dedicated least-privilege user.
+3. Obtain the authoritative Larger Than Life routing field/value, Ordered status/checkbox contract, and the two agreed task examples before any attachment retrieval work.
+4. Open the existing GET-only QA gates only inside an approved window, run identity and exact-task preview once, then close the gates.
+5. After that evidence passes, implement attachment selection/download plus durable source audit as a separate sprint, still stopping before preview-job creation.

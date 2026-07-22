@@ -28,6 +28,11 @@ export interface TargetSecrets {
 
 export interface WrikeConnectorSecrets {
   oauth?: Partial<WrikeOAuthCredentials>;
+  oauth_pending?: {
+    state_hash: string;
+    expires_at: string;
+    redirect_uri: string;
+  };
   health?: {
     status: "Connected" | "Error" | "Not tested";
     host: string | null;
@@ -111,6 +116,7 @@ function normalizeWrikeConnectorSecrets(value: unknown): WrikeConnectorSecrets {
   const parsed = value as WrikeConnectorSecrets;
   return {
     oauth: parsed.oauth ?? {},
+    oauth_pending: parsed.oauth_pending,
     health: parsed.health
   };
 }

@@ -64,6 +64,14 @@ Parameters:
       - "true"
       - "false"
     Description: Explicit operator-only gate for one approved task read plus scoped attachment metadata without URLs or file content.
+  WrikeOAuthRedirectUri:
+    Type: String
+    Default: "https://api.pathfinder.vornan.co/oauth/wrike/callback"
+    Description: Exact server-owned callback registered in the Wrike OAuth application.
+  PathfinderAppBaseUrl:
+    Type: String
+    Default: "https://pathfinder.vornan.co"
+    Description: Pathfinder admin app destination after the server completes or rejects Wrike authorization.
   EmailFrom:
     Type: String
     Default: "Vornan Updates <notifications@notify.vornan.co>"
@@ -360,6 +368,8 @@ Resources:
           PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED: !Ref PublicIntakeEmailVerificationEnabled
           PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST: !Ref WrikeConnectionTestEnabled
           PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW: !Ref WrikeDiscoveryPreviewEnabled
+          PATHFINDER_WRIKE_OAUTH_REDIRECT_URI: !Ref WrikeOAuthRedirectUri
+          PATHFINDER_APP_BASE_URL: !Ref PathfinderAppBaseUrl
           PATHFINDER_EMAIL_FROM: !Ref EmailFrom
           PATHFINDER_STATUS_REPLY_TO: !Ref StatusReplyTo
           PATHFINDER_PROOF_REPLY_TO: !Ref ProofReplyTo
