@@ -2947,3 +2947,17 @@ Opened the explicitly approved one-week internal read-only QA window on the isol
 - Revalidated every workspace typecheck, all 161 workspace tests, all 50 Proof deployment-safety tests, every production build, both bounded evaluators, and `git diff --check`.
 
 The activation flags intentionally remain enabled only for the approved internal window, but no active customer grant exists. At the deadline or on any rollback trigger, revoke active grants and restore the isolated stack's operator, public-read, and read-only QA flags to false. This checkpoint does not authorize DNS, email, decisions, Lift writes, production public read, Pathfinder production changes, or Phase 3.
+
+## 2026-07-21 - Proof Read-Only Window Operations Guard
+
+Started the post-activation operational-hardening slice from merged main without changing the isolated stack or any Pathfinder production surface.
+
+- Added a dev-stack-only, non-mutating status command that inventories the deployed activation posture, deadline, expected alarms, queue/DLQ depth, and aggregate active grant/session counts.
+- Bounded the output to fixed gate names, timestamps, cohort/count totals, and next-action values. Customer IDs, order numbers, access identifiers, tokens, URLs, stored payloads, and AWS error bodies are never printed.
+- Made every non-healthy state fail closed, including configuration drift, expiry, missing/non-OK alarms, queue activity, malformed access records, or active access requiring operator review.
+- Hard-coded public-read changes, grant-creation changes, deployment, DNS, email, decisions, Lift writes, and Phase 3 authorization false in every result.
+- Documented the check as the opening/closing control for each internal operator session and before dark restoration.
+- Ran the new command against `vornan-proof-dev` at `2026-07-22T00:04:33.238Z`. It returned `healthy_no_active_access`: all ten alarms were `OK`, both queues were empty, both retained grants were inactive, no active session existed, every access record was parseable, and the window remained bounded through `2026-07-28T21:49:50.000Z`.
+- Validation passed every workspace typecheck, all 161 workspace tests, all 55 Proof deployment-safety tests, every production build, both bounded readiness evaluators, the live aggregate status check, and `git diff --check`.
+
+No deployment or AWS mutation is part of this slice. The live read-only window remains governed by its original expiry and cohort, with decisions, email, DNS, production public approval, synthetic QA, and every Lift write disabled.

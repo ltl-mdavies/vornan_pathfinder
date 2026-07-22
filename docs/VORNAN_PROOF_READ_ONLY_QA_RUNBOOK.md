@@ -179,6 +179,14 @@ Record only identifiers safe for operational evidence:
 
 ## Alarm response
 
+During an approved internal read-only window, run the aggregate-only status check at the start and end of each operator session and before dark restoration:
+
+```text
+npm run check:proof-window
+```
+
+The command is restricted to `vornan-proof-dev` and makes only CloudFormation, CloudWatch, SQS, and DynamoDB read calls. It reports fixed gates and aggregate counts for the activation deadline, ten expected alarms, both queue depths, and active grants/sessions. It never emits customer IDs, order numbers, grant/session identifiers, tokens, URLs, stored payloads, or mutation authorization. Any result other than `healthy_no_active_access` exits nonzero and must be handled through the response and rollback steps below. Active access is an attention state: verify that it belongs to the current controlled session or revoke it before continuing.
+
 - **Public server errors:** set public read to false, preserve logs, inspect sanitized correlation IDs and the latest change set, and roll back the application artifact if necessary.
 - **Public denial spike:** inspect WAF sampled-request metadata without enabling sensitive request logging; tune only after distinguishing expected shared-reviewer traffic from abuse.
 - **Cached-read or token-exchange latency:** keep serving cached data, inspect Lambda concurrency and DynamoDB latency, and do not bypass same-origin or WAF controls.
