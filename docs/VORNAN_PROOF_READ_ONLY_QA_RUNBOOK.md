@@ -195,6 +195,16 @@ The command is restricted to `vornan-proof-dev` and makes only CloudFormation, C
 
 ## Rollback
 
+Before preparing a dark-restoration change set, run the non-mutating preflight:
+
+```text
+npm run check:proof-dark-restore
+```
+
+The default `preparation` trigger proves only that a minimal change can be reviewed safely; it never authorizes or executes a deployment. The target changes exactly `PublicReadEnabled`, `OperatorGrantCreationEnabled`, `SyntheticQaEnabled`, `ReadOnlyQaConfirmed`, and `ProductionPublicReadApproved` to `false`, clears the activation expiry, customer cohort, domain, and certificate, and requires `UsePreviousValue` for every other parameter. Core/audit tables, queues, bucket, logs, WAF, endpoints, dashboard, and deployed artifacts must be retained.
+
+At the actual deadline, rerun with `PATHFINDER_PROOF_DARK_RESTORE_TRIGGER=deadline`; it fails until the recorded UTC expiry has been reached. For an earlier rollback, use `PATHFINDER_PROOF_DARK_RESTORE_TRIGGER=rollback` only with separately recorded approval and `PATHFINDER_PROOF_DARK_RESTORE_ROLLBACK_APPROVED=true`. Even then, the command reports only readiness for manual change review and keeps `deployment_authorized=false`. Do not execute a change if access records are malformed, a grant/session is active, an expected alarm is missing or non-OK, either queue is nonempty, or a retained resource output is absent.
+
 1. Redeploy with `PublicReadEnabled=false`; do not delete the retained Proof table, logs, queue, or bucket.
 2. Revoke affected grants through the authenticated operator boundary when available.
 3. Roll back the Lambda and SPA artifacts through a reviewed CloudFormation change set and S3 version history.
