@@ -385,6 +385,18 @@ export async function validateProofSession(rawSession: string, now = new Date())
   return { session, grant };
 }
 
+export async function getProofSessionForLogout(rawSession: string) {
+  const config = getProofRuntimeConfig();
+  if (!config.feature_flags.public_read || !/^[A-Za-z0-9_-]{43}$/.test(rawSession)) {
+    throw new ProofAccessDeniedError();
+  }
+  const session = await getProofSessionByHash(hashSecret(rawSession));
+  if (!session) {
+    throw new ProofAccessDeniedError();
+  }
+  return session;
+}
+
 export async function endProofSession(rawSession: string, now = new Date()) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(rawSession)) {
     return;

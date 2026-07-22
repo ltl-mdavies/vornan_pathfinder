@@ -572,3 +572,49 @@ test("requires CSRF before ending an authenticated session and clears both cooki
   assert.equal(cleared.some((value: string) => value.startsWith("vornan_proof_session=")), true);
   assert.equal(cleared.some((value: string) => value.startsWith("vornan_proof_csrf=")), true);
 });
+
+test("ends and audits a session after its grant is revoked while reads remain denied", async () => {
+  const created = await access.createProofGrant({ order_number: order.order_number });
+  const rawToken = created.access_url.split("/").at(-1)!;
+  const exchange = await request(app).post("/api/public/proof/sessions").send({ token: rawToken }).expect(201);
+  const { cookie, csrf } = exchangeCredentials(exchange);
+  await access.updateProofGrant(created.grant.grant_id, { action: "revoke" });
+
+  await request(app).get("/api/public/proof/order").set("Cookie", cookie).expect(401);
+  await request(app).delete("/api/public/proof/sessions/current").set("Cookie", cookie).expect(403);
+  const ended = await request(app)
+    .delete("/api/public/proof/sessions/current")
+    .set("Cookie", cookie)
+    .set("X-Vornan-Proof-Csrf", csrf)
+    .expect(204);
+
+  const cleared = ended.headers["set-cookie"] ?? [];
+  assert.equal(cleared.some((value: string) => value.startsWith("vornan_proof_session=")), true);
+  assert.equal(cleared.some((value: string) => value.startsWith("vornan_proof_csrf=")), true);
+  const audit = await store.listProofAuditEvents(order.order_number, { limit: 100 });
+  const sessionEnded = audit.events.filter((event) =>
+    event.action === "proof.session_ended" && event.grant_id === created.grant.grant_id
+  );
+  assert.equal(sessionEnded.length, 1);
+});
+
+test("ends and audits an expired session while reads remain denied", async () => {
+  const now = new Date("2026-07-20T12:00:00.000Z");
+  const created = await access.createProofGrant({ order_number: order.order_number, now });
+  const rawToken = created.access_url.split("/").at(-1)!;
+  const exchanged = await access.exchangeProofToken(rawToken, now);
+  const cookie = `vornan_proof_session=${exchanged.raw_session}; vornan_proof_csrf=${exchanged.raw_csrf}`;
+
+  await request(app).get("/api/public/proof/order").set("Cookie", cookie).expect(401);
+  await request(app)
+    .delete("/api/public/proof/sessions/current")
+    .set("Cookie", cookie)
+    .set("X-Vornan-Proof-Csrf", exchanged.raw_csrf)
+    .expect(204);
+
+  const audit = await store.listProofAuditEvents(order.order_number, { limit: 100 });
+  const sessionEnded = audit.events.filter((event) =>
+    event.action === "proof.session_ended" && event.grant_id === created.grant.grant_id
+  );
+  assert.equal(sessionEnded.length, 1);
+});

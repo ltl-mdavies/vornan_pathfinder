@@ -107,6 +107,37 @@ test("revalidates the grant on each request so revocation ends an existing sessi
   await assert.rejects(() => access.validateProofSession(exchanged.raw_session), access.ProofAccessDeniedError);
 });
 
+test("allows an expired or revoked session to be closed without restoring read access", async () => {
+  const now = new Date("2026-07-20T12:00:00.000Z");
+  const created = await access.createProofGrant({ order_number: order.order_number, now });
+  const rawToken = created.access_url.split("/").at(-1)!;
+  const exchanged = await access.exchangeProofToken(rawToken, now);
+  const afterExpiry = new Date("2026-07-20T12:31:00.000Z");
+
+  await access.revokeProofGrant(created.grant.grant_id, afterExpiry);
+  await assert.rejects(
+    () => access.validateProofSession(exchanged.raw_session, afterExpiry),
+    access.ProofAccessDeniedError
+  );
+  assert.equal(
+    (await access.getProofSessionForLogout(exchanged.raw_session)).session_id,
+    exchanged.session.session_id
+  );
+
+  await access.endProofSession(exchanged.raw_session, afterExpiry);
+  await access.endProofSession(exchanged.raw_session, new Date("2026-07-20T12:32:00.000Z"));
+
+  const audit = await store.listProofAuditEvents(order.order_number, { limit: 100 });
+  const ended = audit.events.filter((event) =>
+    event.action === "proof.session_ended" && event.grant_id === created.grant.grant_id
+  );
+  assert.equal(ended.length, 1);
+  await assert.rejects(
+    () => access.validateProofSession(exchanged.raw_session, afterExpiry),
+    access.ProofAccessDeniedError
+  );
+});
+
 test("rejects decision scopes while proof access is read-only", async () => {
   await assert.rejects(
     () => access.createProofGrant({ order_number: order.order_number, scope: "review_and_decide" as "view" }),
