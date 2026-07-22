@@ -63,6 +63,17 @@ export function summarizeProofAccess(items = [], now = new Date()) {
       counts.malformed_records += 1;
       continue;
     }
+    if (typeof data.session_hash === "string") {
+      counts.sessions_total += 1;
+      if (
+        !data.ended_at
+        && Number.isFinite(Date.parse(data.expires_at))
+        && Date.parse(data.expires_at) > nowMs
+      ) {
+        counts.sessions_active += 1;
+      }
+      continue;
+    }
     if (typeof data.grant_id === "string") {
       counts.grants_total += 1;
       if (
@@ -72,17 +83,6 @@ export function summarizeProofAccess(items = [], now = new Date()) {
         && Date.parse(data.expires_at) > nowMs
       ) {
         counts.grants_active += 1;
-      }
-      continue;
-    }
-    if (typeof data.session_hash === "string") {
-      counts.sessions_total += 1;
-      if (
-        !data.ended_at
-        && Number.isFinite(Date.parse(data.expires_at))
-        && Date.parse(data.expires_at) > nowMs
-      ) {
-        counts.sessions_active += 1;
       }
       continue;
     }

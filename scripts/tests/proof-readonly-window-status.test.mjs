@@ -109,19 +109,29 @@ test("surfaces alarm, queue, and active-access attention without identifiers", (
 
   const accessResult = evaluateProofReadOnlyWindowStatus(inventory({ access: [
     item({ grant_id: "sensitive-grant", status: "active", revoked_at: null, expires_at: "2099-01-01T00:00:00.000Z" }),
-    item({ session_hash: "sensitive-session", ended_at: null, expires_at: "2099-01-01T00:00:00.000Z" })
+    item({
+      session_hash: "sensitive-session",
+      grant_id: "sensitive-parent-grant",
+      ended_at: null,
+      expires_at: "2099-01-01T00:00:00.000Z"
+    })
   ] }));
   assert.equal(accessResult.status, "active_access_requires_review");
   assert.equal(accessResult.counts.grants_active, 1);
   assert.equal(accessResult.counts.sessions_active, 1);
-  assert.doesNotMatch(JSON.stringify(accessResult), /sensitive-grant|sensitive-session/);
+  assert.doesNotMatch(JSON.stringify(accessResult), /sensitive-grant|sensitive-parent-grant|sensitive-session/);
 });
 
 test("counts revoked, expired, ended, and malformed records safely", () => {
   const result = summarizeProofAccess([
     item({ grant_id: "g1", status: "revoked", revoked_at: "2026-01-01T00:00:00Z", expires_at: "2099-01-01T00:00:00Z" }),
     item({ grant_id: "g2", status: "active", revoked_at: null, expires_at: "2020-01-01T00:00:00Z" }),
-    item({ session_hash: "s1", ended_at: "2026-01-01T00:00:00Z", expires_at: "2099-01-01T00:00:00Z" }),
+    item({
+      session_hash: "s1",
+      grant_id: "g1",
+      ended_at: "2026-01-01T00:00:00Z",
+      expires_at: "2099-01-01T00:00:00Z"
+    }),
     { data: { S: "not-json" } }
   ], new Date("2026-07-21T22:00:00.000Z"));
   assert.deepEqual(result, {
