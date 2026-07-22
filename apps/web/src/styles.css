@@ -4278,6 +4278,103 @@ h1 {
   margin: 0;
 }
 
+.wrike-discovery-preview {
+  display: grid;
+  gap: 12px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(57, 82, 59, 0.15);
+  border-radius: 8px;
+}
+
+.wrike-discovery-heading,
+.wrike-discovery-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.wrike-discovery-heading > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wrike-discovery-heading strong {
+  font-size: 14px;
+}
+
+.wrike-discovery-heading small {
+  max-width: 780px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.wrike-discovery-actions {
+  flex: 0 0 auto;
+}
+
+.wrike-discovery-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wrike-discovery-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 11px;
+  background: #f6f8f3;
+  border: 1px solid rgba(57, 82, 59, 0.11);
+  border-radius: 7px;
+}
+
+.wrike-discovery-summary span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wrike-discovery-summary strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wrike-discovery-checks {
+  display: grid;
+  gap: 7px;
+}
+
+.wrike-discovery-checks > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.wrike-discovery-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--vornan-forest);
+  background: rgba(171, 198, 95, 0.12);
+  border: 1px solid rgba(111, 141, 61, 0.2);
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .source-setup-panel {
   overflow: hidden;
 }
@@ -9505,9 +9602,15 @@ td {
   }
 
   .wrike-contract-heading,
-  .wrike-extension-row {
+  .wrike-extension-row,
+  .wrike-discovery-heading,
+  .wrike-discovery-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .wrike-discovery-summary {
+    grid-template-columns: 1fr;
   }
 
   .dashboard-topbar-actions {

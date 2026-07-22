@@ -1,0 +1,51 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+test("keeps Wrike discovery preview dark when the server gate is not enabled", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathfinder-wrike-discovery-gate-"));
+  try {
+    const serverModuleUrl = new URL("../src/server.ts", import.meta.url).href;
+    const script = `
+      const assert = (await import("node:assert/strict")).default;
+      const request = (await import("supertest")).default;
+      let fetchCalls = 0;
+      globalThis.fetch = async () => {
+        fetchCalls += 1;
+        throw new Error("Wrike must not be contacted while discovery is gated.");
+      };
+      const { app } = await import(${JSON.stringify(serverModuleUrl)});
+      const response = await request(app)
+        .post("/api/customers/284619/import-methods/manual-xlsx/wrike/discovery-preview")
+        .expect(423);
+      assert.match(response.body.error, /disabled at the API boundary/i);
+      assert.equal(fetchCalls, 0);
+      const posture = await request(app).get("/api/wrike/connection").expect(200);
+      assert.equal(posture.body.discovery_preview_enabled, false);
+      assert.equal(posture.body.capabilities.task_discovery, false);
+      assert.equal(posture.body.capabilities.attachment_download, false);
+    `;
+    const result = spawnSync(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", script], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PATHFINDER_RUNTIME: "lambda",
+        PATHFINDER_STORAGE_DRIVER: "local",
+        PATHFINDER_SECRETS_DRIVER: "local",
+        PATHFINDER_LOCAL_STORE_PATH: join(directory, "store.json"),
+        PATHFINDER_LOCAL_SECRETS_PATH: join(directory, "secrets.json"),
+        PATHFINDER_REQUIRE_AUTH: "false",
+        PATHFINDER_ENABLE_LIFT_SUBMIT: "false",
+        PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST: "false",
+        PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW: "false"
+      },
+      encoding: "utf8"
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

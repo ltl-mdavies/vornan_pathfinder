@@ -24,12 +24,19 @@ export interface WrikeConnectionCheckResult {
   health: WrikeConnectionHealth;
 }
 
+export interface WrikeOAuthRefreshResult {
+  credentials: WrikeOAuthCredentials;
+  refreshed_at: string;
+}
+
 export class WrikeConnectionError extends Error {
   constructor(
     public readonly code:
       | "invalid_configuration"
       | "oauth_refresh_failed"
       | "identity_check_failed"
+      | "task_discovery_failed"
+      | "attachment_metadata_failed"
       | "invalid_response",
     message: string,
     public readonly rotated_credentials?: WrikeOAuthCredentials
@@ -42,6 +49,7 @@ export class WrikeConnectionError extends Error {
 export interface WrikeSourceConfig {
   enabled: boolean;
   folder_id: string;
+  approved_discovery_task_id: string;
   trigger_mode: WrikeTriggerMode;
   trigger_status_id: string;
   trigger_status_label: string;
@@ -51,6 +59,48 @@ export interface WrikeSourceConfig {
   poll_interval_minutes: number;
   idempotency_strategy: WrikeIdempotencyStrategy;
   create_preview_only: true;
+}
+
+export interface WrikeDiscoveryCheck {
+  check_id: "task" | "folder_scope" | "trigger_status" | "attachment_metadata" | "workbook_candidates";
+  status: "Passed" | "Warning" | "Blocked";
+  message: string;
+}
+
+export interface WrikeTaskDiscoveryPreview {
+  status: "Confirmed" | "Needs review";
+  checked_at: string;
+  approved_scope: {
+    task_id: string;
+    folder_id: string;
+    trigger_status_id: string;
+  };
+  observed: {
+    task_id: string;
+    account_id: string | null;
+    parent_ids: string[];
+    super_parent_ids: string[];
+    custom_status_id: string | null;
+    task_attachment_count: number | null;
+    attachment_metadata_count: number | null;
+    workbook_candidate_count: number | null;
+  };
+  checks: WrikeDiscoveryCheck[];
+  capabilities: {
+    task_read: true;
+    attachment_metadata_read: boolean;
+    attachment_download: false;
+    preview_job_creation: false;
+    webhook: false;
+    polling: false;
+    wrike_writes: false;
+    lift_actions: false;
+  };
+}
+
+export interface WrikeTaskDiscoveryResult {
+  credentials: WrikeOAuthCredentials;
+  preview: WrikeTaskDiscoveryPreview;
 }
 
 export interface WrikeAttachmentCandidate {
@@ -77,6 +127,7 @@ export function createDefaultWrikeSourceConfig(): WrikeSourceConfig {
   return {
     enabled: false,
     folder_id: "",
+    approved_discovery_task_id: "",
     trigger_mode: "scheduled_polling",
     trigger_status_id: "",
     trigger_status_label: "Ordered",
@@ -122,6 +173,7 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
   return {
     enabled: false,
     folder_id: cleanIdentifier(source.folder_id),
+    approved_discovery_task_id: cleanIdentifier(source.approved_discovery_task_id),
     trigger_mode:
       source.trigger_mode === "webhook_with_reconciliation"
         ? "webhook_with_reconciliation"
@@ -220,13 +272,13 @@ async function responseJson(response: Response) {
   }
 }
 
-export async function checkWrikeOAuthConnection(
+export async function refreshWrikeOAuthCredentials(
   credentials: WrikeOAuthCredentials,
   options: {
     fetch_impl?: typeof fetch;
     now?: () => Date;
   } = {}
-): Promise<WrikeConnectionCheckResult> {
+): Promise<WrikeOAuthRefreshResult> {
   const fetchImpl = options.fetch_impl ?? fetch;
   const now = options.now ?? (() => new Date());
   const host = normalizeWrikeHost(credentials.host);
@@ -270,19 +322,37 @@ export async function checkWrikeOAuthConnection(
     throw new WrikeConnectionError("invalid_response", "Wrike OAuth did not return an access token.");
   }
 
-  const checkedAt = now();
+  const refreshedAt = now();
   const expiresIn = Number(tokenPayload.expires_in);
   const accessTokenExpiresAt = Number.isFinite(expiresIn) && expiresIn > 0
-    ? new Date(checkedAt.getTime() + expiresIn * 1000).toISOString()
+    ? new Date(refreshedAt.getTime() + expiresIn * 1000).toISOString()
     : undefined;
-  const rotatedCredentials: WrikeOAuthCredentials = {
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: nextRefreshToken,
-    access_token: accessToken,
-    access_token_expires_at: accessTokenExpiresAt,
-    host: responseHost
+
+  return {
+    credentials: {
+      client_id: clientId,
+      client_secret: clientSecret,
+      refresh_token: nextRefreshToken,
+      access_token: accessToken,
+      access_token_expires_at: accessTokenExpiresAt,
+      host: responseHost
+    },
+    refreshed_at: refreshedAt.toISOString()
   };
+}
+
+export async function checkWrikeOAuthConnection(
+  credentials: WrikeOAuthCredentials,
+  options: {
+    fetch_impl?: typeof fetch;
+    now?: () => Date;
+  } = {}
+): Promise<WrikeConnectionCheckResult> {
+  const fetchImpl = options.fetch_impl ?? fetch;
+  const refreshed = await refreshWrikeOAuthCredentials(credentials, options);
+  const rotatedCredentials = refreshed.credentials;
+  const responseHost = rotatedCredentials.host;
+  const accessToken = rotatedCredentials.access_token ?? "";
 
   let identityResponse: Response;
   try {
@@ -329,8 +399,220 @@ export async function checkWrikeOAuthConnection(
     health: {
       status: "Connected",
       host: responseHost,
-      checked_at: checkedAt.toISOString(),
+      checked_at: refreshed.refreshed_at,
       identity_confirmed: true
+    }
+  };
+}
+
+function providerIdentifier(value: unknown) {
+  return typeof value === "string" && /^[a-zA-Z0-9_:.=-]{1,256}$/.test(value.trim())
+    ? value.trim()
+    : "";
+}
+
+function providerIdentifierList(value: unknown) {
+  return Array.isArray(value)
+    ? Array.from(new Set(value.map(providerIdentifier).filter(Boolean)))
+    : [];
+}
+
+function providerCount(value: unknown) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : null;
+}
+
+async function readWrikeApiJson(
+  response: Response,
+  code: "task_discovery_failed" | "attachment_metadata_failed",
+  rotatedCredentials: WrikeOAuthCredentials
+) {
+  if (!response.ok) {
+    throw new WrikeConnectionError(
+      code,
+      `Wrike rejected the read-only discovery request (HTTP ${response.status}).`,
+      rotatedCredentials
+    );
+  }
+  try {
+    return await responseJson(response);
+  } catch {
+    throw new WrikeConnectionError(
+      "invalid_response",
+      "Wrike returned an unreadable discovery response.",
+      rotatedCredentials
+    );
+  }
+}
+
+export async function discoverApprovedWrikeTask(
+  credentials: WrikeOAuthCredentials,
+  config: WrikeSourceConfig,
+  options: {
+    fetch_impl?: typeof fetch;
+    now?: () => Date;
+  } = {}
+): Promise<WrikeTaskDiscoveryResult> {
+  const fetchImpl = options.fetch_impl ?? fetch;
+  const folderId = providerIdentifier(config.folder_id);
+  const taskId = providerIdentifier(config.approved_discovery_task_id);
+  const triggerStatusId = providerIdentifier(config.trigger_status_id);
+  if (!folderId || !taskId || !triggerStatusId) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      "Save the Wrike folder, ordered status, and approved discovery task IDs before running discovery."
+    );
+  }
+
+  const refreshed = await refreshWrikeOAuthCredentials(credentials, options);
+  const rotatedCredentials = refreshed.credentials;
+  const host = rotatedCredentials.host;
+  const accessToken = rotatedCredentials.access_token ?? "";
+  const taskUrl = new URL(`https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}`);
+  taskUrl.searchParams.set("fields", JSON.stringify(["attachmentCount"]));
+
+  let taskResponse: Response;
+  try {
+    taskResponse = await fetchImpl(taskUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+    });
+  } catch {
+    throw new WrikeConnectionError(
+      "task_discovery_failed",
+      "Pathfinder could not reach the approved Wrike task.",
+      rotatedCredentials
+    );
+  }
+  const taskPayload = await readWrikeApiJson(taskResponse, "task_discovery_failed", rotatedCredentials);
+  const taskRecords = Array.isArray(taskPayload.data) ? taskPayload.data.map(asRecord) : [];
+  const task = taskRecords[0];
+  if (taskRecords.length !== 1 || providerIdentifier(task?.id) !== taskId) {
+    throw new WrikeConnectionError(
+      "invalid_response",
+      "Wrike did not return the exact approved task.",
+      rotatedCredentials
+    );
+  }
+
+  const parentIds = providerIdentifierList(task.parentIds);
+  const superParentIds = providerIdentifierList(task.superParentIds);
+  const customStatusId = providerIdentifier(task.customStatusId) || null;
+  const accountId = providerIdentifier(task.accountId) || null;
+  const taskAttachmentCount = providerCount(task.attachmentCount);
+  const folderMatches = parentIds.includes(folderId) || superParentIds.includes(folderId);
+  const statusMatches = customStatusId === triggerStatusId;
+  const checks: WrikeDiscoveryCheck[] = [
+    { check_id: "task", status: "Passed", message: "Wrike returned the exact approved task ID." },
+    {
+      check_id: "folder_scope",
+      status: folderMatches ? "Passed" : "Blocked",
+      message: folderMatches
+        ? "The approved task belongs to the configured folder or project."
+        : "The approved task is outside the configured folder or project; attachment metadata was not read."
+    },
+    {
+      check_id: "trigger_status",
+      status: statusMatches ? "Passed" : "Warning",
+      message: statusMatches
+        ? "The task uses the configured ordered status ID."
+        : "The task does not currently use the configured ordered status ID."
+    }
+  ];
+
+  let attachmentMetadataCount: number | null = null;
+  let workbookCandidateCount: number | null = null;
+  if (folderMatches) {
+    const attachmentUrl = new URL(`https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}/attachments`);
+    attachmentUrl.searchParams.set("versions", "false");
+    attachmentUrl.searchParams.set("withUrls", "false");
+    let attachmentResponse: Response;
+    try {
+      attachmentResponse = await fetchImpl(attachmentUrl, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+      });
+    } catch {
+      throw new WrikeConnectionError(
+        "attachment_metadata_failed",
+        "Pathfinder could not reach Wrike attachment metadata for the approved task.",
+        rotatedCredentials
+      );
+    }
+    const attachmentPayload = await readWrikeApiJson(
+      attachmentResponse,
+      "attachment_metadata_failed",
+      rotatedCredentials
+    );
+    const attachments = Array.isArray(attachmentPayload.data) ? attachmentPayload.data.map(asRecord) : [];
+    const nameNeedle = config.attachment_filename_contains.toLowerCase();
+    attachmentMetadataCount = attachments.length;
+    workbookCandidateCount = attachments.filter((attachment) => {
+      const name = typeof attachment.name === "string" ? attachment.name : "";
+      const extension = attachmentExtension(name);
+      return (
+        config.attachment_extensions.includes(extension as WrikeWorkbookExtension) &&
+        (!nameNeedle || name.toLowerCase().includes(nameNeedle))
+      );
+    }).length;
+    checks.push({
+      check_id: "attachment_metadata",
+      status: taskAttachmentCount !== null && taskAttachmentCount === attachmentMetadataCount ? "Passed" : "Warning",
+      message:
+        taskAttachmentCount !== null && taskAttachmentCount === attachmentMetadataCount
+          ? "Attachment metadata counts are internally consistent."
+          : taskAttachmentCount === null
+            ? "Wrike did not return the requested task attachment count; rerun before proceeding."
+            : "The task and attachment metadata counts differ; rerun before proceeding."
+    });
+    checks.push({
+      check_id: "workbook_candidates",
+      status: workbookCandidateCount === 1 ? "Passed" : "Warning",
+      message:
+        workbookCandidateCount === 1
+          ? "Exactly one attachment matches the saved workbook rule."
+          : `${workbookCandidateCount} attachments match the saved workbook rule; later selection remains blocked.`
+    });
+  } else {
+    checks.push({
+      check_id: "attachment_metadata",
+      status: "Blocked",
+      message: "Attachment metadata was not requested because the folder scope did not match."
+    });
+    checks.push({
+      check_id: "workbook_candidates",
+      status: "Blocked",
+      message: "Workbook candidates were not evaluated outside the configured folder scope."
+    });
+  }
+
+  return {
+    credentials: rotatedCredentials,
+    preview: {
+      status: checks.every((check) => check.status === "Passed") ? "Confirmed" : "Needs review",
+      checked_at: refreshed.refreshed_at,
+      approved_scope: { task_id: taskId, folder_id: folderId, trigger_status_id: triggerStatusId },
+      observed: {
+        task_id: taskId,
+        account_id: accountId,
+        parent_ids: parentIds,
+        super_parent_ids: superParentIds,
+        custom_status_id: customStatusId,
+        task_attachment_count: taskAttachmentCount,
+        attachment_metadata_count: attachmentMetadataCount,
+        workbook_candidate_count: workbookCandidateCount
+      },
+      checks,
+      capabilities: {
+        task_read: true,
+        attachment_metadata_read: folderMatches,
+        attachment_download: false,
+        preview_job_creation: false,
+        webhook: false,
+        polling: false,
+        wrike_writes: false,
+        lift_actions: false
+      }
     }
   };
 }

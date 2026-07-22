@@ -994,3 +994,22 @@ Recommended continuation after review:
 1. Confirm and explicitly approve one Wrike test task, folder/project ID, workflow status/custom-field ID, regional host, and dedicated technical-user OAuth grant.
 2. Add a bounded read-only discovery preview for only that approved scope; return identifiers/counts needed for operator confirmation without downloading attachments.
 3. Keep attachment retrieval and preview-job creation as later, separately reviewable slices.
+
+## Wrike Approved-Scope Discovery Preview
+
+Wrike connection-health PR #24 was reviewed green and merged to `main` as `1ffbb44`. The next branch, `codex/wrike-discovery-preview`, started from that exact baseline in the isolated `/private/tmp/pathfinder-wrike-discovery-preview` worktree; the Proof checkout was preserved.
+
+- Wrike Import Methods now save one `approved_discovery_task_id` for an explicit operator-reviewed scope.
+- Authenticated operators have a compact read-only preview action only when the Import Method is saved, the contract is complete, OAuth is configured, and the separate server gate is enabled.
+- The server refreshes OAuth, queries the exact approved task, verifies direct or nested folder/project scope and ordered status, then requests attachment metadata with URLs disabled only after scope matches.
+- The browser receives IDs, counts, and checks only. No task copy, filenames, URLs, file contents, tokens, or arbitrary provider fields are returned or persisted.
+- `PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW` defaults false everywhere. No gate was enabled, no real credential was used, and no deployment or external Wrike request was performed during development.
+- Attachment download/selection, durable source audit, job creation, polling, webhooks, Wrike writes, and Lift actions remain separate and unavailable.
+- Release validation passes every workspace check, all 173 workspace tests, every production build, all 61 Proof deployment-safety tests on the merged Proof baseline, and `git diff --check`.
+- Local in-app browser QA passes at 1280px desktop and 390px mobile with the discovery gate disabled, the preview action visibly unavailable, the safety boundary intact, and no horizontal overflow.
+
+Recommended continuation:
+
+1. Checkpoint this completed dark slice.
+2. Before any real Wrike preview, explicitly approve one task/folder/status scope, least-privilege technical-user OAuth credentials, the environment, and a bounded QA window; enable only the discovery gate for that window.
+3. After successful read-only QA, implement attachment selection/download plus durable source-audit evidence as the next separate slice. Continue to stop before Pathfinder preview-job creation.

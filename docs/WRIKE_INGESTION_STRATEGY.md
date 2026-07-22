@@ -76,7 +76,7 @@ It intentionally does not store:
 
 1. Configuration contract and operator UI — complete, dark only.
 2. OAuth/secret storage and read-only connection health — complete, dark by default.
-3. Controlled read-only discovery against one approved non-customer or Momentara test task.
+3. Controlled read-only discovery against one approved non-customer or Momentara test task — implemented dark, default off.
 4. Attachment selection/download and durable source audit.
 5. Preview-job creation through the existing Import Method boundary.
 6. Webhook endpoint plus scheduled reconciliation and telemetry.
@@ -93,4 +93,16 @@ The explicit connection test is separately gated by `PATHFINDER_ENABLE_WRIKE_CON
 
 Only HTTPS hosts under `wrike.com` are accepted, and the OAuth response's `host` remains authoritative for the API request. Wrike documents that OAuth tokens are regional-host aware, access tokens expire, refresh tokens rotate, and the current-user Contacts query supports `wsReadOnly`. See [Wrike OAuth 2.0 authorization](https://developers.wrike.com/docs/oauth-20-authorization) and [Query Contacts](https://developers.wrike.com/reference/getcontactsempty).
 
-This health boundary does not implement or authorize task/folder discovery, attachment reads, webhook creation, polling, background work, Wrike writes, preview creation, or any Lift action. The next slice requires one explicitly approved Wrike test task plus confirmed folder/project and workflow-status IDs before any discovery request is added.
+This health boundary does not itself authorize task/folder discovery, attachment reads, webhook creation, polling, background work, Wrike writes, preview creation, or any Lift action.
+
+## Approved-scope discovery preview boundary
+
+Pathfinder now has a second, independently gated read-only operation for one operator-approved task ID saved on a Wrike Import Method. `PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW` defaults to `false` locally, in CloudFormation, and in the production deployment workflow. When the gate is deliberately enabled, the OAuth connection is configured, and the Import Method is saved and complete, an authenticated operator may run exactly:
+
+1. OAuth refresh with `wsReadOnly`;
+2. `GET /api/v4/tasks/{approvedTaskId}?fields=["attachmentCount"]`;
+3. only after the returned task belongs to the saved folder/project (directly or through a super-parent), `GET /api/v4/tasks/{approvedTaskId}/attachments?versions=false&withUrls=false`.
+
+The response contains provider identifiers, counts, and pass/warning/blocked checks only. Task titles, descriptions, attachment names, temporary URLs, file contents, OAuth material, and other provider payload fields are neither returned to the browser nor persisted. A folder mismatch stops before the attachment-metadata request. Wrike documents the task-by-ID and task-attachment endpoints as read operations available to `wsReadOnly`: [Query Tasks](https://developers.wrike.com/reference/gettasksmulti) and [Query task attachments](https://developers.wrike.com/reference/gettaskssingleattachments).
+
+This slice does not download or select an attachment, persist discovery results, create a Pathfinder job, enable polling or webhooks, write to Wrike, or perform any Lift action. Enabling the gate or using real OAuth credentials requires a separate, explicitly approved QA window. The next implementation slice should own attachment selection/download and durable source-audit evidence as a separate checkpoint, still stopping before preview-job creation.

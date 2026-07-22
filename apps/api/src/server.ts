@@ -66,7 +66,10 @@ import {
 } from "@pathfinder/templates";
 import {
   checkWrikeOAuthConnection,
+  discoverApprovedWrikeTask,
+  getWrikeContractReadiness,
   normalizeWrikeHost,
+  normalizeWrikeSourceConfig,
   WrikeConnectionError,
   type WrikeOAuthCredentials
 } from "@pathfinder/wrike-adapter";
@@ -176,6 +179,7 @@ const liftProductCatalogBaseUrl =
   process.env.LIFT_PRODUCT_CATALOG_BASE_URL ?? "https://ltlco.lifterp.com/ords/api/lift/erp";
 const publicStatusBaseUrl = process.env.PATHFINDER_PUBLIC_STATUS_BASE_URL ?? "https://status.vornan.co";
 const wrikeConnectionTestEnabled = process.env.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST === "true";
+const wrikeDiscoveryPreviewEnabled = process.env.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW === "true";
 const publicStatusTokenDays = Number(process.env.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS ?? 30);
 const maxPublicStatusOrdersPerRequest = 10;
 const publicStatusReturnLink =
@@ -3254,6 +3258,7 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
   return {
     configured: Boolean(clientIdConfigured && clientSecretConfigured && refreshTokenConfigured && host),
     connection_test_enabled: wrikeConnectionTestEnabled,
+    discovery_preview_enabled: wrikeDiscoveryPreviewEnabled,
     host,
     credentials: {
       client_id_configured: clientIdConfigured,
@@ -3273,7 +3278,8 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
       oauth_refresh: true,
       identity_check: true,
       requested_scope: "wsReadOnly",
-      task_discovery: false,
+      task_discovery: wrikeDiscoveryPreviewEnabled,
+      attachment_metadata: wrikeDiscoveryPreviewEnabled,
       attachment_download: false,
       webhook: false,
       polling: false,
@@ -3392,6 +3398,58 @@ app.post("/api/wrike/connection/test", async (_req, res) => {
       ...wrikeConnectionStatus(failed),
       error: message
     });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discovery-preview", async (req, res) => {
+  if (!wrikeDiscoveryPreviewEnabled) {
+    res.status(423).json({
+      error: "Wrike discovery preview is disabled at the API boundary."
+    });
+    return;
+  }
+
+  const existing = await readWrikeConnectorSecrets();
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const workspace = await getOrCreateWorkspace(customer);
+    const method = workspace.import_methods.find(
+      (candidate) => candidate.import_method_id === req.params.methodId
+    );
+    if (!method) {
+      res.status(404).json({ error: "The selected Import Method does not exist." });
+      return;
+    }
+    if (method.source !== "Wrike") {
+      res.status(400).json({ error: "The selected Import Method is not a Wrike source." });
+      return;
+    }
+
+    const config = normalizeWrikeSourceConfig(method.source_config.wrike);
+    const readiness = getWrikeContractReadiness(config);
+    if (readiness.status !== "Configured" || !config.approved_discovery_task_id) {
+      res.status(400).json({
+        error: "Save the Wrike folder, ordered status, workbook rule, and approved discovery task ID first."
+      });
+      return;
+    }
+    const oauth = existing.oauth as WrikeOAuthCredentials | undefined;
+    if (!oauth) {
+      throw new WrikeConnectionError("invalid_configuration", "Wrike OAuth credentials are not configured.");
+    }
+
+    const result = await discoverApprovedWrikeTask(oauth, config);
+    await writeWrikeConnectorSecrets({ ...existing, oauth: result.credentials });
+    res.json(result.preview);
+  } catch (error) {
+    if (error instanceof WrikeConnectionError && error.rotated_credentials) {
+      await writeWrikeConnectorSecrets({ ...existing, oauth: error.rotated_credentials });
+    }
+    const message = error instanceof WrikeConnectionError
+      ? error.message
+      : "The bounded Wrike discovery preview failed.";
+    const status = error instanceof WrikeConnectionError && error.code === "invalid_configuration" ? 400 : 502;
+    res.status(status).json({ error: message });
   }
 });
 

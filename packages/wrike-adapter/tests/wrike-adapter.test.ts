@@ -4,6 +4,7 @@ import {
   buildWrikeIngestionIdentity,
   checkWrikeOAuthConnection,
   createDefaultWrikeSourceConfig,
+  discoverApprovedWrikeTask,
   getWrikeContractReadiness,
   normalizeWrikeHost,
   normalizeWrikeSourceConfig,
@@ -15,6 +16,7 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
   const normalized = normalizeWrikeSourceConfig({
     enabled: true,
     folder_id: "  IEABFOLDER  ",
+    approved_discovery_task_id: " IETESTTASK ",
     trigger_mode: "webhook_with_reconciliation",
     trigger_status_id: " IEABORDERED ",
     trigger_status_label: " Ordered ",
@@ -27,6 +29,7 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
 
   assert.equal(normalized.enabled, false);
   assert.equal(normalized.folder_id, "IEABFOLDER");
+  assert.equal(normalized.approved_discovery_task_id, "IETESTTASK");
   assert.equal(normalized.trigger_status_id, "IEABORDERED");
   assert.deepEqual(normalized.attachment_extensions, ["xlsx", "csv"]);
   assert.equal(normalized.poll_interval_minutes, 5);
@@ -236,4 +239,141 @@ test("retains rotated OAuth credentials when the identity check fails", async ()
       error.rotated_credentials?.refresh_token === "rotated-refresh-token" &&
       error.rotated_credentials?.host === "app-eu.wrike.com"
   );
+});
+
+test("previews only one saved approved task and returns identifiers and counts without provider content", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const config = normalizeWrikeSourceConfig({
+    folder_id: "IEAPPROVEDFOLDER",
+    approved_discovery_task_id: "IEAPPROVEDTASK",
+    trigger_status_id: "IEORDEREDSTATUS",
+    attachment_filename_contains: "order",
+    attachment_extensions: ["xlsx"]
+  });
+  const result = await discoverApprovedWrikeTask(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    config,
+    {
+      now: () => new Date("2026-07-22T01:00:00.000Z"),
+      fetch_impl: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "rotated-access-token",
+              refresh_token: "rotated-refresh-token",
+              expires_in: 3600,
+              host: "app-us2.wrike.com"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.includes("/attachments")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "IEATTACHMENT0001",
+                  version: 3,
+                  taskId: "IEAPPROVEDTASK",
+                  name: "Momentara private order.xlsx",
+                  url: "https://temporary.example/never-return",
+                  previewUrl: "https://temporary.example/never-return-preview"
+                },
+                { id: "IEATTACHMENT0002", version: 1, name: "customer-notes.pdf" }
+              ]
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "IEAPPROVEDTASK",
+                accountId: "IEACCOUNT",
+                parentIds: ["IEOTHERFOLDER"],
+                superParentIds: ["IEAPPROVEDFOLDER"],
+                customStatusId: "IEORDEREDSTATUS",
+                attachmentCount: 2,
+                title: "Private customer task title",
+                description: "Private customer description"
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(result.preview.status, "Confirmed");
+  assert.equal(result.preview.observed.workbook_candidate_count, 1);
+  assert.equal(result.preview.observed.attachment_metadata_count, 2);
+  assert.deepEqual(result.preview.observed.super_parent_ids, ["IEAPPROVEDFOLDER"]);
+  assert.equal(result.preview.capabilities.attachment_download, false);
+  assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET"]);
+  assert.match(calls[1].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\?fields=/);
+  assert.match(calls[2].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\/attachments\?versions=false&withUrls=false$/);
+  assert.equal(calls.some((call) => /download|preview|webhooks/.test(call.url)), false);
+  const publicPayload = JSON.stringify(result.preview);
+  assert.equal(publicPayload.includes("Private customer"), false);
+  assert.equal(publicPayload.includes("Momentara private"), false);
+  assert.equal(publicPayload.includes("temporary.example"), false);
+  assert.equal(publicPayload.includes("rotated-access-token"), false);
+});
+
+test("does not read attachment metadata when the approved task is outside the saved folder scope", async () => {
+  const calls: string[] = [];
+  const result = await discoverApprovedWrikeTask(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    normalizeWrikeSourceConfig({
+      folder_id: "IEAPPROVEDFOLDER",
+      approved_discovery_task_id: "IEAPPROVEDTASK",
+      trigger_status_id: "IEORDEREDSTATUS"
+    }),
+    {
+      fetch_impl: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({ access_token: "access", refresh_token: "refresh", host: "www.wrike.com" }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "IEAPPROVEDTASK",
+                accountId: "IEACCOUNT",
+                parentIds: ["IEUNAPPROVEDFOLDER"],
+                customStatusId: "IEORDEREDSTATUS",
+                attachmentCount: 1
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(result.preview.status, "Needs review");
+  assert.equal(result.preview.capabilities.attachment_metadata_read, false);
+  assert.equal(result.preview.observed.attachment_metadata_count, null);
+  assert.equal(calls.length, 2);
+  assert.equal(calls.some((url) => url.includes("/attachments")), false);
 });

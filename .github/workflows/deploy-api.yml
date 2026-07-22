@@ -118,6 +118,7 @@ jobs:
               PublicStatusEmailDebugReturnLink="${{ vars.PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK || 'false' }}" \
               PublicIntakeEmailVerificationEnabled="${{ vars.PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED || 'false' }}" \
               WrikeConnectionTestEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST || 'false' }}" \
+              WrikeDiscoveryPreviewEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW || 'false' }}" \
               EmailFrom="${{ vars.PATHFINDER_EMAIL_FROM || 'Vornan Updates <notifications@notify.vornan.co>' }}" \
               StatusReplyTo="${{ vars.PATHFINDER_STATUS_REPLY_TO || 'support@vornan.co' }}" \
               ProofReplyTo="${{ vars.PATHFINDER_PROOF_REPLY_TO || 'support@vornan.com' }}" \
