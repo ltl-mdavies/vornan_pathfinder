@@ -1108,4 +1108,26 @@ Recommended continuation:
 2. After green validation, merge and deploy the admin web; the API contract and runtime are unchanged.
 3. In production, complete **Connect Wrike** for the customer-owned Momentara connection. Authorization alone must remain read-only and must not enable connection testing or task discovery.
 4. Obtain the authoritative Larger Than Life routing field/value, the Ordered status/checkbox contract, and the two approved example Placard Order task IDs before a real discovery window.
-5. With separate explicit approval, temporarily enable only the two existing GET-only QA gates, run one identity check and one exact-task discovery preview, record sanitized evidence, and restore both gates to false. Continue to stop before attachment download, preview-job creation, polling, webhooks, Wrike writes, or Lift actions.
+5. Treat connection health and exact-task discovery as separate approved windows. The connection-health window is now complete; enable only the discovery-preview gate for the later approved task preview, then restore it to false. Continue to stop before attachment download, preview-job creation, polling, webhooks, Wrike writes, or Lift actions.
+
+## Wrike Connection Health QA Checkpoint
+
+The first production read-only QA stage is complete and fully closed.
+
+- The Empirical – Momentara customer connection passed one OAuth refresh plus authorized-user identity check.
+- Only the connection-test gate was enabled. The discovery-preview gate remained false throughout.
+- Production gate-open run `29963146758` and gate-close run `29963402984` both succeeded.
+- Final runtime verification shows both Wrike gates false and live-customer submit false.
+- The production UI retains the sanitized Passed/Connected result and regional host `www.wrike.com`; the test action is disabled again.
+- Sanitized evidence is recorded in `docs/WRIKE_CONNECTION_HEALTH_QA_2026-07-22.md`.
+- The runbook now treats connection health and exact-task discovery as separate, independently approved windows.
+
+No Wrike task or attachment data was read, no Pathfinder job was created, and no Wrike write, Lift action, Proof change, DNS change, or email action occurred.
+
+Recommended continuation:
+
+1. Checkpoint this documentation-only evidence branch.
+2. Obtain the authoritative Larger Than Life routing field/value and the exact Ordered status or checkbox/custom-field contract.
+3. Record two approved Placard Order examples: one task with one workbook and one task with multiple workbooks, plus the approved folder/project ID and workbook selection/version rule.
+4. Request separate approval for one exact-task discovery preview, enable only the discovery-preview gate, run the preview once, record sanitized IDs/counts, and restore the gate to false.
+5. Continue to stop before attachment download, preview-job creation, polling, webhooks, Wrike writes, or Lift actions.
