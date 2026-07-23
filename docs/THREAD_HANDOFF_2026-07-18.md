@@ -1131,3 +1131,25 @@ Recommended continuation:
 3. Record two approved Placard Order examples: one task with one workbook and one task with multiple workbooks, plus the approved folder/project ID and workbook selection/version rule.
 4. Request separate approval for one exact-task discovery preview, enable only the discovery-preview gate, run the preview once, record sanitized IDs/counts, and restore the gate to false.
 5. Continue to stop before attachment download, preview-job creation, polling, webhooks, Wrike writes, or Lift actions.
+
+## Wrike Order Qualification and Multi-Workbook Discovery
+
+The next read-only Wrike slice is underway from the synchronized production baseline on `codex/wrike-order-qualification`.
+
+- `Ordered` is now modeled as Momentara's internal creative-preparation state, not Pathfinder's intake trigger.
+- Pathfinder qualifies only a task in the configured `Sent to Print - LTL` custom-status ID and configured folder/project scope.
+- The task title must match `C<6 digit contract number> - <order name> - OOH Order` before attachment metadata is requested.
+- Each accepted `.xlsx`, `.xls`, or `.csv` attachment must follow the same naming contract and use the task's contract number.
+- Every current matching workbook remains a separate order candidate. Replacement versions are deduplicated by attachment ID; an unresolved equal-timestamp version tie fails closed.
+- Reference PDFs, unrelated attachments, and workbooks for other contracts are counted as ignored and never become candidates.
+- The discovery response remains sanitized to provider identifiers, counts, and checks. It does not expose task copy, filenames, URLs, workbook contents, OAuth material, or customer data.
+- Attachment download, persistence, Pathfinder job creation, polling, webhooks, Wrike writes, artwork ingestion, Lift updates, and Lift submission remain disabled and out of scope.
+
+Momentara may later place a SharePoint folder link for print-ready artwork in the task thread or a dedicated custom field. That locator should be captured in a separate read-only artwork slice; using it to update an existing Lift order requires a supported Lift order-update contract and separate authorization.
+
+Recommended continuation:
+
+1. Finish focused and repository-wide validation for this discovery-only slice, then checkpoint it through a focused PR.
+2. Obtain two operator-approved task IDs—one with one workbook and one with multiple workbooks—plus the exact `Sent to Print - LTL` status ID.
+3. Open only the existing discovery-preview gate for a separately approved bounded window, run the sanitized preview, and restore the gate to false.
+4. Implement attachment download and durable source audit only after the discovery evidence passes; continue to stop before job creation or any external write.

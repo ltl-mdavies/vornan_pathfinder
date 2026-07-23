@@ -241,9 +241,9 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           connection_id: connectionId,
           folder_id: "IEAPPROVEDFOLDER",
           approved_discovery_task_id: "IEAPPROVEDTASK",
-          trigger_status_id: "IEORDEREDSTATUS",
-          trigger_status_label: "Ordered",
-          attachment_filename_contains: "order",
+          trigger_status_id: "IESENTTOPRINTLTL",
+          trigger_status_label: "Sent to Print - LTL",
+          attachment_filename_contains: "",
           attachment_extensions: ["xlsx"]
         }
       }
@@ -270,7 +270,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           data: [{
             id: "IEATTACHMENT0001",
             version: 2,
-            name: "Private Momentara order.xlsx",
+            name: "C123456 - Private Momentara - OOH Order.xlsx",
             url: "https://temporary.example/private-download"
           }]
         }),
@@ -283,9 +283,9 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           id: "IEAPPROVEDTASK",
           accountId: "IEACCOUNT",
           parentIds: ["IEAPPROVEDFOLDER"],
-          customStatusId: "IEORDEREDSTATUS",
+          customStatusId: "IESENTTOPRINTLTL",
           attachmentCount: 1,
-          title: "Private Momentara order task"
+          title: "C123456 - Private Momentara - OOH Order"
         }]
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }

@@ -3139,3 +3139,19 @@ Completed the explicitly approved, bounded GET-only connection-health check for 
 - Recorded sanitized evidence in `docs/WRIKE_CONNECTION_HEALTH_QA_2026-07-22.md` and updated the runbook to separate connection health from exact-task discovery into independently approved windows.
 
 No task or attachment endpoint, workbook download, preview job, webhook, poll, Wrike write, Lift action, Proof change, DNS change, email action, or raw credential/provider payload was used or retained.
+
+## 2026-07-23 - Wrike Order Qualification and Multi-Workbook Discovery
+
+Aligned the dark Wrike discovery contract with Momentara's confirmed order workflow.
+
+- Changed the default intake-ready label from `Ordered` to `Sent to Print - LTL`; `Ordered` remains an earlier customer-internal creative-preparation state.
+- Added a fail-closed `C###### - Order Name - OOH Order` parser for both task titles and workbook filename stems.
+- Required configured folder scope, exact custom-status ID, and valid task naming before Pathfinder requests attachment metadata.
+- Replaced single newest-workbook selection with all-current matching workbook discovery. Each distinct attachment remains a separate order candidate, while replacement versions are deduplicated per attachment.
+- Required workbook contract numbers to match the task contract number and counted PDFs, reference files, unrelated contracts, and other non-candidates as ignored attachments.
+- Preserved the sanitized preview boundary: only identifiers, counts, and checks are returned; filenames, task copy, URLs, file contents, and OAuth material are neither returned nor persisted.
+- Updated Import Method controls and workflow copy to explain the intake-ready status, separate-workbook behavior, and ignored-attachment count.
+- Added regression coverage for naming, multi-workbook selection, version replacement/ties, contract mismatch, reference-file exclusion, and stopping before attachment metadata when status or naming guardrails fail.
+- Validation passed every workspace typecheck and production build, 125/125 API tests in the deterministic serial run, the remaining workspace suites, 12/12 browser regressions, 61/61 Proof deployment-safety tests, and `git diff --check`. The default-parallel API runner also reproduced the repository's known local Supertest ephemeral-listener race; no product assertion failed.
+
+This slice does not download attachments, persist discovery results, create Pathfinder jobs, poll, register webhooks, write to Wrike, ingest artwork, update Lift orders, or perform any Lift action.

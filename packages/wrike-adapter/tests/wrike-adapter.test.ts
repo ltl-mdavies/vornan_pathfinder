@@ -11,7 +11,8 @@ import {
   getWrikeContractReadiness,
   normalizeWrikeHost,
   normalizeWrikeSourceConfig,
-  selectWrikeWorkbookAttachment,
+  parseWrikeOrderNameContract,
+  selectWrikeWorkbookAttachments,
   WrikeConnectionError
 } from "../src/index.ts";
 
@@ -23,9 +24,10 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
     approved_discovery_task_id: " IETESTTASK ",
     trigger_mode: "webhook_with_reconciliation",
     trigger_status_id: " IEABORDERED ",
-    trigger_status_label: " Ordered ",
+    trigger_status_label: " Sent to Print - LTL ",
     attachment_filename_contains: " Momentara Order ",
     attachment_extensions: [".XLSX", "pdf", "csv", "xlsx"],
+    attachment_selection: "newest_matching_workbook",
     poll_interval_minutes: 2,
     access_token: "must-not-persist",
     create_preview_only: false
@@ -36,6 +38,10 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
   assert.equal(normalized.folder_id, "IEABFOLDER");
   assert.equal(normalized.approved_discovery_task_id, "IETESTTASK");
   assert.equal(normalized.trigger_status_id, "IEABORDERED");
+  assert.equal(normalized.trigger_status_label, "Sent to Print - LTL");
+  assert.equal(normalized.task_title_rule, "contract_order_ooh");
+  assert.equal(normalized.workbook_name_rule, "contract_order_ooh");
+  assert.equal(normalized.attachment_selection, "all_matching_current_workbooks");
   assert.deepEqual(normalized.attachment_extensions, ["xlsx", "csv"]);
   assert.equal(normalized.poll_interval_minutes, 5);
   assert.equal(normalized.create_preview_only, true);
@@ -135,50 +141,123 @@ test("uses account, task, attachment, and version for deterministic ingestion id
   assert.notEqual(first, replacement);
 });
 
-test("selects the newest matching workbook and fails closed on a timestamp tie", () => {
+test("parses only the agreed task and workbook naming contract", () => {
+  assert.deepEqual(parseWrikeOrderNameContract("C123456 - Summer Placards - OOH Order"), {
+    contract_number: "C123456",
+    order_name: "Summer Placards"
+  });
+  assert.equal(parseWrikeOrderNameContract("123456 - Summer Placards - OOH Order"), null);
+  assert.equal(parseWrikeOrderNameContract("C12345 - Summer Placards - OOH Order"), null);
+  assert.equal(parseWrikeOrderNameContract("C123456 - Summer Placards - Reference Proof"), null);
+  assert.equal(parseWrikeOrderNameContract("C123456 - \nSummer Placards - OOH Order"), null);
+});
+
+test("keeps every current matching workbook as a separate order candidate", () => {
   const config = normalizeWrikeSourceConfig({
     folder_id: "IEABFOLDER",
     trigger_status_id: "IEABORDERED",
-    attachment_filename_contains: "order",
     attachment_extensions: ["xlsx"]
   });
   const candidates = [
     {
-      attachment_id: "old",
+      attachment_id: "order-one",
       version_id: "1",
-      file_name: "Momentara order.xlsx",
+      file_name: "C123456 - Retail Placards - OOH Order.xlsx",
       updated_at: "2026-07-21T12:00:00.000Z"
     },
     {
-      attachment_id: "ignored",
+      attachment_id: "reference-proof",
       version_id: "1",
-      file_name: "Momentara order.pdf",
+      file_name: "C123456 - Retail Placards - OOH Order.pdf",
       updated_at: "2026-07-21T14:00:00.000Z"
     },
     {
-      attachment_id: "new",
+      attachment_id: "order-two",
+      version_id: "1",
+      file_name: "C123456 - Airport Placards - OOH Order.xlsx",
+      updated_at: "2026-07-21T13:00:00.000Z"
+    },
+    {
+      attachment_id: "other-contract",
+      version_id: "1",
+      file_name: "C654321 - Other Campaign - OOH Order.xlsx",
+      updated_at: "2026-07-21T15:00:00.000Z"
+    }
+  ];
+
+  const selected = selectWrikeWorkbookAttachments(
+    candidates,
+    config,
+    "C123456 - Momentara Campaign - OOH Order"
+  );
+  assert.equal(selected.status, "matched");
+  assert.deepEqual(
+    selected.attachments.map((candidate) => candidate.attachment_id),
+    ["order-two", "order-one"]
+  );
+  assert.equal(selected.matches.length, 2);
+});
+
+test("deduplicates replacement versions per attachment and fails closed on an unresolved current-version tie", () => {
+  const config = normalizeWrikeSourceConfig({
+    folder_id: "IEABFOLDER",
+    trigger_status_id: "IEABORDERED",
+    attachment_extensions: ["xlsx"]
+  });
+  const candidates = [
+    {
+      attachment_id: "order-one",
+      version_id: "1",
+      file_name: "C123456 - Retail Placards - OOH Order.xlsx",
+      updated_at: "2026-07-21T12:00:00.000Z"
+    },
+    {
+      attachment_id: "order-one",
       version_id: "2",
-      file_name: "Momentara order.xlsx",
+      file_name: "C123456 - Retail Placards - OOH Order.xlsx",
       updated_at: "2026-07-21T13:00:00.000Z"
     }
   ];
 
-  assert.equal(selectWrikeWorkbookAttachment(candidates, config).attachment?.attachment_id, "new");
+  const selected = selectWrikeWorkbookAttachments(
+    candidates,
+    config,
+    "C123456 - Momentara Campaign - OOH Order"
+  );
+  assert.equal(selected.status, "matched");
+  assert.deepEqual(selected.attachments.map((candidate) => candidate.version_id), ["2"]);
+
   assert.equal(
-    selectWrikeWorkbookAttachment(
+    selectWrikeWorkbookAttachments(
       [
         ...candidates,
         {
-          attachment_id: "tied",
-          version_id: "1",
-          file_name: "Replacement order.xlsx",
+          attachment_id: "order-one",
+          version_id: "3",
+          file_name: "C123456 - Retail Placards - OOH Order.xlsx",
           updated_at: "2026-07-21T13:00:00.000Z"
         }
       ],
-      config
+      config,
+      "C123456 - Momentara Campaign - OOH Order"
     ).status,
     "ambiguous"
   );
+});
+
+test("rejects a malformed task title before considering workbook candidates", () => {
+  const selected = selectWrikeWorkbookAttachments(
+    [{
+      attachment_id: "order-one",
+      version_id: "1",
+      file_name: "C123456 - Retail Placards - OOH Order.xlsx",
+      updated_at: "2026-07-21T12:00:00.000Z"
+    }],
+    normalizeWrikeSourceConfig({ attachment_extensions: ["xlsx"] }),
+    "Retail Placards"
+  );
+  assert.equal(selected.status, "missing");
+  assert.equal(selected.attachments.length, 0);
 });
 
 test("accepts only a bare HTTPS Wrike regional host", () => {
@@ -385,7 +464,7 @@ test("retains rotated OAuth credentials when the identity check fails", async ()
   );
 });
 
-test("previews only one saved approved task and returns identifiers and counts without provider content", async () => {
+test("previews one qualified task and counts every matching workbook without returning provider content", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const config = normalizeWrikeSourceConfig({
     folder_id: "IEAPPROVEDFOLDER",
@@ -426,11 +505,25 @@ test("previews only one saved approved task and returns identifiers and counts w
                   id: "IEATTACHMENT0001",
                   version: 3,
                   taskId: "IEAPPROVEDTASK",
-                  name: "Momentara private order.xlsx",
+                  name: "C123456 - Private Retail Placards - OOH Order.xlsx",
                   url: "https://temporary.example/never-return",
                   previewUrl: "https://temporary.example/never-return-preview"
                 },
-                { id: "IEATTACHMENT0002", version: 1, name: "customer-notes.pdf" }
+                {
+                  id: "IEATTACHMENT0002",
+                  version: 1,
+                  name: "C123456 - Private Airport Placards - OOH Order.xlsx"
+                },
+                {
+                  id: "IEATTACHMENT0003",
+                  version: 1,
+                  name: "C123456 - Creative Reference - OOH Order.pdf"
+                },
+                {
+                  id: "IEATTACHMENT0004",
+                  version: 1,
+                  name: "C654321 - Other Contract - OOH Order.xlsx"
+                }
               ]
             }),
             { status: 200, headers: { "Content-Type": "application/json" } }
@@ -445,8 +538,8 @@ test("previews only one saved approved task and returns identifiers and counts w
                 parentIds: ["IEOTHERFOLDER"],
                 superParentIds: ["IEAPPROVEDFOLDER"],
                 customStatusId: "IEORDEREDSTATUS",
-                attachmentCount: 2,
-                title: "Private customer task title",
+                attachmentCount: 4,
+                title: "C123456 - Private Customer Campaign - OOH Order",
                 description: "Private customer description"
               }
             ]
@@ -458,8 +551,9 @@ test("previews only one saved approved task and returns identifiers and counts w
   );
 
   assert.equal(result.preview.status, "Confirmed");
-  assert.equal(result.preview.observed.workbook_candidate_count, 1);
-  assert.equal(result.preview.observed.attachment_metadata_count, 2);
+  assert.equal(result.preview.observed.workbook_candidate_count, 2);
+  assert.equal(result.preview.observed.attachment_metadata_count, 4);
+  assert.equal(result.preview.observed.ignored_attachment_count, 2);
   assert.deepEqual(result.preview.observed.super_parent_ids, ["IEAPPROVEDFOLDER"]);
   assert.equal(result.preview.capabilities.attachment_download, false);
   assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET"]);
@@ -468,9 +562,66 @@ test("previews only one saved approved task and returns identifiers and counts w
   assert.equal(calls.some((call) => /download|preview|webhooks/.test(call.url)), false);
   const publicPayload = JSON.stringify(result.preview);
   assert.equal(publicPayload.includes("Private customer"), false);
-  assert.equal(publicPayload.includes("Momentara private"), false);
+  assert.equal(publicPayload.includes("Private Retail"), false);
   assert.equal(publicPayload.includes("temporary.example"), false);
   assert.equal(publicPayload.includes("rotated-access-token"), false);
+});
+
+test("does not read attachment metadata before status and task naming guardrails both pass", async () => {
+  for (const task of [
+    {
+      id: "IEAPPROVEDTASK",
+      accountId: "IEACCOUNT",
+      parentIds: ["IEAPPROVEDFOLDER"],
+      customStatusId: "IEORDEREDSTATUS",
+      attachmentCount: 1,
+      title: "C123456 - Campaign - OOH Order"
+    },
+    {
+      id: "IEAPPROVEDTASK",
+      accountId: "IEACCOUNT",
+      parentIds: ["IEAPPROVEDFOLDER"],
+      customStatusId: "IESENTTOPRINTLTL",
+      attachmentCount: 1,
+      title: "Campaign without contract"
+    }
+  ]) {
+    const calls: string[] = [];
+    const result = await discoverApprovedWrikeTask(
+      {
+        client_id: "client-id",
+        client_secret: "client-secret",
+        refresh_token: "refresh-token",
+        host: "www.wrike.com"
+      },
+      normalizeWrikeSourceConfig({
+        folder_id: "IEAPPROVEDFOLDER",
+        approved_discovery_task_id: "IEAPPROVEDTASK",
+        trigger_status_id: "IESENTTOPRINTLTL"
+      }),
+      {
+        fetch_impl: async (input) => {
+          const url = String(input);
+          calls.push(url);
+          if (url.endsWith("/oauth2/token")) {
+            return new Response(
+              JSON.stringify({ access_token: "access", refresh_token: "refresh", host: "www.wrike.com" }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            );
+          }
+          return new Response(JSON.stringify({ data: [task] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+      }
+    );
+
+    assert.equal(result.preview.status, "Needs review");
+    assert.equal(result.preview.capabilities.attachment_metadata_read, false);
+    assert.equal(calls.length, 2);
+    assert.equal(calls.some((url) => url.includes("/attachments")), false);
+  }
 });
 
 test("does not read attachment metadata when the approved task is outside the saved folder scope", async () => {
