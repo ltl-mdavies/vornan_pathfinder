@@ -14,6 +14,7 @@
     "build": "npm run build --workspaces --if-present",
     "check": "npm run check --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:browser": "playwright test",
     "deploy:admin-web": "scripts/deploy-admin-web.sh",
     "bootstrap:aws-buckets": "scripts/bootstrap-aws-buckets.sh",
     "deploy:web-hosting": "scripts/deploy-web-hosting.sh",
@@ -37,6 +38,7 @@
     "deploy:api-lambda": "scripts/deploy-api-lambda.sh"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "concurrently": "^9.1.2",
     "esbuild": "^0.28.1",
     "typescript": "^5.7.3"

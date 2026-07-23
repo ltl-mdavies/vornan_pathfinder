@@ -151,7 +151,7 @@ function proofStateLabel(proof: OrderRollupProof) {
 function ProofCard({ proof, displayDate }: { proof: OrderRollupProof; displayDate: (value?: string | null) => string }) {
   const lowResolutionUrl = safeProofAssetUrl(proof.proof_link_low);
   const highResolutionUrl = safeProofAssetUrl(proof.proof_link_high);
-  const primaryUrl = lowResolutionUrl ?? highResolutionUrl;
+  const primaryUrl = highResolutionUrl ?? lowResolutionUrl;
   const filename = proof.proof_filename ?? "Proof file";
   const previewUrl = proof.preview_kind === "image" || (!proof.preview_kind && inferredImageAsset(lowResolutionUrl, filename))
     ? lowResolutionUrl
@@ -159,13 +159,12 @@ function ProofCard({ proof, displayDate }: { proof: OrderRollupProof; displayDat
   return (
     <article className={`order-rollup__proof-card proof-state--${proof.proof_state ?? "pending"}`}>
       {previewUrl ? <img src={previewUrl} alt={`Preview of ${filename}`} loading="lazy" /> : <div className="order-rollup__proof-empty">Preview unavailable</div>}
-      <div>
-        <strong>{filename}</strong>
+      <div className="order-rollup__proof-card-copy">
+        <strong className="order-rollup__proof-filename">{filename}</strong>
         <span className="order-rollup__proof-state">{proofStateLabel(proof)}</span>
         {proof.creation_date ? <small>Posted {displayDate(proof.creation_date)}</small> : null}
         <div className="order-rollup__links">
-          {primaryUrl ? <a href={primaryUrl} target="_blank" rel="noreferrer">{lowResolutionUrl ? "View proof" : "Open proof"}</a> : null}
-          {highResolutionUrl && highResolutionUrl !== primaryUrl ? <a href={highResolutionUrl} target="_blank" rel="noreferrer">High resolution</a> : null}
+          {primaryUrl ? <a href={primaryUrl} target="_blank" rel="noreferrer">View proof</a> : null}
         </div>
       </div>
     </article>

@@ -457,6 +457,16 @@
   text-align: center;
 }
 
+.order-rollup__proof-card-copy,
+.order-rollup__proof-filename {
+  min-width: 0;
+}
+
+.order-rollup__proof-filename {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .order-rollup__proof-card strong,
 .order-rollup__proof-card span,
 .order-rollup__packages strong,

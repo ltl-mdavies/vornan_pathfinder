@@ -5,6 +5,8 @@ apps/*/dist/
 *.tsbuildinfo
 apps/*/tsconfig.tsbuildinfo
 apps/*/node_modules/.tmp/
+playwright-report/
+test-results/
 
 # Local runtime state and credentials/placeholders
 data/*.local.json

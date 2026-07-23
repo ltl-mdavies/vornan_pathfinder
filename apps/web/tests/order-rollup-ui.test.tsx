@@ -74,7 +74,9 @@ function realSiblingSnapshot(): OrderRollupSnapshot {
         location_name: "Cincinnati Hub"
       }],
       proofs: Array.from({ length: 4 }, (_, index) => ({
-        proof_filename: `redacted-proof-${index + 1}.jpg`,
+        proof_filename: index === 0
+          ? "redacted-proof-with-an-intentionally-long-filename-that-must-wrap-within-the-card-at-320px.jpg"
+          : `redacted-proof-${index + 1}.jpg`,
         proof_approval_status: "PENDING",
         proof_link_low: `https://proof-assets.example.invalid/redacted-proof-${index + 1}-low.jpg`,
         proof_link_high: `https://proof-assets.example.invalid/redacted-proof-${index + 1}.jpg`,
@@ -93,10 +95,13 @@ test("renders the four real-shape sibling proofs as distinct view-only gallery c
     <OrderRollup snapshot={realSiblingSnapshot()} audience="public" displayDate={(value) => value ?? "Not available"} />
   );
 
-  assert.equal((markup.match(/order-rollup__proof-card/g) ?? []).length, 4);
+  assert.equal((markup.match(/class="order-rollup__proof-card /g) ?? []).length, 4);
   assert.equal((markup.match(/<img /g) ?? []).length, 4);
   assert.equal((markup.match(/>View proof<\/a>/g) ?? []).length, 4);
-  assert.equal((markup.match(/>High resolution<\/a>/g) ?? []).length, 4);
+  assert.equal((markup.match(/order-rollup__proof-card-copy/g) ?? []).length, 4);
+  assert.equal((markup.match(/order-rollup__proof-filename/g) ?? []).length, 4);
+  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/redacted-proof-1\.jpg" target="_blank" rel="noreferrer">View proof/);
+  assert.doesNotMatch(markup, />High resolution<\/a>/);
   assert.equal((markup.match(/Posted 2026-07-19/g) ?? []).length, 4);
   assert.match(markup, /Proof review required/);
   assert.match(markup, /dedicated Vornan Proof email/);
@@ -116,6 +121,49 @@ test("renders the four real-shape sibling proofs as distinct view-only gallery c
   assert.match(markup, /UPS Ground, Courier/);
   assert.doesNotMatch(markup, />Approve</);
   assert.doesNotMatch(markup, />Request revision</);
+});
+
+test("uses one safe proof control with high-resolution preference and low-resolution fallback", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.lines[0].proofs = [
+    {
+      ...snapshot.lines[0].proofs[0],
+      proof_filename: "safe-high.jpg",
+      proof_link_low: "https://proof-assets.example.invalid/safe-high-low.jpg",
+      proof_link_high: "https://proof-assets.example.invalid/safe-high.jpg"
+    },
+    {
+      ...snapshot.lines[0].proofs[1],
+      proof_filename: "unsafe-high.jpg",
+      proof_link_low: "https://proof-assets.example.invalid/unsafe-high-low.jpg",
+      proof_link_high: "javascript:alert(1)"
+    },
+    {
+      ...snapshot.lines[0].proofs[2],
+      proof_filename: "unsafe-low.jpg",
+      proof_link_low: "javascript:alert(1)",
+      proof_link_high: "https://proof-assets.example.invalid/unsafe-low-high.jpg"
+    },
+    {
+      ...snapshot.lines[0].proofs[3],
+      proof_filename: "unsafe-both.jpg",
+      proof_link_low: "http://proof-assets.example.invalid/unsafe-both-low.jpg",
+      proof_link_high: "https://user:secret@proof-assets.example.invalid/unsafe-both.jpg"
+    }
+  ];
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" displayDate={(value) => value ?? "Not available"} />
+  );
+
+  assert.equal((markup.match(/>View proof<\/a>/g) ?? []).length, 3);
+  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/safe-high\.jpg" target="_blank" rel="noreferrer">View proof/);
+  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/unsafe-high-low\.jpg" target="_blank" rel="noreferrer">View proof/);
+  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/unsafe-low-high\.jpg" target="_blank" rel="noreferrer">View proof/);
+  assert.doesNotMatch(markup, /javascript:alert/);
+  assert.doesNotMatch(markup, /unsafe-both-low/);
+  assert.doesNotMatch(markup, /user:secret/);
+  assert.equal((markup.match(/<img /g) ?? []).length, 2);
 });
 
 test("rejects unsafe proof assets before they reach an image or link", () => {
