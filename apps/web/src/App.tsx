@@ -9189,7 +9189,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               </select>
                             </label>
                             <label className="setup-control">
-                              <span>Ordered status ID</span>
+                              <span>Intake-ready status ID</span>
                               <input
                                 value={activeWrikeConfig.trigger_status_id}
                                 placeholder="Custom workflow status API ID"
@@ -9200,15 +9200,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <span>Status label</span>
                               <input
                                 value={activeWrikeConfig.trigger_status_label}
-                                placeholder="Ordered"
+                                placeholder="Sent to Print - LTL"
                                 onChange={(event) => updateActiveWrikeConfig({ trigger_status_label: event.target.value })}
                               />
                             </label>
                             <label className="setup-control">
-                              <span>Workbook name contains</span>
+                              <span>Additional workbook name filter</span>
                               <input
                                 value={activeWrikeConfig.attachment_filename_contains}
-                                placeholder="Optional, e.g. print order"
+                                placeholder="Optional; naming contract is automatic"
                                 onChange={(event) =>
                                   updateActiveWrikeConfig({ attachment_filename_contains: event.target.value })
                                 }
@@ -9252,6 +9252,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               ))}
                             </div>
                           </div>
+                          <p className="wrike-contract-note">
+                            Task and workbook names must match C###### - Order Name - OOH Order. Each matching
+                            workbook becomes a separate order candidate.
+                          </p>
 
                           <div className="wrike-discovery-preview">
                             {activeWrikeConnectionStatus ? (
@@ -9314,7 +9318,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <div className="wrike-discovery-heading">
                               <div>
                                 <span className="section-eyebrow">Read-only discovery preview</span>
-                                <strong>Confirm one saved Wrike task before automation work begins</strong>
+                                <strong>Confirm one intake-ready Wrike task before automation work begins</strong>
                                 <small>
                                   Pathfinder returns provider IDs and counts only. Task copy, filenames, URLs, file contents, and customer data are not shown or persisted.
                                 </small>
@@ -9385,6 +9389,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                     <span>Workbook candidates</span>
                                     <strong>{wrikeDiscoveryPreview.observed.workbook_candidate_count ?? "Not evaluated"}</strong>
                                   </div>
+                                  <div>
+                                    <span>Ignored attachments</span>
+                                    <strong>{wrikeDiscoveryPreview.observed.ignored_attachment_count ?? "Not evaluated"}</strong>
+                                  </div>
                                 </div>
                                 <div className="wrike-discovery-checks">
                                   {wrikeDiscoveryPreview.checks.map((check) => (
@@ -9409,8 +9417,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           </div>
 
                           <div className="wrike-contract-flow" aria-label="Wrike ingestion safety boundary">
-                            <span>1 Discover ordered task</span>
-                            <span>2 Select newest workbook</span>
+                            <span>1 Qualify intake-ready task</span>
+                            <span>2 Keep each matching workbook</span>
                             <span>3 Apply this Import Method</span>
                             <span>4 Create preview job</span>
                           </div>
@@ -9421,7 +9429,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             </span>
                           </div>
                           <p className="wrike-contract-note">
-                            Automated attachment selection, download, polling, webhooks, and activation remain unavailable until their separate safety and audit slices are approved.
+                            Each matching current workbook remains a separate order candidate. Reference files, unrelated contracts, attachment download, polling, webhooks, and activation remain outside this preview.
                           </p>
                         </div>
                       ) : null}

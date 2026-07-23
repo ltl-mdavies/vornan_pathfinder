@@ -11,9 +11,9 @@ The Wrike adapter must never submit directly to Lift. Lift submission remains a 
 1. Register a Vornan Wrike OAuth application and authorize it with a dedicated technical user that can see only the required Momentara folder/project.
 2. Create the Wrike Source Connection under that customer's Settings, request read-only workspace access, and store OAuth client credentials and refresh tokens in the customer/connection-scoped Pathfinder secret boundary, never in an Import Method or browser payload.
 3. Scope discovery to the configured Wrike folder/project API ID.
-4. Trigger when a task enters the configured custom workflow status, initially `Ordered`.
+4. Treat `Ordered` as Momentara's internal creative-preparation state. Qualify an order for Pathfinder only when the task reaches the exact configured `Sent to Print - LTL` custom-status ID.
 5. Prefer a folder/project webhook for fast notification, with low-frequency scheduled reconciliation so missed or suspended webhook deliveries are recovered.
-6. Retrieve task attachments and select the newest workbook matching the configured filename and extension rule.
+6. Require the task title and each workbook stem to match `C<6 digit contract number> - <order name> - OOH Order`, then keep every current workbook with the same contract number as a separate order candidate.
 7. Build a durable source identity from Wrike account ID, task ID, attachment ID, and attachment version ID.
 8. If that identity already produced a preview, acknowledge the duplicate without creating another job. A newer attachment version creates a new candidate for operator review.
 9. Apply the bound Import Method and create a Pathfinder preview job with Wrike provenance and audit events.
@@ -32,11 +32,12 @@ The first dark configuration slice stores only:
 - the customer Source Connection ID used by this Import Method;
 - Wrike folder/project API ID;
 - trigger strategy;
-- ordered workflow status ID and operator-friendly label;
+- intake-ready workflow status ID and operator-friendly `Sent to Print - LTL` label;
+- fixed task-title and workbook-name rules using `C###### - Order Name - OOH Order`;
 - accepted workbook extensions;
 - optional filename match;
 - reconciliation interval;
-- fixed newest-matching-workbook selection;
+- fixed all-matching-current-workbooks selection, with each workbook treated as a separate order;
 - fixed task/attachment/version idempotency;
 - fixed preview-job-only destination.
 
@@ -52,8 +53,13 @@ It intentionally does not store:
 
 - Missing folder/project ID: no discovery.
 - Missing trigger status ID: no discovery.
+- Task not in the exact `Sent to Print - LTL` status: no attachment metadata read.
+- Task title outside `C###### - Order Name - OOH Order`: no attachment metadata read.
 - No matching workbook: record a reviewable source failure; no job.
-- Two newest workbooks with the same effective timestamp: ambiguous; no job.
+- Workbook contract number differs from the task contract number: ignore that workbook.
+- PDFs and other reference attachments: ignore them; they are creative references, not order grids or print-ready artwork.
+- Multiple current matching workbooks: keep each as a separate order candidate.
+- Multiple equally current versions of the same attachment: ambiguous; no job for that attachment set.
 - Duplicate webhook event: acknowledge without reprocessing.
 - Duplicate task/attachment/version identity: link to the existing preview; no new job.
 - Replacement attachment version: create a new preview candidate and retain the older job/audit history.
@@ -65,11 +71,13 @@ It intentionally does not store:
 - Confirm Wrike account and regional host.
 - Identify the least-privilege technical user and approve OAuth access.
 - Confirm the folder/project API ID that contains production order tasks.
-- Confirm how Pathfinder can determine that a Placard Order task belongs to Larger Than Life rather than another production partner. This is a required routing guardrail, not an inferred title match.
-- Confirm whether `Ordered` is the task workflow status or a separate custom-field checkbox and capture the authoritative API ID/value.
+- Use the exact `Sent to Print - LTL` custom-status ID as the Larger Than Life intake signal. Folder membership alone is insufficient because GPA Campaigns also contains non-LTL work.
+- Treat `Ordered` as the earlier Momentara internal-creative notification state; it is not an ingestion trigger.
 - Treat each workbook attached to one Placard Order task as a separate order.
 - Obtain two representative examples: one Placard Order task with one workbook and another with multiple workbooks.
-- Confirm the workbook naming convention; prefer a stable contract number in the filename when available.
+- Enforce the confirmed task/workbook convention `C<6 digit contract number> - <order name> - OOH Order`.
+- Ignore reference-proof attachments. Momentara's creative team may later post a SharePoint folder link for print-ready artwork in the task thread or a dedicated custom field; artwork-location capture and any future Lift order update remain separate work.
+- Treat `Have Address - LTL` as a later shipping-readiness signal, not an order-ingestion trigger.
 - Treat edits or replacement workbooks after a Lift submission as manual exceptions initially. Lift order mutation is not yet supported by this workflow.
 - Confirm whether historical tasks need a one-time backfill and the earliest safe date.
 - Confirm who owns failed-ingestion review and how Pathfinder should notify them.
@@ -80,10 +88,11 @@ It intentionally does not store:
 1. Configuration contract and operator UI — complete, dark only.
 2. Server-owned OAuth authorization, secret storage, and read-only connection health — complete, downstream reads dark by default.
 3. Controlled read-only discovery against one approved non-customer or Momentara test task — implemented dark, default off.
-4. Attachment selection/download and durable source audit.
-5. Preview-job creation through the existing Import Method boundary.
-6. Webhook endpoint plus scheduled reconciliation and telemetry.
-7. Optional Wrike write-back, only after explicit authorization.
+4. Read-only order qualification and multi-workbook candidate discovery — implemented locally, without downloading files or creating jobs.
+5. Attachment download and durable source audit.
+6. Preview-job creation through the existing Import Method boundary.
+7. Webhook endpoint plus scheduled reconciliation and telemetry.
+8. Optional artwork-locator capture and Wrike write-back, only after explicit authorization and a supported Lift update path.
 
 ## Read-only connection-health boundary
 
@@ -132,7 +141,7 @@ This slice does not download or select an attachment, persist discovery results,
 The Wrike Import Method now evaluates a fixed, fail-closed QA readiness sequence before the discovery action can be considered ready:
 
 1. the Import Method is saved;
-2. folder/project, ordered-status, and workbook rules are complete;
+2. folder/project, `Sent to Print - LTL` status, and task/workbook naming rules are complete;
 3. one explicitly approved task ID is recorded;
 4. the secret-backed read-only OAuth connection is configured;
 5. the connection-test and discovery-preview gates are open only for an explicitly approved window;

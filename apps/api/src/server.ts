@@ -3685,7 +3685,7 @@ app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discover
     const readiness = getWrikeContractReadiness(config);
     if (readiness.status !== "Configured" || !config.approved_discovery_task_id || !config.connection_id) {
       res.status(400).json({
-        error: "Select a customer Wrike connection and save the folder, ordered status, workbook rule, and approved discovery task ID first."
+        error: "Select a customer Wrike connection and save the folder, intake-ready status, workbook rule, and approved discovery task ID first."
       });
       return;
     }

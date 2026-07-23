@@ -1,6 +1,8 @@
 export type WrikeTriggerMode = "scheduled_polling" | "webhook_with_reconciliation";
 export type WrikeWorkbookExtension = "xlsx" | "xls" | "csv";
-export type WrikeAttachmentSelectionPolicy = "newest_matching_workbook";
+export type WrikeTaskTitleRule = "contract_order_ooh";
+export type WrikeWorkbookNameRule = "contract_order_ooh";
+export type WrikeAttachmentSelectionPolicy = "all_matching_current_workbooks";
 export type WrikeIdempotencyStrategy = "task_attachment_version";
 
 export interface WrikeOAuthCredentials {
@@ -60,6 +62,8 @@ export interface WrikeSourceConfig {
   trigger_mode: WrikeTriggerMode;
   trigger_status_id: string;
   trigger_status_label: string;
+  task_title_rule: WrikeTaskTitleRule;
+  workbook_name_rule: WrikeWorkbookNameRule;
   attachment_filename_contains: string;
   attachment_extensions: WrikeWorkbookExtension[];
   attachment_selection: WrikeAttachmentSelectionPolicy;
@@ -69,7 +73,13 @@ export interface WrikeSourceConfig {
 }
 
 export interface WrikeDiscoveryCheck {
-  check_id: "task" | "folder_scope" | "trigger_status" | "attachment_metadata" | "workbook_candidates";
+  check_id:
+    | "task"
+    | "folder_scope"
+    | "trigger_status"
+    | "task_name_contract"
+    | "attachment_metadata"
+    | "workbook_candidates";
   status: "Passed" | "Warning" | "Blocked";
   message: string;
 }
@@ -91,6 +101,7 @@ export interface WrikeTaskDiscoveryPreview {
     task_attachment_count: number | null;
     attachment_metadata_count: number | null;
     workbook_candidate_count: number | null;
+    ignored_attachment_count: number | null;
   };
   checks: WrikeDiscoveryCheck[];
   capabilities: {
@@ -120,9 +131,14 @@ export interface WrikeAttachmentCandidate {
 
 export interface WrikeAttachmentSelectionResult {
   status: "matched" | "missing" | "ambiguous";
-  attachment: WrikeAttachmentCandidate | null;
+  attachments: WrikeAttachmentCandidate[];
   matches: WrikeAttachmentCandidate[];
   message: string;
+}
+
+export interface WrikeOrderNameContract {
+  contract_number: string;
+  order_name: string;
 }
 
 export interface WrikeContractReadiness {
@@ -174,10 +190,12 @@ export function createDefaultWrikeSourceConfig(): WrikeSourceConfig {
     approved_discovery_task_id: "",
     trigger_mode: "scheduled_polling",
     trigger_status_id: "",
-    trigger_status_label: "Ordered",
+    trigger_status_label: "Sent to Print - LTL",
+    task_title_rule: "contract_order_ooh",
+    workbook_name_rule: "contract_order_ooh",
     attachment_filename_contains: "",
     attachment_extensions: ["xlsx"],
-    attachment_selection: "newest_matching_workbook",
+    attachment_selection: "all_matching_current_workbooks",
     poll_interval_minutes: 15,
     idempotency_strategy: "task_attachment_version",
     create_preview_only: true
@@ -192,6 +210,22 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function cleanIdentifier(value: unknown) {
   return typeof value === "string" ? value.trim().slice(0, 256) : "";
+}
+
+export function parseWrikeOrderNameContract(value: unknown): WrikeOrderNameContract | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (/[\r\n]/.test(normalized)) {
+    return null;
+  }
+  const match = normalized.match(/^C(\d{6})\s+-\s+(.{1,160}?)\s+-\s+OOH Order$/i);
+  const orderName = match?.[2]?.trim() ?? "";
+  if (!match || !orderName) {
+    return null;
+  }
+  return {
+    contract_number: `C${match[1]}`,
+    order_name: orderName
+  };
 }
 
 export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
@@ -228,12 +262,14 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
       typeof source.trigger_status_label === "string"
         ? source.trigger_status_label.trim().slice(0, 100)
         : fallback.trigger_status_label,
+    task_title_rule: "contract_order_ooh",
+    workbook_name_rule: "contract_order_ooh",
     attachment_filename_contains:
       typeof source.attachment_filename_contains === "string"
         ? source.attachment_filename_contains.trim().slice(0, 160)
         : "",
     attachment_extensions: extensions.length ? extensions : fallback.attachment_extensions,
-    attachment_selection: "newest_matching_workbook",
+    attachment_selection: "all_matching_current_workbooks",
     poll_interval_minutes: normalizedInterval,
     idempotency_strategy: "task_attachment_version",
     create_preview_only: true
@@ -284,8 +320,8 @@ export function evaluateWrikeReadOnlyQaReadiness(args: {
       status: contract.status === "Configured" ? "Passed" : "Blocked",
       label: "Wrike source contract",
       message: contract.status === "Configured"
-        ? "Folder, ordered-status, and workbook rules are configured."
-        : "Configure the folder/project, ordered-status ID, and workbook rule."
+        ? "Folder, intake-ready status, task naming, and workbook rules are configured."
+        : "Configure the folder/project, intake-ready status ID, and workbook rule."
     },
     {
       item_id: "approved_task",
@@ -715,7 +751,7 @@ export async function discoverApprovedWrikeTask(
   if (!folderId || !taskId || !triggerStatusId) {
     throw new WrikeConnectionError(
       "invalid_configuration",
-      "Save the Wrike folder, ordered status, and approved discovery task IDs before running discovery."
+      "Save the Wrike folder, intake-ready status, and approved discovery task IDs before running discovery."
     );
   }
 
@@ -755,8 +791,11 @@ export async function discoverApprovedWrikeTask(
   const customStatusId = providerIdentifier(task.customStatusId) || null;
   const accountId = providerIdentifier(task.accountId) || null;
   const taskAttachmentCount = providerCount(task.attachmentCount);
+  const taskNameContract = parseWrikeOrderNameContract(task.title);
   const folderMatches = parentIds.includes(folderId) || superParentIds.includes(folderId);
   const statusMatches = customStatusId === triggerStatusId;
+  const taskNameMatches = taskNameContract !== null;
+  const taskQualifies = folderMatches && statusMatches && taskNameMatches;
   const checks: WrikeDiscoveryCheck[] = [
     { check_id: "task", status: "Passed", message: "Wrike returned the exact approved task ID." },
     {
@@ -768,16 +807,24 @@ export async function discoverApprovedWrikeTask(
     },
     {
       check_id: "trigger_status",
-      status: statusMatches ? "Passed" : "Warning",
+      status: statusMatches ? "Passed" : "Blocked",
       message: statusMatches
-        ? "The task uses the configured ordered status ID."
-        : "The task does not currently use the configured ordered status ID."
+        ? "The task uses the configured intake-ready status ID."
+        : "The task does not use the configured intake-ready status ID; attachment metadata was not read."
+    },
+    {
+      check_id: "task_name_contract",
+      status: taskNameMatches ? "Passed" : "Blocked",
+      message: taskNameMatches
+        ? "The task title matches C###### - Order Name - OOH Order."
+        : "The task title does not match C###### - Order Name - OOH Order; attachment metadata was not read."
     }
   ];
 
   let attachmentMetadataCount: number | null = null;
   let workbookCandidateCount: number | null = null;
-  if (folderMatches) {
+  let ignoredAttachmentCount: number | null = null;
+  if (taskQualifies) {
     const attachmentUrl = new URL(`https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}/attachments`);
     attachmentUrl.searchParams.set("versions", "false");
     attachmentUrl.searchParams.set("withUrls", "false");
@@ -805,11 +852,14 @@ export async function discoverApprovedWrikeTask(
     workbookCandidateCount = attachments.filter((attachment) => {
       const name = typeof attachment.name === "string" ? attachment.name : "";
       const extension = attachmentExtension(name);
+      const fileNameContract = parseWrikeOrderNameContract(stripAttachmentExtension(name));
       return (
         config.attachment_extensions.includes(extension as WrikeWorkbookExtension) &&
+        fileNameContract?.contract_number === taskNameContract.contract_number &&
         (!nameNeedle || name.toLowerCase().includes(nameNeedle))
       );
     }).length;
+    ignoredAttachmentCount = attachmentMetadataCount - workbookCandidateCount;
     checks.push({
       check_id: "attachment_metadata",
       status: taskAttachmentCount !== null && taskAttachmentCount === attachmentMetadataCount ? "Passed" : "Warning",
@@ -822,22 +872,24 @@ export async function discoverApprovedWrikeTask(
     });
     checks.push({
       check_id: "workbook_candidates",
-      status: workbookCandidateCount === 1 ? "Passed" : "Warning",
+      status: workbookCandidateCount >= 1 ? "Passed" : "Warning",
       message:
         workbookCandidateCount === 1
-          ? "Exactly one attachment matches the saved workbook rule."
-          : `${workbookCandidateCount} attachments match the saved workbook rule; later selection remains blocked.`
+          ? "One current workbook matches the task contract and remains one separate order candidate."
+          : workbookCandidateCount > 1
+            ? `${workbookCandidateCount} current workbooks match the task contract; each remains a separate order candidate.`
+            : "No current workbook matches the task contract; reference files and unrelated attachments remain ignored."
     });
   } else {
     checks.push({
       check_id: "attachment_metadata",
       status: "Blocked",
-      message: "Attachment metadata was not requested because the folder scope did not match."
+      message: "Attachment metadata was not requested because the task did not pass every routing guardrail."
     });
     checks.push({
       check_id: "workbook_candidates",
       status: "Blocked",
-      message: "Workbook candidates were not evaluated outside the configured folder scope."
+      message: "Workbook candidates were not evaluated because the task did not pass every routing guardrail."
     });
   }
 
@@ -855,12 +907,13 @@ export async function discoverApprovedWrikeTask(
         custom_status_id: customStatusId,
         task_attachment_count: taskAttachmentCount,
         attachment_metadata_count: attachmentMetadataCount,
-        workbook_candidate_count: workbookCandidateCount
+        workbook_candidate_count: workbookCandidateCount,
+        ignored_attachment_count: ignoredAttachmentCount
       },
       checks,
       capabilities: {
         task_read: true,
-        attachment_metadata_read: folderMatches,
+        attachment_metadata_read: taskQualifies,
         attachment_download: false,
         preview_job_creation: false,
         webhook: false,
@@ -877,42 +930,96 @@ function attachmentExtension(fileName: string) {
   return match?.[1] ?? "";
 }
 
-export function selectWrikeWorkbookAttachment(
-  candidates: WrikeAttachmentCandidate[],
-  config: WrikeSourceConfig
-): WrikeAttachmentSelectionResult {
+function stripAttachmentExtension(fileName: string) {
+  return fileName.replace(/\.[a-z0-9]+$/i, "");
+}
+
+function matchesWrikeWorkbookContract(
+  fileName: string,
+  config: WrikeSourceConfig,
+  taskContractNumber?: string
+) {
+  const extension = attachmentExtension(fileName);
   const nameNeedle = config.attachment_filename_contains.toLowerCase();
+  const nameContract = parseWrikeOrderNameContract(stripAttachmentExtension(fileName));
+  return (
+    config.attachment_extensions.includes(extension as WrikeWorkbookExtension) &&
+    nameContract !== null &&
+    (!taskContractNumber || nameContract.contract_number === taskContractNumber) &&
+    (!nameNeedle || fileName.toLowerCase().includes(nameNeedle))
+  );
+}
+
+export function selectWrikeWorkbookAttachments(
+  candidates: WrikeAttachmentCandidate[],
+  config: WrikeSourceConfig,
+  taskTitle?: string
+): WrikeAttachmentSelectionResult {
+  const taskNameContract = taskTitle === undefined ? null : parseWrikeOrderNameContract(taskTitle);
+  if (taskTitle !== undefined && taskNameContract === null) {
+    return {
+      status: "missing",
+      attachments: [],
+      matches: [],
+      message: "The Wrike task title does not match C###### - Order Name - OOH Order."
+    };
+  }
+
   const matches = candidates
-    .filter((candidate) => config.attachment_extensions.includes(attachmentExtension(candidate.file_name) as WrikeWorkbookExtension))
-    .filter((candidate) => !nameNeedle || candidate.file_name.toLowerCase().includes(nameNeedle))
+    .filter((candidate) =>
+      matchesWrikeWorkbookContract(candidate.file_name, config, taskNameContract?.contract_number)
+    )
     .filter(
       (candidate) =>
         Boolean(candidate.attachment_id && candidate.version_id) && Number.isFinite(Date.parse(candidate.updated_at))
     )
-    .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
+    .sort((left, right) => {
+      const timeDifference = Date.parse(right.updated_at) - Date.parse(left.updated_at);
+      return timeDifference || left.attachment_id.localeCompare(right.attachment_id) || left.version_id.localeCompare(right.version_id);
+    });
 
   if (!matches.length) {
     return {
       status: "missing",
-      attachment: null,
+      attachments: [],
       matches,
-      message: "No Wrike attachment matches the configured workbook rule."
+      message: "No current Wrike attachment matches the configured workbook and order-naming rules."
     };
   }
 
-  if (matches.length > 1 && Date.parse(matches[0].updated_at) === Date.parse(matches[1].updated_at)) {
-    return {
-      status: "ambiguous",
-      attachment: null,
-      matches,
-      message: "Multiple Wrike workbooks share the newest timestamp; operator review is required."
-    };
+  const currentByAttachment = new Map<string, WrikeAttachmentCandidate>();
+  for (const candidate of matches) {
+    const current = currentByAttachment.get(candidate.attachment_id);
+    if (!current) {
+      currentByAttachment.set(candidate.attachment_id, candidate);
+      continue;
+    }
+    if (
+      current.version_id !== candidate.version_id &&
+      Date.parse(current.updated_at) === Date.parse(candidate.updated_at)
+    ) {
+      return {
+        status: "ambiguous",
+        attachments: [],
+        matches,
+        message: "One Wrike attachment has multiple current versions with the same timestamp; operator review is required."
+      };
+    }
   }
 
+  const attachments = Array.from(currentByAttachment.values()).sort(
+    (left, right) =>
+      Date.parse(right.updated_at) - Date.parse(left.updated_at) ||
+      left.file_name.localeCompare(right.file_name) ||
+      left.attachment_id.localeCompare(right.attachment_id)
+  );
   return {
     status: "matched",
-    attachment: matches[0],
+    attachments,
     matches,
-    message: `Selected ${matches[0].file_name} as the newest matching workbook.`
+    message:
+      attachments.length === 1
+        ? "Selected one current matching workbook as one separate order candidate."
+        : `Selected ${attachments.length} current matching workbooks as separate order candidates.`
   };
 }
