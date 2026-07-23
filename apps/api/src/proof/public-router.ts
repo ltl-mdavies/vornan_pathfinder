@@ -94,8 +94,12 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
 
   router.post("/sessions", async (req, res) => {
     try {
+      const previousRawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
       const rawToken = typeof req.body?.token === "string" ? req.body.token : "";
       const { raw_session: rawSession, raw_csrf: rawCsrf, session } = await exchangeProofToken(rawToken);
+      if (previousRawSession && previousRawSession !== rawSession) {
+        await endProofSession(previousRawSession).catch(() => undefined);
+      }
       const maxAge = Math.max(0, Date.parse(session.expires_at) - Date.now());
       res.cookie(PROOF_SESSION_COOKIE, rawSession, {
         httpOnly: true,

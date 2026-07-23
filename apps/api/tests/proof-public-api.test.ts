@@ -177,6 +177,47 @@ test("exchanges a fragment token for a narrow hardened cookie and returns only i
   assert.equal(serialized.includes("javascript:"), false);
 });
 
+test("replaces an existing browser session only after another valid token is exchanged", async () => {
+  const firstGrant = await access.createProofGrant({ order_number: order.order_number });
+  const firstExchange = await request(app)
+    .post("/api/public/proof/sessions")
+    .send({ token: firstGrant.access_url.split("/").at(-1)! })
+    .expect(201);
+  const firstCredentials = exchangeCredentials(firstExchange);
+
+  await request(app)
+    .post("/api/public/proof/sessions")
+    .set("Cookie", firstCredentials.cookie)
+    .send({ token: "invalid" })
+    .expect(401);
+  await request(app)
+    .get("/api/public/proof/order")
+    .set("Cookie", firstCredentials.cookie)
+    .expect(200);
+
+  const secondGrant = await access.createProofGrant({ order_number: order.order_number });
+  const secondExchange = await request(app)
+    .post("/api/public/proof/sessions")
+    .set("Cookie", firstCredentials.cookie)
+    .send({ token: secondGrant.access_url.split("/").at(-1)! })
+    .expect(201);
+  const secondCredentials = exchangeCredentials(secondExchange);
+
+  await request(app)
+    .get("/api/public/proof/order")
+    .set("Cookie", firstCredentials.cookie)
+    .expect(401);
+  await request(app)
+    .get("/api/public/proof/order")
+    .set("Cookie", secondCredentials.cookie)
+    .expect(200);
+
+  const audit = await store.listProofAuditEvents(order.order_number, { limit: 100 });
+  assert.equal(audit.events.some((event) =>
+    event.action === "proof.session_ended" && event.grant_id === firstGrant.grant.grant_id
+  ), true);
+});
+
 test("marks an old active packet stale without removing its cached proofs", async () => {
   const staleOrder: ProofOrder = {
     ...order,
