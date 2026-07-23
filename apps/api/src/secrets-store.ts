@@ -19,11 +19,29 @@ export interface TargetSecrets {
     {
       credentials?: Partial<TargetEnvironment["credentials"]>;
       headers?: Record<string, string>;
+      proofing_api?: TargetEnvironmentProofingApiSecrets;
     }
   >;
   lift?: {
     credentials?: Partial<LiftTargetConfig["credentials"]>;
   };
+}
+
+export interface TargetProofingApiAuditEvent {
+  event_id: string;
+  action: "configured" | "replaced" | "cleared";
+  actor_id: string;
+  occurred_at: string;
+}
+
+export interface TargetEnvironmentProofingApiSecrets {
+  base_url?: string;
+  company_id?: string;
+  client_id?: string;
+  client_secret?: string;
+  updated_at?: string;
+  updated_by?: string;
+  audit_events?: TargetProofingApiAuditEvent[];
 }
 
 export interface WrikeConnectorSecrets {
