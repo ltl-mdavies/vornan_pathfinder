@@ -38,6 +38,12 @@ jobs:
       - name: Build all workspaces
         run: npm run build
 
+      - name: Install browser regression runtime
+        run: npx playwright install --with-deps chromium
+
+      - name: Test Proof browser regressions
+        run: npm run test:browser
+
       - name: Verify Proof deployment contracts
         run: npm run test:proof-deploy
 

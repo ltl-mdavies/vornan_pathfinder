@@ -1,0 +1,13 @@
+.browser-fixture-shell {
+  width: min(1180px, calc(100vw - 24px));
+  margin: 0 auto;
+  padding: 12px 0 32px;
+}
+
+.browser-fixture-label {
+  margin: 0 0 10px;
+  color: #315c3b;
+  font: 800 0.75rem/1.4 Inter, system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
