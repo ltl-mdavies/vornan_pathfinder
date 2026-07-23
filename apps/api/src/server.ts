@@ -176,6 +176,12 @@ import { getProofRuntimeConfig } from "./proof/runtime-config.js";
 import { getProofOrder } from "./proof/store.js";
 import { BoundedSnapshotCache } from "./order-snapshot-cache.js";
 import {
+  clearTargetEnvironmentProofingApi,
+  readTargetEnvironmentProofingApi,
+  saveTargetEnvironmentProofingApi,
+  TargetProofingApiValidationError
+} from "./lift-proofing-credentials.js";
+import {
   readCustomerSourceConnectionSecrets,
   writeCustomerSourceConnectionSecrets,
   type WrikeConnectorSecrets
@@ -5400,6 +5406,88 @@ app.get("/api/targets", async (_req, res) => {
   res.json({
     targets: await listTargets()
   });
+});
+
+async function targetProofingApiEnvironment(targetId: string, environmentId: string) {
+  const target = (await listTargets()).find((candidate) => candidate.target_id === targetId);
+  if (!target) {
+    return { error: "Target was not found.", status: 404 } as const;
+  }
+  if (target.target_type !== "ERP" || target.adapter !== "lift-standard-graphics") {
+    return { error: "Proofing API setup is available only for Lift ERP targets.", status: 409 } as const;
+  }
+  const environment = target.environments.find((candidate) => candidate.environment_id === environmentId);
+  if (!environment) {
+    return { error: "Target environment was not found.", status: 404 } as const;
+  }
+  return { target, environment } as const;
+}
+
+function targetAdminActorId(res: Response) {
+  const uid = typeof res.locals.authUser?.uid === "string" ? res.locals.authUser.uid : "";
+  return uid || (requireFirebaseAuth ? "unknown-authenticated-admin" : "local-development-admin");
+}
+
+app.get("/api/targets/:targetId/environments/:environmentId/proofing-api", async (req, res) => {
+  try {
+    const match = await targetProofingApiEnvironment(req.params.targetId, req.params.environmentId);
+    if (!("target" in match)) {
+      res.status(match.status).json({ error: match.error });
+      return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json(await readTargetEnvironmentProofingApi(req.params.targetId, req.params.environmentId));
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Proofing API configuration could not be loaded."
+    });
+  }
+});
+
+app.put("/api/targets/:targetId/environments/:environmentId/proofing-api", async (req, res) => {
+  try {
+    const match = await targetProofingApiEnvironment(req.params.targetId, req.params.environmentId);
+    if (!("target" in match)) {
+      res.status(match.status).json({ error: match.error });
+      return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json(
+      await saveTargetEnvironmentProofingApi(
+        req.params.targetId,
+        req.params.environmentId,
+        req.body ?? {},
+        targetAdminActorId(res)
+      )
+    );
+  } catch (error) {
+    const status = error instanceof TargetProofingApiValidationError ? 400 : 500;
+    res.status(status).json({
+      error: error instanceof Error ? error.message : "Proofing API configuration could not be saved."
+    });
+  }
+});
+
+app.delete("/api/targets/:targetId/environments/:environmentId/proofing-api", async (req, res) => {
+  try {
+    const match = await targetProofingApiEnvironment(req.params.targetId, req.params.environmentId);
+    if (!("target" in match)) {
+      res.status(match.status).json({ error: match.error });
+      return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json(
+      await clearTargetEnvironmentProofingApi(
+        req.params.targetId,
+        req.params.environmentId,
+        targetAdminActorId(res)
+      )
+    );
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Proofing API configuration could not be cleared."
+    });
+  }
 });
 
 app.put("/api/targets/:targetId", async (req, res) => {

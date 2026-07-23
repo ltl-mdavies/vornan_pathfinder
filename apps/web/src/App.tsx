@@ -96,6 +96,7 @@ import type { PathfinderAuthSession } from "./auth";
 import { configurePathfinderApiAuth, pathfinderFetch as fetch } from "./api-client";
 import { WorkspaceLoading } from "./WorkspaceLoading";
 import { ProofOpsPanel } from "./ProofOpsPanel";
+import { ProofingApiSetup } from "./ProofingApiSetup";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
@@ -13671,6 +13672,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               />
                             </label>
                           </div>
+                          {selectedTarget.target_type === "ERP" && selectedTarget.adapter === "lift-standard-graphics" ? (
+                            <ProofingApiSetup
+                              apiBaseUrl={apiBaseUrl}
+                              targetId={selectedTarget.target_id}
+                              environmentId={environment.environment_id}
+                              environmentName={environment.name}
+                            />
+                          ) : null}
                         </div>
                       ))}
                     </div>
