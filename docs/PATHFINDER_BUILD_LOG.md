@@ -3155,3 +3155,18 @@ Aligned the dark Wrike discovery contract with Momentara's confirmed order workf
 - Validation passed every workspace typecheck and production build, 125/125 API tests in the deterministic serial run, the remaining workspace suites, 12/12 browser regressions, 61/61 Proof deployment-safety tests, and `git diff --check`. The default-parallel API runner also reproduced the repository's known local Supertest ephemeral-listener race; no product assertion failed.
 
 This slice does not download attachments, persist discovery results, create Pathfinder jobs, poll, register webhooks, write to Wrike, ingest artwork, update Lift orders, or perform any Lift action.
+
+## 2026-07-23 - Wrike Artwork Folder Mapping to Lift FLEX_FIELD9
+
+Added a bounded, create-order mapping for Momentara's separately managed artwork-folder locator.
+
+- Added optional Wrike Import Method configuration for the exact artwork-folder custom-field ID.
+- The exact-task GET explicitly requests Wrike custom fields and reads only the configured field. The value must be an HTTPS URL without embedded credentials and remains out of the sanitized discovery response.
+- A missing optional artwork-folder value produces a warning, while an invalid configured value blocks qualification. A task that fails the existing folder, status, or naming contract does not evaluate artwork.
+- Added the provider-neutral canonical field `order.artwork_folder_url`; the source workbook remains separately represented by `order.order_attachment`.
+- Mapped the canonical artwork-folder URL into Lift create-order header `FLEX_FIELD9`, the destination confirmed through the controlled LTL Demo QA write. Pathfinder does not emit an invented artwork field to Lift.
+- Updated the Standard Graphics output template and field mapping so existing template behavior is preserved while the new value can flow during initial order creation.
+- Added focused coverage for exact-field resolution, safe URL validation, sanitized discovery, source-workbook separation, and Lift payload generation.
+- Validation passed `npm run check`, all workspace tests, every production build, 12/12 browser regressions, 61/61 Proof deployment-safety tests, and `git diff --check`.
+
+This slice remains GET-only in Wrike and uses the artwork locator only while creating the Lift order. It does not download artwork, persist discovery results, create jobs, poll, register webhooks, write to Wrike, perform a post-submit Lift update, or add any Proof decision/write capability.

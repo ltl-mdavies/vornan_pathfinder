@@ -855,6 +855,7 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
           requested_ship_date: "2026-06-23",
           due_date: "2026-06-24",
           order_attachment: "https://example.com/imports/momentara-order.xlsx",
+          FLEX_FIELD9: "https://example.com/artwork/momentara-order",
           shipping: {
             method: "UPS Ground",
             account_number: null,
@@ -948,6 +949,7 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
       { sourceColumn: "body:order.requested_ship_date", targetField: "order.ship_date", required: false },
       { sourceColumn: "body:order.due_date", targetField: "order.due_date", required: false },
       { sourceColumn: "body:order.order_attachment", targetField: "order.order_attachment", required: false },
+      { sourceColumn: "body:order.FLEX_FIELD9", targetField: "order.artwork_folder_url", required: false },
       { sourceColumn: "body:order.shipping.method", targetField: "order.shipping.method", required: false },
       { sourceColumn: "body:order.shipping.acct_billing_zip", targetField: "order.shipping.acct_billing_zip", required: false },
       { sourceColumn: "body:order.shipping.acct_billing_country", targetField: "order.shipping.acct_billing_country", required: false },
@@ -1144,6 +1146,7 @@ function reorderStandardBody(body: Record<string, unknown>) {
     "requested_ship_date",
     "due_date",
     "order_attachment",
+    "FLEX_FIELD9",
     "shipping"
   ]) {
     if (key in order) {
@@ -1217,6 +1220,7 @@ function normalizeStandardOutputTemplate(template: OutputTemplate): OutputTempla
     const order = asRecord(body.order);
     setMissing(order, "due_date", "{{order.due_date}}");
     setMissing(order, "order_attachment", "{{order.order_attachment}}");
+    setMissing(order, "FLEX_FIELD9", "{{order.artwork_folder_url}}");
     const orderShipping = asRecord(order.shipping);
     setMissing(orderShipping, "acct_billing_zip", "{{order.shipping.acct_billing_zip}}");
     setMissing(orderShipping, "acct_billing_country", "{{order.shipping.acct_billing_country}}");
