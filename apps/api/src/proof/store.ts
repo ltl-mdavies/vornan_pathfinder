@@ -1,11 +1,16 @@
-import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import {
+  DynamoDBClient,
+  GetItemCommand,
+  PutItemCommand,
+  QueryCommand,
+  type AttributeValue
+} from "@aws-sdk/client-dynamodb";
 import type {
   ProofAccessGrant,
   ProofAccessSession,
   ProofAuditEvent,
   ProofAuditPage,
   ProofDecisionLedgerRecord,
-  ProofDecisionOutcomeState,
   ProofFeedbackAcknowledgement,
   ProofOrder,
   ProofParticipant,
@@ -18,7 +23,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getProofRuntimeConfig } from "./runtime-config.js";
 
-interface LocalProofStore {
+export interface LocalProofStore {
   orders: Record<string, ProofOrder>;
   grants: Record<string, ProofAccessGrant>;
   sessions: Record<string, ProofAccessSession>;
@@ -42,11 +47,17 @@ function client() {
   return dynamoClient;
 }
 
-function stringAttribute(value: string) {
+export function getProofDynamoClient() {
+  return client();
+}
+
+export function proofStringAttribute(value: string) {
   return { S: value };
 }
 
-function dataItem(pk: string, sk: string, data: unknown, indexes: Record<string, AttributeValue> = {}) {
+const stringAttribute = proofStringAttribute;
+
+export function proofDataItem(pk: string, sk: string, data: unknown, indexes: Record<string, AttributeValue> = {}) {
   return {
     pk: stringAttribute(pk),
     sk: stringAttribute(sk),
@@ -56,12 +67,16 @@ function dataItem(pk: string, sk: string, data: unknown, indexes: Record<string,
   };
 }
 
-function parseData<T>(item: Record<string, AttributeValue> | undefined) {
+const dataItem = proofDataItem;
+
+export function parseProofData<T>(item: Record<string, AttributeValue> | undefined) {
   const data = item?.data?.S;
   return data ? (JSON.parse(data) as T) : null;
 }
 
-function requiredCoreTable() {
+const parseData = parseProofData;
+
+export function requiredProofCoreTable() {
   const tableName = getProofRuntimeConfig().core_table_name;
   if (!tableName) {
     throw new Error("PATHFINDER_PROOF_CORE_TABLE must be configured when Proof storage uses DynamoDB.");
@@ -69,7 +84,9 @@ function requiredCoreTable() {
   return tableName;
 }
 
-function requiredAuditTable() {
+const requiredCoreTable = requiredProofCoreTable;
+
+export function requiredProofAuditTable() {
   const tableName = getProofRuntimeConfig().audit_table_name;
   if (!tableName) {
     throw new Error("PATHFINDER_PROOF_AUDIT_TABLE must be configured when Proof storage uses DynamoDB.");
@@ -77,7 +94,9 @@ function requiredAuditTable() {
   return tableName;
 }
 
-async function readLocalStore(): Promise<LocalProofStore> {
+const requiredAuditTable = requiredProofAuditTable;
+
+export async function readLocalProofStore(): Promise<LocalProofStore> {
   try {
     const parsed = JSON.parse(await readFile(localStorePath, "utf8")) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -122,6 +141,8 @@ async function readLocalStore(): Promise<LocalProofStore> {
   }
 }
 
+const readLocalStore = readLocalProofStore;
+
 async function writeLocalStore(store: LocalProofStore) {
   await mkdir(dirname(localStorePath), { recursive: true });
   const temporaryStorePath = `${localStorePath}.${randomBytes(6).toString("hex")}.tmp`;
@@ -129,7 +150,7 @@ async function writeLocalStore(store: LocalProofStore) {
   await rename(temporaryStorePath, localStorePath);
 }
 
-async function mutateLocalStore<T>(mutation: (store: LocalProofStore) => T | Promise<T>) {
+export async function mutateLocalProofStore<T>(mutation: (store: LocalProofStore) => T | Promise<T>) {
   const pending = localMutationTail.then(async () => {
     const store = await readLocalStore();
     const result = await mutation(store);
@@ -139,6 +160,8 @@ async function mutateLocalStore<T>(mutation: (store: LocalProofStore) => T | Pro
   localMutationTail = pending.then(() => undefined, () => undefined);
   return pending;
 }
+
+const mutateLocalStore = mutateLocalProofStore;
 
 function taskIndexes(orderNumber: string, task: ProofTask) {
   const indexes: Record<string, AttributeValue> = {};
@@ -465,125 +488,18 @@ export async function getProofFeedbackAcknowledgement(grantId: string, participa
   return acknowledgement?.grant_id === grantId ? acknowledgement : null;
 }
 
-function decisionRecordKey(orderNumber: string, idempotencyKey: string) {
-  return `${orderNumber}:${idempotencyKey}`;
-}
-
-function decisionRecordItem(record: ProofDecisionLedgerRecord) {
-  return dataItem(
-    `ORDER#${record.intent.order_number}`,
-    `IDEMPOTENCY#${record.idempotency_key}`,
-    record,
-    {
-      canonical_body_hash: stringAttribute(record.canonical_body_hash),
-      record_version: { N: String(record.record_version) },
-      outcome: stringAttribute(record.outcome),
-      ttl_epoch: { N: String(record.expires_at_epoch) }
-    }
-  );
-}
-
-function conditionalCheckFailed(error: unknown) {
-  return error instanceof Error && error.name === "ConditionalCheckFailedException";
-}
-
-export async function getProofDecisionRecord(orderNumber: string, idempotencyKey: string) {
-  const config = getProofRuntimeConfig();
-  if (config.storage_driver === "disabled") {
-    throw new Error("Vornan Proof persistence is disabled until the dedicated Proof core table is configured.");
-  }
-  if (config.storage_driver === "dynamodb") {
-    const response = await client().send(new GetItemCommand({
-      TableName: requiredCoreTable(),
-      Key: {
-        pk: stringAttribute(`ORDER#${orderNumber}`),
-        sk: stringAttribute(`IDEMPOTENCY#${idempotencyKey}`)
-      }
-    }));
-    return parseData<ProofDecisionLedgerRecord>(response.Item as Record<string, AttributeValue> | undefined);
-  }
-  const store = await readLocalStore();
-  return store.decision_records[decisionRecordKey(orderNumber, idempotencyKey)] ?? null;
-}
-
-export async function createProofDecisionRecord(record: ProofDecisionLedgerRecord) {
-  const config = getProofRuntimeConfig();
-  if (config.storage_driver === "disabled") {
-    throw new Error("Vornan Proof persistence is disabled until the dedicated Proof core table is configured.");
-  }
-  if (config.storage_driver === "dynamodb") {
-    try {
-      await client().send(new PutItemCommand({
-        TableName: requiredCoreTable(),
-        Item: decisionRecordItem(record),
-        ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)"
-      }));
-      return true;
-    } catch (error) {
-      if (conditionalCheckFailed(error)) return false;
-      throw error;
-    }
-  }
-  return mutateLocalStore((store) => {
-    const key = decisionRecordKey(record.intent.order_number, record.idempotency_key);
-    if (store.decision_records[key]) return false;
-    store.decision_records[key] = record;
-    return true;
-  });
-}
-
-export async function replaceProofDecisionRecord(
-  record: ProofDecisionLedgerRecord,
-  expected: {
-    canonical_body_hash: string;
-    record_version: number;
-    outcome: ProofDecisionOutcomeState;
-    expires_at_epoch: number;
-  }
-) {
-  const config = getProofRuntimeConfig();
-  if (config.storage_driver === "disabled") {
-    throw new Error("Vornan Proof persistence is disabled until the dedicated Proof core table is configured.");
-  }
-  if (config.storage_driver === "dynamodb") {
-    try {
-      await client().send(new PutItemCommand({
-        TableName: requiredCoreTable(),
-        Item: decisionRecordItem(record),
-        ConditionExpression:
-          "canonical_body_hash = :canonical_body_hash AND record_version = :record_version " +
-          "AND #outcome = :outcome AND ttl_epoch = :ttl_epoch",
-        ExpressionAttributeNames: { "#outcome": "outcome" },
-        ExpressionAttributeValues: {
-          ":canonical_body_hash": stringAttribute(expected.canonical_body_hash),
-          ":record_version": { N: String(expected.record_version) },
-          ":outcome": stringAttribute(expected.outcome),
-          ":ttl_epoch": { N: String(expected.expires_at_epoch) }
-        }
-      }));
-      return true;
-    } catch (error) {
-      if (conditionalCheckFailed(error)) return false;
-      throw error;
-    }
-  }
-  return mutateLocalStore((store) => {
-    const key = decisionRecordKey(record.intent.order_number, record.idempotency_key);
-    const current = store.decision_records[key];
-    if (!current ||
-        current.canonical_body_hash !== expected.canonical_body_hash ||
-        current.record_version !== expected.record_version ||
-        current.outcome !== expected.outcome ||
-        current.expires_at_epoch !== expected.expires_at_epoch) {
-      return false;
-    }
-    store.decision_records[key] = record;
-    return true;
-  });
-}
-
 function auditSortKey(event: ProofAuditEvent) {
   return `${event.occurred_at}#${event.event_id}`;
+}
+
+export function auditEventItem(event: ProofAuditEvent) {
+  return {
+    pk: stringAttribute(`ORDER#${event.order_number}`),
+    sk: stringAttribute(auditSortKey(event)),
+    data: stringAttribute(JSON.stringify(event)),
+    occurred_at: stringAttribute(event.occurred_at),
+    event_id: stringAttribute(event.event_id)
+  };
 }
 
 function auditCursor(sortKey: string) {
@@ -610,13 +526,7 @@ export async function appendProofAuditEvent(event: ProofAuditEvent) {
   if (config.storage_driver === "dynamodb") {
     await client().send(new PutItemCommand({
       TableName: requiredAuditTable(),
-      Item: {
-        pk: stringAttribute(`ORDER#${event.order_number}`),
-        sk: stringAttribute(auditSortKey(event)),
-        data: stringAttribute(JSON.stringify(event)),
-        occurred_at: stringAttribute(event.occurred_at),
-        event_id: stringAttribute(event.event_id)
-      },
+      Item: auditEventItem(event),
       ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)"
     }));
     return event;
