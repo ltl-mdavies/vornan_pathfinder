@@ -1153,3 +1153,27 @@ Recommended continuation:
 2. Obtain two operator-approved task IDs—one with one workbook and one with multiple workbooks—plus the exact `Sent to Print - LTL` status ID.
 3. Open only the existing discovery-preview gate for a separately approved bounded window, run the sanitized preview, and restore the gate to false.
 4. Implement attachment download and durable source audit only after the discovery evidence passes; continue to stop before job creation or any external write.
+
+## Wrike Artwork Folder Mapping Checkpoint
+
+The optional artwork-folder locator now has a bounded path from Wrike into the initial Lift order:
+
+- a Wrike Import Method may identify the exact custom field that contains the artwork-folder URL;
+- exact-task discovery requests custom fields but returns only a sanitized readiness status, never the URL;
+- the value must be HTTPS and cannot contain embedded credentials;
+- missing optional artwork produces a warning, while an invalid configured value blocks qualification;
+- the provider-neutral canonical destination is `order.artwork_folder_url`;
+- the source order workbook remains distinct as `order.order_attachment`;
+- the Standard Graphics Lift create-order payload maps the canonical artwork-folder URL to header `FLEX_FIELD9`.
+
+The destination was confirmed separately through a controlled write and read-back on an approved LTL Demo order. No real artwork URL or credential value is retained in source or documentation.
+
+Full validation passes: every workspace typecheck and test, every production build, 12/12 browser regressions, 61/61 Proof deployment-safety tests, and diff hygiene. Proof confirmed no overlap or capability conflict.
+
+Recommended continuation:
+
+1. Checkpoint this focused mapping through a reviewed PR.
+2. Obtain an operator-approved Wrike task and open only the existing discovery-preview gate for one bounded sanitized qualification check.
+3. Implement authenticated workbook attachment download plus durable source evidence as the next separate slice.
+4. Keep preview-job creation, automated polling/webhooks, Wrike writes, artwork download, and post-submit Lift updates out of that attachment-download slice.
+5. Revisit line-level or post-submit artwork updates only after Lift publishes and confirms the corresponding writable contract.

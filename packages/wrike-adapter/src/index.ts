@@ -64,6 +64,7 @@ export interface WrikeSourceConfig {
   trigger_status_label: string;
   task_title_rule: WrikeTaskTitleRule;
   workbook_name_rule: WrikeWorkbookNameRule;
+  artwork_folder_custom_field_id: string;
   attachment_filename_contains: string;
   attachment_extensions: WrikeWorkbookExtension[];
   attachment_selection: WrikeAttachmentSelectionPolicy;
@@ -78,6 +79,7 @@ export interface WrikeDiscoveryCheck {
     | "folder_scope"
     | "trigger_status"
     | "task_name_contract"
+    | "artwork_folder"
     | "attachment_metadata"
     | "workbook_candidates";
   status: "Passed" | "Warning" | "Blocked";
@@ -102,10 +104,12 @@ export interface WrikeTaskDiscoveryPreview {
     attachment_metadata_count: number | null;
     workbook_candidate_count: number | null;
     ignored_attachment_count: number | null;
+    artwork_folder_status: WrikeArtworkFolderStatus | null;
   };
   checks: WrikeDiscoveryCheck[];
   capabilities: {
     task_read: true;
+    artwork_folder_value_read: boolean;
     attachment_metadata_read: boolean;
     attachment_download: false;
     preview_job_creation: false;
@@ -139,6 +143,13 @@ export interface WrikeAttachmentSelectionResult {
 export interface WrikeOrderNameContract {
   contract_number: string;
   order_name: string;
+}
+
+export type WrikeArtworkFolderStatus = "not_configured" | "missing" | "ready" | "invalid";
+
+export interface WrikeArtworkFolderResolution {
+  status: WrikeArtworkFolderStatus;
+  url: string | null;
 }
 
 export interface WrikeContractReadiness {
@@ -193,6 +204,7 @@ export function createDefaultWrikeSourceConfig(): WrikeSourceConfig {
     trigger_status_label: "Sent to Print - LTL",
     task_title_rule: "contract_order_ooh",
     workbook_name_rule: "contract_order_ooh",
+    artwork_folder_custom_field_id: "",
     attachment_filename_contains: "",
     attachment_extensions: ["xlsx"],
     attachment_selection: "all_matching_current_workbooks",
@@ -226,6 +238,40 @@ export function parseWrikeOrderNameContract(value: unknown): WrikeOrderNameContr
     contract_number: `C${match[1]}`,
     order_name: orderName
   };
+}
+
+export function resolveWrikeArtworkFolderUrl(
+  task: unknown,
+  customFieldId: unknown
+): WrikeArtworkFolderResolution {
+  const fieldId = cleanIdentifier(customFieldId);
+  if (!fieldId) {
+    return { status: "not_configured", url: null };
+  }
+
+  const customFields = Array.isArray(asRecord(task).customFields)
+    ? (asRecord(task).customFields as unknown[])
+    : [];
+  const field = customFields
+    .map(asRecord)
+    .find((candidate) => cleanIdentifier(candidate.id) === fieldId);
+  const rawValue = typeof field?.value === "string" ? field.value.trim() : "";
+  if (!rawValue) {
+    return { status: "missing", url: null };
+  }
+  if (rawValue.length > 2048 || /[\u0000-\u001f\u007f]/.test(rawValue)) {
+    return { status: "invalid", url: null };
+  }
+
+  try {
+    const url = new URL(rawValue);
+    if (url.protocol !== "https:" || url.username || url.password) {
+      return { status: "invalid", url: null };
+    }
+    return { status: "ready", url: url.toString() };
+  } catch {
+    return { status: "invalid", url: null };
+  }
 }
 
 export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
@@ -264,6 +310,7 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
         : fallback.trigger_status_label,
     task_title_rule: "contract_order_ooh",
     workbook_name_rule: "contract_order_ooh",
+    artwork_folder_custom_field_id: cleanIdentifier(source.artwork_folder_custom_field_id),
     attachment_filename_contains:
       typeof source.attachment_filename_contains === "string"
         ? source.attachment_filename_contains.trim().slice(0, 160)
@@ -760,7 +807,7 @@ export async function discoverApprovedWrikeTask(
   const host = rotatedCredentials.host;
   const accessToken = rotatedCredentials.access_token ?? "";
   const taskUrl = new URL(`https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}`);
-  taskUrl.searchParams.set("fields", JSON.stringify(["attachmentCount"]));
+  taskUrl.searchParams.set("fields", JSON.stringify(["attachmentCount", "customFields"]));
 
   let taskResponse: Response;
   try {
@@ -792,6 +839,7 @@ export async function discoverApprovedWrikeTask(
   const accountId = providerIdentifier(task.accountId) || null;
   const taskAttachmentCount = providerCount(task.attachmentCount);
   const taskNameContract = parseWrikeOrderNameContract(task.title);
+  const artworkFolder = resolveWrikeArtworkFolderUrl(task, config.artwork_folder_custom_field_id);
   const folderMatches = parentIds.includes(folderId) || superParentIds.includes(folderId);
   const statusMatches = customStatusId === triggerStatusId;
   const taskNameMatches = taskNameContract !== null;
@@ -818,6 +866,25 @@ export async function discoverApprovedWrikeTask(
       message: taskNameMatches
         ? "The task title matches C###### - Order Name - OOH Order."
         : "The task title does not match C###### - Order Name - OOH Order; attachment metadata was not read."
+    },
+    {
+      check_id: "artwork_folder",
+      status:
+        !taskQualifies || artworkFolder.status === "invalid"
+          ? "Blocked"
+          : artworkFolder.status === "missing"
+            ? "Warning"
+            : "Passed",
+      message:
+        !taskQualifies
+          ? "The artwork-folder field was not evaluated because the task did not pass every routing guardrail."
+          : artworkFolder.status === "not_configured"
+            ? "No artwork-folder custom field is configured; the order remains eligible without an artwork link."
+            : artworkFolder.status === "ready"
+              ? "The configured artwork-folder field contains a valid HTTPS URL."
+              : artworkFolder.status === "missing"
+                ? "The configured artwork-folder field is empty; the order can be reviewed without an artwork link."
+                : "The configured artwork-folder field is not a safe HTTPS URL."
     }
   ];
 
@@ -908,11 +975,14 @@ export async function discoverApprovedWrikeTask(
         task_attachment_count: taskAttachmentCount,
         attachment_metadata_count: attachmentMetadataCount,
         workbook_candidate_count: workbookCandidateCount,
-        ignored_attachment_count: ignoredAttachmentCount
+        ignored_attachment_count: ignoredAttachmentCount,
+        artwork_folder_status: taskQualifies ? artworkFolder.status : null
       },
       checks,
       capabilities: {
         task_read: true,
+        artwork_folder_value_read:
+          taskQualifies && Boolean(config.artwork_folder_custom_field_id),
         attachment_metadata_read: taskQualifies,
         attachment_download: false,
         preview_job_creation: false,

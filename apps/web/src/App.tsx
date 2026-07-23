@@ -1229,6 +1229,7 @@ const liftStandardGraphicsBodyTemplateText = JSON.stringify(
       requested_ship_date: "{{order.ship_date}}",
       due_date: "{{order.due_date}}",
       order_attachment: "{{order.order_attachment}}",
+      FLEX_FIELD9: "{{order.artwork_folder_url}}",
       shipping: {
         method: "{{order.shipping.method}}",
         account_number: "{{order.shipping.account_number}}",
@@ -9204,6 +9205,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 onChange={(event) => updateActiveWrikeConfig({ trigger_status_label: event.target.value })}
                               />
                             </label>
+                            <label className="setup-control setup-control-wide">
+                              <span>Artwork folder custom field ID</span>
+                              <input
+                                value={activeWrikeConfig.artwork_folder_custom_field_id}
+                                placeholder="Wrike API ID for LTL Artwork Folder URL"
+                                onChange={(event) =>
+                                  updateActiveWrikeConfig({ artwork_folder_custom_field_id: event.target.value })
+                                }
+                              />
+                              <small>
+                                Optional. A valid HTTPS value maps to canonical Artwork Folder URL and then to
+                                Lift order header field FLEX_FIELD9.
+                              </small>
+                            </label>
                             <label className="setup-control">
                               <span>Additional workbook name filter</span>
                               <input
@@ -9392,6 +9407,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   <div>
                                     <span>Ignored attachments</span>
                                     <strong>{wrikeDiscoveryPreview.observed.ignored_attachment_count ?? "Not evaluated"}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Artwork folder</span>
+                                    <strong>
+                                      {wrikeDiscoveryPreview.observed.artwork_folder_status === "ready"
+                                        ? "HTTPS link ready"
+                                        : wrikeDiscoveryPreview.observed.artwork_folder_status === "missing"
+                                          ? "Field is empty"
+                                          : wrikeDiscoveryPreview.observed.artwork_folder_status === "invalid"
+                                            ? "Invalid URL"
+                                            : wrikeDiscoveryPreview.observed.artwork_folder_status === "not_configured"
+                                              ? "Not configured"
+                                              : "Not evaluated"}
+                                    </strong>
                                   </div>
                                 </div>
                                 <div className="wrike-discovery-checks">

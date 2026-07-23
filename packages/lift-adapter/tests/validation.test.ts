@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateLiftPayload, type LiftOrderPayload } from "../src/index.ts";
+import { sampleCanonicalOrder } from "@pathfinder/canonical";
+import { generateLiftPayload, validateLiftPayload, type LiftOrderPayload } from "../src/index.ts";
 
 function payload(orderTitle: string | null): LiftOrderPayload {
   return {
@@ -32,6 +33,7 @@ function payload(orderTitle: string | null): LiftOrderPayload {
       requested_ship_date: null,
       due_date: null,
       order_attachment: null,
+      FLEX_FIELD9: null,
       shipping: {
         method: null,
         account_number: null,
@@ -90,4 +92,21 @@ test("Lift validation accepts a resolved order title", () => {
   const messages = validateLiftPayload(payload("C316860 - Momentara Web Order - 20260721"));
 
   assert.deepEqual(messages.map((message) => message.code), ["LIFT-OK"]);
+});
+
+test("keeps the neutral artwork-folder value distinct in the Lift import payload", () => {
+  const result = generateLiftPayload({
+    ...sampleCanonicalOrder,
+    order: {
+      ...sampleCanonicalOrder.order,
+      order_attachment: "https://wrike.example/attachments/order.xlsx",
+      artwork_folder_url: "https://momentara.sharepoint.com/sites/art/Shared%20Documents/C123456"
+    }
+  });
+
+  assert.equal(result.order.order_attachment, "https://wrike.example/attachments/order.xlsx");
+  assert.equal(
+    result.order.FLEX_FIELD9,
+    "https://momentara.sharepoint.com/sites/art/Shared%20Documents/C123456"
+  );
 });

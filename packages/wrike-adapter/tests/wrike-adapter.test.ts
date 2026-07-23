@@ -12,6 +12,7 @@ import {
   normalizeWrikeHost,
   normalizeWrikeSourceConfig,
   parseWrikeOrderNameContract,
+  resolveWrikeArtworkFolderUrl,
   selectWrikeWorkbookAttachments,
   WrikeConnectionError
 } from "../src/index.ts";
@@ -25,6 +26,7 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
     trigger_mode: "webhook_with_reconciliation",
     trigger_status_id: " IEABORDERED ",
     trigger_status_label: " Sent to Print - LTL ",
+    artwork_folder_custom_field_id: " IECUSTOMART ",
     attachment_filename_contains: " Momentara Order ",
     attachment_extensions: [".XLSX", "pdf", "csv", "xlsx"],
     attachment_selection: "newest_matching_workbook",
@@ -39,6 +41,7 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
   assert.equal(normalized.approved_discovery_task_id, "IETESTTASK");
   assert.equal(normalized.trigger_status_id, "IEABORDERED");
   assert.equal(normalized.trigger_status_label, "Sent to Print - LTL");
+  assert.equal(normalized.artwork_folder_custom_field_id, "IECUSTOMART");
   assert.equal(normalized.task_title_rule, "contract_order_ooh");
   assert.equal(normalized.workbook_name_rule, "contract_order_ooh");
   assert.equal(normalized.attachment_selection, "all_matching_current_workbooks");
@@ -150,6 +153,42 @@ test("parses only the agreed task and workbook naming contract", () => {
   assert.equal(parseWrikeOrderNameContract("C12345 - Summer Placards - OOH Order"), null);
   assert.equal(parseWrikeOrderNameContract("C123456 - Summer Placards - Reference Proof"), null);
   assert.equal(parseWrikeOrderNameContract("C123456 - \nSummer Placards - OOH Order"), null);
+});
+
+test("reads only the configured safe artwork-folder custom field", () => {
+  const task = {
+    customFields: [
+      { id: "IEOTHER", value: "https://example.com/ignore" },
+      { id: "IEART", value: " https://momentara.sharepoint.com/sites/art/Shared%20Documents/Order " }
+    ]
+  };
+
+  assert.deepEqual(resolveWrikeArtworkFolderUrl(task, ""), {
+    status: "not_configured",
+    url: null
+  });
+  assert.deepEqual(resolveWrikeArtworkFolderUrl(task, "IEMISSING"), {
+    status: "missing",
+    url: null
+  });
+  assert.deepEqual(resolveWrikeArtworkFolderUrl(task, "IEART"), {
+    status: "ready",
+    url: "https://momentara.sharepoint.com/sites/art/Shared%20Documents/Order"
+  });
+  assert.deepEqual(
+    resolveWrikeArtworkFolderUrl(
+      { customFields: [{ id: "IEART", value: "http://momentara.example/art" }] },
+      "IEART"
+    ),
+    { status: "invalid", url: null }
+  );
+  assert.deepEqual(
+    resolveWrikeArtworkFolderUrl(
+      { customFields: [{ id: "IEART", value: "https://user:secret@example.com/art" }] },
+      "IEART"
+    ),
+    { status: "invalid", url: null }
+  );
 });
 
 test("keeps every current matching workbook as a separate order candidate", () => {
@@ -470,6 +509,7 @@ test("previews one qualified task and counts every matching workbook without ret
     folder_id: "IEAPPROVEDFOLDER",
     approved_discovery_task_id: "IEAPPROVEDTASK",
     trigger_status_id: "IEORDEREDSTATUS",
+    artwork_folder_custom_field_id: "IEARTWORKFOLDER",
     attachment_filename_contains: "order",
     attachment_extensions: ["xlsx"]
   });
@@ -540,6 +580,12 @@ test("previews one qualified task and counts every matching workbook without ret
                 customStatusId: "IEORDEREDSTATUS",
                 attachmentCount: 4,
                 title: "C123456 - Private Customer Campaign - OOH Order",
+                customFields: [
+                  {
+                    id: "IEARTWORKFOLDER",
+                    value: "https://momentara.sharepoint.com/sites/art/Private-Customer-Campaign"
+                  }
+                ],
                 description: "Private customer description"
               }
             ]
@@ -554,16 +600,23 @@ test("previews one qualified task and counts every matching workbook without ret
   assert.equal(result.preview.observed.workbook_candidate_count, 2);
   assert.equal(result.preview.observed.attachment_metadata_count, 4);
   assert.equal(result.preview.observed.ignored_attachment_count, 2);
+  assert.equal(result.preview.observed.artwork_folder_status, "ready");
+  assert.equal(result.preview.capabilities.artwork_folder_value_read, true);
   assert.deepEqual(result.preview.observed.super_parent_ids, ["IEAPPROVEDFOLDER"]);
   assert.equal(result.preview.capabilities.attachment_download, false);
   assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET"]);
   assert.match(calls[1].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\?fields=/);
+  assert.deepEqual(
+    JSON.parse(new URL(calls[1].url).searchParams.get("fields") ?? "[]"),
+    ["attachmentCount", "customFields"]
+  );
   assert.match(calls[2].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\/attachments\?versions=false&withUrls=false$/);
   assert.equal(calls.some((call) => /download|preview|webhooks/.test(call.url)), false);
   const publicPayload = JSON.stringify(result.preview);
   assert.equal(publicPayload.includes("Private customer"), false);
   assert.equal(publicPayload.includes("Private Retail"), false);
   assert.equal(publicPayload.includes("temporary.example"), false);
+  assert.equal(publicPayload.includes("momentara.sharepoint.com"), false);
   assert.equal(publicPayload.includes("rotated-access-token"), false);
 });
 

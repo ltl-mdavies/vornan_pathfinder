@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import * as XLSX from "xlsx";
 
-import { parseWorkbookArrayBuffer } from "../src/index.ts";
+import { mapSourceRowsToCanonicalOrder, parseWorkbookArrayBuffer } from "../src/index.ts";
 
 function workbookBuffer(sheets: Record<string, unknown[][]>) {
   const workbook = XLSX.utils.book_new();
@@ -118,4 +118,42 @@ test("applies independent header row and span overrides to exact workbook sheets
   assert.deepEqual(catalog.columns, ["SKU", "Description", "Qty"]);
   assert.deepEqual(catalog.parsed_rows.map((row) => row.row_number), [4]);
   assert.equal(catalog.order_row_count, 1);
+});
+
+test("maps a customer artwork-folder field separately from the imported order attachment", () => {
+  const order = mapSourceRowsToCanonicalOrder(
+    [
+      {
+        "Order Number": "C123456",
+        "Artwork Folder": "https://momentara.sharepoint.com/sites/art/Shared%20Documents/C123456",
+        "Source Workbook": "https://wrike.example/attachments/order.xlsx",
+        Quantity: 1,
+        Width: 12,
+        Height: 18,
+        Product: "Poster"
+      }
+    ],
+    [
+      { sourceColumn: "Order Number", targetField: "order.external_order_id", required: true },
+      { sourceColumn: "Artwork Folder", targetField: "order.artwork_folder_url", required: false },
+      { sourceColumn: "Source Workbook", targetField: "order.order_attachment", required: false },
+      { sourceColumn: "Quantity", targetField: "lines[].quantity", required: true },
+      { sourceColumn: "Width", targetField: "lines[].dimensions.final_width", required: true },
+      { sourceColumn: "Height", targetField: "lines[].dimensions.final_height", required: true },
+      { sourceColumn: "Product", targetField: "lines[].unit_number", required: true }
+    ],
+    {
+      customerId: "lift:284619",
+      customerName: "Momentara",
+      sourceSystem: "Wrike",
+      sourceCustomer: "Momentara",
+      targetSystem: "Lift"
+    }
+  );
+
+  assert.equal(
+    order.order.artwork_folder_url,
+    "https://momentara.sharepoint.com/sites/art/Shared%20Documents/C123456"
+  );
+  assert.equal(order.order.order_attachment, "https://wrike.example/attachments/order.xlsx");
 });

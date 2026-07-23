@@ -243,6 +243,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           approved_discovery_task_id: "IEAPPROVEDTASK",
           trigger_status_id: "IESENTTOPRINTLTL",
           trigger_status_label: "Sent to Print - LTL",
+          artwork_folder_custom_field_id: "IEARTWORKFOLDER",
           attachment_filename_contains: "",
           attachment_extensions: ["xlsx"]
         }
@@ -285,7 +286,11 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           parentIds: ["IEAPPROVEDFOLDER"],
           customStatusId: "IESENTTOPRINTLTL",
           attachmentCount: 1,
-          title: "C123456 - Private Momentara - OOH Order"
+          title: "C123456 - Private Momentara - OOH Order",
+          customFields: [{
+            id: "IEARTWORKFOLDER",
+            value: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
+          }]
         }]
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
@@ -299,15 +304,18 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
   assert.equal(response.body.status, "Confirmed");
   assert.equal(response.body.observed.task_id, "IEAPPROVEDTASK");
   assert.equal(response.body.observed.workbook_candidate_count, 1);
+  assert.equal(response.body.observed.artwork_folder_status, "ready");
+  assert.equal(response.body.capabilities.artwork_folder_value_read, true);
   assert.equal(response.body.capabilities.attachment_download, false);
   assert.deepEqual(calls, [
     "https://www.wrike.com/oauth2/token",
-    "https://www.wrike.com/api/v4/tasks/IEAPPROVEDTASK?fields=%5B%22attachmentCount%22%5D",
+    "https://www.wrike.com/api/v4/tasks/IEAPPROVEDTASK?fields=%5B%22attachmentCount%22%2C%22customFields%22%5D",
     "https://www.wrike.com/api/v4/tasks/IEAPPROVEDTASK/attachments?versions=false&withUrls=false"
   ]);
   const publicPayload = JSON.stringify(response.body);
   assert.equal(publicPayload.includes("Private Momentara"), false);
   assert.equal(publicPayload.includes("temporary.example"), false);
+  assert.equal(publicPayload.includes("momentara.sharepoint.com"), false);
   assert.equal(publicPayload.includes("discovery-access-token"), false);
 
   const stored = await readFile(join(testDirectory, "secrets.json"), "utf8");

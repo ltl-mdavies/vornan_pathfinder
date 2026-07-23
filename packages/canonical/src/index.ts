@@ -111,6 +111,7 @@ export interface CanonicalOrder {
     ship_date?: string | null;
     due_date?: string | null;
     order_attachment?: string | null;
+    artwork_folder_url?: string | null;
     shipping?: ShippingAddress | null;
   };
   lines: CanonicalOrderLine[];
@@ -199,6 +200,9 @@ export const canonicalFieldRegistry = [
   canonicalField("order.ship_date", "order", "Requested Ship Date", "string", { aliases: ["Ship date"] }),
   canonicalField("order.due_date", "order", "Due Date", "string"),
   canonicalField("order.order_attachment", "order", "Order Attachment", "url", { aliases: ["Imported file"] }),
+  canonicalField("order.artwork_folder_url", "order", "Artwork Folder URL", "url", {
+    aliases: ["Art Location", "LTL Artwork Folder URL"]
+  }),
   canonicalField("order.shipping.method", "shipping", "Shipping Method", "string"),
   canonicalField("order.shipping.account_number", "shipping", "Shipping Account Number", "string"),
   canonicalField("order.shipping.acct_billing_zip", "shipping", "Account Billing ZIP", "string"),
@@ -308,6 +312,24 @@ export function validateCanonicalOrder(order: CanonicalOrder, options: Canonical
   requireString(order.target.target_system, "target.target_system", "target");
   requireString(order.order.external_order_id, "order.external_order_id");
 
+  if (order.order.artwork_folder_url) {
+    try {
+      const artworkFolderUrl = new URL(order.order.artwork_folder_url);
+      if (artworkFolderUrl.protocol !== "https:" || artworkFolderUrl.username || artworkFolderUrl.password) {
+        throw new Error("Unsafe artwork folder URL.");
+      }
+    } catch {
+      messages.push({
+        severity: "FAIL",
+        code: "VAL-ART-URL",
+        object: "order",
+        field: "order.artwork_folder_url",
+        message: "Artwork Folder URL must be a valid HTTPS URL without embedded credentials.",
+        suggested_action: "Provide a secure SharePoint, Dropbox, or other approved HTTPS folder link."
+      });
+    }
+  }
+
   if (!Array.isArray(order.lines) || order.lines.length === 0) {
     messages.push({
       severity: "FAIL",
@@ -414,6 +436,7 @@ export const sampleCanonicalOrder: CanonicalOrder = {
     ship_date: "2026-06-23",
     due_date: "2026-06-24",
     order_attachment: "https://example.com/imports/momentara-order.xlsx",
+    artwork_folder_url: "https://example.com/artwork/momentara-order",
     shipping: {
       method: "UPS Ground",
       account_number: null,

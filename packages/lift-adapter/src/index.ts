@@ -53,6 +53,7 @@ export interface LiftOrderPayload {
     requested_ship_date?: string | null;
     due_date?: string | null;
     order_attachment?: string | null;
+    FLEX_FIELD9?: string | null;
     shipping?: ShippingAddress | null;
   };
   lines: Array<{
@@ -311,6 +312,7 @@ export function generateLiftPayload(
       requested_ship_date: canonicalOrder.order.ship_date ?? null,
       due_date: canonicalOrder.order.due_date ?? null,
       order_attachment: canonicalOrder.order.order_attachment ?? null,
+      FLEX_FIELD9: canonicalOrder.order.artwork_folder_url ?? null,
       shipping: canonicalOrder.order.shipping ?? null
     },
     lines: canonicalOrder.lines.map((line) => ({
