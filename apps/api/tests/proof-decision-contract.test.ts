@@ -247,10 +247,21 @@ test("keeps decision preparation and the dormant ledger unroutable, untransporte
   assert.equal(config.feature_flags.undo, false);
   assert.equal(config.qa_lifecycle.lift_writes_enabled, false);
 
-  const [contractSource, ledgerSource, publicRouterSource, operatorRouterSource, storeSource, adapterSource] =
+  const [
+    contractSource,
+    atomicitySource,
+    ledgerSource,
+    ledgerStoreSource,
+    publicRouterSource,
+    operatorRouterSource,
+    storeSource,
+    adapterSource
+  ] =
     await Promise.all([
     readFile(new URL("../src/proof/decision-contract.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/proof/decision-atomicity.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/proof/decision-ledger.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/proof/decision-ledger-store.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/proof/public-router.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/proof/router.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/proof/store.ts", import.meta.url), "utf8"),
@@ -258,21 +269,41 @@ test("keeps decision preparation and the dormant ledger unroutable, untransporte
   ]);
   const sourceRoot = new URL("../src/", import.meta.url);
   const apiSourceFiles = (await readdir(sourceRoot, { recursive: true }))
-    .filter((path) => path.endsWith(".ts") && path !== "proof/decision-ledger.ts");
+    .filter((path) =>
+      path.endsWith(".ts") &&
+      ![
+        "proof/decision-atomicity.ts",
+        "proof/decision-contract.ts",
+        "proof/decision-ledger-store.ts",
+        "proof/decision-ledger.ts"
+      ].includes(path)
+    );
   const runtimeSources = await Promise.all(
     apiSourceFiles.map((path) => readFile(new URL(path, sourceRoot), "utf8"))
   );
   for (const source of runtimeSources) {
-    assert.doesNotMatch(source, /decision-ledger/);
+    assert.doesNotMatch(source, /decision-(?:atomicity|contract|ledger)/);
   }
-  assert.doesNotMatch(publicRouterSource, /decision-contract/);
-  assert.doesNotMatch(operatorRouterSource, /decision-contract/);
-  assert.doesNotMatch(storeSource, /decision-contract|ProofDecisionIntegrityContract/);
-  assert.doesNotMatch(adapterSource, /decision-contract|ProofDecisionIntegrityContract|ProofDecisionLedgerRecord/);
+  assert.doesNotMatch(publicRouterSource, /decision-(?:atomicity|contract|ledger)/);
+  assert.doesNotMatch(operatorRouterSource, /decision-(?:atomicity|contract|ledger)/);
+  assert.doesNotMatch(storeSource, /decision-(?:atomicity|contract|ledger)|ProofDecisionIntegrityContract|TransactWrite/);
+  assert.doesNotMatch(
+    adapterSource,
+    /decision-(?:atomicity|contract|ledger)|ProofDecisionIntegrityContract|ProofDecisionLedgerRecord/
+  );
   assert.doesNotMatch(contractSource, /express|Router|process\.env|runtime-config|\.\/store|lift-proof-adapter|\bfetch\s*\(|\bPUT\b|JWT/i);
   assert.doesNotMatch(
-    ledgerSource,
-    /express|Router|process\.env|runtime-config|lift-proof-adapter|\bfetch\s*\(|\bPUT\b|JWT|audit|TransactWrite/i
+    atomicitySource,
+    /express|Router|process\.env|runtime-config|\.\/store|lift-proof-adapter|\bfetch\s*\(|\bPUT\b|JWT|credential/i
   );
-  assert.doesNotMatch(storeSource, /TransactWrite/);
+  assert.doesNotMatch(
+    ledgerSource,
+    /express|Router|process\.env|runtime-config|lift-proof-adapter|\bfetch\s*\(|\bPUT\b|JWT|credential/i
+  );
+  assert.match(ledgerStoreSource, /TransactWriteItemsCommand/);
+  assert.doesNotMatch(
+    ledgerStoreSource,
+    /\bexpress\b|\bRouter\b|lift-proof-adapter|\bfetch\s*\(|JWT|credential/i
+  );
+  assert.doesNotMatch(ledgerStoreSource, /createProofDecisionRecord/);
 });

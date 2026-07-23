@@ -9,16 +9,25 @@ import {
   type ProofDecisionOutcomeState
 } from "@pathfinder/proof-domain";
 import {
-  createProofDecisionRecord,
+  getProofAuditEventByIdentity,
   getProofDecisionRecord,
+  reserveProofDecisionRecordWithAudit,
   replaceProofDecisionRecord
-} from "./store.js";
+} from "./decision-ledger-store.js";
+import {
+  buildProofDecisionPreparedAuditEvent,
+  proofDecisionPreparedAuditMatches,
+  proofDecisionTransactionClientToken,
+  type ProofDecisionPreparedAuditContext
+} from "./decision-atomicity.js";
 
 export const PROOF_DECISION_LEDGER_TTL_DAYS = 30;
 export const PROOF_DECISION_LEDGER_TTL_SECONDS = PROOF_DECISION_LEDGER_TTL_DAYS * 24 * 60 * 60;
 
 export type ProofDecisionLedgerFailureCode =
   | "contract_invalid"
+  | "prepared_audit_missing"
+  | "prepared_audit_mismatch"
   | "record_malformed"
   | "record_stale"
   | "record_not_found"
@@ -49,13 +58,15 @@ export interface TransitionProofDecisionInput {
 
 export interface ProofDecisionLedgerPersistence {
   get: typeof getProofDecisionRecord;
-  create: typeof createProofDecisionRecord;
+  getPreparedAudit: typeof getProofAuditEventByIdentity;
+  reservePrepared: typeof reserveProofDecisionRecordWithAudit;
   replace: typeof replaceProofDecisionRecord;
 }
 
 const defaultPersistence: ProofDecisionLedgerPersistence = {
   get: getProofDecisionRecord,
-  create: createProofDecisionRecord,
+  getPreparedAudit: getProofAuditEventByIdentity,
+  reservePrepared: reserveProofDecisionRecordWithAudit,
   replace: replaceProofDecisionRecord
 };
 
@@ -76,6 +87,7 @@ const RECORD_KEYS = [
   "idempotency_key",
   "intent",
   "outcome",
+  "prepared_audit_event_id",
   "record_version",
   "updated_at"
 ] as const;
@@ -148,8 +160,10 @@ function validRecord(value: unknown): value is ProofDecisionLedgerRecord {
       !IDEMPOTENCY_KEY.test(record.idempotency_key) ||
       typeof record.canonical_body_hash !== "string" ||
       !HASH.test(record.canonical_body_hash) ||
+      typeof record.prepared_audit_event_id !== "string" ||
       !validIntent(record.intent) ||
       record.canonical_body_hash !== canonicalHash(record.intent) ||
+      !/^paudit_decision-[a-f0-9]{64}$/.test(record.prepared_audit_event_id) ||
       !OUTCOMES.has(record.outcome as ProofDecisionOutcomeState) ||
       !Number.isInteger(record.record_version) ||
       Number(record.record_version) < 1 ||
@@ -192,25 +206,56 @@ function validContract(contract: ProofDecisionIntegrityContract) {
     contract.outcome === "prepared";
 }
 
+async function requirePreparedAudit(
+  record: ProofDecisionLedgerRecord,
+  persistence: ProofDecisionLedgerPersistence
+) {
+  const event = await persistence.getPreparedAudit(
+    record.intent.order_number,
+    record.created_at,
+    record.prepared_audit_event_id
+  );
+  if (!event) {
+    fail("prepared_audit_missing", "Proof decision ledger record is missing its prepared audit event.");
+  }
+  if (!proofDecisionPreparedAuditMatches(record, event)) {
+    fail("prepared_audit_mismatch", "Proof decision prepared audit event does not match the durable intent.");
+  }
+  return record;
+}
+
 export function createProofDecisionLedger(
   persistence: ProofDecisionLedgerPersistence = defaultPersistence
 ) {
   return {
     async read(orderNumber: string, idempotencyKey: string, now = new Date()) {
       const record = await persistence.get(orderNumber, idempotencyKey);
-      return record === null ? null : boundRecord(record, orderNumber, idempotencyKey, now);
+      return record === null
+        ? null
+        : requirePreparedAudit(boundRecord(record, orderNumber, idempotencyKey, now), persistence);
     },
 
-    async reserve(contract: ProofDecisionIntegrityContract, now = new Date()): Promise<ProofDecisionReservation> {
+    async reserve(
+      contract: ProofDecisionIntegrityContract,
+      auditContext: ProofDecisionPreparedAuditContext,
+      now = new Date()
+    ): Promise<ProofDecisionReservation> {
       if (!validContract(contract) || contract.intent.order_number.trim() !== contract.intent.order_number) {
         fail("contract_invalid", "Proof decision integrity contract is invalid.");
       }
       const createdAt = now.toISOString();
+      let preparedAuditEvent;
+      try {
+        preparedAuditEvent = buildProofDecisionPreparedAuditEvent(contract, auditContext, createdAt);
+      } catch {
+        fail("contract_invalid", "Proof decision prepared audit context is invalid.");
+      }
       const record: ProofDecisionLedgerRecord = {
         idempotency_key: contract.idempotency_key,
         canonical_body_hash: contract.canonical_body_hash,
         intent: contract.intent,
         outcome: "prepared",
+        prepared_audit_event_id: preparedAuditEvent.event_id,
         record_version: 1,
         created_at: createdAt,
         updated_at: createdAt,
@@ -218,20 +263,35 @@ export function createProofDecisionLedger(
       };
       const existing = await persistence.get(contract.intent.order_number, contract.idempotency_key);
       if (existing) {
-        const active = boundRecord(existing, contract.intent.order_number, contract.idempotency_key, now);
+        const active = await requirePreparedAudit(
+          boundRecord(existing, contract.intent.order_number, contract.idempotency_key, now),
+          persistence
+        );
         const disposition = classifyProofDecisionIdempotency(active, contract);
         return disposition.status === "replay"
           ? { status: "replay", record: active }
           : { status: "conflict" };
       }
-      if (await persistence.create(record)) {
+      if (await persistence.reservePrepared(
+        record,
+        preparedAuditEvent,
+        proofDecisionTransactionClientToken({
+          order_number: contract.intent.order_number,
+          idempotency_key: contract.idempotency_key,
+          canonical_body_hash: contract.canonical_body_hash,
+          created_at: createdAt
+        })
+      )) {
         return { status: "new", record };
       }
       const raced = await persistence.get(contract.intent.order_number, contract.idempotency_key);
       if (!raced) {
         fail("concurrent_update", "Proof decision reservation could not be established.");
       }
-      const active = boundRecord(raced, contract.intent.order_number, contract.idempotency_key, now);
+      const active = await requirePreparedAudit(
+        boundRecord(raced, contract.intent.order_number, contract.idempotency_key, now),
+        persistence
+      );
       const disposition = classifyProofDecisionIdempotency(active, contract);
       return disposition.status === "replay"
         ? { status: "replay", record: active }
@@ -243,7 +303,10 @@ export function createProofDecisionLedger(
       if (!existing) {
         fail("record_not_found", "Proof decision ledger record was not found.");
       }
-      const current = boundRecord(existing, input.order_number, input.idempotency_key, now);
+      const current = await requirePreparedAudit(
+        boundRecord(existing, input.order_number, input.idempotency_key, now),
+        persistence
+      );
       if (current.canonical_body_hash !== input.canonical_body_hash) {
         fail("canonical_hash_mismatch", "Proof decision canonical body does not match the durable intent.");
       }

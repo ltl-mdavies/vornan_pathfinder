@@ -226,6 +226,7 @@ export interface ProofDecisionIdempotencyRecord {
 
 export interface ProofDecisionLedgerRecord extends ProofDecisionIdempotencyRecord {
   intent: ProofDecisionCanonicalIntent;
+  prepared_audit_event_id: string;
   record_version: number;
   created_at: string;
   updated_at: string;
@@ -295,7 +296,8 @@ export type ProofAuditAction =
   | "proof.participant_updated"
   | "proof.feedback_acknowledged"
   | "proof.session_exchanged"
-  | "proof.session_ended";
+  | "proof.session_ended"
+  | "proof.decision_prepared";
 
 export type ProofAuditActorType = "operator" | "customer_session" | "system";
 export type ProofAuditOutcome = "succeeded" | "failed";
@@ -316,6 +318,8 @@ export interface ProofAuditMetadata {
   grant_status?: ProofGrantStatus;
   delivery_mode?: "log" | "ses";
   delivery_status?: "logged" | "sent" | "failed";
+  decision_kind?: ProofDecisionKind;
+  decision_outcome?: "prepared";
   failure_class?: string;
 }
 
