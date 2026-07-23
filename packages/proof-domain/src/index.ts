@@ -187,6 +187,92 @@ export interface ProofFeedbackAcknowledgement {
   acknowledged_at: string;
 }
 
+export type ProofDecisionKind = "approve";
+
+export interface ProofDecisionCanonicalIntent {
+  decision: ProofDecisionKind;
+  order_number: string;
+  task_id: string;
+  attachment_id: string;
+  participant_id: string;
+  grant_id: string;
+  expected_task_version: number;
+  expected_version_id: string;
+  feedback_fingerprint: string;
+  note: string | null;
+}
+
+export type ProofDecisionOutcomeState =
+  | "prepared"
+  | "submission_uncertain"
+  | "reconciling"
+  | "confirmed"
+  | "failed";
+
+export type ProofDecisionOutcomeClass = "pending" | "reconciling" | "terminal";
+
+export interface ProofDecisionIntegrityContract {
+  idempotency_key: string;
+  canonical_body_hash: string;
+  intent: ProofDecisionCanonicalIntent;
+  outcome: "prepared";
+}
+
+export interface ProofDecisionIdempotencyRecord {
+  idempotency_key: string;
+  canonical_body_hash: string;
+  outcome: ProofDecisionOutcomeState;
+}
+
+export type ProofDecisionIdempotencyDisposition =
+  | { status: "new" }
+  | { status: "replay"; outcome: ProofDecisionOutcomeState }
+  | { status: "conflict" };
+
+export class InvalidProofDecisionOutcomeTransitionError extends Error {
+  constructor(current: ProofDecisionOutcomeState, next: ProofDecisionOutcomeState) {
+    super(`Proof decision outcome cannot transition from ${current} to ${next}.`);
+    this.name = "InvalidProofDecisionOutcomeTransitionError";
+  }
+}
+
+const proofDecisionOutcomeTransitions: Record<ProofDecisionOutcomeState, readonly ProofDecisionOutcomeState[]> = {
+  prepared: ["submission_uncertain", "confirmed", "failed"],
+  submission_uncertain: ["reconciling", "confirmed", "failed"],
+  reconciling: ["confirmed", "failed"],
+  confirmed: [],
+  failed: []
+};
+
+export function proofDecisionOutcomeClass(state: ProofDecisionOutcomeState): ProofDecisionOutcomeClass {
+  if (state === "confirmed" || state === "failed") return "terminal";
+  if (state === "submission_uncertain" || state === "reconciling") return "reconciling";
+  return "pending";
+}
+
+export function transitionProofDecisionOutcome(
+  current: ProofDecisionOutcomeState,
+  next: ProofDecisionOutcomeState
+) {
+  if (!proofDecisionOutcomeTransitions[current].includes(next)) {
+    throw new InvalidProofDecisionOutcomeTransitionError(current, next);
+  }
+  return next;
+}
+
+export function classifyProofDecisionIdempotency(
+  existing: ProofDecisionIdempotencyRecord | null,
+  candidate: Pick<ProofDecisionIntegrityContract, "idempotency_key" | "canonical_body_hash">
+): ProofDecisionIdempotencyDisposition {
+  if (!existing || existing.idempotency_key !== candidate.idempotency_key) {
+    return { status: "new" };
+  }
+  if (existing.canonical_body_hash !== candidate.canonical_body_hash) {
+    return { status: "conflict" };
+  }
+  return { status: "replay", outcome: existing.outcome };
+}
+
 export type ProofAuditAction =
   | "proof.sync_completed"
   | "proof.sync_failed"

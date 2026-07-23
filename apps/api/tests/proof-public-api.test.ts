@@ -323,7 +323,14 @@ test("uses one generic denial and exposes no public decision routes", async () =
   const denied = await request(app).get("/api/public/proof/order").expect(401);
   assert.equal(denied.body.error, "This proof access link is invalid or has expired.");
   await request(app).post("/api/public/proof/orders/A0221132/approve").send({ approve: true }).expect(404);
+  await request(app).post("/api/public/proof/tasks/ptask_public_qa/approve").send({ approve: true }).expect(404);
+  await request(app).post("/api/public/proof/tasks/ptask_public_qa/revisions").send({ filename: "revision.pdf" }).expect(404);
   await request(app).put("/api/public/proof/tasks/ptask_public_qa").send({ approve: true }).expect(404);
+
+  const adminApp = express();
+  adminApp.use(express.json());
+  adminApp.use("/api/proof", createAdminRouter());
+  await request(adminApp).post("/api/proof/tasks/ptask_public_qa/approve").send({ approve: true }).expect(404);
 });
 
 test("returns only redacted history for a task in the session order", async () => {

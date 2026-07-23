@@ -3,10 +3,14 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { matchLiftLineRecord, normalizeLiftOrderLookupPayload } from "@pathfinder/order-rollup";
 import {
+  classifyProofDecisionIdempotency,
+  InvalidProofDecisionOutcomeTransitionError,
   normalizeLiftOrderNumber,
   normalizeProofOrder,
+  proofDecisionOutcomeClass,
   proofReviewLifecycleState,
   proofReviewLifecycleTransitions,
+  transitionProofDecisionOutcome,
   toCustomerSafeOrderRollupProof,
   toOrderRollupProofProjection,
   toPublicProofOrder,
@@ -96,6 +100,57 @@ const proofPayload = {
 test("normalizes Lift order numbers and rejects unsupported shapes", () => {
   assert.equal(normalizeLiftOrderNumber(" a0221132 "), "A0221132");
   assert.throws(() => normalizeLiftOrderNumber("221132"), /must match A followed by 7 or 8 digits/);
+});
+
+test("models only forward decision outcomes and keeps terminal outcomes immutable", () => {
+  assert.equal(proofDecisionOutcomeClass("prepared"), "pending");
+  assert.equal(proofDecisionOutcomeClass("submission_uncertain"), "reconciling");
+  assert.equal(proofDecisionOutcomeClass("reconciling"), "reconciling");
+  assert.equal(proofDecisionOutcomeClass("confirmed"), "terminal");
+  assert.equal(proofDecisionOutcomeClass("failed"), "terminal");
+
+  const states = ["prepared", "submission_uncertain", "reconciling", "confirmed", "failed"] as const;
+  const allowed = new Set([
+    "prepared>submission_uncertain",
+    "prepared>confirmed",
+    "prepared>failed",
+    "submission_uncertain>reconciling",
+    "submission_uncertain>confirmed",
+    "submission_uncertain>failed",
+    "reconciling>confirmed",
+    "reconciling>failed"
+  ]);
+  for (const current of states) {
+    for (const next of states) {
+      if (allowed.has(`${current}>${next}`)) {
+        assert.equal(transitionProofDecisionOutcome(current, next), next);
+      } else {
+        assert.throws(
+          () => transitionProofDecisionOutcome(current, next),
+          InvalidProofDecisionOutcomeTransitionError
+        );
+      }
+    }
+  }
+});
+
+test("distinguishes a new decision, an exact replay, and a changed-body conflict", () => {
+  const candidate = { idempotency_key: "decision-key-0001", canonical_body_hash: "a".repeat(64) };
+  assert.deepEqual(classifyProofDecisionIdempotency(null, candidate), { status: "new" });
+  assert.deepEqual(classifyProofDecisionIdempotency({
+    ...candidate,
+    outcome: "reconciling"
+  }, candidate), { status: "replay", outcome: "reconciling" });
+  assert.deepEqual(classifyProofDecisionIdempotency({
+    idempotency_key: candidate.idempotency_key,
+    canonical_body_hash: "b".repeat(64),
+    outcome: "prepared"
+  }, candidate), { status: "conflict" });
+  assert.deepEqual(classifyProofDecisionIdempotency({
+    idempotency_key: "decision-key-0002",
+    canonical_body_hash: candidate.canonical_body_hash,
+    outcome: "prepared"
+  }, candidate), { status: "new" });
 });
 
 test("keeps sibling attachments separate and joins by ORDER_LINE_ID before LINE_NUMBER", () => {
