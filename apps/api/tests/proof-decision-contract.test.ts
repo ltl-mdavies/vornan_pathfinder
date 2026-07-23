@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 import {
   classifyProofDecisionIdempotency,
@@ -236,7 +236,7 @@ test("rejects non-actionable tasks and invalid idempotency or note inputs", () =
   expectFailure(invalidNote, "note_invalid");
 });
 
-test("remains unroutable, unpersisted, untransported, and impossible to enable", async () => {
+test("keeps decision preparation and the dormant ledger unroutable, untransported, and impossible to enable", async () => {
   process.env.PATHFINDER_PROOF_ENABLE_APPROVE = "true";
   process.env.PATHFINDER_PROOF_ENABLE_REVISION = "true";
   process.env.PATHFINDER_PROOF_ENABLE_UNDO = "true";
@@ -247,16 +247,32 @@ test("remains unroutable, unpersisted, untransported, and impossible to enable",
   assert.equal(config.feature_flags.undo, false);
   assert.equal(config.qa_lifecycle.lift_writes_enabled, false);
 
-  const [contractSource, publicRouterSource, operatorRouterSource, storeSource, adapterSource] = await Promise.all([
+  const [contractSource, ledgerSource, publicRouterSource, operatorRouterSource, storeSource, adapterSource] =
+    await Promise.all([
     readFile(new URL("../src/proof/decision-contract.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/proof/decision-ledger.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/proof/public-router.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/proof/router.ts", import.meta.url), "utf8"),
     readFile(new URL("../src/proof/store.ts", import.meta.url), "utf8"),
     readFile(new URL("../../../packages/lift-proof-adapter/src/index.ts", import.meta.url), "utf8")
   ]);
+  const sourceRoot = new URL("../src/", import.meta.url);
+  const apiSourceFiles = (await readdir(sourceRoot, { recursive: true }))
+    .filter((path) => path.endsWith(".ts") && path !== "proof/decision-ledger.ts");
+  const runtimeSources = await Promise.all(
+    apiSourceFiles.map((path) => readFile(new URL(path, sourceRoot), "utf8"))
+  );
+  for (const source of runtimeSources) {
+    assert.doesNotMatch(source, /decision-ledger/);
+  }
   assert.doesNotMatch(publicRouterSource, /decision-contract/);
   assert.doesNotMatch(operatorRouterSource, /decision-contract/);
   assert.doesNotMatch(storeSource, /decision-contract|ProofDecisionIntegrityContract/);
-  assert.doesNotMatch(adapterSource, /decision-contract|ProofDecisionIntegrityContract/);
+  assert.doesNotMatch(adapterSource, /decision-contract|ProofDecisionIntegrityContract|ProofDecisionLedgerRecord/);
   assert.doesNotMatch(contractSource, /express|Router|process\.env|runtime-config|\.\/store|lift-proof-adapter|\bfetch\s*\(|\bPUT\b|JWT/i);
+  assert.doesNotMatch(
+    ledgerSource,
+    /express|Router|process\.env|runtime-config|lift-proof-adapter|\bfetch\s*\(|\bPUT\b|JWT|audit|TransactWrite/i
+  );
+  assert.doesNotMatch(storeSource, /TransactWrite/);
 });

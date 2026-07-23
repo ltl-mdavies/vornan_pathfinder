@@ -224,6 +224,14 @@ export interface ProofDecisionIdempotencyRecord {
   outcome: ProofDecisionOutcomeState;
 }
 
+export interface ProofDecisionLedgerRecord extends ProofDecisionIdempotencyRecord {
+  intent: ProofDecisionCanonicalIntent;
+  record_version: number;
+  created_at: string;
+  updated_at: string;
+  expires_at_epoch: number;
+}
+
 export type ProofDecisionIdempotencyDisposition =
   | { status: "new" }
   | { status: "replay"; outcome: ProofDecisionOutcomeState }

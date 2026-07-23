@@ -4,6 +4,8 @@ import type {
   ProofAccessSession,
   ProofAuditEvent,
   ProofAuditPage,
+  ProofDecisionLedgerRecord,
+  ProofDecisionOutcomeState,
   ProofFeedbackAcknowledgement,
   ProofOrder,
   ProofParticipant,
@@ -22,6 +24,7 @@ interface LocalProofStore {
   sessions: Record<string, ProofAccessSession>;
   participants: Record<string, ProofParticipant>;
   feedback_acknowledgements: Record<string, ProofFeedbackAcknowledgement>;
+  decision_records: Record<string, ProofDecisionLedgerRecord>;
   audit_events: Record<string, ProofAuditEvent>;
 }
 
@@ -97,11 +100,20 @@ async function readLocalStore(): Promise<LocalProofStore> {
       sessions: collection<ProofAccessSession>("sessions"),
       participants: collection<ProofParticipant>("participants"),
       feedback_acknowledgements: collection<ProofFeedbackAcknowledgement>("feedback_acknowledgements"),
+      decision_records: collection<ProofDecisionLedgerRecord>("decision_records"),
       audit_events: collection<ProofAuditEvent>("audit_events")
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      return { orders: {}, grants: {}, sessions: {}, participants: {}, feedback_acknowledgements: {}, audit_events: {} };
+      return {
+        orders: {},
+        grants: {},
+        sessions: {},
+        participants: {},
+        feedback_acknowledgements: {},
+        decision_records: {},
+        audit_events: {}
+      };
     }
     throw new Error(
       `Could not read the local Vornan Proof store at ${localStorePath}; the existing file was preserved.`,
@@ -451,6 +463,123 @@ export async function getProofFeedbackAcknowledgement(grantId: string, participa
   const store = await readLocalStore();
   const acknowledgement = store.feedback_acknowledgements[feedbackAcknowledgementKey(participantId, taskId)] ?? null;
   return acknowledgement?.grant_id === grantId ? acknowledgement : null;
+}
+
+function decisionRecordKey(orderNumber: string, idempotencyKey: string) {
+  return `${orderNumber}:${idempotencyKey}`;
+}
+
+function decisionRecordItem(record: ProofDecisionLedgerRecord) {
+  return dataItem(
+    `ORDER#${record.intent.order_number}`,
+    `IDEMPOTENCY#${record.idempotency_key}`,
+    record,
+    {
+      canonical_body_hash: stringAttribute(record.canonical_body_hash),
+      record_version: { N: String(record.record_version) },
+      outcome: stringAttribute(record.outcome),
+      ttl_epoch: { N: String(record.expires_at_epoch) }
+    }
+  );
+}
+
+function conditionalCheckFailed(error: unknown) {
+  return error instanceof Error && error.name === "ConditionalCheckFailedException";
+}
+
+export async function getProofDecisionRecord(orderNumber: string, idempotencyKey: string) {
+  const config = getProofRuntimeConfig();
+  if (config.storage_driver === "disabled") {
+    throw new Error("Vornan Proof persistence is disabled until the dedicated Proof core table is configured.");
+  }
+  if (config.storage_driver === "dynamodb") {
+    const response = await client().send(new GetItemCommand({
+      TableName: requiredCoreTable(),
+      Key: {
+        pk: stringAttribute(`ORDER#${orderNumber}`),
+        sk: stringAttribute(`IDEMPOTENCY#${idempotencyKey}`)
+      }
+    }));
+    return parseData<ProofDecisionLedgerRecord>(response.Item as Record<string, AttributeValue> | undefined);
+  }
+  const store = await readLocalStore();
+  return store.decision_records[decisionRecordKey(orderNumber, idempotencyKey)] ?? null;
+}
+
+export async function createProofDecisionRecord(record: ProofDecisionLedgerRecord) {
+  const config = getProofRuntimeConfig();
+  if (config.storage_driver === "disabled") {
+    throw new Error("Vornan Proof persistence is disabled until the dedicated Proof core table is configured.");
+  }
+  if (config.storage_driver === "dynamodb") {
+    try {
+      await client().send(new PutItemCommand({
+        TableName: requiredCoreTable(),
+        Item: decisionRecordItem(record),
+        ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)"
+      }));
+      return true;
+    } catch (error) {
+      if (conditionalCheckFailed(error)) return false;
+      throw error;
+    }
+  }
+  return mutateLocalStore((store) => {
+    const key = decisionRecordKey(record.intent.order_number, record.idempotency_key);
+    if (store.decision_records[key]) return false;
+    store.decision_records[key] = record;
+    return true;
+  });
+}
+
+export async function replaceProofDecisionRecord(
+  record: ProofDecisionLedgerRecord,
+  expected: {
+    canonical_body_hash: string;
+    record_version: number;
+    outcome: ProofDecisionOutcomeState;
+    expires_at_epoch: number;
+  }
+) {
+  const config = getProofRuntimeConfig();
+  if (config.storage_driver === "disabled") {
+    throw new Error("Vornan Proof persistence is disabled until the dedicated Proof core table is configured.");
+  }
+  if (config.storage_driver === "dynamodb") {
+    try {
+      await client().send(new PutItemCommand({
+        TableName: requiredCoreTable(),
+        Item: decisionRecordItem(record),
+        ConditionExpression:
+          "canonical_body_hash = :canonical_body_hash AND record_version = :record_version " +
+          "AND #outcome = :outcome AND ttl_epoch = :ttl_epoch",
+        ExpressionAttributeNames: { "#outcome": "outcome" },
+        ExpressionAttributeValues: {
+          ":canonical_body_hash": stringAttribute(expected.canonical_body_hash),
+          ":record_version": { N: String(expected.record_version) },
+          ":outcome": stringAttribute(expected.outcome),
+          ":ttl_epoch": { N: String(expected.expires_at_epoch) }
+        }
+      }));
+      return true;
+    } catch (error) {
+      if (conditionalCheckFailed(error)) return false;
+      throw error;
+    }
+  }
+  return mutateLocalStore((store) => {
+    const key = decisionRecordKey(record.intent.order_number, record.idempotency_key);
+    const current = store.decision_records[key];
+    if (!current ||
+        current.canonical_body_hash !== expected.canonical_body_hash ||
+        current.record_version !== expected.record_version ||
+        current.outcome !== expected.outcome ||
+        current.expires_at_epoch !== expected.expires_at_epoch) {
+      return false;
+    }
+    store.decision_records[key] = record;
+    return true;
+  });
 }
 
 function auditSortKey(event: ProofAuditEvent) {
