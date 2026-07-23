@@ -41,3 +41,15 @@ export function createFailClosedSessionTerminator(
     return cleanup.catch(() => undefined);
   };
 }
+
+export function focusProofTerminalState(
+  target: Pick<HTMLElement, "focus" | "isConnected"> | null
+) {
+  if (!target?.isConnected) return false;
+  try {
+    target.focus({ preventScroll: true });
+    return true;
+  } catch {
+    return false;
+  }
+}

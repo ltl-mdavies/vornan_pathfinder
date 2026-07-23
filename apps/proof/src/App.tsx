@@ -36,7 +36,7 @@ import {
 } from "./queue-state";
 import { proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation } from "./lifecycle-state";
 import { ProofPreview } from "./proof-preview";
-import { createFailClosedSessionTerminator, proofEntryState, sessionExpiryDelay } from "./session-state";
+import { createFailClosedSessionTerminator, focusProofTerminalState, proofEntryState, sessionExpiryDelay } from "./session-state";
 import type { ProofActivity, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
 
 type TerminalState = "link_unavailable" | "session_ended";
@@ -189,6 +189,7 @@ export function App() {
   const identityDialogOpener = useRef<HTMLElement | null>(null);
   const detailDialogCloseButton = useRef<HTMLButtonElement>(null);
   const identityNameInput = useRef<HTMLInputElement>(null);
+  const terminalStateElement = useRef<HTMLElement>(null);
   const deferDetailFocusReturn = useRef(false);
 
   const endLocalSession = () => {
@@ -465,6 +466,15 @@ export function App() {
     }
   }, [identityOpen]);
 
+  const terminalKind = loadState.status === "error" ? loadState.kind : null;
+  useEffect(() => {
+    if (!terminalKind) return;
+    const frame = window.requestAnimationFrame(() => {
+      focusProofTerminalState(terminalStateElement.current);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [terminalKind]);
+
   if (loadState.status === "loading") {
     return (
       <main className="center-state" aria-live="polite">
@@ -479,11 +489,18 @@ export function App() {
   if (loadState.status === "error") {
     const sessionEnded = loadState.kind === "session_ended";
     return (
-      <main className="center-state error-state">
+      <main
+        ref={terminalStateElement}
+        className="center-state error-state"
+        aria-labelledby="proof-terminal-heading"
+        tabIndex={-1}
+      >
         <img src="/brand/vornan-wordmark.svg" alt="Vornan" />
         <div className="state-icon"><AlertTriangle aria-hidden="true" /></div>
-        <h1>{sessionEnded ? "Your secure session has ended" : "This proof link isn’t available"}</h1>
-        <p>{loadState.message}</p>
+        <div role="alert" aria-atomic="true">
+          <h1 id="proof-terminal-heading">{sessionEnded ? "Your secure session has ended" : "This proof link isn’t available"}</h1>
+          <p>{loadState.message}</p>
+        </div>
         <p className="support-copy">Ask your Vornan contact for a new link if you still need access. No proof information remains visible in this browser.</p>
       </main>
     );

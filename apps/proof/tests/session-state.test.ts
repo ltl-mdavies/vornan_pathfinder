@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createFailClosedSessionTerminator, proofEntryState, sessionExpiryDelay } from "../src/session-state.ts";
+import {
+  createFailClosedSessionTerminator,
+  focusProofTerminalState,
+  proofEntryState,
+  sessionExpiryDelay
+} from "../src/session-state.ts";
 
 test("classifies valid fragment tokens without accepting malformed token shapes", () => {
   const token = "A".repeat(43);
@@ -57,4 +62,26 @@ test("keeps the terminal state fail-closed when remote cleanup fails", async () 
   );
   await threwSynchronously();
   assert.equal(localEnded, true);
+});
+
+test("moves focus to a connected terminal state without allowing focus failures to escape", () => {
+  const focusOptions: Array<{ preventScroll?: boolean }> = [];
+  assert.equal(focusProofTerminalState({
+    isConnected: true,
+    focus: (options) => focusOptions.push(options ?? {})
+  }), true);
+  assert.deepEqual(focusOptions, [{ preventScroll: true }]);
+
+  let detachedFocused = false;
+  assert.equal(focusProofTerminalState({
+    isConnected: false,
+    focus: () => { detachedFocused = true; }
+  }), false);
+  assert.equal(detachedFocused, false);
+
+  assert.equal(focusProofTerminalState({
+    isConnected: true,
+    focus: () => { throw new Error("focus unavailable"); }
+  }), false);
+  assert.equal(focusProofTerminalState(null), false);
 });
