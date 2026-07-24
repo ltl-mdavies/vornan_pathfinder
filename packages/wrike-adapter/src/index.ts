@@ -45,6 +45,8 @@ export class WrikeConnectionError extends Error {
       | "identity_check_failed"
       | "task_discovery_failed"
       | "attachment_metadata_failed"
+      | "attachment_download_failed"
+      | "attachment_validation_failed"
       | "invalid_response",
     message: string,
     public readonly rotated_credentials?: WrikeOAuthCredentials
@@ -123,6 +125,12 @@ export interface WrikeTaskDiscoveryPreview {
 export interface WrikeTaskDiscoveryResult {
   credentials: WrikeOAuthCredentials;
   preview: WrikeTaskDiscoveryPreview;
+  qualification: {
+    account_id: string;
+    task_id: string;
+    task_title: string;
+    task_qualified: boolean;
+  };
 }
 
 export interface WrikeAttachmentCandidate {
@@ -138,6 +146,26 @@ export interface WrikeAttachmentSelectionResult {
   attachments: WrikeAttachmentCandidate[];
   matches: WrikeAttachmentCandidate[];
   message: string;
+}
+
+export interface WrikeQualifiedWorkbookSource {
+  account_id: string;
+  task_id: string;
+  attachment_id: string;
+  version_id: string;
+  file_name: string;
+  extension: WrikeWorkbookExtension;
+  updated_at: string;
+  content_type: string;
+  byte_size: number;
+  bytes: Uint8Array;
+}
+
+export interface WrikeQualifiedWorkbookSourceResult {
+  credentials: WrikeOAuthCredentials;
+  checked_at: string;
+  task_id: string;
+  workbooks: WrikeQualifiedWorkbookSource[];
 }
 
 export interface WrikeOrderNameContract {
@@ -962,6 +990,12 @@ export async function discoverApprovedWrikeTask(
 
   return {
     credentials: rotatedCredentials,
+    qualification: {
+      account_id: accountId ?? "",
+      task_id: taskId,
+      task_title: typeof task.title === "string" ? task.title.trim() : "",
+      task_qualified: taskQualifies
+    },
     preview: {
       status: checks.every((check) => check.status === "Passed") ? "Confirmed" : "Needs review",
       checked_at: refreshed.refreshed_at,
@@ -992,6 +1026,263 @@ export async function discoverApprovedWrikeTask(
         lift_actions: false
       }
     }
+  };
+}
+
+const WRIKE_DEFAULT_MAX_WORKBOOK_BYTES = 15 * 1024 * 1024;
+const WRIKE_DEFAULT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
+const WRIKE_MAX_WORKBOOKS = 10;
+
+function safeWrikeAttachmentDownloadUrl(value: unknown) {
+  if (typeof value !== "string" || !value.trim() || value.length > 4096) {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase().replace(/\.$/, "");
+    const unsafeIpv4 =
+      /^(?:127|10)\./.test(host) ||
+      /^169\.254\./.test(host) ||
+      /^192\.168\./.test(host) ||
+      /^172\.(?:1[6-9]|2\d|3[01])\./.test(host);
+    const unsafeIpv6 =
+      host === "::1" ||
+      host === "[::1]" ||
+      host.startsWith("fc") ||
+      host.startsWith("fd") ||
+      host.startsWith("fe80:");
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      !host ||
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      host.endsWith(".local") ||
+      unsafeIpv4 ||
+      unsafeIpv6
+    ) {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+function workbookContentTypeAllowed(extension: WrikeWorkbookExtension, value: string | null) {
+  const contentType = (value ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+  if (!contentType || contentType === "application/octet-stream") {
+    return true;
+  }
+  if (extension === "xlsx") {
+    return contentType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  }
+  if (extension === "xls") {
+    return contentType === "application/vnd.ms-excel";
+  }
+  return contentType === "text/csv" || contentType === "application/csv" || contentType === "text/plain";
+}
+
+async function readBoundedResponseBytes(response: Response, maxBytes: number) {
+  const contentLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new WrikeConnectionError(
+      "attachment_validation_failed",
+      `The Wrike workbook exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB evidence limit.`
+    );
+  }
+  if (!response.body) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) {
+      throw new WrikeConnectionError("attachment_validation_failed", "The Wrike workbook exceeds the evidence limit.");
+    }
+    return bytes;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) {
+      break;
+    }
+    total += chunk.value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new WrikeConnectionError("attachment_validation_failed", "The Wrike workbook exceeds the evidence limit.");
+    }
+    chunks.push(chunk.value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+export async function fetchQualifiedWrikeWorkbookSources(
+  credentials: WrikeOAuthCredentials,
+  config: WrikeSourceConfig,
+  options: {
+    fetch_impl?: typeof fetch;
+    now?: () => Date;
+    max_workbook_bytes?: number;
+    max_total_bytes?: number;
+  } = {}
+): Promise<WrikeQualifiedWorkbookSourceResult> {
+  const fetchImpl = options.fetch_impl ?? fetch;
+  const discovery = await discoverApprovedWrikeTask(credentials, config, options);
+  const rotatedCredentials = discovery.credentials;
+  const qualification = discovery.qualification;
+  if (
+    !qualification.task_qualified ||
+    !qualification.account_id ||
+    discovery.preview.checks.some((check) => check.status === "Blocked")
+  ) {
+    throw new WrikeConnectionError(
+      "attachment_validation_failed",
+      "The approved Wrike task no longer passes the saved folder, status, and naming guardrails.",
+      rotatedCredentials
+    );
+  }
+
+  const host = rotatedCredentials.host;
+  const accessToken = rotatedCredentials.access_token ?? "";
+  const attachmentUrl = new URL(
+    `https://${host}/api/v4/tasks/${encodeURIComponent(qualification.task_id)}/attachments`
+  );
+  attachmentUrl.searchParams.set("versions", "false");
+  attachmentUrl.searchParams.set("withUrls", "true");
+  let attachmentResponse: Response;
+  try {
+    attachmentResponse = await fetchImpl(attachmentUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+    });
+  } catch {
+    throw new WrikeConnectionError(
+      "attachment_metadata_failed",
+      "Pathfinder could not retrieve the approved Wrike workbook URLs.",
+      rotatedCredentials
+    );
+  }
+  const attachmentPayload = await readWrikeApiJson(
+    attachmentResponse,
+    "attachment_metadata_failed",
+    rotatedCredentials
+  );
+  const candidates = (Array.isArray(attachmentPayload.data) ? attachmentPayload.data : [])
+    .map(asRecord)
+    .map((attachment): WrikeAttachmentCandidate => ({
+      attachment_id: providerIdentifier(attachment.id),
+      version_id: providerIdentifier(attachment.currentAttachmentId ?? attachment.versionId ?? attachment.id),
+      file_name: typeof attachment.name === "string" ? attachment.name.trim() : "",
+      updated_at:
+        typeof attachment.updatedDate === "string"
+          ? attachment.updatedDate
+          : typeof attachment.createdDate === "string"
+            ? attachment.createdDate
+            : discovery.preview.checked_at,
+      download_url:
+        typeof attachment.url === "string"
+          ? attachment.url
+          : typeof attachment.downloadUrl === "string"
+            ? attachment.downloadUrl
+            : null
+    }));
+  const selection = selectWrikeWorkbookAttachments(candidates, config, qualification.task_title);
+  if (selection.status !== "matched" || !selection.attachments.length) {
+    throw new WrikeConnectionError("attachment_validation_failed", selection.message, rotatedCredentials);
+  }
+  if (selection.attachments.length > WRIKE_MAX_WORKBOOKS) {
+    throw new WrikeConnectionError(
+      "attachment_validation_failed",
+      `The approved Wrike task has more than ${WRIKE_MAX_WORKBOOKS} matching workbooks; operator review is required.`,
+      rotatedCredentials
+    );
+  }
+
+  const maxWorkbookBytes = Math.max(
+    1,
+    Math.min(options.max_workbook_bytes ?? WRIKE_DEFAULT_MAX_WORKBOOK_BYTES, WRIKE_DEFAULT_MAX_WORKBOOK_BYTES)
+  );
+  const maxTotalBytes = Math.max(
+    maxWorkbookBytes,
+    Math.min(options.max_total_bytes ?? WRIKE_DEFAULT_MAX_TOTAL_BYTES, WRIKE_DEFAULT_MAX_TOTAL_BYTES)
+  );
+  const workbooks: WrikeQualifiedWorkbookSource[] = [];
+  let totalBytes = 0;
+  for (const candidate of selection.attachments) {
+    const extension = attachmentExtension(candidate.file_name) as WrikeWorkbookExtension;
+    const downloadUrl = safeWrikeAttachmentDownloadUrl(candidate.download_url);
+    if (!downloadUrl) {
+      throw new WrikeConnectionError(
+        "attachment_validation_failed",
+        "Wrike did not return a safe HTTPS URL for one matching workbook.",
+        rotatedCredentials
+      );
+    }
+    let response: Response;
+    try {
+      response = await fetchImpl(downloadUrl, {
+        method: "GET",
+        headers: { Accept: "*/*" },
+        redirect: "error"
+      });
+    } catch {
+      throw new WrikeConnectionError(
+        "attachment_download_failed",
+        "Pathfinder could not download one approved Wrike workbook.",
+        rotatedCredentials
+      );
+    }
+    if (!response.ok) {
+      throw new WrikeConnectionError(
+        "attachment_download_failed",
+        `Wrike workbook download failed (HTTP ${response.status}).`,
+        rotatedCredentials
+      );
+    }
+    if (!workbookContentTypeAllowed(extension, response.headers.get("content-type"))) {
+      throw new WrikeConnectionError(
+        "attachment_validation_failed",
+        "A matching Wrike workbook returned an unexpected content type.",
+        rotatedCredentials
+      );
+    }
+    const bytes = await readBoundedResponseBytes(response, Math.min(maxWorkbookBytes, maxTotalBytes - totalBytes));
+    totalBytes += bytes.byteLength;
+    if (totalBytes > maxTotalBytes) {
+      throw new WrikeConnectionError(
+        "attachment_validation_failed",
+        "The approved Wrike workbooks exceed the total evidence limit.",
+        rotatedCredentials
+      );
+    }
+    workbooks.push({
+      account_id: qualification.account_id,
+      task_id: qualification.task_id,
+      attachment_id: candidate.attachment_id,
+      version_id: candidate.version_id,
+      file_name: candidate.file_name,
+      extension,
+      updated_at: new Date(candidate.updated_at).toISOString(),
+      content_type:
+        response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ||
+        (extension === "csv" ? "text/csv" : "application/octet-stream"),
+      byte_size: bytes.byteLength,
+      bytes
+    });
+  }
+
+  return {
+    credentials: rotatedCredentials,
+    checked_at: discovery.preview.checked_at,
+    task_id: qualification.task_id,
+    workbooks
   };
 }
 

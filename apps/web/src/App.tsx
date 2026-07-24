@@ -202,6 +202,7 @@ type WrikeConnectionStatusPayload = {
   authorization_expires_at: string | null;
   connection_test_enabled: boolean;
   discovery_preview_enabled: boolean;
+  workbook_evidence_enabled: boolean;
   host: string | null;
   credentials: {
     client_id_configured: boolean;
@@ -225,6 +226,7 @@ type WrikeConnectionStatusPayload = {
     task_discovery: boolean;
     attachment_metadata: boolean;
     attachment_download: boolean;
+    source_evidence_persistence: boolean;
     webhook: false;
     polling: false;
     wrike_writes: false;
@@ -240,6 +242,32 @@ type CustomerSourceConnectionPayload = CustomerSourceConnection & {
 type SourceConnectionsPayload = {
   definitions: SourceConnectorDefinition[];
   connections: CustomerSourceConnectionPayload[];
+};
+
+type WrikeWorkbookEvidenceRecord = {
+  evidence_id: string;
+  customer_id: string;
+  import_method_id: string;
+  connection_id: string;
+  provider: "wrike";
+  task_id: string;
+  attachment_id: string;
+  version_id: string;
+  file_name: string;
+  extension: WrikeWorkbookExtension;
+  content_type: string;
+  byte_size: number;
+  sha256: string;
+  wrike_updated_at: string;
+  stored_at: string;
+  storage_status: "Stored" | "Replayed";
+};
+
+type WrikeWorkbookEvidencePayload = {
+  status: "Stored" | "Replayed";
+  captured_at: string;
+  task_id: string;
+  evidence: WrikeWorkbookEvidenceRecord[];
 };
 
 type SubmitRuntimeStatus = {
@@ -3486,6 +3514,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [wrikeDiscoveryState, setWrikeDiscoveryState] = useState<"idle" | "loading" | "error">("idle");
   const [wrikeDiscoveryMessage, setWrikeDiscoveryMessage] = useState<string | null>(null);
   const [wrikeDiscoveryPreview, setWrikeDiscoveryPreview] = useState<WrikeTaskDiscoveryPreview | null>(null);
+  const [wrikeEvidenceState, setWrikeEvidenceState] = useState<"idle" | "loading" | "error">("idle");
+  const [wrikeEvidenceMessage, setWrikeEvidenceMessage] = useState<string | null>(null);
+  const [wrikeWorkbookEvidence, setWrikeWorkbookEvidence] = useState<WrikeWorkbookEvidenceRecord[]>([]);
   const [wrikeConnectionDraft, setWrikeConnectionDraft] = useState({
     name: "",
     environment: "Production" as "Production" | "Sandbox",
@@ -4052,6 +4083,31 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     } catch (error) {
       setWrikeDiscoveryMessage(error instanceof Error ? error.message : "Wrike discovery preview failed.");
       setWrikeDiscoveryState("error");
+    }
+  }
+
+  async function captureWrikeWorkbookEvidence() {
+    if (!selectedCustomerId || !activeImportMethod) {
+      return;
+    }
+    setWrikeEvidenceState("loading");
+    setWrikeEvidenceMessage(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/import-methods/${encodeURIComponent(activeImportMethod.import_method_id)}/wrike/workbook-evidence`,
+        { method: "POST" }
+      );
+      const payload = await readJsonResponse<WrikeWorkbookEvidencePayload>(response);
+      setWrikeWorkbookEvidence(payload.evidence);
+      setWrikeEvidenceMessage(
+        payload.status === "Replayed"
+          ? "The same immutable workbook evidence was already stored; Pathfinder verified and reused it."
+          : `${payload.evidence.length} current workbook${payload.evidence.length === 1 ? "" : "s"} stored as immutable source evidence. No job or Lift action was created.`
+      );
+      setWrikeEvidenceState("idle");
+    } catch (error) {
+      setWrikeEvidenceMessage(error instanceof Error ? error.message : "Wrike workbook evidence capture failed.");
+      setWrikeEvidenceState("error");
     }
   }
 
@@ -5068,10 +5124,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     discovery_preview_enabled: Boolean(activeWrikeConnectionStatus?.discovery_preview_enabled),
     identity_confirmed: Boolean(activeWrikeConnectionStatus?.health.identity_confirmed)
   });
+  const wrikeDiscoveryQualified = Boolean(
+    wrikeDiscoveryPreview &&
+      !wrikeDiscoveryPreview.checks.some((check) => check.status === "Blocked") &&
+      (wrikeDiscoveryPreview.observed.workbook_candidate_count ?? 0) >= 1
+  );
   useEffect(() => {
     setWrikeDiscoveryPreview(null);
     setWrikeDiscoveryMessage(null);
     setWrikeDiscoveryState("idle");
+    setWrikeWorkbookEvidence([]);
+    setWrikeEvidenceMessage(null);
+    setWrikeEvidenceState("idle");
     if (isImportMethodDetailOpen && activeImportMethod?.source === "Wrike" && selectedCustomerId) {
       void loadSourceConnections(selectedCustomerId, activeWrikeConfig.connection_id);
     }
@@ -9317,7 +9381,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   ))}
                                 </div>
                                 <p className="wrike-contract-note">
-                                  Readiness never authorizes attachment download, preview-job creation, polling, webhooks, Wrike writes, or Lift actions.
+                                  Readiness does not itself authorize attachment download. A separate server gate is required to capture immutable workbook evidence; jobs, polling, webhooks, Wrike writes, and Lift actions remain disabled.
                                 </p>
                               </div>
                             ) : (
@@ -9441,8 +9505,94 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               </div>
                             ) : null}
                             <p className="wrike-contract-note">
-                              This preview cannot download an attachment, create a Pathfinder job, enable polling or webhooks, write to Wrike, or act in Lift.
+                              This preview cannot download an attachment or create a Pathfinder job. It exposes only the checks required before a separately gated evidence capture.
                             </p>
+
+                            <div className="wrike-evidence-panel">
+                              <div className="wrike-discovery-heading">
+                                <div>
+                                  <span className="section-eyebrow">Workbook source evidence</span>
+                                  <strong>Store the exact qualified workbook bytes before mapping begins</strong>
+                                  <small>
+                                    Pathfinder rechecks the saved task scope, downloads only current matching workbooks, and stores a checksum-backed immutable copy for operator review. Provider URLs and OAuth credentials are never shown.
+                                  </small>
+                                </div>
+                                <div className="wrike-discovery-actions">
+                                  <span
+                                    className={
+                                      activeWrikeConnectionStatus?.workbook_evidence_enabled
+                                        ? "mini-pill mini-pill-success"
+                                        : "mini-pill mini-pill-warning"
+                                    }
+                                  >
+                                    {activeWrikeConnectionStatus?.workbook_evidence_enabled
+                                      ? "Evidence gate on"
+                                      : "Evidence gate off"}
+                                  </span>
+                                  <button
+                                    className="secondary-button table-inline-button"
+                                    onClick={() => void captureWrikeWorkbookEvidence()}
+                                    disabled={
+                                      wrikeEvidenceState === "loading" ||
+                                      !activeWrikeConnectionStatus?.workbook_evidence_enabled ||
+                                      !activeWrikeConnectionStatus?.configured ||
+                                      !wrikeDiscoveryQualified ||
+                                      activeImportMethodHasUnsavedChanges
+                                    }
+                                    title={
+                                      !activeWrikeConnectionStatus?.workbook_evidence_enabled
+                                        ? "The server workbook-evidence gate is off."
+                                        : !wrikeDiscoveryQualified
+                                          ? "Run and review the approved task preview first."
+                                          : activeImportMethodHasUnsavedChanges
+                                            ? "Save this Import Method before capturing its source evidence."
+                                            : undefined
+                                    }
+                                  >
+                                    <Database size={14} />
+                                    {wrikeEvidenceState === "loading"
+                                      ? "Capturing workbooks"
+                                      : "Capture current workbooks"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {wrikeWorkbookEvidence.length ? (
+                                <div className="wrike-evidence-list">
+                                  {wrikeWorkbookEvidence.map((record) => (
+                                    <article key={record.evidence_id}>
+                                      <div>
+                                        <span className="mini-pill mini-pill-success">{record.storage_status}</span>
+                                        <strong>{record.file_name}</strong>
+                                        <small>
+                                          {record.byte_size.toLocaleString()} bytes · version {record.version_id}
+                                        </small>
+                                      </div>
+                                      <dl>
+                                        <div>
+                                          <dt>Evidence ID</dt>
+                                          <dd>{record.evidence_id}</dd>
+                                        </div>
+                                        <div>
+                                          <dt>SHA-256</dt>
+                                          <dd>{record.sha256}</dd>
+                                        </div>
+                                      </dl>
+                                    </article>
+                                  ))}
+                                </div>
+                              ) : null}
+
+                              {wrikeEvidenceMessage ? (
+                                <div className={wrikeEvidenceState === "error" ? "email-health-error" : "wrike-discovery-message"}>
+                                  {wrikeEvidenceState === "error" ? <AlertTriangle size={16} /> : <ShieldCheck size={16} />}
+                                  <span>{wrikeEvidenceMessage}</span>
+                                </div>
+                              ) : null}
+                              <p className="wrike-contract-note">
+                                Evidence capture cannot parse or map the workbook, create a preview job, poll Wrike, write to Wrike, or act in Lift.
+                              </p>
+                            </div>
                           </div>
 
                           <div className="wrike-contract-flow" aria-label="Wrike ingestion safety boundary">

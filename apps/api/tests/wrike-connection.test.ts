@@ -27,6 +27,8 @@ before(async () => {
   process.env.PATHFINDER_ENABLE_LIFT_SUBMIT = "false";
   process.env.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST = "true";
   process.env.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW = "true";
+  process.env.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE = "true";
+  process.env.PATHFINDER_LOCAL_SOURCE_EVIDENCE_DIR = join(testDirectory, "source-evidence");
   originalFetch = globalThis.fetch;
   ({ app } = await import("../src/server.ts"));
   ({ writeCustomerSourceConnectionSecrets } = await import("../src/secrets-store.ts"));
@@ -76,7 +78,11 @@ test("stores customer Wrike app credentials only in the isolated secret boundary
     access_token_expires_at: null
   });
   assert.equal(saved.body.provider_status.discovery_preview_enabled, true);
-  assert.equal(saved.body.provider_status.capabilities.attachment_download, false);
+  assert.equal(saved.body.provider_status.workbook_evidence_enabled, true);
+  assert.equal(saved.body.provider_status.capabilities.task_discovery, true);
+  assert.equal(saved.body.provider_status.capabilities.attachment_metadata, true);
+  assert.equal(saved.body.provider_status.capabilities.attachment_download, true);
+  assert.equal(saved.body.provider_status.capabilities.source_evidence_persistence, true);
   assert.equal(saved.body.provider_status.capabilities.wrike_writes, false);
   assert.equal(JSON.stringify(saved.body).includes("wrike-client-secret"), false);
 
@@ -320,4 +326,110 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
 
   const stored = await readFile(join(testDirectory, "secrets.json"), "utf8");
   assert.equal(stored.includes("discovery-rotated-refresh-token"), true);
+});
+
+test("requalifies and stores current workbooks without creating a job or exposing provider URLs", async () => {
+  await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+    provider: "wrike",
+    wrike: {
+      oauth: {
+        client_id: "evidence-client-id",
+        client_secret: "evidence-client-secret",
+        refresh_token: "evidence-refresh-token",
+        host: "www.wrike.com"
+      }
+    }
+  });
+  const workbookBytes = new TextEncoder().encode("qualified-workbook-evidence");
+  const calls: Array<{ url: string; headers: unknown }> = [];
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    calls.push({ url, headers: init?.headers });
+    if (url.endsWith("/oauth2/token")) {
+      return new Response(
+        JSON.stringify({
+          access_token: "evidence-access-token",
+          refresh_token: "evidence-rotated-refresh-token",
+          host: "www.wrike.com"
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (url.includes("withUrls=false")) {
+      return new Response(
+        JSON.stringify({
+          data: [{
+            id: "IEATTACHMENT0001",
+            name: "C123456 - Private Momentara - OOH Order.xlsx"
+          }]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (url.includes("withUrls=true")) {
+      return new Response(
+        JSON.stringify({
+          data: [{
+            id: "IEATTACHMENT0001",
+            currentAttachmentId: "IEVERSION0002",
+            name: "C123456 - Private Momentara - OOH Order.xlsx",
+            updatedDate: "2026-07-23T14:00:00.000Z",
+            url: "https://files.example.test/private-signed-url"
+          }]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    if (url === "https://files.example.test/private-signed-url") {
+      return new Response(workbookBytes, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Length": String(workbookBytes.byteLength)
+        }
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        data: [{
+          id: "IEAPPROVEDTASK",
+          accountId: "IEACCOUNT",
+          parentIds: ["IEAPPROVEDFOLDER"],
+          customStatusId: "IESENTTOPRINTLTL",
+          attachmentCount: 1,
+          title: "C123456 - Private Momentara - OOH Order",
+          customFields: [{
+            id: "IEARTWORKFOLDER",
+            value: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
+          }]
+        }]
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  };
+
+  const stored = await request(app)
+    .post(`/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence`)
+    .expect(201);
+  assert.equal(stored.body.status, "Stored");
+  assert.equal(stored.body.evidence.length, 1);
+  assert.equal(stored.body.evidence[0].storage_status, "Stored");
+  assert.equal(stored.body.evidence[0].version_id, "IEVERSION0002");
+  assert.equal(stored.body.evidence[0].byte_size, workbookBytes.byteLength);
+  assert.match(stored.body.evidence[0].sha256, /^[a-f0-9]{64}$/);
+  assert.equal(stored.body.capabilities.preview_job_creation, false);
+  assert.equal(stored.body.capabilities.lift_actions, false);
+  const publicPayload = JSON.stringify(stored.body);
+  assert.equal(publicPayload.includes("private-signed-url"), false);
+  assert.equal(publicPayload.includes("evidence-access-token"), false);
+  assert.equal(publicPayload.includes("evidence-refresh-token"), false);
+
+  const downloadCall = calls.find((call) => call.url === "https://files.example.test/private-signed-url");
+  assert.deepEqual(downloadCall?.headers, { Accept: "*/*" });
+
+  const replayed = await request(app)
+    .post(`/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence`)
+    .expect(200);
+  assert.equal(replayed.body.status, "Replayed");
+  assert.equal(replayed.body.evidence[0].storage_status, "Replayed");
 });

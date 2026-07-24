@@ -8,6 +8,7 @@ import {
   discoverApprovedWrikeTask,
   exchangeWrikeAuthorizationCode,
   evaluateWrikeReadOnlyQaReadiness,
+  fetchQualifiedWrikeWorkbookSources,
   getWrikeContractReadiness,
   normalizeWrikeHost,
   normalizeWrikeSourceConfig,
@@ -618,6 +619,187 @@ test("previews one qualified task and counts every matching workbook without ret
   assert.equal(publicPayload.includes("temporary.example"), false);
   assert.equal(publicPayload.includes("momentara.sharepoint.com"), false);
   assert.equal(publicPayload.includes("rotated-access-token"), false);
+});
+
+test("requalifies and downloads only current matching workbooks without forwarding OAuth", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const workbookBytes = new TextEncoder().encode("bounded-workbook");
+  const result = await fetchQualifiedWrikeWorkbookSources(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    normalizeWrikeSourceConfig({
+      folder_id: "IEAPPROVEDFOLDER",
+      approved_discovery_task_id: "IEAPPROVEDTASK",
+      trigger_status_id: "IEORDEREDSTATUS",
+      attachment_extensions: ["xlsx"]
+    }),
+    {
+      now: () => new Date("2026-07-23T12:00:00.000Z"),
+      fetch_impl: async (input, init) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "rotated-access-token",
+              refresh_token: "rotated-refresh-token",
+              expires_in: 3600,
+              host: "app-us2.wrike.com"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.includes("/attachments?versions=false&withUrls=false")) {
+          return new Response(
+            JSON.stringify({
+              data: [{
+                id: "IEATTACHMENT",
+                name: "C123456 - Summer Placards - OOH Order.xlsx"
+              }]
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.includes("/attachments?versions=false&withUrls=true")) {
+          return new Response(
+            JSON.stringify({
+              data: [{
+                id: "IEATTACHMENT",
+                currentAttachmentId: "IEVERSION1",
+                name: "C123456 - Summer Placards - OOH Order.xlsx",
+                updatedDate: "2026-07-23T11:45:00.000Z",
+                url: "https://files.example.test/signed/current"
+              }]
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url === "https://files.example.test/signed/current") {
+          assert.deepEqual(init?.headers, { Accept: "*/*" });
+          assert.equal(init?.redirect, "error");
+          return new Response(workbookBytes, {
+            status: 200,
+            headers: {
+              "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "Content-Length": String(workbookBytes.byteLength)
+            }
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            data: [{
+              id: "IEAPPROVEDTASK",
+              accountId: "IEACCOUNT",
+              parentIds: ["IEAPPROVEDFOLDER"],
+              superParentIds: [],
+              customStatusId: "IEORDEREDSTATUS",
+              attachmentCount: 1,
+              title: "C123456 - Summer Placards - OOH Order",
+              customFields: []
+            }]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(result.workbooks.length, 1);
+  assert.equal(result.workbooks[0].version_id, "IEVERSION1");
+  assert.equal(new TextDecoder().decode(result.workbooks[0].bytes), "bounded-workbook");
+  assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET", "GET", "GET"]);
+  assert.equal(
+    calls
+      .filter((call) => call.url === "https://files.example.test/signed/current")
+      .some((call) => JSON.stringify(call.init?.headers).includes("rotated-access-token")),
+    false
+  );
+  assert.equal(JSON.stringify(result).includes("files.example.test"), false);
+});
+
+test("rejects unsafe workbook URLs and oversized content before retaining bytes", async () => {
+  async function run(downloadUrl: string, contentLength = "10") {
+    return fetchQualifiedWrikeWorkbookSources(
+      {
+        client_id: "client-id",
+        client_secret: "client-secret",
+        refresh_token: "refresh-token",
+        host: "www.wrike.com"
+      },
+      normalizeWrikeSourceConfig({
+        folder_id: "IEAPPROVEDFOLDER",
+        approved_discovery_task_id: "IEAPPROVEDTASK",
+        trigger_status_id: "IEORDEREDSTATUS",
+        attachment_extensions: ["xlsx"]
+      }),
+      {
+        max_workbook_bytes: 8,
+        fetch_impl: async (input) => {
+          const url = String(input);
+          if (url.endsWith("/oauth2/token")) {
+            return new Response(
+              JSON.stringify({
+                access_token: "access-token",
+                refresh_token: "refresh-token",
+                host: "www.wrike.com"
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            );
+          }
+          if (url.includes("withUrls=false")) {
+            return new Response(JSON.stringify({
+              data: [{ id: "IEATTACHMENT", name: "C123456 - Summer - OOH Order.xlsx" }]
+            }), { status: 200, headers: { "Content-Type": "application/json" } });
+          }
+          if (url.includes("withUrls=true")) {
+            return new Response(JSON.stringify({
+              data: [{
+                id: "IEATTACHMENT",
+                currentAttachmentId: "IEVERSION1",
+                name: "C123456 - Summer - OOH Order.xlsx",
+                updatedDate: "2026-07-23T11:45:00.000Z",
+                url: downloadUrl
+              }]
+            }), { status: 200, headers: { "Content-Type": "application/json" } });
+          }
+          if (url.includes("/api/v4/tasks/")) {
+            return new Response(JSON.stringify({
+              data: [{
+                id: "IEAPPROVEDTASK",
+                accountId: "IEACCOUNT",
+                parentIds: ["IEAPPROVEDFOLDER"],
+                customStatusId: "IEORDEREDSTATUS",
+                attachmentCount: 1,
+                title: "C123456 - Summer - OOH Order"
+              }]
+            }), { status: 200, headers: { "Content-Type": "application/json" } });
+          }
+          return new Response("0123456789", {
+            status: 200,
+            headers: {
+              "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "Content-Length": contentLength
+            }
+          });
+        }
+      }
+    );
+  }
+
+  await assert.rejects(
+    run("https://127.0.0.1/private"),
+    (error: unknown) =>
+      error instanceof WrikeConnectionError && error.code === "attachment_validation_failed"
+  );
+  await assert.rejects(
+    run("https://files.example.test/signed/current"),
+    (error: unknown) =>
+      error instanceof WrikeConnectionError && error.code === "attachment_validation_failed"
+  );
 });
 
 test("does not read attachment metadata before status and task naming guardrails both pass", async () => {

@@ -1177,3 +1177,28 @@ Recommended continuation:
 3. Implement authenticated workbook attachment download plus durable source evidence as the next separate slice.
 4. Keep preview-job creation, automated polling/webhooks, Wrike writes, artwork download, and post-submit Lift updates out of that attachment-download slice.
 5. Revisit line-level or post-submit artwork updates only after Lift publishes and confirms the corresponding writable contract.
+
+## Wrike Workbook Source Evidence Checkpoint
+
+Branch `codex/wrike-workbook-source-evidence` now contains the bounded attachment-download and durable-evidence layer that follows qualified discovery.
+
+- A separately controlled `PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE` gate defaults false.
+- The API freshly requalifies the exact saved customer connection, Import Method, approved task, folder/project, intake-ready status, task title, workbook names, and contract number before requesting current attachment URLs.
+- Only current matching XLSX, XLS, or CSV candidates are downloaded. Limits are ten workbooks, 15 MB per workbook, and 50 MB total.
+- OAuth is sent only to Wrike API requests. Signed file requests contain no OAuth, refuse redirects, reject unsafe URL shapes/private-address literals, and enforce media-type and streamed-size bounds.
+- Each workbook is stored under deterministic Wrike account/task/attachment/version identity with an immutable SHA-256 and sanitized evidence record. Identical evidence replays safely; changed bytes or metadata for an existing identity fail closed.
+- Local storage uses exclusive mode-`0600` envelopes. The production-shaped S3 bucket is retained, encrypted, versioned, public-blocked, and restricted to API `GetObject`/`PutObject` access under `wrike/*`; no delete access is granted.
+- A read-only audit of the live `PathfinderApiDeploy` inline policy found that it does not currently allow CloudFormation to create this bucket. `infra/aws/github-actions-api-deploy-policy.json` preserves the existing policy and adds bucket-management permission only for `vornan-pathfinder-source-evidence-prod-744016783602`, with no evidence-object access. It has not been applied.
+- Operators can capture evidence from the saved Wrike Import Method and review only bounded source metadata. OAuth, signed URLs, S3 keys, and workbook content are not returned.
+- Full validation passes every workspace check/test/build, 22/22 adapter tests, 9/9 focused API/evidence tests, 12/12 browser regressions, 62/62 deployment-safety tests, API and Proof Lambda packaging, SAM lint, and diff hygiene.
+- Proof independently confirmed no source or shared-document conflict. No Proof stack resource, role, artifact, route, flag, or capability changed.
+
+No external request, IAM mutation, deployment, feature-gate activation, live evidence write, workbook parsing/mapping, job creation, artwork download, polling/webhook, Wrike write, Lift action, or Proof capability change occurred.
+
+Recommended continuation:
+
+1. Checkpoint this validated slice through a focused commit and draft PR.
+2. After green review and merge, obtain explicit approval to update only the live `PathfinderApiDeploy` inline policy to the merged `infra/aws/github-actions-api-deploy-policy.json`.
+3. Deploy the API/admin foundation with the workbook-evidence gate still false.
+4. Obtain explicit approval for one exact Wrike task and bounded QA window, enable only the workbook-evidence gate, capture the qualified workbook evidence once, verify the sanitized record/checksum and retained object, then restore the gate to false.
+5. Only after that closed evidence lifecycle passes, scope stored-evidence inspection and parser execution as a separate operator-reviewed slice. Continue to stop before automatic Pathfinder job creation or any Lift action.

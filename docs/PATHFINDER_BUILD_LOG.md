@@ -3170,3 +3170,20 @@ Added a bounded, create-order mapping for Momentara's separately managed artwork
 - Validation passed `npm run check`, all workspace tests, every production build, 12/12 browser regressions, 61/61 Proof deployment-safety tests, and `git diff --check`.
 
 This slice remains GET-only in Wrike and uses the artwork locator only while creating the Lift order. It does not download artwork, persist discovery results, create jobs, poll, register webhooks, write to Wrike, perform a post-submit Lift update, or add any Proof decision/write capability.
+
+## 2026-07-23 - Wrike Workbook Source Evidence
+
+Completed the bounded bridge between sanitized Wrike discovery and a future Pathfinder import.
+
+- Added a separate, default-off workbook-evidence gate. It does not inherit authorization from the connection-health or discovery-preview gates.
+- Evidence capture reruns the exact approved task qualification before requesting current attachment URLs, including the configured folder/project, `Sent to Print - LTL` status, task naming, workbook naming, and contract-number guardrails.
+- Downloads only current matching `.xlsx`, `.xls`, and `.csv` workbook candidates. Each download has an individual 15 MB limit, the complete capture has a 50 MB limit, and one task may yield at most ten workbook candidates.
+- Signed attachment URLs remain server-side. Pathfinder does not forward Wrike OAuth to the file host, refuses redirects, rejects unsafe URL shapes and private-address literals, and validates response media type and bounded streamed size.
+- Persists each workbook as immutable source evidence using deterministic Wrike account/task/attachment/version identity, SHA-256, and sanitized source metadata. Exact replays return the original evidence record; changed bytes or metadata for the same identity fail closed for operator review.
+- Local evidence uses exclusive mode-`0600` envelopes. The production-shaped store uses a retained, encrypted, versioned, public-blocked S3 bucket with API access limited to `GetObject` and `PutObject` under `wrike/*`; the API has no delete permission.
+- Added operator evidence controls and results to the saved Wrike Import Method. The browser receives filename, version, size, checksum, evidence ID, timestamps, and stored/replayed state only—not OAuth material, signed URLs, object keys, or workbook content.
+- Added focused adapter, API, local-storage, dark-gate, deployment-contract, and responsive UI coverage.
+- Added a checked-in replacement for the existing `PathfinderApiDeploy` inline policy. It preserves the current API deployment scope and adds bucket-management permission only for the deterministic production source-evidence bucket; it grants no evidence-object access. The live role was inspected read-only and was not changed.
+- Validation passed every workspace typecheck and test, every production build, 22/22 Wrike adapter tests, 9/9 focused API/evidence tests, 12/12 browser regressions, 62/62 deployment-safety tests, both Lambda packages, SAM lint, and `git diff --check`.
+
+This slice stops at immutable source evidence. It does not parse or map the workbook, create a Canonical Order or Pathfinder job, download the artwork folder, poll or register webhooks, write to Wrike, call Lift, deploy, enable the evidence gate, apply the checked-in IAM policy, run live QA, or change any Proof resource or capability.

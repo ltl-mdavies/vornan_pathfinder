@@ -64,6 +64,13 @@ Parameters:
       - "true"
       - "false"
     Description: Explicit operator-only gate for one approved task read plus scoped attachment metadata without URLs or file content.
+  WrikeWorkbookEvidenceEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Explicit operator-only gate for qualified Wrike workbook download into immutable source evidence storage.
   WrikeOAuthRedirectUri:
     Type: String
     Default: "https://api.pathfinder.vornan.co/oauth/wrike/callback"
@@ -271,6 +278,50 @@ Conditions:
     - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
 
 Resources:
+  PathfinderSourceEvidenceBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "vornan-pathfinder-source-evidence-${EnvironmentName}-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  PathfinderSourceEvidenceBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PathfinderSourceEvidenceBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt PathfinderSourceEvidenceBucket.Arn
+              - !Sub "${PathfinderSourceEvidenceBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
   PathfinderApiRole:
     Type: AWS::IAM::Role
     Properties:
@@ -340,6 +391,11 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:ses:${SesRegion}:${AWS::AccountId}:identity/notify.vornan.co"
                   - !Sub "arn:aws:ses:${SesRegion}:${AWS::AccountId}:configuration-set/${SesConfigurationSet}"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "${PathfinderSourceEvidenceBucket.Arn}/wrike/*"
 
   PathfinderApiFunction:
     Type: AWS::Lambda::Function
@@ -368,6 +424,8 @@ Resources:
           PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED: !Ref PublicIntakeEmailVerificationEnabled
           PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST: !Ref WrikeConnectionTestEnabled
           PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW: !Ref WrikeDiscoveryPreviewEnabled
+          PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: !Ref WrikeWorkbookEvidenceEnabled
+          PATHFINDER_SOURCE_EVIDENCE_BUCKET: !Ref PathfinderSourceEvidenceBucket
           PATHFINDER_WRIKE_OAUTH_REDIRECT_URI: !Ref WrikeOAuthRedirectUri
           PATHFINDER_APP_BASE_URL: !Ref PathfinderAppBaseUrl
           PATHFINDER_EMAIL_FROM: !Ref EmailFrom
@@ -838,3 +896,6 @@ Outputs:
   ConfiguredSecretPrefix:
     Description: Secrets Manager prefix granted to the Pathfinder API Lambda role.
     Value: !Ref SecretPrefix
+  SourceEvidenceBucketName:
+    Description: Retained encrypted bucket for immutable Pathfinder source evidence.
+    Value: !Ref PathfinderSourceEvidenceBucket
