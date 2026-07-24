@@ -76,10 +76,21 @@ export interface LiftProofingDecisionResponseObservation {
 }
 
 export interface LiftProofingDecisionResponseClassification {
-  classification: "unclassified";
+  classification:
+    | "success_observed_unconfirmed"
+    | "request_rejected_unconfirmed"
+    | "ambiguous"
+    | "unexpected_or_unclassified";
   confirmed: false;
   retryable: false;
-  reason: "authoritative_response_contract_required";
+  reconciliation: "read_after_write_required" | "manual_review_required";
+  reason:
+    | "authoritative_read_after_write_required"
+    | "authoritative_error_contract_required"
+    | "retry_safety_unconfirmed"
+    | "redirect_not_supported"
+    | "provisional_response_not_supported"
+    | "response_status_invalid_or_missing";
 }
 
 export type LiftProofingDecisionContractFailureCode =
@@ -307,12 +318,63 @@ export function buildLiftProofingDecisionRequestContract(input: {
 }
 
 export function classifyLiftProofingDecisionResponse(
-  _observation: LiftProofingDecisionResponseObservation
+  observation: LiftProofingDecisionResponseObservation
 ): LiftProofingDecisionResponseClassification {
+  if (
+    !Number.isSafeInteger(observation.status) ||
+    Number(observation.status) < 100 ||
+    Number(observation.status) > 599
+  ) {
+    return {
+      classification: "unexpected_or_unclassified",
+      confirmed: false,
+      retryable: false,
+      reconciliation: "manual_review_required",
+      reason: "response_status_invalid_or_missing"
+    };
+  }
+  const status = Number(observation.status);
+  if (status >= 200 && status <= 299) {
+    return {
+      classification: "success_observed_unconfirmed",
+      confirmed: false,
+      retryable: false,
+      reconciliation: "read_after_write_required",
+      reason: "authoritative_read_after_write_required"
+    };
+  }
+  if (status === 408 || status === 425 || status === 429 || status >= 500) {
+    return {
+      classification: "ambiguous",
+      confirmed: false,
+      retryable: false,
+      reconciliation: "manual_review_required",
+      reason: "retry_safety_unconfirmed"
+    };
+  }
+  if (status >= 400 && status <= 499) {
+    return {
+      classification: "request_rejected_unconfirmed",
+      confirmed: false,
+      retryable: false,
+      reconciliation: "manual_review_required",
+      reason: "authoritative_error_contract_required"
+    };
+  }
+  if (status >= 300 && status <= 399) {
+    return {
+      classification: "unexpected_or_unclassified",
+      confirmed: false,
+      retryable: false,
+      reconciliation: "manual_review_required",
+      reason: "redirect_not_supported"
+    };
+  }
   return {
-    classification: "unclassified",
+    classification: "unexpected_or_unclassified",
     confirmed: false,
     retryable: false,
-    reason: "authoritative_response_contract_required"
+    reconciliation: "manual_review_required",
+    reason: "provisional_response_not_supported"
   };
 }

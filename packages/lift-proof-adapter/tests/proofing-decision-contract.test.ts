@@ -251,7 +251,7 @@ test("rejects malformed, unbounded, and control-character body values", () => {
   }
 });
 
-test("builds a non-executable request descriptor and leaves every response unclassified", () => {
+test("builds a non-executable request descriptor and classifies observations without confirming execution", () => {
   const request = buildLiftProofingDecisionRequestContract({
     company_id: "company-91",
     proofing_id: "9748544",
@@ -274,18 +274,79 @@ test("builds a non-executable request descriptor and leaves every response uncla
   assert.equal("url" in request, false);
   assert.equal("headers" in request, false);
 
-  for (const observation of [
-    { status: 200, content_type: "application/json", body: { success: true } },
-    { status: 204, body: null },
-    { status: 400, body: { error: "invalid" } },
-    { status: 500, body: "unavailable" },
-    {}
-  ]) {
-    assert.deepEqual(classifyLiftProofingDecisionResponse(observation), {
-      classification: "unclassified",
+  for (const status of [200, 201, 202, 204, 299]) {
+    assert.deepEqual(classifyLiftProofingDecisionResponse({
+      status,
+      content_type: "application/json",
+      body: { success: true, credential: "must-not-cross-classification" }
+    }), {
+      classification: "success_observed_unconfirmed",
       confirmed: false,
       retryable: false,
-      reason: "authoritative_response_contract_required"
+      reconciliation: "read_after_write_required",
+      reason: "authoritative_read_after_write_required"
+    });
+  }
+
+  for (const status of [400, 401, 403, 404, 409, 422, 499]) {
+    assert.deepEqual(classifyLiftProofingDecisionResponse({
+      status,
+      body: { error: "provider detail must not cross classification" }
+    }), {
+      classification: "request_rejected_unconfirmed",
+      confirmed: false,
+      retryable: false,
+      reconciliation: "manual_review_required",
+      reason: "authoritative_error_contract_required"
+    });
+  }
+
+  for (const status of [408, 425, 429, 500, 502, 503, 599]) {
+    assert.deepEqual(classifyLiftProofingDecisionResponse({
+      status,
+      body: "ambiguous provider response"
+    }), {
+      classification: "ambiguous",
+      confirmed: false,
+      retryable: false,
+      reconciliation: "manual_review_required",
+      reason: "retry_safety_unconfirmed"
+    });
+  }
+
+  for (const status of [300, 301, 307, 399]) {
+    assert.deepEqual(classifyLiftProofingDecisionResponse({ status }), {
+      classification: "unexpected_or_unclassified",
+      confirmed: false,
+      retryable: false,
+      reconciliation: "manual_review_required",
+      reason: "redirect_not_supported"
+    });
+  }
+
+  for (const status of [100, 101, 199]) {
+    assert.deepEqual(classifyLiftProofingDecisionResponse({ status }), {
+      classification: "unexpected_or_unclassified",
+      confirmed: false,
+      retryable: false,
+      reconciliation: "manual_review_required",
+      reason: "provisional_response_not_supported"
+    });
+  }
+
+  for (const status of [undefined, null, 0, 99, 600, 200.5, Number.NaN]) {
+    assert.deepEqual(classifyLiftProofingDecisionResponse({
+      status: status as number | undefined,
+      body: {
+        signed_url: "https://customer.example.invalid/private",
+        token: "must-not-cross-classification"
+      }
+    }), {
+      classification: "unexpected_or_unclassified",
+      confirmed: false,
+      retryable: false,
+      reconciliation: "manual_review_required",
+      reason: "response_status_invalid_or_missing"
     });
   }
 });
