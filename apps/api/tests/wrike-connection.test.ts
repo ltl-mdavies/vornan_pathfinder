@@ -320,7 +320,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
   assert.equal(response.body.capabilities.attachment_download, false);
   assert.deepEqual(calls, [
     "https://www.wrike.com/oauth2/token",
-    "https://www.wrike.com/api/v4/tasks/IEAPPROVEDTASK?fields=%5B%22attachmentCount%22%2C%22customFields%22%5D",
+    "https://www.wrike.com/api/v4/tasks/IEAPPROVEDTASK?fields=%5B%22attachmentCount%22%5D",
     "https://www.wrike.com/api/v4/tasks/IEAPPROVEDTASK/attachments?versions=false&withUrls=false"
   ]);
   const publicPayload = JSON.stringify(response.body);

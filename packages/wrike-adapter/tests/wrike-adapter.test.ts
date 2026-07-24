@@ -609,7 +609,7 @@ test("previews one qualified task and counts every matching workbook without ret
   assert.match(calls[1].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\?fields=/);
   assert.deepEqual(
     JSON.parse(new URL(calls[1].url).searchParams.get("fields") ?? "[]"),
-    ["attachmentCount", "customFields"]
+    ["attachmentCount"]
   );
   assert.match(calls[2].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\/attachments\?versions=false&withUrls=false$/);
   assert.equal(calls.some((call) => /download|preview|webhooks/.test(call.url)), false);
