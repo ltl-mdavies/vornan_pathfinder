@@ -12,6 +12,7 @@ export interface ProofingApiAuditEvent {
 export interface ProofingApiConfiguration {
   base_url: string | null;
   company_id: string | null;
+  action_user_name: string;
   client_id_configured: boolean;
   client_secret_configured: boolean;
   configured: boolean;
@@ -22,6 +23,7 @@ export interface ProofingApiConfiguration {
 interface ProofingApiDraft {
   base_url: string;
   company_id: string;
+  action_user_name: string;
   client_id: string;
   client_secret: string;
 }
@@ -31,11 +33,16 @@ interface ProofingApiSetupProps {
   targetId: string;
   environmentId: string;
   environmentName: string;
+  orderEndpointUrl: string;
+  suggestedCompanyId: string;
 }
+
+export const DEFAULT_PROOFING_API_ACTION_USER_NAME = "VORNAN_PROOF";
 
 const emptyConfiguration: ProofingApiConfiguration = {
   base_url: null,
   company_id: null,
+  action_user_name: DEFAULT_PROOFING_API_ACTION_USER_NAME,
   client_id_configured: false,
   client_secret_configured: false,
   configured: false,
@@ -43,10 +50,33 @@ const emptyConfiguration: ProofingApiConfiguration = {
   audit_events: []
 };
 
-function draftFromConfiguration(configuration: ProofingApiConfiguration): ProofingApiDraft {
+export function proofingApiBaseUrlFromOrderEndpoint(value: string) {
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+      return "";
+    }
+    const suffix = "/api/create_order";
+    if (!parsed.pathname.endsWith(suffix)) {
+      return "";
+    }
+    parsed.pathname = parsed.pathname.slice(0, -suffix.length);
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function draftFromConfiguration(
+  configuration: ProofingApiConfiguration,
+  suggestions: { base_url?: string; company_id?: string } = {}
+): ProofingApiDraft {
   return {
-    base_url: configuration.base_url ?? "",
-    company_id: configuration.company_id ?? "",
+    base_url: configuration.base_url ?? suggestions.base_url ?? "",
+    company_id: configuration.company_id ?? suggestions.company_id ?? "",
+    action_user_name: configuration.action_user_name || DEFAULT_PROOFING_API_ACTION_USER_NAME,
     client_id: "",
     client_secret: ""
   };
@@ -62,6 +92,7 @@ export function proofingApiSavePayload(draft: ProofingApiDraft) {
   return {
     base_url: draft.base_url,
     company_id: draft.company_id,
+    action_user_name: draft.action_user_name,
     ...(draft.client_id || draft.client_secret
       ? { client_id: draft.client_id, client_secret: draft.client_secret }
       : {})
@@ -88,10 +119,19 @@ export function ProofingApiSetup({
   apiBaseUrl,
   targetId,
   environmentId,
-  environmentName
+  environmentName,
+  orderEndpointUrl,
+  suggestedCompanyId
 }: ProofingApiSetupProps) {
+  const suggestedBaseUrl = proofingApiBaseUrlFromOrderEndpoint(orderEndpointUrl);
+  const suggestions = {
+    base_url: suggestedBaseUrl,
+    company_id: suggestedCompanyId
+  };
   const [configuration, setConfiguration] = useState(emptyConfiguration);
-  const [draft, setDraft] = useState<ProofingApiDraft>(draftFromConfiguration(emptyConfiguration));
+  const [draft, setDraft] = useState<ProofingApiDraft>(
+    draftFromConfiguration(emptyConfiguration, suggestions)
+  );
   const [state, setState] = useState<"loading" | "idle" | "saving" | "error">("loading");
   const [message, setMessage] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -106,7 +146,7 @@ export function ProofingApiSetup({
       .then((loaded) => {
         if (!active) return;
         setConfiguration(loaded);
-        setDraft(draftFromConfiguration(loaded));
+        setDraft(draftFromConfiguration(loaded, suggestions));
         setState("idle");
       })
       .catch((error) => {
@@ -117,7 +157,7 @@ export function ProofingApiSetup({
     return () => {
       active = false;
     };
-  }, [endpoint]);
+  }, [endpoint, suggestedBaseUrl, suggestedCompanyId]);
 
   async function save() {
     setState("saving");
@@ -130,7 +170,7 @@ export function ProofingApiSetup({
       });
       const saved = await readConfiguration(response);
       setConfiguration(saved);
-      setDraft(draftFromConfiguration(saved));
+      setDraft(draftFromConfiguration(saved, suggestions));
       setConfirmClear(false);
       setMessage(saved.configured ? "Proofing API setup saved." : "Proofing API settings saved.");
       setState("idle");
@@ -147,7 +187,7 @@ export function ProofingApiSetup({
       const response = await fetch(endpoint, { method: "DELETE" });
       const cleared = await readConfiguration(response);
       setConfiguration(cleared);
-      setDraft(draftFromConfiguration(cleared));
+      setDraft(draftFromConfiguration(cleared, suggestions));
       setConfirmClear(false);
       setMessage("Proofing API setup cleared.");
       setState("idle");
@@ -182,6 +222,10 @@ export function ProofingApiSetup({
             disabled={state === "loading" || state === "saving"}
             onChange={(event) => setDraft((current) => ({ ...current, base_url: event.target.value }))}
           />
+          <small>
+            Lift ERP root before <code>/order-management</code>. PROD uses{" "}
+            <code>https://ltlco.lifterp.com/ords/api/lift/erp</code>.
+          </small>
         </label>
         <label className="setup-control">
           <span>Company ID</span>
@@ -193,6 +237,19 @@ export function ProofingApiSetup({
           />
         </label>
         <label className="setup-control">
+          <span>Lift Action User</span>
+          <input
+            value={draft.action_user_name}
+            autoComplete="off"
+            placeholder={DEFAULT_PROOFING_API_ACTION_USER_NAME}
+            disabled={state === "loading" || state === "saving"}
+            onChange={(event) => setDraft((current) => ({ ...current, action_user_name: event.target.value }))}
+          />
+          <small>
+            Sent as <code>userName</code> for Lift attribution; it is not an authentication credential.
+          </small>
+        </label>
+        <label className="setup-control setup-control-wide">
           <span>Client ID</span>
           <input
             value={draft.client_id}
@@ -202,7 +259,7 @@ export function ProofingApiSetup({
             onChange={(event) => setDraft((current) => ({ ...current, client_id: event.target.value }))}
           />
         </label>
-        <label className="setup-control">
+        <label className="setup-control setup-control-wide">
           <span>Client Secret</span>
           <input
             type="password"
@@ -215,16 +272,32 @@ export function ProofingApiSetup({
         </label>
       </div>
 
-      <div className="proofing-api-meta">
-        <span>Client ID: {configuration.client_id_configured ? "saved" : "not saved"}</span>
-        <span>Secret: {configuration.client_secret_configured ? "saved" : "not saved"}</span>
-        <span>Updated: {displayDate(configuration.updated_at)}</span>
+      <div className="proofing-api-meta" aria-label="Proofing API credential status">
+        <div>
+          <span>Authentication</span>
+          <strong>JWT · HS256</strong>
+        </div>
+        <div>
+          <span>Client ID</span>
+          <strong>{configuration.client_id_configured ? "Saved securely" : "Not saved"}</strong>
+        </div>
+        <div>
+          <span>Client Secret</span>
+          <strong>{configuration.client_secret_configured ? "Saved securely" : "Not saved"}</strong>
+        </div>
+        <div>
+          <span>Last updated</span>
+          <strong>{displayDate(configuration.updated_at)}</strong>
+        </div>
       </div>
 
       {message ? <p className={state === "error" ? "proofing-api-message proofing-api-message-error" : "proofing-api-message"} role={state === "error" ? "alert" : "status"}>{message}</p> : null}
 
       <div className="proofing-api-actions">
-        <button className="secondary-button" type="button" disabled={state === "loading" || state === "saving"} onClick={() => void save()}>
+        <p>
+          Client ID and secret sign the Bearer JWT. No Lift user password is used by this API.
+        </p>
+        <button className="primary-button" type="button" disabled={state === "loading" || state === "saving"} onClick={() => void save()}>
           {state === "saving" && !confirmClear ? "Saving" : proofingApiSaveLabel(configuration, draft)}
         </button>
         {(configuration.configured || configuration.base_url || configuration.company_id) && !confirmClear ? (
