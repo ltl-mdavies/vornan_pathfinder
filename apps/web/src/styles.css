@@ -4634,6 +4634,86 @@ h1 {
   font-weight: 750;
 }
 
+.wrike-manual-intake-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(171, 198, 95, 0.1), rgba(243, 247, 241, 0.72));
+  border: 1px solid rgba(111, 141, 61, 0.24);
+  border-radius: 9px;
+}
+
+.wrike-manual-intake-result,
+.wrike-manual-intake-workbooks {
+  display: grid;
+  gap: 8px;
+}
+
+.wrike-manual-intake-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.wrike-manual-intake-summary > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 11px;
+  background: #fff;
+  border: 1px solid rgba(57, 82, 59, 0.12);
+  border-radius: 7px;
+}
+
+.wrike-manual-intake-summary span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wrike-manual-intake-summary strong {
+  font-size: 17px;
+}
+
+.wrike-manual-intake-workbooks article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 14px;
+  min-width: 0;
+  padding: 11px;
+  background: #fff;
+  border: 1px solid rgba(57, 82, 59, 0.12);
+  border-radius: 7px;
+}
+
+.wrike-manual-intake-workbooks article > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.wrike-manual-intake-workbooks strong,
+.wrike-manual-intake-workbooks small {
+  overflow-wrap: anywhere;
+}
+
+.wrike-manual-intake-workbooks strong {
+  font-size: 12px;
+}
+
+.wrike-manual-intake-workbooks small {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.wrike-manual-intake-workbooks article > small {
+  grid-column: 1 / -1;
+}
+
 .wrike-evidence-panel {
   display: grid;
   gap: 12px;
@@ -4709,8 +4789,13 @@ h1 {
 }
 
 @media (max-width: 760px) {
-  .wrike-evidence-list article {
+  .wrike-evidence-list article,
+  .wrike-manual-intake-workbooks article {
     grid-template-columns: 1fr;
+  }
+
+  .wrike-manual-intake-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

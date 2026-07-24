@@ -204,6 +204,7 @@ type WrikeConnectionStatusPayload = {
   discovery_preview_enabled: boolean;
   workbook_evidence_enabled: boolean;
   evidence_preview_enabled: boolean;
+  manual_intake_enabled: boolean;
   host: string | null;
   credentials: {
     client_id_configured: boolean;
@@ -229,6 +230,7 @@ type WrikeConnectionStatusPayload = {
     attachment_download: boolean;
     source_evidence_persistence: boolean;
     preview_job_creation: boolean;
+    manual_intake: boolean;
     webhook: false;
     polling: false;
     wrike_writes: false;
@@ -278,6 +280,28 @@ type WrikeEvidencePreviewPayload = {
   job: ProcessingJobPreview;
   workspace: PathfinderCustomerWorkspace;
   source_evidence: NonNullable<ProcessingJobPreview["source_evidence"]>;
+};
+
+type WrikeManualIntakePayload = {
+  status: "Prepared" | "Partially Prepared";
+  task_id: string;
+  prepared_at: string;
+  summary: {
+    workbook_count: number;
+    created_count: number;
+    replayed_count: number;
+    blocked_count: number;
+  };
+  workbooks: Array<{
+    evidence_id: string;
+    file_name: string;
+    extension: string;
+    evidence_status: "Stored" | "Replayed";
+    preview_status: "Created" | "Replayed" | "Blocked";
+    job_id?: string;
+    job_state?: string;
+    message?: string;
+  }>;
 };
 
 type SubmitRuntimeStatus = {
@@ -3543,6 +3567,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [wrikeEvidencePreviewJobs, setWrikeEvidencePreviewJobs] = useState<
     Record<string, ProcessingJobPreview>
   >({});
+  const [wrikeManualIntakeState, setWrikeManualIntakeState] = useState<"idle" | "loading" | "error">("idle");
+  const [wrikeManualIntakeMessage, setWrikeManualIntakeMessage] = useState<string | null>(null);
+  const [wrikeManualIntakeResult, setWrikeManualIntakeResult] = useState<WrikeManualIntakePayload | null>(null);
   const [wrikeConnectionDraft, setWrikeConnectionDraft] = useState({
     name: "",
     environment: "Production" as "Production" | "Sandbox",
@@ -4172,6 +4199,35 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWrikeEvidenceState("error");
     } finally {
       setWrikeEvidencePreviewId("");
+    }
+  }
+
+  async function prepareWrikeOrder() {
+    if (!selectedCustomerId || !activeImportMethod) {
+      return;
+    }
+    setWrikeManualIntakeState("loading");
+    setWrikeManualIntakeMessage(null);
+    setWrikeManualIntakeResult(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/import-methods/${encodeURIComponent(activeImportMethod.import_method_id)}/wrike/prepare-order`,
+        { method: "POST" }
+      );
+      const payload = await readJsonResponse<WrikeManualIntakePayload>(response);
+      setWrikeManualIntakeResult(payload);
+      setWrikeManualIntakeMessage(
+        payload.summary.blocked_count
+          ? `${payload.summary.created_count + payload.summary.replayed_count} of ${payload.summary.workbook_count} workbook orders were prepared. Review the blocked workbook before trying again.`
+          : `${payload.summary.workbook_count} workbook order${payload.summary.workbook_count === 1 ? "" : "s"} prepared for operator review. Nothing was submitted to Lift.`
+      );
+      await loadTargetsAndJobs();
+      setWrikeManualIntakeState("idle");
+    } catch (error) {
+      setWrikeManualIntakeMessage(
+        error instanceof Error ? error.message : "Pathfinder could not prepare the Wrike order."
+      );
+      setWrikeManualIntakeState("error");
     }
   }
 
@@ -5202,6 +5258,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWrikeEvidencePreviewJobs({});
     setWrikeEvidenceMessage(null);
     setWrikeEvidenceState("idle");
+    setWrikeManualIntakeState("idle");
+    setWrikeManualIntakeMessage(null);
+    setWrikeManualIntakeResult(null);
     if (isImportMethodDetailOpen && activeImportMethod?.source === "Wrike" && selectedCustomerId) {
       void loadSourceConnections(selectedCustomerId, activeWrikeConfig.connection_id);
     }
@@ -6905,6 +6964,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWrikeDiscoveryPreview(null);
     setWrikeDiscoveryMessage(null);
     setWrikeDiscoveryState("idle");
+    setWrikeManualIntakeMessage(null);
+    setWrikeManualIntakeResult(null);
     updateActiveMethodDraft({
       source_config: {
         ...activeImportMethod.source_config,
@@ -9573,6 +9634,127 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <p className="wrike-contract-note">
                               This preview cannot download an attachment or create a Pathfinder job. It exposes only the checks required before a separately gated evidence capture.
                             </p>
+
+                            <div className="wrike-manual-intake-panel">
+                              <div className="wrike-discovery-heading">
+                                <div>
+                                  <span className="section-eyebrow">Operator-controlled intake</span>
+                                  <strong>Prepare every current workbook as a separate Pathfinder order</strong>
+                                  <small>
+                                    Pathfinder rechecks the approved task, stores or verifies immutable workbook evidence, and creates or reuses one preview job per workbook. Every job remains in Pathfinder for operator review.
+                                  </small>
+                                </div>
+                                <div className="wrike-discovery-actions">
+                                  <span
+                                    className={
+                                      activeWrikeConnectionStatus?.manual_intake_enabled
+                                        ? "mini-pill mini-pill-success"
+                                        : "mini-pill mini-pill-warning"
+                                    }
+                                  >
+                                    {activeWrikeConnectionStatus?.manual_intake_enabled
+                                      ? "Manual intake gate on"
+                                      : "Manual intake gate off"}
+                                  </span>
+                                  <button
+                                    className="primary-button table-inline-button"
+                                    onClick={() => void prepareWrikeOrder()}
+                                    disabled={
+                                      wrikeManualIntakeState === "loading" ||
+                                      !activeWrikeConnectionStatus?.manual_intake_enabled ||
+                                      !activeWrikeConnectionStatus?.workbook_evidence_enabled ||
+                                      !activeWrikeConnectionStatus?.evidence_preview_enabled ||
+                                      !activeWrikeConnectionStatus?.configured ||
+                                      activeWrikeReadiness.status !== "Configured" ||
+                                      activeImportMethodHasUnsavedChanges
+                                    }
+                                    title={
+                                      !activeWrikeConnectionStatus?.manual_intake_enabled
+                                        ? "The server manual-intake gate is off."
+                                        : !activeWrikeConnectionStatus?.workbook_evidence_enabled ||
+                                            !activeWrikeConnectionStatus?.evidence_preview_enabled
+                                          ? "Workbook evidence and preview creation must both be enabled."
+                                          : activeImportMethodHasUnsavedChanges
+                                            ? "Save this Import Method before preparing an order."
+                                            : activeWrikeReadiness.status !== "Configured"
+                                              ? "Complete the saved Wrike intake contract first."
+                                              : undefined
+                                    }
+                                  >
+                                    <ClipboardList size={14} />
+                                    {wrikeManualIntakeState === "loading"
+                                      ? "Preparing Wrike order"
+                                      : "Prepare Wrike order"}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {wrikeManualIntakeResult ? (
+                                <div className="wrike-manual-intake-result">
+                                  <div className="wrike-manual-intake-summary">
+                                    <div>
+                                      <span>Workbooks</span>
+                                      <strong>{wrikeManualIntakeResult.summary.workbook_count}</strong>
+                                    </div>
+                                    <div>
+                                      <span>New previews</span>
+                                      <strong>{wrikeManualIntakeResult.summary.created_count}</strong>
+                                    </div>
+                                    <div>
+                                      <span>Reused previews</span>
+                                      <strong>{wrikeManualIntakeResult.summary.replayed_count}</strong>
+                                    </div>
+                                    <div>
+                                      <span>Needs review</span>
+                                      <strong>{wrikeManualIntakeResult.summary.blocked_count}</strong>
+                                    </div>
+                                  </div>
+                                  <div className="wrike-manual-intake-workbooks">
+                                    {wrikeManualIntakeResult.workbooks.map((workbook) => (
+                                      <article key={workbook.evidence_id}>
+                                        <div>
+                                          <strong>{workbook.file_name}</strong>
+                                          <small>
+                                            Evidence {workbook.evidence_status.toLowerCase()}
+                                            {workbook.job_id ? ` · ${workbook.job_id}` : ""}
+                                          </small>
+                                        </div>
+                                        <span
+                                          className={
+                                            workbook.preview_status === "Blocked"
+                                              ? "mini-pill mini-pill-warning"
+                                              : "mini-pill mini-pill-success"
+                                          }
+                                        >
+                                          {workbook.preview_status === "Blocked"
+                                            ? "Needs review"
+                                            : `${workbook.preview_status} preview`}
+                                        </span>
+                                        {workbook.message ? <small>{workbook.message}</small> : null}
+                                      </article>
+                                    ))}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {wrikeManualIntakeMessage ? (
+                                <div
+                                  className={
+                                    wrikeManualIntakeState === "error"
+                                      ? "email-health-error"
+                                      : "wrike-discovery-message"
+                                  }
+                                >
+                                  {wrikeManualIntakeState === "error"
+                                    ? <AlertTriangle size={16} />
+                                    : <ShieldCheck size={16} />}
+                                  <span>{wrikeManualIntakeMessage}</span>
+                                </div>
+                              ) : null}
+                              <p className="wrike-contract-note">
+                                This action never polls or writes to Wrike and cannot submit an order to Lift. Multiple current workbooks become separate preview jobs.
+                              </p>
+                            </div>
 
                             <div className="wrike-evidence-panel">
                               <div className="wrike-discovery-heading">

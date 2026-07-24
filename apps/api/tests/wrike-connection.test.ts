@@ -30,6 +30,7 @@ before(async () => {
   process.env.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW = "true";
   process.env.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE = "true";
   process.env.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW = "true";
+  process.env.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE = "true";
   process.env.PATHFINDER_LOCAL_SOURCE_EVIDENCE_DIR = join(testDirectory, "source-evidence");
   originalFetch = globalThis.fetch;
   ({ app } = await import("../src/server.ts"));
@@ -82,11 +83,13 @@ test("stores customer Wrike app credentials only in the isolated secret boundary
   assert.equal(saved.body.provider_status.discovery_preview_enabled, true);
   assert.equal(saved.body.provider_status.workbook_evidence_enabled, true);
   assert.equal(saved.body.provider_status.evidence_preview_enabled, true);
+  assert.equal(saved.body.provider_status.manual_intake_enabled, true);
   assert.equal(saved.body.provider_status.capabilities.task_discovery, true);
   assert.equal(saved.body.provider_status.capabilities.attachment_metadata, true);
   assert.equal(saved.body.provider_status.capabilities.attachment_download, true);
   assert.equal(saved.body.provider_status.capabilities.source_evidence_persistence, true);
   assert.equal(saved.body.provider_status.capabilities.preview_job_creation, true);
+  assert.equal(saved.body.provider_status.capabilities.manual_intake, true);
   assert.equal(saved.body.provider_status.capabilities.wrike_writes, false);
   assert.equal(JSON.stringify(saved.body).includes("wrike-client-secret"), false);
 
@@ -475,6 +478,29 @@ test("stores qualified evidence, then creates and replays one saved-method previ
   assert.equal(previewReplay.body.workspace.jobs.length, preview.body.workspace.jobs.length);
   assert.equal(calls.length, wrikeCallsBeforePreview);
 
+  const prepared = await request(app)
+    .post(`/api/customers/${customerId}/import-methods/manual-xlsx/wrike/prepare-order`)
+    .expect(200);
+  assert.equal(prepared.body.status, "Prepared");
+  assert.equal(prepared.body.task_id, "IEAPPROVEDTASK");
+  assert.deepEqual(prepared.body.summary, {
+    workbook_count: 1,
+    created_count: 0,
+    replayed_count: 1,
+    blocked_count: 0
+  });
+  assert.equal(prepared.body.workbooks[0].evidence_id, evidence.evidence_id);
+  assert.equal(prepared.body.workbooks[0].preview_status, "Replayed");
+  assert.equal(prepared.body.workbooks[0].job_id, preview.body.job.job_id);
+  assert.equal(prepared.body.capabilities.operator_controlled, true);
+  assert.equal(prepared.body.capabilities.polling, false);
+  assert.equal(prepared.body.capabilities.webhook, false);
+  assert.equal(prepared.body.capabilities.wrike_writes, false);
+  assert.equal(prepared.body.capabilities.lift_actions, false);
+  assert.equal(JSON.stringify(prepared.body).includes("private-signed-url"), false);
+  assert.equal(JSON.stringify(prepared.body).includes("evidence-access-token"), false);
+  const wrikeCallsAfterPrepare = calls.length;
+
   await request(app)
     .put(`/api/customers/${customerId}/import-methods/manual-xlsx`)
     .send({ name: "Manual XLSX · revised saved contract" })
@@ -491,5 +517,5 @@ test("stores qualified evidence, then creates and replays one saved-method previ
     revisedPreview.body.job.source_evidence.import_method_fingerprint,
     preview.body.job.source_evidence.import_method_fingerprint
   );
-  assert.equal(calls.length, wrikeCallsBeforePreview);
+  assert.equal(calls.length, wrikeCallsAfterPrepare);
 });

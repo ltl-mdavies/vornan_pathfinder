@@ -29,6 +29,7 @@ test("production workflow enables only the certified sandbox-profile Lift lane b
 test("Wrike workbook evidence remains disabled by default and uses a retained private bucket", () => {
   assert.match(template, /WrikeWorkbookEvidenceEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /WrikeEvidencePreviewEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /WrikeManualIntakeEnabled:[\s\S]*?Default: "false"/);
   assert.match(
     template,
     /PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: !Ref WrikeWorkbookEvidenceEnabled/
@@ -36,6 +37,10 @@ test("Wrike workbook evidence remains disabled by default and uses a retained pr
   assert.match(
     template,
     /PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: !Ref WrikeEvidencePreviewEnabled/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !Ref WrikeManualIntakeEnabled/
   );
   assert.match(template, /PathfinderSourceEvidenceBucket:[\s\S]*?DeletionPolicy: Retain/);
   assert.match(template, /PathfinderSourceEvidenceBucket:[\s\S]*?UpdateReplacePolicy: Retain/);
@@ -55,6 +60,10 @@ test("Wrike workbook evidence remains disabled by default and uses a retained pr
   assert.match(
     workflow,
     /WrikeEvidencePreviewEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW \|\| 'false' \}\}"/
+  );
+  assert.match(
+    workflow,
+    /WrikeManualIntakeEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE \|\| 'false' \}\}"/
   );
   const parsedPolicy = JSON.parse(deployPolicy);
   const evidenceStatement = parsedPolicy.Statement.find(

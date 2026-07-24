@@ -33,6 +33,7 @@ aws cloudformation deploy \
     WrikeDiscoveryPreviewEnabled="${PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW:-false}" \
     WrikeWorkbookEvidenceEnabled="${PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE:-false}" \
     WrikeEvidencePreviewEnabled="${PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW:-false}" \
+    WrikeManualIntakeEnabled="${PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE:-false}" \
     WrikeOAuthRedirectUri="${PATHFINDER_WRIKE_OAUTH_REDIRECT_URI:-https://api.pathfinder.vornan.co/oauth/wrike/callback}" \
     PathfinderAppBaseUrl="${PATHFINDER_APP_BASE_URL:-https://pathfinder.vornan.co}" \
     EmailFrom="${PATHFINDER_EMAIL_FROM:-Vornan Updates <notifications@notify.vornan.co>}" \
