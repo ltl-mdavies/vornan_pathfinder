@@ -835,7 +835,9 @@ export async function discoverApprovedWrikeTask(
   const host = rotatedCredentials.host;
   const accessToken = rotatedCredentials.access_token ?? "";
   const taskUrl = new URL(`https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}`);
-  taskUrl.searchParams.set("fields", JSON.stringify(["attachmentCount", "customFields"]));
+  // Wrike returns customFields in the default task payload and rejects it when
+  // explicitly requested through the fields parameter.
+  taskUrl.searchParams.set("fields", JSON.stringify(["attachmentCount"]));
 
   let taskResponse: Response;
   try {
