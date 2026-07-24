@@ -71,6 +71,13 @@ Parameters:
       - "true"
       - "false"
     Description: Explicit operator-only gate for qualified Wrike workbook download into immutable source evidence storage.
+  WrikeEvidencePreviewEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Independent operator-only gate for parsing verified stored evidence into a Pathfinder preview job.
   WrikeOAuthRedirectUri:
     Type: String
     Default: "https://api.pathfinder.vornan.co/oauth/wrike/callback"
@@ -425,6 +432,7 @@ Resources:
           PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST: !Ref WrikeConnectionTestEnabled
           PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW: !Ref WrikeDiscoveryPreviewEnabled
           PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: !Ref WrikeWorkbookEvidenceEnabled
+          PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: !Ref WrikeEvidencePreviewEnabled
           PATHFINDER_SOURCE_EVIDENCE_BUCKET: !Ref PathfinderSourceEvidenceBucket
           PATHFINDER_WRIKE_OAUTH_REDIRECT_URI: !Ref WrikeOAuthRedirectUri
           PATHFINDER_APP_BASE_URL: !Ref PathfinderAppBaseUrl

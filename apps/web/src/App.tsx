@@ -203,6 +203,7 @@ type WrikeConnectionStatusPayload = {
   connection_test_enabled: boolean;
   discovery_preview_enabled: boolean;
   workbook_evidence_enabled: boolean;
+  evidence_preview_enabled: boolean;
   host: string | null;
   credentials: {
     client_id_configured: boolean;
@@ -227,6 +228,7 @@ type WrikeConnectionStatusPayload = {
     attachment_metadata: boolean;
     attachment_download: boolean;
     source_evidence_persistence: boolean;
+    preview_job_creation: boolean;
     webhook: false;
     polling: false;
     wrike_writes: false;
@@ -249,6 +251,7 @@ type WrikeWorkbookEvidenceRecord = {
   customer_id: string;
   import_method_id: string;
   connection_id: string;
+  account_id: string;
   provider: "wrike";
   task_id: string;
   attachment_id: string;
@@ -268,6 +271,13 @@ type WrikeWorkbookEvidencePayload = {
   captured_at: string;
   task_id: string;
   evidence: WrikeWorkbookEvidenceRecord[];
+};
+
+type WrikeEvidencePreviewPayload = {
+  preview_status: "Created" | "Replayed";
+  job: ProcessingJobPreview;
+  workspace: PathfinderCustomerWorkspace;
+  source_evidence: NonNullable<ProcessingJobPreview["source_evidence"]>;
 };
 
 type SubmitRuntimeStatus = {
@@ -654,6 +664,18 @@ interface ProcessingJobPreview {
     channel: "customer_dropbox";
     submitted_by_email: string;
     submitted_at: string;
+  } | null;
+  source_evidence?: {
+    provider: "wrike";
+    evidence_id: string;
+    evidence_sha256: string;
+    import_method_fingerprint: string;
+    connection_id: string;
+    account_id: string;
+    task_id: string;
+    attachment_id: string;
+    version_id: string;
+    captured_at: string;
   } | null;
 }
 
@@ -3517,6 +3539,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [wrikeEvidenceState, setWrikeEvidenceState] = useState<"idle" | "loading" | "error">("idle");
   const [wrikeEvidenceMessage, setWrikeEvidenceMessage] = useState<string | null>(null);
   const [wrikeWorkbookEvidence, setWrikeWorkbookEvidence] = useState<WrikeWorkbookEvidenceRecord[]>([]);
+  const [wrikeEvidencePreviewId, setWrikeEvidencePreviewId] = useState("");
+  const [wrikeEvidencePreviewJobs, setWrikeEvidencePreviewJobs] = useState<
+    Record<string, ProcessingJobPreview>
+  >({});
   const [wrikeConnectionDraft, setWrikeConnectionDraft] = useState({
     name: "",
     environment: "Production" as "Production" | "Sandbox",
@@ -4108,6 +4134,44 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     } catch (error) {
       setWrikeEvidenceMessage(error instanceof Error ? error.message : "Wrike workbook evidence capture failed.");
       setWrikeEvidenceState("error");
+    }
+  }
+
+  async function createWrikeEvidencePreview(record: WrikeWorkbookEvidenceRecord) {
+    if (!selectedCustomerId || !activeImportMethod) {
+      return;
+    }
+    setWrikeEvidencePreviewId(record.evidence_id);
+    setWrikeEvidenceState("idle");
+    setWrikeEvidenceMessage(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/import-methods/${encodeURIComponent(activeImportMethod.import_method_id)}/wrike/workbook-evidence/${encodeURIComponent(record.evidence_id)}/preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ extension: record.extension })
+        }
+      );
+      const payload = await readJsonResponse<WrikeEvidencePreviewPayload>(response);
+      setWorkspace(payload.workspace);
+      setLastPreviewJob(payload.job);
+      setWrikeEvidencePreviewJobs((current) => ({
+        ...current,
+        [record.evidence_id]: payload.job
+      }));
+      await loadTargetsAndJobs();
+      setWrikeEvidenceMessage(
+        payload.preview_status === "Replayed"
+          ? `Existing preview ${payload.job.job_id} reused because the evidence and saved Import Method are unchanged.`
+          : `Preview ${payload.job.job_id} created from verified evidence. Review it before any Lift action.`
+      );
+      setWrikeEvidenceState("idle");
+    } catch (error) {
+      setWrikeEvidenceMessage(error instanceof Error ? error.message : "Wrike evidence preview creation failed.");
+      setWrikeEvidenceState("error");
+    } finally {
+      setWrikeEvidencePreviewId("");
     }
   }
 
@@ -5134,6 +5198,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWrikeDiscoveryMessage(null);
     setWrikeDiscoveryState("idle");
     setWrikeWorkbookEvidence([]);
+    setWrikeEvidencePreviewId("");
+    setWrikeEvidencePreviewJobs({});
     setWrikeEvidenceMessage(null);
     setWrikeEvidenceState("idle");
     if (isImportMethodDetailOpen && activeImportMethod?.source === "Wrike" && selectedCustomerId) {
@@ -9529,6 +9595,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                       ? "Evidence gate on"
                                       : "Evidence gate off"}
                                   </span>
+                                  <span
+                                    className={
+                                      activeWrikeConnectionStatus?.evidence_preview_enabled
+                                        ? "mini-pill mini-pill-success"
+                                        : "mini-pill mini-pill-warning"
+                                    }
+                                  >
+                                    {activeWrikeConnectionStatus?.evidence_preview_enabled
+                                      ? "Preview gate on"
+                                      : "Preview gate off"}
+                                  </span>
                                   <button
                                     className="secondary-button table-inline-button"
                                     onClick={() => void captureWrikeWorkbookEvidence()}
@@ -9578,6 +9655,37 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                           <dd>{record.sha256}</dd>
                                         </div>
                                       </dl>
+                                      <div className="wrike-evidence-actions">
+                                        <button
+                                          className="secondary-button table-inline-button"
+                                          onClick={() => void createWrikeEvidencePreview(record)}
+                                          disabled={
+                                            Boolean(wrikeEvidencePreviewId) ||
+                                            !activeWrikeConnectionStatus?.evidence_preview_enabled ||
+                                            activeImportMethodHasUnsavedChanges
+                                          }
+                                          title={
+                                            !activeWrikeConnectionStatus?.evidence_preview_enabled
+                                              ? "The server evidence-preview gate is off."
+                                              : activeImportMethodHasUnsavedChanges
+                                                ? "Save this Import Method before creating a preview."
+                                                : undefined
+                                          }
+                                        >
+                                          <ClipboardList size={14} />
+                                          {wrikeEvidencePreviewId === record.evidence_id
+                                            ? "Creating preview"
+                                            : "Create preview job"}
+                                        </button>
+                                        {wrikeEvidencePreviewJobs[record.evidence_id] ? (
+                                          <button
+                                            className="secondary-button table-inline-button"
+                                            onClick={() => void openJobDetail(wrikeEvidencePreviewJobs[record.evidence_id])}
+                                          >
+                                            Open job
+                                          </button>
+                                        ) : null}
+                                      </div>
                                     </article>
                                   ))}
                                 </div>
@@ -9590,7 +9698,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 </div>
                               ) : null}
                               <p className="wrike-contract-note">
-                                Evidence capture cannot parse or map the workbook, create a preview job, poll Wrike, write to Wrike, or act in Lift.
+                                Preview creation parses one verified evidence record through this saved Import Method. It does not poll or write to Wrike, submit to Lift, or bypass operator review.
                               </p>
                             </div>
                           </div>

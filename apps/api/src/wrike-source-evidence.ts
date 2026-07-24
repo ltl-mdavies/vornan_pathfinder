@@ -1,4 +1,5 @@
 import {
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -14,6 +15,7 @@ export interface WrikeWorkbookEvidenceRecord {
   customer_id: string;
   import_method_id: string;
   connection_id: string;
+  account_id: string;
   provider: "wrike";
   task_id: string;
   attachment_id: string;
@@ -35,7 +37,7 @@ interface LocalEvidenceEnvelope {
 
 export class WrikeSourceEvidenceError extends Error {
   constructor(
-    public readonly code: "invalid_evidence" | "identity_conflict" | "storage_failed",
+    public readonly code: "invalid_evidence" | "identity_conflict" | "not_found" | "storage_failed",
     message: string
   ) {
     super(message);
@@ -104,6 +106,7 @@ function createEvidenceRecord(args: {
     customer_id: customerId,
     import_method_id: importMethodId,
     connection_id: connectionId,
+    account_id: boundedIdentifier(args.workbook.account_id, "Wrike account ID"),
     provider: "wrike" as const,
     task_id: boundedIdentifier(args.workbook.task_id, "Wrike task ID"),
     attachment_id: boundedIdentifier(args.workbook.attachment_id, "Wrike attachment ID"),
@@ -127,6 +130,7 @@ function replayOrConflict(
     "customer_id",
     "import_method_id",
     "connection_id",
+    "account_id",
     "provider",
     "task_id",
     "attachment_id",
@@ -227,6 +231,12 @@ function recordFromHead(
   }
   const existing = {
     ...record,
+    account_id: decodeMetadata(metadata?.account_id, "account ID"),
+    connection_id: decodeMetadata(metadata?.connection_id, "connection ID"),
+    task_id: decodeMetadata(metadata?.task_id, "task ID"),
+    attachment_id: decodeMetadata(metadata?.attachment_id, "attachment ID"),
+    version_id: decodeMetadata(metadata?.version_id, "version ID"),
+    extension: decodeMetadata(metadata?.extension, "extension") as WrikeWorkbookExtension,
     file_name: decodeMetadata(metadata?.file_name, "file name"),
     content_type: decodeMetadata(metadata?.content_type, "content type"),
     sha256: metadata?.sha256 ?? "",
@@ -281,6 +291,12 @@ async function persistS3Evidence(
         ServerSideEncryption: "AES256",
         Metadata: {
           evidence_id: record.evidence_id,
+          account_id: encodeMetadata(record.account_id),
+          connection_id: encodeMetadata(record.connection_id),
+          task_id: encodeMetadata(record.task_id),
+          attachment_id: encodeMetadata(record.attachment_id),
+          version_id: encodeMetadata(record.version_id),
+          extension: encodeMetadata(record.extension),
           sha256: record.sha256,
           file_name: encodeMetadata(record.file_name),
           content_type: encodeMetadata(record.content_type),
@@ -325,4 +341,133 @@ export async function persistWrikeWorkbookEvidence(args: {
   return bucket
     ? persistS3Evidence(bucket, record, args.workbook.bytes)
     : persistLocalEvidence(record, args.workbook.bytes);
+}
+
+type LoadEvidenceArgs = {
+  customer_id: string;
+  import_method_id: string;
+  connection_id: string;
+  evidence_id: string;
+  extension: WrikeWorkbookExtension;
+};
+
+function validateLoadedEvidence(
+  record: Omit<WrikeWorkbookEvidenceRecord, "storage_status">,
+  bytes: Uint8Array,
+  expected: LoadEvidenceArgs
+) {
+  const exactIdentity =
+    record.provider === "wrike" &&
+    record.customer_id === boundedIdentifier(expected.customer_id, "Customer ID") &&
+    record.import_method_id === boundedIdentifier(expected.import_method_id, "Import Method ID") &&
+    record.connection_id === boundedIdentifier(expected.connection_id, "Source connection ID") &&
+    record.evidence_id === boundedIdentifier(expected.evidence_id, "Evidence ID") &&
+    record.extension === expected.extension;
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (
+    !exactIdentity ||
+    !/^[a-f0-9]{64}$/.test(record.sha256) ||
+    digest !== record.sha256 ||
+    record.byte_size !== bytes.byteLength ||
+    bytes.byteLength < 1
+  ) {
+    throw new WrikeSourceEvidenceError(
+      "identity_conflict",
+      "Stored Wrike workbook evidence failed immutable identity or checksum verification."
+    );
+  }
+  return {
+    record: { ...record, storage_status: "Replayed" as const },
+    bytes
+  };
+}
+
+async function loadLocalEvidence(args: LoadEvidenceArgs) {
+  const filePath = path.join(
+    localEvidenceRoot(),
+    boundedIdentifier(args.customer_id, "Customer ID"),
+    boundedIdentifier(args.import_method_id, "Import Method ID"),
+    `${boundedIdentifier(args.evidence_id, "Evidence ID")}.json`
+  );
+  try {
+    const envelope = JSON.parse(await readFile(filePath, "utf8")) as LocalEvidenceEnvelope;
+    return validateLoadedEvidence(envelope.record, Buffer.from(envelope.bytes_base64, "base64"), args);
+  } catch (error) {
+    if (error instanceof WrikeSourceEvidenceError) {
+      throw error;
+    }
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new WrikeSourceEvidenceError("not_found", "Stored Wrike workbook evidence was not found.");
+    }
+    throw new WrikeSourceEvidenceError("storage_failed", "Stored Wrike workbook evidence is unreadable.");
+  }
+}
+
+async function loadS3Evidence(bucket: string, args: LoadEvidenceArgs) {
+  const seed = {
+    evidence_id: boundedIdentifier(args.evidence_id, "Evidence ID"),
+    customer_id: boundedIdentifier(args.customer_id, "Customer ID"),
+    import_method_id: boundedIdentifier(args.import_method_id, "Import Method ID"),
+    connection_id: boundedIdentifier(args.connection_id, "Source connection ID"),
+    account_id: "",
+    provider: "wrike" as const,
+    task_id: "",
+    attachment_id: "",
+    version_id: "",
+    file_name: "",
+    extension: args.extension,
+    content_type: "",
+    byte_size: 0,
+    sha256: "",
+    wrike_updated_at: "",
+    stored_at: ""
+  };
+  try {
+    const result = await getS3Client().send(
+      new GetObjectCommand({ Bucket: bucket, Key: s3ObjectKey(seed) })
+    );
+    if (!result.Body) {
+      throw new WrikeSourceEvidenceError("storage_failed", "Stored Wrike workbook evidence has no content.");
+    }
+    const bytes = new Uint8Array(await result.Body.transformToByteArray());
+    const metadata = result.Metadata;
+    if (metadata?.evidence_id !== seed.evidence_id) {
+      throw new WrikeSourceEvidenceError("identity_conflict", "Stored Wrike evidence identity is invalid.");
+    }
+    const record = {
+      ...seed,
+      account_id: decodeMetadata(metadata?.account_id, "account ID"),
+      connection_id: decodeMetadata(metadata?.connection_id, "connection ID"),
+      task_id: decodeMetadata(metadata?.task_id, "task ID"),
+      attachment_id: decodeMetadata(metadata?.attachment_id, "attachment ID"),
+      version_id: decodeMetadata(metadata?.version_id, "version ID"),
+      extension: decodeMetadata(metadata?.extension, "extension") as WrikeWorkbookExtension,
+      file_name: decodeMetadata(metadata?.file_name, "file name"),
+      content_type: decodeMetadata(metadata?.content_type, "content type"),
+      sha256: metadata?.sha256 ?? "",
+      byte_size: Number(result.ContentLength ?? bytes.byteLength),
+      wrike_updated_at: decodeMetadata(metadata?.wrike_updated_at, "provider timestamp"),
+      stored_at: decodeMetadata(metadata?.stored_at, "storage timestamp")
+    };
+    return validateLoadedEvidence(record, bytes, args);
+  } catch (error) {
+    if (error instanceof WrikeSourceEvidenceError) {
+      throw error;
+    }
+    if (
+      error instanceof S3ServiceException &&
+      (error.$metadata.httpStatusCode === 404 || error.name === "NotFound" || error.name === "NoSuchKey")
+    ) {
+      throw new WrikeSourceEvidenceError("not_found", "Stored Wrike workbook evidence was not found.");
+    }
+    throw new WrikeSourceEvidenceError("storage_failed", "Stored Wrike workbook evidence could not be loaded.");
+  }
+}
+
+export async function loadWrikeWorkbookEvidence(args: LoadEvidenceArgs) {
+  const bucket = process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET?.trim();
+  if (process.env.PATHFINDER_STORAGE_DRIVER !== "local" && !bucket) {
+    throw new WrikeSourceEvidenceError("storage_failed", "Wrike workbook evidence storage is not configured.");
+  }
+  return bucket ? loadS3Evidence(bucket, args) : loadLocalEvidence(args);
 }

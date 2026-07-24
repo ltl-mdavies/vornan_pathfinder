@@ -4592,7 +4592,7 @@ h1 {
 
 .wrike-evidence-list article {
   display: grid;
-  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr) auto;
   gap: 18px;
   min-width: 0;
   padding: 12px;
@@ -4639,6 +4639,17 @@ h1 {
   font-family: var(--font-mono);
   font-size: 10px;
   line-height: 1.4;
+}
+
+.wrike-evidence-list .wrike-evidence-actions {
+  align-content: center;
+  justify-items: stretch;
+  min-width: 152px;
+}
+
+.wrike-evidence-actions .table-inline-button {
+  justify-content: center;
+  width: 100%;
 }
 
 @media (max-width: 760px) {
