@@ -13973,6 +13973,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               targetId={selectedTarget.target_id}
                               environmentId={environment.environment_id}
                               environmentName={environment.name}
+                              orderEndpointUrl={environment.endpoint_url}
+                              suggestedCompanyId={environment.headers.Company ?? ""}
                             />
                           ) : null}
                         </div>

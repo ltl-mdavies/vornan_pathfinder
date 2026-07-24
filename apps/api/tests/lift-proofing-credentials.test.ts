@@ -57,6 +57,7 @@ test("stores Proofing API credentials per target environment without exposing or
   assert.deepEqual(initial.body, {
     base_url: null,
     company_id: null,
+    action_user_name: "VORNAN_PROOF",
     client_id_configured: false,
     client_secret_configured: false,
     configured: false,
@@ -69,6 +70,7 @@ test("stores Proofing API credentials per target environment without exposing or
     .send({
       base_url: "https://proofing.example.invalid/api/",
       company_id: "company-91",
+      action_user_name: "VORNAN_PROOF",
       client_id: "qa-proofing-client",
       client_secret: "qa-proofing-secret"
     })
@@ -76,6 +78,7 @@ test("stores Proofing API credentials per target environment without exposing or
 
   assert.equal(configured.body.base_url, "https://proofing.example.invalid/api");
   assert.equal(configured.body.company_id, "company-91");
+  assert.equal(configured.body.action_user_name, "VORNAN_PROOF");
   assert.equal(configured.body.configured, true);
   assert.equal(configured.body.client_id_configured, true);
   assert.equal(configured.body.client_secret_configured, true);
@@ -88,6 +91,7 @@ test("stores Proofing API credentials per target environment without exposing or
   const storedAfterConfigure = await readFile(join(testDirectory, "secrets.json"), "utf8");
   assert.equal(storedAfterConfigure.includes("qa-proofing-client"), true);
   assert.equal(storedAfterConfigure.includes("qa-proofing-secret"), true);
+  assert.equal(storedAfterConfigure.includes("VORNAN_PROOF"), true);
   assert.equal(storedAfterConfigure.includes("qa-import-user"), true);
   assert.equal(storedAfterConfigure.includes("qa-import-password"), true);
   assert.equal(storedAfterConfigure.includes("production-import-password"), true);
@@ -147,6 +151,7 @@ test("replaces only a complete credential pair, retains it for metadata-only sav
   assert.equal(cleared.body.configured, false);
   assert.equal(cleared.body.base_url, null);
   assert.equal(cleared.body.company_id, null);
+  assert.equal(cleared.body.action_user_name, "VORNAN_PROOF");
   assert.equal(cleared.body.audit_events[0].action, "cleared");
   assert.equal(JSON.stringify(cleared.body).includes("replacement"), false);
 
@@ -186,6 +191,17 @@ test("rejects unsafe URLs, unbounded identifiers, unknown environments, and non-
     .send({
       base_url: "https://proofing.example.invalid/api",
       company_id: "x".repeat(257),
+      client_id: "client",
+      client_secret: "secret"
+    })
+    .expect(400);
+
+  await request(app)
+    .put(endpoint(qaEnvironmentId))
+    .send({
+      base_url: "https://proofing.example.invalid/api",
+      company_id: "company-91",
+      action_user_name: "invalid user name",
       client_id: "client",
       client_secret: "secret"
     })

@@ -10,10 +10,12 @@ const maxBaseUrlLength = 2_048;
 const maxIdentifierLength = 256;
 const maxSecretLength = 16_384;
 const retainedAuditEvents = 25;
+export const DEFAULT_PROOFING_API_ACTION_USER_NAME = "VORNAN_PROOF";
 
 export interface TargetProofingApiConfiguration {
   base_url: string | null;
   company_id: string | null;
+  action_user_name: string;
   client_id_configured: boolean;
   client_secret_configured: boolean;
   configured: boolean;
@@ -24,6 +26,7 @@ export interface TargetProofingApiConfiguration {
 export interface SaveTargetProofingApiInput {
   base_url?: unknown;
   company_id?: unknown;
+  action_user_name?: unknown;
   client_id?: unknown;
   client_secret?: unknown;
 }
@@ -110,12 +113,20 @@ function auditEvent(action: TargetProofingApiAuditEvent["action"], actorId: stri
 function publicConfiguration(value: TargetEnvironmentProofingApiSecrets | undefined): TargetProofingApiConfiguration {
   const clientIdConfigured = Boolean(value?.client_id);
   const clientSecretConfigured = Boolean(value?.client_secret);
+  const actionUserName = value?.action_user_name || DEFAULT_PROOFING_API_ACTION_USER_NAME;
   return {
     base_url: value?.base_url || null,
     company_id: value?.company_id || null,
+    action_user_name: actionUserName,
     client_id_configured: clientIdConfigured,
     client_secret_configured: clientSecretConfigured,
-    configured: clientIdConfigured && clientSecretConfigured,
+    configured: Boolean(
+      value?.base_url &&
+      value?.company_id &&
+      actionUserName &&
+      clientIdConfigured &&
+      clientSecretConfigured
+    ),
     updated_at: value?.updated_at || null,
     audit_events: [...(value?.audit_events ?? [])]
   };
@@ -149,6 +160,10 @@ export async function saveTargetEnvironmentProofingApi(
   const environmentSecrets = { ...(environments[environmentId] ?? {}) };
   const current = environmentSecrets.proofing_api;
   const hasCurrentCredentials = Boolean(current?.client_id && current?.client_secret);
+  const actionUserName = normalizeProofingApiIdentifier(
+    input.action_user_name ?? current?.action_user_name ?? DEFAULT_PROOFING_API_ACTION_USER_NAME,
+    "Lift action user"
+  );
 
   if (!hasCurrentCredentials && !submittedClientId) {
     throw new TargetProofingApiValidationError("Client ID and client secret are required for initial configuration.");
@@ -159,6 +174,7 @@ export async function saveTargetEnvironmentProofingApi(
   const next: TargetEnvironmentProofingApiSecrets = {
     base_url: baseUrl,
     company_id: companyId,
+    action_user_name: actionUserName,
     client_id: submittedClientId ?? current?.client_id,
     client_secret: submittedClientSecret ?? current?.client_secret,
     updated_at: occurredAt,
@@ -188,7 +204,13 @@ export async function clearTargetEnvironmentProofingApi(
   const environmentSecrets = { ...(environments[environmentId] ?? {}) };
   const current = environmentSecrets.proofing_api;
 
-  if (!current?.client_id && !current?.client_secret && !current?.base_url && !current?.company_id) {
+  if (
+    !current?.client_id &&
+    !current?.client_secret &&
+    !current?.base_url &&
+    !current?.company_id &&
+    !current?.action_user_name
+  ) {
     return publicConfiguration(current);
   }
 

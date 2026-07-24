@@ -37,6 +37,7 @@ export interface TargetProofingApiAuditEvent {
 export interface TargetEnvironmentProofingApiSecrets {
   base_url?: string;
   company_id?: string;
+  action_user_name?: string;
   client_id?: string;
   client_secret?: string;
   updated_at?: string;
