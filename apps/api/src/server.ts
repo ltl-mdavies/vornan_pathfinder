@@ -90,6 +90,7 @@ import {
   persistWrikeWorkbookEvidence,
   WrikeSourceEvidenceError
 } from "./wrike-source-evidence.js";
+import { prepareWrikeManualIntake } from "./wrike-manual-intake.js";
 import {
   archiveImportMethod,
   addCanonicalRegistryCustomField,
@@ -211,6 +212,8 @@ const wrikeWorkbookEvidenceEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE === "true";
 const wrikeEvidencePreviewEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW === "true";
+const wrikeManualIntakeEnabled =
+  process.env.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE === "true";
 const wrikeOAuthRedirectUri = process.env.PATHFINDER_WRIKE_OAUTH_REDIRECT_URI ??
   (process.env.PATHFINDER_RUNTIME === "lambda"
     ? "https://api.pathfinder.vornan.co/oauth/wrike/callback"
@@ -3485,6 +3488,7 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
     discovery_preview_enabled: wrikeDiscoveryPreviewEnabled,
     workbook_evidence_enabled: wrikeWorkbookEvidenceEnabled,
     evidence_preview_enabled: wrikeEvidencePreviewEnabled,
+    manual_intake_enabled: wrikeManualIntakeEnabled,
     host,
     credentials: {
       client_id_configured: clientIdConfigured,
@@ -3510,6 +3514,7 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
       attachment_download: wrikeWorkbookEvidenceEnabled,
       source_evidence_persistence: wrikeWorkbookEvidenceEnabled,
       preview_job_creation: wrikeEvidencePreviewEnabled,
+      manual_intake: wrikeManualIntakeEnabled,
       webhook: false,
       polling: false,
       wrike_writes: false,
@@ -3732,6 +3737,264 @@ app.all(["/api/wrike/connection", "/api/wrike/oauth/start", "/api/wrike/connecti
   res.status(410).json({ error: "Wrike is configured per customer in Customer Settings → Source Connections." });
 });
 
+class WrikeIntakeRequestError extends Error {
+  constructor(
+    readonly statusCode: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "WrikeIntakeRequestError";
+  }
+}
+
+async function captureWrikeWorkbookEvidenceForMethod(
+  liftCustomerId: string,
+  methodId: string,
+  options: { requireActive?: boolean } = {}
+) {
+  let customerId = "";
+  let connectionId = "";
+  let existing: WrikeConnectorSecrets = {};
+  try {
+    const customer = await findLiftCustomer(liftCustomerId);
+    customerId = customer.lift_customer_id;
+    const workspace = await getOrCreateWorkspace(customer);
+    const method = workspace.import_methods.find(
+      (candidate) => candidate.import_method_id === methodId
+    );
+    if (!method) {
+      throw new WrikeIntakeRequestError(404, "The selected Import Method does not exist.");
+    }
+    if (method.source !== "Wrike") {
+      throw new WrikeIntakeRequestError(400, "The selected Import Method is not a Wrike source.");
+    }
+    if (options.requireActive && method.status !== "Active") {
+      throw new WrikeIntakeRequestError(400, "Choose an active Wrike Import Method.");
+    }
+
+    const config = normalizeWrikeSourceConfig(method.source_config.wrike);
+    const readiness = getWrikeContractReadiness(config);
+    if (
+      readiness.status !== "Configured" ||
+      !config.approved_discovery_task_id ||
+      !config.connection_id
+    ) {
+      throw new WrikeIntakeRequestError(
+        400,
+        "Save the customer Wrike connection, folder, intake-ready status, workbook rule, and approved task ID before capturing evidence."
+      );
+    }
+    connectionId = config.connection_id;
+    const connection = await findCustomerSourceConnection(customer, connectionId);
+    if (!connection || connection.provider !== "wrike") {
+      throw new WrikeIntakeRequestError(
+        400,
+        "The Import Method's customer Wrike connection is not available."
+      );
+    }
+
+    existing = (await readCustomerSourceConnectionSecrets(customerId, connectionId)).wrike ?? {};
+    const oauth = existing.oauth as WrikeOAuthCredentials | undefined;
+    if (!oauth) {
+      throw new WrikeConnectionError("invalid_configuration", "Wrike OAuth credentials are not configured.");
+    }
+
+    const result = await fetchQualifiedWrikeWorkbookSources(oauth, config);
+    await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+      provider: "wrike",
+      wrike: { ...existing, oauth: result.credentials }
+    });
+    const evidence = [];
+    for (const workbook of result.workbooks) {
+      evidence.push(
+        await persistWrikeWorkbookEvidence({
+          customer_id: customerId,
+          import_method_id: method.import_method_id,
+          connection_id: connectionId,
+          workbook
+        })
+      );
+    }
+    return {
+      status: evidence.every((record) => record.storage_status === "Replayed")
+        ? "Replayed" as const
+        : "Stored" as const,
+      captured_at: new Date().toISOString(),
+      task_id: result.task_id,
+      evidence,
+      capabilities: {
+        source_evidence_persistence: true,
+        preview_job_creation: wrikeEvidencePreviewEnabled,
+        canonical_mapping: wrikeEvidencePreviewEnabled,
+        polling: false,
+        webhook: false,
+        wrike_writes: false,
+        lift_actions: false
+      }
+    };
+  } catch (error) {
+    if (customerId && connectionId && error instanceof WrikeConnectionError && error.rotated_credentials) {
+      await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+        provider: "wrike",
+        wrike: { ...existing, oauth: error.rotated_credentials }
+      });
+    }
+    throw error;
+  }
+}
+
+function wrikeEvidenceCaptureErrorStatus(error: unknown) {
+  return error instanceof WrikeIntakeRequestError
+    ? error.statusCode
+    : error instanceof WrikeConnectionError && error.code === "invalid_configuration"
+      ? 400
+      : error instanceof WrikeSourceEvidenceError && error.code === "identity_conflict"
+        ? 409
+        : error instanceof WrikeConnectionError && error.code === "attachment_validation_failed"
+          ? 409
+          : 502;
+}
+
+function wrikeEvidenceCaptureErrorMessage(error: unknown) {
+  return error instanceof WrikeIntakeRequestError ||
+    error instanceof WrikeConnectionError ||
+    error instanceof WrikeSourceEvidenceError
+    ? error.message
+    : "Wrike workbook evidence capture failed.";
+}
+
+async function createWrikeEvidencePreviewForMethod(args: {
+  liftCustomerId: string;
+  methodId: string;
+  evidenceId: string;
+  extension: WrikeWorkbookExtension;
+}) {
+  const customer = await findLiftCustomer(args.liftCustomerId);
+  const workspace = await getOrCreateWorkspace(customer);
+  const method = workspace.import_methods.find(
+    (candidate) => candidate.import_method_id === args.methodId
+  );
+  if (!method) {
+    throw new WrikeIntakeRequestError(404, "The selected Import Method does not exist.");
+  }
+  if (method.source !== "Wrike" || method.status !== "Active") {
+    throw new WrikeIntakeRequestError(400, "Choose an active Wrike Import Method.");
+  }
+  const config = normalizeWrikeSourceConfig(method.source_config.wrike);
+  if (!config.connection_id) {
+    throw new WrikeIntakeRequestError(
+      400,
+      "The Import Method does not have a saved Wrike connection."
+    );
+  }
+  const connection = await findCustomerSourceConnection(customer, config.connection_id);
+  if (!connection || connection.provider !== "wrike") {
+    throw new WrikeIntakeRequestError(
+      400,
+      "The Import Method's customer Wrike connection is unavailable."
+    );
+  }
+  const outputRoute =
+    workspace.output_routes.find((route) => route.output_route_id === method.output_route_id) ??
+    workspace.output_routes.find((route) => route.output_route_id === workspace.primary_output_route_id) ??
+    workspace.output_routes[0];
+  if (!outputRoute || outputRoute.status !== "Active") {
+    throw new WrikeIntakeRequestError(
+      400,
+      "The Import Method requires an active Output Route."
+    );
+  }
+
+  const loaded = await loadWrikeWorkbookEvidence({
+    customer_id: customer.lift_customer_id,
+    import_method_id: method.import_method_id,
+    connection_id: config.connection_id,
+    evidence_id: args.evidenceId,
+    extension: args.extension
+  });
+  const fingerprint = importMethodFingerprint(method, outputRoute);
+  const priorJob = workspace.jobs.find(
+    (job) =>
+      job.source_evidence?.provider === "wrike" &&
+      job.source_evidence.evidence_id === loaded.record.evidence_id &&
+      job.source_evidence.evidence_sha256 === loaded.record.sha256 &&
+      job.source_evidence.import_method_fingerprint === fingerprint
+  );
+  if (priorJob) {
+    const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
+    return {
+      preview_status: "Replayed" as const,
+      job: priorJob,
+      source_evidence: priorJob.source_evidence,
+      workspace: {
+        ...workspace,
+        primary_target: target ? maskTargetConfig(target) : null
+      }
+    };
+  }
+
+  const bytes = loaded.bytes;
+  const parsed = await parseWorkbookArrayBuffer(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+    workbookParseOptions(method)
+  );
+  const orderRows = parsed.parsed_order_rows.filter((row) => row.row_type === "order");
+  if (!orderRows.length) {
+    throw new WrikeIntakeRequestError(
+      400,
+      "The stored workbook has no order rows under this Import Method's saved parser settings."
+    );
+  }
+  const sourceEvidence: NonNullable<ProcessingJobPreview["source_evidence"]> = {
+    provider: "wrike",
+    evidence_id: loaded.record.evidence_id,
+    evidence_sha256: loaded.record.sha256,
+    import_method_fingerprint: fingerprint,
+    connection_id: loaded.record.connection_id,
+    account_id: loaded.record.account_id,
+    task_id: loaded.record.task_id,
+    attachment_id: loaded.record.attachment_id,
+    version_id: loaded.record.version_id,
+    captured_at: loaded.record.stored_at
+  };
+  const result = await createPreviewJobForRequest(
+    customer.lift_customer_id,
+    {
+      source_grid: {
+        columns: parsed.columns,
+        rows: orderRows.map((row) => row.values)
+      },
+      source_sheets: parsed.source_sheets,
+      parsed_order_rows: parsed.parsed_order_rows,
+      reference_rows: parsed.reference_rows,
+      source_file_name: loaded.record.file_name,
+      sheet_name: parsed.sheetName,
+      import_method_id: method.import_method_id
+    },
+    undefined,
+    { sourceEvidence }
+  );
+  return {
+    ...result,
+    preview_status: "Created" as const,
+    source_evidence: sourceEvidence
+  };
+}
+
+function wrikeEvidencePreviewErrorStatus(error: unknown) {
+  return error instanceof WrikeIntakeRequestError
+    ? error.statusCode
+    : error instanceof WrikeSourceEvidenceError && error.code === "not_found"
+      ? 404
+      : error instanceof WrikeSourceEvidenceError && error.code === "identity_conflict"
+        ? 409
+        : error instanceof WrikeSourceEvidenceError && error.code === "invalid_evidence"
+          ? 400
+          : error instanceof WrikeSourceEvidenceError
+            ? 502
+            : 500;
+}
+
 app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discovery-preview", async (req, res) => {
   if (!wrikeDiscoveryPreviewEnabled) {
     res.status(423).json({
@@ -3809,101 +4072,16 @@ app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/workbook
     return;
   }
 
-  let customerId = "";
-  let connectionId = "";
-  let existing: WrikeConnectorSecrets = {};
   try {
-    const customer = await findLiftCustomer(req.params.liftCustomerId);
-    customerId = customer.lift_customer_id;
-    const workspace = await getOrCreateWorkspace(customer);
-    const method = workspace.import_methods.find(
-      (candidate) => candidate.import_method_id === req.params.methodId
+    const result = await captureWrikeWorkbookEvidenceForMethod(
+      req.params.liftCustomerId,
+      req.params.methodId
     );
-    if (!method) {
-      res.status(404).json({ error: "The selected Import Method does not exist." });
-      return;
-    }
-    if (method.source !== "Wrike") {
-      res.status(400).json({ error: "The selected Import Method is not a Wrike source." });
-      return;
-    }
-
-    const config = normalizeWrikeSourceConfig(method.source_config.wrike);
-    const readiness = getWrikeContractReadiness(config);
-    if (
-      readiness.status !== "Configured" ||
-      !config.approved_discovery_task_id ||
-      !config.connection_id
-    ) {
-      res.status(400).json({
-        error: "Save the customer Wrike connection, folder, intake-ready status, workbook rule, and approved task ID before capturing evidence."
-      });
-      return;
-    }
-    connectionId = config.connection_id;
-    const connection = await findCustomerSourceConnection(customer, connectionId);
-    if (!connection || connection.provider !== "wrike") {
-      res.status(400).json({ error: "The Import Method's customer Wrike connection is not available." });
-      return;
-    }
-
-    existing = (await readCustomerSourceConnectionSecrets(customerId, connectionId)).wrike ?? {};
-    const oauth = existing.oauth as WrikeOAuthCredentials | undefined;
-    if (!oauth) {
-      throw new WrikeConnectionError("invalid_configuration", "Wrike OAuth credentials are not configured.");
-    }
-
-    const result = await fetchQualifiedWrikeWorkbookSources(oauth, config);
-    await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
-      provider: "wrike",
-      wrike: { ...existing, oauth: result.credentials }
-    });
-    const evidence = [];
-    for (const workbook of result.workbooks) {
-      evidence.push(
-        await persistWrikeWorkbookEvidence({
-          customer_id: customerId,
-          import_method_id: method.import_method_id,
-          connection_id: connectionId,
-          workbook
-        })
-      );
-    }
-    res.status(evidence.some((record) => record.storage_status === "Stored") ? 201 : 200).json({
-      status: evidence.every((record) => record.storage_status === "Replayed") ? "Replayed" : "Stored",
-      captured_at: new Date().toISOString(),
-      task_id: result.task_id,
-      evidence,
-      capabilities: {
-        source_evidence_persistence: true,
-        preview_job_creation: wrikeEvidencePreviewEnabled,
-        canonical_mapping: wrikeEvidencePreviewEnabled,
-        polling: false,
-        webhook: false,
-        wrike_writes: false,
-        lift_actions: false
-      }
-    });
+    res.status(result.status === "Stored" ? 201 : 200).json(result);
   } catch (error) {
-    if (customerId && connectionId && error instanceof WrikeConnectionError && error.rotated_credentials) {
-      await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
-        provider: "wrike",
-        wrike: { ...existing, oauth: error.rotated_credentials }
-      });
-    }
-    const message =
-      error instanceof WrikeConnectionError || error instanceof WrikeSourceEvidenceError
-        ? error.message
-        : "Wrike workbook evidence capture failed.";
-    const status =
-      error instanceof WrikeConnectionError && error.code === "invalid_configuration"
-        ? 400
-        : error instanceof WrikeSourceEvidenceError && error.code === "identity_conflict"
-          ? 409
-          : error instanceof WrikeConnectionError && error.code === "attachment_validation_failed"
-            ? 409
-            : 502;
-    res.status(status).json({ error: message });
+    res.status(wrikeEvidenceCaptureErrorStatus(error)).json({
+      error: wrikeEvidenceCaptureErrorMessage(error)
+    });
   }
 });
 
@@ -3924,128 +4102,70 @@ app.post(
         res.status(400).json({ error: "The stored workbook extension is invalid." });
         return;
       }
-      const customer = await findLiftCustomer(req.params.liftCustomerId);
-      const workspace = await getOrCreateWorkspace(customer);
-      const method = workspace.import_methods.find(
-        (candidate) => candidate.import_method_id === req.params.methodId
-      );
-      if (!method) {
-        res.status(404).json({ error: "The selected Import Method does not exist." });
-        return;
-      }
-      if (method.source !== "Wrike" || method.status !== "Active") {
-        res.status(400).json({ error: "Choose an active Wrike Import Method." });
-        return;
-      }
-      const config = normalizeWrikeSourceConfig(method.source_config.wrike);
-      if (!config.connection_id) {
-        res.status(400).json({ error: "The Import Method does not have a saved Wrike connection." });
-        return;
-      }
-      const connection = await findCustomerSourceConnection(customer, config.connection_id);
-      if (!connection || connection.provider !== "wrike") {
-        res.status(400).json({ error: "The Import Method's customer Wrike connection is unavailable." });
-        return;
-      }
-      const outputRoute =
-        workspace.output_routes.find((route) => route.output_route_id === method.output_route_id) ??
-        workspace.output_routes.find((route) => route.output_route_id === workspace.primary_output_route_id) ??
-        workspace.output_routes[0];
-      if (!outputRoute || outputRoute.status !== "Active") {
-        res.status(400).json({ error: "The Import Method requires an active Output Route." });
-        return;
-      }
-
-      const loaded = await loadWrikeWorkbookEvidence({
-        customer_id: customer.lift_customer_id,
-        import_method_id: method.import_method_id,
-        connection_id: config.connection_id,
-        evidence_id: req.params.evidenceId,
+      const result = await createWrikeEvidencePreviewForMethod({
+        liftCustomerId: req.params.liftCustomerId,
+        methodId: req.params.methodId,
+        evidenceId: req.params.evidenceId,
         extension: extension as WrikeWorkbookExtension
       });
-      const fingerprint = importMethodFingerprint(method, outputRoute);
-      const priorJob = workspace.jobs.find(
-        (job) =>
-          job.source_evidence?.provider === "wrike" &&
-          job.source_evidence.evidence_id === loaded.record.evidence_id &&
-          job.source_evidence.evidence_sha256 === loaded.record.sha256 &&
-          job.source_evidence.import_method_fingerprint === fingerprint
-      );
-      if (priorJob) {
-        const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
-        res.json({
-          preview_status: "Replayed",
-          job: priorJob,
-          source_evidence: priorJob.source_evidence,
-          workspace: {
-            ...workspace,
-            primary_target: target ? maskTargetConfig(target) : null
-          }
-        });
-        return;
-      }
-
-      const bytes = loaded.bytes;
-      const parsed = await parseWorkbookArrayBuffer(
-        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
-        workbookParseOptions(method)
-      );
-      const orderRows = parsed.parsed_order_rows.filter((row) => row.row_type === "order");
-      if (!orderRows.length) {
-        res.status(400).json({
-          error: "The stored workbook has no order rows under this Import Method's saved parser settings."
-        });
-        return;
-      }
-      const sourceEvidence: NonNullable<ProcessingJobPreview["source_evidence"]> = {
-        provider: "wrike",
-        evidence_id: loaded.record.evidence_id,
-        evidence_sha256: loaded.record.sha256,
-        import_method_fingerprint: fingerprint,
-        connection_id: loaded.record.connection_id,
-        account_id: loaded.record.account_id,
-        task_id: loaded.record.task_id,
-        attachment_id: loaded.record.attachment_id,
-        version_id: loaded.record.version_id,
-        captured_at: loaded.record.stored_at
-      };
-      const result = await createPreviewJobForRequest(
-        customer.lift_customer_id,
-        {
-          source_grid: {
-            columns: parsed.columns,
-            rows: orderRows.map((row) => row.values)
-          },
-          source_sheets: parsed.source_sheets,
-          parsed_order_rows: parsed.parsed_order_rows,
-          reference_rows: parsed.reference_rows,
-          source_file_name: loaded.record.file_name,
-          sheet_name: parsed.sheetName,
-          import_method_id: method.import_method_id
-        },
-        undefined,
-        { sourceEvidence }
-      );
-      res.status(201).json({
-        ...result,
-        preview_status: "Created",
-        source_evidence: sourceEvidence
-      });
+      res.status(result.preview_status === "Created" ? 201 : 200).json(result);
     } catch (error) {
-      const status =
-        error instanceof WrikeSourceEvidenceError && error.code === "not_found"
-          ? 404
-          : error instanceof WrikeSourceEvidenceError && error.code === "identity_conflict"
-            ? 409
-            : error instanceof WrikeSourceEvidenceError && error.code === "invalid_evidence"
-              ? 400
-              : error && typeof error === "object" && "statusCode" in error && error.statusCode === 400
-                ? 400
-                : error instanceof WrikeSourceEvidenceError
-                  ? 502
-                  : 500;
-      res.status(status).json({
+      res.status(wrikeEvidencePreviewErrorStatus(error)).json({
         error: error instanceof Error ? error.message : "Wrike evidence preview creation failed."
+      });
+    }
+  }
+);
+
+app.post(
+  "/api/customers/:liftCustomerId/import-methods/:methodId/wrike/prepare-order",
+  async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!wrikeManualIntakeEnabled) {
+      res.status(423).json({
+        error: "Wrike manual intake is disabled at the API boundary."
+      });
+      return;
+    }
+    if (!wrikeWorkbookEvidenceEnabled || !wrikeEvidencePreviewEnabled) {
+      res.status(423).json({
+        error:
+          "Wrike manual intake requires both immutable workbook evidence and preview creation to remain enabled."
+      });
+      return;
+    }
+
+    try {
+      const result = await prepareWrikeManualIntake({
+        captureEvidence: async () => {
+          const captured = await captureWrikeWorkbookEvidenceForMethod(
+            req.params.liftCustomerId,
+            req.params.methodId,
+            { requireActive: true }
+          );
+          return {
+            task_id: captured.task_id,
+            evidence: captured.evidence
+          };
+        },
+        createPreview: async (record) => {
+          const preview = await createWrikeEvidencePreviewForMethod({
+            liftCustomerId: req.params.liftCustomerId,
+            methodId: req.params.methodId,
+            evidenceId: record.evidence_id,
+            extension: record.extension
+          });
+          return {
+            preview_status: preview.preview_status,
+            job_id: preview.job.job_id,
+            job_state: preview.job.state
+          };
+        }
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(wrikeEvidenceCaptureErrorStatus(error)).json({
+        error: wrikeEvidenceCaptureErrorMessage(error)
       });
     }
   }
