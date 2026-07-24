@@ -1202,3 +1202,27 @@ Recommended continuation:
 3. Deploy the API/admin foundation with the workbook-evidence gate still false.
 4. Obtain explicit approval for one exact Wrike task and bounded QA window, enable only the workbook-evidence gate, capture the qualified workbook evidence once, verify the sanitized record/checksum and retained object, then restore the gate to false.
 5. Only after that closed evidence lifecycle passes, scope stored-evidence inspection and parser execution as a separate operator-reviewed slice. Continue to stop before automatic Pathfinder job creation or any Lift action.
+
+## Verified Wrike Evidence Preview Checkpoint
+
+Branch `codex/wrike-evidence-preview-job` adds the next separately gated operator step after immutable workbook evidence capture.
+
+- `PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW` is a new independent default-false gate carried through the API stack and deployment workflow.
+- The API loads one exact immutable evidence object from local or production-shaped S3 storage and verifies customer, Import Method, source connection, evidence ID, extension, SHA-256, byte length, and source identity before parsing.
+- The evidence is parsed with the saved Import Method and processed through the existing preview pipeline. Saved parser rules, mappings, product strategy, order-name resolution, Ext_ID strategy, and active Output Route remain the source of truth.
+- A deterministic fingerprint covers only relevant saved Import Method and Output Route configuration. Exact evidence and fingerprint replay the same job; a relevant saved configuration change creates a new preview.
+- Each preview records bounded evidence provenance without storing provider URLs, credentials, object keys, or workbook bytes.
+- Admin UI actions create or open the preview from the captured evidence row. Unsaved Import Method changes block creation.
+- Preview creation performs no Wrike API or attachment request and cannot poll, register a webhook, or write to Wrike. It also cannot submit to Lift and adds no Proof decision/write capability.
+
+Validation is green: all workspace checks and builds, deterministic API 128/128, all remaining workspace tests, deployment safety 62/62, browser regressions 12/12, Lambda packaging, SAM lint, bundle/source-graph review, sensitive-value review, and diff hygiene.
+
+No live evidence capture/read, gate enablement, deployment, credential operation, external request, Lift action, or Proof capability change occurred.
+
+Recommended continuation:
+
+1. Reconcile and merge the separate dormant Proof protocol-contract PR first; it has no file or runtime overlap with this Pathfinder branch.
+2. Rebase this branch on the resulting merged main, rerun affected and full validation, then create the focused Pathfinder draft PR.
+3. Keep both Wrike evidence gates false in production until a separately approved exact-task QA window.
+4. In that window, capture one qualified workbook, create its internal preview, verify provenance/mappings and replay behavior, then restore both gates to false.
+5. Keep Lift submission manual and separately certified. Do not add polling, webhooks, Wrike writes, automatic submission, or Proof decision execution as part of the QA window.

@@ -3187,3 +3187,19 @@ Completed the bounded bridge between sanitized Wrike discovery and a future Path
 - Validation passed every workspace typecheck and test, every production build, 22/22 Wrike adapter tests, 9/9 focused API/evidence tests, 12/12 browser regressions, 62/62 deployment-safety tests, both Lambda packages, SAM lint, and `git diff --check`.
 
 This slice stops at immutable source evidence. It does not parse or map the workbook, create a Canonical Order or Pathfinder job, download the artwork folder, poll or register webhooks, write to Wrike, call Lift, deploy, enable the evidence gate, apply the checked-in IAM policy, run live QA, or change any Proof resource or capability.
+
+## 2026-07-24 - Verified Wrike Evidence to Preview Job
+
+Added the operator-reviewed bridge from immutable Wrike workbook evidence into Pathfinder's existing preview workflow.
+
+- Added an independent `PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW` API gate. It defaults false and does not inherit authorization from connection health, task discovery, or workbook evidence capture.
+- The API loads one exact stored evidence object by customer, Import Method, source connection, evidence ID, and workbook extension. It verifies the immutable SHA-256, byte length, provider identity, and bounded source metadata before parsing.
+- Verified bytes run through the selected saved Import Method's parser, sheet rules, field mappings, product resolution, order-name resolution, Ext_ID strategy, and active Output Route. Unsaved browser edits cannot affect the result.
+- Preview jobs retain bounded source-evidence provenance: evidence checksum and ID, relevant Import Method/route fingerprint, source connection/account/task/attachment/version IDs, and capture timestamp. Provider URLs, credentials, storage keys, and workbook bytes are not copied into the job.
+- Exact evidence plus an unchanged saved Import Method/route fingerprint replays the existing preview job. A relevant saved configuration change produces a new preview rather than silently reusing stale output.
+- The saved Wrike Import Method now offers **Create preview job** and **Open job** actions for captured evidence, with clear gate and operator-review messaging.
+- Preview creation reads only Pathfinder's immutable evidence store. It does not contact Wrike, refresh OAuth, download another attachment, poll, register a webhook, or write to Wrike.
+- The preview remains an internal Pathfinder job subject to existing validation and certification. This endpoint does not submit to Lift or enable any Proof decision/write capability.
+- Validation passed all workspace typechecks and production builds, the deterministic API suite at 128/128, every remaining workspace suite, 62/62 deployment-safety checks, 12/12 browser regressions, API and Proof Lambda packaging, SAM lint, bundle/source-graph review, sensitive-value review, and diff hygiene.
+
+No live evidence was captured or read, no feature gate was enabled, and no deployment, Wrike request, Lift action, credential access, or Proof capability change occurred.

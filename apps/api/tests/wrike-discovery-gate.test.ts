@@ -28,6 +28,12 @@ test("keeps Wrike discovery preview dark when the server gate is not enabled", a
         .expect(423);
       assert.match(evidence.body.error, /disabled at the API boundary/i);
       assert.equal(fetchCalls, 0);
+      const preview = await request(app)
+        .post("/api/customers/284619/import-methods/manual-xlsx/wrike/workbook-evidence/wrike_workbook_deadbeef/preview")
+        .send({ extension: "xlsx" })
+        .expect(423);
+      assert.match(preview.body.error, /disabled at the API boundary/i);
+      assert.equal(fetchCalls, 0);
       const legacy = await request(app).get("/api/wrike/connection").expect(410);
       assert.match(legacy.body.error, /per customer/i);
       const catalog = await request(app).get("/api/source-connector-definitions").expect(200);
@@ -48,7 +54,8 @@ test("keeps Wrike discovery preview dark when the server gate is not enabled", a
         PATHFINDER_ENABLE_LIFT_SUBMIT: "false",
         PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST: "false",
         PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW: "false",
-        PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: "false"
+        PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: "false",
+        PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: "false"
       },
       encoding: "utf8"
     });

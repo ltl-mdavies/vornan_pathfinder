@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  loadWrikeWorkbookEvidence,
   persistWrikeWorkbookEvidence,
   WrikeSourceEvidenceError
 } from "../src/wrike-source-evidence.ts";
@@ -46,6 +47,7 @@ test("stores one immutable local evidence envelope and safely replays identical 
     });
 
     assert.equal(stored.storage_status, "Stored");
+    assert.equal(stored.account_id, "IEACCOUNT");
     assert.equal(replayed.storage_status, "Replayed");
     assert.equal(replayed.stored_at, stored.stored_at);
     assert.equal(replayed.sha256, stored.sha256);
@@ -65,6 +67,46 @@ test("stores one immutable local evidence envelope and safely replays identical 
     };
     assert.equal(envelope.record.sha256, stored.sha256);
     assert.equal(Buffer.from(envelope.bytes_base64, "base64").toString("utf8"), "workbook-v1");
+
+    const loaded = await loadWrikeWorkbookEvidence({
+      customer_id: "284619",
+      import_method_id: "wrike-orders",
+      connection_id: "source_wrike_momentara",
+      evidence_id: stored.evidence_id,
+      extension: "xlsx"
+    });
+    assert.equal(Buffer.from(loaded.bytes).toString("utf8"), "workbook-v1");
+    assert.equal(loaded.record.account_id, "IEACCOUNT");
+
+    await assert.rejects(
+      loadWrikeWorkbookEvidence({
+        customer_id: "284619",
+        import_method_id: "wrike-orders",
+        connection_id: "source_wrike_other",
+        evidence_id: stored.evidence_id,
+        extension: "xlsx"
+      }),
+      (error: unknown) =>
+        error instanceof WrikeSourceEvidenceError && error.code === "identity_conflict"
+    );
+
+    const tampered = JSON.parse(await readFile(envelopePath, "utf8")) as {
+      record: unknown;
+      bytes_base64: string;
+    };
+    tampered.bytes_base64 = Buffer.from("tampered").toString("base64");
+    await writeFile(envelopePath, `${JSON.stringify(tampered)}\n`, "utf8");
+    await assert.rejects(
+      loadWrikeWorkbookEvidence({
+        customer_id: "284619",
+        import_method_id: "wrike-orders",
+        connection_id: "source_wrike_momentara",
+        evidence_id: stored.evidence_id,
+        extension: "xlsx"
+      }),
+      (error: unknown) =>
+        error instanceof WrikeSourceEvidenceError && error.code === "identity_conflict"
+    );
   } finally {
     if (previous === undefined) {
       delete process.env.PATHFINDER_LOCAL_SOURCE_EVIDENCE_DIR;

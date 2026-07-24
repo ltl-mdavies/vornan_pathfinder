@@ -503,6 +503,18 @@ export interface ProcessingJobPreview {
     submitted_by_email: string;
     submitted_at: string;
   } | null;
+  source_evidence?: {
+    provider: "wrike";
+    evidence_id: string;
+    evidence_sha256: string;
+    import_method_fingerprint: string;
+    connection_id: string;
+    account_id: string;
+    task_id: string;
+    attachment_id: string;
+    version_id: string;
+    captured_at: string;
+  } | null;
 }
 
 export interface NormalizedLiftSubmitResponse {

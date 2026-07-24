@@ -120,6 +120,7 @@ jobs:
               WrikeConnectionTestEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST || 'false' }}" \
               WrikeDiscoveryPreviewEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW || 'false' }}" \
               WrikeWorkbookEvidenceEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE || 'false' }}" \
+              WrikeEvidencePreviewEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW || 'false' }}" \
               WrikeOAuthRedirectUri="${{ vars.PATHFINDER_WRIKE_OAUTH_REDIRECT_URI || 'https://api.pathfinder.vornan.co/oauth/wrike/callback' }}" \
               PathfinderAppBaseUrl="${{ vars.PATHFINDER_APP_BASE_URL || 'https://pathfinder.vornan.co' }}" \
               EmailFrom="${{ vars.PATHFINDER_EMAIL_FROM || 'Vornan Updates <notifications@notify.vornan.co>' }}" \

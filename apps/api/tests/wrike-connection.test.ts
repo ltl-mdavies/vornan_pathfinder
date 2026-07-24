@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before } from "node:test";
 import request from "supertest";
+import * as XLSX from "xlsx";
 
 const customerId = "284619";
 let testDirectory = "";
@@ -28,6 +29,7 @@ before(async () => {
   process.env.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST = "true";
   process.env.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW = "true";
   process.env.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE = "true";
+  process.env.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW = "true";
   process.env.PATHFINDER_LOCAL_SOURCE_EVIDENCE_DIR = join(testDirectory, "source-evidence");
   originalFetch = globalThis.fetch;
   ({ app } = await import("../src/server.ts"));
@@ -79,10 +81,12 @@ test("stores customer Wrike app credentials only in the isolated secret boundary
   });
   assert.equal(saved.body.provider_status.discovery_preview_enabled, true);
   assert.equal(saved.body.provider_status.workbook_evidence_enabled, true);
+  assert.equal(saved.body.provider_status.evidence_preview_enabled, true);
   assert.equal(saved.body.provider_status.capabilities.task_discovery, true);
   assert.equal(saved.body.provider_status.capabilities.attachment_metadata, true);
   assert.equal(saved.body.provider_status.capabilities.attachment_download, true);
   assert.equal(saved.body.provider_status.capabilities.source_evidence_persistence, true);
+  assert.equal(saved.body.provider_status.capabilities.preview_job_creation, true);
   assert.equal(saved.body.provider_status.capabilities.wrike_writes, false);
   assert.equal(JSON.stringify(saved.body).includes("wrike-client-secret"), false);
 
@@ -243,6 +247,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
       source: "Wrike",
       type: "Scheduled",
       source_config: {
+        quantity_column: "QTY",
         wrike: {
           connection_id: connectionId,
           folder_id: "IEAPPROVEDFOLDER",
@@ -328,7 +333,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
   assert.equal(stored.includes("discovery-rotated-refresh-token"), true);
 });
 
-test("requalifies and stores current workbooks without creating a job or exposing provider URLs", async () => {
+test("stores qualified evidence, then creates and replays one saved-method preview without another Wrike call", async () => {
   await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
     provider: "wrike",
     wrike: {
@@ -340,7 +345,16 @@ test("requalifies and stores current workbooks without creating a job or exposin
       }
     }
   });
-  const workbookBytes = new TextEncoder().encode("qualified-workbook-evidence");
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(
+    workbook,
+    XLSX.utils.aoa_to_sheet([
+      ["Order Number", "DESCRIPTION", "QTY"],
+      ["C123456", "One Sheet Poster", 2]
+    ]),
+    "Sheet1"
+  );
+  const workbookBytes = new Uint8Array(XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer);
   const calls: Array<{ url: string; headers: unknown }> = [];
   globalThis.fetch = async (input, init) => {
     const url = String(input);
@@ -417,7 +431,7 @@ test("requalifies and stores current workbooks without creating a job or exposin
   assert.equal(stored.body.evidence[0].version_id, "IEVERSION0002");
   assert.equal(stored.body.evidence[0].byte_size, workbookBytes.byteLength);
   assert.match(stored.body.evidence[0].sha256, /^[a-f0-9]{64}$/);
-  assert.equal(stored.body.capabilities.preview_job_creation, false);
+  assert.equal(stored.body.capabilities.preview_job_creation, true);
   assert.equal(stored.body.capabilities.lift_actions, false);
   const publicPayload = JSON.stringify(stored.body);
   assert.equal(publicPayload.includes("private-signed-url"), false);
@@ -432,4 +446,50 @@ test("requalifies and stores current workbooks without creating a job or exposin
     .expect(200);
   assert.equal(replayed.body.status, "Replayed");
   assert.equal(replayed.body.evidence[0].storage_status, "Replayed");
+
+  const evidence = stored.body.evidence[0];
+  const wrikeCallsBeforePreview = calls.length;
+  const preview = await request(app)
+    .post(
+      `/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence/${evidence.evidence_id}/preview`
+    )
+    .send({ extension: evidence.extension })
+    .expect(201);
+  assert.equal(preview.body.preview_status, "Created");
+  assert.equal(preview.body.job.import_method_id, "manual-xlsx");
+  assert.equal(preview.body.job.source_file_name, evidence.file_name);
+  assert.equal(preview.body.job.source_evidence.evidence_id, evidence.evidence_id);
+  assert.equal(preview.body.job.source_evidence.evidence_sha256, evidence.sha256);
+  assert.equal(preview.body.job.source_evidence.account_id, "IEACCOUNT");
+  assert.equal(preview.body.job.parsed_order_rows.length, 1);
+  assert.equal(calls.length, wrikeCallsBeforePreview);
+
+  const previewReplay = await request(app)
+    .post(
+      `/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence/${evidence.evidence_id}/preview`
+    )
+    .send({ extension: evidence.extension })
+    .expect(200);
+  assert.equal(previewReplay.body.preview_status, "Replayed");
+  assert.equal(previewReplay.body.job.job_id, preview.body.job.job_id);
+  assert.equal(previewReplay.body.workspace.jobs.length, preview.body.workspace.jobs.length);
+  assert.equal(calls.length, wrikeCallsBeforePreview);
+
+  await request(app)
+    .put(`/api/customers/${customerId}/import-methods/manual-xlsx`)
+    .send({ name: "Manual XLSX · revised saved contract" })
+    .expect(200);
+  const revisedPreview = await request(app)
+    .post(
+      `/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence/${evidence.evidence_id}/preview`
+    )
+    .send({ extension: evidence.extension })
+    .expect(201);
+  assert.equal(revisedPreview.body.preview_status, "Created");
+  assert.notEqual(revisedPreview.body.job.job_id, preview.body.job.job_id);
+  assert.notEqual(
+    revisedPreview.body.job.source_evidence.import_method_fingerprint,
+    preview.body.job.source_evidence.import_method_fingerprint
+  );
+  assert.equal(calls.length, wrikeCallsBeforePreview);
 });
