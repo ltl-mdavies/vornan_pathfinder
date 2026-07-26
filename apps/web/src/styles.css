@@ -91,12 +91,221 @@
   font-size: 12px;
 }
 
+.proof-qa-order-set {
+  margin-top: 10px;
+  padding: 11px 12px;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d7e0d2;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.proof-qa-order-set > span,
+.proof-action-fields label,
+.proof-action-preview span {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.proof-qa-order-set > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.proof-qa-order-set > div > span {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid #ccd7c7;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.proof-qa-order-set > div > span.active {
+  border-color: #789178;
+  background: #e8eee1;
+}
+
+.proof-qa-order-set button {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  color: #39523b;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.proof-qa-order-set button + button {
+  padding-left: 3px;
+}
+
+.proof-qa-order-set small,
+.proof-action-boundary {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 .proof-integration-health {
   margin-top: 14px;
   padding: 14px;
   border: 1px solid #d7e0d2;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.78);
+}
+
+.proof-action-workbench {
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid #cdd8c8;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.proof-action-workbench-heading {
+  padding: 15px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid #dfe6dc;
+  background: #f7faf4;
+}
+
+.proof-action-workbench-heading .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.proof-action-workbench-heading h4 {
+  margin: 4px 0 5px;
+  font-size: 16px;
+}
+
+.proof-action-workbench-heading p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.proof-action-locked {
+  min-height: 34px;
+  padding: 7px 10px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: #e7ebe5;
+  color: #536052;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.proof-action-fields {
+  padding: 15px;
+  display: grid;
+  grid-template-columns: minmax(240px, 1.5fr) minmax(190px, .8fr) minmax(140px, .45fr);
+  gap: 12px;
+}
+
+.proof-action-fields label {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.proof-action-fields input,
+.proof-action-fields select,
+.proof-action-fields textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.proof-action-fields input,
+.proof-action-fields select {
+  min-height: 44px;
+}
+
+.proof-action-fields textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.proof-action-fields small {
+  color: var(--text-muted);
+  font-size: 9px;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.proof-action-comment {
+  grid-column: 1 / -1;
+}
+
+.proof-action-art-url {
+  grid-column: 1 / span 2;
+}
+
+.proof-action-checkbox {
+  align-self: center;
+  display: flex !important;
+  grid-auto-flow: column;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.proof-action-checkbox input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.proof-action-preview {
+  padding: 13px 15px;
+  display: grid;
+  grid-template-columns: 1.2fr .8fr 1fr auto;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid #dfe6dc;
+  background: #f9fbf7;
+}
+
+.proof-action-preview > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.proof-action-preview strong {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.proof-action-preview .primary-button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.proof-action-boundary {
+  margin: 0;
+  padding: 0 15px 14px;
+  background: #f9fbf7;
 }
 
 .proof-integration-health.configuration_required {
@@ -532,6 +741,24 @@
   }
 
   .proof-one-time-actions .secondary-button {
+    width: 100%;
+  }
+
+  .proof-action-workbench-heading {
+    flex-direction: column;
+  }
+
+  .proof-action-fields,
+  .proof-action-preview {
+    grid-template-columns: 1fr;
+  }
+
+  .proof-action-comment,
+  .proof-action-art-url {
+    grid-column: 1;
+  }
+
+  .proof-action-preview .primary-button {
     width: 100%;
   }
 }
