@@ -25,6 +25,7 @@ before(async () => {
   process.env.PATHFINDER_REQUIRE_AUTH = "false";
   process.env.PATHFINDER_ENABLE_LIFT_SUBMIT = "false";
   process.env.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST = "false";
+  process.env.PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY = "false";
   process.env.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW = "false";
   process.env.PATHFINDER_WRIKE_OAUTH_REDIRECT_URI = "https://api.pathfinder.vornan.co/oauth/wrike/callback";
   process.env.PATHFINDER_APP_BASE_URL = "https://pathfinder.vornan.co";
@@ -119,7 +120,9 @@ test("authorizes one customer Wrike connection with expiring state and isolated 
   assert.equal(connection.provider_status.host, "app-us2.wrike.com");
   assert.equal(connection.provider_status.health.status, "Not tested");
   assert.equal(connection.provider_status.connection_test_enabled, false);
+  assert.equal(connection.provider_status.custom_field_discovery_enabled, false);
   assert.equal(connection.provider_status.discovery_preview_enabled, false);
+  assert.equal(connection.provider_status.capabilities.custom_field_metadata, false);
   assert.equal(connection.provider_status.capabilities.task_discovery, false);
   assert.equal(JSON.stringify(connection).includes("authorized-access-token"), false);
   assert.equal(JSON.stringify(connection).includes("authorized-refresh-token"), false);

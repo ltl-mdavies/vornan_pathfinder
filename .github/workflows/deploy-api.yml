@@ -118,6 +118,7 @@ jobs:
               PublicStatusEmailDebugReturnLink="${{ vars.PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK || 'false' }}" \
               PublicIntakeEmailVerificationEnabled="${{ vars.PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED || 'false' }}" \
               WrikeConnectionTestEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST || 'false' }}" \
+              WrikeCustomFieldDiscoveryEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY || 'false' }}" \
               WrikeDiscoveryPreviewEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW || 'false' }}" \
               WrikeWorkbookEvidenceEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE || 'false' }}" \
               WrikeEvidencePreviewEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW || 'false' }}" \

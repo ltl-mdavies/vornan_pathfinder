@@ -6,6 +6,7 @@ import {
   checkWrikeOAuthConnection,
   createDefaultWrikeSourceConfig,
   discoverApprovedWrikeTask,
+  discoverWrikeCustomFields,
   exchangeWrikeAuthorizationCode,
   evaluateWrikeReadOnlyQaReadiness,
   fetchQualifiedWrikeWorkbookSources,
@@ -28,6 +29,9 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
     trigger_status_id: " IEABORDERED ",
     trigger_status_label: " Sent to Print - LTL ",
     artwork_folder_custom_field_id: " IECUSTOMART ",
+    contract_number_custom_field_id: " IECONTRACT ",
+    ltl_exception_custom_field_id: " IEEXCEPTION ",
+    print_vendor_custom_field_id: " IEVENDOR ",
     attachment_filename_contains: " Momentara Order ",
     attachment_extensions: [".XLSX", "pdf", "csv", "xlsx"],
     attachment_selection: "newest_matching_workbook",
@@ -43,6 +47,9 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
   assert.equal(normalized.trigger_status_id, "IEABORDERED");
   assert.equal(normalized.trigger_status_label, "Sent to Print - LTL");
   assert.equal(normalized.artwork_folder_custom_field_id, "IECUSTOMART");
+  assert.equal(normalized.contract_number_custom_field_id, "IECONTRACT");
+  assert.equal(normalized.ltl_exception_custom_field_id, "IEEXCEPTION");
+  assert.equal(normalized.print_vendor_custom_field_id, "IEVENDOR");
   assert.equal(normalized.task_title_rule, "contract_order_ooh");
   assert.equal(normalized.workbook_name_rule, "contract_order_ooh");
   assert.equal(normalized.attachment_selection, "all_matching_current_workbooks");
@@ -906,4 +913,63 @@ test("does not read attachment metadata when the approved task is outside the sa
   assert.equal(result.preview.observed.attachment_metadata_count, null);
   assert.equal(calls.length, 2);
   assert.equal(calls.some((url) => url.includes("/attachments")), false);
+});
+
+test("discovers only requested Wrike custom-field metadata through read-only OAuth", async () => {
+  const calls: string[] = [];
+  const result = await discoverWrikeCustomFields(
+    {
+      client_id: "synthetic-client",
+      client_secret: "synthetic-secret",
+      refresh_token: "synthetic-refresh",
+      host: "www.wrike.com"
+    },
+    ["Contract Number", "LTL Artwork Folder URL", "LTL Exception", "Print Vendor"],
+    {
+      now: () => new Date("2026-07-26T14:00:00.000Z"),
+      fetch_impl: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "synthetic-access",
+              refresh_token: "synthetic-rotated-refresh",
+              host: "www.wrike.com"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            kind: "customfields",
+            data: [
+              { id: "IECONTRACT", title: "Contract Number", type: "Text" },
+              { id: "IEART", title: "LTL Artwork Folder URL", type: "Text" },
+              { id: "IEEXCEPTION", title: "LTL Exception", type: "Checkbox" },
+              { id: "IEVENDOR", title: "Print Vendor", type: "DropDown" },
+              { id: "IEOTHER", title: "Unrelated Customer Field", type: "Text" }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.deepEqual(calls, [
+    "https://www.wrike.com/oauth2/token",
+    "https://www.wrike.com/api/v4/customfields"
+  ]);
+  assert.equal(result.checked_at, "2026-07-26T14:00:00.000Z");
+  assert.deepEqual(result.fields, [
+    { id: "IECONTRACT", title: "Contract Number", type: "Text" },
+    { id: "IEART", title: "LTL Artwork Folder URL", type: "Text" },
+    { id: "IEEXCEPTION", title: "LTL Exception", type: "Checkbox" },
+    { id: "IEVENDOR", title: "Print Vendor", type: "DropDown" }
+  ]);
+  assert.deepEqual(result.missing_titles, []);
+  assert.equal(result.capabilities.task_values_read, false);
+  assert.equal(result.capabilities.attachment_metadata_read, false);
+  assert.equal(result.capabilities.wrike_writes, false);
 });

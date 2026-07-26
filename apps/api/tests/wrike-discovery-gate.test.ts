@@ -23,6 +23,11 @@ test("keeps Wrike discovery preview dark when the server gate is not enabled", a
         .expect(423);
       assert.match(response.body.error, /disabled at the API boundary/i);
       assert.equal(fetchCalls, 0);
+      const customFields = await request(app)
+        .post("/api/customers/284619/source-connections/source_wrike_dark/wrike/custom-fields/discover")
+        .expect(423);
+      assert.match(customFields.body.error, /disabled at the API boundary/i);
+      assert.equal(fetchCalls, 0);
       const evidence = await request(app)
         .post("/api/customers/284619/import-methods/manual-xlsx/wrike/workbook-evidence")
         .expect(423);
@@ -58,6 +63,7 @@ test("keeps Wrike discovery preview dark when the server gate is not enabled", a
         PATHFINDER_REQUIRE_AUTH: "false",
         PATHFINDER_ENABLE_LIFT_SUBMIT: "false",
         PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST: "false",
+        PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY: "false",
         PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW: "false",
         PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: "false",
         PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: "false",

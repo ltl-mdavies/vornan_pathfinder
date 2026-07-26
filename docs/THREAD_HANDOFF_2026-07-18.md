@@ -1226,3 +1226,40 @@ Recommended continuation:
 3. Keep both Wrike evidence gates false in production until a separately approved exact-task QA window.
 4. In that window, capture one qualified workbook, create its internal preview, verify provenance/mappings and replay behavior, then restore both gates to false.
 5. Keep Lift submission manual and separately certified. Do not add polling, webhooks, Wrike writes, automatic submission, or Proof decision execution as part of the QA window.
+
+## Wrike Custom-Field Definition Discovery Checkpoint
+
+Momentara has added the four requested Placard Order fields in the Wrike UI:
+
+- `Contract Number`
+- `LTL Artwork Folder URL`
+- `LTL Exception`
+- `Print Vendor`
+
+The screenshot confirms those labels are present, but their API IDs, field types, populated values, and routing behavior still require API-backed confirmation.
+
+Branch `codex/wrike-custom-field-discovery` adds the bounded definition-discovery step:
+
+- a dedicated `PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY` gate defaults false and is independent from task discovery, attachments, workbook evidence, and preview creation;
+- the authenticated admin endpoint uses the existing customer `wsReadOnly` OAuth connection to read account-level custom-field definitions only;
+- the response is reduced to the requested title, provider ID, and provider type, with unrelated definitions discarded;
+- the Import Method UI displays the four definitions and can apply their IDs to the draft configuration;
+- saving the Import Method is still the explicit persistence step;
+- no task, task value, attachment, workbook, provider definition, or customer content is retained by discovery.
+
+Validation completed for the focused adapter, API, persistence, OAuth, dark-gate, CloudFormation, workflow, and deployment-script boundaries. All workspace typechecks, tests, production builds, 63/63 Proof deployment-safety checks, 12/12 browser regressions, API Lambda packaging, API SAM lint, and diff hygiene passed. No Wrike request, gate enablement, deployment, field-value read, Lift action, or Proof change occurred during development.
+
+Recommended continuation:
+
+1. Checkpoint this validated slice through a focused PR and merge only after GitHub validation passes.
+2. Deploy API and Admin Web with custom-field discovery still false.
+3. Open one separately approved metadata-only window by enabling only `PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY`; leave exact-task discovery, workbook evidence, evidence preview, and manual intake false.
+4. Run **Discover Wrike fields** once for the production Momentara connection, review the four sanitized IDs/types, apply the bindings, and save the Import Method.
+5. Restore the metadata gate to false and verify the API runtime state.
+6. After Momentara prepares a populated test Placard Order, separately approve one exact-task GET to confirm:
+   - the Contract Number value and its agreement with `C######` naming;
+   - the Print Vendor value that identifies Larger Than Life;
+   - the LTL Exception meaning and fail-closed behavior;
+   - the artwork-folder URL value and HTTPS validation;
+   - the exact `Sent to Print - LTL` status ID and any separate checkbox semantics.
+7. Continue to stop before attachment download, evidence capture, job creation, Wrike writes, or Lift submission unless each later capability receives its own approval.

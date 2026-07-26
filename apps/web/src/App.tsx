@@ -201,6 +201,7 @@ type WrikeConnectionStatusPayload = {
   authorization_pending: boolean;
   authorization_expires_at: string | null;
   connection_test_enabled: boolean;
+  custom_field_discovery_enabled: boolean;
   discovery_preview_enabled: boolean;
   workbook_evidence_enabled: boolean;
   evidence_preview_enabled: boolean;
@@ -225,6 +226,7 @@ type WrikeConnectionStatusPayload = {
     oauth_refresh: boolean;
     identity_check: boolean;
     requested_scope: "wsReadOnly";
+    custom_field_metadata: boolean;
     task_discovery: boolean;
     attachment_metadata: boolean;
     attachment_download: boolean;
@@ -241,6 +243,26 @@ type WrikeConnectionStatusPayload = {
 type CustomerSourceConnectionPayload = CustomerSourceConnection & {
   definition: SourceConnectorDefinition | null;
   provider_status: WrikeConnectionStatusPayload | null;
+};
+
+type WrikeCustomFieldDiscoveryPayload = {
+  checked_at: string;
+  requested_titles: string[];
+  fields: Array<{
+    id: string;
+    title: string;
+    type: string;
+  }>;
+  missing_titles: string[];
+  capabilities: {
+    account_custom_field_metadata_read: true;
+    task_values_read: false;
+    attachment_metadata_read: false;
+    attachment_download: false;
+    persistence: false;
+    wrike_writes: false;
+    lift_actions: false;
+  };
 };
 
 type SourceConnectionsPayload = {
@@ -3560,6 +3582,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [wrikeDiscoveryState, setWrikeDiscoveryState] = useState<"idle" | "loading" | "error">("idle");
   const [wrikeDiscoveryMessage, setWrikeDiscoveryMessage] = useState<string | null>(null);
   const [wrikeDiscoveryPreview, setWrikeDiscoveryPreview] = useState<WrikeTaskDiscoveryPreview | null>(null);
+  const [wrikeCustomFieldState, setWrikeCustomFieldState] =
+    useState<"idle" | "loading" | "error">("idle");
+  const [wrikeCustomFieldMessage, setWrikeCustomFieldMessage] = useState<string | null>(null);
+  const [wrikeCustomFieldDiscovery, setWrikeCustomFieldDiscovery] =
+    useState<WrikeCustomFieldDiscoveryPayload | null>(null);
   const [wrikeEvidenceState, setWrikeEvidenceState] = useState<"idle" | "loading" | "error">("idle");
   const [wrikeEvidenceMessage, setWrikeEvidenceMessage] = useState<string | null>(null);
   const [wrikeWorkbookEvidence, setWrikeWorkbookEvidence] = useState<WrikeWorkbookEvidenceRecord[]>([]);
@@ -4111,6 +4138,67 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike read-only connection test failed.");
       setWrikeConnectionState("error");
     }
+  }
+
+  async function discoverWrikeCustomFields() {
+    if (!selectedCustomerId || !activeWrikeConfig.connection_id) {
+      return;
+    }
+    setWrikeCustomFieldState("loading");
+    setWrikeCustomFieldMessage(null);
+    setWrikeCustomFieldDiscovery(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/source-connections/${encodeURIComponent(activeWrikeConfig.connection_id)}/wrike/custom-fields/discover`,
+        { method: "POST" }
+      );
+      const payload = await readJsonResponse<WrikeCustomFieldDiscoveryPayload>(response);
+      setWrikeCustomFieldDiscovery(payload);
+      setWrikeCustomFieldMessage(
+        payload.missing_titles.length
+          ? `Wrike returned ${payload.fields.length} matching field definition${payload.fields.length === 1 ? "" : "s"}; ${payload.missing_titles.length} still need review.`
+          : "Wrike returned one exact definition for every requested Momentara field. Review the IDs and apply them to this Import Method."
+      );
+      setWrikeCustomFieldState("idle");
+    } catch (error) {
+      setWrikeCustomFieldMessage(
+        error instanceof Error ? error.message : "Wrike custom-field discovery failed."
+      );
+      setWrikeCustomFieldState("error");
+    }
+  }
+
+  function applyWrikeCustomFieldBindings() {
+    if (!wrikeCustomFieldDiscovery) {
+      return;
+    }
+    const uniqueField = (title: string) => {
+      const matches = wrikeCustomFieldDiscovery.fields.filter(
+        (field) => field.title.trim().toLocaleLowerCase("en-US") === title.toLocaleLowerCase("en-US")
+      );
+      return matches.length === 1 ? matches[0] : null;
+    };
+    const contractNumber = uniqueField("Contract Number");
+    const artworkFolder = uniqueField("LTL Artwork Folder URL");
+    const ltlException = uniqueField("LTL Exception");
+    const printVendor = uniqueField("Print Vendor");
+    if (!contractNumber || !artworkFolder || !ltlException || !printVendor) {
+      setWrikeCustomFieldMessage(
+        "Pathfinder needs one exact Wrike definition for each requested field before applying the bindings."
+      );
+      setWrikeCustomFieldState("error");
+      return;
+    }
+    updateActiveWrikeConfig({
+      contract_number_custom_field_id: contractNumber.id,
+      artwork_folder_custom_field_id: artworkFolder.id,
+      ltl_exception_custom_field_id: ltlException.id,
+      print_vendor_custom_field_id: printVendor.id
+    });
+    setWrikeCustomFieldMessage(
+      "The four Wrike field IDs are applied to this draft. Save the Import Method to persist them."
+    );
+    setWrikeCustomFieldState("idle");
   }
 
   async function previewWrikeDiscovery() {
@@ -5253,6 +5341,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWrikeDiscoveryPreview(null);
     setWrikeDiscoveryMessage(null);
     setWrikeDiscoveryState("idle");
+    setWrikeCustomFieldDiscovery(null);
+    setWrikeCustomFieldMessage(null);
+    setWrikeCustomFieldState("idle");
     setWrikeWorkbookEvidence([]);
     setWrikeEvidencePreviewId("");
     setWrikeEvidencePreviewJobs({});
@@ -9350,6 +9441,86 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 Credentials are managed in Customer Settings. This Import Method stores only the connection reference.
                               </small>
                             </label>
+                            <div className="wrike-custom-field-discovery setup-control-wide">
+                              <div>
+                                <span className="section-eyebrow">Wrike custom fields</span>
+                                <strong>Confirm the Momentara field IDs from Wrike</strong>
+                                <small>
+                                  Reads account-level field names, IDs, and types only. It does not read a task,
+                                  attachment, workbook, or custom-field value.
+                                </small>
+                              </div>
+                              <div className="wrike-discovery-actions">
+                                <button
+                                  className="secondary-button table-inline-button"
+                                  type="button"
+                                  onClick={() => void discoverWrikeCustomFields()}
+                                  disabled={
+                                    wrikeCustomFieldState === "loading" ||
+                                    !activeWrikeConfig.connection_id ||
+                                    !activeWrikeConnectionStatus?.configured ||
+                                    !activeWrikeConnectionStatus?.custom_field_discovery_enabled
+                                  }
+                                  title={
+                                    !activeWrikeConnectionStatus?.custom_field_discovery_enabled
+                                      ? "The server account-metadata discovery gate is off."
+                                      : !activeWrikeConnectionStatus?.configured
+                                        ? "Authorize this customer's Wrike connection first."
+                                        : undefined
+                                  }
+                                >
+                                  <Search size={14} />
+                                  {wrikeCustomFieldState === "loading"
+                                    ? "Discovering fields"
+                                    : "Discover Wrike fields"}
+                                </button>
+                                {wrikeCustomFieldDiscovery ? (
+                                  <button
+                                    className="secondary-button table-inline-button"
+                                    type="button"
+                                    onClick={applyWrikeCustomFieldBindings}
+                                    disabled={
+                                      wrikeCustomFieldDiscovery.missing_titles.length > 0 ||
+                                      wrikeCustomFieldDiscovery.fields.length !== 4
+                                    }
+                                  >
+                                    Apply four field IDs
+                                  </button>
+                                ) : null}
+                              </div>
+                              {wrikeCustomFieldDiscovery ? (
+                                <div className="wrike-custom-field-results">
+                                  {wrikeCustomFieldDiscovery.requested_titles.map((title) => {
+                                    const matches = wrikeCustomFieldDiscovery.fields.filter(
+                                      (field) =>
+                                        field.title.trim().toLocaleLowerCase("en-US") ===
+                                        title.toLocaleLowerCase("en-US")
+                                    );
+                                    return (
+                                      <div key={title}>
+                                        <span>{title}</span>
+                                        <strong>
+                                          {matches.length === 1 ? matches[0].id : matches.length ? "Ambiguous" : "Not found"}
+                                        </strong>
+                                        <small>{matches.length === 1 ? matches[0].type : "Review in Wrike"}</small>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                              {wrikeCustomFieldMessage ? (
+                                <p
+                                  className={
+                                    wrikeCustomFieldState === "error"
+                                      ? "email-health-error"
+                                      : "wrike-discovery-message"
+                                  }
+                                  role={wrikeCustomFieldState === "error" ? "alert" : "status"}
+                                >
+                                  {wrikeCustomFieldMessage}
+                                </p>
+                              ) : null}
+                            </div>
                             <label className="setup-control">
                               <span>Folder or project ID</span>
                               <input
@@ -9396,7 +9567,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 onChange={(event) => updateActiveWrikeConfig({ trigger_status_label: event.target.value })}
                               />
                             </label>
-                            <label className="setup-control setup-control-wide">
+                            <label className="setup-control">
+                              <span>Contract Number custom field ID</span>
+                              <input
+                                value={activeWrikeConfig.contract_number_custom_field_id}
+                                placeholder="Wrike API ID for Contract Number"
+                                onChange={(event) =>
+                                  updateActiveWrikeConfig({ contract_number_custom_field_id: event.target.value })
+                                }
+                              />
+                            </label>
+                            <label className="setup-control">
                               <span>Artwork folder custom field ID</span>
                               <input
                                 value={activeWrikeConfig.artwork_folder_custom_field_id}
@@ -9408,6 +9589,29 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <small>
                                 Optional. A valid HTTPS value maps to canonical Artwork Folder URL and then to
                                 Lift order header field FLEX_FIELD9.
+                              </small>
+                            </label>
+                            <label className="setup-control">
+                              <span>LTL Exception custom field ID</span>
+                              <input
+                                value={activeWrikeConfig.ltl_exception_custom_field_id}
+                                placeholder="Wrike API ID for LTL Exception"
+                                onChange={(event) =>
+                                  updateActiveWrikeConfig({ ltl_exception_custom_field_id: event.target.value })
+                                }
+                              />
+                            </label>
+                            <label className="setup-control">
+                              <span>Print Vendor custom field ID</span>
+                              <input
+                                value={activeWrikeConfig.print_vendor_custom_field_id}
+                                placeholder="Wrike API ID for Print Vendor"
+                                onChange={(event) =>
+                                  updateActiveWrikeConfig({ print_vendor_custom_field_id: event.target.value })
+                                }
+                              />
+                              <small>
+                                Binding only. A later qualified-task slice will define the exact Larger Than Life routing value.
                               </small>
                             </label>
                             <label className="setup-control">
