@@ -31,6 +31,14 @@ export interface SaveTargetProofingApiInput {
   client_secret?: unknown;
 }
 
+export interface TargetProofingApiRuntimeCredentials {
+  base_url: string;
+  company_id: string;
+  action_user_name: string;
+  client_id: string;
+  client_secret: string;
+}
+
 export class TargetProofingApiValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -135,6 +143,34 @@ function publicConfiguration(value: TargetEnvironmentProofingApiSecrets | undefi
 export async function readTargetEnvironmentProofingApi(targetId: string, environmentId: string) {
   const targetSecrets = await readTargetSecrets(targetId);
   return publicConfiguration(targetSecrets.environments?.[environmentId]?.proofing_api);
+}
+
+export async function readTargetEnvironmentProofingApiRuntimeCredentials(
+  targetId: string,
+  environmentId: string
+): Promise<TargetProofingApiRuntimeCredentials> {
+  const targetSecrets = await readTargetSecrets(targetId);
+  const value = targetSecrets.environments?.[environmentId]?.proofing_api;
+  if (
+    !value?.base_url ||
+    !value.company_id ||
+    !value.client_id ||
+    !value.client_secret
+  ) {
+    throw new TargetProofingApiValidationError(
+      "Proofing API credentials are not completely configured for this target environment."
+    );
+  }
+  return {
+    base_url: normalizeProofingApiBaseUrl(value.base_url),
+    company_id: normalizeProofingApiIdentifier(value.company_id, "Proofing API company ID"),
+    action_user_name: normalizeProofingApiIdentifier(
+      value.action_user_name || DEFAULT_PROOFING_API_ACTION_USER_NAME,
+      "Lift action user name"
+    ),
+    client_id: normalizeProofingApiIdentifier(value.client_id, "Proofing API client ID"),
+    client_secret: boundedText(value.client_secret, "Proofing API client secret", maxSecretLength)
+  };
 }
 
 export async function saveTargetEnvironmentProofingApi(

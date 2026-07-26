@@ -223,6 +223,20 @@ Parameters:
   ProofAuditTableArn:
     Type: String
     Default: ""
+  ProofOperatorActionQaEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled authenticated operator-only gate for bounded LTL Demo Proof action QA.
+  ProofOperatorActionAllowedOrders:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^A[0-9]{7,8}(,A[0-9]{7,8}){0,24}$"
+    Description: Exact comma-separated LTL Demo orders approved for the bounded operator QA window.
+  ProofOperatorActionExpiresAt:
+    Type: String
+    Default: ""
+    Description: Required bounded ISO timestamp after which operator Proof action execution fails closed.
   ProofGrantCreationEnabled:
     Type: String
     Default: "false"
@@ -496,6 +510,9 @@ Resources:
           PATHFINDER_PROOF_ENABLE_LINK_EMAIL: !Ref ProofLinkEmailEnabled
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"
           PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref ProofPublicBaseUrl
+          PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA: !Ref ProofOperatorActionQaEnabled
+          PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS: !Ref ProofOperatorActionAllowedOrders
+          PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT: !Ref ProofOperatorActionExpiresAt
 
   PathfinderCustomersTable:
     Type: AWS::DynamoDB::Table

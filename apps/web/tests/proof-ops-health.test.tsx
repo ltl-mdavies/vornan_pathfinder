@@ -40,6 +40,17 @@ const deployedHealth: ProofIntegrationHealth = {
     approval_cycle_confirmed: false,
     revision_cycle_confirmed: false,
     lift_writes_enabled: false
+  },
+  operator_action_qa: {
+    enabled: false,
+    allowed_customer_id: "1249",
+    allowed_company_id: "91",
+    allowed_order_numbers: [],
+    activation_expires_at: null,
+    jwt_ttl_seconds: 60,
+    target_id: "lift-standard-graphics",
+    environment_id: "env-lift-prod",
+    automatic_retry: false
   }
 };
 

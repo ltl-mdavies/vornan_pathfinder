@@ -66,7 +66,10 @@ aws cloudformation deploy \
     ProofGrantAllowedCustomerIds="${PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS:-}" \
     ProofReadOnlyActivationExpiresAt="${PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT:-}" \
     ProofLinkEmailEnabled="${PATHFINDER_PROOF_ENABLE_LINK_EMAIL:-false}" \
-    ProofPublicBaseUrl="${PATHFINDER_PROOF_PUBLIC_BASE_URL:-https://proof.vornan.co}"
+    ProofPublicBaseUrl="${PATHFINDER_PROOF_PUBLIC_BASE_URL:-https://proof.vornan.co}" \
+    ProofOperatorActionQaEnabled="${PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA:-false}" \
+    ProofOperatorActionAllowedOrders="${PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS:-}" \
+    ProofOperatorActionExpiresAt="${PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT:-}"
 
 echo "Stack outputs:"
 aws cloudformation describe-stacks \

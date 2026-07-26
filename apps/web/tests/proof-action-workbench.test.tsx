@@ -32,10 +32,9 @@ test("prepares a locked approval draft without transport or automatic retry", ()
     order,
     taskId: "ptask_synthetic_001",
     action: "APPROVE",
-    approveQuantity: 4,
+    approveQuantity: 1,
     comment: "Approved for synthetic QA",
-    revisedArtUrl: "",
-    uploadFromUrl: false
+    revisionAssetId: ""
   });
 
   assert.deepEqual(draft, {
@@ -45,17 +44,16 @@ test("prepares a locked approval draft without transport or automatic retry", ()
     proofing_id: "proofing-synthetic-001",
     proof_filename: "synthetic-proof.pdf",
     action: "APPROVE",
-    approve_quantity: 4,
+    approve_quantity: 1,
     comment: "Approved for synthetic QA",
-    revised_art_url: null,
-    upload_from_url: false,
+    revision_asset_id: null,
     execution: "locked",
     automatic_retry: false,
     confirmation: "authoritative_read_after_write_required"
   });
 });
 
-test("requires a safe HTTPS URL only for revised-art actions", () => {
+test("requires a verified Pathfinder asset only for revised-art actions", () => {
   assert.throws(
     () => buildProofActionDraft({
       order,
@@ -63,23 +61,21 @@ test("requires a safe HTTPS URL only for revised-art actions", () => {
       action: "REVISED_ART_WILL_BE_SENT",
       approveQuantity: 1,
       comment: "",
-      revisedArtUrl: "http://example.invalid/revised.pdf",
-      uploadFromUrl: true
+      revisionAssetId: ""
     }),
-    /safe HTTPS/
+    /verified Pathfinder Proof upload/
   );
 
+  const revisionAssetId = `passet_${"a".repeat(64)}`;
   const draft = buildProofActionDraft({
     order,
     taskId: "ptask_synthetic_001",
     action: "REVISED_ART_WILL_BE_SENT",
     approveQuantity: 1,
     comment: "Replacement supplied",
-    revisedArtUrl: "https://files.example.invalid/revised.pdf",
-    uploadFromUrl: true
+    revisionAssetId
   });
-  assert.equal(draft.revised_art_url, "https://files.example.invalid/revised.pdf");
-  assert.equal(draft.upload_from_url, true);
+  assert.equal(draft.revision_asset_id, revisionAssetId);
   assert.equal(draft.approve_quantity, null);
 });
 
@@ -91,8 +87,7 @@ test("fails closed for stale, non-actionable, or cross-bound proof tasks", () =>
       action: "APPROVE",
       approveQuantity: 1,
       comment: "",
-      revisedArtUrl: "",
-      uploadFromUrl: false
+      revisionAssetId: ""
     }),
     /restricted to the LTL Demo customer/
   );
@@ -110,8 +105,7 @@ test("fails closed for stale, non-actionable, or cross-bound proof tasks", () =>
       action: "REJECT",
       approveQuantity: 1,
       comment: "",
-      revisedArtUrl: "",
-      uploadFromUrl: false
+      revisionAssetId: ""
     }),
     /current actionable proof/
   );
@@ -132,8 +126,7 @@ test("fails closed for stale, non-actionable, or cross-bound proof tasks", () =>
       action: "REJECT",
       approveQuantity: 1,
       comment: "",
-      revisedArtUrl: "",
-      uploadFromUrl: false
+      revisionAssetId: ""
     }),
     /does not match/
   );

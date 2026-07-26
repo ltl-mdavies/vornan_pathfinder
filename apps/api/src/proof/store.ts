@@ -30,6 +30,7 @@ export interface LocalProofStore {
   participants: Record<string, ProofParticipant>;
   feedback_acknowledgements: Record<string, ProofFeedbackAcknowledgement>;
   decision_records: Record<string, ProofDecisionLedgerRecord>;
+  operator_action_records: Record<string, unknown>;
   audit_events: Record<string, ProofAuditEvent>;
 }
 
@@ -120,6 +121,7 @@ export async function readLocalProofStore(): Promise<LocalProofStore> {
       participants: collection<ProofParticipant>("participants"),
       feedback_acknowledgements: collection<ProofFeedbackAcknowledgement>("feedback_acknowledgements"),
       decision_records: collection<ProofDecisionLedgerRecord>("decision_records"),
+      operator_action_records: collection<unknown>("operator_action_records"),
       audit_events: collection<ProofAuditEvent>("audit_events")
     };
   } catch (error) {
@@ -131,6 +133,7 @@ export async function readLocalProofStore(): Promise<LocalProofStore> {
         participants: {},
         feedback_acknowledgements: {},
         decision_records: {},
+        operator_action_records: {},
         audit_events: {}
       };
     }

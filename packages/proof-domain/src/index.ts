@@ -5,6 +5,7 @@ import {
   type OrderRollupProofSummary
 } from "@pathfinder/order-rollup";
 
+
 export type ProofTaskState =
   | "waiting"
   | "pending"
@@ -297,7 +298,10 @@ export type ProofAuditAction =
   | "proof.feedback_acknowledged"
   | "proof.session_exchanged"
   | "proof.session_ended"
-  | "proof.decision_prepared";
+  | "proof.decision_prepared"
+  | "proof.operator_action_prepared"
+  | "proof.operator_action_submission_started"
+  | "proof.operator_action_observed";
 
 export type ProofAuditActorType = "operator" | "customer_session" | "system";
 export type ProofAuditOutcome = "succeeded" | "failed";
@@ -319,7 +323,14 @@ export interface ProofAuditMetadata {
   delivery_mode?: "log" | "ses";
   delivery_status?: "logged" | "sent" | "failed";
   decision_kind?: ProofDecisionKind;
-  decision_outcome?: "prepared";
+  decision_outcome?: "prepared" | "submission_uncertain" | "reconciling";
+  operator_action_kind?:
+    | "APPROVE"
+    | "REJECT"
+    | "SEND_BACK_TO_ARTIST"
+    | "CANCEL_LINE"
+    | "REVISED_ART_WILL_BE_SENT";
+  response_classification?: string;
   failure_class?: string;
 }
 

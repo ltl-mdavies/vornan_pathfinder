@@ -326,11 +326,16 @@ test("uses one generic denial and exposes no public decision routes", async () =
   await request(app).post("/api/public/proof/tasks/ptask_public_qa/approve").send({ approve: true }).expect(404);
   await request(app).post("/api/public/proof/tasks/ptask_public_qa/revisions").send({ filename: "revision.pdf" }).expect(404);
   await request(app).put("/api/public/proof/tasks/ptask_public_qa").send({ approve: true }).expect(404);
+  await request(app).post("/api/public/proof/operator-actions/execute").send({ action: "APPROVE" }).expect(404);
 
   const adminApp = express();
   adminApp.use(express.json());
   adminApp.use("/api/proof", createAdminRouter());
   await request(adminApp).post("/api/proof/tasks/ptask_public_qa/approve").send({ approve: true }).expect(404);
+  await request(adminApp)
+    .post("/api/proof/operator-actions/execute")
+    .send({ action: "APPROVE" })
+    .expect(401);
 });
 
 test("returns only redacted history for a task in the session order", async () => {
