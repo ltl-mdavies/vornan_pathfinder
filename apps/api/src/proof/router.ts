@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { InvalidLiftOrderNumberError, LiftOrderNotFoundError, normalizeLiftOrderNumber } from "@pathfinder/proof-domain";
 import { LiftProofReadError } from "@pathfinder/lift-proof-adapter";
 import { assertLiftProofWritesDisabled, getProofRuntimeConfig } from "./runtime-config.js";
+import { getProofOperatorActionQaConfig } from "./operator-action-config.js";
 import { getProofGrantById, getProofOrder, listProofAuditEvents, listProofParticipants } from "./store.js";
 import { syncProofOrder } from "./service.js";
 import { proofOrderIsStale } from "./sync-queue.js";
@@ -16,6 +17,11 @@ import {
 } from "./access-service.js";
 import type { ProofAuditContext } from "./audit-service.js";
 import { ProofGrantNotFoundError, sendProofGrantLinkEmail } from "./email-service.js";
+import {
+  createProofOperatorActionService,
+  ProofOperatorActionError,
+  type ProofOperatorActionRequest
+} from "./operator-action-service.js";
 
 function operatorAuditContext(req: Request, res: Response): ProofAuditContext {
   const authUser = res.locals.authUser as { uid?: unknown } | undefined;
@@ -52,6 +58,15 @@ function errorStatus(error: unknown) {
   if (error instanceof ProofOrderNotSynchronizedError) {
     return 409;
   }
+  if (error instanceof ProofOperatorActionError) {
+    if (error.code === "unauthenticated") return 401;
+    if (error.code === "not_allowed") return 403;
+    if (error.code === "conflict" || error.code === "stale" || error.code === "already_attempted") {
+      return 409;
+    }
+    if (error.code === "disabled") return 503;
+    return 400;
+  }
   if (error instanceof Error && error.message === "Proof audit cursor is invalid.") {
     return 400;
   }
@@ -63,6 +78,7 @@ export interface ProofAdminRouterDependencies {
   syncOrderForGrant?: typeof syncProofOrder;
   createGrant?: typeof createProofGrant;
   orderIsStale?: typeof proofOrderIsStale;
+  operatorActionService?: ReturnType<typeof createProofOperatorActionService>;
 }
 
 export function createProofAdminRouter(dependencies: ProofAdminRouterDependencies = {}) {
@@ -71,10 +87,13 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
   const syncOrderForGrant = dependencies.syncOrderForGrant ?? syncProofOrder;
   const createGrant = dependencies.createGrant ?? createProofGrant;
   const orderIsStale = dependencies.orderIsStale ?? proofOrderIsStale;
+  const operatorActionService =
+    dependencies.operatorActionService ?? createProofOperatorActionService();
 
   router.get("/health/lift", (_req, res) => {
     assertLiftProofWritesDisabled();
     const config = getProofRuntimeConfig();
+    const operatorActionQa = getProofOperatorActionQaConfig();
     res.json({
       phase: config.phase,
       storage_driver: config.storage_driver,
@@ -102,8 +121,62 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         activation_expiry_configured: Boolean(config.access.read_only_activation_expires_at)
       },
       feature_flags: config.feature_flags,
-      qa_lifecycle: config.qa_lifecycle
+      qa_lifecycle: config.qa_lifecycle,
+      operator_action_qa: {
+        enabled: operatorActionQa.enabled,
+        allowed_customer_id: operatorActionQa.allowed_customer_id,
+        allowed_company_id: operatorActionQa.allowed_company_id,
+        allowed_order_numbers: operatorActionQa.allowed_order_numbers,
+        activation_expires_at: operatorActionQa.activation_expires_at,
+        jwt_ttl_seconds: operatorActionQa.jwt_ttl_seconds,
+        target_id: "lift-standard-graphics",
+        environment_id: "env-lift-prod",
+        automatic_retry: false
+      }
     });
+  });
+
+  const operatorUid = (res: Response) => {
+    const authUser = res.locals.authUser as { uid?: unknown } | undefined;
+    return typeof authUser?.uid === "string" ? authUser.uid : "";
+  };
+
+  router.post("/operator-actions/prepare", async (req, res) => {
+    try {
+      assertLiftProofWritesDisabled();
+      const result = await operatorActionService.prepare({
+        request: req.body as ProofOperatorActionRequest,
+        operator_uid: operatorUid(res),
+        correlation_id: req.header("x-request-id") ?? `prepare-${Date.now()}`
+      });
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+      res.status(result.status === "new" ? 201 : 200).json(result);
+    } catch (error) {
+      res.status(errorStatus(error)).json({
+        error: error instanceof Error ? error.message : "Proof action could not be prepared."
+      });
+    }
+  });
+
+  router.post("/operator-actions/execute", async (req, res) => {
+    try {
+      assertLiftProofWritesDisabled();
+      const result = await operatorActionService.execute({
+        request: req.body as ProofOperatorActionRequest,
+        confirmation_phrase:
+          typeof req.body?.confirmation_phrase === "string"
+            ? req.body.confirmation_phrase
+            : "",
+        operator_uid: operatorUid(res),
+        correlation_id: req.header("x-request-id") ?? `execute-${Date.now()}`
+      });
+      res.setHeader("Cache-Control", "private, no-store, max-age=0");
+      res.json(result);
+    } catch (error) {
+      res.status(errorStatus(error)).json({
+        error: error instanceof Error ? error.message : "Proof action could not be executed."
+      });
+    }
   });
 
   router.post("/orders/:orderNumber/sync", async (req, res) => {

@@ -158,7 +158,10 @@ jobs:
               ProofGrantAllowedCustomerIds="${{ vars.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS || '' }}" \
               ProofReadOnlyActivationExpiresAt="${{ vars.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT || '' }}" \
               ProofLinkEmailEnabled="${{ vars.PATHFINDER_PROOF_ENABLE_LINK_EMAIL || 'false' }}" \
-              ProofPublicBaseUrl="${{ vars.PATHFINDER_PROOF_PUBLIC_BASE_URL || 'https://proof.vornan.co' }}"
+              ProofPublicBaseUrl="${{ vars.PATHFINDER_PROOF_PUBLIC_BASE_URL || 'https://proof.vornan.co' }}" \
+              ProofOperatorActionQaEnabled="${{ vars.PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA || 'false' }}" \
+              ProofOperatorActionAllowedOrders="${{ vars.PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS || '' }}" \
+              ProofOperatorActionExpiresAt="${{ vars.PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT || '' }}"
 
       - name: Show stack outputs
         run: |

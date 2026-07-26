@@ -41,7 +41,7 @@ Lift proof writes may be designed in Phase 3/4 only after all of the following a
 | Dedicated persistence | Proof core uses its own `pk`/`sk` table with attachment and line indexes, on-demand billing, SSE, and PITR. | CloudFormation and local adapter implemented; local mutations are serialized and atomically replaced, malformed stores fail closed; deployment not performed. |
 | Known Lift contract fixtures | Real response topology for nested `LINES`, sibling attachments, and a completed/reference order. | Manually redacted fixtures and exact normalization tests implemented; customer creative, signed URLs, comments, and reports removed. |
 | Lift QA endpoint lifecycle | QA endpoint is distinct but currently shares production credentials. | Open hard gate for all Lift Proof writes. |
-| Large revision files | At least 800 MB with resumable multipart; ZIP excluded from Lift artwork. | Recorded for Phase 4; no upload or revision code exists. |
+| Large revision files | At least 800 MB with resumable multipart; ZIP excluded from Lift artwork. Proof uploads only; no Wrike, SharePoint, or external-repository ingestion. Retained sources are configurable from 60–90 days with a 90-day initial maximum; outbound Lift copies remain shorter-lived. | `docs/VORNAN_PROOF_ASSET_LIFECYCLE.md` and a pure fail-closed asset-readiness contract are implemented locally. No bucket, upload API, CDN/DNS, deployment, or Lift revision action is authorized. |
 | Support SLA | `support@vornan.com`; response target/escalation required before pilot. | Pre-pilot operating follow-up. |
 
 ## Phase 1 read-only slice

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, CircleAlert, ClipboardCheck, Copy, Database, History, Link2, LockKeyhole, Mail, Network, Plus, RefreshCw, ShieldCheck, Unlink, UserRound, X } from "lucide-react";
 import { proofReadOnlyPosture, type ProofIntegrationHealth } from "./proof-ops-health";
 
@@ -74,22 +74,10 @@ export interface ProofActionDraft {
   action: ProofActionDraftKind;
   approve_quantity: number | null;
   comment: string | null;
-  revised_art_url: string | null;
-  upload_from_url: boolean;
+  revision_asset_id: string | null;
   execution: "locked";
   automatic_retry: false;
   confirmation: "authoritative_read_after_write_required";
-}
-
-function safeHttpsUrl(value: string) {
-  if (!value.trim()) return null;
-  try {
-    const parsed = new URL(value.trim());
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hash) return null;
-    return parsed.toString();
-  } catch {
-    return null;
-  }
 }
 
 export function buildProofActionDraft(input: {
@@ -98,8 +86,7 @@ export function buildProofActionDraft(input: {
   action: ProofActionDraftKind;
   approveQuantity: number;
   comment: string;
-  revisedArtUrl: string;
-  uploadFromUrl: boolean;
+  revisionAssetId: string;
 }): ProofActionDraft {
   if (input.order.customer_id !== "1249") {
     throw new Error("Proof action testing is restricted to the LTL Demo customer (1249).");
@@ -111,14 +98,19 @@ export function buildProofActionDraft(input: {
   if (task.current_version.attachment_id && task.current_version.attachment_id !== task.attachment_id) {
     throw new Error("The current proof attachment does not match the selected task.");
   }
-  if (input.action === "APPROVE" && (!Number.isFinite(input.approveQuantity) || input.approveQuantity <= 0)) {
-    throw new Error("Approval quantity must be greater than zero.");
+  if (input.action === "APPROVE" && input.approveQuantity !== 1) {
+    throw new Error("Supervised Proof approval is pinned to quantity 1.");
   }
-  const revisedArtUrl = input.action === "REVISED_ART_WILL_BE_SENT"
-    ? safeHttpsUrl(input.revisedArtUrl)
+  const revisionAssetId = input.action === "REVISED_ART_WILL_BE_SENT"
+    ? input.revisionAssetId.trim()
     : null;
-  if (input.action === "REVISED_ART_WILL_BE_SENT" && !revisedArtUrl) {
-    throw new Error("Revised art requires a safe HTTPS file URL.");
+  if (
+    input.action === "REVISED_ART_WILL_BE_SENT" &&
+    !/^passet_[a-f0-9]{64}$/.test(revisionAssetId ?? "")
+  ) {
+    throw new Error(
+      "Revised art requires a verified Pathfinder Proof upload. Upload support is not available in this release."
+    );
   }
   const comment = input.comment.trim();
   if (comment.length > 2_000) throw new Error("Proof action comment is too long.");
@@ -129,10 +121,9 @@ export function buildProofActionDraft(input: {
     proofing_id: task.attachment_id,
     proof_filename: task.current_version.filename,
     action: input.action,
-    approve_quantity: input.action === "APPROVE" ? input.approveQuantity : null,
+    approve_quantity: input.action === "APPROVE" ? 1 : null,
     comment: comment || null,
-    revised_art_url: revisedArtUrl,
-    upload_from_url: input.action === "REVISED_ART_WILL_BE_SENT" && input.uploadFromUrl,
+    revision_asset_id: revisionAssetId,
     execution: "locked",
     automatic_retry: false,
     confirmation: "authoritative_read_after_write_required"
@@ -196,8 +187,19 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   const [proofAction, setProofAction] = useState<ProofActionDraftKind>("APPROVE");
   const [approveQuantity, setApproveQuantity] = useState(1);
   const [proofComment, setProofComment] = useState("");
-  const [revisedArtUrl, setRevisedArtUrl] = useState("");
-  const [uploadFromUrl, setUploadFromUrl] = useState(true);
+  const [revisionAssetId, setRevisionAssetId] = useState("");
+  const [preparedAction, setPreparedAction] = useState<{
+    request: Record<string, unknown>;
+    confirmation_phrase: string;
+    action_id: string;
+  } | null>(null);
+  const [actionConfirmation, setActionConfirmation] = useState("");
+  const [actionResult, setActionResult] = useState<{
+    outcome: string;
+    classification: string | null;
+    task_state: string | null;
+  } | null>(null);
+  const operatorActionInFlight = useRef(false);
 
   const request = (path: string, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
@@ -219,11 +221,10 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     if (!order) return;
     const firstActionable = order.tasks.find((task) => task.actionable && task.attachment_id && task.current_version);
     setSelectedTaskId(firstActionable?.task_id ?? "");
-    setApproveQuantity(firstActionable?.quantity && firstActionable.quantity > 0 ? firstActionable.quantity : 1);
+    setApproveQuantity(1);
     setProofAction("APPROVE");
     setProofComment("");
-    setRevisedArtUrl("");
-    setUploadFromUrl(true);
+    setRevisionAssetId("");
   }, [order]);
 
   useEffect(() => {
@@ -405,6 +406,84 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     }
   }
 
+  async function prepareProofAction() {
+    if (!order || !actionDraft || operatorActionInFlight.current) return;
+    operatorActionInFlight.current = true;
+    setState("loading");
+    setMessage(null);
+    setPreparedAction(null);
+    setActionResult(null);
+    try {
+      const actionRequest = {
+        order_number: actionDraft.order_number,
+        task_id: actionDraft.task_id,
+        attachment_id: actionDraft.proofing_id,
+        action: actionDraft.action,
+        idempotency_key: `proof-action-${crypto.randomUUID()}`,
+        target_id: health?.operator_action_qa.target_id,
+        environment_id: health?.operator_action_qa.environment_id,
+        comment: actionDraft.comment,
+        revision_asset_id: actionDraft.revision_asset_id
+      };
+      const payload = await responseJson<{
+        confirmation_phrase: string;
+        operator_action: { action_id: string };
+      }>(
+        await request("/api/proof/operator-actions/prepare", {
+          method: "POST",
+          body: JSON.stringify(actionRequest)
+        })
+      );
+      setPreparedAction({
+        request: actionRequest,
+        confirmation_phrase: payload.confirmation_phrase,
+        action_id: payload.operator_action.action_id
+      });
+      setActionConfirmation("");
+      setMessage("Proof action intent and audit were reserved. Confirm the exact single action to continue.");
+      await loadAudit(order.order_number).catch(() => undefined);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Proof action could not be prepared.");
+    } finally {
+      operatorActionInFlight.current = false;
+      setState("idle");
+    }
+  }
+
+  async function executePreparedProofAction() {
+    if (!preparedAction || !order || operatorActionInFlight.current) return;
+    operatorActionInFlight.current = true;
+    setState("loading");
+    setMessage(null);
+    try {
+      const payload = await responseJson<{
+        operator_action: { outcome: string; response_classification: string | null };
+        authoritative_reconciliation: { task_state: string | null };
+      }>(
+        await request("/api/proof/operator-actions/execute", {
+          method: "POST",
+          body: JSON.stringify({
+            ...preparedAction.request,
+            confirmation_phrase: actionConfirmation
+          })
+        })
+      );
+      setActionResult({
+        outcome: payload.operator_action.outcome,
+        classification: payload.operator_action.response_classification,
+        task_state: payload.authoritative_reconciliation.task_state
+      });
+      setPreparedAction(null);
+      setActionConfirmation("");
+      setMessage("One Proof action was attempted with zero retry. Review the authoritative Lift state.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Proof action execution failed.");
+    } finally {
+      operatorActionInFlight.current = false;
+      setState("idle");
+    }
+  }
+
   const pendingCount = order?.tasks.filter((task) => task.state === "pending").length ?? 0;
   const readOnlyPosture = health ? proofReadOnlyPosture(health) : null;
   const selectedTask = order?.tasks.find((task) => task.task_id === selectedTaskId) ?? null;
@@ -418,8 +497,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
         action: proofAction,
         approveQuantity,
         comment: proofComment,
-        revisedArtUrl,
-        uploadFromUrl
+        revisionAssetId
       });
     } catch (error) {
       actionDraftError = error instanceof Error ? error.message : "Proof action draft is invalid.";
@@ -566,7 +644,9 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 <h4 id="proof-action-workbench-title">Prepare one supervised proof action.</h4>
                 <p>Choose a current proof and review the exact action. Execution remains locked and no Lift request is sent from this screen.</p>
               </div>
-              <span className="proof-action-locked"><LockKeyhole size={14} /> Execution locked</span>
+              <span className="proof-action-locked">
+                <LockKeyhole size={14} /> {health?.operator_action_qa.enabled ? "Bounded operator QA" : "Execution locked"}
+              </span>
             </div>
 
             <div className="proof-action-fields">
@@ -575,7 +655,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 <select value={selectedTaskId} onChange={(event) => {
                   const task = order.tasks.find((candidate) => candidate.task_id === event.target.value);
                   setSelectedTaskId(event.target.value);
-                  setApproveQuantity(task?.quantity && task.quantity > 0 ? task.quantity : 1);
+                  setApproveQuantity(1);
                 }}>
                   <option value="">Choose current proof</option>
                   {order.tasks.filter((task) => task.actionable && task.attachment_id && task.current_version).map((task) => (
@@ -598,7 +678,8 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
               {proofAction === "APPROVE" ? (
                 <label>
                   Approve quantity
-                  <input type="number" min="1" step="1" value={approveQuantity} onChange={(event) => setApproveQuantity(Number(event.target.value))} />
+                  <input type="number" value={1} readOnly aria-describedby="proof-approve-quantity-note" />
+                  <small id="proof-approve-quantity-note">Pinned to 1 for the supervised Lift QA contract.</small>
                 </label>
               ) : null}
               <label className="proof-action-comment">
@@ -606,17 +687,14 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 <textarea value={proofComment} maxLength={2000} onChange={(event) => setProofComment(event.target.value)} placeholder="Optional note for this proof action" />
               </label>
               {proofAction === "REVISED_ART_WILL_BE_SENT" ? (
-                <>
-                  <label className="proof-action-art-url">
-                    Revised art HTTPS URL
-                    <input type="url" value={revisedArtUrl} onChange={(event) => setRevisedArtUrl(event.target.value)} placeholder="https://approved-file-host.example/revised-art.pdf" />
-                    <small>Lift documents an art URL, not a browser file-upload endpoint.</small>
-                  </label>
-                  <label className="proof-action-checkbox">
-                    <input type="checkbox" checked={uploadFromUrl} onChange={(event) => setUploadFromUrl(event.target.checked)} />
-                    Ask Lift to process the revised art URL
-                  </label>
-                </>
+                <div className="proof-action-art-url" role="note">
+                  <strong>Verified Proof upload required</strong>
+                  <small>
+                    Arbitrary URLs are not accepted. Revised-art execution remains
+                    unavailable until Pathfinder has fully uploaded, scanned,
+                    published, and settled the asset.
+                  </small>
+                </div>
               ) : null}
             </div>
 
@@ -638,13 +716,30 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 <span>Safety behavior</span>
                 <strong>No automatic retry · authoritative Lift read required</strong>
               </div>
-              <button className="primary-button" type="button" disabled>
-                <LockKeyhole size={15} /> Execute in supervised QA
+              <button
+                className="primary-button"
+                type="button"
+                disabled={
+                  state === "loading" ||
+                  !actionDraft ||
+                  !health?.operator_action_qa.enabled ||
+                  !health.operator_action_qa.allowed_order_numbers.includes(order.order_number)
+                }
+                onClick={() => void prepareProofAction()}
+              >
+                <LockKeyhole size={15} /> Prepare supervised action
               </button>
             </div>
             <p className="proof-action-boundary">
-              Tomorrow’s execution gate must independently verify customer 1249, the current proof attachment, environment credentials, persisted attempt/audit state, and one explicit operator confirmation.
+              {health?.operator_action_qa.enabled
+                ? `Bounded operator gate expires ${dateLabel(health.operator_action_qa.activation_expires_at)}. Only allowlisted LTL Demo orders can proceed.`
+                : "Operator execution is default-disabled. Enabling it requires a separate bounded deployment and QA approval."}
             </p>
+            {actionResult ? (
+              <div className="proof-ops-message" role="status">
+                Durable state: {actionResult.outcome} · Lift observation: {actionResult.classification ?? "unclassified"} · authoritative task: {actionResult.task_state ?? "not resolved"}. Manual review required.
+              </div>
+            ) : null}
           </section>
 
           <div className="proof-grant-create">
@@ -764,6 +859,48 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
           </div>
           <button className="secondary-button" type="button" onClick={() => setPendingAction(null)}>Cancel</button>
           <button className="primary-button" type="button" onClick={() => void confirmGrantAction()}>Confirm</button>
+        </div>
+      ) : null}
+
+      {preparedAction ? (
+        <div className="proof-action-confirm" role="alertdialog" aria-modal="true" aria-labelledby="proof-operator-confirm-title">
+          <div>
+            <h4 id="proof-operator-confirm-title">Confirm one supervised Lift action</h4>
+            <p>The intent and audit are durable. Execution will send exactly one PUT with no automatic retry, then immediately read Lift again.</p>
+            <code>{preparedAction.confirmation_phrase}</code>
+            <label>
+              Type the exact confirmation phrase
+              <input
+                autoComplete="off"
+                value={actionConfirmation}
+                onChange={(event) => setActionConfirmation(event.target.value)}
+              />
+            </label>
+            <div>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={state === "loading"}
+                onClick={() => {
+                  setPreparedAction(null);
+                  setActionConfirmation("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={
+                  state === "loading" ||
+                  actionConfirmation !== preparedAction.confirmation_phrase
+                }
+                onClick={() => void executePreparedProofAction()}
+              >
+                Execute exactly one action
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </section>

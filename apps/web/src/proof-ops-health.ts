@@ -37,6 +37,17 @@ export interface ProofIntegrationHealth {
     revision_cycle_confirmed: boolean;
     lift_writes_enabled: false;
   };
+  operator_action_qa: {
+    enabled: boolean;
+    allowed_customer_id: "1249";
+    allowed_company_id: "91";
+    allowed_order_numbers: string[];
+    activation_expires_at: string | null;
+    jwt_ttl_seconds: number;
+    target_id: "lift-standard-graphics";
+    environment_id: "env-lift-prod";
+    automatic_retry: false;
+  };
 }
 
 export interface ProofReadOnlyPosture {

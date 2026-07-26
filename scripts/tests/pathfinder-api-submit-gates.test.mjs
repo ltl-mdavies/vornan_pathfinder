@@ -87,3 +87,36 @@ test("Wrike workbook evidence remains disabled by default and uses a retained pr
   assert.equal(evidenceStatement.Action.includes("s3:PutObject"), false);
   assert.equal(evidenceStatement.Action.includes("s3:DeleteObject"), false);
 });
+
+test("operator-only Proof action QA remains independently dark and narrowly scoped by default", () => {
+  assert.match(template, /ProofOperatorActionQaEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /ProofOperatorActionAllowedOrders:[\s\S]*?Default: ""/);
+  assert.match(template, /ProofOperatorActionExpiresAt:[\s\S]*?Default: ""/);
+  assert.match(
+    template,
+    /PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA: !Ref ProofOperatorActionQaEnabled/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS: !Ref ProofOperatorActionAllowedOrders/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT: !Ref ProofOperatorActionExpiresAt/
+  );
+  assert.match(
+    workflow,
+    /ProofOperatorActionQaEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA \|\| 'false' \}\}"/
+  );
+  assert.doesNotMatch(template, /dynamodb:TransactWriteItems/);
+  assert.match(
+    template,
+    /- dynamodb:PutItem[\s\S]*?- !If \[HasProofCoreTable, !Ref ProofCoreTableArn/
+  );
+  assert.match(
+    template,
+    /HasProofAuditTable[\s\S]*?- dynamodb:PutItem[\s\S]*?Resource: !Ref ProofAuditTableArn/
+  );
+  assert.match(template, /PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"/);
+  assert.doesNotMatch(template, /PATHFINDER_PROOF_ENABLE_(APPROVE|REVISION|UNDO): "true"/);
+});
