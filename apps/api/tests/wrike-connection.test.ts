@@ -27,6 +27,7 @@ before(async () => {
   process.env.PATHFINDER_REQUIRE_AUTH = "false";
   process.env.PATHFINDER_ENABLE_LIFT_SUBMIT = "false";
   process.env.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST = "true";
+  process.env.PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY = "true";
   process.env.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW = "true";
   process.env.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE = "true";
   process.env.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW = "true";
@@ -81,10 +82,12 @@ test("stores customer Wrike app credentials only in the isolated secret boundary
     access_token_expires_at: null
   });
   assert.equal(saved.body.provider_status.discovery_preview_enabled, true);
+  assert.equal(saved.body.provider_status.custom_field_discovery_enabled, true);
   assert.equal(saved.body.provider_status.workbook_evidence_enabled, true);
   assert.equal(saved.body.provider_status.evidence_preview_enabled, true);
   assert.equal(saved.body.provider_status.manual_intake_enabled, true);
   assert.equal(saved.body.provider_status.capabilities.task_discovery, true);
+  assert.equal(saved.body.provider_status.capabilities.custom_field_metadata, true);
   assert.equal(saved.body.provider_status.capabilities.attachment_metadata, true);
   assert.equal(saved.body.provider_status.capabilities.attachment_download, true);
   assert.equal(saved.body.provider_status.capabilities.source_evidence_persistence, true);
@@ -229,6 +232,82 @@ test("persists rotated OAuth credentials when the identity check fails", async (
   const stored = await readFile(join(testDirectory, "secrets.json"), "utf8");
   assert.equal(stored.includes("failure-path-refresh"), true);
   assert.equal(stored.includes("failure-path-access"), true);
+});
+
+test("discovers only the four requested Wrike custom-field definitions", async () => {
+  await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+    provider: "wrike",
+    wrike: {
+      oauth: {
+        client_id: "field-client-id",
+        client_secret: "field-client-secret",
+        refresh_token: "field-refresh-token",
+        host: "www.wrike.com"
+      }
+    }
+  });
+
+  const calls: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.endsWith("/oauth2/token")) {
+      return new Response(
+        JSON.stringify({
+          access_token: "field-access-token",
+          refresh_token: "field-rotated-refresh-token",
+          host: "www.wrike.com"
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        kind: "customfields",
+        data: [
+          { id: "IECONTRACT", title: "Contract Number", type: "Text" },
+          { id: "IEARTWORK", title: "LTL Artwork Folder URL", type: "Text" },
+          { id: "IEEXCEPTION", title: "LTL Exception", type: "Checkbox" },
+          { id: "IEVENDOR", title: "Print Vendor", type: "DropDown" },
+          { id: "IEPRIVATE", title: "Private Unrelated Field", type: "Text" }
+        ]
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  };
+
+  const response = await request(app)
+    .post(connectionPath("/wrike/custom-fields/discover"))
+    .expect("Cache-Control", "no-store")
+    .expect(200);
+
+  assert.deepEqual(calls, [
+    "https://www.wrike.com/oauth2/token",
+    "https://www.wrike.com/api/v4/customfields"
+  ]);
+  assert.deepEqual(response.body.requested_titles, [
+    "Contract Number",
+    "LTL Artwork Folder URL",
+    "LTL Exception",
+    "Print Vendor"
+  ]);
+  assert.deepEqual(response.body.fields, [
+    { id: "IECONTRACT", title: "Contract Number", type: "Text" },
+    { id: "IEARTWORK", title: "LTL Artwork Folder URL", type: "Text" },
+    { id: "IEEXCEPTION", title: "LTL Exception", type: "Checkbox" },
+    { id: "IEVENDOR", title: "Print Vendor", type: "DropDown" }
+  ]);
+  assert.deepEqual(response.body.missing_titles, []);
+  assert.equal(response.body.capabilities.task_values_read, false);
+  assert.equal(response.body.capabilities.attachment_metadata_read, false);
+  assert.equal(response.body.capabilities.wrike_writes, false);
+  const publicPayload = JSON.stringify(response.body);
+  assert.equal(publicPayload.includes("Private Unrelated Field"), false);
+  assert.equal(publicPayload.includes("field-access-token"), false);
+  assert.equal(publicPayload.includes("field-rotated-refresh-token"), false);
+
+  const stored = await readFile(join(testDirectory, "secrets.json"), "utf8");
+  assert.equal(stored.includes("field-rotated-refresh-token"), true);
 });
 
 test("runs a bounded saved-scope discovery preview through the Import Method's customer connection", async () => {

@@ -76,6 +76,7 @@ import {
   buildWrikeAuthorizationUrl,
   checkWrikeOAuthConnection,
   discoverApprovedWrikeTask,
+  discoverWrikeCustomFields,
   exchangeWrikeAuthorizationCode,
   fetchQualifiedWrikeWorkbookSources,
   getWrikeContractReadiness,
@@ -207,6 +208,8 @@ const liftProductCatalogBaseUrl =
   process.env.LIFT_PRODUCT_CATALOG_BASE_URL ?? "https://ltlco.lifterp.com/ords/api/lift/erp";
 const publicStatusBaseUrl = process.env.PATHFINDER_PUBLIC_STATUS_BASE_URL ?? "https://status.vornan.co";
 const wrikeConnectionTestEnabled = process.env.PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST === "true";
+const wrikeCustomFieldDiscoveryEnabled =
+  process.env.PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY === "true";
 const wrikeDiscoveryPreviewEnabled = process.env.PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW === "true";
 const wrikeWorkbookEvidenceEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE === "true";
@@ -3485,6 +3488,7 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
     ),
     authorization_expires_at: secrets.oauth_pending?.expires_at ?? null,
     connection_test_enabled: wrikeConnectionTestEnabled,
+    custom_field_discovery_enabled: wrikeCustomFieldDiscoveryEnabled,
     discovery_preview_enabled: wrikeDiscoveryPreviewEnabled,
     workbook_evidence_enabled: wrikeWorkbookEvidenceEnabled,
     evidence_preview_enabled: wrikeEvidencePreviewEnabled,
@@ -3509,6 +3513,7 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
       oauth_refresh: true,
       identity_check: true,
       requested_scope: "wsReadOnly",
+      custom_field_metadata: wrikeCustomFieldDiscoveryEnabled,
       task_discovery: wrikeDiscoveryPreviewEnabled || wrikeWorkbookEvidenceEnabled,
       attachment_metadata: wrikeDiscoveryPreviewEnabled || wrikeWorkbookEvidenceEnabled,
       attachment_download: wrikeWorkbookEvidenceEnabled,
@@ -3732,6 +3737,80 @@ app.post("/api/customers/:liftCustomerId/source-connections/:connectionId/wrike/
     });
   }
 });
+
+const momentaraWrikeCustomFieldTitles = [
+  "Contract Number",
+  "LTL Artwork Folder URL",
+  "LTL Exception",
+  "Print Vendor"
+] as const;
+
+app.post(
+  "/api/customers/:liftCustomerId/source-connections/:connectionId/wrike/custom-fields/discover",
+  async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!wrikeCustomFieldDiscoveryEnabled) {
+      res.status(423).json({
+        error: "Wrike custom-field discovery is disabled at the API boundary."
+      });
+      return;
+    }
+
+    let customerId = "";
+    let connectionId = "";
+    let existing: WrikeConnectorSecrets = {};
+    try {
+      const customer = await findLiftCustomer(req.params.liftCustomerId);
+      customerId = customer.lift_customer_id;
+      const connection = await findCustomerSourceConnection(customer, req.params.connectionId);
+      if (!connection || connection.provider !== "wrike") {
+        res.status(404).json({ error: "The selected Wrike connection does not exist." });
+        return;
+      }
+      connectionId = connection.connection_id;
+      existing = (await readCustomerSourceConnectionSecrets(customerId, connectionId)).wrike ?? {};
+      const oauth = existing.oauth as WrikeOAuthCredentials | undefined;
+      if (!oauth) {
+        throw new WrikeConnectionError(
+          "invalid_configuration",
+          "Wrike OAuth credentials are not configured."
+        );
+      }
+
+      const result = await discoverWrikeCustomFields(
+        oauth,
+        [...momentaraWrikeCustomFieldTitles]
+      );
+      await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+        provider: "wrike",
+        wrike: { ...existing, oauth: result.credentials }
+      });
+      const { credentials: _credentials, ...publicResult } = result;
+      res.json(publicResult);
+    } catch (error) {
+      if (
+        customerId &&
+        connectionId &&
+        error instanceof WrikeConnectionError &&
+        error.rotated_credentials
+      ) {
+        await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
+          provider: "wrike",
+          wrike: { ...existing, oauth: error.rotated_credentials }
+        });
+      }
+      const message =
+        error instanceof WrikeConnectionError
+          ? error.message
+          : "Wrike custom-field metadata discovery failed.";
+      res.status(
+        error instanceof WrikeConnectionError && error.code === "invalid_configuration"
+          ? 400
+          : 502
+      ).json({ error: message });
+    }
+  }
+);
 
 app.all(["/api/wrike/connection", "/api/wrike/oauth/start", "/api/wrike/connection/test"], (_req, res) => {
   res.status(410).json({ error: "Wrike is configured per customer in Customer Settings → Source Connections." });

@@ -30,6 +30,7 @@ aws cloudformation deploy \
     PublicStatusEmailMode="${PATHFINDER_STATUS_EMAIL_MODE:-log}" \
     PublicStatusEmailDebugReturnLink="${PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK:-false}" \
     WrikeConnectionTestEnabled="${PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST:-false}" \
+    WrikeCustomFieldDiscoveryEnabled="${PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY:-false}" \
     WrikeDiscoveryPreviewEnabled="${PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW:-false}" \
     WrikeWorkbookEvidenceEnabled="${PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE:-false}" \
     WrikeEvidencePreviewEnabled="${PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW:-false}" \

@@ -26,6 +26,18 @@ test("production workflow enables only the certified sandbox-profile Lift lane b
   assert.match(workflow, /AllowLiveCustomerSubmit="\$\{\{ inputs\.allow_live_customer_submit \}\}"/);
 });
 
+test("Wrike custom-field metadata discovery has an independent fail-closed gate", () => {
+  assert.match(template, /WrikeCustomFieldDiscoveryEnabled:[\s\S]*?Default: "false"/);
+  assert.match(
+    template,
+    /PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY: !Ref WrikeCustomFieldDiscoveryEnabled/
+  );
+  assert.match(
+    workflow,
+    /WrikeCustomFieldDiscoveryEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY \|\| 'false' \}\}"/
+  );
+});
+
 test("Wrike workbook evidence remains disabled by default and uses a retained private bucket", () => {
   assert.match(template, /WrikeWorkbookEvidenceEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /WrikeEvidencePreviewEnabled:[\s\S]*?Default: "false"/);

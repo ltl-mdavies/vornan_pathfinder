@@ -3203,3 +3203,17 @@ Added the operator-reviewed bridge from immutable Wrike workbook evidence into P
 - Validation passed all workspace typechecks and production builds, the deterministic API suite at 128/128, every remaining workspace suite, 62/62 deployment-safety checks, 12/12 browser regressions, API and Proof Lambda packaging, SAM lint, bundle/source-graph review, sensitive-value review, and diff hygiene.
 
 No live evidence was captured or read, no feature gate was enabled, and no deployment, Wrike request, Lift action, credential access, or Proof capability change occurred.
+
+## 2026-07-26 - Wrike Custom-Field Definition Discovery
+
+Added a narrowly scoped admin workflow for confirming Momentara's newly created Wrike custom fields before task-value QA.
+
+- Added a dedicated, default-off `PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY` gate independent from exact-task discovery, attachment metadata, workbook evidence, and preview creation.
+- Added a read-only Wrike adapter operation for `GET /api/v4/customfields` using the existing customer-owned `wsReadOnly` OAuth connection.
+- Pathfinder requests and returns only definitions matching `Contract Number`, `LTL Artwork Folder URL`, `LTL Exception`, and `Print Vendor`. Results contain only the provider field ID, title, and type; unrelated fields are discarded.
+- Added an Import Method control that displays the four returned definitions and applies their IDs to the draft Wrike source contract only after one exact match exists for each title. The operator must still save the Import Method to persist those bindings.
+- Extended the saved Wrike source contract with distinct IDs for contract number, artwork folder, LTL exception, and print vendor while preserving legacy configuration normalization.
+- Added fail-closed API, adapter, persistence, gate, stack, workflow, and deployment-script coverage. The separate gate defaults false in local configuration, CloudFormation, and GitHub Actions.
+- Focused adapter tests passed 23/23; focused API/persistence/gate/OAuth tests passed 18/18 with the required local ephemeral-listener permission. All workspace typechecks, tests, production builds, 63/63 Proof deployment-safety checks, 12/12 browser regressions, API Lambda packaging, API SAM lint, and diff hygiene passed.
+
+The supplied Wrike screenshot confirms the four field labels exist in the Placard Order UI, but it does not establish their API IDs, provider types, populated values, or routing semantics. This slice performs no task read, custom-field value read, attachment request, workbook capture, persistence of provider definitions, Pathfinder job creation, Wrike write, Lift action, or Proof capability change. No real field ID or customer value is recorded in source or documentation.

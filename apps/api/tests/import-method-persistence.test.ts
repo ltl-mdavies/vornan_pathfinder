@@ -89,6 +89,10 @@ test("persists a Wrike source contract without retaining credentials or weakenin
         trigger_mode: "webhook_with_reconciliation",
         trigger_status_id: " IEABSENTTOPRINTLTL ",
         trigger_status_label: "Sent to Print - LTL",
+        contract_number_custom_field_id: " IECONTRACT ",
+        artwork_folder_custom_field_id: " IEARTWORK ",
+        ltl_exception_custom_field_id: " IEEXCEPTION ",
+        print_vendor_custom_field_id: " IEVENDOR ",
         attachment_filename_contains: "Momentara order",
         attachment_extensions: ["xlsx", "csv"],
         attachment_selection: "newest_matching_workbook",
@@ -106,6 +110,10 @@ test("persists a Wrike source contract without retaining credentials or weakenin
   assert.equal(saved.source_config.wrike.approved_discovery_task_id, "IEABAPPROVEDTASK");
   assert.equal(saved.source_config.wrike.trigger_status_id, "IEABSENTTOPRINTLTL");
   assert.equal(saved.source_config.wrike.trigger_status_label, "Sent to Print - LTL");
+  assert.equal(saved.source_config.wrike.contract_number_custom_field_id, "IECONTRACT");
+  assert.equal(saved.source_config.wrike.artwork_folder_custom_field_id, "IEARTWORK");
+  assert.equal(saved.source_config.wrike.ltl_exception_custom_field_id, "IEEXCEPTION");
+  assert.equal(saved.source_config.wrike.print_vendor_custom_field_id, "IEVENDOR");
   assert.equal(saved.source_config.wrike.task_title_rule, "contract_order_ooh");
   assert.equal(saved.source_config.wrike.workbook_name_rule, "contract_order_ooh");
   assert.equal(saved.source_config.wrike.attachment_selection, "all_matching_current_workbooks");

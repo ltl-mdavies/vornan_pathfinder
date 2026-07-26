@@ -43,6 +43,7 @@ export class WrikeConnectionError extends Error {
       | "oauth_authorization_failed"
       | "oauth_refresh_failed"
       | "identity_check_failed"
+      | "custom_field_discovery_failed"
       | "task_discovery_failed"
       | "attachment_metadata_failed"
       | "attachment_download_failed"
@@ -66,7 +67,10 @@ export interface WrikeSourceConfig {
   trigger_status_label: string;
   task_title_rule: WrikeTaskTitleRule;
   workbook_name_rule: WrikeWorkbookNameRule;
+  contract_number_custom_field_id: string;
   artwork_folder_custom_field_id: string;
+  ltl_exception_custom_field_id: string;
+  print_vendor_custom_field_id: string;
   attachment_filename_contains: string;
   attachment_extensions: WrikeWorkbookExtension[];
   attachment_selection: WrikeAttachmentSelectionPolicy;
@@ -86,6 +90,29 @@ export interface WrikeDiscoveryCheck {
     | "workbook_candidates";
   status: "Passed" | "Warning" | "Blocked";
   message: string;
+}
+
+export interface WrikeCustomFieldDefinition {
+  id: string;
+  title: string;
+  type: string;
+}
+
+export interface WrikeCustomFieldDiscoveryResult {
+  credentials: WrikeOAuthCredentials;
+  checked_at: string;
+  requested_titles: string[];
+  fields: WrikeCustomFieldDefinition[];
+  missing_titles: string[];
+  capabilities: {
+    account_custom_field_metadata_read: true;
+    task_values_read: false;
+    attachment_metadata_read: false;
+    attachment_download: false;
+    persistence: false;
+    wrike_writes: false;
+    lift_actions: false;
+  };
 }
 
 export interface WrikeTaskDiscoveryPreview {
@@ -232,7 +259,10 @@ export function createDefaultWrikeSourceConfig(): WrikeSourceConfig {
     trigger_status_label: "Sent to Print - LTL",
     task_title_rule: "contract_order_ooh",
     workbook_name_rule: "contract_order_ooh",
+    contract_number_custom_field_id: "",
     artwork_folder_custom_field_id: "",
+    ltl_exception_custom_field_id: "",
+    print_vendor_custom_field_id: "",
     attachment_filename_contains: "",
     attachment_extensions: ["xlsx"],
     attachment_selection: "all_matching_current_workbooks",
@@ -338,7 +368,10 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
         : fallback.trigger_status_label,
     task_title_rule: "contract_order_ooh",
     workbook_name_rule: "contract_order_ooh",
+    contract_number_custom_field_id: cleanIdentifier(source.contract_number_custom_field_id),
     artwork_folder_custom_field_id: cleanIdentifier(source.artwork_folder_custom_field_id),
+    ltl_exception_custom_field_id: cleanIdentifier(source.ltl_exception_custom_field_id),
+    print_vendor_custom_field_id: cleanIdentifier(source.print_vendor_custom_field_id),
     attachment_filename_contains:
       typeof source.attachment_filename_contains === "string"
         ? source.attachment_filename_contains.trim().slice(0, 160)
@@ -790,7 +823,7 @@ function providerCount(value: unknown) {
 
 async function readWrikeApiJson(
   response: Response,
-  code: "task_discovery_failed" | "attachment_metadata_failed",
+  code: "custom_field_discovery_failed" | "task_discovery_failed" | "attachment_metadata_failed",
   rotatedCredentials: WrikeOAuthCredentials
 ) {
   if (!response.ok) {
@@ -809,6 +842,99 @@ async function readWrikeApiJson(
       rotatedCredentials
     );
   }
+}
+
+function normalizeWrikeFieldTitle(value: unknown) {
+  return typeof value === "string"
+    ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")
+    : "";
+}
+
+export async function discoverWrikeCustomFields(
+  credentials: WrikeOAuthCredentials,
+  requestedTitles: string[],
+  options: {
+    fetch_impl?: typeof fetch;
+    now?: () => Date;
+  } = {}
+): Promise<WrikeCustomFieldDiscoveryResult> {
+  const fetchImpl = options.fetch_impl ?? fetch;
+  const now = options.now ?? (() => new Date());
+  const requested = Array.from(
+    new Set(
+      requestedTitles
+        .map((title) => (typeof title === "string" ? title.trim().replace(/\s+/g, " ") : ""))
+        .filter((title) => title.length > 0 && title.length <= 128)
+    )
+  ).slice(0, 20);
+  if (!requested.length || requested.length !== requestedTitles.length) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      "Provide one to twenty unique Wrike custom-field titles."
+    );
+  }
+
+  const refreshed = await refreshWrikeOAuthCredentials(credentials, options);
+  const rotatedCredentials = refreshed.credentials;
+  const host = rotatedCredentials.host;
+  const accessToken = rotatedCredentials.access_token ?? "";
+  const customFieldsUrl = new URL(`https://${host}/api/v4/customfields`);
+
+  let response: Response;
+  try {
+    response = await fetchImpl(customFieldsUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+    });
+  } catch {
+    throw new WrikeConnectionError(
+      "custom_field_discovery_failed",
+      "Pathfinder could not reach Wrike custom-field metadata.",
+      rotatedCredentials
+    );
+  }
+
+  const payload = await readWrikeApiJson(
+    response,
+    "custom_field_discovery_failed",
+    rotatedCredentials
+  );
+  const requestedByTitle = new Map(
+    requested.map((title) => [normalizeWrikeFieldTitle(title), title] as const)
+  );
+  const fields = (Array.isArray(payload.data) ? payload.data : [])
+    .map(asRecord)
+    .map((field): WrikeCustomFieldDefinition | null => {
+      const id = providerIdentifier(field.id);
+      const title = typeof field.title === "string" ? field.title.trim().replace(/\s+/g, " ") : "";
+      const type = typeof field.type === "string" ? field.type.trim().slice(0, 64) : "";
+      if (!id || !title || !type || !requestedByTitle.has(normalizeWrikeFieldTitle(title))) {
+        return null;
+      }
+      return { id, title, type };
+    })
+    .filter((field): field is WrikeCustomFieldDefinition => field !== null)
+    .sort((first, second) =>
+      first.title.localeCompare(second.title) || first.id.localeCompare(second.id)
+    );
+  const matchedTitles = new Set(fields.map((field) => normalizeWrikeFieldTitle(field.title)));
+
+  return {
+    credentials: rotatedCredentials,
+    checked_at: now().toISOString(),
+    requested_titles: requested,
+    fields,
+    missing_titles: requested.filter((title) => !matchedTitles.has(normalizeWrikeFieldTitle(title))),
+    capabilities: {
+      account_custom_field_metadata_read: true,
+      task_values_read: false,
+      attachment_metadata_read: false,
+      attachment_download: false,
+      persistence: false,
+      wrike_writes: false,
+      lift_actions: false
+    }
+  };
 }
 
 export async function discoverApprovedWrikeTask(
