@@ -88,6 +88,7 @@ test("provisions a retained private encrypted versioned object-lock bucket", () 
 test("keeps delivery fail-closed and grants only the exact distribution read access", () => {
   assert.match(template, /Type: AWS::CloudFront::OriginAccessControl/);
   assert.match(template, /SigningBehavior: always/);
+  assert.match(template, /CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad/);
   assert.match(template, /statusCode: 404/);
   assert.match(template, /EventType: viewer-request/);
   assert.match(template, /Sid: AllowExactCloudFrontDistributionRead/);
