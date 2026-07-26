@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, CircleAlert, Copy, Database, History, Link2, Mail, Network, RefreshCw, ShieldCheck, Unlink, UserRound } from "lucide-react";
+import { CheckCircle2, CircleAlert, ClipboardCheck, Copy, Database, History, Link2, LockKeyhole, Mail, Network, Plus, RefreshCw, ShieldCheck, Unlink, UserRound, X } from "lucide-react";
 import { proofReadOnlyPosture, type ProofIntegrationHealth } from "./proof-ops-health";
 
 interface ProofGrant {
@@ -26,10 +26,12 @@ interface ProofParticipant {
 
 interface ProofOrderSummary {
   order_number: string;
+  customer_id?: string | null;
+  customer_name?: string | null;
   order_title: string | null;
   order_status: string | null;
   health: string;
-  tasks: { state: string }[];
+  tasks: ProofTaskSummary[];
   last_synced_at: string;
   last_sync_diagnostics?: {
     source: "lift_read";
@@ -38,6 +40,103 @@ interface ProofOrderSummary {
     fallback_read: { attempted: boolean; ok: boolean | null; proof_rows: number };
     normalization_warning_count: number;
   } | null;
+}
+
+interface ProofTaskSummary {
+  task_id: string;
+  order_line_id: string | null;
+  line_number: string | null;
+  attachment_id: string | null;
+  product_name: string | null;
+  quantity: number | null;
+  state: string;
+  actionable: boolean;
+  current_version: {
+    version_id: string;
+    filename: string | null;
+    attachment_id: string | null;
+  } | null;
+}
+
+export type ProofActionDraftKind =
+  | "APPROVE"
+  | "REJECT"
+  | "SEND_BACK_TO_ARTIST"
+  | "CANCEL_LINE"
+  | "REVISED_ART_WILL_BE_SENT";
+
+export interface ProofActionDraft {
+  order_number: string;
+  task_id: string;
+  order_line_id: string | null;
+  proofing_id: string;
+  proof_filename: string | null;
+  action: ProofActionDraftKind;
+  approve_quantity: number | null;
+  comment: string | null;
+  revised_art_url: string | null;
+  upload_from_url: boolean;
+  execution: "locked";
+  automatic_retry: false;
+  confirmation: "authoritative_read_after_write_required";
+}
+
+function safeHttpsUrl(value: string) {
+  if (!value.trim()) return null;
+  try {
+    const parsed = new URL(value.trim());
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hash) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+export function buildProofActionDraft(input: {
+  order: ProofOrderSummary;
+  taskId: string;
+  action: ProofActionDraftKind;
+  approveQuantity: number;
+  comment: string;
+  revisedArtUrl: string;
+  uploadFromUrl: boolean;
+}): ProofActionDraft {
+  if (input.order.customer_id !== "1249") {
+    throw new Error("Proof action testing is restricted to the LTL Demo customer (1249).");
+  }
+  const task = input.order.tasks.find((candidate) => candidate.task_id === input.taskId);
+  if (!task || !task.actionable || !task.attachment_id || !task.current_version) {
+    throw new Error("Choose a current actionable proof.");
+  }
+  if (task.current_version.attachment_id && task.current_version.attachment_id !== task.attachment_id) {
+    throw new Error("The current proof attachment does not match the selected task.");
+  }
+  if (input.action === "APPROVE" && (!Number.isFinite(input.approveQuantity) || input.approveQuantity <= 0)) {
+    throw new Error("Approval quantity must be greater than zero.");
+  }
+  const revisedArtUrl = input.action === "REVISED_ART_WILL_BE_SENT"
+    ? safeHttpsUrl(input.revisedArtUrl)
+    : null;
+  if (input.action === "REVISED_ART_WILL_BE_SENT" && !revisedArtUrl) {
+    throw new Error("Revised art requires a safe HTTPS file URL.");
+  }
+  const comment = input.comment.trim();
+  if (comment.length > 2_000) throw new Error("Proof action comment is too long.");
+  return {
+    order_number: input.order.order_number,
+    task_id: task.task_id,
+    order_line_id: task.order_line_id,
+    proofing_id: task.attachment_id,
+    proof_filename: task.current_version.filename,
+    action: input.action,
+    approve_quantity: input.action === "APPROVE" ? input.approveQuantity : null,
+    comment: comment || null,
+    revised_art_url: revisedArtUrl,
+    upload_from_url: input.action === "REVISED_ART_WILL_BE_SENT" && input.uploadFromUrl,
+    execution: "locked",
+    automatic_retry: false,
+    confirmation: "authoritative_read_after_write_required"
+  };
 }
 
 interface ProofAuditEvent {
@@ -61,6 +160,21 @@ function dateLabel(value: string | null) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
+const QA_ORDER_STORAGE_KEY = "pathfinder.proof.qa-orders";
+
+function initialQaOrders() {
+  if (typeof window === "undefined") return [];
+  try {
+    const value = JSON.parse(window.localStorage.getItem(QA_ORDER_STORAGE_KEY) ?? "[]");
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter((candidate): candidate is string => typeof candidate === "string" && /^A\d{7,8}$/.test(candidate))
+      .slice(-12);
+  } catch {
+    return [];
+  }
+}
+
 export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; authToken: string | null }) {
   const [orderNumber, setOrderNumber] = useState("");
   const [label, setLabel] = useState("");
@@ -77,6 +191,13 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   const [pendingAction, setPendingAction] = useState<{ grant: ProofGrant; action: "revoke" | "regenerate" } | null>(null);
   const [reviewerGrantId, setReviewerGrantId] = useState<string | null>(null);
   const [reviewers, setReviewers] = useState<Record<string, ProofParticipant[]>>({});
+  const [qaOrders, setQaOrders] = useState<string[]>(initialQaOrders);
+  const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [proofAction, setProofAction] = useState<ProofActionDraftKind>("APPROVE");
+  const [approveQuantity, setApproveQuantity] = useState(1);
+  const [proofComment, setProofComment] = useState("");
+  const [revisedArtUrl, setRevisedArtUrl] = useState("");
+  const [uploadFromUrl, setUploadFromUrl] = useState(true);
 
   const request = (path: string, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
@@ -93,6 +214,33 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   }, [apiBaseUrl, authToken]);
 
   const normalizedOrderNumber = orderNumber.trim().toUpperCase();
+
+  useEffect(() => {
+    if (!order) return;
+    const firstActionable = order.tasks.find((task) => task.actionable && task.attachment_id && task.current_version);
+    setSelectedTaskId(firstActionable?.task_id ?? "");
+    setApproveQuantity(firstActionable?.quantity && firstActionable.quantity > 0 ? firstActionable.quantity : 1);
+    setProofAction("APPROVE");
+    setProofComment("");
+    setRevisedArtUrl("");
+    setUploadFromUrl(true);
+  }, [order]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(QA_ORDER_STORAGE_KEY, JSON.stringify(qaOrders));
+    } catch {
+      // Browser storage is optional; the supervised QA boundary never depends on it.
+    }
+  }, [qaOrders]);
+
+  const addQaOrder = (value = normalizedOrderNumber) => {
+    if (!/^A\d{7,8}$/.test(value)) {
+      setMessage("Enter a Lift order number in A######## format.");
+      return;
+    }
+    setQaOrders((current) => current.includes(value) ? current : [...current, value].slice(-12));
+  };
 
   async function loadGrants(targetOrder = normalizedOrderNumber) {
     const payload = await responseJson<{ grants: ProofGrant[] }>(await request(`/api/proof/orders/${targetOrder}/grants`));
@@ -127,6 +275,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
         await request(`/api/proof/orders/${normalizedOrderNumber}/sync`, { method: "POST", body: "{}" })
       );
       setOrder(payload.order);
+      addQaOrder(payload.order.order_number);
       await loadGrants(payload.order.order_number);
       await loadAudit(payload.order.order_number).catch(() => undefined);
       setMessage(`Proof order ${payload.order.order_number} synchronized.`);
@@ -258,6 +407,24 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
 
   const pendingCount = order?.tasks.filter((task) => task.state === "pending").length ?? 0;
   const readOnlyPosture = health ? proofReadOnlyPosture(health) : null;
+  const selectedTask = order?.tasks.find((task) => task.task_id === selectedTaskId) ?? null;
+  let actionDraft: ProofActionDraft | null = null;
+  let actionDraftError: string | null = null;
+  if (order && selectedTaskId) {
+    try {
+      actionDraft = buildProofActionDraft({
+        order,
+        taskId: selectedTaskId,
+        action: proofAction,
+        approveQuantity,
+        comment: proofComment,
+        revisedArtUrl,
+        uploadFromUrl
+      });
+    } catch (error) {
+      actionDraftError = error instanceof Error ? error.message : "Proof action draft is invalid.";
+    }
+  }
 
   return (
     <section className="proof-ops-panel" aria-labelledby="proof-ops-title">
@@ -281,7 +448,36 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
         <button className="secondary-button" type="button" disabled={state === "loading"} onClick={() => void inspectCachedOrder()}>
           Open cached
         </button>
+        <button className="secondary-button" type="button" disabled={!/^A\d{7,8}$/.test(normalizedOrderNumber)} onClick={() => addQaOrder()}>
+          <Plus size={16} /> Add to test set
+        </button>
       </div>
+
+      {qaOrders.length ? (
+        <div className="proof-qa-order-set" aria-label="Proof action test order set">
+          <span>Test order set</span>
+          <div>
+            {qaOrders.map((qaOrder) => (
+              <span className={order?.order_number === qaOrder ? "active" : ""} key={qaOrder}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOrderNumber(qaOrder);
+                    setOrder(null);
+                    setMessage(`Selected ${qaOrder}. Sync it to load the current Lift proofs.`);
+                  }}
+                >
+                  {qaOrder}
+                </button>
+                <button type="button" aria-label={`Remove ${qaOrder} from test set`} onClick={() => setQaOrders((current) => current.filter((candidate) => candidate !== qaOrder))}>
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+          <small>Saved only in this browser. Each order must be synchronized and verified as LTL Demo before any future action test.</small>
+        </div>
+      ) : null}
 
       {message ? <div className="proof-ops-message" role="status">{message}</div> : null}
 
@@ -362,6 +558,94 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
               <small>Sanitized counts only. Lift URLs, errors, credentials, and customer files are excluded.</small>
             </section>
           ) : null}
+
+          <section className="proof-action-workbench" aria-labelledby="proof-action-workbench-title">
+            <div className="proof-action-workbench-heading">
+              <div>
+                <span className="eyebrow"><ClipboardCheck size={14} /> Operator QA preparation</span>
+                <h4 id="proof-action-workbench-title">Prepare one supervised proof action.</h4>
+                <p>Choose a current proof and review the exact action. Execution remains locked and no Lift request is sent from this screen.</p>
+              </div>
+              <span className="proof-action-locked"><LockKeyhole size={14} /> Execution locked</span>
+            </div>
+
+            <div className="proof-action-fields">
+              <label>
+                Proof
+                <select value={selectedTaskId} onChange={(event) => {
+                  const task = order.tasks.find((candidate) => candidate.task_id === event.target.value);
+                  setSelectedTaskId(event.target.value);
+                  setApproveQuantity(task?.quantity && task.quantity > 0 ? task.quantity : 1);
+                }}>
+                  <option value="">Choose current proof</option>
+                  {order.tasks.filter((task) => task.actionable && task.attachment_id && task.current_version).map((task) => (
+                    <option key={task.task_id} value={task.task_id}>
+                      Line {task.line_number ?? "—"} · {task.product_name ?? "Unnamed product"} · {task.current_version?.filename ?? task.attachment_id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Action
+                <select value={proofAction} onChange={(event) => setProofAction(event.target.value as ProofActionDraftKind)}>
+                  <option value="APPROVE">Approve proof</option>
+                  <option value="REJECT">Reject</option>
+                  <option value="SEND_BACK_TO_ARTIST">Send back to artist</option>
+                  <option value="CANCEL_LINE">Cancel line</option>
+                  <option value="REVISED_ART_WILL_BE_SENT">Revised art will be sent</option>
+                </select>
+              </label>
+              {proofAction === "APPROVE" ? (
+                <label>
+                  Approve quantity
+                  <input type="number" min="1" step="1" value={approveQuantity} onChange={(event) => setApproveQuantity(Number(event.target.value))} />
+                </label>
+              ) : null}
+              <label className="proof-action-comment">
+                Comment
+                <textarea value={proofComment} maxLength={2000} onChange={(event) => setProofComment(event.target.value)} placeholder="Optional note for this proof action" />
+              </label>
+              {proofAction === "REVISED_ART_WILL_BE_SENT" ? (
+                <>
+                  <label className="proof-action-art-url">
+                    Revised art HTTPS URL
+                    <input type="url" value={revisedArtUrl} onChange={(event) => setRevisedArtUrl(event.target.value)} placeholder="https://approved-file-host.example/revised-art.pdf" />
+                    <small>Lift documents an art URL, not a browser file-upload endpoint.</small>
+                  </label>
+                  <label className="proof-action-checkbox">
+                    <input type="checkbox" checked={uploadFromUrl} onChange={(event) => setUploadFromUrl(event.target.checked)} />
+                    Ask Lift to process the revised art URL
+                  </label>
+                </>
+              ) : null}
+            </div>
+
+            <div className="proof-action-preview">
+              <div>
+                <span>Selected target</span>
+                <strong>{selectedTask ? `${order.order_number} · line ${selectedTask.line_number ?? "—"} · proof ${selectedTask.attachment_id ?? "—"}` : "Choose a current actionable proof"}</strong>
+              </div>
+              <div>
+                <span>QA customer boundary</span>
+                <strong>{order.customer_id === "1249" ? "LTL Demo / 1249 verified" : "Not verified"}</strong>
+                <small>{order.customer_id === "1249" ? order.customer_name ?? "LTL Demo" : "Execution remains locked outside customer 1249."}</small>
+              </div>
+              <div>
+                <span>Prepared action</span>
+                <strong>{actionDraft?.action.replaceAll("_", " ") ?? actionDraftError ?? "Not ready"}</strong>
+              </div>
+              <div>
+                <span>Safety behavior</span>
+                <strong>No automatic retry · authoritative Lift read required</strong>
+              </div>
+              <button className="primary-button" type="button" disabled>
+                <LockKeyhole size={15} /> Execute in supervised QA
+              </button>
+            </div>
+            <p className="proof-action-boundary">
+              Tomorrow’s execution gate must independently verify customer 1249, the current proof attachment, environment credentials, persisted attempt/audit state, and one explicit operator confirmation.
+            </p>
+          </section>
 
           <div className="proof-grant-create">
             <label>
