@@ -1,0 +1,339 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Private, fail-closed storage and delivery foundation for Vornan Proof uploads.
+  This stack intentionally contains no upload API, signer, resolver, runtime role,
+  DNS record, or Lift integration.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    AllowedValues:
+      - dev
+      - qa
+      - prod
+    Default: dev
+  AssetBucketName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^vornan-pathfinder-proof-assets-[a-z0-9-]+$"
+    Description: Optional explicit private bucket name.
+  AssetDomainName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$"
+    Description: Future delivery alias. Keep empty for the dark foundation.
+  CertificateArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:aws[a-zA-Z-]*:acm:us-east-1:[0-9]{12}:certificate/[0-9a-fA-F-]+$"
+    Description: Future us-east-1 ACM certificate. Keep empty for the dark foundation.
+  RetainedSourceDays:
+    Type: Number
+    Default: 90
+    MinValue: 60
+    MaxValue: 90
+    Description: >
+      Cleanup eligibility window for retained source assets. A future guarded
+      cleanup worker, not an unconditional S3 lifecycle rule, enforces this value.
+  OutboundCopyDays:
+    Type: Number
+    Default: 14
+    MinValue: 14
+    MaxValue: 14
+  ProofPacketDays:
+    Type: Number
+    Default: 30
+    MinValue: 30
+    MaxValue: 30
+  UnfinalizedUploadDays:
+    Type: Number
+    Default: 7
+    MinValue: 7
+    MaxValue: 7
+  IncompleteMultipartDays:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 1
+
+Rules:
+  AssetAliasPair:
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::And:
+                - Fn::Equals:
+                    - Ref: AssetDomainName
+                    - ""
+                - Fn::Equals:
+                    - Ref: CertificateArn
+                    - ""
+            - Fn::And:
+                - Fn::Not:
+                    - Fn::Equals:
+                        - Ref: AssetDomainName
+                        - ""
+                - Fn::Not:
+                    - Fn::Equals:
+                        - Ref: CertificateArn
+                        - ""
+        AssertDescription: AssetDomainName and CertificateArn must be supplied together.
+  ProductionAssetAlias:
+    RuleCondition:
+      Fn::Equals:
+        - Ref: EnvironmentName
+        - prod
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::Equals:
+                - Ref: AssetDomainName
+                - ""
+            - Fn::Equals:
+                - Ref: AssetDomainName
+                - go.vornan.co
+        AssertDescription: The production asset alias, when configured, must be go.vornan.co.
+
+Conditions:
+  HasExplicitBucketName: !Not [!Equals [!Ref AssetBucketName, ""]]
+  HasAssetAlias: !Not [!Equals [!Ref AssetDomainName, ""]]
+
+Resources:
+  ProofAssetBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If
+        - HasExplicitBucketName
+        - !Ref AssetBucketName
+        - !Sub vornan-pathfinder-proof-assets-${EnvironmentName}-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: false
+      VersioningConfiguration:
+        Status: Enabled
+      ObjectLockEnabled: true
+      ObjectLockConfiguration:
+        ObjectLockEnabled: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: !Ref IncompleteMultipartDays
+          - Id: ExpireUnfinalizedUploads
+            Status: Enabled
+            TagFilters:
+              - Key: proof-lifecycle
+                Value: unfinalized
+            ExpirationInDays: !Ref UnfinalizedUploadDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref UnfinalizedUploadDays
+          - Id: ExpireQuarantinedUploads
+            Status: Enabled
+            TagFilters:
+              - Key: proof-lifecycle
+                Value: quarantined
+            ExpirationInDays: !Ref UnfinalizedUploadDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref UnfinalizedUploadDays
+          - Id: ExpireLiftOutboundCopies
+            Status: Enabled
+            TagFilters:
+              - Key: proof-lifecycle
+                Value: lift-outbound
+            ExpirationInDays: !Ref OutboundCopyDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref OutboundCopyDays
+          - Id: ExpireProofPackets
+            Status: Enabled
+            TagFilters:
+              - Key: proof-lifecycle
+                Value: proof-packet
+            ExpirationInDays: !Ref ProofPacketDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref ProofPacketDays
+      Tags:
+        - Key: Application
+          Value: VornanProof
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DataBoundary
+          Value: proof-uploads-only
+
+  ProofAssetOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Description: !Sub Private OAC for Vornan Proof ${EnvironmentName} assets
+        Name: !Sub vornan-proof-assets-${EnvironmentName}
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  ProofAssetDarkFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub vornan-proof-assets-dark-${EnvironmentName}
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Fail closed until the Proof asset resolver and signer are separately approved
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          return {
+            statusCode: 404,
+            statusDescription: "Not Found",
+            headers: {
+              "cache-control": { value: "no-store, max-age=0" },
+              "content-type": { value: "text/plain; charset=utf-8" },
+              "x-content-type-options": { value: "nosniff" }
+            },
+            body: {
+              encoding: "text",
+              data: "Not Found"
+            }
+          };
+        }
+
+  ProofAssetResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub vornan-proof-assets-security-${EnvironmentName}
+        Comment: Security headers for the private Vornan Proof asset boundary
+        SecurityHeadersConfig:
+          ContentTypeOptions:
+            Override: true
+          FrameOptions:
+            FrameOption: DENY
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: no-referrer
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 63072000
+            IncludeSubdomains: true
+            Preload: true
+            Override: true
+          XSSProtection:
+            Protection: true
+            ModeBlock: true
+            Override: true
+        CustomHeadersConfig:
+          Items:
+            - Header: Cache-Control
+              Value: no-store, max-age=0
+              Override: true
+
+  ProofAssetDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases: !If
+          - HasAssetAlias
+          - - !Ref AssetDomainName
+          - !Ref AWS::NoValue
+        Comment: !Sub Fail-closed Vornan Proof ${EnvironmentName} asset delivery boundary
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachePolicyId: 413f1605-7d3e-4c3f-8a1a-2b863681c24
+          Compress: true
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt ProofAssetDarkFunction.FunctionARN
+          ResponseHeadersPolicyId: !Ref ProofAssetResponseHeadersPolicy
+          TargetOriginId: proof-assets
+          ViewerProtocolPolicy: redirect-to-https
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Origins:
+          - DomainName: !GetAtt ProofAssetBucket.RegionalDomainName
+            Id: proof-assets
+            OriginAccessControlId: !Ref ProofAssetOriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+        PriceClass: PriceClass_100
+        ViewerCertificate: !If
+          - HasAssetAlias
+          - AcmCertificateArn: !Ref CertificateArn
+            MinimumProtocolVersion: TLSv1.2_2021
+            SslSupportMethod: sni-only
+          - CloudFrontDefaultCertificate: true
+            MinimumProtocolVersion: TLSv1
+      Tags:
+        - Key: Application
+          Value: VornanProof
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Capability
+          Value: dark-asset-foundation
+
+  ProofAssetBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ProofAssetBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt ProofAssetBucket.Arn
+              - !Sub ${ProofAssetBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+          - Sid: AllowExactCloudFrontDistributionRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action:
+              - s3:GetObject
+            Resource: !Sub ${ProofAssetBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${ProofAssetDistribution}
+
+Outputs:
+  ProofAssetBucketName:
+    Value: !Ref ProofAssetBucket
+  ProofAssetBucketArn:
+    Value: !GetAtt ProofAssetBucket.Arn
+  ProofAssetDistributionId:
+    Value: !Ref ProofAssetDistribution
+  ProofAssetDistributionDomainName:
+    Value: !GetAtt ProofAssetDistribution.DomainName
+  ProofAssetOriginAccessControlId:
+    Value: !Ref ProofAssetOriginAccessControl
+  ProofAssetAliasConfigured:
+    Value: !If [HasAssetAlias, "true", "false"]
+  ProofAssetUploadCapabilityEnabled:
+    Value: "false"
+  ProofAssetDeliveryCapabilityEnabled:
+    Value: "false"
+  ProofAssetLiftPublicationEnabled:
+    Value: "false"
+  RetainedSourceCleanupEligibilityDays:
+    Value: !Ref RetainedSourceDays
