@@ -108,7 +108,16 @@ test("operator-only Proof action QA remains independently dark and narrowly scop
     workflow,
     /ProofOperatorActionQaEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA \|\| 'false' \}\}"/
   );
-  assert.doesNotMatch(template, /dynamodb:TransactWriteItems/);
+  assert.match(
+    template,
+    /HasProofTables: !And[\s\S]*?!Condition HasProofCoreTable[\s\S]*?!Condition HasProofAuditTable/
+  );
+  const transactionActions = template.match(/dynamodb:TransactWriteItems/g) ?? [];
+  assert.equal(transactionActions.length, 1);
+  assert.match(
+    template,
+    /- !If\n\s+- HasProofTables\n\s+- Effect: Allow\n\s+Action:\n\s+- dynamodb:TransactWriteItems\n\s+Resource:\n\s+- !Ref ProofCoreTableArn\n\s+- !Ref ProofAuditTableArn\n\s+- !Ref "AWS::NoValue"/
+  );
   assert.match(
     template,
     /- dynamodb:PutItem[\s\S]*?- !If \[HasProofCoreTable, !Ref ProofCoreTableArn/

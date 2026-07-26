@@ -311,6 +311,9 @@ Conditions:
   HasProofAuditTable: !And
     - !Not [!Equals [!Ref ProofAuditTableName, ""]]
     - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
+  HasProofTables: !And
+    - !Condition HasProofCoreTable
+    - !Condition HasProofAuditTable
 
 Resources:
   PathfinderSourceEvidenceBucket:
@@ -359,6 +362,12 @@ Resources:
 
   PathfinderApiRole:
     Type: AWS::IAM::Role
+    Metadata:
+      cfn-lint:
+        config:
+          # SAM CLI 1.152's embedded IAM catalogue omits this valid DynamoDB action.
+          ignore_checks:
+            - W3037
     Properties:
       RoleName: !Sub "${LambdaFunctionName}-${EnvironmentName}-role"
       AssumeRolePolicyDocument:
@@ -411,6 +420,15 @@ Resources:
                     - dynamodb:PutItem
                     - dynamodb:Query
                   Resource: !Ref ProofAuditTableArn
+                - !Ref "AWS::NoValue"
+              - !If
+                - HasProofTables
+                - Effect: Allow
+                  Action:
+                    - dynamodb:TransactWriteItems
+                  Resource:
+                    - !Ref ProofCoreTableArn
+                    - !Ref ProofAuditTableArn
                 - !Ref "AWS::NoValue"
               - Effect: Allow
                 Action:
