@@ -255,7 +255,7 @@ Resources:
             - GET
             - HEAD
             - OPTIONS
-          CachePolicyId: 413f1605-7d3e-4c3f-8a1a-2b863681c24
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
           Compress: true
           FunctionAssociations:
             - EventType: viewer-request
