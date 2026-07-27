@@ -258,8 +258,14 @@ async function readS3Evidence(
   } catch (error) {
     if (
       error instanceof S3ServiceException &&
-      (error.$metadata.httpStatusCode === 404 || error.name === "NotFound" || error.name === "NoSuchKey")
+      (error.$metadata.httpStatusCode === 403 ||
+        error.$metadata.httpStatusCode === 404 ||
+        error.name === "NotFound" ||
+        error.name === "NoSuchKey")
     ) {
+      // The runtime role intentionally has no ListBucket permission, so S3 masks a
+      // missing key as 403. The caller follows this probe only with an If-None-Match
+      // conditional Put; a real permission failure therefore still fails closed.
       return null;
     }
     if (error instanceof WrikeSourceEvidenceError) {

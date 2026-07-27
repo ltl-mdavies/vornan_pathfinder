@@ -427,8 +427,8 @@
 
 .order-rollup__proof-card {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 14px;
   align-items: center;
   min-width: 0;
   padding: 10px;
@@ -439,8 +439,8 @@
 
 .order-rollup__proof-card img,
 .order-rollup__proof-empty {
-  width: 72px;
-  height: 58px;
+  width: 112px;
+  height: 92px;
   border: 1px solid #d6dfd2;
   border-radius: 6px;
   object-fit: contain;

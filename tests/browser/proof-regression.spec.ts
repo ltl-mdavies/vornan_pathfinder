@@ -101,10 +101,19 @@ for (const viewport of viewports) {
     await expect(filename).toHaveCSS("overflow-wrap", "anywhere");
     await expectNoHorizontalOverflow(page);
     const card = page.locator(".order-rollup__proof-card");
-    const [filenameBox, cardBox] = await Promise.all([filename.boundingBox(), card.boundingBox()]);
+    const thumbnail = card.locator("img");
+    const [filenameBox, cardBox, thumbnailBox] = await Promise.all([
+      filename.boundingBox(),
+      card.boundingBox(),
+      thumbnail.boundingBox()
+    ]);
     expect(filenameBox).not.toBeNull();
     expect(cardBox).not.toBeNull();
+    expect(thumbnailBox).not.toBeNull();
     expect(filenameBox!.x + filenameBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width + 1);
+    expect(thumbnailBox!.width).toBeGreaterThanOrEqual(110);
+    await expect(page.getByText("Qty 1 · 46.375”h x 30.375”w")).toBeVisible();
+    await expect(page.getByText("INTERNAL-PRODUCT-ID")).toHaveCount(0);
 
     const control = page.getByRole("link", { name: "View proof" });
     await expect(control).toHaveCount(1);

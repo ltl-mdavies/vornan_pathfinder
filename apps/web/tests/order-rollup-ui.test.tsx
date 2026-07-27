@@ -52,8 +52,13 @@ function realSiblingSnapshot(): OrderRollupSnapshot {
     lines: [{
       line_number: 1,
       order_line_id: 9301338,
+      product_id: "348218",
+      unit_number: "INTERNAL-UNIT-01",
       product_name: "Redacted product",
       quantity: 20,
+      final_height: 46.375,
+      final_width: 30.375,
+      material: ".020 Styrene",
       proof_count: 4,
       package_count: 2,
       latest_proof_status: "PENDING",
@@ -119,6 +124,10 @@ test("renders the four real-shape sibling proofs as distinct view-only gallery c
   assert.match(markup, /Package 2/);
   assert.match(markup, /Tracking pending/);
   assert.match(markup, /UPS Ground, Courier/);
+  assert.match(markup, /Qty 20 · 46.375”h x 30.375”w · .020 Styrene/);
+  assert.doesNotMatch(markup, /Product ID/);
+  assert.doesNotMatch(markup, /348218/);
+  assert.doesNotMatch(markup, /INTERNAL-UNIT-01/);
   assert.doesNotMatch(markup, />Approve</);
   assert.doesNotMatch(markup, />Request revision</);
 });
