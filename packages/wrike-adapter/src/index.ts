@@ -193,6 +193,10 @@ export interface WrikeQualifiedWorkbookSourceResult {
   credentials: WrikeOAuthCredentials;
   checked_at: string;
   task_id: string;
+  order_context: {
+    contract_number: string;
+    artwork_folder_url: string | null;
+  };
   workbooks: WrikeQualifiedWorkbookSource[];
 }
 
@@ -980,14 +984,17 @@ export async function discoverWrikeCustomFields(
   };
 }
 
-export async function discoverApprovedWrikeTask(
+async function discoverApprovedWrikeTaskWithContext(
   credentials: WrikeOAuthCredentials,
   config: WrikeSourceConfig,
   options: {
     fetch_impl?: typeof fetch;
     now?: () => Date;
   } = {}
-): Promise<WrikeTaskDiscoveryResult> {
+): Promise<{
+  discovery: WrikeTaskDiscoveryResult;
+  order_context: WrikeQualifiedWorkbookSourceResult["order_context"];
+}> {
   const fetchImpl = options.fetch_impl ?? fetch;
   const folderId = providerIdentifier(config.folder_id);
   const taskId = providerIdentifier(config.approved_discovery_task_id);
@@ -1163,45 +1170,62 @@ export async function discoverApprovedWrikeTask(
   }
 
   return {
-    credentials: rotatedCredentials,
-    qualification: {
-      account_id: accountId ?? "",
-      task_id: taskId,
-      task_title: typeof task.title === "string" ? task.title.trim() : "",
-      contract_number: contractNumber.contract_number ?? "",
-      task_qualified: taskQualifies
-    },
-    preview: {
-      status: checks.every((check) => check.status === "Passed") ? "Confirmed" : "Needs review",
-      checked_at: refreshed.refreshed_at,
-      approved_scope: { task_id: taskId, folder_id: folderId, trigger_status_id: triggerStatusId },
-      observed: {
+    discovery: {
+      credentials: rotatedCredentials,
+      qualification: {
+        account_id: accountId ?? "",
         task_id: taskId,
-        account_id: accountId,
-        parent_ids: parentIds,
-        super_parent_ids: superParentIds,
-        custom_status_id: customStatusId,
-        task_attachment_count: taskAttachmentCount,
-        attachment_metadata_count: attachmentMetadataCount,
-        workbook_candidate_count: workbookCandidateCount,
-        ignored_attachment_count: ignoredAttachmentCount,
-        artwork_folder_status: taskQualifies ? artworkFolder.status : null
+        task_title: typeof task.title === "string" ? task.title.trim() : "",
+        contract_number: contractNumber.contract_number ?? "",
+        task_qualified: taskQualifies
       },
-      checks,
-      capabilities: {
-        task_read: true,
-        artwork_folder_value_read:
-          taskQualifies && Boolean(config.artwork_folder_custom_field_id),
-        attachment_metadata_read: taskQualifies,
-        attachment_download: false,
-        preview_job_creation: false,
-        webhook: false,
-        polling: false,
-        wrike_writes: false,
-        lift_actions: false
+      preview: {
+        status: checks.every((check) => check.status === "Passed") ? "Confirmed" : "Needs review",
+        checked_at: refreshed.refreshed_at,
+        approved_scope: { task_id: taskId, folder_id: folderId, trigger_status_id: triggerStatusId },
+        observed: {
+          task_id: taskId,
+          account_id: accountId,
+          parent_ids: parentIds,
+          super_parent_ids: superParentIds,
+          custom_status_id: customStatusId,
+          task_attachment_count: taskAttachmentCount,
+          attachment_metadata_count: attachmentMetadataCount,
+          workbook_candidate_count: workbookCandidateCount,
+          ignored_attachment_count: ignoredAttachmentCount,
+          artwork_folder_status: taskQualifies ? artworkFolder.status : null
+        },
+        checks,
+        capabilities: {
+          task_read: true,
+          artwork_folder_value_read:
+            taskQualifies && Boolean(config.artwork_folder_custom_field_id),
+          attachment_metadata_read: taskQualifies,
+          attachment_download: false,
+          preview_job_creation: false,
+          webhook: false,
+          polling: false,
+          wrike_writes: false,
+          lift_actions: false
+        }
       }
+    },
+    order_context: {
+      contract_number: contractNumber.contract_number ?? "",
+      artwork_folder_url: taskQualifies ? artworkFolder.url : null
     }
   };
+}
+
+export async function discoverApprovedWrikeTask(
+  credentials: WrikeOAuthCredentials,
+  config: WrikeSourceConfig,
+  options: {
+    fetch_impl?: typeof fetch;
+    now?: () => Date;
+  } = {}
+): Promise<WrikeTaskDiscoveryResult> {
+  return (await discoverApprovedWrikeTaskWithContext(credentials, config, options)).discovery;
 }
 
 const WRIKE_DEFAULT_MAX_WORKBOOK_BYTES = 15 * 1024 * 1024;
@@ -1309,7 +1333,8 @@ export async function fetchQualifiedWrikeWorkbookSources(
   } = {}
 ): Promise<WrikeQualifiedWorkbookSourceResult> {
   const fetchImpl = options.fetch_impl ?? fetch;
-  const discovery = await discoverApprovedWrikeTask(credentials, config, options);
+  const internalDiscovery = await discoverApprovedWrikeTaskWithContext(credentials, config, options);
+  const discovery = internalDiscovery.discovery;
   const rotatedCredentials = discovery.credentials;
   const qualification = discovery.qualification;
   if (
@@ -1457,6 +1482,7 @@ export async function fetchQualifiedWrikeWorkbookSources(
     credentials: rotatedCredentials,
     checked_at: discovery.preview.checked_at,
     task_id: qualification.task_id,
+    order_context: internalDiscovery.order_context,
     workbooks
   };
 }

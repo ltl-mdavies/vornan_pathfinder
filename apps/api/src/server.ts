@@ -3900,6 +3900,7 @@ async function captureWrikeWorkbookEvidenceForMethod(
         : "Stored" as const,
       captured_at: new Date().toISOString(),
       task_id: result.task_id,
+      order_context: result.order_context,
       evidence,
       capabilities: {
         source_evidence_persistence: true,
@@ -3947,6 +3948,10 @@ async function createWrikeEvidencePreviewForMethod(args: {
   methodId: string;
   evidenceId: string;
   extension: WrikeWorkbookExtension;
+  orderContext?: {
+    contract_number: string;
+    artwork_folder_url: string | null;
+  };
 }) {
   const customer = await findLiftCustomer(args.liftCustomerId);
   const workspace = await getOrCreateWorkspace(customer);
@@ -3991,7 +3996,20 @@ async function createWrikeEvidencePreviewForMethod(args: {
     evidence_id: args.evidenceId,
     extension: args.extension
   });
-  const fingerprint = importMethodFingerprint(method, outputRoute);
+  const baseFingerprint = importMethodFingerprint(method, outputRoute);
+  const fingerprint = args.orderContext
+    ? createHash("sha256")
+        .update(
+          JSON.stringify(
+            stableJsonValue({
+              schema_version: "wrike-qualified-order-context-v1",
+              import_method_fingerprint: baseFingerprint,
+              order_context: args.orderContext
+            })
+          )
+        )
+        .digest("hex")
+    : baseFingerprint;
   const priorJob = workspace.jobs.find(
     (job) =>
       job.source_evidence?.provider === "wrike" &&
@@ -4051,7 +4069,7 @@ async function createWrikeEvidencePreviewForMethod(args: {
       import_method_id: method.import_method_id
     },
     undefined,
-    { sourceEvidence }
+    { sourceEvidence, wrikeOrderContext: args.orderContext }
   );
   return {
     ...result,
@@ -4156,7 +4174,8 @@ app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/workbook
       req.params.liftCustomerId,
       req.params.methodId
     );
-    res.status(result.status === "Stored" ? 201 : 200).json(result);
+    const { order_context: _privateOrderContext, ...publicResult } = result;
+    res.status(result.status === "Stored" ? 201 : 200).json(publicResult);
   } catch (error) {
     res.status(wrikeEvidenceCaptureErrorStatus(error)).json({
       error: wrikeEvidenceCaptureErrorMessage(error)
@@ -4215,6 +4234,12 @@ app.post(
     }
 
     try {
+      let orderContext:
+        | {
+            contract_number: string;
+            artwork_folder_url: string | null;
+          }
+        | undefined;
       const result = await prepareWrikeManualIntake({
         captureEvidence: async () => {
           const captured = await captureWrikeWorkbookEvidenceForMethod(
@@ -4222,6 +4247,7 @@ app.post(
             req.params.methodId,
             { requireActive: true }
           );
+          orderContext = captured.order_context;
           return {
             task_id: captured.task_id,
             evidence: captured.evidence
@@ -4232,7 +4258,8 @@ app.post(
             liftCustomerId: req.params.liftCustomerId,
             methodId: req.params.methodId,
             evidenceId: record.evidence_id,
-            extension: record.extension
+            extension: record.extension,
+            orderContext
           });
           return {
             preview_status: preview.preview_status,
@@ -5014,6 +5041,10 @@ async function createPreviewJobForRequest(
   publicIntake?: ProcessingJobPreview["public_intake"],
   options?: {
     sourceEvidence?: ProcessingJobPreview["source_evidence"];
+    wrikeOrderContext?: {
+      contract_number: string;
+      artwork_folder_url: string | null;
+    };
   }
 ) {
     const customer = await findLiftCustomer(liftCustomerId);
@@ -5170,6 +5201,22 @@ async function createPreviewJobForRequest(
       sourceTemplate: method.name,
       targetSystem: target.template
     });
+    if (options?.wrikeOrderContext) {
+      const workbookContract = mappedCanonicalOrder.order.contract_number?.trim() ?? "";
+      if (
+        workbookContract &&
+        workbookContract.toUpperCase() !== options.wrikeOrderContext.contract_number.toUpperCase()
+      ) {
+        throw new WrikeIntakeRequestError(
+          409,
+          "The Wrike Contract Number does not match the qualified workbook order."
+        );
+      }
+      mappedCanonicalOrder.order.contract_number = options.wrikeOrderContext.contract_number;
+      mappedCanonicalOrder.order.artwork_folder_url = options.wrikeOrderContext.artwork_folder_url;
+      mappedCanonicalOrder.source.source_record_id =
+        options.sourceEvidence?.task_id ?? mappedCanonicalOrder.source.source_record_id;
+    }
     const orderNameResolution = applyOrderNameResolution(
       mappedCanonicalOrder,
       method.order_name_resolution_config
