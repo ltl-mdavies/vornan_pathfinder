@@ -682,6 +682,7 @@ test("requalifies and downloads only current matching workbooks without forwardi
       approved_discovery_task_id: "IEAPPROVEDTASK",
       trigger_status_id: "IEORDEREDSTATUS",
       contract_number_custom_field_id: "IECONTRACT",
+      artwork_folder_custom_field_id: "IEARTWORKFOLDER",
       attachment_extensions: ["xlsx"]
     }),
     {
@@ -746,7 +747,13 @@ test("requalifies and downloads only current matching workbooks without forwardi
               customStatusId: "IEORDEREDSTATUS",
               attachmentCount: 1,
               title: "Placard Order",
-              customFields: [{ id: "IECONTRACT", value: "C3168700" }]
+              customFields: [
+                { id: "IECONTRACT", value: "C3168700" },
+                {
+                  id: "IEARTWORKFOLDER",
+                  value: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
+                }
+              ]
             }]
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -758,6 +765,10 @@ test("requalifies and downloads only current matching workbooks without forwardi
   assert.equal(result.workbooks.length, 1);
   assert.equal(result.workbooks[0].version_id, "IEVERSION1");
   assert.equal(new TextDecoder().decode(result.workbooks[0].bytes), "bounded-workbook");
+  assert.deepEqual(result.order_context, {
+    contract_number: "C3168700",
+    artwork_folder_url: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
+  });
   assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET", "GET", "GET"]);
   assert.equal(
     calls

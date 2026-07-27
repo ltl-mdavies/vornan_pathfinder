@@ -419,7 +419,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
   assert.equal(stored.includes("discovery-rotated-refresh-token"), true);
 });
 
-test("stores qualified evidence, then creates and replays one saved-method preview without another Wrike call", async () => {
+test("stores qualified evidence, then creates a context-bound Wrike preview with its artwork link", async () => {
   await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
     provider: "wrike",
     wrike: {
@@ -524,6 +524,7 @@ test("stores qualified evidence, then creates and replays one saved-method previ
   assert.equal(stored.body.capabilities.lift_actions, false);
   const publicPayload = JSON.stringify(stored.body);
   assert.equal(publicPayload.includes("private-signed-url"), false);
+  assert.equal(publicPayload.includes("momentara.sharepoint.com"), false);
   assert.equal(publicPayload.includes("evidence-access-token"), false);
   assert.equal(publicPayload.includes("evidence-refresh-token"), false);
 
@@ -551,6 +552,7 @@ test("stores qualified evidence, then creates and replays one saved-method previ
   assert.equal(preview.body.job.source_evidence.evidence_sha256, evidence.sha256);
   assert.equal(preview.body.job.source_evidence.account_id, "IEACCOUNT");
   assert.equal(preview.body.job.parsed_order_rows.length, 1);
+  assert.equal(preview.body.job.canonical_order.order.artwork_folder_url, null);
   assert.equal(calls.length, wrikeCallsBeforePreview);
 
   const previewReplay = await request(app)
@@ -571,13 +573,13 @@ test("stores qualified evidence, then creates and replays one saved-method previ
   assert.equal(prepared.body.task_id, "IEAPPROVEDTASK");
   assert.deepEqual(prepared.body.summary, {
     workbook_count: 1,
-    created_count: 0,
-    replayed_count: 1,
+    created_count: 1,
+    replayed_count: 0,
     blocked_count: 0
   });
   assert.equal(prepared.body.workbooks[0].evidence_id, evidence.evidence_id);
-  assert.equal(prepared.body.workbooks[0].preview_status, "Replayed");
-  assert.equal(prepared.body.workbooks[0].job_id, preview.body.job.job_id);
+  assert.equal(prepared.body.workbooks[0].preview_status, "Created");
+  assert.notEqual(prepared.body.workbooks[0].job_id, preview.body.job.job_id);
   assert.equal(prepared.body.capabilities.operator_controlled, true);
   assert.equal(prepared.body.capabilities.polling, false);
   assert.equal(prepared.body.capabilities.webhook, false);
@@ -585,6 +587,19 @@ test("stores qualified evidence, then creates and replays one saved-method previ
   assert.equal(prepared.body.capabilities.lift_actions, false);
   assert.equal(JSON.stringify(prepared.body).includes("private-signed-url"), false);
   assert.equal(JSON.stringify(prepared.body).includes("evidence-access-token"), false);
+  assert.equal(JSON.stringify(prepared.body).includes("Private-Momentara"), false);
+  const preparedJob = await request(app)
+    .get(`/api/customers/${customerId}/jobs/${prepared.body.workbooks[0].job_id}`)
+    .expect(200);
+  assert.equal(
+    preparedJob.body.job.canonical_order.order.artwork_folder_url,
+    "https://momentara.sharepoint.com/sites/art/Private-Momentara"
+  );
+  assert.equal(
+    preparedJob.body.job.lift_payload.order.FLEX_FIELD9,
+    "https://momentara.sharepoint.com/sites/art/Private-Momentara"
+  );
+  assert.equal(preparedJob.body.job.canonical_order.source.source_record_id, "IEAPPROVEDTASK");
   const wrikeCallsAfterPrepare = calls.length;
 
   await request(app)
