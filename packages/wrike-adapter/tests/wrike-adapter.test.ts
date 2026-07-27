@@ -15,6 +15,7 @@ import {
   normalizeWrikeSourceConfig,
   parseWrikeOrderNameContract,
   resolveWrikeArtworkFolderUrl,
+  resolveWrikeContractNumber,
   selectWrikeWorkbookAttachments,
   WrikeConnectionError
 } from "../src/index.ts";
@@ -68,7 +69,7 @@ test("snaps reconciliation intervals to the operator-visible presets", () => {
 test("reports the durable identifiers still needed before connection", () => {
   assert.deepEqual(getWrikeContractReadiness(createDefaultWrikeSourceConfig()), {
     status: "Incomplete",
-    missing: ["connection_id", "folder_id", "trigger_status_id"]
+    missing: ["connection_id", "folder_id", "trigger_status_id", "contract_number_custom_field_id"]
   });
 });
 
@@ -78,6 +79,7 @@ test("keeps Wrike QA dark until an explicit bounded window opens", () => {
     folder_id: "IEABFOLDER",
     approved_discovery_task_id: "IETESTTASK",
     trigger_status_id: "IEABORDERED",
+    contract_number_custom_field_id: "IECONTRACT",
     attachment_extensions: ["xlsx"]
   });
   const readiness = evaluateWrikeReadOnlyQaReadiness({
@@ -103,6 +105,7 @@ test("requires identity confirmation before the exact-task preview", () => {
     folder_id: "IEABFOLDER",
     approved_discovery_task_id: "IETESTTASK",
     trigger_status_id: "IEABORDERED",
+    contract_number_custom_field_id: "IECONTRACT",
     attachment_extensions: ["xlsx"]
   });
   const waiting = evaluateWrikeReadOnlyQaReadiness({
@@ -152,7 +155,7 @@ test("uses account, task, attachment, and version for deterministic ingestion id
   assert.notEqual(first, replacement);
 });
 
-test("parses only the agreed task and workbook naming contract", () => {
+test("keeps the legacy order-name parser strict without using it as a routing key", () => {
   assert.deepEqual(parseWrikeOrderNameContract("C123456 - Summer Placards - OOH Order"), {
     contract_number: "C123456",
     order_name: "Summer Placards"
@@ -199,6 +202,36 @@ test("reads only the configured safe artwork-folder custom field", () => {
   );
 });
 
+test("reads a bounded Contract Number from only the configured custom field", () => {
+  const task = {
+    customFields: [
+      { id: "IEOTHER", value: "C999999" },
+      { id: "IECONTRACT", value: " c3168700 " }
+    ]
+  };
+
+  assert.deepEqual(resolveWrikeContractNumber(task, ""), {
+    status: "not_configured",
+    contract_number: null
+  });
+  assert.deepEqual(resolveWrikeContractNumber(task, "IEMISSING"), {
+    status: "missing",
+    contract_number: null
+  });
+  assert.deepEqual(resolveWrikeContractNumber(task, "IECONTRACT"), {
+    status: "ready",
+    contract_number: "C3168700"
+  });
+  assert.deepEqual(
+    resolveWrikeContractNumber({ customFields: [{ id: "IECONTRACT", value: "3168700" }] }, "IECONTRACT"),
+    { status: "invalid", contract_number: null }
+  );
+  assert.deepEqual(
+    resolveWrikeContractNumber({ customFields: [{ id: "IECONTRACT", value: "C12345" }] }, "IECONTRACT"),
+    { status: "invalid", contract_number: null }
+  );
+});
+
 test("keeps every current matching workbook as a separate order candidate", () => {
   const config = normalizeWrikeSourceConfig({
     folder_id: "IEABFOLDER",
@@ -209,19 +242,19 @@ test("keeps every current matching workbook as a separate order candidate", () =
     {
       attachment_id: "order-one",
       version_id: "1",
-      file_name: "C123456 - Retail Placards - OOH Order.xlsx",
+      file_name: "Momentara_3 product_DEMO.xlsx",
       updated_at: "2026-07-21T12:00:00.000Z"
     },
     {
       attachment_id: "reference-proof",
       version_id: "1",
-      file_name: "C123456 - Retail Placards - OOH Order.pdf",
+      file_name: "reference-proof.pdf",
       updated_at: "2026-07-21T14:00:00.000Z"
     },
     {
       attachment_id: "order-two",
       version_id: "1",
-      file_name: "C123456 - Airport Placards - OOH Order.xlsx",
+      file_name: "airport placards final.xlsx",
       updated_at: "2026-07-21T13:00:00.000Z"
     },
     {
@@ -232,17 +265,13 @@ test("keeps every current matching workbook as a separate order candidate", () =
     }
   ];
 
-  const selected = selectWrikeWorkbookAttachments(
-    candidates,
-    config,
-    "C123456 - Momentara Campaign - OOH Order"
-  );
+  const selected = selectWrikeWorkbookAttachments(candidates, config);
   assert.equal(selected.status, "matched");
   assert.deepEqual(
     selected.attachments.map((candidate) => candidate.attachment_id),
-    ["order-two", "order-one"]
+    ["other-contract", "order-two", "order-one"]
   );
-  assert.equal(selected.matches.length, 2);
+  assert.equal(selected.matches.length, 3);
 });
 
 test("deduplicates replacement versions per attachment and fails closed on an unresolved current-version tie", () => {
@@ -266,11 +295,7 @@ test("deduplicates replacement versions per attachment and fails closed on an un
     }
   ];
 
-  const selected = selectWrikeWorkbookAttachments(
-    candidates,
-    config,
-    "C123456 - Momentara Campaign - OOH Order"
-  );
+  const selected = selectWrikeWorkbookAttachments(candidates, config);
   assert.equal(selected.status, "matched");
   assert.deepEqual(selected.attachments.map((candidate) => candidate.version_id), ["2"]);
 
@@ -285,26 +310,35 @@ test("deduplicates replacement versions per attachment and fails closed on an un
           updated_at: "2026-07-21T13:00:00.000Z"
         }
       ],
-      config,
-      "C123456 - Momentara Campaign - OOH Order"
+      config
     ).status,
     "ambiguous"
   );
 });
 
-test("rejects a malformed task title before considering workbook candidates", () => {
+test("uses the optional filename filter without requiring a naming convention", () => {
   const selected = selectWrikeWorkbookAttachments(
-    [{
-      attachment_id: "order-one",
-      version_id: "1",
-      file_name: "C123456 - Retail Placards - OOH Order.xlsx",
-      updated_at: "2026-07-21T12:00:00.000Z"
-    }],
-    normalizeWrikeSourceConfig({ attachment_extensions: ["xlsx"] }),
-    "Retail Placards"
+    [
+      {
+        attachment_id: "order-one",
+        version_id: "1",
+        file_name: "Momentara_3 product_DEMO.xlsx",
+        updated_at: "2026-07-21T12:00:00.000Z"
+      },
+      {
+        attachment_id: "order-two",
+        version_id: "1",
+        file_name: "another workbook.xlsx",
+        updated_at: "2026-07-21T13:00:00.000Z"
+      }
+    ],
+    normalizeWrikeSourceConfig({
+      attachment_extensions: ["xlsx"],
+      attachment_filename_contains: "product_demo"
+    })
   );
-  assert.equal(selected.status, "missing");
-  assert.equal(selected.attachments.length, 0);
+  assert.equal(selected.status, "matched");
+  assert.deepEqual(selected.attachments.map((candidate) => candidate.attachment_id), ["order-one"]);
 });
 
 test("accepts only a bare HTTPS Wrike regional host", () => {
@@ -517,8 +551,8 @@ test("previews one qualified task and counts every matching workbook without ret
     folder_id: "IEAPPROVEDFOLDER",
     approved_discovery_task_id: "IEAPPROVEDTASK",
     trigger_status_id: "IEORDEREDSTATUS",
+    contract_number_custom_field_id: "IECONTRACT",
     artwork_folder_custom_field_id: "IEARTWORKFOLDER",
-    attachment_filename_contains: "order",
     attachment_extensions: ["xlsx"]
   });
   const result = await discoverApprovedWrikeTask(
@@ -553,7 +587,7 @@ test("previews one qualified task and counts every matching workbook without ret
                   id: "IEATTACHMENT0001",
                   version: 3,
                   taskId: "IEAPPROVEDTASK",
-                  name: "C123456 - Private Retail Placards - OOH Order.xlsx",
+                  name: "Momentara_3 product_DEMO.xlsx",
                   url: "https://temporary.example/never-return",
                   previewUrl: "https://temporary.example/never-return-preview"
                 },
@@ -570,7 +604,7 @@ test("previews one qualified task and counts every matching workbook without ret
                 {
                   id: "IEATTACHMENT0004",
                   version: 1,
-                  name: "C654321 - Other Contract - OOH Order.xlsx"
+                  name: "layout-reference.psd"
                 }
               ]
             }),
@@ -587,8 +621,12 @@ test("previews one qualified task and counts every matching workbook without ret
                 superParentIds: ["IEAPPROVEDFOLDER"],
                 customStatusId: "IEORDEREDSTATUS",
                 attachmentCount: 4,
-                title: "C123456 - Private Customer Campaign - OOH Order",
+                title: "Placard Order",
                 customFields: [
+                  {
+                    id: "IECONTRACT",
+                    value: "C3168700"
+                  },
                   {
                     id: "IEARTWORKFOLDER",
                     value: "https://momentara.sharepoint.com/sites/art/Private-Customer-Campaign"
@@ -605,6 +643,7 @@ test("previews one qualified task and counts every matching workbook without ret
   );
 
   assert.equal(result.preview.status, "Confirmed");
+  assert.equal(result.qualification.contract_number, "C3168700");
   assert.equal(result.preview.observed.workbook_candidate_count, 2);
   assert.equal(result.preview.observed.attachment_metadata_count, 4);
   assert.equal(result.preview.observed.ignored_attachment_count, 2);
@@ -642,6 +681,7 @@ test("requalifies and downloads only current matching workbooks without forwardi
       folder_id: "IEAPPROVEDFOLDER",
       approved_discovery_task_id: "IEAPPROVEDTASK",
       trigger_status_id: "IEORDEREDSTATUS",
+      contract_number_custom_field_id: "IECONTRACT",
       attachment_extensions: ["xlsx"]
     }),
     {
@@ -665,7 +705,7 @@ test("requalifies and downloads only current matching workbooks without forwardi
             JSON.stringify({
               data: [{
                 id: "IEATTACHMENT",
-                name: "C123456 - Summer Placards - OOH Order.xlsx"
+                name: "Momentara_3 product_DEMO.xlsx"
               }]
             }),
             { status: 200, headers: { "Content-Type": "application/json" } }
@@ -677,7 +717,7 @@ test("requalifies and downloads only current matching workbooks without forwardi
               data: [{
                 id: "IEATTACHMENT",
                 currentAttachmentId: "IEVERSION1",
-                name: "C123456 - Summer Placards - OOH Order.xlsx",
+                name: "Momentara_3 product_DEMO.xlsx",
                 updatedDate: "2026-07-23T11:45:00.000Z",
                 url: "https://files.example.test/signed/current"
               }]
@@ -705,8 +745,8 @@ test("requalifies and downloads only current matching workbooks without forwardi
               superParentIds: [],
               customStatusId: "IEORDEREDSTATUS",
               attachmentCount: 1,
-              title: "C123456 - Summer Placards - OOH Order",
-              customFields: []
+              title: "Placard Order",
+              customFields: [{ id: "IECONTRACT", value: "C3168700" }]
             }]
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
@@ -741,6 +781,7 @@ test("rejects unsafe workbook URLs and oversized content before retaining bytes"
         folder_id: "IEAPPROVEDFOLDER",
         approved_discovery_task_id: "IEAPPROVEDTASK",
         trigger_status_id: "IEORDEREDSTATUS",
+        contract_number_custom_field_id: "IECONTRACT",
         attachment_extensions: ["xlsx"]
       }),
       {
@@ -759,7 +800,7 @@ test("rejects unsafe workbook URLs and oversized content before retaining bytes"
           }
           if (url.includes("withUrls=false")) {
             return new Response(JSON.stringify({
-              data: [{ id: "IEATTACHMENT", name: "C123456 - Summer - OOH Order.xlsx" }]
+              data: [{ id: "IEATTACHMENT", name: "Momentara_3 product_DEMO.xlsx" }]
             }), { status: 200, headers: { "Content-Type": "application/json" } });
           }
           if (url.includes("withUrls=true")) {
@@ -767,7 +808,7 @@ test("rejects unsafe workbook URLs and oversized content before retaining bytes"
               data: [{
                 id: "IEATTACHMENT",
                 currentAttachmentId: "IEVERSION1",
-                name: "C123456 - Summer - OOH Order.xlsx",
+                name: "Momentara_3 product_DEMO.xlsx",
                 updatedDate: "2026-07-23T11:45:00.000Z",
                 url: downloadUrl
               }]
@@ -781,7 +822,8 @@ test("rejects unsafe workbook URLs and oversized content before retaining bytes"
                 parentIds: ["IEAPPROVEDFOLDER"],
                 customStatusId: "IEORDEREDSTATUS",
                 attachmentCount: 1,
-                title: "C123456 - Summer - OOH Order"
+                title: "Placard Order",
+                customFields: [{ id: "IECONTRACT", value: "C3168700" }]
               }]
             }), { status: 200, headers: { "Content-Type": "application/json" } });
           }
@@ -809,7 +851,7 @@ test("rejects unsafe workbook URLs and oversized content before retaining bytes"
   );
 });
 
-test("does not read attachment metadata before status and task naming guardrails both pass", async () => {
+test("does not read attachment metadata before status and Contract Number guardrails both pass", async () => {
   for (const task of [
     {
       id: "IEAPPROVEDTASK",
@@ -817,7 +859,8 @@ test("does not read attachment metadata before status and task naming guardrails
       parentIds: ["IEAPPROVEDFOLDER"],
       customStatusId: "IEORDEREDSTATUS",
       attachmentCount: 1,
-      title: "C123456 - Campaign - OOH Order"
+      title: "Placard Order",
+      customFields: [{ id: "IECONTRACT", value: "C3168700" }]
     },
     {
       id: "IEAPPROVEDTASK",
@@ -825,7 +868,8 @@ test("does not read attachment metadata before status and task naming guardrails
       parentIds: ["IEAPPROVEDFOLDER"],
       customStatusId: "IESENTTOPRINTLTL",
       attachmentCount: 1,
-      title: "Campaign without contract"
+      title: "Placard Order",
+      customFields: [{ id: "IECONTRACT", value: "not-a-contract" }]
     }
   ]) {
     const calls: string[] = [];
@@ -839,7 +883,8 @@ test("does not read attachment metadata before status and task naming guardrails
       normalizeWrikeSourceConfig({
         folder_id: "IEAPPROVEDFOLDER",
         approved_discovery_task_id: "IEAPPROVEDTASK",
-        trigger_status_id: "IESENTTOPRINTLTL"
+        trigger_status_id: "IESENTTOPRINTLTL",
+        contract_number_custom_field_id: "IECONTRACT"
       }),
       {
         fetch_impl: async (input) => {
@@ -878,7 +923,8 @@ test("does not read attachment metadata when the approved task is outside the sa
     normalizeWrikeSourceConfig({
       folder_id: "IEAPPROVEDFOLDER",
       approved_discovery_task_id: "IEAPPROVEDTASK",
-      trigger_status_id: "IEORDEREDSTATUS"
+      trigger_status_id: "IEORDEREDSTATUS",
+      contract_number_custom_field_id: "IECONTRACT"
     }),
     {
       fetch_impl: async (input) => {
@@ -898,7 +944,9 @@ test("does not read attachment metadata when the approved task is outside the sa
                 accountId: "IEACCOUNT",
                 parentIds: ["IEUNAPPROVEDFOLDER"],
                 customStatusId: "IEORDEREDSTATUS",
-                attachmentCount: 1
+                attachmentCount: 1,
+                title: "Placard Order",
+                customFields: [{ id: "IECONTRACT", value: "C3168700" }]
               }
             ]
           }),

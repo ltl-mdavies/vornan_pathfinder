@@ -336,6 +336,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           approved_discovery_task_id: "IEAPPROVEDTASK",
           trigger_status_id: "IESENTTOPRINTLTL",
           trigger_status_label: "Sent to Print - LTL",
+          contract_number_custom_field_id: "IECONTRACT",
           artwork_folder_custom_field_id: "IEARTWORKFOLDER",
           attachment_filename_contains: "",
           attachment_extensions: ["xlsx"]
@@ -364,7 +365,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           data: [{
             id: "IEATTACHMENT0001",
             version: 2,
-            name: "C123456 - Private Momentara - OOH Order.xlsx",
+            name: "Momentara_3 product_DEMO.xlsx",
             url: "https://temporary.example/private-download"
           }]
         }),
@@ -379,11 +380,14 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           parentIds: ["IEAPPROVEDFOLDER"],
           customStatusId: "IESENTTOPRINTLTL",
           attachmentCount: 1,
-          title: "C123456 - Private Momentara - OOH Order",
-          customFields: [{
-            id: "IEARTWORKFOLDER",
-            value: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
-          }]
+          title: "Placard Order",
+          customFields: [
+            { id: "IECONTRACT", value: "C3168700" },
+            {
+              id: "IEARTWORKFOLDER",
+              value: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
+            }
+          ]
         }]
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
@@ -456,7 +460,7 @@ test("stores qualified evidence, then creates and replays one saved-method previ
         JSON.stringify({
           data: [{
             id: "IEATTACHMENT0001",
-            name: "C123456 - Private Momentara - OOH Order.xlsx"
+            name: "Momentara_3 product_DEMO.xlsx"
           }]
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
@@ -468,7 +472,7 @@ test("stores qualified evidence, then creates and replays one saved-method previ
           data: [{
             id: "IEATTACHMENT0001",
             currentAttachmentId: "IEVERSION0002",
-            name: "C123456 - Private Momentara - OOH Order.xlsx",
+            name: "Momentara_3 product_DEMO.xlsx",
             updatedDate: "2026-07-23T14:00:00.000Z",
             url: "https://files.example.test/private-signed-url"
           }]
@@ -493,11 +497,14 @@ test("stores qualified evidence, then creates and replays one saved-method previ
           parentIds: ["IEAPPROVEDFOLDER"],
           customStatusId: "IESENTTOPRINTLTL",
           attachmentCount: 1,
-          title: "C123456 - Private Momentara - OOH Order",
-          customFields: [{
-            id: "IEARTWORKFOLDER",
-            value: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
-          }]
+          title: "Placard Order",
+          customFields: [
+            { id: "IECONTRACT", value: "C3168700" },
+            {
+              id: "IEARTWORKFOLDER",
+              value: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
+            }
+          ]
         }]
       }),
       { status: 200, headers: { "Content-Type": "application/json" } }
