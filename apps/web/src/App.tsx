@@ -9618,7 +9618,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <span>Additional workbook name filter</span>
                               <input
                                 value={activeWrikeConfig.attachment_filename_contains}
-                                placeholder="Optional; naming contract is automatic"
+                                placeholder="Optional filename text filter"
                                 onChange={(event) =>
                                   updateActiveWrikeConfig({ attachment_filename_contains: event.target.value })
                                 }
@@ -9663,8 +9663,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             </div>
                           </div>
                           <p className="wrike-contract-note">
-                            Task and workbook names must match C###### - Order Name - OOH Order. Each matching
-                            workbook becomes a separate order candidate.
+                            Contract identity comes from the configured Contract Number custom field. The task title
+                            is descriptive; every current workbook with an allowed extension and optional filename
+                            match becomes a separate order candidate.
                           </p>
 
                           <div className="wrike-discovery-preview">

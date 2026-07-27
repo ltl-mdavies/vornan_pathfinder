@@ -13,7 +13,7 @@ The Wrike adapter must never submit directly to Lift. Lift submission remains a 
 3. Scope discovery to the configured Wrike folder/project API ID.
 4. Treat `Ordered` as Momentara's internal creative-preparation state. Qualify an order for Pathfinder only when the task reaches the exact configured `Sent to Print - LTL` custom-status ID.
 5. Prefer a folder/project webhook for fast notification, with low-frequency scheduled reconciliation so missed or suspended webhook deliveries are recovered.
-6. Require the task title and each workbook stem to match `C<6 digit contract number> - <order name> - OOH Order`, then keep every current workbook with the same contract number as a separate order candidate.
+6. Read the authoritative contract identity from the configured **Contract Number** custom field. Treat the task title and workbook filename as descriptive, then keep every current attachment with an allowed workbook extension and optional filename filter as a separate order candidate.
 7. Build a durable source identity from Wrike account ID, task ID, attachment ID, and attachment version ID.
 8. If that identity already produced a preview, acknowledge the duplicate without creating another job. A newer attachment version creates a new candidate for operator review.
 9. Apply the bound Import Method and create a Pathfinder preview job with Wrike provenance and audit events.
@@ -33,7 +33,7 @@ The first dark configuration slice stores only:
 - Wrike folder/project API ID;
 - trigger strategy;
 - intake-ready workflow status ID and operator-friendly `Sent to Print - LTL` label;
-- fixed task-title and workbook-name rules using `C###### - Order Name - OOH Order`;
+- configured Contract Number custom-field ID, with a bounded `C` plus 6–10 digit value required on a qualifying task;
 - accepted workbook extensions;
 - optional filename match;
 - reconciliation interval;
@@ -54,9 +54,9 @@ It intentionally does not store:
 - Missing folder/project ID: no discovery.
 - Missing trigger status ID: no discovery.
 - Task not in the exact `Sent to Print - LTL` status: no attachment metadata read.
-- Task title outside `C###### - Order Name - OOH Order`: no attachment metadata read.
+- Missing, empty, or invalid configured Contract Number custom field: no attachment metadata read.
 - No matching workbook: record a reviewable source failure; no job.
-- Workbook contract number differs from the task contract number: ignore that workbook.
+- Workbook titles are descriptive rather than routing keys; an allowed extension and any configured optional filename filter determine candidacy.
 - PDFs and other reference attachments: ignore them; they are creative references, not order grids or print-ready artwork.
 - Multiple current matching workbooks: keep each as a separate order candidate.
 - Multiple equally current versions of the same attachment: ambiguous; no job for that attachment set.
@@ -75,7 +75,8 @@ It intentionally does not store:
 - Treat `Ordered` as the earlier Momentara internal-creative notification state; it is not an ingestion trigger.
 - Treat each workbook attached to one Placard Order task as a separate order.
 - Obtain two representative examples: one Placard Order task with one workbook and another with multiple workbooks.
-- Enforce the confirmed task/workbook convention `C<6 digit contract number> - <order name> - OOH Order`.
+- Require the **Contract Number** custom field on the Placard Order task. Do not require the task title or workbook filename to repeat it.
+- Accept descriptive workbook filenames, including established demo grids, provided the extension and optional configured filename filter qualify.
 - Ignore reference-proof attachments. Momentara's creative team may later post a SharePoint folder link for print-ready artwork in the task thread or a dedicated custom field; artwork-location capture and any future Lift order update remain separate work.
 - Treat `Have Address - LTL` as a later shipping-readiness signal, not an order-ingestion trigger.
 - Treat edits or replacement workbooks after a Lift submission as manual exceptions initially. Lift order mutation is not yet supported by this workflow.
@@ -130,7 +131,7 @@ Pathfinder now has a second, independently gated read-only operation for one ope
 
 1. OAuth refresh with `wsReadOnly`;
 2. `GET /api/v4/tasks/{approvedTaskId}?fields=["attachmentCount"]`;
-3. only after the returned task belongs to the saved folder/project (directly or through a super-parent), `GET /api/v4/tasks/{approvedTaskId}/attachments?versions=false&withUrls=false`.
+3. only after the returned task belongs to the saved folder/project (directly or through a super-parent), uses the configured intake-ready status, and has a valid configured Contract Number value, `GET /api/v4/tasks/{approvedTaskId}/attachments?versions=false&withUrls=false`.
 
 The response contains provider identifiers, counts, and pass/warning/blocked checks only. Task titles, descriptions, attachment names, temporary URLs, file contents, OAuth material, and other provider payload fields are neither returned to the browser nor persisted. A folder mismatch stops before the attachment-metadata request. Wrike documents the task-by-ID and task-attachment endpoints as read operations available to `wsReadOnly`: [Query Tasks](https://developers.wrike.com/reference/gettasksmulti) and [Query task attachments](https://developers.wrike.com/reference/gettaskssingleattachments).
 

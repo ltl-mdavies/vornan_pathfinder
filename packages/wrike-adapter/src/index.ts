@@ -84,7 +84,7 @@ export interface WrikeDiscoveryCheck {
     | "task"
     | "folder_scope"
     | "trigger_status"
-    | "task_name_contract"
+    | "contract_number"
     | "artwork_folder"
     | "attachment_metadata"
     | "workbook_candidates";
@@ -156,6 +156,7 @@ export interface WrikeTaskDiscoveryResult {
     account_id: string;
     task_id: string;
     task_title: string;
+    contract_number: string;
     task_qualified: boolean;
   };
 }
@@ -201,15 +202,27 @@ export interface WrikeOrderNameContract {
 }
 
 export type WrikeArtworkFolderStatus = "not_configured" | "missing" | "ready" | "invalid";
+export type WrikeContractNumberStatus = "not_configured" | "missing" | "ready" | "invalid";
 
 export interface WrikeArtworkFolderResolution {
   status: WrikeArtworkFolderStatus;
   url: string | null;
 }
 
+export interface WrikeContractNumberResolution {
+  status: WrikeContractNumberStatus;
+  contract_number: string | null;
+}
+
 export interface WrikeContractReadiness {
   status: "Incomplete" | "Configured";
-  missing: Array<"connection_id" | "folder_id" | "trigger_status_id" | "attachment_extensions">;
+  missing: Array<
+    | "connection_id"
+    | "folder_id"
+    | "trigger_status_id"
+    | "contract_number_custom_field_id"
+    | "attachment_extensions"
+  >;
 }
 
 export type WrikeReadOnlyQaReadinessStatus =
@@ -332,6 +345,33 @@ export function resolveWrikeArtworkFolderUrl(
   }
 }
 
+export function resolveWrikeContractNumber(
+  task: unknown,
+  customFieldId: unknown
+): WrikeContractNumberResolution {
+  const fieldId = cleanIdentifier(customFieldId);
+  if (!fieldId) {
+    return { status: "not_configured", contract_number: null };
+  }
+
+  const customFields = Array.isArray(asRecord(task).customFields)
+    ? (asRecord(task).customFields as unknown[])
+    : [];
+  const field = customFields
+    .map(asRecord)
+    .find((candidate) => cleanIdentifier(candidate.id) === fieldId);
+  const rawValue = typeof field?.value === "string" ? field.value.trim() : "";
+  if (!rawValue) {
+    return { status: "missing", contract_number: null };
+  }
+
+  const normalized = rawValue.toUpperCase();
+  if (!/^C\d{6,10}$/.test(normalized)) {
+    return { status: "invalid", contract_number: null };
+  }
+  return { status: "ready", contract_number: normalized };
+}
+
 export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
   const source = asRecord(value);
   const fallback = createDefaultWrikeSourceConfig();
@@ -395,6 +435,9 @@ export function getWrikeContractReadiness(config: WrikeSourceConfig): WrikeContr
   if (!config.trigger_status_id) {
     missing.push("trigger_status_id");
   }
+  if (!config.contract_number_custom_field_id) {
+    missing.push("contract_number_custom_field_id");
+  }
   if (!config.attachment_extensions.length) {
     missing.push("attachment_extensions");
   }
@@ -428,8 +471,8 @@ export function evaluateWrikeReadOnlyQaReadiness(args: {
       status: contract.status === "Configured" ? "Passed" : "Blocked",
       label: "Wrike source contract",
       message: contract.status === "Configured"
-        ? "Folder, intake-ready status, task naming, and workbook rules are configured."
-        : "Configure the folder/project, intake-ready status ID, and workbook rule."
+        ? "Folder, intake-ready status, Contract Number field, and workbook rules are configured."
+        : "Configure the folder/project, intake-ready status ID, Contract Number field, and workbook rule."
     },
     {
       item_id: "approved_task",
@@ -994,12 +1037,12 @@ export async function discoverApprovedWrikeTask(
   const customStatusId = providerIdentifier(task.customStatusId) || null;
   const accountId = providerIdentifier(task.accountId) || null;
   const taskAttachmentCount = providerCount(task.attachmentCount);
-  const taskNameContract = parseWrikeOrderNameContract(task.title);
+  const contractNumber = resolveWrikeContractNumber(task, config.contract_number_custom_field_id);
   const artworkFolder = resolveWrikeArtworkFolderUrl(task, config.artwork_folder_custom_field_id);
   const folderMatches = parentIds.includes(folderId) || superParentIds.includes(folderId);
   const statusMatches = customStatusId === triggerStatusId;
-  const taskNameMatches = taskNameContract !== null;
-  const taskQualifies = folderMatches && statusMatches && taskNameMatches;
+  const contractNumberMatches = contractNumber.status === "ready";
+  const taskQualifies = folderMatches && statusMatches && contractNumberMatches;
   const checks: WrikeDiscoveryCheck[] = [
     { check_id: "task", status: "Passed", message: "Wrike returned the exact approved task ID." },
     {
@@ -1017,11 +1060,16 @@ export async function discoverApprovedWrikeTask(
         : "The task does not use the configured intake-ready status ID; attachment metadata was not read."
     },
     {
-      check_id: "task_name_contract",
-      status: taskNameMatches ? "Passed" : "Blocked",
-      message: taskNameMatches
-        ? "The task title matches C###### - Order Name - OOH Order."
-        : "The task title does not match C###### - Order Name - OOH Order; attachment metadata was not read."
+      check_id: "contract_number",
+      status: contractNumberMatches ? "Passed" : "Blocked",
+      message:
+        contractNumber.status === "ready"
+          ? "The configured Contract Number field contains a valid bounded contract identifier."
+          : contractNumber.status === "not_configured"
+            ? "The Contract Number custom field is not configured; attachment metadata was not read."
+            : contractNumber.status === "missing"
+              ? "The configured Contract Number field is empty; attachment metadata was not read."
+              : "The configured Contract Number field must contain C followed by 6–10 digits; attachment metadata was not read."
     },
     {
       check_id: "artwork_folder",
@@ -1075,10 +1123,8 @@ export async function discoverApprovedWrikeTask(
     workbookCandidateCount = attachments.filter((attachment) => {
       const name = typeof attachment.name === "string" ? attachment.name : "";
       const extension = attachmentExtension(name);
-      const fileNameContract = parseWrikeOrderNameContract(stripAttachmentExtension(name));
       return (
         config.attachment_extensions.includes(extension as WrikeWorkbookExtension) &&
-        fileNameContract?.contract_number === taskNameContract.contract_number &&
         (!nameNeedle || name.toLowerCase().includes(nameNeedle))
       );
     }).length;
@@ -1098,10 +1144,10 @@ export async function discoverApprovedWrikeTask(
       status: workbookCandidateCount >= 1 ? "Passed" : "Warning",
       message:
         workbookCandidateCount === 1
-          ? "One current workbook matches the task contract and remains one separate order candidate."
+          ? "One current workbook has an allowed extension and remains one separate order candidate."
           : workbookCandidateCount > 1
-            ? `${workbookCandidateCount} current workbooks match the task contract; each remains a separate order candidate.`
-            : "No current workbook matches the task contract; reference files and unrelated attachments remain ignored."
+            ? `${workbookCandidateCount} current workbooks have allowed extensions; each remains a separate order candidate.`
+            : "No current workbook has an allowed extension and optional filename match; reference files and unrelated attachments remain ignored."
     });
   } else {
     checks.push({
@@ -1122,6 +1168,7 @@ export async function discoverApprovedWrikeTask(
       account_id: accountId ?? "",
       task_id: taskId,
       task_title: typeof task.title === "string" ? task.title.trim() : "",
+      contract_number: contractNumber.contract_number ?? "",
       task_qualified: taskQualifies
     },
     preview: {
@@ -1272,7 +1319,7 @@ export async function fetchQualifiedWrikeWorkbookSources(
   ) {
     throw new WrikeConnectionError(
       "attachment_validation_failed",
-      "The approved Wrike task no longer passes the saved folder, status, and naming guardrails.",
+      "The approved Wrike task no longer passes the saved folder, status, and Contract Number guardrails.",
       rotatedCredentials
     );
   }
@@ -1321,7 +1368,7 @@ export async function fetchQualifiedWrikeWorkbookSources(
             ? attachment.downloadUrl
             : null
     }));
-  const selection = selectWrikeWorkbookAttachments(candidates, config, qualification.task_title);
+  const selection = selectWrikeWorkbookAttachments(candidates, config);
   if (selection.status !== "matched" || !selection.attachments.length) {
     throw new WrikeConnectionError("attachment_validation_failed", selection.message, rotatedCredentials);
   }
@@ -1419,45 +1466,21 @@ function attachmentExtension(fileName: string) {
   return match?.[1] ?? "";
 }
 
-function stripAttachmentExtension(fileName: string) {
-  return fileName.replace(/\.[a-z0-9]+$/i, "");
-}
-
-function matchesWrikeWorkbookContract(
-  fileName: string,
-  config: WrikeSourceConfig,
-  taskContractNumber?: string
-) {
+function matchesWrikeWorkbookContract(fileName: string, config: WrikeSourceConfig) {
   const extension = attachmentExtension(fileName);
   const nameNeedle = config.attachment_filename_contains.toLowerCase();
-  const nameContract = parseWrikeOrderNameContract(stripAttachmentExtension(fileName));
   return (
     config.attachment_extensions.includes(extension as WrikeWorkbookExtension) &&
-    nameContract !== null &&
-    (!taskContractNumber || nameContract.contract_number === taskContractNumber) &&
     (!nameNeedle || fileName.toLowerCase().includes(nameNeedle))
   );
 }
 
 export function selectWrikeWorkbookAttachments(
   candidates: WrikeAttachmentCandidate[],
-  config: WrikeSourceConfig,
-  taskTitle?: string
+  config: WrikeSourceConfig
 ): WrikeAttachmentSelectionResult {
-  const taskNameContract = taskTitle === undefined ? null : parseWrikeOrderNameContract(taskTitle);
-  if (taskTitle !== undefined && taskNameContract === null) {
-    return {
-      status: "missing",
-      attachments: [],
-      matches: [],
-      message: "The Wrike task title does not match C###### - Order Name - OOH Order."
-    };
-  }
-
   const matches = candidates
-    .filter((candidate) =>
-      matchesWrikeWorkbookContract(candidate.file_name, config, taskNameContract?.contract_number)
-    )
+    .filter((candidate) => matchesWrikeWorkbookContract(candidate.file_name, config))
     .filter(
       (candidate) =>
         Boolean(candidate.attachment_id && candidate.version_id) && Number.isFinite(Date.parse(candidate.updated_at))
@@ -1472,7 +1495,7 @@ export function selectWrikeWorkbookAttachments(
       status: "missing",
       attachments: [],
       matches,
-      message: "No current Wrike attachment matches the configured workbook and order-naming rules."
+      message: "No current Wrike attachment matches the configured workbook extension and optional filename filter."
     };
   }
 
