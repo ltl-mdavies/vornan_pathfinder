@@ -49,8 +49,11 @@ const statusFixture: OrderRollupSnapshot = {
   lines: [{
     line_number: 1,
     order_line_id: 1001,
+    product_id: "INTERNAL-PRODUCT-ID",
     product_name: "Deterministic browser fixture",
     quantity: 1,
+    final_height: 46.375,
+    final_width: 30.375,
     proof_count: 1,
     package_count: 0,
     latest_proof_status: "PENDING",

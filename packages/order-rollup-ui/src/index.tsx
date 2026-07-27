@@ -66,17 +66,7 @@ function dimensions(line: OrderRollupLine) {
   if (line.final_width == null || line.final_height == null) {
     return null;
   }
-  return `${line.final_width} × ${line.final_height} in`;
-}
-
-function productIdentifier(line: OrderRollupLine) {
-  if (line.product_id != null && line.product_id !== "") {
-    return `Product ID ${line.product_id}`;
-  }
-  if (line.unit_number) {
-    return `Unit ${line.unit_number}`;
-  }
-  return "Product identifier pending";
+  return `${line.final_height}”h x ${line.final_width}”w`;
 }
 
 function fieldSourceLabel(source?: OrderRollupHeaderFieldSource) {
@@ -275,7 +265,7 @@ function LineCard({ line, displayDate }: { line: OrderRollupLine; displayDate: (
         <span className="order-rollup__line-number">{line.line_number}</span>
         <div className="order-rollup__line-title">
           <h3>{lineTitle}</h3>
-          <p>{[productIdentifier(line), `Qty ${line.quantity ?? "pending"}`, dimensions(line), line.material].filter(Boolean).join(" · ")}</p>
+          <p>{[`Qty ${line.quantity ?? "pending"}`, dimensions(line), line.material].filter(Boolean).join(" · ")}</p>
         </div>
         <span className="order-rollup__status">
           {line.step?.order_status ?? line.latest_tracking_message ?? line.latest_proof_status ?? "Status pending"}

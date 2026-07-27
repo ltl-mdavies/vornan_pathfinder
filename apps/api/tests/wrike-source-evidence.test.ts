@@ -1,4 +1,10 @@
 import assert from "node:assert/strict";
+import {
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+  S3ServiceException
+} from "@aws-sdk/client-s3";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -25,6 +31,113 @@ function workbook(bytes = "workbook-v1"): WrikeQualifiedWorkbookSource {
     bytes: encoded
   };
 }
+
+function forbiddenS3Error() {
+  return new S3ServiceException({
+    name: "Forbidden",
+    $fault: "client",
+    $metadata: { httpStatusCode: 403 },
+    message: "Forbidden"
+  });
+}
+
+test("conditionally creates missing S3 evidence when HeadObject masks absence as 403", async () => {
+  const previousBucket = process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET;
+  const previousDriver = process.env.PATHFINDER_STORAGE_DRIVER;
+  const originalSend = S3Client.prototype.send;
+  process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET = "pathfinder-source-evidence-test";
+  process.env.PATHFINDER_STORAGE_DRIVER = "dynamodb";
+  const commands: Array<HeadObjectCommand | PutObjectCommand> = [];
+  S3Client.prototype.send = (async (command: HeadObjectCommand | PutObjectCommand) => {
+    if (command instanceof HeadObjectCommand) {
+      commands.push(command);
+      throw forbiddenS3Error();
+    }
+    if (command instanceof PutObjectCommand) {
+      commands.push(command);
+      assert.equal(command.input.IfNoneMatch, "*");
+      assert.equal(command.input.ServerSideEncryption, "AES256");
+      return {};
+    }
+    throw new Error("Unexpected S3 command.");
+  }) as typeof S3Client.prototype.send;
+
+  try {
+    const stored = await persistWrikeWorkbookEvidence({
+      customer_id: "284619",
+      import_method_id: "wrike-orders",
+      connection_id: "source_wrike_momentara",
+      workbook: workbook(),
+      now: new Date("2026-07-27T14:00:00.000Z")
+    });
+
+    assert.equal(stored.storage_status, "Stored");
+    assert.equal(commands.length, 2);
+    assert.ok(commands[0] instanceof HeadObjectCommand);
+    assert.ok(commands[1] instanceof PutObjectCommand);
+  } finally {
+    S3Client.prototype.send = originalSend;
+    if (previousBucket === undefined) {
+      delete process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET;
+    } else {
+      process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET = previousBucket;
+    }
+    if (previousDriver === undefined) {
+      delete process.env.PATHFINDER_STORAGE_DRIVER;
+    } else {
+      process.env.PATHFINDER_STORAGE_DRIVER = previousDriver;
+    }
+  }
+});
+
+test("still fails closed when the conditional S3 evidence write is forbidden", async () => {
+  const previousBucket = process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET;
+  const previousDriver = process.env.PATHFINDER_STORAGE_DRIVER;
+  const originalSend = S3Client.prototype.send;
+  process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET = "pathfinder-source-evidence-test";
+  process.env.PATHFINDER_STORAGE_DRIVER = "dynamodb";
+  let putAttempts = 0;
+  S3Client.prototype.send = (async (command: HeadObjectCommand | PutObjectCommand) => {
+    if (command instanceof HeadObjectCommand) {
+      throw forbiddenS3Error();
+    }
+    if (command instanceof PutObjectCommand) {
+      putAttempts += 1;
+      assert.equal(command.input.IfNoneMatch, "*");
+      throw forbiddenS3Error();
+    }
+    throw new Error("Unexpected S3 command.");
+  }) as typeof S3Client.prototype.send;
+
+  try {
+    await assert.rejects(
+      persistWrikeWorkbookEvidence({
+        customer_id: "284619",
+        import_method_id: "wrike-orders",
+        connection_id: "source_wrike_momentara",
+        workbook: workbook(),
+        now: new Date("2026-07-27T14:00:00.000Z")
+      }),
+      (error: unknown) =>
+        error instanceof WrikeSourceEvidenceError &&
+        error.code === "storage_failed" &&
+        error.message === "Wrike workbook evidence could not be stored."
+    );
+    assert.equal(putAttempts, 1);
+  } finally {
+    S3Client.prototype.send = originalSend;
+    if (previousBucket === undefined) {
+      delete process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET;
+    } else {
+      process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET = previousBucket;
+    }
+    if (previousDriver === undefined) {
+      delete process.env.PATHFINDER_STORAGE_DRIVER;
+    } else {
+      process.env.PATHFINDER_STORAGE_DRIVER = previousDriver;
+    }
+  }
+});
 
 test("stores one immutable local evidence envelope and safely replays identical bytes", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pathfinder-wrike-evidence-"));
