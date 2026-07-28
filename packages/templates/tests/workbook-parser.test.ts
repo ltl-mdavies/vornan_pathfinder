@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as XLSX from "xlsx";
+import { sampleCanonicalOrder, validateCanonicalOrder } from "@pathfinder/canonical";
 
 import { mapSourceRowsToCanonicalOrder, parseWorkbookArrayBuffer } from "../src/index.ts";
 
@@ -120,6 +121,99 @@ test("applies independent header row and span overrides to exact workbook sheets
   assert.equal(catalog.order_row_count, 1);
 });
 
+test("detects a second hardware section and blocks a populated line without quantity", async () => {
+  const parsed = await parseWorkbookArrayBuffer(
+    workbookBuffer({
+      "Order Form": [
+        ["Description", "Media Type", "Final Size Width", "Final Size Length", "Print QTY"],
+        ["Poster", "GPA", 30, 46, 2],
+        [],
+        ["Hardware", "PS SKU", "SIGN TYPE", "Item SKU", "Description", "PS Part Number", "Qty. Needed", "Notes"],
+        [null, "AOM397", "Hardware", "FRAME-20X12", "20x12 / Clip Frames", "PART-397", null, null],
+        [null, "AOM398", "Hardware", "FRAME-24X18", "24x18 / Clip Frames", "PART-398", 3, null]
+      ]
+    })
+  );
+
+  const [sheet] = parsed.source_sheets;
+  assert.equal(sheet.sections.length, 2);
+  assert.equal(sheet.sections[0].line_kind, "print");
+  assert.equal(sheet.sections[1].line_kind, "hardware");
+  assert.equal(sheet.sections[1].quantity_column, "Qty. Needed");
+  assert.equal(sheet.sections[1].order_row_count, 1);
+  assert.equal(sheet.sections[1].incomplete_row_count, 1);
+  assert.equal(parsed.parsed_order_rows.length, 2);
+  assert.equal(parsed.incomplete_rows.length, 1);
+  assert.equal(parsed.incomplete_rows[0].values.Description, "20x12 / Clip Frames");
+});
+
+test("applies configured roles and sections independently across workbook sheets", async () => {
+  const parsed = await parseWorkbookArrayBuffer(
+    workbookBuffer({
+      "Order Form": [
+        ["Description", "Print QTY"],
+        ["Poster", 2]
+      ],
+      "AMZ LOCKERS": [
+        ["Item SKU", "Description", "Qty. Needed"],
+        ["LOCKER-1", "Locker placard", 4]
+      ],
+      "Ship List": [
+        ["Address", "City", "Quantity"],
+        ["1 Main St", "Boston", 2]
+      ],
+      Notes: [["Reference only"], ["Do not import"]]
+    }),
+    {
+      sheetConfigs: {
+        "Order Form": {
+          role: "order_lines",
+          enabled: true,
+          sections: []
+        },
+        "AMZ LOCKERS": {
+          role: "order_lines",
+          enabled: true,
+          sections: [
+            {
+              sectionId: "locker-hardware",
+              label: "Locker hardware",
+              lineKind: "hardware",
+              headerRow: 1,
+              headerRowCount: 1,
+              quantityColumn: "Qty. Needed",
+              missingQuantityBehavior: "block",
+              required: false
+            }
+          ]
+        },
+        "Ship List": {
+          role: "shipping_attachment",
+          enabled: true,
+          sections: []
+        },
+        Notes: {
+          role: "ignore",
+          enabled: false,
+          sections: []
+        }
+      }
+    }
+  );
+
+  assert.equal(parsed.parsed_order_rows.length, 2);
+  assert.deepEqual(
+    parsed.parsed_order_rows.map((row) => [row.sheet_name, row.line_kind, row.section_id]),
+    [
+      ["Order Form", "print", "order-form-print-1"],
+      ["AMZ LOCKERS", "hardware", "locker-hardware"]
+    ]
+  );
+  assert.equal(parsed.source_sheets.find((sheet) => sheet.sheet_name === "Ship List")?.role, "shipping_attachment");
+  assert.equal(parsed.source_sheets.find((sheet) => sheet.sheet_name === "Ship List")?.parsed_rows.length, 0);
+  assert.equal(parsed.source_sheets.find((sheet) => sheet.sheet_name === "Notes")?.role, "ignore");
+});
+
 test("maps a customer artwork-folder field separately from the imported order attachment", () => {
   const order = mapSourceRowsToCanonicalOrder(
     [
@@ -156,4 +250,104 @@ test("maps a customer artwork-folder field separately from the imported order at
     "https://momentara.sharepoint.com/sites/art/Shared%20Documents/C123456"
   );
   assert.equal(order.order.order_attachment, "https://wrike.example/attachments/order.xlsx");
+});
+
+test("applies section-scoped canonical mappings without cross-sheet column collisions", () => {
+  const order = mapSourceRowsToCanonicalOrder(
+    [
+      {
+        __pathfinder_scope_id: "Order Form::print",
+        Description: "Printed poster",
+        "Print QTY": 2,
+        Width: 30,
+        Height: 46
+      },
+      {
+        __pathfinder_scope_id: "Order Form::hardware",
+        Description: "Clip frame",
+        "Qty. Needed": 3,
+        "Item SKU": "FRAME-20X12"
+      }
+    ],
+    [
+      {
+        sourceColumn: "Description",
+        targetField: "lines[].product_name",
+        scopeId: "Order Form::print"
+      },
+      {
+        sourceColumn: "Print QTY",
+        targetField: "lines[].quantity",
+        scopeId: "Order Form::print"
+      },
+      {
+        sourceColumn: "Width",
+        targetField: "lines[].dimensions.final_width",
+        scopeId: "Order Form::print"
+      },
+      {
+        sourceColumn: "Height",
+        targetField: "lines[].dimensions.final_height",
+        scopeId: "Order Form::print"
+      },
+      {
+        sourceColumn: "Description",
+        targetField: "lines[].product_name",
+        scopeId: "Order Form::hardware"
+      },
+      {
+        sourceColumn: "Qty. Needed",
+        targetField: "lines[].quantity",
+        scopeId: "Order Form::hardware"
+      },
+      {
+        sourceColumn: "Item SKU",
+        targetField: "lines[].customer_sku",
+        scopeId: "Order Form::hardware"
+      }
+    ],
+    {
+      customerId: "lift:284619",
+      customerName: "Momentara",
+      sourceSystem: "Wrike",
+      sourceCustomer: "Momentara",
+      targetSystem: "Lift"
+    }
+  );
+
+  assert.equal(order.lines[0].product_name, "Printed poster");
+  assert.equal(order.lines[0].quantity, 2);
+  assert.equal(order.lines[1].product_name, "Clip frame");
+  assert.equal(order.lines[1].customer_sku, "FRAME-20X12");
+  assert.equal(order.lines[1].quantity, 3);
+});
+
+test("does not invent print dimensions for an explicitly mapped hardware product", () => {
+  const baseLine = sampleCanonicalOrder.lines[0];
+  const hardwareOrder = {
+    ...sampleCanonicalOrder,
+    lines: [
+      {
+        ...baseLine,
+        line_kind: "hardware" as const,
+        dimensions: {
+          ...baseLine.dimensions,
+          final_width: 0,
+          final_height: 0
+        }
+      }
+    ]
+  };
+  const printOrder = {
+    ...hardwareOrder,
+    lines: hardwareOrder.lines.map((line) => ({ ...line, line_kind: "print" as const }))
+  };
+
+  const hardwareCodes = validateCanonicalOrder(hardwareOrder).map((message) => message.code);
+  const printCodes = validateCanonicalOrder(printOrder).map((message) => message.code);
+
+  assert.equal(hardwareCodes.includes("VAL-DIM-W"), false);
+  assert.equal(hardwareCodes.includes("VAL-DIM-H"), false);
+  assert.equal(printCodes.includes("VAL-DIM-W"), true);
+  assert.equal(printCodes.includes("VAL-DIM-H"), true);
 });

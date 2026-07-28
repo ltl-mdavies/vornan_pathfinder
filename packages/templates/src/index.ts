@@ -17,16 +17,61 @@ export interface SourceGrid {
 export interface ParsedSourceRow {
   sheet_name: string;
   row_number: number;
-  row_type: "order" | "reference";
+  row_type: "order" | "reference" | "incomplete";
+  scope_id: string;
+  section_id: string;
+  section_label: string;
+  line_kind: WorkbookLineKind;
   values: Record<string, string | number | boolean | null>;
+}
+
+export type WorkbookSheetRole = "order_lines" | "shipping_attachment" | "reference_catalog" | "ignore";
+export type WorkbookLineKind = "print" | "hardware" | "custom";
+export type WorkbookMissingQuantityBehavior = "reference" | "block";
+
+export interface WorkbookSectionConfig {
+  sectionId: string;
+  label: string;
+  lineKind: WorkbookLineKind;
+  headerRow: number | null;
+  headerRowCount: 1 | 2;
+  headerSignature?: string[];
+  quantityColumn?: string | null;
+  missingQuantityBehavior?: WorkbookMissingQuantityBehavior;
+  required?: boolean;
+}
+
+export interface WorkbookSheetConfig {
+  role: WorkbookSheetRole;
+  enabled: boolean;
+  sections: WorkbookSectionConfig[];
+}
+
+export interface ParsedWorkbookSection {
+  scope_id: string;
+  section_id: string;
+  label: string;
+  line_kind: WorkbookLineKind;
+  columns: string[];
+  header_row: number;
+  header_row_count: 1 | 2;
+  quantity_column: string | null;
+  missing_quantity_behavior: WorkbookMissingQuantityBehavior;
+  order_row_count: number;
+  reference_row_count: number;
+  incomplete_row_count: number;
+  parsed_rows: ParsedSourceRow[];
 }
 
 export interface ParsedWorkbookSheet {
   sheet_name: string;
+  role: WorkbookSheetRole;
   columns: string[];
   order_row_count: number;
   reference_row_count: number;
+  incomplete_row_count: number;
   parsed_rows: ParsedSourceRow[];
+  sections: ParsedWorkbookSection[];
   header_row?: number | null;
   header_row_count?: 1 | 2;
   ignored_header_rows?: number[];
@@ -35,6 +80,7 @@ export interface ParsedWorkbookSheet {
 export interface FieldMapping {
   sourceColumn: string;
   targetField: string;
+  scopeId?: string | null;
   required?: boolean;
 }
 
@@ -72,6 +118,7 @@ export interface ParsedWorkbook extends SourceGrid {
   source_sheets: ParsedWorkbookSheet[];
   parsed_order_rows: ParsedSourceRow[];
   reference_rows: ParsedSourceRow[];
+  incomplete_rows: ParsedSourceRow[];
 }
 
 export interface WorkbookSheetHeaderOverride {
@@ -87,6 +134,7 @@ export interface WorkbookParseOptions {
   ignoreRepeatedHeaders?: boolean;
   referenceRowsMode?: "rows_without_quantity" | "ignore";
   sheetHeaderOverrides?: Record<string, WorkbookSheetHeaderOverride>;
+  sheetConfigs?: Record<string, WorkbookSheetConfig>;
 }
 
 export interface CanonicalBuildOptions {
@@ -550,6 +598,13 @@ function normalizeAlias(value: string) {
   return normalizeColumnName(value).toLowerCase();
 }
 
+function normalizeHeaderAlias(value: string) {
+  return normalizeAlias(value)
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function deduplicateColumnNames(columns: string[]) {
   const seen = new Map<string, number>();
   return columns.map((column, index) => {
@@ -620,10 +675,13 @@ const embeddedHeaderAliases = new Set(
     "production",
     "required",
     "optional"
-  ].map(normalizeAlias)
+  ].map(normalizeHeaderAlias)
 );
 
-const knownHeaderAliases = new Set([...Object.keys(sourceColumnAliases).map(normalizeAlias), ...embeddedHeaderAliases]);
+const knownHeaderAliases = new Set([
+  ...Object.keys(sourceColumnAliases).map(normalizeHeaderAlias),
+  ...embeddedHeaderAliases
+]);
 
 function headerColumnsForRows(matrix: unknown[][], headerIndex: number, headerRowCount: 1 | 2) {
   const headerRows = matrix.slice(headerIndex, headerIndex + headerRowCount);
@@ -691,17 +749,19 @@ function headerCandidateScore(matrix: unknown[][], headerIndex: number, headerRo
     return Number.NEGATIVE_INFINITY;
   }
 
-  const recognizedColumns = namedColumns.filter((column) => knownHeaderAliases.has(normalizeAlias(column))).length;
+  const recognizedColumns = namedColumns.filter((column) => knownHeaderAliases.has(normalizeHeaderAlias(column))).length;
   const headerCells = matrix
     .slice(headerIndex, headerIndex + headerRowCount)
     .flatMap((row) => row.map(cellToPrimitive))
     .filter((value) => value !== null);
   const textCells = headerCells.filter((value) => typeof value === "string").length;
   const numericCells = headerCells.filter((value) => typeof value === "number").length;
-  const recognizedCells = headerCells.filter((value) => knownHeaderAliases.has(normalizeAlias(valueAsString(value)))).length;
+  const recognizedCells = headerCells.filter((value) =>
+    knownHeaderAliases.has(normalizeHeaderAlias(valueAsString(value)))
+  ).length;
   const dataLikeCells = headerCells.filter((value) => {
     const text = valueAsString(value);
-    return /\d/.test(text) && !knownHeaderAliases.has(normalizeAlias(text));
+    return /\d/.test(text) && !knownHeaderAliases.has(normalizeHeaderAlias(text));
   }).length;
   const nextPopulatedRow = matrix
     .slice(headerIndex + headerRowCount)
@@ -751,13 +811,13 @@ function isLikelyRepeatedHeader(row: Record<string, string | number | boolean | 
   let headerLikeMatches = 0;
   let populatedValues = 0;
   Object.entries(row).forEach(([column, value]) => {
-    const normalizedValue = normalizeAlias(valueAsString(value));
+    const normalizedValue = normalizeHeaderAlias(valueAsString(value));
     if (!normalizedValue) {
       return;
     }
     populatedValues += 1;
 
-    const normalizedColumn = normalizeAlias(column);
+    const normalizedColumn = normalizeHeaderAlias(column);
     if (normalizedValue === normalizedColumn) {
       exactColumnMatches += 1;
     }
@@ -787,10 +847,153 @@ function isValidQuantity(value: unknown) {
 
 function findQuantityColumn(columns: string[]) {
   return (
-    columns.find((column) => normalizeAlias(column) === "print qty") ??
-    columns.find((column) => ["quantity", "qty"].includes(normalizeAlias(column))) ??
+    columns.find((column) => normalizeHeaderAlias(column) === "print qty") ??
+    columns.find((column) =>
+      ["quantity", "qty", "qty needed", "order qty", "ordered qty"].includes(normalizeHeaderAlias(column))
+    ) ??
     null
   );
+}
+
+function safeSectionId(value: string, fallback: string) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return normalized || fallback;
+}
+
+function sectionHeaderSignature(columns: string[]) {
+  return columns.map((column) => normalizeHeaderAlias(column));
+}
+
+function sameHeaderSignature(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isSectionHeaderCandidate(matrix: unknown[][], rowIndex: number, headerRowCount: 1 | 2) {
+  const headerRows = matrix.slice(rowIndex, rowIndex + headerRowCount);
+  const populated = headerRows
+    .flatMap((row) => row.map(cellToPrimitive))
+    .filter((value) => value !== null)
+    .map((value) => valueAsString(value));
+  const recognized = populated.filter((value) => knownHeaderAliases.has(normalizeHeaderAlias(value))).length;
+  return populated.length >= 2 && recognized >= 2 && headerCandidateScore(matrix, rowIndex, headerRowCount) >= 20;
+}
+
+function inferLineKind(columns: string[], isPrimarySection: boolean): WorkbookLineKind {
+  const aliases = new Set(columns.map((column) => normalizeHeaderAlias(column)));
+  if (
+    aliases.has("hardware") ||
+    aliases.has("ps sku") ||
+    aliases.has("item sku") ||
+    aliases.has("ps part number")
+  ) {
+    return "hardware";
+  }
+  return isPrimarySection ? "print" : "custom";
+}
+
+interface ResolvedWorkbookSection {
+  sectionId: string;
+  label: string;
+  lineKind: WorkbookLineKind;
+  headerIndex: number;
+  headerRowCount: 1 | 2;
+  columns: string[];
+  quantityColumn: string | null;
+  missingQuantityBehavior: WorkbookMissingQuantityBehavior;
+  required: boolean;
+}
+
+function resolveWorkbookSections(
+  matrix: unknown[][],
+  sheetName: string,
+  options: WorkbookParseOptions,
+  sheetConfig: WorkbookSheetConfig | undefined
+): ResolvedWorkbookSection[] {
+  const configuredSections = (sheetConfig?.sections ?? []).filter(
+    (section) =>
+      typeof section.headerRow === "number" &&
+      section.headerRow >= 1 &&
+      matrix[section.headerRow - 1]?.some((cell) => cellToPrimitive(cell) !== null)
+  );
+  if (configuredSections.length > 0) {
+    return configuredSections
+      .map((section, index) => {
+        const headerIndex = (section.headerRow as number) - 1;
+        const columns = headerColumnsForRows(matrix, headerIndex, section.headerRowCount);
+        return {
+          sectionId: safeSectionId(section.sectionId, `section-${index + 1}`),
+          label: section.label.trim() || `Section ${index + 1}`,
+          lineKind: section.lineKind,
+          headerIndex,
+          headerRowCount: section.headerRowCount,
+          columns,
+          quantityColumn:
+            section.quantityColumn && columns.includes(section.quantityColumn)
+              ? section.quantityColumn
+              : findQuantityColumn(columns),
+          missingQuantityBehavior: section.missingQuantityBehavior ?? "reference",
+          required: section.required === true
+        };
+      })
+      .sort((left, right) => left.headerIndex - right.headerIndex);
+  }
+
+  const headerRowCount = options.headerRowCount ?? 1;
+  const explicitHeaderIndex =
+    typeof options.headerRow === "number" &&
+    options.headerRow > 0 &&
+    matrix[options.headerRow - 1]?.some((cell) => cellToPrimitive(cell) !== null)
+      ? options.headerRow - 1
+      : null;
+  const primaryHeaderIndex =
+    explicitHeaderIndex ??
+    Array.from({ length: Math.min(matrix.length, 25) }, (_, index) => index).find((index) =>
+      isSectionHeaderCandidate(matrix, index, headerRowCount)
+    ) ??
+    detectHeaderIndex(matrix, options.headerRow, headerRowCount);
+  const candidates = [{ headerIndex: primaryHeaderIndex, headerRowCount }];
+  let previousSignature = sectionHeaderSignature(headerColumnsForRows(matrix, primaryHeaderIndex, headerRowCount));
+
+  for (let rowIndex = primaryHeaderIndex + headerRowCount; rowIndex < matrix.length; rowIndex += 1) {
+    if (!isSectionHeaderCandidate(matrix, rowIndex, 1)) {
+      continue;
+    }
+    const columns = headerColumnsForRows(matrix, rowIndex, 1);
+    const signature = sectionHeaderSignature(columns);
+    if (sameHeaderSignature(signature, previousSignature)) {
+      continue;
+    }
+    candidates.push({ headerIndex: rowIndex, headerRowCount: 1 as const });
+    previousSignature = signature;
+  }
+
+  return candidates.map((candidate, index) => {
+    const columns = headerColumnsForRows(matrix, candidate.headerIndex, candidate.headerRowCount);
+    const lineKind = inferLineKind(columns, index === 0);
+    const quantityColumn =
+      index === 0 && options.quantityColumn && columns.includes(options.quantityColumn)
+        ? options.quantityColumn
+        : findQuantityColumn(columns);
+    return {
+      sectionId: safeSectionId(
+        `${sheetName}-${lineKind}-${candidate.headerIndex + 1}`,
+        `section-${index + 1}`
+      ),
+      label: index === 0 ? `${sheetName} order lines` : `${lineKind === "hardware" ? "Hardware" : "Section"} ${index + 1}`,
+      lineKind,
+      headerIndex: candidate.headerIndex,
+      headerRowCount: candidate.headerRowCount,
+      columns,
+      quantityColumn,
+      missingQuantityBehavior: index > 0 && lineKind === "hardware" ? "block" : "reference",
+      required: index === 0
+    };
+  });
 }
 
 function parseWorksheetRows(
@@ -801,6 +1004,8 @@ function parseWorksheetRows(
 ): {
   columns: string[];
   rows: ParsedSourceRow[];
+  sections: ParsedWorkbookSection[];
+  role: WorkbookSheetRole;
   headerRow: number | null;
   headerRowCount: 1 | 2;
   ignoredHeaderRows: number[];
@@ -813,52 +1018,107 @@ function parseWorksheetRows(
     raw: false
   });
   if (matrix.length === 0) {
-    return { columns: [], rows: [], headerRow: null, headerRowCount: options.headerRowCount ?? 1, ignoredHeaderRows: [] };
+    return {
+      columns: [],
+      rows: [],
+      sections: [],
+      role: options.sheetConfigs?.[sheetName]?.role ?? "order_lines",
+      headerRow: null,
+      headerRowCount: options.headerRowCount ?? 1,
+      ignoredHeaderRows: []
+    };
   }
 
-  const headerRowCount = options.headerRowCount ?? 1;
-  const headerIndex = detectHeaderIndex(matrix, options.headerRow, headerRowCount);
-  const columns = headerColumnsForRows(matrix, headerIndex, headerRowCount);
-  const quantityColumn =
-    options.quantityColumn && columns.includes(options.quantityColumn)
-      ? options.quantityColumn
-      : findQuantityColumn(columns);
+  const sheetConfig = options.sheetConfigs?.[sheetName];
+  const role = sheetConfig?.enabled === false ? "ignore" : (sheetConfig?.role ?? "order_lines");
+  if (role === "ignore" || role === "shipping_attachment") {
+    return {
+      columns: [],
+      rows: [],
+      sections: [],
+      role,
+      headerRow: null,
+      headerRowCount: options.headerRowCount ?? 1,
+      ignoredHeaderRows: []
+    };
+  }
+
+  const resolvedSections = resolveWorkbookSections(matrix, sheetName, options, sheetConfig);
+  const columns = Array.from(new Set(resolvedSections.flatMap((section) => section.columns)));
   const shouldIgnoreRepeatedHeaders = options.ignoreRepeatedHeaders ?? true;
   const referenceRowsMode = options.referenceRowsMode ?? "rows_without_quantity";
   const ignoredHeaderRows: number[] = [];
+  const parsedSections = resolvedSections.map((section, sectionIndex) => {
+    const nextHeaderIndex = resolvedSections[sectionIndex + 1]?.headerIndex ?? matrix.length;
+    const scopeId = `${sheetName}::${section.sectionId}`;
+    const rows = matrix
+      .slice(section.headerIndex + section.headerRowCount, nextHeaderIndex)
+      .map((row, index) => {
+        const values = section.columns.reduce<Record<string, string | number | boolean | null>>(
+          (record, column, columnIndex) => {
+            record[column] = cellToPrimitive(row[columnIndex]);
+            return record;
+          },
+          {}
+        );
+        const rowNumber = section.headerIndex + section.headerRowCount + index + 1;
+        const hasQuantity = section.quantityColumn ? isValidQuantity(values[section.quantityColumn]) : false;
+        const rowType =
+          role === "reference_catalog"
+            ? "reference"
+            : hasQuantity
+              ? "order"
+              : section.quantityColumn && section.missingQuantityBehavior === "block"
+                ? "incomplete"
+                : "reference";
 
-  const rows = matrix
-    .slice(headerIndex + headerRowCount)
-    .map((row, index) => {
-      const values = columns.reduce<Record<string, string | number | boolean | null>>((record, column, columnIndex) => {
-        record[column] = cellToPrimitive(row[columnIndex]);
-        return record;
-      }, {});
-      const rowNumber = headerIndex + headerRowCount + index + 1;
-      const hasQuantity = quantityColumn ? isValidQuantity(values[quantityColumn]) : false;
+        return {
+          sheet_name: sheetName,
+          row_number: rowNumber,
+          row_type: rowType,
+          scope_id: scopeId,
+          section_id: section.sectionId,
+          section_label: section.label,
+          line_kind: section.lineKind,
+          values
+        } satisfies ParsedSourceRow;
+      })
+      .filter((row) => hasAnyValue(row.values))
+      .filter((row) => {
+        if (shouldIgnoreRepeatedHeaders && isLikelyRepeatedHeader(row.values)) {
+          ignoredHeaderRows.push(row.row_number);
+          return false;
+        }
+        return true;
+      })
+      .filter((row) => (referenceRowsMode === "ignore" ? row.row_type === "order" : true));
 
-      return {
-        sheet_name: sheetName,
-        row_number: rowNumber,
-        row_type: hasQuantity ? "order" : "reference",
-        values
-      } satisfies ParsedSourceRow;
-    })
-    .filter((row) => hasAnyValue(row.values))
-    .filter((row) => {
-      if (shouldIgnoreRepeatedHeaders && isLikelyRepeatedHeader(row.values)) {
-        ignoredHeaderRows.push(row.row_number);
-        return false;
-      }
-      return true;
-    })
-    .filter((row) => (referenceRowsMode === "ignore" ? row.row_type === "order" : true));
+    return {
+      scope_id: scopeId,
+      section_id: section.sectionId,
+      label: section.label,
+      line_kind: section.lineKind,
+      columns: section.columns,
+      header_row: section.headerIndex + 1,
+      header_row_count: section.headerRowCount,
+      quantity_column: section.quantityColumn,
+      missing_quantity_behavior: section.missingQuantityBehavior,
+      order_row_count: rows.filter((row) => row.row_type === "order").length,
+      reference_row_count: rows.filter((row) => row.row_type === "reference").length,
+      incomplete_row_count: rows.filter((row) => row.row_type === "incomplete").length,
+      parsed_rows: rows
+    } satisfies ParsedWorkbookSection;
+  });
+  const rows = parsedSections.flatMap((section) => section.parsed_rows);
+  const primarySection = parsedSections[0];
 
   return {
     columns,
     rows,
-    headerRow: headerIndex + 1,
-    headerRowCount,
+    sections: parsedSections,
+    role,
+    headerRow: primarySection?.header_row ?? null,
+    headerRowCount: primarySection?.header_row_count ?? options.headerRowCount ?? 1,
     ignoredHeaderRows
   };
 }
@@ -875,7 +1135,7 @@ export async function parseWorkbookArrayBuffer(
   const workbook = xlsx.read(buffer, { type: "array", cellDates: true });
   const allSheetRows = workbook.SheetNames.map((candidateSheetName) => {
     const sheetOverride = options.sheetHeaderOverrides?.[candidateSheetName];
-    const { columns, rows, headerRow, headerRowCount, ignoredHeaderRows } = parseWorksheetRows(
+    const { columns, rows, sections, role, headerRow, headerRowCount, ignoredHeaderRows } = parseWorksheetRows(
       xlsx,
       workbook,
       candidateSheetName,
@@ -889,10 +1149,13 @@ export async function parseWorkbookArrayBuffer(
     );
     return {
       sheet_name: candidateSheetName,
+      role,
       columns,
       order_row_count: rows.filter((row) => row.row_type === "order").length,
       reference_row_count: rows.filter((row) => row.row_type === "reference").length,
+      incomplete_row_count: rows.filter((row) => row.row_type === "incomplete").length,
       parsed_rows: rows,
+      sections,
       header_row: headerRow,
       header_row_count: headerRowCount,
       ignored_header_rows: ignoredHeaderRows
@@ -900,6 +1163,9 @@ export async function parseWorkbookArrayBuffer(
   });
   const parsedOrderRows = allSheetRows.flatMap((sheet) => sheet.parsed_rows.filter((row) => row.row_type === "order"));
   const referenceRows = allSheetRows.flatMap((sheet) => sheet.parsed_rows.filter((row) => row.row_type === "reference"));
+  const incompleteRows = allSheetRows.flatMap((sheet) =>
+    sheet.parsed_rows.filter((row) => row.row_type === "incomplete")
+  );
   const preferredSheetName = options.preferredSheetName;
   const preferredSheet = preferredSheetName && workbook.Sheets[preferredSheetName] ? preferredSheetName : null;
   const firstOrderSheet = allSheetRows.find((sheet) => sheet.order_row_count > 0)?.sheet_name ?? null;
@@ -913,7 +1179,8 @@ export async function parseWorkbookArrayBuffer(
       rows: [],
       source_sheets: [],
       parsed_order_rows: [],
-      reference_rows: []
+      reference_rows: [],
+      incomplete_rows: []
     };
   }
 
@@ -935,7 +1202,8 @@ export async function parseWorkbookArrayBuffer(
     rows,
     source_sheets: allSheetRows,
     parsed_order_rows: parsedOrderRows,
-    reference_rows: referenceRows
+    reference_rows: referenceRows,
+    incomplete_rows: incompleteRows
   };
 }
 
@@ -957,7 +1225,10 @@ function getMappedValue(
   mappings: FieldMapping[],
   targetField: string
 ) {
-  const mapping = mappings.find((candidate) => candidate.targetField === targetField);
+  const scopeId = valueAsString(row.__pathfinder_scope_id);
+  const mapping =
+    mappings.find((candidate) => candidate.scopeId === scopeId && candidate.targetField === targetField) ??
+    mappings.find((candidate) => !candidate.scopeId && candidate.targetField === targetField);
   return mapping ? row[mapping.sourceColumn] : null;
 }
 
@@ -1026,6 +1297,10 @@ function applySupplementalMapping(
   rowIndex: number,
   mapping: FieldMapping
 ) {
+  const scopeId = valueAsString(row.__pathfinder_scope_id);
+  if (mapping.scopeId && mapping.scopeId !== scopeId) {
+    return;
+  }
   if (builtInCanonicalTargetFields.has(mapping.targetField)) {
     return;
   }

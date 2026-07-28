@@ -60,6 +60,7 @@ export interface Contact {
 
 export interface CanonicalOrderLine {
   line_number: number;
+  line_kind?: "print" | "hardware" | "custom";
   unit_number: string;
   customer_sku?: string | null;
   description?: string | null;
@@ -219,6 +220,7 @@ export const canonicalFieldRegistry = [
   canonicalField("order.shipping.email", "shipping", "Email", "string"),
   canonicalField("order.shipping.instructions", "shipping", "Shipping Instructions", "string"),
   canonicalField("lines[].line_number", "lines", "Line Number", "integer", { repeatable: true }),
+  canonicalField("lines[].line_kind", "lines", "Line Type", "string", { repeatable: true }),
   canonicalField("lines[].unit_number", "lines", "Lift Unit Number", "string", { repeatable: true }),
   canonicalField("lines[].product_id", "lines", "Lift Product ID", "string", { repeatable: true }),
   canonicalField("lines[].customer_sku", "lines", "Customer SKU", "string", { repeatable: true }),
@@ -360,7 +362,7 @@ export function validateCanonicalOrder(order: CanonicalOrder, options: Canonical
       });
     }
 
-    if (!Number.isFinite(line.dimensions?.final_width) || line.dimensions.final_width <= 0) {
+    if (line.line_kind !== "hardware" && (!Number.isFinite(line.dimensions?.final_width) || line.dimensions.final_width <= 0)) {
       messages.push({
         severity: "FAIL",
         code: "VAL-DIM-W",
@@ -371,7 +373,10 @@ export function validateCanonicalOrder(order: CanonicalOrder, options: Canonical
       });
     }
 
-    if (!Number.isFinite(line.dimensions?.final_height) || line.dimensions.final_height <= 0) {
+    if (
+      line.line_kind !== "hardware" &&
+      (!Number.isFinite(line.dimensions?.final_height) || line.dimensions.final_height <= 0)
+    ) {
       messages.push({
         severity: "FAIL",
         code: "VAL-DIM-H",

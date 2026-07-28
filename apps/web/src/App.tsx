@@ -80,7 +80,8 @@ import {
   type ParsedWorkbook,
   type ParsedSourceRow,
   type ParsedWorkbookSheet,
-  type SourceGrid
+  type SourceGrid,
+  type WorkbookSheetConfig
 } from "@pathfinder/templates";
 import {
   createDefaultWrikeSourceConfig,
@@ -97,6 +98,7 @@ import { configurePathfinderApiAuth, pathfinderFetch as fetch } from "./api-clie
 import { WorkspaceLoading } from "./WorkspaceLoading";
 import { ProofOpsPanel } from "./ProofOpsPanel";
 import { ProofingApiSetup } from "./ProofingApiSetup";
+import { ImportMethodWorkbookSetup } from "./ImportMethodWorkbookSetup";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
@@ -349,6 +351,7 @@ interface CustomerProductMapping {
   output_route_id: string;
   target_id: string;
   target_template: string;
+  source_scope_id?: string | null;
   customer_product_key: string;
   display_label: string;
   source_columns: string[];
@@ -440,6 +443,7 @@ interface LiftCatalogPreset {
 
 interface ProductResolutionResult {
   output_route_id: string;
+  source_scope_id: string;
   source_sheet_name: string;
   source_row_number: number;
   line_number: number;
@@ -467,17 +471,53 @@ interface SavedFieldMappingTemplate {
 
 interface DetectedSourceSchemaSheet {
   sheet_name: string;
+  role?: "order_lines" | "shipping_attachment" | "reference_catalog" | "ignore";
   columns: string[];
   order_row_count: number;
   reference_row_count: number;
+  incomplete_row_count?: number;
+  sections?: DetectedSourceSchemaSection[];
   header_row?: number | null;
   header_row_count?: 1 | 2;
   ignored_header_rows?: number[];
 }
 
+interface DetectedSourceSchemaSection {
+  scope_id: string;
+  section_id: string;
+  label: string;
+  line_kind: "print" | "hardware" | "custom";
+  columns: string[];
+  header_row: number;
+  header_row_count: 1 | 2;
+  quantity_column: string | null;
+  missing_quantity_behavior: "reference" | "block";
+  order_row_count: number;
+  reference_row_count: number;
+  incomplete_row_count: number;
+}
+
 interface SourceSheetHeaderOverride {
   header_row: number | null;
   header_row_count: 1 | 2;
+}
+
+interface SourceWorkbookSectionConfig {
+  section_id: string;
+  label: string;
+  line_kind: "print" | "hardware" | "custom";
+  header_row: number | null;
+  header_row_count: 1 | 2;
+  header_signature: string[];
+  quantity_column: string | null;
+  missing_quantity_behavior: "reference" | "block";
+  required: boolean;
+}
+
+interface SourceWorkbookSheetConfig {
+  role: "order_lines" | "shipping_attachment" | "reference_catalog" | "ignore";
+  enabled: boolean;
+  sections: SourceWorkbookSectionConfig[];
 }
 
 interface DetectedSourceParserConfig {
@@ -487,6 +527,7 @@ interface DetectedSourceParserConfig {
   ignore_repeated_headers: boolean;
   reference_rows_mode: "rows_without_quantity" | "ignore";
   sheet_header_overrides: Record<string, SourceSheetHeaderOverride>;
+  workbook_structure: Record<string, SourceWorkbookSheetConfig>;
 }
 
 interface DetectedSourceSchema {
@@ -536,12 +577,14 @@ interface ImportMethod {
     ignore_repeated_headers?: boolean;
     reference_rows_mode?: "rows_without_quantity" | "ignore";
     sheet_header_overrides?: Record<string, SourceSheetHeaderOverride>;
+    workbook_structure?: Record<string, SourceWorkbookSheetConfig>;
     sample_template_name?: string | null;
     detected_schema?: DetectedSourceSchema | null;
     detected_schema_history?: DetectedSourceSchema[];
   };
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
+  product_resolution_overrides: Record<string, ProductResolutionConfig>;
   order_name_resolution_config: OrderNameResolutionConfig;
   ext_id_strategy: LiftExtIdStrategy;
   public_intake: PublicIntakeConfig;
@@ -2192,9 +2235,14 @@ function ArrowGlyph() {
   );
 }
 
-function updateMapping(mappings: FieldMapping[], sourceColumn: string, targetField: string) {
-  const nextMappings = mappings.filter((mapping) => mapping.sourceColumn !== sourceColumn);
-  return targetField ? [...nextMappings, { sourceColumn, targetField }] : nextMappings;
+function updateMapping(mappings: FieldMapping[], sourceColumn: string, targetField: string, scopeId?: string | null) {
+  const normalizedScopeId = scopeId || null;
+  const nextMappings = mappings.filter(
+    (mapping) => mapping.sourceColumn !== sourceColumn || (mapping.scopeId ?? null) !== normalizedScopeId
+  );
+  return targetField
+    ? [...nextMappings, { sourceColumn, targetField, ...(normalizedScopeId ? { scopeId: normalizedScopeId } : {}) }]
+    : nextMappings;
 }
 
 function DetailItem({ label, value }: { label: string; value?: string | null }) {
@@ -3206,18 +3254,42 @@ function sampleParsedRows(sourceGrid: SourceGrid): ParsedSourceRow[] {
     sheet_name: "Sample",
     row_number: index + 2,
     row_type: "order",
+    scope_id: "Sample::default",
+    section_id: "default",
+    section_label: "Sample order lines",
+    line_kind: "print",
     values
   }));
 }
 
 function sampleSourceSheets(sourceGrid: SourceGrid): ParsedWorkbookSheet[] {
+  const parsedRows = sampleParsedRows(sourceGrid);
   return [
     {
       sheet_name: "Sample",
+      role: "order_lines",
       columns: sourceGrid.columns,
       order_row_count: sourceGrid.rows.length,
       reference_row_count: 0,
-      parsed_rows: sampleParsedRows(sourceGrid)
+      incomplete_row_count: 0,
+      parsed_rows: parsedRows,
+      sections: [
+        {
+          scope_id: "Sample::default",
+          section_id: "default",
+          label: "Sample order lines",
+          line_kind: "print",
+          columns: sourceGrid.columns,
+          header_row: 1,
+          header_row_count: 1,
+          quantity_column: null,
+          missing_quantity_behavior: "reference",
+          order_row_count: sourceGrid.rows.length,
+          reference_row_count: 0,
+          incomplete_row_count: 0,
+          parsed_rows: parsedRows
+        }
+      ]
     }
   ];
 }
@@ -3226,8 +3298,8 @@ function mappingIdFromKey(key: string) {
   return `product_${key.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "unmapped"}`;
 }
 
-function productMappingDraftKey(outputRouteId: string, customerProductKey: string) {
-  return `${outputRouteId}::${customerProductKey}`;
+function productMappingDraftKey(outputRouteId: string, customerProductKey: string, sourceScopeId?: string | null) {
+  return `${outputRouteId}::${sourceScopeId ?? "*"}::${customerProductKey}`;
 }
 
 function sampleValuesForColumn(rows: SourceGrid["rows"], column: string) {
@@ -3262,7 +3334,8 @@ function sourceParserConfigFromMethod(sourceConfig: ImportMethod["source_config"
     quantity_column: sourceConfig.quantity_column ?? null,
     ignore_repeated_headers: sourceConfig.ignore_repeated_headers ?? true,
     reference_rows_mode: sourceConfig.reference_rows_mode ?? "rows_without_quantity",
-    sheet_header_overrides: sheetHeaderOverrides
+    sheet_header_overrides: sheetHeaderOverrides,
+    workbook_structure: sourceConfig.workbook_structure ?? {}
   };
 }
 
@@ -3273,6 +3346,52 @@ function workbookSheetHeaderOverrides(parserConfig: DetectedSourceParserConfig) 
       {
         headerRow: override.header_row,
         headerRowCount: override.header_row_count
+      }
+    ])
+  );
+}
+
+function workbookSheetConfigs(parserConfig: DetectedSourceParserConfig): Record<string, WorkbookSheetConfig> {
+  return Object.fromEntries(
+    Object.entries(parserConfig.workbook_structure).map(([sheetName, sheet]) => [
+      sheetName,
+      {
+        role: sheet.role,
+        enabled: sheet.enabled,
+        sections: sheet.sections.map((section) => ({
+          sectionId: section.section_id,
+          label: section.label,
+          lineKind: section.line_kind,
+          headerRow: section.header_row,
+          headerRowCount: section.header_row_count,
+          headerSignature: section.header_signature,
+          quantityColumn: section.quantity_column,
+          missingQuantityBehavior: section.missing_quantity_behavior,
+          required: section.required
+        }))
+      }
+    ])
+  );
+}
+
+function workbookStructureFromParsed(parsed: ParsedWorkbook): Record<string, SourceWorkbookSheetConfig> {
+  return Object.fromEntries(
+    parsed.source_sheets.map((sheet) => [
+      sheet.sheet_name,
+      {
+        role: sheet.role,
+        enabled: sheet.role !== "ignore",
+        sections: sheet.sections.map((section, index) => ({
+          section_id: section.section_id,
+          label: section.label,
+          line_kind: section.line_kind,
+          header_row: section.header_row,
+          header_row_count: section.header_row_count,
+          header_signature: section.columns,
+          quantity_column: section.quantity_column,
+          missing_quantity_behavior: section.missing_quantity_behavior,
+          required: index === 0 && sheet.role === "order_lines"
+        }))
       }
     ])
   );
@@ -3293,7 +3412,8 @@ function sourceSchemaIsStale(schema: DetectedSourceSchema | null, sourceConfig: 
     schema.parser_config.quantity_column !== current.quantity_column ||
     schema.parser_config.ignore_repeated_headers !== current.ignore_repeated_headers ||
     schema.parser_config.reference_rows_mode !== current.reference_rows_mode ||
-    JSON.stringify(schema.parser_config.sheet_header_overrides ?? {}) !== JSON.stringify(current.sheet_header_overrides)
+    JSON.stringify(schema.parser_config.sheet_header_overrides ?? {}) !== JSON.stringify(current.sheet_header_overrides) ||
+    JSON.stringify(schema.parser_config.workbook_structure ?? {}) !== JSON.stringify(current.workbook_structure)
   );
 }
 
@@ -3308,9 +3428,25 @@ function detectedSourceSchemaFromWorkbook(
     columns: parsed.columns,
     sheets: parsed.source_sheets.map((sheet) => ({
       sheet_name: sheet.sheet_name,
+      role: sheet.role,
       columns: sheet.columns,
       order_row_count: sheet.order_row_count,
       reference_row_count: sheet.reference_row_count,
+      incomplete_row_count: sheet.incomplete_row_count,
+      sections: sheet.sections.map((section) => ({
+        scope_id: section.scope_id,
+        section_id: section.section_id,
+        label: section.label,
+        line_kind: section.line_kind,
+        columns: section.columns,
+        header_row: section.header_row,
+        header_row_count: section.header_row_count,
+        quantity_column: section.quantity_column,
+        missing_quantity_behavior: section.missing_quantity_behavior,
+        order_row_count: section.order_row_count,
+        reference_row_count: section.reference_row_count,
+        incomplete_row_count: section.incomplete_row_count
+      })),
       header_row: sheet.header_row ?? null,
       header_row_count: sheet.header_row_count ?? parserConfig.header_row_count,
       ignored_header_rows: sheet.ignored_header_rows ?? []
@@ -3364,6 +3500,26 @@ function mappingsForSourceColumns(columns: string[], currentMappings: FieldMappi
     const mapping = currentByColumn.get(column) ?? defaultsByColumn.get(column);
     return mapping ? [mapping] : [];
   });
+}
+
+function mappingsForParsedWorkbook(parsed: ParsedWorkbook, currentMappings: FieldMapping[]) {
+  const nextMappings = [...currentMappings];
+  parsed.source_sheets
+    .filter((sheet) => sheet.role === "order_lines")
+    .flatMap((sheet) => sheet.sections)
+    .forEach((section) => {
+      const defaults = buildDefaultMappings(section.columns);
+      defaults.forEach((mapping) => {
+        const existing = nextMappings.some(
+          (candidate) =>
+            candidate.scopeId === section.scope_id && candidate.sourceColumn === mapping.sourceColumn
+        );
+        if (!existing) {
+          nextMappings.push({ ...mapping, scopeId: section.scope_id });
+        }
+      });
+    });
+  return nextMappings;
 }
 
 function productMappingSeenCount(mapping: CustomerProductMapping) {
@@ -3542,6 +3698,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [sourceSheets, setSourceSheets] = useState<ParsedWorkbookSheet[]>([]);
   const [parsedOrderRows, setParsedOrderRows] = useState<ParsedSourceRow[]>([]);
   const [referenceRows, setReferenceRows] = useState<ParsedSourceRow[]>([]);
+  const [incompleteRows, setIncompleteRows] = useState<ParsedSourceRow[]>([]);
   const [mappings, setMappings] = useState<FieldMapping[]>([]);
   const [sourceName, setSourceName] = useState("");
   const [sheetName, setSheetName] = useState("");
@@ -3549,6 +3706,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [sourceSchemaState, setSourceSchemaState] = useState<"idle" | "detecting" | "error">("idle");
   const [sourceSchemaMessage, setSourceSchemaMessage] = useState<string | null>(null);
   const [selectedSourceSchemaSheetName, setSelectedSourceSchemaSheetName] = useState("");
+  const [selectedProductScopeId, setSelectedProductScopeId] = useState("");
   const [selectedSourceSchemaHistoryDetectedAt, setSelectedSourceSchemaHistoryDetectedAt] = useState("");
   const [customers, setCustomers] = useState<LiftCustomer[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
@@ -4890,6 +5048,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWorkspaceMessage("Upload an order workbook with at least one valid quantity row before generating a preview job.");
       return;
     }
+    if (incompleteRows.length > 0) {
+      const first = incompleteRows[0];
+      setWorkspaceMessage(
+        `${incompleteRows.length} populated row${incompleteRows.length === 1 ? "" : "s"} need a quantity before preview. First issue: ${first.sheet_name}, ${first.section_label}, row ${first.row_number}.`
+      );
+      return;
+    }
     if (method && method.status !== "Active") {
       setWorkspaceMessage("Activate this import method before generating a preview job.");
       return;
@@ -4909,9 +5074,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           source_sheets: sourceSheets,
           parsed_order_rows: parsedOrderRows,
           reference_rows: referenceRows,
+          incomplete_rows: incompleteRows,
           mappings,
           submit_profile_id: selectedSubmitProfile.profile_id,
           product_resolution_config: method?.product_resolution_config ?? defaultProductResolutionConfig,
+          product_resolution_overrides: method?.product_resolution_overrides ?? {},
           order_name_resolution_config: method?.order_name_resolution_config ?? defaultOrderNameResolutionConfig,
           ext_id_strategy: method?.ext_id_strategy ?? "pathfinder_generated"
         })
@@ -5356,7 +5523,29 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       void loadSourceConnections(selectedCustomerId, activeWrikeConfig.connection_id);
     }
   }, [activeImportMethod?.import_method_id, activeImportMethod?.source, isImportMethodDetailOpen, selectedCustomerId]);
-  const activeProductConfig = workflowImportMethod?.product_resolution_config ?? defaultProductResolutionConfig;
+  const productResolutionScopes =
+    workflowImportMethod?.source_config.detected_schema?.sheets.flatMap((sheet) =>
+      (sheet.sections ?? [])
+        .filter((section) => (sheet.role ?? "order_lines") === "order_lines")
+        .map((section) => ({
+          scope_id: section.scope_id,
+          sheet_name: sheet.sheet_name,
+          label: section.label,
+          line_kind: section.line_kind,
+          columns: section.columns,
+          order_row_count: section.order_row_count
+        }))
+    ) ?? [];
+  const effectiveProductScope =
+    productResolutionScopes.find((scope) => scope.scope_id === selectedProductScopeId) ??
+    productResolutionScopes[0] ??
+    null;
+  const activeProductConfig =
+    (effectiveProductScope
+      ? workflowImportMethod?.product_resolution_overrides?.[effectiveProductScope.scope_id]
+      : null) ??
+    workflowImportMethod?.product_resolution_config ??
+    defaultProductResolutionConfig;
   const activeOrderNameConfig =
     workflowImportMethod?.order_name_resolution_config ?? defaultOrderNameResolutionConfig;
   const activeOrderNameStrategyCopy =
@@ -5396,14 +5585,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       Array.from(
         new Set(
           [
-            ...sourceGrid.columns,
+            ...(effectiveProductScope?.columns ?? sourceGrid.columns),
             activeProductConfig.source_column,
             activeProductConfig.direct_unit_number_column,
             ...activeProductConfig.composite_columns
           ].filter((column): column is string => Boolean(column))
         )
       ),
-    [activeProductConfig, sourceGrid.columns]
+    [activeProductConfig, effectiveProductScope, sourceGrid.columns]
   );
   const sourceConfig = workflowImportMethod?.source_config ?? {};
   const detectedSourceSchema = sourceConfig.detected_schema ?? null;
@@ -6011,7 +6200,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const productResolutionRows = lastPreviewJob?.product_resolution_results ?? [];
   const manualPrePreviewProductResolutionRows = useMemo<ProductResolutionResult[]>(
     () =>
-      parsedOrderRows.slice(0, 8).map((row, index) => {
+      parsedOrderRows
+        .filter((row) => !effectiveProductScope || row.scope_id === effectiveProductScope.scope_id)
+        .slice(0, 8)
+        .map((row, index) => {
         const sourceColumn =
           activeProductConfig.strategy === "direct_lift_unit_number"
             ? activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column
@@ -6025,6 +6217,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         const savedMapping = productMappings.find(
           (mapping) =>
             mapping.output_route_id === activeOutputRoute.output_route_id &&
+            (!mapping.source_scope_id || mapping.source_scope_id === row.scope_id) &&
             mapping.customer_product_key === customerProductKey
         );
         const savedIdentifier = savedMapping
@@ -6052,6 +6245,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           source_sheet_name: row.sheet_name,
           source_row_number: row.row_number,
           output_route_id: activeOutputRoute.output_route_id,
+          source_scope_id: row.scope_id,
           line_number: index + 1,
           strategy: activeProductConfig.strategy,
           mode: activeProductConfig.mode,
@@ -6077,7 +6271,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             : `No saved ${activeOutputRoute.product_identifier_label} mapping matches this generated key.`
         };
       }),
-    [activeOutputRoute, activeProductConfig, parsedOrderRows, productMappings]
+    [activeOutputRoute, activeProductConfig, effectiveProductScope, parsedOrderRows, productMappings]
   );
   const displayedProductResolutionRows = productResolutionRows.length
     ? productResolutionRows
@@ -6087,13 +6281,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   ).length;
   const currentOrderProductMapKnown = displayedProductResolutionRows.length > 0;
   const referenceRowCount = sourceSheets.reduce((total, sheet) => total + sheet.reference_row_count, 0);
+  const scopedSourceRows = effectiveProductScope
+    ? parsedOrderRows.filter((row) => row.scope_id === effectiveProductScope.scope_id)
+    : parsedOrderRows;
+  const fieldMappingColumns = effectiveProductScope?.columns ?? sourceGrid.columns;
   const foundInputElements = useMemo(
     () =>
-      sourceGrid.columns.map((column) => ({
+      fieldMappingColumns.map((column) => ({
         column,
-        sample: sampleValuesForColumn(sourceGrid.rows, column)
+        sample: sampleValuesForColumn(
+          scopedSourceRows.length ? scopedSourceRows.map((row) => row.values) : sourceGrid.rows,
+          column
+        )
       })),
-    [sourceGrid.columns, sourceGrid.rows]
+    [fieldMappingColumns, scopedSourceRows, sourceGrid.rows]
   );
 
   useEffect(() => {
@@ -6440,8 +6641,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const submitPacketFileName = `pathfinder-submit-packet-${slugForFilename(
     displayedLiftPayload.order.ext_id || lastPreviewJob?.job_id || "preview"
   ) || "preview"}.json`;
-  const mappedColumnCount = sourceGrid.columns.filter((column) =>
-    mappings.some((mapping) => mapping.sourceColumn === column)
+  const mappedColumnCount = fieldMappingColumns.filter((column) =>
+    mappings.some(
+      (mapping) =>
+        mapping.sourceColumn === column &&
+        (!effectiveProductScope || mapping.scopeId === effectiveProductScope.scope_id || !mapping.scopeId)
+    )
   ).length;
   const customerOrderCount = customerJobs.reduce((total, job) => total + jobOrderCount(job), 0);
   const readyJobCount = customerJobs.filter((job) => job.state === "Ready" || job.state === "Completed").length;
@@ -6820,11 +7025,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setSourceSheets(
         schema.sheets.map((sheet) => ({
           ...sheet,
+          role: sheet.role ?? "order_lines",
+          incomplete_row_count: sheet.incomplete_row_count ?? 0,
+          sections: (sheet.sections ?? []).map((section) => ({
+            ...section,
+            parsed_rows: []
+          })),
           parsed_rows: []
         }))
       );
       setParsedOrderRows([]);
       setReferenceRows([]);
+      setIncompleteRows([]);
       setSourceName(schema.source_file_name);
       setSheetName(schema.selected_sheet_name || schema.sheets[0]?.sheet_name || "Detected schema");
       setSelectedSourceSchemaSheetName(schema.selected_sheet_name || schema.sheets[0]?.sheet_name || "");
@@ -6835,6 +7047,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setSourceSheets([]);
     setParsedOrderRows([]);
     setReferenceRows([]);
+    setIncompleteRows([]);
     setSourceName("");
     setSheetName("");
     setSelectedSourceSchemaSheetName("");
@@ -6858,20 +7071,26 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         quantityColumn: parserConfig.quantity_column,
         ignoreRepeatedHeaders: parserConfig.ignore_repeated_headers,
         referenceRowsMode: parserConfig.reference_rows_mode,
-        sheetHeaderOverrides: workbookSheetHeaderOverrides(parserConfig)
+        sheetHeaderOverrides: workbookSheetHeaderOverrides(parserConfig),
+        sheetConfigs: workbookSheetConfigs(parserConfig)
       });
 
       if (parsed.columns.length === 0) {
         throw new Error("No source columns were detected. Check the header row and upload the template again.");
       }
 
-      const detectedSchema = detectedSourceSchemaFromWorkbook(file.name, parsed, parserConfig);
-      const nextMappings = mappingsForSourceColumns(parsed.columns, activeImportMethod.mappings);
+      const nextParserConfig = {
+        ...parserConfig,
+        workbook_structure: workbookStructureFromParsed(parsed)
+      };
+      const detectedSchema = detectedSourceSchemaFromWorkbook(file.name, parsed, nextParserConfig);
+      const nextMappings = mappingsForParsedWorkbook(parsed, activeImportMethod.mappings);
 
       setSourceGrid({ columns: parsed.columns, rows: parsed.rows });
       setSourceSheets(parsed.source_sheets);
       setParsedOrderRows(parsed.parsed_order_rows);
       setReferenceRows(parsed.reference_rows);
+      setIncompleteRows(parsed.incomplete_rows);
       setSourceName(file.name);
       setSheetName(parsed.sheetName);
       setSelectedSourceSchemaSheetName((current) =>
@@ -6885,6 +7104,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         mappings: nextMappings,
         source_config: {
           ...activeImportMethod.source_config,
+          workbook_structure: nextParserConfig.workbook_structure,
           sample_template_name: file.name,
           detected_schema: detectedSchema
         }
@@ -6927,6 +7147,37 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     });
   }
 
+  function updateSourceWorkbookSheetConfig(sheetName: string, config: SourceWorkbookSheetConfig) {
+    if (!activeImportMethod) {
+      return;
+    }
+    updateActiveMethodDraft({
+      source_config: {
+        ...activeImportMethod.source_config,
+        workbook_structure: {
+          ...(activeImportMethod.source_config.workbook_structure ?? {}),
+          [sheetName]: config
+        }
+      }
+    });
+  }
+
+  function updateActiveProductResolutionConfig(config: ProductResolutionConfig) {
+    if (!activeImportMethod) {
+      return;
+    }
+    if (!effectiveProductScope) {
+      updateActiveMethodDraft({ product_resolution_config: config });
+      return;
+    }
+    updateActiveMethodDraft({
+      product_resolution_overrides: {
+        ...(activeImportMethod.product_resolution_overrides ?? {}),
+        [effectiveProductScope.scope_id]: config
+      }
+    });
+  }
+
   function useSampleSourceColumns() {
     if (!activeImportMethod) {
       return;
@@ -6937,6 +7188,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setSourceSheets(sampleSourceSheets(sampleSourceGrid));
     setParsedOrderRows(sampleParsedRows(sampleSourceGrid));
     setReferenceRows([]);
+    setIncompleteRows([]);
     setSourceName("Sample workbook");
     setSheetName("Sample");
     setSelectedSourceSchemaSheetName("");
@@ -6963,12 +7215,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         quantityColumn: parserConfig.quantity_column,
         ignoreRepeatedHeaders: parserConfig.ignore_repeated_headers,
         referenceRowsMode: parserConfig.reference_rows_mode,
-        sheetHeaderOverrides: workbookSheetHeaderOverrides(parserConfig)
+        sheetHeaderOverrides: workbookSheetHeaderOverrides(parserConfig),
+        sheetConfigs: workbookSheetConfigs(parserConfig)
       });
       setSourceGrid({ columns: parsed.columns, rows: parsed.rows });
       setSourceSheets(parsed.source_sheets);
       setParsedOrderRows(parsed.parsed_order_rows);
       setReferenceRows(parsed.reference_rows);
+      setIncompleteRows(parsed.incomplete_rows);
       setMappings(
         manualImportMethod
           ? mappingsForSourceColumns(parsed.columns, manualImportMethod.mappings)
@@ -6999,6 +7253,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setSourceSheets(sampleSourceSheets(sampleSourceGrid));
     setParsedOrderRows(sampleParsedRows(sampleSourceGrid));
     setReferenceRows([]);
+    setIncompleteRows([]);
     setMappings(
       manualImportMethod
         ? mappingsForSourceColumns(sampleSourceGrid.columns, manualImportMethod.mappings)
@@ -7228,13 +7483,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   async function saveProductMapping(mapping: CustomerProductMapping | ProductResolutionResult) {
     const customerProductKey = mapping.customer_product_key;
-    const mappingId = "mapping_id" in mapping ? mapping.mapping_id : mappingIdFromKey(customerProductKey);
+    const sourceScopeId = mapping.source_scope_id;
+    const mappingId =
+      "mapping_id" in mapping
+        ? mapping.mapping_id
+        : mappingIdFromKey(`${sourceScopeId}::${customerProductKey}`);
     const routeId = "output_route_id" in mapping ? mapping.output_route_id : selectedOutputMapRouteId;
     const mappingRoute =
       outputRoutes.find((route) => route.output_route_id === routeId) ??
       outputRoutes.find((route) => route.output_route_id === selectedOutputMapRouteId) ??
       activeOutputRoute;
-    const draft = productMappingDrafts[productMappingDraftKey(mappingRoute.output_route_id, customerProductKey)];
+    const draft =
+      productMappingDrafts[
+        productMappingDraftKey(mappingRoute.output_route_id, customerProductKey, sourceScopeId)
+      ];
     const currentUnit =
       draft?.unit ??
       ("mapping_id" in mapping
@@ -7259,6 +7521,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             output_route_id: mappingRoute.output_route_id,
             target_id: mappingRoute.target_id,
             target_template: mappingRoute.output_template,
+            source_scope_id: sourceScopeId,
             customer_product_key: customerProductKey,
             display_label: mapping.display_label,
             source_columns: mapping.source_columns,
@@ -8074,6 +8337,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       source_config: {},
       workbook_sheet_policy: "rows_with_quantity",
       product_resolution_config: defaultProductResolutionConfig,
+      product_resolution_overrides: {},
       order_name_resolution_config: defaultOrderNameResolutionConfig,
       ext_id_strategy: "pathfinder_generated",
       public_intake: { ...defaultPublicIntakeConfig },
@@ -10464,13 +10728,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <div key={sheet.sheet_name}>
                               <strong>{sheet.sheet_name}</strong>
                               <span>
-                                {sheet.columns.length} columns · {sheet.order_row_count} order rows · {sheet.reference_row_count} reference rows
+                                {sheet.role === "shipping_attachment"
+                                  ? "Shipping attachment"
+                                  : sheet.role === "reference_catalog"
+                                    ? "Reference / catalog"
+                                    : sheet.role === "ignore"
+                                      ? "Ignored"
+                                      : "Order lines"}{" "}
+                                · {sheet.columns.length} columns · {sheet.sections?.length ?? 0} section
+                                {(sheet.sections?.length ?? 0) === 1 ? "" : "s"}
                               </span>
                               <span>
-                                Header {sheet.header_row ? `row ${sheet.header_row}` : "auto"}
-                                {sheet.header_row_count === 2 ? " · two-row header" : ""}
-                                {sheet.ignored_header_rows?.length
-                                  ? ` · ${sheet.ignored_header_rows.length} secondary/repeated header row${sheet.ignored_header_rows.length === 1 ? "" : "s"} ignored`
+                                {sheet.order_row_count} order · {sheet.reference_row_count} reference
+                                {(sheet.incomplete_row_count ?? 0) > 0
+                                  ? ` · ${sheet.incomplete_row_count} quantity issue${sheet.incomplete_row_count === 1 ? "" : "s"}`
                                   : ""}
                               </span>
                             </div>
@@ -10575,6 +10846,32 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <strong>{sourceReferenceRowCount}</strong>
                         <p>No-quantity rows stay out of submit</p>
                       </div>
+                      <div>
+                        <span>Quantity Issues</span>
+                        <strong>{incompleteRows.length}</strong>
+                        <p>{incompleteRows.length ? "Must be fixed before preview" : "No blocking rows"}</p>
+                      </div>
+                    </div>
+                    {detectedSourceSchema ? (
+                      <ImportMethodWorkbookSetup
+                        sheets={detectedSourceSchema.sheets}
+                        structure={sourceConfig.workbook_structure ?? {}}
+                        selectedSheetName={
+                          configuredSourceSchemaSheet?.sheet_name ??
+                          detectedSourceSchema.selected_sheet_name ??
+                          detectedSourceSchema.sheets[0]?.sheet_name ??
+                          ""
+                        }
+                        onSelectSheet={setSelectedSourceSchemaSheetName}
+                        onChangeSheet={updateSourceWorkbookSheetConfig}
+                      />
+                    ) : null}
+                    <div className="source-parser-advanced-heading">
+                      <strong>Advanced Detection Defaults</strong>
+                      <span>
+                        Used when a sheet or section does not yet have saved structure settings. Re-detect after changing
+                        these defaults.
+                      </span>
                     </div>
                     <div className="setup-grid source-parser-grid">
                       <label className="setup-control">
@@ -10671,94 +10968,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </select>
                       </label>
                     </div>
-                    {detectedSourceSchema && configuredSourceSchemaSheet ? (
-                      <div className="source-sheet-override-panel">
-                        <div className="source-sheet-override-heading">
-                          <div>
-                            <strong>Per-Sheet Header Override</strong>
-                            <span>Use this when workbook tabs do not share the global header layout.</span>
-                          </div>
-                          <span>
-                            {Object.keys(sourceConfig.sheet_header_overrides ?? {}).length} active override
-                            {Object.keys(sourceConfig.sheet_header_overrides ?? {}).length === 1 ? "" : "s"}
-                          </span>
-                        </div>
-                        <div className="setup-grid source-sheet-override-grid">
-                          <label className="setup-control">
-                            <span>Workbook Sheet</span>
-                            <select
-                              value={configuredSourceSchemaSheet.sheet_name}
-                              onChange={(event) => setSelectedSourceSchemaSheetName(event.target.value)}
-                            >
-                              {detectedSourceSchema.sheets.map((sheet) => (
-                                <option key={sheet.sheet_name} value={sheet.sheet_name}>
-                                  {sheet.sheet_name}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="setup-control">
-                            <span>Header Settings</span>
-                            <select
-                              value={selectedSourceSheetOverride ? "override" : "global"}
-                              onChange={(event) => {
-                                if (event.target.value === "global") {
-                                  updateSourceSheetHeaderOverride(configuredSourceSchemaSheet.sheet_name, null);
-                                  return;
-                                }
-
-                                updateSourceSheetHeaderOverride(configuredSourceSchemaSheet.sheet_name, {
-                                  header_row: configuredSourceSchemaSheet.header_row ?? sourceHeaderRow,
-                                  header_row_count:
-                                    configuredSourceSchemaSheet.header_row_count ?? sourceHeaderRowCount
-                                });
-                              }}
-                            >
-                              <option value="global">Use global header settings</option>
-                              <option value="override">Override this sheet</option>
-                            </select>
-                          </label>
-                          {selectedSourceSheetOverride ? (
-                            <>
-                              <label className="setup-control">
-                                <span>Sheet Header Row</span>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  value={selectedSourceSheetOverride.header_row ?? ""}
-                                  placeholder="Auto-detect"
-                                  onChange={(event) => {
-                                    const value = event.target.value.trim();
-                                    updateSourceSheetHeaderOverride(configuredSourceSchemaSheet.sheet_name, {
-                                      ...selectedSourceSheetOverride,
-                                      header_row: value ? Number.parseInt(value, 10) || 1 : null
-                                    });
-                                  }}
-                                />
-                              </label>
-                              <label className="setup-control">
-                                <span>Sheet Header Rows</span>
-                                <select
-                                  value={selectedSourceSheetOverride.header_row_count}
-                                  onChange={(event) =>
-                                    updateSourceSheetHeaderOverride(configuredSourceSchemaSheet.sheet_name, {
-                                      ...selectedSourceSheetOverride,
-                                      header_row_count: Number.parseInt(event.target.value, 10) === 2 ? 2 : 1
-                                    })
-                                  }
-                                >
-                                  <option value={1}>Single header row</option>
-                                  <option value={2}>Two-row grouped header</option>
-                                </select>
-                              </label>
-                            </>
-                          ) : null}
-                        </div>
-                        <p>
-                          Quantity, repeated-header, and reference-row rules remain global. Header overrides take effect after re-detecting this schema.
-                        </p>
-                      </div>
-                    ) : null}
                     <div className="source-setup-callout">
                       <strong>
                         {detectedSourceSchema
@@ -10791,6 +11000,34 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 {isImportMethodDetailOpen && activeImportMethod ? (
                   <section className="panel setup-panel product-resolution-setup">
                     <PanelHeader icon={Database} title="Product Resolution" detail="Customer key to route product" />
+                    {productResolutionScopes.length ? (
+                      <div className="product-scope-selector">
+                        <label className="setup-control">
+                          <span>Workbook Product Scope</span>
+                          <select
+                            value={effectiveProductScope?.scope_id ?? ""}
+                            onChange={(event) => {
+                              setSelectedProductScopeId(event.target.value);
+                              setCompositeColumnToAdd("");
+                              setProductExampleTestValue("");
+                            }}
+                          >
+                            {productResolutionScopes.map((scope) => (
+                              <option key={scope.scope_id} value={scope.scope_id}>
+                                {scope.sheet_name} · {scope.label} · {scope.line_kind}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="resolver-explainer">
+                          <strong>{effectiveProductScope?.order_row_count ?? 0} detected products</strong>
+                          <p>
+                            Product resolution is saved independently for this section so print, hardware, and future
+                            sheet layouts cannot collide behind the scenes.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="method-source-context">
                       <div>
                         <span>Column Source</span>
@@ -10819,12 +11056,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           value={activeProductConfig.strategy}
                           onChange={(event) => {
                             setProductExampleTestValue("");
-                            updateActiveMethodDraft({
-                              product_resolution_config: {
-                                ...activeProductConfig,
-                                strategy: event.target.value as ProductResolverStrategy,
-                                fallback_strategy: "none"
-                              }
+                            updateActiveProductResolutionConfig({
+                              ...activeProductConfig,
+                              strategy: event.target.value as ProductResolverStrategy,
+                              fallback_strategy: "none"
                             });
                           }}
                         >
@@ -10857,11 +11092,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <select
                               value={activeProductConfig.source_column}
                               onChange={(event) =>
-                                updateActiveMethodDraft({
-                                  product_resolution_config: {
-                                    ...activeProductConfig,
-                                    source_column: event.target.value
-                                  }
+                                updateActiveProductResolutionConfig({
+                                  ...activeProductConfig,
+                                  source_column: event.target.value
                                 })
                               }
                             >
@@ -10877,11 +11110,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <input
                               value={activeProductConfig.prefix}
                               onChange={(event) =>
-                                updateActiveMethodDraft({
-                                  product_resolution_config: {
-                                    ...activeProductConfig,
-                                    prefix: event.target.value
-                                  }
+                                updateActiveProductResolutionConfig({
+                                  ...activeProductConfig,
+                                  prefix: event.target.value
                                 })
                               }
                             />
@@ -10891,11 +11122,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <input
                               value={activeProductConfig.suffix}
                               onChange={(event) =>
-                                updateActiveMethodDraft({
-                                  product_resolution_config: {
-                                    ...activeProductConfig,
-                                    suffix: event.target.value
-                                  }
+                                updateActiveProductResolutionConfig({
+                                  ...activeProductConfig,
+                                  suffix: event.target.value
                                 })
                               }
                             />
@@ -10908,12 +11137,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <select
                             value={activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column}
                             onChange={(event) =>
-                              updateActiveMethodDraft({
-                                product_resolution_config: {
-                                  ...activeProductConfig,
-                                  direct_unit_number_column: event.target.value,
-                                  source_column: event.target.value
-                                }
+                              updateActiveProductResolutionConfig({
+                                ...activeProductConfig,
+                                direct_unit_number_column: event.target.value,
+                                source_column: event.target.value
                               })
                             }
                           >
@@ -10937,13 +11164,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 className="column-chip"
                                 key={column}
                                 onClick={() =>
-                                  updateActiveMethodDraft({
-                                    product_resolution_config: {
-                                      ...activeProductConfig,
-                                      composite_columns: activeProductConfig.composite_columns.filter(
-                                        (candidate) => candidate !== column
-                                      )
-                                    }
+                                  updateActiveProductResolutionConfig({
+                                    ...activeProductConfig,
+                                    composite_columns: activeProductConfig.composite_columns.filter(
+                                      (candidate) => candidate !== column
+                                    )
                                   })
                                 }
                                 title={`Remove ${column}`}
@@ -10976,11 +11201,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 if (!compositeColumnToAdd) {
                                   return;
                                 }
-                                updateActiveMethodDraft({
-                                  product_resolution_config: {
-                                    ...activeProductConfig,
-                                    composite_columns: [...activeProductConfig.composite_columns, compositeColumnToAdd]
-                                  }
+                                updateActiveProductResolutionConfig({
+                                  ...activeProductConfig,
+                                  composite_columns: [...activeProductConfig.composite_columns, compositeColumnToAdd]
                                 });
                                 setCompositeColumnToAdd("");
                               }}
@@ -11001,11 +11224,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <select
                               value={activeProductConfig.mode}
                               onChange={(event) =>
-                                updateActiveMethodDraft({
-                                  product_resolution_config: {
-                                    ...activeProductConfig,
-                                    mode: event.target.value as ProductResolutionMode
-                                  }
+                                updateActiveProductResolutionConfig({
+                                  ...activeProductConfig,
+                                  mode: event.target.value as ProductResolutionMode
                                 })
                               }
                             >
@@ -11520,6 +11741,30 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 {isImportMethodDetailOpen && activeImportMethod ? (
                   <section className="panel mapping-panel">
                     <PanelHeader icon={Map} title="Field Mapping" detail="All found input elements can map to any canonical target" />
+                    {productResolutionScopes.length ? (
+                      <div className="product-scope-selector">
+                        <label className="setup-control">
+                          <span>Workbook Mapping Scope</span>
+                          <select
+                            value={effectiveProductScope?.scope_id ?? ""}
+                            onChange={(event) => setSelectedProductScopeId(event.target.value)}
+                          >
+                            {productResolutionScopes.map((scope) => (
+                              <option key={scope.scope_id} value={scope.scope_id}>
+                                {scope.sheet_name} · {scope.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="resolver-explainer">
+                          <strong>{effectiveProductScope?.line_kind ?? "Workbook"} fields</strong>
+                          <p>
+                            Canonical mappings are scoped to this section. Each product-bearing sheet and embedded header
+                            can be configured independently.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="mapping-table-wrap">
                       <table className="mapping-table">
                         <thead>
@@ -11531,9 +11776,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </thead>
                         <tbody>
                           {foundInputElements.map(({ column, sample }) => {
-                            const selected = mappings.find((mapping) => mapping.sourceColumn === column)?.targetField ?? "";
+                            const selected =
+                              mappings.find(
+                                (mapping) =>
+                                  mapping.sourceColumn === column &&
+                                  mapping.scopeId === effectiveProductScope?.scope_id
+                              )?.targetField ??
+                              mappings.find(
+                                (mapping) => mapping.sourceColumn === column && !mapping.scopeId
+                              )?.targetField ??
+                              "";
                             return (
-                              <tr key={column}>
+                              <tr key={`${effectiveProductScope?.scope_id ?? "global"}-${column}`}>
                                 <td>
                                   <strong>{column}</strong>
                                   <span className="cell-meta">Source field</span>
@@ -11543,7 +11797,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   <select
                                     value={selected}
                                     onChange={(event) => {
-                                      const nextMappings = updateMapping(mappings, column, event.target.value);
+                                      const nextMappings = updateMapping(
+                                        mappings,
+                                        column,
+                                        event.target.value,
+                                        effectiveProductScope?.scope_id
+                                      );
                                       setMappings(nextMappings);
                                       updateActiveMethodDraft({ mappings: nextMappings });
                                     }}
@@ -11560,7 +11819,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </div>
                     <div className="panel-action-footer">
                       <span>
-                        {mappedColumnCount} of {sourceGrid.columns.length} source columns mapped. Field mappings save with this import method.
+                        {mappedColumnCount} of {fieldMappingColumns.length} source columns mapped
+                        {effectiveProductScope ? ` for ${effectiveProductScope.sheet_name} · ${effectiveProductScope.label}` : ""}.
+                        Field mappings save with this import method.
                       </span>
                     </div>
                   </section>
@@ -12504,7 +12765,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </thead>
                       <tbody>
                         {filteredProductMappings.map((mapping) => {
-                          const draftKey = productMappingDraftKey(mapping.output_route_id, mapping.customer_product_key);
+                          const draftKey = productMappingDraftKey(
+                            mapping.output_route_id,
+                            mapping.customer_product_key,
+                            mapping.source_scope_id
+                          );
                           const draft = productMappingDrafts[draftKey] ?? {
                             unit: productMappingIdentifierForRoute(mapping, selectedOutputMapRoute) ?? "",
                             product: mapping.product_name ?? ""
@@ -13112,9 +13377,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         const savedMapping = productMappings.find(
                           (mapping) =>
                             mapping.output_route_id === result.output_route_id &&
-                            mapping.customer_product_key === result.customer_product_key
+                            mapping.customer_product_key === result.customer_product_key &&
+                            (!mapping.source_scope_id || mapping.source_scope_id === result.source_scope_id)
                         );
-                        const draftKey = productMappingDraftKey(result.output_route_id, result.customer_product_key);
+                        const draftKey = productMappingDraftKey(
+                          result.output_route_id,
+                          result.customer_product_key,
+                          result.source_scope_id
+                        );
                         const draft = productMappingDrafts[draftKey] ?? {
                           unit:
                             savedMapping?.product_identifier_value ??
