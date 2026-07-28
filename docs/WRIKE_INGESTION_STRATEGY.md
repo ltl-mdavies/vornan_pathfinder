@@ -95,6 +95,10 @@ It intentionally does not store:
 7. Webhook endpoint plus scheduled reconciliation and telemetry.
 8. Optional artwork-locator capture and Wrike write-back, only after explicit authorization and a supported Lift update path.
 
+The configurable multi-sheet, multi-header, hardware, and separate shipping-intake architecture is maintained in
+`docs/WRIKE_MULTI_SOURCE_WORKBOOK_AND_SHIPPING_PLAN.md`. That contract supersedes any assumption that one workbook has
+one product sheet or one header row. It does not authorize shipping transport or Wrike/Lift writes.
+
 ## Read-only connection-health boundary
 
 Pathfinder now stores Wrike OAuth connections under each customer's authenticated **Settings → Source Connections** area. An operator creates a customer Wrike connection, saves that connection's Wrike app client ID and client secret, then uses **Connect Wrike**. Pathfinder creates a ten-minute authorization request bound to the exact connection, stores only a SHA-256 hash of the one-time state, and exchanges the returned authorization code through the public server callback. The one-time state is consumed before token exchange and cannot be replayed.

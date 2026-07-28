@@ -191,6 +191,7 @@ export interface CustomerProductMapping {
   output_route_id: string;
   target_id: string;
   target_template: string;
+  source_scope_id?: string | null;
   customer_product_key: string;
   display_label: string;
   source_columns: string[];
@@ -258,6 +259,7 @@ export interface LiftCatalogPreset {
 
 export interface ProductResolutionResult {
   output_route_id: string;
+  source_scope_id: string;
   source_sheet_name: string;
   source_row_number: number;
   line_number: number;
@@ -285,17 +287,53 @@ export interface SavedFieldMappingTemplate {
 
 export interface DetectedSourceSchemaSheet {
   sheet_name: string;
+  role?: "order_lines" | "shipping_attachment" | "reference_catalog" | "ignore";
   columns: string[];
   order_row_count: number;
   reference_row_count: number;
+  incomplete_row_count?: number;
+  sections?: DetectedSourceSchemaSection[];
   header_row?: number | null;
   header_row_count?: 1 | 2;
   ignored_header_rows?: number[];
 }
 
+export interface DetectedSourceSchemaSection {
+  scope_id: string;
+  section_id: string;
+  label: string;
+  line_kind: "print" | "hardware" | "custom";
+  columns: string[];
+  header_row: number;
+  header_row_count: 1 | 2;
+  quantity_column: string | null;
+  missing_quantity_behavior: "reference" | "block";
+  order_row_count: number;
+  reference_row_count: number;
+  incomplete_row_count: number;
+}
+
 export interface SourceSheetHeaderOverride {
   header_row: number | null;
   header_row_count: 1 | 2;
+}
+
+export interface SourceWorkbookSectionConfig {
+  section_id: string;
+  label: string;
+  line_kind: "print" | "hardware" | "custom";
+  header_row: number | null;
+  header_row_count: 1 | 2;
+  header_signature: string[];
+  quantity_column: string | null;
+  missing_quantity_behavior: "reference" | "block";
+  required: boolean;
+}
+
+export interface SourceWorkbookSheetConfig {
+  role: "order_lines" | "shipping_attachment" | "reference_catalog" | "ignore";
+  enabled: boolean;
+  sections: SourceWorkbookSectionConfig[];
 }
 
 export interface DetectedSourceParserConfig {
@@ -305,6 +343,7 @@ export interface DetectedSourceParserConfig {
   ignore_repeated_headers: boolean;
   reference_rows_mode: "rows_without_quantity" | "ignore";
   sheet_header_overrides: Record<string, SourceSheetHeaderOverride>;
+  workbook_structure?: Record<string, SourceWorkbookSheetConfig>;
 }
 
 export interface DetectedSourceSchema {
@@ -341,12 +380,14 @@ export interface ImportMethod {
     ignore_repeated_headers?: boolean;
     reference_rows_mode?: "rows_without_quantity" | "ignore";
     sheet_header_overrides?: Record<string, SourceSheetHeaderOverride>;
+    workbook_structure?: Record<string, SourceWorkbookSheetConfig>;
     sample_template_name?: string | null;
     detected_schema?: DetectedSourceSchema | null;
     detected_schema_history?: DetectedSourceSchema[];
   };
   workbook_sheet_policy: "rows_with_quantity";
   product_resolution_config: ProductResolutionConfig;
+  product_resolution_overrides: Record<string, ProductResolutionConfig>;
   order_name_resolution_config: OrderNameResolutionConfig;
   ext_id_strategy: LiftExtIdStrategy;
   public_intake: PublicIntakeConfig;
@@ -1437,6 +1478,7 @@ function createSeedMethod(timestamp: string): ImportMethod {
     source_config: {},
     workbook_sheet_policy: "rows_with_quantity",
     product_resolution_config: createDefaultProductResolutionConfig(),
+    product_resolution_overrides: {},
     order_name_resolution_config: createDefaultOrderNameResolutionConfig(),
     ext_id_strategy: "pathfinder_generated",
     public_intake: createDefaultPublicIntakeConfig(),
@@ -2139,6 +2181,77 @@ function normalizeSourceSheetHeaderOverrides(value: unknown): Record<string, Sou
   );
 }
 
+function normalizeSourceWorkbookStructure(value: unknown): Record<string, SourceWorkbookSheetConfig> {
+  return Object.fromEntries(
+    Object.entries(asRecord(value))
+      .map(([sheetName, rawSheet]) => {
+        const normalizedSheetName = sheetName.trim();
+        const sheet = asRecord(rawSheet);
+        if (!normalizedSheetName || Object.keys(sheet).length === 0) {
+          return null;
+        }
+        const role =
+          sheet.role === "shipping_attachment" ||
+          sheet.role === "reference_catalog" ||
+          sheet.role === "ignore"
+            ? sheet.role
+            : ("order_lines" as const);
+        const sections = (Array.isArray(sheet.sections) ? sheet.sections : [])
+          .map((rawSection, index) => {
+            const section = asRecord(rawSection);
+            const sectionId =
+              typeof section.section_id === "string"
+                ? section.section_id.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 64)
+                : "";
+            if (!sectionId) {
+              return null;
+            }
+            const lineKind =
+              section.line_kind === "hardware" || section.line_kind === "custom"
+                ? section.line_kind
+                : ("print" as const);
+            return {
+              section_id: sectionId,
+              label:
+                typeof section.label === "string" && section.label.trim()
+                  ? section.label.trim().slice(0, 100)
+                  : `Section ${index + 1}`,
+              line_kind: lineKind,
+              header_row: normalizeSourceHeaderRow(section.header_row),
+              header_row_count: section.header_row_count === 2 ? (2 as const) : (1 as const),
+              header_signature: Array.isArray(section.header_signature)
+                ? section.header_signature
+                    .filter((column): column is string => typeof column === "string")
+                    .map((column) => column.trim())
+                    .filter(Boolean)
+                    .slice(0, 100)
+                : [],
+              quantity_column:
+                typeof section.quantity_column === "string" && section.quantity_column.trim()
+                  ? section.quantity_column.trim().slice(0, 120)
+                  : null,
+              missing_quantity_behavior:
+                section.missing_quantity_behavior === "block" ? ("block" as const) : ("reference" as const),
+              required: section.required === true
+            };
+          })
+          .filter((section): section is SourceWorkbookSectionConfig => section !== null)
+          .sort((left, right) => (left.header_row ?? Number.MAX_SAFE_INTEGER) - (right.header_row ?? Number.MAX_SAFE_INTEGER));
+
+        return [
+          normalizedSheetName,
+          {
+            role,
+            enabled: sheet.enabled !== false && role !== "ignore",
+            sections
+          }
+        ] as const;
+      })
+      .filter((entry): entry is readonly [string, SourceWorkbookSheetConfig] => entry !== null)
+      .sort(([left], [right]) => left.localeCompare(right))
+  );
+}
+
 function normalizeDetectedSourceSchema(value: unknown): DetectedSourceSchema | null {
   const schema = asRecord(value);
   if (Object.keys(schema).length === 0) {
@@ -2154,7 +2267,10 @@ function normalizeDetectedSourceSchema(value: unknown): DetectedSourceSchema | n
         ignore_repeated_headers: parserConfig.ignore_repeated_headers !== false,
         reference_rows_mode:
           parserConfig.reference_rows_mode === "ignore" ? ("ignore" as const) : ("rows_without_quantity" as const),
-        sheet_header_overrides: normalizeSourceSheetHeaderOverrides(parserConfig.sheet_header_overrides)
+        sheet_header_overrides: normalizeSourceSheetHeaderOverrides(parserConfig.sheet_header_overrides),
+        ...(parserConfig.workbook_structure !== undefined
+          ? { workbook_structure: normalizeSourceWorkbookStructure(parserConfig.workbook_structure) }
+          : {})
       }
     : undefined;
 
@@ -2162,8 +2278,15 @@ function normalizeDetectedSourceSchema(value: unknown): DetectedSourceSchema | n
     ? schema.sheets.map((value) => {
         const sheet = asRecord(value);
         const headerRow = normalizeSourceHeaderRow(sheet.header_row);
+        const role: NonNullable<DetectedSourceSchemaSheet["role"]> =
+          sheet.role === "shipping_attachment" ||
+          sheet.role === "reference_catalog" ||
+          sheet.role === "ignore"
+            ? sheet.role
+            : "order_lines";
         return {
           sheet_name: typeof sheet.sheet_name === "string" ? sheet.sheet_name : "",
+          role,
           columns: Array.isArray(sheet.columns)
             ? sheet.columns.filter((column): column is string => typeof column === "string")
             : [],
@@ -2175,6 +2298,52 @@ function normalizeDetectedSourceSchema(value: unknown): DetectedSourceSchema | n
             typeof sheet.reference_row_count === "number" && Number.isFinite(sheet.reference_row_count)
               ? Math.max(0, Math.floor(sheet.reference_row_count))
               : 0,
+          incomplete_row_count:
+            typeof sheet.incomplete_row_count === "number" && Number.isFinite(sheet.incomplete_row_count)
+              ? Math.max(0, Math.floor(sheet.incomplete_row_count))
+              : 0,
+          sections: Array.isArray(sheet.sections)
+            ? sheet.sections
+                .map((rawSection) => {
+                  const section = asRecord(rawSection);
+                  const headerRow = normalizeSourceHeaderRow(section.header_row);
+                  const sectionId = typeof section.section_id === "string" ? section.section_id.trim() : "";
+                  if (!headerRow || !sectionId) {
+                    return null;
+                  }
+                  return {
+                    scope_id: typeof section.scope_id === "string" ? section.scope_id : "",
+                    section_id: sectionId,
+                    label: typeof section.label === "string" ? section.label : sectionId,
+                    line_kind:
+                      section.line_kind === "hardware" || section.line_kind === "custom"
+                        ? section.line_kind
+                        : ("print" as const),
+                    columns: Array.isArray(section.columns)
+                      ? section.columns.filter((column): column is string => typeof column === "string")
+                      : [],
+                    header_row: headerRow,
+                    header_row_count: section.header_row_count === 2 ? (2 as const) : (1 as const),
+                    quantity_column:
+                      typeof section.quantity_column === "string" ? section.quantity_column : null,
+                    missing_quantity_behavior:
+                      section.missing_quantity_behavior === "block" ? ("block" as const) : ("reference" as const),
+                    order_row_count:
+                      typeof section.order_row_count === "number"
+                        ? Math.max(0, Math.floor(section.order_row_count))
+                        : 0,
+                    reference_row_count:
+                      typeof section.reference_row_count === "number"
+                        ? Math.max(0, Math.floor(section.reference_row_count))
+                        : 0,
+                    incomplete_row_count:
+                      typeof section.incomplete_row_count === "number"
+                        ? Math.max(0, Math.floor(section.incomplete_row_count))
+                        : 0
+                  } satisfies DetectedSourceSchemaSection;
+                })
+                .filter((section): section is DetectedSourceSchemaSection => section !== null)
+            : [],
           ...(sheet.header_row !== undefined ? { header_row: headerRow } : {}),
           ...(sheet.header_row_count !== undefined
             ? { header_row_count: sheet.header_row_count === 2 ? (2 as const) : (1 as const) }
@@ -2211,7 +2380,9 @@ function detectedSourceSchemaStructureKey(schema: DetectedSourceSchema) {
       columns: sheet.columns,
       header_row: sheet.header_row ?? null,
       header_row_count: sheet.header_row_count ?? 1,
-      ignored_header_rows: sheet.ignored_header_rows ?? []
+      ignored_header_rows: sheet.ignored_header_rows ?? [],
+      role: sheet.role ?? "order_lines",
+      sections: sheet.sections ?? []
     })),
     parser_config: schema.parser_config ?? null
   });
@@ -2278,6 +2449,7 @@ function normalizeImportSourceConfig(sourceConfig: ImportMethod["source_config"]
         ? source.reference_rows_mode
         : undefined,
     sheet_header_overrides: normalizeSourceSheetHeaderOverrides(source.sheet_header_overrides),
+    workbook_structure: normalizeSourceWorkbookStructure(source.workbook_structure),
     sample_template_name:
       typeof source.sample_template_name === "string" || source.sample_template_name === null
         ? source.sample_template_name
@@ -2343,6 +2515,15 @@ function normalizeImportMethod(method: ImportMethod): ImportMethod {
       ...createDefaultProductResolutionConfig(),
       ...(method.product_resolution_config ?? {})
     },
+    product_resolution_overrides: Object.fromEntries(
+      Object.entries(method.product_resolution_overrides ?? {}).map(([scopeId, config]) => [
+        scopeId,
+        {
+          ...createDefaultProductResolutionConfig(),
+          ...config
+        }
+      ])
+    ),
     order_name_resolution_config: normalizeOrderNameResolutionConfig(
       method.order_name_resolution_config,
       method.order_name_resolution_config
@@ -2366,6 +2547,10 @@ function normalizeProductMapping(mapping: CustomerProductMapping): CustomerProdu
 
   return {
     ...mapping,
+    source_scope_id:
+      typeof mapping.source_scope_id === "string" && mapping.source_scope_id.trim()
+        ? mapping.source_scope_id.trim().slice(0, 160)
+        : null,
     output_route_id: mapping.output_route_id ?? route.output_route_id,
     target_id: mapping.target_id ?? route.target_id,
     target_template: mapping.target_template ?? route.output_template,
@@ -3684,6 +3869,18 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
       ...(methodSource.product_resolution_config ?? {}),
       ...(methodPatch.product_resolution_config ?? {})
     },
+    product_resolution_overrides: Object.fromEntries(
+      Object.entries({
+        ...(methodSource.product_resolution_overrides ?? {}),
+        ...(methodPatch.product_resolution_overrides ?? {})
+      }).map(([scopeId, config]) => [
+        scopeId,
+        {
+          ...createDefaultProductResolutionConfig(),
+          ...config
+        }
+      ])
+    ),
     order_name_resolution_config: normalizeOrderNameResolutionConfig(
       {
         ...(normalizedMethodSource.order_name_resolution_config ?? {}),

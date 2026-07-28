@@ -126,9 +126,43 @@ test("persists detected schemas and mappings without retaining workbook rows", a
   const initialWorkspace = await getOrCreateWorkspace(testCustomer);
   const initialMethod = importMethod(initialWorkspace, "manual-xlsx");
   const mappings = [
-    { sourceColumn: "Order Number", targetField: "order.external_order_id", required: true },
-    { sourceColumn: "SKU", targetField: "lines[].customer_sku", required: true }
+    {
+      sourceColumn: "Order Number",
+      targetField: "order.external_order_id",
+      scopeId: "Orders::orders-print-3",
+      required: true
+    },
+    {
+      sourceColumn: "SKU",
+      targetField: "lines[].customer_sku",
+      scopeId: "Orders::orders-print-3",
+      required: true
+    }
   ];
+  const workbookStructure = {
+    Orders: {
+      role: "order_lines",
+      enabled: true,
+      sections: [
+        {
+          section_id: "orders-print-3",
+          label: "Printed products",
+          line_kind: "print",
+          header_row: 3,
+          header_row_count: 1,
+          header_signature: ["Order Number", "SKU", "Qty"],
+          quantity_column: "Qty",
+          missing_quantity_behavior: "block",
+          required: true
+        }
+      ]
+    },
+    "Ship List": {
+      role: "shipping_attachment",
+      enabled: true,
+      sections: []
+    }
+  } as const;
   const parserConfig = {
     header_row: null,
     header_row_count: 1,
@@ -137,7 +171,8 @@ test("persists detected schemas and mappings without retaining workbook rows", a
     reference_rows_mode: "rows_without_quantity",
     sheet_header_overrides: {
       Catalog: { header_row: 2, header_row_count: 2 }
-    }
+    },
+    workbook_structure: workbookStructure
   };
 
   const savedWorkspace = await updateImportMethod(
@@ -145,6 +180,18 @@ test("persists detected schemas and mappings without retaining workbook rows", a
     "manual-xlsx",
     {
       mappings,
+      product_resolution_overrides: {
+        "Orders::orders-print-3": {
+          strategy: "direct_lift_unit_number",
+          mode: "map_to_lift_unit",
+          source_column: "SKU",
+          direct_unit_number_column: "SKU",
+          prefix: "",
+          suffix: "",
+          composite_columns: [],
+          fallback_strategy: "none"
+        }
+      },
       source_config: {
         header_row: null,
         header_row_count: 1,
@@ -152,6 +199,7 @@ test("persists detected schemas and mappings without retaining workbook rows", a
         ignore_repeated_headers: true,
         reference_rows_mode: "rows_without_quantity",
         sheet_header_overrides: parserConfig.sheet_header_overrides,
+        workbook_structure: workbookStructure,
         detected_schema: {
           source_file_name: "customer-template.xlsx",
           selected_sheet_name: "Orders",
@@ -162,6 +210,24 @@ test("persists detected schemas and mappings without retaining workbook rows", a
               columns: ["Order Number", "SKU", "Qty"],
               order_row_count: 2,
               reference_row_count: 0,
+              incomplete_row_count: 0,
+              role: "order_lines",
+              sections: [
+                {
+                  scope_id: "Orders::orders-print-3",
+                  section_id: "orders-print-3",
+                  label: "Printed products",
+                  line_kind: "print",
+                  columns: ["Order Number", "SKU", "Qty"],
+                  header_row: 3,
+                  header_row_count: 1,
+                  quantity_column: "Qty",
+                  missing_quantity_behavior: "block",
+                  order_row_count: 2,
+                  reference_row_count: 0,
+                  incomplete_row_count: 0
+                }
+              ],
               header_row: 3,
               header_row_count: 1,
               ignored_header_rows: [6],
@@ -187,6 +253,11 @@ test("persists detected schemas and mappings without retaining workbook rows", a
   const savedMethod = importMethod(savedWorkspace, "manual-xlsx");
   assert.deepEqual(savedMethod.mappings, mappings);
   assert.deepEqual(savedMethod.source_config.sheet_header_overrides, parserConfig.sheet_header_overrides);
+  assert.deepEqual(savedMethod.source_config.workbook_structure, workbookStructure);
+  assert.equal(
+    savedMethod.product_resolution_overrides["Orders::orders-print-3"].direct_unit_number_column,
+    "SKU"
+  );
   assert.deepEqual(savedMethod.source_config.detected_schema.parser_config, parserConfig);
   assert.equal("rows" in savedMethod.source_config.detected_schema, false);
   assert.equal("parsed_rows" in savedMethod.source_config.detected_schema.sheets[0], false);

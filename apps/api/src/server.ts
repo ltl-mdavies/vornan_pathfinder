@@ -1598,6 +1598,26 @@ function workbookParseOptions(method: ImportMethod) {
           headerRowCount: override.header_row_count
         }
       ])
+    ),
+    sheetConfigs: Object.fromEntries(
+      Object.entries(sourceConfig.workbook_structure ?? {}).map(([sheetName, sheet]) => [
+        sheetName,
+        {
+          role: sheet.role,
+          enabled: sheet.enabled,
+          sections: sheet.sections.map((section) => ({
+            sectionId: section.section_id,
+            label: section.label,
+            lineKind: section.line_kind,
+            headerRow: section.header_row,
+            headerRowCount: section.header_row_count,
+            headerSignature: section.header_signature,
+            quantityColumn: section.quantity_column,
+            missingQuantityBehavior: section.missing_quantity_behavior,
+            required: section.required
+          }))
+        }
+      ])
     )
   } as const;
 }
@@ -1637,10 +1657,12 @@ function importMethodFingerprint(method: ImportMethod, route: OutputRoute) {
         quantity_column: method.source_config.quantity_column ?? null,
         ignore_repeated_headers: method.source_config.ignore_repeated_headers ?? true,
         reference_rows_mode: method.source_config.reference_rows_mode ?? "rows_without_quantity",
-        sheet_header_overrides: method.source_config.sheet_header_overrides ?? {}
+        sheet_header_overrides: method.source_config.sheet_header_overrides ?? {},
+        workbook_structure: method.source_config.workbook_structure ?? {}
       },
       workbook_sheet_policy: method.workbook_sheet_policy,
       product_resolution_config: method.product_resolution_config,
+      product_resolution_overrides: method.product_resolution_overrides,
       order_name_resolution_config: method.order_name_resolution_config,
       ext_id_strategy: method.ext_id_strategy
     },
@@ -2032,18 +2054,42 @@ function synthesizeParsedRows(sourceGrid: SourceGrid): ParsedSourceRow[] {
     sheet_name: "Imported Grid",
     row_number: index + 2,
     row_type: "order",
+    scope_id: "Imported Grid::default",
+    section_id: "default",
+    section_label: "Imported Grid order lines",
+    line_kind: "print",
     values
   }));
 }
 
 function sourceSheetsFromGrid(sourceGrid: SourceGrid): ParsedWorkbookSheet[] {
+  const parsedRows = synthesizeParsedRows(sourceGrid);
   return [
     {
       sheet_name: "Imported Grid",
+      role: "order_lines",
       columns: sourceGrid.columns,
       order_row_count: sourceGrid.rows.length,
       reference_row_count: 0,
-      parsed_rows: synthesizeParsedRows(sourceGrid)
+      incomplete_row_count: 0,
+      parsed_rows: parsedRows,
+      sections: [
+        {
+          scope_id: "Imported Grid::default",
+          section_id: "default",
+          label: "Imported Grid order lines",
+          line_kind: "print",
+          columns: sourceGrid.columns,
+          header_row: 1,
+          header_row_count: 1,
+          quantity_column: null,
+          missing_quantity_behavior: "reference",
+          order_row_count: sourceGrid.rows.length,
+          reference_row_count: 0,
+          incomplete_row_count: 0,
+          parsed_rows: parsedRows
+        }
+      ]
     }
   ];
 }
@@ -2064,10 +2110,11 @@ function buildMappingFromRow(
         : [config.source_column];
 
   return {
-    mapping_id: mappingIdFromKey(customerProductKey),
+    mapping_id: mappingIdFromKey(`${row.scope_id}::${customerProductKey}`),
     output_route_id: route.output_route_id,
     target_id: route.target_id,
     target_template: route.output_template,
+    source_scope_id: row.scope_id,
     customer_product_key: customerProductKey,
     display_label: buildDisplayLabel(row, config),
     source_columns: sourceColumns.filter(Boolean),
@@ -2147,14 +2194,18 @@ function resolveProducts(
 ) {
   const mappingsByKey = new Map(
     existingMappings
-      .filter((mapping) => mapping.output_route_id === route.output_route_id)
-      .map((mapping) => [mapping.customer_product_key, mapping])
+      .filter(
+        (mapping) =>
+          mapping.output_route_id === route.output_route_id &&
+          (!mapping.source_scope_id || rows.some((row) => row.scope_id === mapping.source_scope_id))
+      )
+      .map((mapping) => [`${mapping.source_scope_id ?? "*"}::${mapping.customer_product_key}`, mapping])
   );
   const ambiguousKeys = config.strategy === "derived_key" ? detectAmbiguousKeys(rows, config) : new Set<string>();
 
   return rows.map((row, index) => {
     const key = productKeyForRow(row, config);
-    const savedMapping = mappingsByKey.get(key);
+    const savedMapping = mappingsByKey.get(`${row.scope_id}::${key}`) ?? mappingsByKey.get(`*::${key}`);
     const fallbackMapping = buildMappingFromRow(row, config, new Date().toISOString(), route);
     const mapping = savedMapping ?? fallbackMapping;
     const directUnitNumber =
@@ -2189,6 +2240,7 @@ function resolveProducts(
 
     return {
       output_route_id: route.output_route_id,
+      source_scope_id: row.scope_id,
       source_sheet_name: row.sheet_name,
       source_row_number: row.row_number,
       line_number: index + 1,
@@ -2210,6 +2262,33 @@ function resolveProducts(
       status,
       message
     } satisfies ProductResolutionResult;
+  });
+}
+
+function resolveProductsByScope(
+  rows: ParsedSourceRow[],
+  existingMappings: CustomerProductMapping[],
+  defaultConfig: ProductResolutionConfig,
+  overrides: Record<string, ProductResolutionConfig>,
+  route: OutputRoute
+) {
+  const rowsByScope = new Map<string, ParsedSourceRow[]>();
+  rows.forEach((row) => {
+    rowsByScope.set(row.scope_id, [...(rowsByScope.get(row.scope_id) ?? []), row]);
+  });
+  const resultByLocation = new Map<string, ProductResolutionResult>();
+  rowsByScope.forEach((scopeRows, scopeId) => {
+    const config = overrides[scopeId] ?? defaultConfig;
+    resolveProducts(scopeRows, existingMappings, config, route).forEach((result) => {
+      resultByLocation.set(`${result.source_scope_id}::${result.source_row_number}`, result);
+    });
+  });
+  return rows.map((row, index) => {
+    const result = resultByLocation.get(`${row.scope_id}::${row.row_number}`);
+    if (!result) {
+      throw new Error(`Product resolution did not return ${row.scope_id} row ${row.row_number}.`);
+    }
+    return { ...result, line_number: index + 1 };
   });
 }
 
@@ -4064,6 +4143,7 @@ async function createWrikeEvidencePreviewForMethod(args: {
       source_sheets: parsed.source_sheets,
       parsed_order_rows: parsed.parsed_order_rows,
       reference_rows: parsed.reference_rows,
+      incomplete_rows: parsed.incomplete_rows,
       source_file_name: loaded.record.file_name,
       sheet_name: parsed.sheetName,
       import_method_id: method.import_method_id
@@ -5057,6 +5137,16 @@ async function createPreviewJobForRequest(
       : synthesizeParsedRows(sourceGrid)
     ).filter((row) => row.row_type === "order");
     const referenceRows = ((body.reference_rows as ParsedSourceRow[] | undefined) ?? []) as ParsedSourceRow[];
+    const incompleteRows = ((body.incomplete_rows as ParsedSourceRow[] | undefined) ?? []) as ParsedSourceRow[];
+    if (incompleteRows.length > 0) {
+      const first = incompleteRows[0];
+      throw Object.assign(
+        new Error(
+          `${incompleteRows.length} populated workbook row${incompleteRows.length === 1 ? "" : "s"} require a quantity before preview. First issue: ${first.sheet_name}, ${first.section_label}, row ${first.row_number}.`
+        ),
+        { statusCode: 400 }
+      );
+    }
     const sourceFileName = String(body.source_file_name ?? "Sample workbook");
     const sheetName = body.sheet_name ? String(body.sheet_name) : null;
     const requestedMethodId = body.import_method_id ? String(body.import_method_id) : null;
@@ -5096,6 +5186,7 @@ async function createPreviewJobForRequest(
         source_config: {},
         workbook_sheet_policy: "rows_with_quantity" as const,
         product_resolution_config: createDefaultProductResolutionConfig(),
+        product_resolution_overrides: {},
         order_name_resolution_config: createDefaultOrderNameResolutionConfig(),
         ext_id_strategy: "pathfinder_generated" as const,
         public_intake: createDefaultPublicIntakeConfig(),
@@ -5109,6 +5200,10 @@ async function createPreviewJobForRequest(
         ...createDefaultProductResolutionConfig(),
         ...(existingMethod?.product_resolution_config ?? {}),
         ...((body.product_resolution_config as Partial<ProductResolutionConfig> | undefined) ?? {})
+      },
+      product_resolution_overrides: {
+        ...(existingMethod?.product_resolution_overrides ?? {}),
+        ...((body.product_resolution_overrides as Record<string, ProductResolutionConfig> | undefined) ?? {})
       },
       order_name_resolution_config: normalizeOrderNameResolutionConfig(
         {
@@ -5125,12 +5220,16 @@ async function createPreviewJobForRequest(
     const submitProfile = submitProfileForRoute(outputRoute, body.submit_profile_id ? String(body.submit_profile_id) : undefined);
     const submitCustomer = submitCustomerForProfile(customer, submitProfile);
     const orderRows = parsedOrderRows.length || requestIncludedParsedRows ? parsedOrderRows : synthesizeParsedRows(sourceGrid);
-    const mappingRows = orderRows.map((row) => row.values);
+    const mappingRows = orderRows.map((row) => ({
+      ...row.values,
+      __pathfinder_scope_id: row.scope_id
+    }));
     const existingProductMappings = await listProductMappings(customer);
-    const productResolutionResults = resolveProducts(
+    const productResolutionResults = resolveProductsByScope(
       orderRows,
       existingProductMappings,
       method.product_resolution_config,
+      method.product_resolution_overrides,
       outputRoute
     );
     const compactTimestamp = timestamp.replace(/[-:.TZ]/g, "").slice(0, 14);
@@ -5139,11 +5238,30 @@ async function createPreviewJobForRequest(
     const canonicalOrderId = `co_${compactTimestamp}_${idEntropy}`;
     const seenMappings = productResolutionResults.map((result, index) => {
       const row = orderRows[index];
-      const existing = existingProductMappings.find(
+      const exactExisting = existingProductMappings.find(
         (mapping) =>
           mapping.output_route_id === outputRoute.output_route_id &&
+          mapping.source_scope_id === result.source_scope_id &&
           mapping.customer_product_key === result.customer_product_key
       );
+      const legacyExisting =
+        exactExisting ??
+        existingProductMappings.find(
+          (mapping) =>
+            mapping.output_route_id === outputRoute.output_route_id &&
+            !mapping.source_scope_id &&
+            mapping.customer_product_key === result.customer_product_key
+        );
+      const existing =
+        exactExisting ??
+        (legacyExisting
+          ? {
+              ...legacyExisting,
+              mapping_id: mappingIdFromKey(`${result.source_scope_id}::${result.customer_product_key}`),
+              source_scope_id: result.source_scope_id,
+              created_at: timestamp
+            }
+          : null);
       const nextSeenExample = {
         sheet_name: result.source_sheet_name,
         row_number: result.source_row_number,
@@ -5154,8 +5272,15 @@ async function createPreviewJobForRequest(
         final_height: productDimensionValue(row, "height")
       };
       return {
-        ...(existing ?? buildMappingFromRow(row, method.product_resolution_config, timestamp, outputRoute)),
+        ...(existing ??
+          buildMappingFromRow(
+            row,
+            method.product_resolution_overrides[row.scope_id] ?? method.product_resolution_config,
+            timestamp,
+            outputRoute
+          )),
         output_route_id: outputRoute.output_route_id,
+        source_scope_id: row.scope_id,
         target_id: outputRoute.target_id,
         target_template: outputRoute.output_template,
         product_identifier_type: outputRoute.product_identifier_type,
@@ -5181,11 +5306,16 @@ async function createPreviewJobForRequest(
       } satisfies CustomerProductMapping;
     });
     const nextProductMappings = await bulkUpsertProductMappings(customer, seenMappings);
+    const unresolvedProductKeys = new Set(
+      productResolutionResults
+        .filter((result) => result.status !== "Mapped")
+        .map((result) => `${result.source_scope_id}::${result.customer_product_key}`)
+    );
     const unresolvedProducts = nextProductMappings.filter(
       (mapping) =>
         mapping.output_route_id === outputRoute.output_route_id &&
-        productResolutionResults.some((result) => result.customer_product_key === mapping.customer_product_key) &&
-        mapping.status !== "Mapped"
+        Boolean(mapping.source_scope_id) &&
+        unresolvedProductKeys.has(`${mapping.source_scope_id}::${mapping.customer_product_key}`)
     );
     const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
     if (!target) {
@@ -5224,6 +5354,7 @@ async function createPreviewJobForRequest(
     const canonicalOrder = orderNameResolution.canonical_order;
     canonicalOrder.lines = canonicalOrder.lines.map((line, index) => ({
       ...line,
+      line_kind: orderRows[index]?.line_kind ?? "print",
       unit_number:
         outputRoute.product_identifier_type === "lift_unit_number"
           ? productResolutionResults[index]?.resolved_product_identifier ?? ""
