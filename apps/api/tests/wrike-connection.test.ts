@@ -338,6 +338,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           trigger_status_label: "Sent to Print - LTL",
           contract_number_custom_field_id: "IECONTRACT",
           artwork_folder_custom_field_id: "IEARTWORKFOLDER",
+          print_vendor_custom_field_id: "IEVENDOR",
           attachment_filename_contains: "",
           attachment_extensions: ["xlsx"]
         }
@@ -383,6 +384,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           title: "Placard Order",
           customFields: [
             { id: "IECONTRACT", value: "C3168700" },
+            { id: "IEVENDOR", value: "Larger Than Life" },
             {
               id: "IEARTWORKFOLDER",
               value: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
@@ -500,6 +502,7 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
           title: "Placard Order",
           customFields: [
             { id: "IECONTRACT", value: "C3168700" },
+            { id: "IEVENDOR", value: "Larger Than Life" },
             {
               id: "IEARTWORKFOLDER",
               value: "https://momentara.sharepoint.com/sites/art/Private-Momentara"

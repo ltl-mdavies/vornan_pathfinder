@@ -4,7 +4,7 @@ Status: extensible Phase 4 contract foundation. This document records product an
 architecture decisions; it does not authorize AWS infrastructure, upload APIs,
 deployment, credential use, or a Lift write.
 
-Last updated: 2026-07-26.
+Last updated: 2026-07-28.
 
 ## Purpose
 
@@ -187,19 +187,26 @@ the same reviewed checkpoint.
 
 1. **Contract and fail-closed guard** — pure asset states, key conventions,
    retention calculation, direct-delivery readiness, and opaque asset binding.
-2. **Private storage foundation** — bucket, encryption/versioning/public block,
+2. **Upload/finalization metadata contract** — the package-local
+   `@pathfinder/proof-domain/proof-asset-upload` subpath now models initialized
+   uploads, immutable completion metadata, verification/scan results, outbound
+   publication, direct-delivery verification, packet membership, and
+   monotonic server-authored retention activity. It has no package-root export,
+   application caller, persistence adapter, AWS client, upload route, signer,
+   resolver, or Lift transport.
+3. **Private storage foundation** — bucket, encryption/versioning/public block,
    lifecycle rules, multipart controls, scan events, alarms, and least-privilege
    IAM.
-3. **Upload/finalize API and UI** — initialization, browser multipart upload,
+4. **Upload/finalize API and UI** — initialization, browser multipart upload,
    finalize, progress/recovery, and operator inspection.
-4. **Verification/publication** — checksum/content validation, malware result,
+5. **Verification/publication** — checksum/content validation, malware result,
    immutable outbound copy, direct `go.vornan.co` verification, and durable settle
    barrier.
-5. **Packets and sharing** — manifest, internal all-file download, client packet,
+6. **Packets and sharing** — manifest, internal all-file download, client packet,
    short-lived authorization, and regeneration.
-6. **Dark deployment and synthetic QA** — default-disabled infrastructure and
+7. **Dark deployment and synthetic QA** — default-disabled infrastructure and
    lifecycle validation without a Lift write.
-7. **Bounded Lift QA** — one exact approved LTL Demo order, attachment, asset,
+8. **Bounded Lift QA** — one exact approved LTL Demo order, attachment, asset,
    action, credential window, and zero-retry attempt.
 
 ## Open questions

@@ -7,6 +7,7 @@ import {
   createDefaultWrikeSourceConfig,
   discoverApprovedWrikeTask,
   discoverWrikeCustomFields,
+  discoverScopedWrikeIntakeTasks,
   exchangeWrikeAuthorizationCode,
   evaluateWrikeReadOnlyQaReadiness,
   fetchQualifiedWrikeWorkbookSources,
@@ -33,12 +34,27 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
     contract_number_custom_field_id: " IECONTRACT ",
     ltl_exception_custom_field_id: " IEEXCEPTION ",
     print_vendor_custom_field_id: " IEVENDOR ",
+    order_task_identity_mode: "custom_item_type",
+    order_task_custom_item_type_id: " IEPLACARDTYPE ",
+    required_print_vendor_value: " Larger Than Life ",
     attachment_filename_contains: " Momentara Order ",
     attachment_extensions: [".XLSX", "pdf", "csv", "xlsx"],
     attachment_selection: "newest_matching_workbook",
     poll_interval_minutes: 2,
     access_token: "must-not-persist",
     create_preview_only: false
+    ,
+    shipping_intake: {
+      enabled: true,
+      task_identity_mode: "custom_item_type",
+      custom_item_type_id: " IESHIPPINGTYPE ",
+      task_title: " ignored ",
+      trigger_status_id: " IESHIPPINGREADY ",
+      trigger_status_label: " Have Address - LTL ",
+      attachment_filename_contains: " Ship List ",
+      attachment_extensions: [".XLSX", "pdf"],
+      attachment_selection: "newest"
+    }
   });
 
   assert.equal(normalized.enabled, false);
@@ -51,12 +67,26 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
   assert.equal(normalized.contract_number_custom_field_id, "IECONTRACT");
   assert.equal(normalized.ltl_exception_custom_field_id, "IEEXCEPTION");
   assert.equal(normalized.print_vendor_custom_field_id, "IEVENDOR");
+  assert.equal(normalized.order_task_identity_mode, "custom_item_type");
+  assert.equal(normalized.order_task_custom_item_type_id, "IEPLACARDTYPE");
+  assert.equal(normalized.required_print_vendor_value, "Larger Than Life");
   assert.equal(normalized.task_title_rule, "contract_order_ooh");
   assert.equal(normalized.workbook_name_rule, "contract_order_ooh");
   assert.equal(normalized.attachment_selection, "all_matching_current_workbooks");
   assert.deepEqual(normalized.attachment_extensions, ["xlsx", "csv"]);
   assert.equal(normalized.poll_interval_minutes, 5);
   assert.equal(normalized.create_preview_only, true);
+  assert.deepEqual(normalized.shipping_intake, {
+    enabled: false,
+    task_identity_mode: "custom_item_type",
+    task_title: "ignored",
+    custom_item_type_id: "IESHIPPINGTYPE",
+    trigger_status_id: "IESHIPPINGREADY",
+    trigger_status_label: "Have Address - LTL",
+    attachment_filename_contains: "Ship List",
+    attachment_extensions: ["xlsx"],
+    attachment_selection: "all_matching_current_workbooks"
+  });
   assert.equal("access_token" in normalized, false);
   assert.equal(getWrikeContractReadiness(normalized).status, "Configured");
 });
@@ -69,7 +99,13 @@ test("snaps reconciliation intervals to the operator-visible presets", () => {
 test("reports the durable identifiers still needed before connection", () => {
   assert.deepEqual(getWrikeContractReadiness(createDefaultWrikeSourceConfig()), {
     status: "Incomplete",
-    missing: ["connection_id", "folder_id", "trigger_status_id", "contract_number_custom_field_id"]
+    missing: [
+      "connection_id",
+      "folder_id",
+      "trigger_status_id",
+      "contract_number_custom_field_id",
+      "print_vendor_custom_field_id"
+    ]
   });
 });
 
@@ -80,6 +116,7 @@ test("keeps Wrike QA dark until an explicit bounded window opens", () => {
     approved_discovery_task_id: "IETESTTASK",
     trigger_status_id: "IEABORDERED",
     contract_number_custom_field_id: "IECONTRACT",
+    print_vendor_custom_field_id: "IEVENDOR",
     attachment_extensions: ["xlsx"]
   });
   const readiness = evaluateWrikeReadOnlyQaReadiness({
@@ -106,6 +143,7 @@ test("requires identity confirmation before the exact-task preview", () => {
     approved_discovery_task_id: "IETESTTASK",
     trigger_status_id: "IEABORDERED",
     contract_number_custom_field_id: "IECONTRACT",
+    print_vendor_custom_field_id: "IEVENDOR",
     attachment_extensions: ["xlsx"]
   });
   const waiting = evaluateWrikeReadOnlyQaReadiness({
@@ -1031,4 +1069,264 @@ test("discovers only requested Wrike custom-field metadata through read-only OAu
   assert.equal(result.capabilities.task_values_read, false);
   assert.equal(result.capabilities.attachment_metadata_read, false);
   assert.equal(result.capabilities.wrike_writes, false);
+});
+
+test("discovers eligible Placard Orders across configured campaign descendants and keeps shipping inactive by default", async () => {
+  const calls: string[] = [];
+  const result = await discoverScopedWrikeIntakeTasks(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    normalizeWrikeSourceConfig({
+      folder_id: "IEGPACAMPAIGNS",
+      trigger_status_id: "IESENTTOPRINT",
+      contract_number_custom_field_id: "IECONTRACT",
+      artwork_folder_custom_field_id: "IEART",
+      print_vendor_custom_field_id: "IEVENDOR",
+      order_task_title: "Placard Order",
+      required_print_vendor_value: "Larger Than Life"
+    }),
+    {
+      now: () => new Date("2026-07-28T12:00:00.000Z"),
+      fetch_impl: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-token",
+              refresh_token: "rotated-refresh-token",
+              host: "app-us2.wrike.com"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "IEPLACARD1",
+                accountId: "IEACCOUNT",
+                parentIds: ["IECAMPAIGN1"],
+                superParentIds: ["IEGPACAMPAIGNS"],
+                customStatusId: "IESENTTOPRINT",
+                attachmentCount: 2,
+                title: "Placard Order",
+                customFields: [
+                  { id: "IECONTRACT", value: "C3168700" },
+                  { id: "IEVENDOR", value: "Larger Than Life" },
+                  { id: "IEART", value: "https://example.test/private-art" }
+                ]
+              },
+              {
+                id: "IEPLACARDOTHER",
+                accountId: "IEACCOUNT",
+                parentIds: ["IECAMPAIGN2"],
+                superParentIds: ["IEGPACAMPAIGNS"],
+                customStatusId: "IESENTTOPRINT",
+                attachmentCount: 1,
+                title: "Placard Order",
+                customFields: [
+                  { id: "IECONTRACT", value: "C3168701" },
+                  { id: "IEVENDOR", value: "Another Vendor" }
+                ]
+              },
+              {
+                id: "IESHIPPING1",
+                accountId: "IEACCOUNT",
+                parentIds: ["IECAMPAIGN1"],
+                superParentIds: ["IEGPACAMPAIGNS"],
+                customStatusId: "IEHAVADDRESS",
+                attachmentCount: 1,
+                title: "Shipping Information"
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(result.summary.task_count, 3);
+  assert.equal(result.summary.eligible_order_count, 1);
+  assert.equal(result.order_candidates[0].task_id, "IEPLACARD1");
+  assert.equal(result.order_candidates[0].contract_number, "C3168700");
+  assert.equal(result.order_candidates[0].artwork_folder_status, "ready");
+  assert.equal(result.shipping.status, "Inactive");
+  assert.deepEqual(result.shipping.candidates, []);
+  assert.equal(result.capabilities.shipping_attachment_metadata_read, false);
+  assert.equal(result.capabilities.attachment_download, false);
+  assert.equal(result.capabilities.workbook_parse, false);
+  assert.equal(result.capabilities.evidence_persistence, false);
+  assert.equal(result.capabilities.wrike_writes, false);
+  assert.equal(result.capabilities.lift_actions, false);
+  assert.equal(calls.some((url) => url.includes("/attachments")), false);
+  const folderUrl = new URL(calls[1]);
+  assert.equal(folderUrl.pathname, "/api/v4/folders/IEGPACAMPAIGNS/tasks");
+  assert.equal(folderUrl.searchParams.get("descendants"), "true");
+  assert.deepEqual(JSON.parse(folderUrl.searchParams.get("fields") ?? "[]"), [
+    "attachmentCount",
+    "customFields",
+    "customItemTypeId",
+    "parentIds",
+    "superParentIds"
+  ]);
+  assert.equal(folderUrl.searchParams.get("pageSize"), "100");
+});
+
+test("discovers only safe shipping task and attachment metadata when the pure contract is explicitly activated", async () => {
+  const calls: string[] = [];
+  const normalizedConfig = normalizeWrikeSourceConfig({
+    folder_id: "IEGPACAMPAIGNS",
+    trigger_status_id: "IESENTTOPRINT",
+    contract_number_custom_field_id: "IECONTRACT",
+    print_vendor_custom_field_id: "IEVENDOR",
+    shipping_intake: {
+      enabled: true,
+      task_identity_mode: "exact_title",
+      task_title: "Shipping Information",
+      trigger_status_id: "IEHAVADDRESS",
+      trigger_status_label: "Have Address - LTL",
+      attachment_filename_contains: "Ship List",
+      attachment_extensions: ["xlsx"]
+    }
+  });
+  const result = await discoverScopedWrikeIntakeTasks(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    {
+      ...normalizedConfig,
+      shipping_intake: {
+        ...normalizedConfig.shipping_intake,
+        enabled: true
+      }
+    },
+    {
+      now: () => new Date("2026-07-28T12:00:00.000Z"),
+      fetch_impl: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-token",
+              refresh_token: "rotated-refresh-token",
+              host: "app-us2.wrike.com"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.includes("/attachments")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "IESHIPATTACHMENT",
+                  currentAttachmentId: "IESHIPVERSION2",
+                  name: "C316664 - Private Customer - Ship List.xlsx",
+                  updatedDate: "2026-07-28T11:30:00.000Z",
+                  url: "https://temporary.example.test/must-not-return",
+                  previewUrl: "https://temporary.example.test/must-not-return-preview"
+                },
+                {
+                  id: "IEOTHERATTACHMENT",
+                  name: "private-addresses.pdf",
+                  url: "https://temporary.example.test/ignore"
+                }
+              ]
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "IESHIPPING1",
+                accountId: "IEACCOUNT",
+                parentIds: ["IECAMPAIGN1"],
+                superParentIds: ["IEGPACAMPAIGNS"],
+                customStatusId: "IEHAVADDRESS",
+                attachmentCount: 2,
+                title: "Shipping Information",
+                description: "Private recipient details must not return."
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(result.shipping.status, "Discovered");
+  assert.equal(result.shipping.candidates.length, 1);
+  assert.deepEqual(result.shipping.candidates[0].attachments, [
+    {
+      attachment_id: "IESHIPATTACHMENT",
+      version_id: "IESHIPVERSION2",
+      extension: "xlsx",
+      updated_at: "2026-07-28T11:30:00.000Z"
+    }
+  ]);
+  assert.equal(result.shipping.candidates[0].matching_attachment_count, 1);
+  assert.equal(result.capabilities.shipping_attachment_metadata_read, true);
+  assert.match(
+    calls[2],
+    /\/api\/v4\/tasks\/IESHIPPING1\/attachments\?versions=false&withUrls=false$/
+  );
+  assert.equal(calls.some((url) => /download|withUrls=true|webhooks/.test(url)), false);
+  const { credentials: _credentials, ...safeResult } = result;
+  const serialized = JSON.stringify(safeResult);
+  assert.equal(serialized.includes("Private Customer"), false);
+  assert.equal(serialized.includes("Private recipient"), false);
+  assert.equal(serialized.includes("temporary.example.test"), false);
+  assert.equal(serialized.includes("access-token"), false);
+});
+
+test("requires a complete explicit shipping identity before metadata discovery can be active", async () => {
+  const normalizedConfig = normalizeWrikeSourceConfig({
+    folder_id: "IEGPACAMPAIGNS",
+    trigger_status_id: "IESENTTOPRINT",
+    contract_number_custom_field_id: "IECONTRACT",
+    print_vendor_custom_field_id: "IEVENDOR",
+    shipping_intake: {
+      enabled: true,
+      task_title: "Shipping Information",
+      trigger_status_id: ""
+    }
+  });
+  await assert.rejects(
+    discoverScopedWrikeIntakeTasks(
+      {
+        client_id: "client-id",
+        client_secret: "client-secret",
+        refresh_token: "refresh-token",
+        host: "www.wrike.com"
+      },
+      {
+        ...normalizedConfig,
+        shipping_intake: {
+          ...normalizedConfig.shipping_intake,
+          enabled: true
+        }
+      },
+      {
+        fetch_impl: async () => {
+          throw new Error("No provider call should occur.");
+        }
+      }
+    ),
+    (error: unknown) =>
+      error instanceof WrikeConnectionError &&
+      error.code === "invalid_configuration"
+  );
 });

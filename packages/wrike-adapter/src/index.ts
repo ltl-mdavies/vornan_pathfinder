@@ -4,6 +4,19 @@ export type WrikeTaskTitleRule = "contract_order_ooh";
 export type WrikeWorkbookNameRule = "contract_order_ooh";
 export type WrikeAttachmentSelectionPolicy = "all_matching_current_workbooks";
 export type WrikeIdempotencyStrategy = "task_attachment_version";
+export type WrikeTaskIdentityMode = "exact_title" | "custom_item_type";
+
+export interface WrikeShippingIntakeConfig {
+  enabled: boolean;
+  task_identity_mode: WrikeTaskIdentityMode;
+  task_title: string;
+  custom_item_type_id: string;
+  trigger_status_id: string;
+  trigger_status_label: string;
+  attachment_filename_contains: string;
+  attachment_extensions: WrikeWorkbookExtension[];
+  attachment_selection: WrikeAttachmentSelectionPolicy;
+}
 
 export interface WrikeOAuthCredentials {
   client_id: string;
@@ -71,19 +84,26 @@ export interface WrikeSourceConfig {
   artwork_folder_custom_field_id: string;
   ltl_exception_custom_field_id: string;
   print_vendor_custom_field_id: string;
+  order_task_identity_mode: WrikeTaskIdentityMode;
+  order_task_title: string;
+  order_task_custom_item_type_id: string;
+  required_print_vendor_value: string;
   attachment_filename_contains: string;
   attachment_extensions: WrikeWorkbookExtension[];
   attachment_selection: WrikeAttachmentSelectionPolicy;
   poll_interval_minutes: number;
   idempotency_strategy: WrikeIdempotencyStrategy;
   create_preview_only: true;
+  shipping_intake: WrikeShippingIntakeConfig;
 }
 
 export interface WrikeDiscoveryCheck {
   check_id:
     | "task"
     | "folder_scope"
+    | "task_identity"
     | "trigger_status"
+    | "print_vendor"
     | "contract_number"
     | "artwork_folder"
     | "attachment_metadata"
@@ -225,8 +245,63 @@ export interface WrikeContractReadiness {
     | "folder_id"
     | "trigger_status_id"
     | "contract_number_custom_field_id"
+    | "print_vendor_custom_field_id"
     | "attachment_extensions"
   >;
+}
+
+export interface WrikeEligibleOrderTask {
+  task_id: string;
+  account_id: string;
+  parent_ids: string[];
+  super_parent_ids: string[];
+  contract_number: string;
+  attachment_count: number | null;
+  artwork_folder_status: WrikeArtworkFolderStatus;
+}
+
+export interface WrikeShippingAttachmentMetadata {
+  attachment_id: string;
+  version_id: string;
+  extension: WrikeWorkbookExtension;
+  updated_at: string | null;
+}
+
+export interface WrikeEligibleShippingTask {
+  task_id: string;
+  account_id: string;
+  parent_ids: string[];
+  super_parent_ids: string[];
+  custom_status_id: string;
+  attachment_count: number | null;
+  matching_attachment_count: number;
+  attachments: WrikeShippingAttachmentMetadata[];
+}
+
+export interface WrikeScopedIntakeDiscoveryResult {
+  credentials: WrikeOAuthCredentials;
+  checked_at: string;
+  folder_id: string;
+  order_candidates: WrikeEligibleOrderTask[];
+  shipping: {
+    status: "Inactive" | "Discovered";
+    candidates: WrikeEligibleShippingTask[];
+  };
+  summary: {
+    task_count: number;
+    eligible_order_count: number;
+    eligible_shipping_task_count: number;
+  };
+  capabilities: {
+    folder_task_metadata_read: true;
+    shipping_attachment_metadata_read: boolean;
+    attachment_download: false;
+    workbook_parse: false;
+    evidence_persistence: false;
+    preview_job_creation: false;
+    wrike_writes: false;
+    lift_actions: false;
+  };
 }
 
 export type WrikeReadOnlyQaReadinessStatus =
@@ -280,12 +355,27 @@ export function createDefaultWrikeSourceConfig(): WrikeSourceConfig {
     artwork_folder_custom_field_id: "",
     ltl_exception_custom_field_id: "",
     print_vendor_custom_field_id: "",
+    order_task_identity_mode: "exact_title",
+    order_task_title: "Placard Order",
+    order_task_custom_item_type_id: "",
+    required_print_vendor_value: "Larger Than Life",
     attachment_filename_contains: "",
     attachment_extensions: ["xlsx"],
     attachment_selection: "all_matching_current_workbooks",
     poll_interval_minutes: 15,
     idempotency_strategy: "task_attachment_version",
-    create_preview_only: true
+    create_preview_only: true,
+    shipping_intake: {
+      enabled: false,
+      task_identity_mode: "exact_title",
+      task_title: "Shipping Information",
+      custom_item_type_id: "",
+      trigger_status_id: "",
+      trigger_status_label: "Have Address - LTL",
+      attachment_filename_contains: "",
+      attachment_extensions: ["xlsx"],
+      attachment_selection: "all_matching_current_workbooks"
+    }
   };
 }
 
@@ -376,6 +466,39 @@ export function resolveWrikeContractNumber(
   return { status: "ready", contract_number: normalized };
 }
 
+function normalizedComparableText(value: unknown) {
+  return typeof value === "string"
+    ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")
+    : "";
+}
+
+function resolveWrikeTextCustomField(task: unknown, customFieldId: unknown) {
+  const fieldId = cleanIdentifier(customFieldId);
+  if (!fieldId) {
+    return null;
+  }
+  const customFields = Array.isArray(asRecord(task).customFields)
+    ? (asRecord(task).customFields as unknown[])
+    : [];
+  const field = customFields
+    .map(asRecord)
+    .find((candidate) => cleanIdentifier(candidate.id) === fieldId);
+  const value = typeof field?.value === "string" ? field.value.trim().replace(/\s+/g, " ") : "";
+  return value && value.length <= 256 ? value : null;
+}
+
+function taskIdentityMatches(
+  task: Record<string, unknown>,
+  mode: WrikeTaskIdentityMode,
+  title: string,
+  customItemTypeId: string
+) {
+  if (mode === "custom_item_type") {
+    return Boolean(customItemTypeId) && providerIdentifier(task.customItemTypeId) === customItemTypeId;
+  }
+  return Boolean(title) && normalizedComparableText(task.title) === normalizedComparableText(title);
+}
+
 export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
   const source = asRecord(value);
   const fallback = createDefaultWrikeSourceConfig();
@@ -395,6 +518,18 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
         Math.abs(candidate - interval) < Math.abs(closest - interval) ? candidate : closest
       )
     : fallback.poll_interval_minutes;
+  const shippingSource = asRecord(source.shipping_intake);
+  const shippingExtensions = Array.from(
+    new Set(
+      (Array.isArray(shippingSource.attachment_extensions)
+        ? shippingSource.attachment_extensions
+        : fallback.shipping_intake.attachment_extensions)
+        .map((extension) => String(extension).trim().toLowerCase().replace(/^\./, ""))
+        .filter((extension): extension is WrikeWorkbookExtension =>
+          extension === "xlsx" || extension === "xls" || extension === "csv"
+        )
+    )
+  );
 
   return {
     enabled: false,
@@ -416,6 +551,19 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
     artwork_folder_custom_field_id: cleanIdentifier(source.artwork_folder_custom_field_id),
     ltl_exception_custom_field_id: cleanIdentifier(source.ltl_exception_custom_field_id),
     print_vendor_custom_field_id: cleanIdentifier(source.print_vendor_custom_field_id),
+    order_task_identity_mode:
+      source.order_task_identity_mode === "custom_item_type"
+        ? "custom_item_type"
+        : "exact_title",
+    order_task_title:
+      typeof source.order_task_title === "string"
+        ? source.order_task_title.trim().replace(/\s+/g, " ").slice(0, 160)
+        : fallback.order_task_title,
+    order_task_custom_item_type_id: cleanIdentifier(source.order_task_custom_item_type_id),
+    required_print_vendor_value:
+      typeof source.required_print_vendor_value === "string"
+        ? source.required_print_vendor_value.trim().replace(/\s+/g, " ").slice(0, 160)
+        : fallback.required_print_vendor_value,
     attachment_filename_contains:
       typeof source.attachment_filename_contains === "string"
         ? source.attachment_filename_contains.trim().slice(0, 160)
@@ -424,7 +572,35 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
     attachment_selection: "all_matching_current_workbooks",
     poll_interval_minutes: normalizedInterval,
     idempotency_strategy: "task_attachment_version",
-    create_preview_only: true
+    create_preview_only: true,
+    shipping_intake: {
+      // Shipping activation remains a separately reviewed runtime capability.
+      // Persist the configuration now, but fail closed if a client attempts to
+      // enable it before that boundary exists.
+      enabled: false,
+      task_identity_mode:
+        shippingSource.task_identity_mode === "custom_item_type"
+          ? "custom_item_type"
+          : "exact_title",
+      task_title:
+        typeof shippingSource.task_title === "string"
+          ? shippingSource.task_title.trim().replace(/\s+/g, " ").slice(0, 160)
+          : fallback.shipping_intake.task_title,
+      custom_item_type_id: cleanIdentifier(shippingSource.custom_item_type_id),
+      trigger_status_id: cleanIdentifier(shippingSource.trigger_status_id),
+      trigger_status_label:
+        typeof shippingSource.trigger_status_label === "string"
+          ? shippingSource.trigger_status_label.trim().replace(/\s+/g, " ").slice(0, 100)
+          : fallback.shipping_intake.trigger_status_label,
+      attachment_filename_contains:
+        typeof shippingSource.attachment_filename_contains === "string"
+          ? shippingSource.attachment_filename_contains.trim().slice(0, 160)
+          : "",
+      attachment_extensions: shippingExtensions.length
+        ? shippingExtensions
+        : fallback.shipping_intake.attachment_extensions,
+      attachment_selection: "all_matching_current_workbooks"
+    }
   };
 }
 
@@ -441,6 +617,9 @@ export function getWrikeContractReadiness(config: WrikeSourceConfig): WrikeContr
   }
   if (!config.contract_number_custom_field_id) {
     missing.push("contract_number_custom_field_id");
+  }
+  if (!config.print_vendor_custom_field_id) {
+    missing.push("print_vendor_custom_field_id");
   }
   if (!config.attachment_extensions.length) {
     missing.push("attachment_extensions");
@@ -984,6 +1163,318 @@ export async function discoverWrikeCustomFields(
   };
 }
 
+function scopedTaskRecord(task: Record<string, unknown>, folderId: string) {
+  const taskId = providerIdentifier(task.id);
+  const parentIds = providerIdentifierList(task.parentIds);
+  const superParentIds = providerIdentifierList(task.superParentIds);
+  if (!taskId || (!parentIds.includes(folderId) && !superParentIds.includes(folderId))) {
+    return null;
+  }
+  return {
+    task_id: taskId,
+    account_id: providerIdentifier(task.accountId),
+    parent_ids: parentIds,
+    super_parent_ids: superParentIds,
+    custom_status_id: providerIdentifier(task.customStatusId),
+    attachment_count: providerCount(task.attachmentCount)
+  };
+}
+
+function safeAttachmentUpdatedAt(attachment: Record<string, unknown>) {
+  const value =
+    typeof attachment.updatedDate === "string"
+      ? attachment.updatedDate
+      : typeof attachment.createdDate === "string"
+        ? attachment.createdDate
+        : "";
+  return Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
+}
+
+function shippingAttachmentMetadata(
+  attachment: Record<string, unknown>,
+  config: WrikeShippingIntakeConfig
+): WrikeShippingAttachmentMetadata | null {
+  const fileName = typeof attachment.name === "string" ? attachment.name.trim() : "";
+  const extension = attachmentExtension(fileName);
+  const nameNeedle = config.attachment_filename_contains.toLocaleLowerCase("en-US");
+  if (
+    !config.attachment_extensions.includes(extension as WrikeWorkbookExtension) ||
+    (nameNeedle && !fileName.toLocaleLowerCase("en-US").includes(nameNeedle))
+  ) {
+    return null;
+  }
+  const attachmentId = providerIdentifier(attachment.id);
+  const versionId = providerIdentifier(
+    attachment.currentAttachmentId ?? attachment.versionId ?? attachment.id
+  );
+  if (!attachmentId || !versionId) {
+    return null;
+  }
+  return {
+    attachment_id: attachmentId,
+    version_id: versionId,
+    extension: extension as WrikeWorkbookExtension,
+    updated_at: safeAttachmentUpdatedAt(attachment)
+  };
+}
+
+/**
+ * Performs a bounded, metadata-only discovery across the configured Wrike
+ * folder/project boundary. It does not download attachments, parse a workbook,
+ * persist evidence, create a job, write to Wrike, or call Lift.
+ */
+export async function discoverScopedWrikeIntakeTasks(
+  credentials: WrikeOAuthCredentials,
+  config: WrikeSourceConfig,
+  options: {
+    fetch_impl?: typeof fetch;
+    now?: () => Date;
+    max_pages?: number;
+    max_tasks?: number;
+    max_shipping_tasks?: number;
+  } = {}
+): Promise<WrikeScopedIntakeDiscoveryResult> {
+  const fetchImpl = options.fetch_impl ?? fetch;
+  const now = options.now ?? (() => new Date());
+  const folderId = providerIdentifier(config.folder_id);
+  const triggerStatusId = providerIdentifier(config.trigger_status_id);
+  const vendorFieldId = providerIdentifier(config.print_vendor_custom_field_id);
+  const orderTaskTitle = config.order_task_title.trim();
+  const orderTaskTypeId = providerIdentifier(config.order_task_custom_item_type_id);
+  const vendorValue = config.required_print_vendor_value.trim();
+  if (
+    !folderId ||
+    !triggerStatusId ||
+    !vendorFieldId ||
+    !vendorValue ||
+    (config.order_task_identity_mode === "custom_item_type"
+      ? !orderTaskTypeId
+      : !orderTaskTitle)
+  ) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      "Save the Wrike folder, exact order-task identity, intake-ready status, Print Vendor field, and required vendor value before discovery."
+    );
+  }
+  if (
+    config.shipping_intake.enabled &&
+    (!providerIdentifier(config.shipping_intake.trigger_status_id) ||
+      (config.shipping_intake.task_identity_mode === "custom_item_type"
+        ? !providerIdentifier(config.shipping_intake.custom_item_type_id)
+        : !config.shipping_intake.task_title.trim()))
+  ) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      "Active shipping intake requires an exact task identity and shipping-ready status ID."
+    );
+  }
+
+  const refreshed = await refreshWrikeOAuthCredentials(credentials, options);
+  const rotatedCredentials = refreshed.credentials;
+  const host = rotatedCredentials.host;
+  const accessToken = rotatedCredentials.access_token ?? "";
+  const maxPages = Math.max(1, Math.min(options.max_pages ?? 10, 10));
+  const maxTasks = Math.max(1, Math.min(options.max_tasks ?? 1000, 1000));
+  const taskRecords: Record<string, unknown>[] = [];
+  let nextPageToken = "";
+
+  for (let page = 0; page < maxPages; page += 1) {
+    const taskUrl = new URL(
+      `https://${host}/api/v4/folders/${encodeURIComponent(folderId)}/tasks`
+    );
+    taskUrl.searchParams.set("descendants", "true");
+    taskUrl.searchParams.set(
+      "fields",
+      JSON.stringify([
+        "attachmentCount",
+        "customFields",
+        "customItemTypeId",
+        "parentIds",
+        "superParentIds"
+      ])
+    );
+    taskUrl.searchParams.set("pageSize", "100");
+    if (nextPageToken) {
+      taskUrl.searchParams.set("nextPageToken", nextPageToken);
+    }
+    let response: Response;
+    try {
+      response = await fetchImpl(taskUrl, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+      });
+    } catch {
+      throw new WrikeConnectionError(
+        "task_discovery_failed",
+        "Pathfinder could not reach the configured Wrike campaign scope.",
+        rotatedCredentials
+      );
+    }
+    const payload = await readWrikeApiJson(response, "task_discovery_failed", rotatedCredentials);
+    taskRecords.push(
+      ...(Array.isArray(payload.data) ? payload.data : []).map(asRecord)
+    );
+    if (taskRecords.length > maxTasks) {
+      throw new WrikeConnectionError(
+        "invalid_response",
+        "The configured Wrike campaign scope exceeds the bounded discovery limit.",
+        rotatedCredentials
+      );
+    }
+    nextPageToken =
+      typeof payload.nextPageToken === "string"
+        ? payload.nextPageToken.trim().slice(0, 2048)
+        : "";
+    if (!nextPageToken) {
+      break;
+    }
+    if (page === maxPages - 1) {
+      throw new WrikeConnectionError(
+        "invalid_response",
+        "Wrike discovery exceeded the bounded page limit.",
+        rotatedCredentials
+      );
+    }
+  }
+
+  const orderCandidates = taskRecords
+    .map((task): WrikeEligibleOrderTask | null => {
+      const scoped = scopedTaskRecord(task, folderId);
+      if (
+        !scoped ||
+        scoped.custom_status_id !== triggerStatusId ||
+        !taskIdentityMatches(
+          task,
+          config.order_task_identity_mode,
+          orderTaskTitle,
+          orderTaskTypeId
+        )
+      ) {
+        return null;
+      }
+      const vendor = resolveWrikeTextCustomField(task, vendorFieldId);
+      const contract = resolveWrikeContractNumber(task, config.contract_number_custom_field_id);
+      if (
+        normalizedComparableText(vendor) !== normalizedComparableText(vendorValue) ||
+        contract.status !== "ready"
+      ) {
+        return null;
+      }
+      const artwork = resolveWrikeArtworkFolderUrl(task, config.artwork_folder_custom_field_id);
+      return {
+        ...scoped,
+        contract_number: contract.contract_number ?? "",
+        artwork_folder_status: artwork.status
+      };
+    })
+    .filter((task): task is WrikeEligibleOrderTask => task !== null)
+    .sort((left, right) => left.task_id.localeCompare(right.task_id));
+
+  const shippingCandidates: WrikeEligibleShippingTask[] = [];
+  if (config.shipping_intake.enabled) {
+    const shippingStatusId = providerIdentifier(config.shipping_intake.trigger_status_id);
+    const shippingTypeId = providerIdentifier(config.shipping_intake.custom_item_type_id);
+    const shippingTasks = taskRecords
+      .map((task) => ({ task, scoped: scopedTaskRecord(task, folderId) }))
+      .filter(({ task, scoped }) =>
+        Boolean(
+          scoped &&
+            scoped.custom_status_id === shippingStatusId &&
+            taskIdentityMatches(
+              task,
+              config.shipping_intake.task_identity_mode,
+              config.shipping_intake.task_title,
+              shippingTypeId
+            )
+        )
+      );
+    const maxShippingTasks = Math.max(
+      1,
+      Math.min(options.max_shipping_tasks ?? 25, 25)
+    );
+    if (shippingTasks.length > maxShippingTasks) {
+      throw new WrikeConnectionError(
+        "invalid_response",
+        "The configured Wrike scope has more shipping-ready tasks than the bounded metadata review allows.",
+        rotatedCredentials
+      );
+    }
+    for (const { scoped } of shippingTasks) {
+      if (!scoped) {
+        continue;
+      }
+      const attachmentUrl = new URL(
+        `https://${host}/api/v4/tasks/${encodeURIComponent(scoped.task_id)}/attachments`
+      );
+      attachmentUrl.searchParams.set("versions", "false");
+      attachmentUrl.searchParams.set("withUrls", "false");
+      let attachmentResponse: Response;
+      try {
+        attachmentResponse = await fetchImpl(attachmentUrl, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+        });
+      } catch {
+        throw new WrikeConnectionError(
+          "attachment_metadata_failed",
+          "Pathfinder could not reach shipping attachment metadata.",
+          rotatedCredentials
+        );
+      }
+      const payload = await readWrikeApiJson(
+        attachmentResponse,
+        "attachment_metadata_failed",
+        rotatedCredentials
+      );
+      const attachments = (Array.isArray(payload.data) ? payload.data : [])
+        .map(asRecord)
+        .map((attachment) =>
+          shippingAttachmentMetadata(attachment, config.shipping_intake)
+        )
+        .filter(
+          (attachment): attachment is WrikeShippingAttachmentMetadata =>
+            attachment !== null
+        )
+        .sort(
+          (left, right) =>
+            left.attachment_id.localeCompare(right.attachment_id) ||
+            left.version_id.localeCompare(right.version_id)
+        );
+      shippingCandidates.push({
+        ...scoped,
+        matching_attachment_count: attachments.length,
+        attachments
+      });
+    }
+  }
+
+  return {
+    credentials: rotatedCredentials,
+    checked_at: now().toISOString(),
+    folder_id: folderId,
+    order_candidates: orderCandidates,
+    shipping: {
+      status: config.shipping_intake.enabled ? "Discovered" : "Inactive",
+      candidates: shippingCandidates
+    },
+    summary: {
+      task_count: taskRecords.length,
+      eligible_order_count: orderCandidates.length,
+      eligible_shipping_task_count: shippingCandidates.length
+    },
+    capabilities: {
+      folder_task_metadata_read: true,
+      shipping_attachment_metadata_read: config.shipping_intake.enabled,
+      attachment_download: false,
+      workbook_parse: false,
+      evidence_persistence: false,
+      preview_job_creation: false,
+      wrike_writes: false,
+      lift_actions: false
+    }
+  };
+}
+
 async function discoverApprovedWrikeTaskWithContext(
   credentials: WrikeOAuthCredentials,
   config: WrikeSourceConfig,
@@ -1047,9 +1538,25 @@ async function discoverApprovedWrikeTaskWithContext(
   const contractNumber = resolveWrikeContractNumber(task, config.contract_number_custom_field_id);
   const artworkFolder = resolveWrikeArtworkFolderUrl(task, config.artwork_folder_custom_field_id);
   const folderMatches = parentIds.includes(folderId) || superParentIds.includes(folderId);
+  const taskIdentityMatch = taskIdentityMatches(
+    task,
+    config.order_task_identity_mode,
+    config.order_task_title,
+    providerIdentifier(config.order_task_custom_item_type_id)
+  );
   const statusMatches = customStatusId === triggerStatusId;
+  const printVendorMatches =
+    !config.print_vendor_custom_field_id ||
+    normalizedComparableText(
+      resolveWrikeTextCustomField(task, config.print_vendor_custom_field_id)
+    ) === normalizedComparableText(config.required_print_vendor_value);
   const contractNumberMatches = contractNumber.status === "ready";
-  const taskQualifies = folderMatches && statusMatches && contractNumberMatches;
+  const taskQualifies =
+    folderMatches &&
+    taskIdentityMatch &&
+    statusMatches &&
+    printVendorMatches &&
+    contractNumberMatches;
   const checks: WrikeDiscoveryCheck[] = [
     { check_id: "task", status: "Passed", message: "Wrike returned the exact approved task ID." },
     {
@@ -1060,11 +1567,27 @@ async function discoverApprovedWrikeTaskWithContext(
         : "The approved task is outside the configured folder or project; attachment metadata was not read."
     },
     {
+      check_id: "task_identity",
+      status: taskIdentityMatch ? "Passed" : "Blocked",
+      message: taskIdentityMatch
+        ? "The task matches the configured Placard Order identity."
+        : "The task does not match the configured Placard Order identity; attachment metadata was not read."
+    },
+    {
       check_id: "trigger_status",
       status: statusMatches ? "Passed" : "Blocked",
       message: statusMatches
         ? "The task uses the configured intake-ready status ID."
         : "The task does not use the configured intake-ready status ID; attachment metadata was not read."
+    },
+    {
+      check_id: "print_vendor",
+      status: printVendorMatches ? "Passed" : "Blocked",
+      message: printVendorMatches
+        ? config.print_vendor_custom_field_id
+          ? "The configured Print Vendor field matches the required Larger Than Life value."
+          : "The bounded exact-task QA preview predates the required Print Vendor binding."
+        : "The configured Print Vendor field does not match the required value; attachment metadata was not read."
     },
     {
       check_id: "contract_number",
