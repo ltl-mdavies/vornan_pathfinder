@@ -4597,6 +4597,54 @@ h1 {
   border-radius: 9px;
 }
 
+.wrike-intake-behaviors {
+  display: grid;
+  gap: 12px;
+}
+
+.wrike-intake-behavior {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  margin: 0;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.74);
+  border: 1px solid rgba(57, 82, 59, 0.14);
+  border-radius: 8px;
+}
+
+.wrike-intake-behavior > legend {
+  padding: 0 6px;
+  color: var(--vornan-forest);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.wrike-intake-behavior .setup-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.wrike-intake-behavior .switch-field > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.wrike-intake-behavior .switch-field small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wrike-intake-behavior .source-setup-callout {
+  margin: 0;
+}
+
+.wrike-extension-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
 .wrike-contract-heading,
 .wrike-extension-row,
 .wrike-contract-safeguard {
@@ -10709,7 +10757,8 @@ td {
   }
 
   .wrike-contract-grid,
-  .wrike-contract-flow {
+  .wrike-contract-flow,
+  .wrike-intake-behavior .setup-grid {
     grid-template-columns: 1fr;
   }
 

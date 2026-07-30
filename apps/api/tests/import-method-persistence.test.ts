@@ -93,6 +93,20 @@ test("persists a Wrike source contract without retaining credentials or weakenin
         artwork_folder_custom_field_id: " IEARTWORK ",
         ltl_exception_custom_field_id: " IEEXCEPTION ",
         print_vendor_custom_field_id: " IEVENDOR ",
+        order_task_identity_mode: "custom_item_type",
+        order_task_title: " Placard Order ",
+        order_task_custom_item_type_id: " IETYPEPLACARD ",
+        required_print_vendor_value: " Larger Than Life ",
+        shipping_intake: {
+          enabled: true,
+          task_identity_mode: "custom_item_type",
+          task_title: " Shipping Information ",
+          custom_item_type_id: " IETYPESHIPPING ",
+          trigger_status_id: " IEHAVEADDRESS ",
+          trigger_status_label: " Have Address - LTL ",
+          attachment_filename_contains: " Ship List ",
+          attachment_extensions: ["xlsx", "csv"]
+        },
         attachment_filename_contains: "Momentara order",
         attachment_extensions: ["xlsx", "csv"],
         attachment_selection: "newest_matching_workbook",
@@ -114,6 +128,21 @@ test("persists a Wrike source contract without retaining credentials or weakenin
   assert.equal(saved.source_config.wrike.artwork_folder_custom_field_id, "IEARTWORK");
   assert.equal(saved.source_config.wrike.ltl_exception_custom_field_id, "IEEXCEPTION");
   assert.equal(saved.source_config.wrike.print_vendor_custom_field_id, "IEVENDOR");
+  assert.equal(saved.source_config.wrike.order_task_identity_mode, "custom_item_type");
+  assert.equal(saved.source_config.wrike.order_task_title, "Placard Order");
+  assert.equal(saved.source_config.wrike.order_task_custom_item_type_id, "IETYPEPLACARD");
+  assert.equal(saved.source_config.wrike.required_print_vendor_value, "Larger Than Life");
+  assert.deepEqual(saved.source_config.wrike.shipping_intake, {
+    enabled: false,
+    task_identity_mode: "custom_item_type",
+    task_title: "Shipping Information",
+    custom_item_type_id: "IETYPESHIPPING",
+    trigger_status_id: "IEHAVEADDRESS",
+    trigger_status_label: "Have Address - LTL",
+    attachment_filename_contains: "Ship List",
+    attachment_extensions: ["xlsx", "csv"],
+    attachment_selection: "all_matching_current_workbooks"
+  });
   assert.equal(saved.source_config.wrike.task_title_rule, "contract_order_ooh");
   assert.equal(saved.source_config.wrike.workbook_name_rule, "contract_order_ooh");
   assert.equal(saved.source_config.wrike.attachment_selection, "all_matching_current_workbooks");

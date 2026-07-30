@@ -99,6 +99,7 @@ import { WorkspaceLoading } from "./WorkspaceLoading";
 import { ProofOpsPanel } from "./ProofOpsPanel";
 import { ProofingApiSetup } from "./ProofingApiSetup";
 import { ImportMethodWorkbookSetup } from "./ImportMethodWorkbookSetup";
+import { WrikeIntakeBehaviorSetup } from "./WrikeIntakeBehaviorSetup";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
@@ -9875,7 +9876,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 }
                               />
                               <small>
-                                Binding only. A later qualified-task slice will define the exact Larger Than Life routing value.
+                                Used with the required vendor value below to qualify Larger Than Life orders.
                               </small>
                             </label>
                             <label className="setup-control">
@@ -9931,6 +9932,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             is descriptive; every current workbook with an allowed extension and optional filename
                             match becomes a separate order candidate.
                           </p>
+
+                          <WrikeIntakeBehaviorSetup
+                            config={activeWrikeConfig}
+                            onChange={updateActiveWrikeConfig}
+                          />
 
                           <div className="wrike-discovery-preview">
                             {activeWrikeConnectionStatus ? (
