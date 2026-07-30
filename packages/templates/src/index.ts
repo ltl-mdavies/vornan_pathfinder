@@ -77,11 +77,23 @@ export interface ParsedWorkbookSheet {
   ignored_header_rows?: number[];
 }
 
+export interface CompositeFieldMappingExpression {
+  kind: "composite";
+  sourceColumns: string[];
+  separator: string;
+  prefix: string;
+  suffix: string;
+  skipEmpty: boolean;
+  fallback: string | null;
+  maxLength: number | null;
+}
+
 export interface FieldMapping {
   sourceColumn: string;
   targetField: string;
   scopeId?: string | null;
   required?: boolean;
+  valueExpression?: CompositeFieldMappingExpression;
 }
 
 export interface InputTemplate {
@@ -1220,16 +1232,79 @@ export function buildDefaultMappings(columns: string[]): FieldMapping[] {
   return mappings;
 }
 
+export interface FieldMappingResolution {
+  value: string | number | boolean | null;
+  status: "resolved" | "empty" | "max_length_exceeded";
+  sourceColumns: string[];
+}
+
+function boundedCompositeText(value: unknown, maximum: number) {
+  return typeof value === "string" ? value.slice(0, maximum) : "";
+}
+
+export function resolveFieldMappingValue(
+  row: Record<string, string | number | boolean | null>,
+  mapping: FieldMapping
+): FieldMappingResolution {
+  const expression = mapping.valueExpression;
+  if (!expression || expression.kind !== "composite") {
+    const value = row[mapping.sourceColumn] ?? null;
+    return {
+      value,
+      status: value === null || value === undefined || String(value).trim() === "" ? "empty" : "resolved",
+      sourceColumns: mapping.sourceColumn ? [mapping.sourceColumn] : []
+    };
+  }
+
+  const sourceColumns = Array.from(
+    new Set(
+      expression.sourceColumns
+        .map((column) => boundedCompositeText(column, 160).trim())
+        .filter(Boolean)
+        .slice(0, 12)
+    )
+  );
+  const parts = sourceColumns.map((column) => valueAsString(row[column]));
+  const selectedParts = expression.skipEmpty ? parts.filter(Boolean) : parts;
+  const separator = boundedCompositeText(expression.separator, 24);
+  const prefix = boundedCompositeText(expression.prefix, 120);
+  const suffix = boundedCompositeText(expression.suffix, 120);
+  const fallback = boundedCompositeText(expression.fallback, 500).trim();
+  const body = selectedParts.join(separator).trim();
+  const value = body ? `${prefix}${body}${suffix}`.trim() : fallback;
+  if (!value) {
+    return { value: null, status: "empty", sourceColumns };
+  }
+
+  const maxLength =
+    typeof expression.maxLength === "number" && Number.isInteger(expression.maxLength)
+      ? Math.min(2_000, Math.max(1, expression.maxLength))
+      : null;
+  if (maxLength && value.length > maxLength) {
+    return { value: null, status: "max_length_exceeded", sourceColumns };
+  }
+
+  return { value, status: "resolved", sourceColumns };
+}
+
 function getMappedValue(
   row: Record<string, string | number | boolean | null>,
   mappings: FieldMapping[],
   targetField: string
 ) {
   const scopeId = valueAsString(row.__pathfinder_scope_id);
+  const scopedMappings = mappings.filter(
+    (candidate) => candidate.scopeId === scopeId && candidate.targetField === targetField
+  );
+  const globalMappings = mappings.filter(
+    (candidate) => !candidate.scopeId && candidate.targetField === targetField
+  );
   const mapping =
-    mappings.find((candidate) => candidate.scopeId === scopeId && candidate.targetField === targetField) ??
-    mappings.find((candidate) => !candidate.scopeId && candidate.targetField === targetField);
-  return mapping ? row[mapping.sourceColumn] : null;
+    scopedMappings.find((candidate) => candidate.valueExpression?.kind === "composite") ??
+    scopedMappings[0] ??
+    globalMappings.find((candidate) => candidate.valueExpression?.kind === "composite") ??
+    globalMappings[0];
+  return mapping ? resolveFieldMappingValue(row, mapping).value : null;
 }
 
 function valueAsString(value: unknown, fallback = "") {

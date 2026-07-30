@@ -3,7 +3,11 @@ import test from "node:test";
 import * as XLSX from "xlsx";
 import { sampleCanonicalOrder, validateCanonicalOrder } from "@pathfinder/canonical";
 
-import { mapSourceRowsToCanonicalOrder, parseWorkbookArrayBuffer } from "../src/index.ts";
+import {
+  mapSourceRowsToCanonicalOrder,
+  parseWorkbookArrayBuffer,
+  resolveFieldMappingValue
+} from "../src/index.ts";
 
 function workbookBuffer(sheets: Record<string, unknown[][]>) {
   const workbook = XLSX.utils.book_new();
@@ -320,6 +324,134 @@ test("applies section-scoped canonical mappings without cross-sheet column colli
   assert.equal(order.lines[1].product_name, "Clip frame");
   assert.equal(order.lines[1].customer_sku, "FRAME-20X12");
   assert.equal(order.lines[1].quantity, 3);
+});
+
+test("builds different composite line descriptions for print and hardware sections", () => {
+  const order = mapSourceRowsToCanonicalOrder(
+    [
+      {
+        __pathfinder_scope_id: "Order Form::print",
+        DESCRIPTION: "Pump topper",
+        Creative: "Chevron",
+        "Print QTY": 2,
+        Width: 30,
+        Height: 46,
+        "SIGN TYPE": "Pump Topper"
+      },
+      {
+        __pathfinder_scope_id: "Order Form::hardware",
+        Hardware: "GNA Tops",
+        Description: "1924-Printed Top",
+        "Item SKU": "8417-002",
+        "PS SKU": "AOM403",
+        "Qty. Needed": 585
+      },
+      {
+        __pathfinder_scope_id: "Order Form::hardware",
+        Hardware: "20x12 / Clip Frames",
+        Description: null,
+        "Item SKU": null,
+        "PS SKU": "AOM397",
+        "Qty. Needed": 24
+      }
+    ],
+    [
+      {
+        sourceColumn: "",
+        targetField: "lines[].description",
+        scopeId: "Order Form::print",
+        valueExpression: {
+          kind: "composite",
+          sourceColumns: ["DESCRIPTION", "Creative"],
+          separator: " — ",
+          prefix: "",
+          suffix: "",
+          skipEmpty: true,
+          fallback: null,
+          maxLength: 250
+        }
+      },
+      {
+        sourceColumn: "SIGN TYPE",
+        targetField: "lines[].unit_number",
+        scopeId: "Order Form::print"
+      },
+      {
+        sourceColumn: "Print QTY",
+        targetField: "lines[].quantity",
+        scopeId: "Order Form::print"
+      },
+      {
+        sourceColumn: "Width",
+        targetField: "lines[].dimensions.final_width",
+        scopeId: "Order Form::print"
+      },
+      {
+        sourceColumn: "Height",
+        targetField: "lines[].dimensions.final_height",
+        scopeId: "Order Form::print"
+      },
+      {
+        sourceColumn: "",
+        targetField: "lines[].description",
+        scopeId: "Order Form::hardware",
+        valueExpression: {
+          kind: "composite",
+          sourceColumns: ["Hardware", "Description", "Item SKU"],
+          separator: " — ",
+          prefix: "",
+          suffix: "",
+          skipEmpty: true,
+          fallback: null,
+          maxLength: 250
+        }
+      },
+      {
+        sourceColumn: "PS SKU",
+        targetField: "lines[].unit_number",
+        scopeId: "Order Form::hardware"
+      },
+      {
+        sourceColumn: "Qty. Needed",
+        targetField: "lines[].quantity",
+        scopeId: "Order Form::hardware"
+      }
+    ],
+    {
+      customerId: "lift:284619",
+      customerName: "Momentara",
+      sourceSystem: "Wrike",
+      sourceCustomer: "Momentara",
+      targetSystem: "Lift"
+    }
+  );
+
+  assert.equal(order.lines[0].description, "Pump topper — Chevron");
+  assert.equal(order.lines[1].description, "GNA Tops — 1924-Printed Top — 8417-002");
+  assert.equal(order.lines[2].description, "20x12 / Clip Frames");
+});
+
+test("fails a bounded composite closed when its resolved value exceeds the configured maximum", () => {
+  const result = resolveFieldMappingValue(
+    { Description: "12345", Creative: "67890" },
+    {
+      sourceColumn: "",
+      targetField: "lines[].description",
+      valueExpression: {
+        kind: "composite",
+        sourceColumns: ["Description", "Creative"],
+        separator: " ",
+        prefix: "",
+        suffix: "",
+        skipEmpty: true,
+        fallback: null,
+        maxLength: 8
+      }
+    }
+  );
+
+  assert.equal(result.status, "max_length_exceeded");
+  assert.equal(result.value, null);
 });
 
 test("does not invent print dimensions for an explicitly mapped hardware product", () => {

@@ -166,6 +166,21 @@ test("persists detected schemas and mappings without retaining workbook rows", a
       targetField: "lines[].customer_sku",
       scopeId: "Orders::orders-print-3",
       required: true
+    },
+    {
+      sourceColumn: "",
+      targetField: "lines[].description",
+      scopeId: "Orders::orders-print-3",
+      valueExpression: {
+        kind: "composite",
+        sourceColumns: ["Description", "Creative"],
+        separator: " — ",
+        prefix: "",
+        suffix: "",
+        skipEmpty: true,
+        fallback: null,
+        maxLength: 250
+      }
     }
   ];
   const workbookStructure = {

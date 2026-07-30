@@ -2505,6 +2505,7 @@ function normalizeImportMethod(method: ImportMethod): ImportMethod {
   const route = createSeedOutputRoute();
   return {
     ...method,
+    mappings: normalizeFieldMappings(method.mappings),
     status: method.status ?? "Draft",
     output_route_id: method.output_route_id ?? route.output_route_id,
     target_id: method.target_id ?? route.target_id,
@@ -2533,6 +2534,82 @@ function normalizeImportMethod(method: ImportMethod): ImportMethod {
     ext_id_strategy: method.ext_id_strategy === "pathfinder_generated" ? "pathfinder_generated" : "customer_order_id",
     public_intake: normalizePublicIntakeConfig(method.public_intake)
   };
+}
+
+function normalizeFieldMappings(mappings: FieldMapping[] | undefined): FieldMapping[] {
+  return (mappings ?? []).flatMap((mapping) => {
+    const targetField = typeof mapping.targetField === "string" ? mapping.targetField.trim().slice(0, 240) : "";
+    const scopeId =
+      typeof mapping.scopeId === "string" && mapping.scopeId.trim()
+        ? mapping.scopeId.trim().slice(0, 240)
+        : null;
+    if (!targetField) {
+      return [];
+    }
+
+    if (mapping.valueExpression?.kind === "composite") {
+      const sourceColumns = Array.from(
+        new Set(
+          (mapping.valueExpression.sourceColumns ?? [])
+            .filter((column): column is string => typeof column === "string")
+            .map((column) => column.trim().slice(0, 160))
+            .filter(Boolean)
+            .slice(0, 12)
+        )
+      );
+      if (!sourceColumns.length) {
+        return [];
+      }
+      const maxLength =
+        typeof mapping.valueExpression.maxLength === "number" &&
+        Number.isInteger(mapping.valueExpression.maxLength)
+          ? Math.max(1, Math.min(2_000, mapping.valueExpression.maxLength))
+          : null;
+      return [
+        {
+          sourceColumn: "",
+          targetField,
+          ...(scopeId ? { scopeId } : {}),
+          ...(mapping.required !== undefined ? { required: Boolean(mapping.required) } : {}),
+          valueExpression: {
+            kind: "composite" as const,
+            sourceColumns,
+            separator:
+              typeof mapping.valueExpression.separator === "string"
+                ? mapping.valueExpression.separator.slice(0, 24)
+                : " ",
+            prefix:
+              typeof mapping.valueExpression.prefix === "string"
+                ? mapping.valueExpression.prefix.slice(0, 120)
+                : "",
+            suffix:
+              typeof mapping.valueExpression.suffix === "string"
+                ? mapping.valueExpression.suffix.slice(0, 120)
+                : "",
+            skipEmpty: mapping.valueExpression.skipEmpty !== false,
+            fallback:
+              typeof mapping.valueExpression.fallback === "string" && mapping.valueExpression.fallback.trim()
+                ? mapping.valueExpression.fallback.trim().slice(0, 500)
+                : null,
+            maxLength
+          }
+        }
+      ];
+    }
+
+    const sourceColumn =
+      typeof mapping.sourceColumn === "string" ? mapping.sourceColumn.trim().slice(0, 160) : "";
+    return sourceColumn
+      ? [
+          {
+            sourceColumn,
+            targetField,
+            ...(scopeId ? { scopeId } : {}),
+            ...(mapping.required !== undefined ? { required: Boolean(mapping.required) } : {})
+          }
+        ]
+      : [];
+  });
 }
 
 function normalizeProductMapping(mapping: CustomerProductMapping): CustomerProductMapping {
@@ -3862,6 +3939,7 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
     ...normalizedMethodSource,
     ...methodPatch,
     import_method_id: methodId,
+    mappings: normalizeFieldMappings(methodPatch.mappings ?? normalizedMethodSource.mappings),
     source_config: nextSourceConfig,
     workbook_sheet_policy: methodPatch.workbook_sheet_policy ?? methodSource.workbook_sheet_policy ?? "rows_with_quantity",
     product_resolution_config: {
