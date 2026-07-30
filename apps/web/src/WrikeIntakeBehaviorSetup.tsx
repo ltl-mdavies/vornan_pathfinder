@@ -188,7 +188,7 @@ export function WrikeIntakeBehaviorSetup({
               }
             />
           </label>
-          <fieldset className="setup-control setup-control-wide">
+          <fieldset className="setup-control setup-control-wide wrike-extension-fieldset">
             <legend>Allowed shipping workbook types</legend>
             <div className="wrike-extension-options">
               {(["xlsx", "xls", "csv"] as WrikeWorkbookExtension[]).map((extension) => (

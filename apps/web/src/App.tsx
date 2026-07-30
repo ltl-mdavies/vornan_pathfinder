@@ -9704,6 +9704,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           </div>
 
                           <div className="wrike-contract-grid">
+                            <div className="wrike-contract-section-heading">
+                              <span className="section-eyebrow">Connection</span>
+                              <strong>Wrike account and field discovery</strong>
+                              <small>
+                                Choose the customer connection, then confirm the Momentara custom-field IDs used by this method.
+                              </small>
+                            </div>
                             <label className="setup-control setup-control-wide">
                               <span>Customer Wrike connection</span>
                               <select
@@ -9802,6 +9809,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   {wrikeCustomFieldMessage}
                                 </p>
                               ) : null}
+                            </div>
+                            <div className="wrike-contract-section-heading">
+                              <span className="section-eyebrow">Qualification rules</span>
+                              <strong>Task scope and intake trigger</strong>
+                              <small>
+                                Define where Pathfinder looks, which task status qualifies an order, and the fields required to identify it.
+                              </small>
                             </div>
                             <label className="setup-control">
                               <span>Folder or project ID</span>
@@ -9923,6 +9937,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             </label>
                           </div>
 
+                          <div className="wrike-contract-section-heading wrike-contract-section-heading-divider">
+                            <span className="section-eyebrow">Workbook intake</span>
+                            <strong>Accepted files and intake behaviors</strong>
+                            <small>
+                              Control which workbook formats qualify and how order and shipping tasks are interpreted.
+                            </small>
+                          </div>
                           <div className="wrike-extension-row">
                             <span>Accepted workbooks</span>
                             <div>
@@ -9955,6 +9976,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             onChange={updateActiveWrikeConfig}
                           />
 
+                          <div className="wrike-contract-section-heading wrike-contract-section-heading-divider">
+                            <span className="section-eyebrow">Verification tools</span>
+                            <strong>Read-only discovery and operator-controlled preparation</strong>
+                            <small>
+                              Verify the saved configuration against an approved Wrike task before any workbook evidence is prepared.
+                            </small>
+                          </div>
                           <div className="wrike-discovery-preview">
                             {activeWrikeConnectionStatus ? (
                               <div className="wrike-qa-readiness">
