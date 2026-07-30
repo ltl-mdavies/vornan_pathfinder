@@ -7145,6 +7145,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     event.target.value = "";
   }
 
+  function refreshImportMethodSourceSchema() {
+    const file = methodTemplateFileRef.current;
+    if (file) {
+      void detectImportMethodSourceSchema(file);
+      return;
+    }
+    methodTemplateInputRef.current?.click();
+  }
+
   function updateSourceSheetHeaderOverride(sheetName: string, override: SourceSheetHeaderOverride | null) {
     if (!activeImportMethod) {
       return;
@@ -9450,6 +9459,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             </>
                           )}
                         </span>
+                        {detectedSourceSchemaIsStale ? (
+                          <button
+                            type="button"
+                            className="secondary-button table-header-action"
+                            disabled={sourceSchemaState === "detecting"}
+                            onClick={refreshImportMethodSourceSchema}
+                          >
+                            <RefreshCw size={15} />
+                            Refresh Schema to Save
+                          </button>
+                        ) : null}
                         <button
                           className="secondary-button table-header-action"
                           onClick={() => requestGuardedNavigation(() => setIsImportMethodDetailOpen(false))}
@@ -10738,7 +10758,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <section className="panel setup-panel source-setup-panel">
                     <PanelHeader icon={Upload} title="Source Setup" detail={sourceColumnOrigin} />
                     <div className="source-schema-setup">
-                      <label
+                      <div
                         className={sourceSchemaState === "detecting" ? "source-schema-drop-zone source-schema-drop-zone-busy" : "source-schema-drop-zone"}
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={(event) => {
@@ -10762,6 +10782,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             Drop or browse for XLSX, XLS, or CSV. Pathfinder retains sheet and column metadata only—not workbook rows or cell values.
                           </span>
                         </div>
+                        <button
+                          type="button"
+                          className="secondary-button source-schema-browse-button"
+                          disabled={sourceSchemaState === "detecting"}
+                          onClick={() => methodTemplateInputRef.current?.click()}
+                        >
+                          <Upload size={15} />
+                          Browse workbook
+                        </button>
                         <input
                           ref={methodTemplateInputRef}
                           className="file-input"
@@ -10770,7 +10799,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           disabled={sourceSchemaState === "detecting"}
                           onChange={handleMethodTemplateChange}
                         />
-                      </label>
+                      </div>
                       <div className="source-schema-toolbar">
                         <div>
                           <span>Schema State</span>
@@ -10792,14 +10821,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               type="button"
                               className="secondary-button"
                               disabled={sourceSchemaState === "detecting"}
-                              onClick={() => {
-                                const file = methodTemplateFileRef.current;
-                                if (file) {
-                                  void detectImportMethodSourceSchema(file);
-                                  return;
-                                }
-                                methodTemplateInputRef.current?.click();
-                              }}
+                              onClick={refreshImportMethodSourceSchema}
                             >
                               {methodTemplateFileRef.current ? "Re-detect Schema" : "Upload Template Again"}
                             </button>
@@ -10816,7 +10838,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </div>
                       {detectedSourceSchemaIsStale ? (
                         <p className="source-schema-message source-schema-message-warning">
-                          Parser settings have changed since this schema was detected. Re-detect before saving so columns and row classification stay in sync.
+                          Workbook rules changed after this schema was detected. Choose Refresh Schema to Save. Pathfinder will reuse the current
+                          workbook when available or ask you to select it again; it will not create or submit an order.
                         </p>
                       ) : sourceSchemaMessage ? (
                         <p className={sourceSchemaState === "error" ? "source-schema-message source-schema-message-error" : "source-schema-message"}>

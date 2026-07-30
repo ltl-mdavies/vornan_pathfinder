@@ -5638,6 +5638,11 @@ h1 {
   line-height: 1.45;
 }
 
+.source-schema-browse-button {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .source-schema-toolbar {
   display: flex;
   align-items: center;
@@ -11457,6 +11462,11 @@ td {
   .source-schema-toolbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .source-schema-browse-button {
+    width: 100%;
+    margin-left: 0;
   }
 
   .source-schema-toolbar-actions {
