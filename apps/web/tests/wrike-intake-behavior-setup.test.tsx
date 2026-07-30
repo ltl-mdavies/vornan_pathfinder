@@ -12,21 +12,23 @@ test("renders separate configurable order discovery and inactive shipping behavi
     <WrikeIntakeBehaviorSetup config={config} onChange={() => undefined} />
   );
 
-  assert.match(markup, /Order discovery and qualification/);
-  assert.match(markup, /GPA Campaigns discovery/);
-  assert.match(markup, /Find eligible Placard Order tasks across campaign descendants/);
-  assert.match(markup, /Placard task title/);
+  assert.match(markup, /Order task rules/);
+  assert.match(markup, /GPA Campaigns/);
+  assert.match(markup, /Find Placard Order tasks across every campaign/);
+  assert.match(markup, /Order task title/);
   assert.match(markup, /Larger Than Life/);
-  assert.match(markup, /approved task ID.*bounded QA verification target/i);
+  assert.match(markup, /QA task ID.*safe verification tools/i);
   assert.match(markup, /Shipping Information intake/);
-  assert.match(markup, /Separate sibling-task behavior/);
+  assert.match(markup, /Planned future step/);
+  assert.match(markup, /Not active yet.*planned task and workbook rules/i);
   assert.match(markup, /Inactive/);
   assert.match(markup, /Shipping intake inactive/);
   assert.match(markup, /Have Address - LTL/);
   assert.match(markup, /cannot download, parse, store, expose, or send shipping workbook contents/);
-  assert.match(markup, /does not use workbook sheet roles/);
+  assert.match(markup, /does not create an order preview.*write to Wrike.*call Lift/i);
   assert.match(markup, /aria-describedby="wrike-shipping-intake-safety"/);
   assert.match(markup, /type="checkbox" disabled=""/);
+  assert.match(markup, /<details class="wrike-intake-behavior wrike-inactive-details">/);
   assert.match(markup, /wrike-intake-behavior/);
 });
 

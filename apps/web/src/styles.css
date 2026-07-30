@@ -4590,34 +4590,95 @@ h1 {
 .wrike-source-contract {
   grid-column: 1 / -1;
   display: grid;
-  gap: 16px;
-  padding: 18px;
-  background: linear-gradient(145deg, #f8faf6, #f2f6ed);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+  min-width: 0;
+  padding: 22px;
+  background: #f8faf6;
   border: 1px solid rgba(57, 82, 59, 0.18);
-  border-radius: 9px;
+  border-radius: 10px;
+}
+
+.wrike-source-contract > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.wrike-guided-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wrike-guided-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid rgba(57, 82, 59, 0.12);
+  border-radius: 8px;
+}
+
+.wrike-guided-steps li > span {
+  display: grid;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: #fff;
+  background: var(--vornan-forest);
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.wrike-guided-steps li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.wrike-guided-steps strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.wrike-guided-steps small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .wrike-intake-behaviors {
   display: grid;
-  gap: 12px;
+  gap: 16px;
+  min-width: 0;
 }
 
 .wrike-intake-behavior {
   display: grid;
   min-width: 0;
-  gap: 14px;
+  gap: 16px;
   margin: 0;
-  padding: 15px;
-  background: rgba(255, 255, 255, 0.74);
+  padding: 18px;
+  background: #fff;
   border: 1px solid rgba(57, 82, 59, 0.14);
-  border-radius: 8px;
+  border-radius: 9px;
+  box-shadow: 0 1px 2px rgba(31, 48, 35, 0.03);
 }
 
 .wrike-intake-behavior > legend {
-  padding: 0 6px;
+  padding: 0 8px;
   color: var(--vornan-forest);
-  font-size: 12px;
-  font-weight: 850;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .wrike-intake-behavior .setup-grid {
@@ -4631,18 +4692,93 @@ h1 {
 
 .wrike-intake-behavior .switch-field small {
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .wrike-intake-behavior .source-setup-callout {
   margin: 0;
 }
 
+.wrike-inactive-details {
+  padding: 0;
+  overflow: hidden;
+}
+
+.wrike-inactive-details-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.wrike-inactive-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.wrike-inactive-details-summary::after {
+  flex: 0 0 auto;
+  color: var(--vornan-forest);
+  content: "+";
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.wrike-inactive-details[open] .wrike-inactive-details-summary::after {
+  content: "−";
+}
+
+.wrike-inactive-details-summary > span:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wrike-inactive-details-summary strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.wrike-inactive-details-summary small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.wrike-inactive-details-body {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-top: 1px solid rgba(57, 82, 59, 0.12);
+}
+
 .wrike-extension-options {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
+}
+
+.wrike-extension-fieldset {
+  margin: 0;
+  padding: 12px 14px 14px;
+  background: #f8faf6;
+  border: 1px solid rgba(57, 82, 59, 0.12);
+  border-radius: 8px;
+}
+
+.wrike-extension-fieldset > legend {
+  padding: 0 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .wrike-contract-heading,
@@ -4656,42 +4792,152 @@ h1 {
 
 .wrike-contract-heading > div {
   display: grid;
-  gap: 4px;
+  gap: 5px;
+  min-width: 0;
 }
 
 .wrike-contract-heading strong {
-  font-size: 16px;
+  color: var(--text-primary);
+  font-size: 17px;
+  line-height: 1.3;
 }
 
 .wrike-contract-heading small,
 .wrike-contract-note {
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 700;
-  line-height: 1.45;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 .section-eyebrow,
 .wrike-extension-row > span {
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 850;
-  letter-spacing: 0.04em;
+  font-weight: 800;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
 .wrike-contract-grid {
   display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 18px 14px;
+  min-width: 0;
+}
+
+.wrike-contract-grid > .setup-control {
+  grid-column: span 4;
+}
+
+.wrike-contract-grid > .setup-control-wide,
+.wrike-contract-grid > .wrike-custom-field-discovery {
+  grid-column: span 6;
+}
+
+.wrike-contract-grid .setup-control > small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.wrike-advanced-identifiers {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(57, 82, 59, 0.14);
+  border-radius: 8px;
+}
+
+.wrike-advanced-identifiers > summary {
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.wrike-advanced-identifiers > summary::-webkit-details-marker {
+  display: none;
+}
+
+.wrike-advanced-identifiers > summary > span {
+  display: grid;
+  gap: 3px;
+  padding-right: 30px;
+}
+
+.wrike-advanced-identifiers > summary > span::after {
+  position: absolute;
+  right: 16px;
+  color: var(--vornan-forest);
+  content: "+";
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.wrike-advanced-identifiers[open] > summary > span::after {
+  content: "−";
+}
+
+.wrike-advanced-identifiers > summary {
+  position: relative;
+}
+
+.wrike-advanced-identifiers > summary strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.wrike-advanced-identifiers > summary small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.wrike-advanced-identifiers-grid {
+  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 16px 14px;
+  padding: 16px;
+  background: #fff;
+  border-top: 1px solid rgba(57, 82, 59, 0.12);
+}
+
+.wrike-contract-section-heading {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wrike-contract-section-heading strong {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.wrike-contract-section-heading small {
+  max-width: 880px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.wrike-contract-section-heading-divider {
+  padding-top: 20px;
+  border-top: 1px solid rgba(57, 82, 59, 0.14);
 }
 
 .wrike-extension-row {
   align-items: flex-start;
-  padding: 12px;
-  background: rgba(255, 255, 255, 0.72);
+  padding: 14px 16px;
+  background: #fff;
   border: 1px solid rgba(57, 82, 59, 0.12);
-  border-radius: 7px;
+  border-radius: 8px;
 }
 
 .wrike-extension-row > div {
@@ -4708,23 +4954,23 @@ h1 {
 
 .wrike-contract-flow span {
   min-width: 0;
-  padding: 11px;
+  padding: 12px 10px;
   color: var(--vornan-forest);
   background: #fff;
   border: 1px solid rgba(57, 82, 59, 0.14);
-  border-radius: 7px;
-  font-size: 11px;
-  font-weight: 800;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
   text-align: center;
 }
 
 .wrike-contract-safeguard {
   justify-content: flex-start;
-  padding: 12px;
+  padding: 13px 14px;
   color: var(--vornan-forest);
   background: rgba(171, 198, 95, 0.14);
   border: 1px solid rgba(111, 141, 61, 0.24);
-  border-radius: 7px;
+  border-radius: 8px;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -4739,11 +4985,12 @@ h1 {
 
 .wrike-custom-field-discovery {
   display: grid;
-  gap: 12px;
-  padding: 14px;
-  background: #f6f8f3;
+  gap: 14px;
+  min-width: 0;
+  padding: 16px;
+  background: #fff;
   border: 1px solid rgba(57, 82, 59, 0.14);
-  border-radius: 8px;
+  border-radius: 9px;
 }
 
 .wrike-custom-field-discovery > div:first-child {
@@ -4758,9 +5005,9 @@ h1 {
 .wrike-custom-field-discovery > div:first-child small,
 .wrike-custom-field-results small {
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.4;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .wrike-custom-field-results {
@@ -4794,20 +5041,22 @@ h1 {
 
 .wrike-discovery-preview {
   display: grid;
-  gap: 12px;
-  padding: 15px;
-  background: rgba(255, 255, 255, 0.86);
+  gap: 18px;
+  min-width: 0;
+  padding: 18px;
+  background: #fff;
   border: 1px solid rgba(57, 82, 59, 0.15);
-  border-radius: 8px;
+  border-radius: 9px;
+  box-shadow: 0 1px 2px rgba(31, 48, 35, 0.03);
 }
 
 .wrike-qa-readiness {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 14px;
+  padding: 16px;
   background: #f6f8f3;
   border: 1px solid rgba(57, 82, 59, 0.13);
-  border-radius: 7px;
+  border-radius: 8px;
 }
 
 .wrike-qa-readiness-loading {
@@ -4838,8 +5087,8 @@ h1 {
 .wrike-qa-readiness-heading small {
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 700;
-  line-height: 1.45;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 .wrike-qa-readiness-grid {
@@ -4871,9 +5120,9 @@ h1 {
 
 .wrike-qa-readiness-grid small {
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.4;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
 }
 
 .wrike-discovery-heading,
@@ -4898,8 +5147,8 @@ h1 {
   max-width: 780px;
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 700;
-  line-height: 1.45;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
 .wrike-discovery-actions {
@@ -4948,7 +5197,7 @@ h1 {
   gap: 9px;
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .wrike-discovery-message {
@@ -4966,11 +5215,11 @@ h1 {
 
 .wrike-manual-intake-panel {
   display: grid;
-  gap: 12px;
-  padding: 14px;
-  background: linear-gradient(135deg, rgba(171, 198, 95, 0.1), rgba(243, 247, 241, 0.72));
+  gap: 14px;
+  padding: 16px;
+  background: rgba(171, 198, 95, 0.09);
   border: 1px solid rgba(111, 141, 61, 0.24);
-  border-radius: 9px;
+  border-radius: 8px;
 }
 
 .wrike-manual-intake-result,
@@ -5046,8 +5295,8 @@ h1 {
 
 .wrike-evidence-panel {
   display: grid;
-  gap: 12px;
-  padding-top: 14px;
+  gap: 14px;
+  padding-top: 18px;
   border-top: 1px solid rgba(57, 82, 59, 0.14);
 }
 
@@ -10676,6 +10925,23 @@ td {
   .dashboard-topbar-actions {
     width: 100%;
   }
+
+  .wrike-contract-grid > .setup-control {
+    grid-column: span 6;
+  }
+
+  .wrike-contract-grid > .setup-control-wide,
+  .wrike-contract-grid > .wrike-custom-field-discovery {
+    grid-column: 1 / -1;
+  }
+
+  .wrike-guided-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .wrike-advanced-identifiers-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1280px) {
@@ -10923,17 +11189,23 @@ td {
 
   .wrike-contract-grid,
   .wrike-contract-flow,
-  .wrike-intake-behavior .setup-grid {
+  .wrike-intake-behavior .setup-grid,
+  .wrike-guided-steps,
+  .wrike-advanced-identifiers-grid {
     grid-template-columns: 1fr;
   }
 
   .setup-control-wide,
-  .wrike-source-contract {
+  .wrike-source-contract,
+  .wrike-contract-grid > .setup-control,
+  .wrike-contract-grid > .setup-control-wide,
+  .wrike-contract-grid > .wrike-custom-field-discovery {
     grid-column: 1 / -1;
   }
 
   .wrike-contract-heading,
   .wrike-extension-row,
+  .wrike-inactive-details-summary,
   .wrike-qa-readiness-heading,
   .wrike-discovery-heading,
   .wrike-discovery-actions {
