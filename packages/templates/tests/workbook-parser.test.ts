@@ -151,6 +151,201 @@ test("detects a second hardware section and blocks a populated line without quan
   assert.equal(parsed.incomplete_rows[0].values.Description, "20x12 / Clip Frames");
 });
 
+test("relocates configured sections by their saved columns when row counts change", async () => {
+  const printHeader = ["Description", "Creative", "Print QTY"];
+  const hardwareHeader = ["Hardware", "PS SKU", "Item SKU", "Description", "Qty. Needed"];
+
+  for (const hardwareHeaderRow of [5, 13, 35, 40]) {
+    const rows: unknown[][] = [
+      printHeader,
+      ["Poster 1", "Creative 1", 1]
+    ];
+    while (rows.length < hardwareHeaderRow - 1) {
+      const ordinal = rows.length;
+      rows.push([`Poster ${ordinal}`, `Creative ${ordinal}`, 1]);
+    }
+    rows.push(hardwareHeader);
+    rows.push(["GNA Tops", "AOM403", "8417-002", "1924-Printed Top", 2]);
+
+    const parsed = await parseWorkbookArrayBuffer(
+      workbookBuffer({ "Order Form": rows }),
+      {
+        sheetConfigs: {
+          "Order Form": {
+            role: "order_lines",
+            enabled: true,
+            sections: [
+              {
+                sectionId: "print-products",
+                label: "Print products",
+                lineKind: "print",
+                headerRow: 1,
+                headerRowCount: 1,
+                headerSignature: printHeader,
+                quantityColumn: "Print QTY",
+                missingQuantityBehavior: "reference",
+                required: true
+              },
+              {
+                sectionId: "hardware-products",
+                label: "Hardware",
+                lineKind: "hardware",
+                headerRow: 13,
+                headerRowCount: 1,
+                headerSignature: hardwareHeader,
+                quantityColumn: "Qty. Needed",
+                missingQuantityBehavior: "block",
+                required: false
+              }
+            ]
+          }
+        }
+      }
+    );
+
+    const orderForm = parsed.source_sheets[0];
+    assert.deepEqual(
+      orderForm.sections.map((section) => [section.section_id, section.header_row]),
+      [
+        ["print-products", 1],
+        ["hardware-products", hardwareHeaderRow]
+      ]
+    );
+    assert.equal(
+      orderForm.sections.find((section) => section.section_id === "hardware-products")?.order_row_count,
+      1
+    );
+    assert.equal(
+      parsed.parsed_order_rows.at(-1)?.scope_id,
+      "Order Form::hardware-products"
+    );
+  }
+});
+
+test("fails closed when configured section columns match more than one row", async () => {
+  const hardwareHeader = ["Hardware", "PS SKU", "Item SKU", "Description", "Qty. Needed"];
+
+  await assert.rejects(
+    () =>
+      parseWorkbookArrayBuffer(
+        workbookBuffer({
+          "Order Form": [
+            ["Description", "Creative", "Print QTY"],
+            ["Poster", "Creative", 1],
+            hardwareHeader,
+            ["GNA Tops", "AOM403", "8417-002", "1924-Printed Top", 2],
+            hardwareHeader,
+            ["Frames", "AOM397", "FRAME-20X12", "20x12 / Clip Frames", 3]
+          ]
+        }),
+        {
+          sheetConfigs: {
+            "Order Form": {
+              role: "order_lines",
+              enabled: true,
+              sections: [
+                {
+                  sectionId: "hardware-products",
+                  label: "Hardware",
+                  lineKind: "hardware",
+                  headerRow: 3,
+                  headerRowCount: 1,
+                  headerSignature: hardwareHeader,
+                  quantityColumn: "Qty. Needed",
+                  missingQuantityBehavior: "block",
+                  required: true
+                }
+              ]
+            }
+          }
+        }
+      ),
+    /matched multiple header rows: 3, 5/
+  );
+});
+
+test("fails closed when required configured section columns are missing", async () => {
+  await assert.rejects(
+    () =>
+      parseWorkbookArrayBuffer(
+        workbookBuffer({
+          "Order Form": [
+            ["Description", "Creative", "Print QTY"],
+            ["Poster", "Creative", 1]
+          ]
+        }),
+        {
+          sheetConfigs: {
+            "Order Form": {
+              role: "order_lines",
+              enabled: true,
+              sections: [
+                {
+                  sectionId: "hardware-products",
+                  label: "Required hardware",
+                  lineKind: "hardware",
+                  headerRow: 13,
+                  headerRowCount: 1,
+                  headerSignature: ["Hardware", "PS SKU", "Item SKU", "Description", "Qty. Needed"],
+                  quantityColumn: "Qty. Needed",
+                  missingQuantityBehavior: "block",
+                  required: true
+                }
+              ]
+            }
+          }
+        }
+      ),
+    /missing the required "Required hardware" header columns/
+  );
+});
+
+test("allows an optional configured hardware section to be absent", async () => {
+  const parsed = await parseWorkbookArrayBuffer(
+    workbookBuffer({
+      "Order Form": [
+        ["Description", "Creative", "Print QTY"],
+        ["Poster", "Creative", 1]
+      ]
+    }),
+    {
+      sheetConfigs: {
+        "Order Form": {
+          role: "order_lines",
+          enabled: true,
+          sections: [
+            {
+              sectionId: "print-products",
+              label: "Print products",
+              lineKind: "print",
+              headerRow: 1,
+              headerRowCount: 1,
+              headerSignature: ["Description", "Creative", "Print QTY"],
+              quantityColumn: "Print QTY",
+              missingQuantityBehavior: "reference",
+              required: true
+            },
+            {
+              sectionId: "hardware-products",
+              label: "Hardware",
+              lineKind: "hardware",
+              headerRow: 13,
+              headerRowCount: 1,
+              headerSignature: ["Hardware", "PS SKU", "Item SKU", "Description", "Qty. Needed"],
+              quantityColumn: "Qty. Needed",
+              missingQuantityBehavior: "block",
+              required: false
+            }
+          ]
+        }
+      }
+    }
+  );
+
+  assert.deepEqual(parsed.source_sheets[0].sections.map((section) => section.section_id), ["print-products"]);
+  assert.equal(parsed.parsed_order_rows.length, 1);
+});
+
 test("applies configured roles and sections independently across workbook sheets", async () => {
   const parsed = await parseWorkbookArrayBuffer(
     workbookBuffer({

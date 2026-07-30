@@ -885,6 +885,46 @@ function sameHeaderSignature(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function configuredHeaderSignatureEntries(columns: string[]) {
+  return columns.flatMap((column, index) => {
+    const normalized = normalizeHeaderAlias(column);
+    if (!normalized || /^column \d+(?: \d+)?$/.test(normalized)) {
+      return [];
+    }
+    return [{ index, value: normalized }];
+  });
+}
+
+function matchesConfiguredHeaderSignature(expectedColumns: string[], candidateColumns: string[]) {
+  const expected = configuredHeaderSignatureEntries(expectedColumns);
+  const candidate = configuredHeaderSignatureEntries(candidateColumns);
+
+  if (expected.length < 2 || expected.length !== candidate.length) {
+    return false;
+  }
+
+  return expected.every(
+    (entry, index) =>
+      candidate[index]?.index === entry.index &&
+      candidate[index]?.value === entry.value
+  );
+}
+
+function configuredSectionHeaderIndexes(matrix: unknown[][], section: WorkbookSectionConfig) {
+  const signature = section.headerSignature ?? [];
+  if (configuredHeaderSignatureEntries(signature).length < 2) {
+    return [];
+  }
+
+  return matrix.flatMap((_, rowIndex) => {
+    if (rowIndex + section.headerRowCount > matrix.length) {
+      return [];
+    }
+    const candidateColumns = headerColumnsForRows(matrix, rowIndex, section.headerRowCount);
+    return matchesConfiguredHeaderSignature(signature, candidateColumns) ? [rowIndex] : [];
+  });
+}
+
 function isSectionHeaderCandidate(matrix: unknown[][], rowIndex: number, headerRowCount: 1 | 2) {
   const headerRows = matrix.slice(rowIndex, rowIndex + headerRowCount);
   const populated = headerRows
@@ -926,18 +966,41 @@ function resolveWorkbookSections(
   options: WorkbookParseOptions,
   sheetConfig: WorkbookSheetConfig | undefined
 ): ResolvedWorkbookSection[] {
-  const configuredSections = (sheetConfig?.sections ?? []).filter(
-    (section) =>
-      typeof section.headerRow === "number" &&
-      section.headerRow >= 1 &&
-      matrix[section.headerRow - 1]?.some((cell) => cellToPrimitive(cell) !== null)
-  );
+  const configuredSections = sheetConfig?.sections ?? [];
   if (configuredSections.length > 0) {
-    return configuredSections
-      .map((section, index) => {
-        const headerIndex = (section.headerRow as number) - 1;
-        const columns = headerColumnsForRows(matrix, headerIndex, section.headerRowCount);
-        return {
+    const resolvedConfiguredSections = configuredSections.flatMap((section, index) => {
+      const signatureMatches = configuredSectionHeaderIndexes(matrix, section);
+      if (signatureMatches.length > 1) {
+        throw new Error(
+          `Workbook sheet "${sheetName}" section "${section.label}" matched multiple header rows: ${signatureMatches
+            .map((rowIndex) => rowIndex + 1)
+            .join(", ")}. Review the workbook before preparing the order.`
+        );
+      }
+
+      const configuredHeaderIndex =
+        typeof section.headerRow === "number" &&
+        section.headerRow >= 1 &&
+        matrix[section.headerRow - 1]?.some((cell) => cellToPrimitive(cell) !== null)
+          ? section.headerRow - 1
+          : null;
+      const hasUsableSignature = configuredHeaderSignatureEntries(section.headerSignature ?? []).length >= 2;
+      const headerIndex = signatureMatches[0] ?? (hasUsableSignature ? null : configuredHeaderIndex);
+
+      if (headerIndex === null) {
+        if (section.required) {
+          throw new Error(
+            `Workbook sheet "${sheetName}" is missing the required "${section.label}" header columns. Review the workbook before preparing the order.`
+          );
+        }
+        return [];
+      }
+
+      const columns = hasUsableSignature
+        ? [...(section.headerSignature as string[])]
+        : headerColumnsForRows(matrix, headerIndex, section.headerRowCount);
+      return [
+        {
           sectionId: safeSectionId(section.sectionId, `section-${index + 1}`),
           label: section.label.trim() || `Section ${index + 1}`,
           lineKind: section.lineKind,
@@ -950,8 +1013,20 @@ function resolveWorkbookSections(
               : findQuantityColumn(columns),
           missingQuantityBehavior: section.missingQuantityBehavior ?? "reference",
           required: section.required === true
-        };
-      })
+        }
+      ];
+    });
+
+    const duplicateHeaderRows = resolvedConfiguredSections
+      .map((section) => section.headerIndex)
+      .filter((headerIndex, index, all) => all.indexOf(headerIndex) !== index);
+    if (duplicateHeaderRows.length > 0) {
+      throw new Error(
+        `Workbook sheet "${sheetName}" resolved multiple configured sections to row ${duplicateHeaderRows[0] + 1}. Review the section columns before preparing the order.`
+      );
+    }
+
+    return resolvedConfiguredSections
       .sort((left, right) => left.headerIndex - right.headerIndex);
   }
 
