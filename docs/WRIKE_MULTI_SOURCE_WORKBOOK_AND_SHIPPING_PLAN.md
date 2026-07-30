@@ -25,6 +25,7 @@ Each source is qualified independently, mapped into canonical Pathfinder fields,
 8. **Shipping remains inactive until Lift transport is confirmed.** Configuration and evidence capture can be implemented safely, but no Lift attachment call may be guessed.
 9. **External repositories are not ingested by this work.** SharePoint, Dropbox, and other linked repositories remain locators only unless a later source contract is approved.
 10. **Proof work remains independently gated.** This plan does not enable customer Proof decisions, Lift Proof writes, revised-art upload, or the dark Proof asset boundary.
+11. **Derived canonical values are configured, not hard-coded.** A section may build one canonical value from ordered source fields using a bounded composite expression. The saved expression owns its separator, prefix/suffix, empty-value behavior, fallback, and optional maximum length.
 
 ## Import Method workbook model
 
@@ -82,6 +83,30 @@ Every order section exposes:
 - scoped product resolution.
 
 Automatic detection is a starting proposal. Saved settings are authoritative.
+
+### Section-scoped derived fields
+
+Direct source-to-canonical mappings remain the default. When one destination value needs multiple source fields, an
+operator can add a deterministic composite to the exact sheet/section scope. Components must come from the same parsed
+row and are evaluated in their configured order; arbitrary code and cross-row joins are not supported.
+
+For the Momentara layout, the intended starting contracts are:
+
+```text
+Order Form / printed products
+  lines[].description = DESCRIPTION + " — " + Creative
+
+Order Form / hardware
+  lines[].description = Hardware + " — " + Description + " — " + Item SKU
+```
+
+Empty components are skipped, so a row containing only `Hardware` still produces a useful description without dangling
+separators. Product resolution remains independent from the display description. The hardware section should prefer the
+stable `PS SKU` as its customer product key when Momentara supplies it consistently.
+
+Each composite is persisted with the Import Method, survives schema re-detection, and is evaluated only in its exact
+scope. A composite targeting a canonical field takes precedence over a legacy direct mapping to that same field within
+the same section. Optional maximum-length enforcement fails the derived value closed rather than truncating it silently.
 
 ## Shipping intake boundary
 
@@ -155,6 +180,7 @@ Every implementation checkpoint must include:
 - hardware with and without quantity;
 - reference/catalog and shipping-role exclusion;
 - scoped field/product mapping collision tests;
+- section-scoped composite mapping, blank-component, ordering, fallback, and maximum-length tests;
 - legacy single-sheet compatibility;
 - Import Method persistence and schema-history tests;
 - canonical hardware validation;

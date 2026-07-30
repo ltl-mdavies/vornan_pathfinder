@@ -100,6 +100,7 @@ import { ProofOpsPanel } from "./ProofOpsPanel";
 import { ProofingApiSetup } from "./ProofingApiSetup";
 import { ImportMethodWorkbookSetup } from "./ImportMethodWorkbookSetup";
 import { WrikeIntakeBehaviorSetup } from "./WrikeIntakeBehaviorSetup";
+import { CompositeFieldMappingSetup } from "./CompositeFieldMappingSetup";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
@@ -2239,7 +2240,14 @@ function ArrowGlyph() {
 function updateMapping(mappings: FieldMapping[], sourceColumn: string, targetField: string, scopeId?: string | null) {
   const normalizedScopeId = scopeId || null;
   const nextMappings = mappings.filter(
-    (mapping) => mapping.sourceColumn !== sourceColumn || (mapping.scopeId ?? null) !== normalizedScopeId
+    (mapping) =>
+      !(
+        (mapping.scopeId ?? null) === normalizedScopeId &&
+        (
+          (!mapping.valueExpression && mapping.sourceColumn === sourceColumn) ||
+          (Boolean(targetField) && mapping.valueExpression?.kind === "composite" && mapping.targetField === targetField)
+        )
+      )
   );
   return targetField
     ? [...nextMappings, { sourceColumn, targetField, ...(normalizedScopeId ? { scopeId: normalizedScopeId } : {}) }]
@@ -3494,13 +3502,21 @@ function sourceSchemaComparison(current: DetectedSourceSchema, previous: Detecte
 }
 
 function mappingsForSourceColumns(columns: string[], currentMappings: FieldMapping[]) {
-  const currentByColumn = new globalThis.Map(currentMappings.map((mapping) => [mapping.sourceColumn, mapping]));
+  const compositeMappings = currentMappings.filter((mapping) => mapping.valueExpression?.kind === "composite");
+  const currentByColumn = new globalThis.Map(
+    currentMappings
+      .filter((mapping) => !mapping.valueExpression)
+      .map((mapping) => [mapping.sourceColumn, mapping])
+  );
   const defaultsByColumn = new globalThis.Map(buildDefaultMappings(columns).map((mapping) => [mapping.sourceColumn, mapping]));
 
-  return columns.flatMap((column) => {
+  return [
+    ...columns.flatMap((column) => {
     const mapping = currentByColumn.get(column) ?? defaultsByColumn.get(column);
     return mapping ? [mapping] : [];
-  });
+    }),
+    ...compositeMappings
+  ];
 }
 
 function mappingsForParsedWorkbook(parsed: ParsedWorkbook, currentMappings: FieldMapping[]) {
@@ -6645,6 +6661,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const mappedColumnCount = fieldMappingColumns.filter((column) =>
     mappings.some(
       (mapping) =>
+        !mapping.valueExpression &&
         mapping.sourceColumn === column &&
         (!effectiveProductScope || mapping.scopeId === effectiveProductScope.scope_id || !mapping.scopeId)
     )
@@ -11785,11 +11802,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             const selected =
                               mappings.find(
                                 (mapping) =>
+                                  !mapping.valueExpression &&
                                   mapping.sourceColumn === column &&
                                   mapping.scopeId === effectiveProductScope?.scope_id
                               )?.targetField ??
                               mappings.find(
-                                (mapping) => mapping.sourceColumn === column && !mapping.scopeId
+                                (mapping) =>
+                                  !mapping.valueExpression && mapping.sourceColumn === column && !mapping.scopeId
                               )?.targetField ??
                               "";
                             return (
@@ -11823,6 +11842,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </tbody>
                       </table>
                     </div>
+                    <CompositeFieldMappingSetup
+                      columns={fieldMappingColumns}
+                      fields={canonicalRegistryFields}
+                      mappings={mappings}
+                      sampleRow={scopedSourceRows[0]?.values ?? sourceGrid.rows[0] ?? {}}
+                      scopeId={effectiveProductScope?.scope_id}
+                      scopeLabel={
+                        effectiveProductScope
+                          ? `${effectiveProductScope.sheet_name} · ${effectiveProductScope.label}`
+                          : "this workbook"
+                      }
+                      onChange={(nextMappings) => {
+                        setMappings(nextMappings);
+                        updateActiveMethodDraft({ mappings: nextMappings });
+                      }}
+                    />
                     <div className="panel-action-footer">
                       <span>
                         {mappedColumnCount} of {fieldMappingColumns.length} source columns mapped
@@ -13325,7 +13360,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </thead>
                       <tbody>
                         {foundInputElements.map(({ column, sample }) => {
-                      const selected = mappings.find((mapping) => mapping.sourceColumn === column)?.targetField ?? "";
+                      const selected =
+                        mappings.find(
+                          (mapping) => !mapping.valueExpression && mapping.sourceColumn === column
+                        )?.targetField ?? "";
                       return (
                         <tr key={column}>
                           <td>
