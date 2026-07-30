@@ -106,7 +106,8 @@ test("renders configurable sheet roles and independent print and hardware sectio
   assert.match(markup, /Block preview until fixed/);
   assert.match(markup, /Add another section/);
   assert.match(markup, /Remove section/);
-  assert.match(markup, /Re-detect after changing a header row/);
+  assert.match(markup, /Pathfinder finds each section by its saved column headers/);
+  assert.match(markup, /Detected Row \(starting hint\)/);
   assert.match(markup, /Shipping attachment \(separate intake\)/);
 });
 

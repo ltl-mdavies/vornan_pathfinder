@@ -218,7 +218,8 @@ export function ImportMethodWorkbookSetup({
             <div className="workbook-section-list">
               <div className="workbook-section-toolbar">
                 <span>
-                  Sections define independent row ranges and mapping scopes. Re-detect after changing a header row.
+                  Pathfinder finds each section by its saved column headers. The detected row is a setup hint and may
+                  move in future workbooks.
                 </span>
                 <button className="secondary-button table-inline-button" type="button" onClick={addSection}>
                   Add another section
@@ -279,7 +280,7 @@ export function ImportMethodWorkbookSetup({
                         </select>
                       </label>
                       <label className="setup-control">
-                        <span>Header Row</span>
+                        <span>Detected Row (starting hint)</span>
                         <input
                           type="number"
                           min={1}
