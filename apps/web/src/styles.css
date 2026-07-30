@@ -4604,6 +4604,58 @@ h1 {
   min-width: 0;
 }
 
+.wrike-guided-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.wrike-guided-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid rgba(57, 82, 59, 0.12);
+  border-radius: 8px;
+}
+
+.wrike-guided-steps li > span {
+  display: grid;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  color: #fff;
+  background: var(--vornan-forest);
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.wrike-guided-steps li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.wrike-guided-steps strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.wrike-guided-steps small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
 .wrike-intake-behaviors {
   display: grid;
   gap: 16px;
@@ -4647,6 +4699,63 @@ h1 {
 
 .wrike-intake-behavior .source-setup-callout {
   margin: 0;
+}
+
+.wrike-inactive-details {
+  padding: 0;
+  overflow: hidden;
+}
+
+.wrike-inactive-details-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.wrike-inactive-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.wrike-inactive-details-summary::after {
+  flex: 0 0 auto;
+  color: var(--vornan-forest);
+  content: "+";
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.wrike-inactive-details[open] .wrike-inactive-details-summary::after {
+  content: "−";
+}
+
+.wrike-inactive-details-summary > span:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wrike-inactive-details-summary strong {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.wrike-inactive-details-summary small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.wrike-inactive-details-body {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border-top: 1px solid rgba(57, 82, 59, 0.12);
 }
 
 .wrike-extension-options {
@@ -4731,6 +4840,70 @@ h1 {
   font-size: 12px;
   font-weight: 500;
   line-height: 1.45;
+}
+
+.wrike-advanced-identifiers {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(57, 82, 59, 0.14);
+  border-radius: 8px;
+}
+
+.wrike-advanced-identifiers > summary {
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.wrike-advanced-identifiers > summary::-webkit-details-marker {
+  display: none;
+}
+
+.wrike-advanced-identifiers > summary > span {
+  display: grid;
+  gap: 3px;
+  padding-right: 30px;
+}
+
+.wrike-advanced-identifiers > summary > span::after {
+  position: absolute;
+  right: 16px;
+  color: var(--vornan-forest);
+  content: "+";
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.wrike-advanced-identifiers[open] > summary > span::after {
+  content: "−";
+}
+
+.wrike-advanced-identifiers > summary {
+  position: relative;
+}
+
+.wrike-advanced-identifiers > summary strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.wrike-advanced-identifiers > summary small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.wrike-advanced-identifiers-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px 14px;
+  padding: 16px;
+  background: #fff;
+  border-top: 1px solid rgba(57, 82, 59, 0.12);
 }
 
 .wrike-contract-section-heading {
@@ -10761,6 +10934,14 @@ td {
   .wrike-contract-grid > .wrike-custom-field-discovery {
     grid-column: 1 / -1;
   }
+
+  .wrike-guided-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .wrike-advanced-identifiers-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1280px) {
@@ -11008,7 +11189,9 @@ td {
 
   .wrike-contract-grid,
   .wrike-contract-flow,
-  .wrike-intake-behavior .setup-grid {
+  .wrike-intake-behavior .setup-grid,
+  .wrike-guided-steps,
+  .wrike-advanced-identifiers-grid {
     grid-template-columns: 1fr;
   }
 
@@ -11022,6 +11205,7 @@ td {
 
   .wrike-contract-heading,
   .wrike-extension-row,
+  .wrike-inactive-details-summary,
   .wrike-qa-readiness-heading,
   .wrike-discovery-heading,
   .wrike-discovery-actions {

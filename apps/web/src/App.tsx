@@ -9687,9 +9687,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <div className="wrike-contract-heading">
                             <div>
                               <span className="section-eyebrow">Wrike order intake</span>
-                              <strong>Bind one Wrike workflow to this Import Method</strong>
+                              <strong>Set up how Pathfinder finds Wrike orders</strong>
                               <small>
-                                Save the durable task, trigger, and workbook rules now. API credentials remain outside the Import Method.
+                                Work from top to bottom. Most teams only need to choose a connection,
+                                confirm the campaign folder and ready status, then review the workbook rules.
                               </small>
                             </div>
                             <span
@@ -9699,16 +9700,48 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   : "mini-pill mini-pill-warning"
                               }
                             >
-                              {activeWrikeReadiness.status === "Configured" ? "Contract configured" : "Needs Wrike IDs"}
+                              {activeWrikeReadiness.status === "Configured" ? "Setup complete" : "Finish setup"}
                             </span>
                           </div>
 
+                          <ol className="wrike-guided-steps" aria-label="Wrike setup steps">
+                            <li>
+                              <span>1</span>
+                              <div>
+                                <strong>Connect Wrike</strong>
+                                <small>Choose the saved Momentara connection.</small>
+                              </div>
+                            </li>
+                            <li>
+                              <span>2</span>
+                              <div>
+                                <strong>Choose eligible orders</strong>
+                                <small>Set the campaign folder and ready status.</small>
+                              </div>
+                            </li>
+                            <li>
+                              <span>3</span>
+                              <div>
+                                <strong>Review workbook rules</strong>
+                                <small>Confirm order and shipping file behavior.</small>
+                              </div>
+                            </li>
+                            <li>
+                              <span>4</span>
+                              <div>
+                                <strong>Test safely</strong>
+                                <small>Save, then run the read-only checks.</small>
+                              </div>
+                            </li>
+                          </ol>
+
                           <div className="wrike-contract-grid">
                             <div className="wrike-contract-section-heading">
-                              <span className="section-eyebrow">Connection</span>
-                              <strong>Wrike account and field discovery</strong>
+                              <span className="section-eyebrow">Step 1 · Connection</span>
+                              <strong>Connect Wrike and find the required fields</strong>
                               <small>
-                                Choose the customer connection, then confirm the Momentara custom-field IDs used by this method.
+                                Choose the customer connection first. Pathfinder can then find the
+                                Momentara custom fields for you.
                               </small>
                             </div>
                             <label className="setup-control setup-control-wide">
@@ -9732,11 +9765,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             </label>
                             <div className="wrike-custom-field-discovery setup-control-wide">
                               <div>
-                                <span className="section-eyebrow">Wrike custom fields</span>
-                                <strong>Confirm the Momentara field IDs from Wrike</strong>
+                                <span className="section-eyebrow">Recommended</span>
+                                <strong>Let Pathfinder find the Wrike fields</strong>
                                 <small>
-                                  Reads account-level field names, IDs, and types only. It does not read a task,
-                                  attachment, workbook, or custom-field value.
+                                  This reads field names and identifiers only. It does not open a task,
+                                  download a workbook, or read customer values.
                                 </small>
                               </div>
                               <div className="wrike-discovery-actions">
@@ -9760,8 +9793,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 >
                                   <Search size={14} />
                                   {wrikeCustomFieldState === "loading"
-                                    ? "Discovering fields"
-                                    : "Discover Wrike fields"}
+                                    ? "Finding fields"
+                                    : "Find fields in Wrike"}
                                 </button>
                                 {wrikeCustomFieldDiscovery ? (
                                   <button
@@ -9773,7 +9806,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                       wrikeCustomFieldDiscovery.fields.length !== 4
                                     }
                                   >
-                                    Apply four field IDs
+                                    Use these fields
                                   </button>
                                 ) : null}
                               </div>
@@ -9811,117 +9844,57 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               ) : null}
                             </div>
                             <div className="wrike-contract-section-heading">
-                              <span className="section-eyebrow">Qualification rules</span>
-                              <strong>Task scope and intake trigger</strong>
+                              <span className="section-eyebrow">Step 2 · Eligible orders</span>
+                              <strong>Choose which Wrike tasks become order candidates</strong>
                               <small>
-                                Define where Pathfinder looks, which task status qualifies an order, and the fields required to identify it.
+                                Pathfinder looks inside GPA Campaigns for Placard Order tasks that match
+                                the saved status and vendor rules.
                               </small>
                             </div>
                             <label className="setup-control">
-                              <span>Folder or project ID</span>
+                              <span>GPA Campaigns folder</span>
                               <input
                                 value={activeWrikeConfig.folder_id}
-                                placeholder="Wrike API ID"
+                                placeholder="Paste the Wrike folder ID"
                                 onChange={(event) => updateActiveWrikeConfig({ folder_id: event.target.value })}
                               />
+                              <small>
+                                Pathfinder checks campaign projects inside this Wrike folder.
+                              </small>
                             </label>
                             <label className="setup-control">
-                              <span>Approved discovery task ID</span>
+                              <span>Ready-to-import status</span>
                               <input
-                                value={activeWrikeConfig.approved_discovery_task_id}
-                                placeholder="One operator-approved Wrike task"
-                                onChange={(event) =>
-                                  updateActiveWrikeConfig({ approved_discovery_task_id: event.target.value })
-                                }
+                                value={activeWrikeConfig.trigger_status_label}
+                                placeholder="Sent to Print - LTL"
+                                onChange={(event) => updateActiveWrikeConfig({ trigger_status_label: event.target.value })}
                               />
+                              <small>Use the status name Momentara sees in Wrike.</small>
                             </label>
                             <label className="setup-control">
-                              <span>Trigger strategy</span>
+                              <span>How Pathfinder checks Wrike</span>
                               <select
                                 value={activeWrikeConfig.trigger_mode}
                                 onChange={(event) =>
                                   updateActiveWrikeConfig({ trigger_mode: event.target.value as WrikeTriggerMode })
                                 }
                               >
-                                <option value="scheduled_polling">Scheduled polling</option>
-                                <option value="webhook_with_reconciliation">Webhook + reconciliation</option>
+                                <option value="scheduled_polling">Check on a schedule</option>
+                                <option value="webhook_with_reconciliation">Wrike notification + safety check</option>
                               </select>
                             </label>
                             <label className="setup-control">
-                              <span>Intake-ready status ID</span>
-                              <input
-                                value={activeWrikeConfig.trigger_status_id}
-                                placeholder="Custom workflow status API ID"
-                                onChange={(event) => updateActiveWrikeConfig({ trigger_status_id: event.target.value })}
-                              />
-                            </label>
-                            <label className="setup-control">
-                              <span>Status label</span>
-                              <input
-                                value={activeWrikeConfig.trigger_status_label}
-                                placeholder="Sent to Print - LTL"
-                                onChange={(event) => updateActiveWrikeConfig({ trigger_status_label: event.target.value })}
-                              />
-                            </label>
-                            <label className="setup-control">
-                              <span>Contract Number custom field ID</span>
-                              <input
-                                value={activeWrikeConfig.contract_number_custom_field_id}
-                                placeholder="Wrike API ID for Contract Number"
-                                onChange={(event) =>
-                                  updateActiveWrikeConfig({ contract_number_custom_field_id: event.target.value })
-                                }
-                              />
-                            </label>
-                            <label className="setup-control">
-                              <span>Artwork folder custom field ID</span>
-                              <input
-                                value={activeWrikeConfig.artwork_folder_custom_field_id}
-                                placeholder="Wrike API ID for LTL Artwork Folder URL"
-                                onChange={(event) =>
-                                  updateActiveWrikeConfig({ artwork_folder_custom_field_id: event.target.value })
-                                }
-                              />
-                              <small>
-                                Optional. A valid HTTPS value maps to canonical Artwork Folder URL and then to
-                                Lift order header field FLEX_FIELD9.
-                              </small>
-                            </label>
-                            <label className="setup-control">
-                              <span>LTL Exception custom field ID</span>
-                              <input
-                                value={activeWrikeConfig.ltl_exception_custom_field_id}
-                                placeholder="Wrike API ID for LTL Exception"
-                                onChange={(event) =>
-                                  updateActiveWrikeConfig({ ltl_exception_custom_field_id: event.target.value })
-                                }
-                              />
-                            </label>
-                            <label className="setup-control">
-                              <span>Print Vendor custom field ID</span>
-                              <input
-                                value={activeWrikeConfig.print_vendor_custom_field_id}
-                                placeholder="Wrike API ID for Print Vendor"
-                                onChange={(event) =>
-                                  updateActiveWrikeConfig({ print_vendor_custom_field_id: event.target.value })
-                                }
-                              />
-                              <small>
-                                Used with the required vendor value below to qualify Larger Than Life orders.
-                              </small>
-                            </label>
-                            <label className="setup-control">
-                              <span>Additional workbook name filter</span>
+                              <span>Workbook name contains (optional)</span>
                               <input
                                 value={activeWrikeConfig.attachment_filename_contains}
-                                placeholder="Optional filename text filter"
+                                placeholder="Leave blank to accept every allowed workbook"
                                 onChange={(event) =>
                                   updateActiveWrikeConfig({ attachment_filename_contains: event.target.value })
                                 }
                               />
                             </label>
                             <label className="setup-control">
-                              <span>Reconciliation interval</span>
+                              <span>Check for updates</span>
                               <select
                                 value={activeWrikeConfig.poll_interval_minutes}
                                 onChange={(event) =>
@@ -9935,13 +9908,89 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 ))}
                               </select>
                             </label>
+                            <details className="wrike-advanced-identifiers">
+                              <summary>
+                                <span>
+                                  <strong>Advanced Wrike identifiers</strong>
+                                  <small>
+                                    Custom field IDs are normally filled by “Find fields in Wrike.”
+                                    Open this only for initial setup, QA, or troubleshooting.
+                                  </small>
+                                </span>
+                              </summary>
+                              <div className="wrike-advanced-identifiers-grid">
+                                <label className="setup-control">
+                                  <span>Approved QA task ID</span>
+                                  <input
+                                    value={activeWrikeConfig.approved_discovery_task_id}
+                                    placeholder="One operator-approved Wrike task"
+                                    onChange={(event) =>
+                                      updateActiveWrikeConfig({ approved_discovery_task_id: event.target.value })
+                                    }
+                                  />
+                                  <small>Used only by the read-only verification tools below.</small>
+                                </label>
+                                <label className="setup-control">
+                                  <span>Ready status ID</span>
+                                  <input
+                                    value={activeWrikeConfig.trigger_status_id}
+                                    placeholder="Wrike workflow status ID"
+                                    onChange={(event) => updateActiveWrikeConfig({ trigger_status_id: event.target.value })}
+                                  />
+                                </label>
+                                <label className="setup-control">
+                                  <span>Contract Number field ID</span>
+                                  <input
+                                    value={activeWrikeConfig.contract_number_custom_field_id}
+                                    placeholder="Wrike field ID"
+                                    onChange={(event) =>
+                                      updateActiveWrikeConfig({ contract_number_custom_field_id: event.target.value })
+                                    }
+                                  />
+                                </label>
+                                <label className="setup-control">
+                                  <span>Artwork Folder URL field ID</span>
+                                  <input
+                                    value={activeWrikeConfig.artwork_folder_custom_field_id}
+                                    placeholder="Wrike field ID"
+                                    onChange={(event) =>
+                                      updateActiveWrikeConfig({ artwork_folder_custom_field_id: event.target.value })
+                                    }
+                                  />
+                                  <small>
+                                    Optional. A valid HTTPS value becomes the order artwork folder URL.
+                                  </small>
+                                </label>
+                                <label className="setup-control">
+                                  <span>LTL Exception field ID</span>
+                                  <input
+                                    value={activeWrikeConfig.ltl_exception_custom_field_id}
+                                    placeholder="Wrike field ID"
+                                    onChange={(event) =>
+                                      updateActiveWrikeConfig({ ltl_exception_custom_field_id: event.target.value })
+                                    }
+                                  />
+                                </label>
+                                <label className="setup-control">
+                                  <span>Print Vendor field ID</span>
+                                  <input
+                                    value={activeWrikeConfig.print_vendor_custom_field_id}
+                                    placeholder="Wrike field ID"
+                                    onChange={(event) =>
+                                      updateActiveWrikeConfig({ print_vendor_custom_field_id: event.target.value })
+                                    }
+                                  />
+                                  <small>Matched to the required vendor value in the order rules below.</small>
+                                </label>
+                              </div>
+                            </details>
                           </div>
 
                           <div className="wrike-contract-section-heading wrike-contract-section-heading-divider">
-                            <span className="section-eyebrow">Workbook intake</span>
-                            <strong>Accepted files and intake behaviors</strong>
+                            <span className="section-eyebrow">Step 3 · Workbook rules</span>
+                            <strong>Choose the files and task behavior Pathfinder should accept</strong>
                             <small>
-                              Control which workbook formats qualify and how order and shipping tasks are interpreted.
+                              These rules decide which current attachments become order candidates.
                             </small>
                           </div>
                           <div className="wrike-extension-row">
@@ -9977,10 +10026,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           />
 
                           <div className="wrike-contract-section-heading wrike-contract-section-heading-divider">
-                            <span className="section-eyebrow">Verification tools</span>
-                            <strong>Read-only discovery and operator-controlled preparation</strong>
+                            <span className="section-eyebrow">Step 4 · Safe verification</span>
+                            <strong>Save the method, then test it against one approved task</strong>
                             <small>
-                              Verify the saved configuration against an approved Wrike task before any workbook evidence is prepared.
+                              Start with the read-only preview. Preparation tools stay unavailable until
+                              their separate server gates are enabled.
                             </small>
                           </div>
                           <div className="wrike-discovery-preview">
