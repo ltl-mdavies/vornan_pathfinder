@@ -18,6 +18,7 @@ test("accepts only the default-dark Proof asset foundation", () => {
     environment_name: "dev",
     stack_name: "vornan-proof-assets-dev",
     bucket_name: "vornan-pathfinder-proof-assets-dev-744016783602",
+    wrike_delivery_bucket_name: "vornan-pathfinder-wrike-delivery-dev-744016783602",
     retained_source_cleanup_eligibility_days: 90,
     outbound_copy_days: 14,
     proof_packet_days: 30,
@@ -27,7 +28,8 @@ test("accepts only the default-dark Proof asset foundation", () => {
     upload_capability_enabled: false,
     signed_delivery_enabled: false,
     lift_publication_enabled: false,
-    external_repository_ingest_enabled: false
+    external_repository_ingest_enabled: false,
+    wrike_document_delivery_enabled: false
   });
 });
 
@@ -42,7 +44,8 @@ test("rejects DNS, certificate, and every capability flag", () => {
     { PATHFINDER_PROOF_ASSET_ENABLE_PUBLIC_DELIVERY: "true" },
     { PATHFINDER_PROOF_ASSET_ENABLE_SIGNED_URLS: "true" },
     { PATHFINDER_PROOF_ASSET_ENABLE_LIFT_PUBLICATION: "true" },
-    { PATHFINDER_PROOF_ASSET_ENABLE_EXTERNAL_INGEST: "true" }
+    { PATHFINDER_PROOF_ASSET_ENABLE_EXTERNAL_INGEST: "true" },
+    { PATHFINDER_ENABLE_WRIKE_LIFT_DOCUMENT_PUBLICATION: "true" }
   ]) {
     assert.throws(() => validateProofAssetDeployment({
       PATHFINDER_PROOF_ASSET_ENVIRONMENT_NAME: "dev",
@@ -85,6 +88,15 @@ test("provisions a retained private encrypted versioned object-lock bucket", () 
   }
 });
 
+test("keeps Wrike Lift delivery in a separate retained private 14-day bucket", () => {
+  assert.match(template, /WrikeDocumentDeliveryBucket:\n\s+Type: AWS::S3::Bucket/);
+  assert.match(template, /Value: wrike-lift-delivery-only/);
+  assert.match(template, /Id: ExpireWrikeLiftDocuments[\s\S]*Prefix: d\/[\s\S]*ExpirationInDays: !Ref OutboundCopyDays/);
+  assert.doesNotMatch(template, /Prefix: manifests\//);
+  assert.match(template, /PathPattern: d\/\*/);
+  assert.match(template, /WrikeDocumentDeliveryEnabled:\n\s+Value: !If \[WrikeDocumentDeliveryActive, "true", "false"\]/);
+});
+
 test("keeps delivery fail-closed and grants only the exact distribution read access", () => {
   assert.match(template, /Type: AWS::CloudFront::OriginAccessControl/);
   assert.match(template, /SigningBehavior: always/);
@@ -103,7 +115,8 @@ test("keeps delivery fail-closed and grants only the exact distribution read acc
 test("the deployment script forces DNS and certificate parameters empty and verifies 404", () => {
   assert.match(deployScript, /AssetDomainName=""/);
   assert.match(deployScript, /CertificateArn=""/);
+  assert.match(deployScript, /WrikeDocumentDeliveryEnabled="false"/);
   assert.match(deployScript, /a\/pre-activation-check/);
   assert.match(deployScript, /"\$\{status\}" != "404"/);
-  assert.doesNotMatch(deployScript, /route53|Lift|proof\.vornan\.co|go\.vornan\.co/i);
+  assert.doesNotMatch(deployScript, /aws route53|curl[^\n]*lifterp|proof\.vornan\.co|go\.vornan\.co/i);
 });

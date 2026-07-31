@@ -45,6 +45,7 @@ export interface LiftOrderPayload {
     pathfinder_canonical_order_id: string;
   };
   order: {
+    [field: string]: unknown;
     ext_id: string;
     po_number?: string | null;
     contract_number?: string | null;
@@ -53,7 +54,8 @@ export interface LiftOrderPayload {
     requested_ship_date?: string | null;
     due_date?: string | null;
     order_attachment?: string | null;
-    FLEX_FIELD9?: string | null;
+    artwork_folder_url?: string | null;
+    reference_proof_url?: string | null;
     shipping?: ShippingAddress | null;
   };
   lines: Array<{
@@ -82,6 +84,12 @@ export interface LiftOrderPayload {
 }
 
 export type ValueNormalizationMatchMode = "exact" | "case_insensitive" | "contains" | "regex";
+
+export interface LiftOrderDocumentOutputFields {
+  order_attachment: string;
+  artwork_folder_url: string;
+  reference_proof_url: string;
+}
 export type ValueNormalizationFallbackBehavior = "pass_through" | "block_submit" | "use_default";
 
 export interface ValueNormalizationRule {
@@ -280,9 +288,54 @@ export function generateLiftPayload(
   } = {
     jobId: "job_preview",
     canonicalOrderId: "co_preview"
+  },
+  documentOutputFields: LiftOrderDocumentOutputFields = {
+    order_attachment: "order_attachment",
+    artwork_folder_url: "artwork_folder_url",
+    reference_proof_url: "reference_proof_url"
   }
 ): LiftOrderPayload {
   const extId = resolveExtId(canonicalOrder, ids);
+
+  const reservedOrderFields = new Set([
+    "ext_id",
+    "po_number",
+    "contract_number",
+    "order_title",
+    "order_note",
+    "requested_ship_date",
+    "due_date",
+    "shipping"
+  ]);
+  const safeDocumentField = (value: string, label: string) => {
+    const field = value.trim();
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(field) || reservedOrderFields.has(field)) {
+      throw new Error(`${label} output field is invalid.`);
+    }
+    return field;
+  };
+  const documentFields = {
+    order_attachment: safeDocumentField(documentOutputFields.order_attachment, "Order attachment"),
+    artwork_folder_url: safeDocumentField(documentOutputFields.artwork_folder_url, "Artwork folder"),
+    reference_proof_url: safeDocumentField(documentOutputFields.reference_proof_url, "Reference proof")
+  };
+  if (new Set(Object.values(documentFields)).size !== 3) {
+    throw new Error("Lift document output fields must be distinct.");
+  }
+
+  const orderPayload: LiftOrderPayload["order"] = {
+    ext_id: extId,
+    po_number: canonicalOrder.order.po_number ?? null,
+    contract_number: canonicalOrder.order.contract_number ?? null,
+    order_title: canonicalOrder.order.order_title ?? null,
+    order_note: canonicalOrder.order.order_note ?? null,
+    requested_ship_date: canonicalOrder.order.ship_date ?? null,
+    due_date: canonicalOrder.order.due_date ?? null,
+    shipping: canonicalOrder.order.shipping ?? null
+  };
+  orderPayload[documentFields.order_attachment] = canonicalOrder.order.order_attachment ?? null;
+  orderPayload[documentFields.artwork_folder_url] = canonicalOrder.order.artwork_folder_url ?? null;
+  orderPayload[documentFields.reference_proof_url] = canonicalOrder.order.reference_proof_url ?? null;
 
   return {
     customer: {
@@ -303,18 +356,7 @@ export function generateLiftPayload(
       pathfinder_job_id: ids.jobId,
       pathfinder_canonical_order_id: ids.canonicalOrderId
     },
-    order: {
-      ext_id: extId,
-      po_number: canonicalOrder.order.po_number ?? null,
-      contract_number: canonicalOrder.order.contract_number ?? null,
-      order_title: canonicalOrder.order.order_title ?? null,
-      order_note: canonicalOrder.order.order_note ?? null,
-      requested_ship_date: canonicalOrder.order.ship_date ?? null,
-      due_date: canonicalOrder.order.due_date ?? null,
-      order_attachment: canonicalOrder.order.order_attachment ?? null,
-      FLEX_FIELD9: canonicalOrder.order.artwork_folder_url ?? null,
-      shipping: canonicalOrder.order.shipping ?? null
-    },
+    order: orderPayload,
     lines: canonicalOrder.lines.map((line) => ({
       line_number: line.line_number,
       unit_number: line.unit_number,

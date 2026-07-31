@@ -1164,9 +1164,10 @@ The optional artwork-folder locator now has a bounded path from Wrike into the i
 - missing optional artwork produces a warning, while an invalid configured value blocks qualification;
 - the provider-neutral canonical destination is `order.artwork_folder_url`;
 - the source order workbook remains distinct as `order.order_attachment`;
-- the Standard Graphics Lift create-order payload maps the canonical artwork-folder URL to header `FLEX_FIELD9`.
+- the original Standard Graphics experiment mapped the canonical artwork-folder URL to `FLEX_FIELD9`, but subsequent QA established that `FLEX_FIELD9` is writable through the post-create order-header update API and is not an accepted create-order import field;
+- the current preferred path renders `order.artwork_folder_url` to a configurable Output Template property for Jason/Lift to map during order import. The `FLEX_FIELD9` update remains a separately gated, default-off fallback design.
 
-The destination was confirmed separately through a controlled write and read-back on an approved LTL Demo order. No real artwork URL or credential value is retained in source or documentation.
+The `FLEX_FIELD9` destination was confirmed separately through a controlled post-create write and read-back on an approved LTL Demo order. That evidence does not establish create-order support. No real artwork URL or credential value is retained in source or documentation.
 
 Full validation passes: every workspace typecheck and test, every production build, 12/12 browser regressions, 61/61 Proof deployment-safety tests, and diff hygiene. Proof confirmed no overlap or capability conflict.
 

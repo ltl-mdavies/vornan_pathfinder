@@ -33,7 +33,8 @@ function payload(orderTitle: string | null): LiftOrderPayload {
       requested_ship_date: null,
       due_date: null,
       order_attachment: null,
-      FLEX_FIELD9: null,
+      artwork_folder_url: null,
+      reference_proof_url: null,
       shipping: {
         method: null,
         account_number: null,
@@ -94,19 +95,53 @@ test("Lift validation accepts a resolved order title", () => {
   assert.deepEqual(messages.map((message) => message.code), ["LIFT-OK"]);
 });
 
-test("keeps the neutral artwork-folder value distinct in the Lift import payload", () => {
+test("maps source-document URLs to distinct configurable Lift create-order fields", () => {
   const result = generateLiftPayload({
     ...sampleCanonicalOrder,
     order: {
       ...sampleCanonicalOrder.order,
       order_attachment: "https://wrike.example/attachments/order.xlsx",
-      artwork_folder_url: "https://momentara.sharepoint.com/sites/art/Shared%20Documents/C123456"
+      artwork_folder_url: "https://momentara.sharepoint.com/sites/art/Shared%20Documents/C123456",
+      reference_proof_url: "https://go.vornan.co/d/reference/proof.pdf"
     }
+  }, undefined, {
+    order_attachment: "source_order_grid_url",
+    artwork_folder_url: "artwork_folder_url",
+    reference_proof_url: "reference_proof_pdf_url"
   });
 
-  assert.equal(result.order.order_attachment, "https://wrike.example/attachments/order.xlsx");
+  assert.equal(result.order.source_order_grid_url, "https://wrike.example/attachments/order.xlsx");
   assert.equal(
-    result.order.FLEX_FIELD9,
+    result.order.artwork_folder_url,
     "https://momentara.sharepoint.com/sites/art/Shared%20Documents/C123456"
+  );
+  assert.equal(result.order.reference_proof_pdf_url, "https://go.vornan.co/d/reference/proof.pdf");
+  assert.equal("FLEX_FIELD9" in result.order, false);
+});
+
+test("rejects colliding or unsafe document output-field configuration", () => {
+  assert.throws(
+    () => generateLiftPayload(sampleCanonicalOrder, undefined, {
+      order_attachment: "attachment_url",
+      artwork_folder_url: "attachment_url",
+      reference_proof_url: "reference_proof_url"
+    }),
+    /must be distinct/
+  );
+  assert.throws(
+    () => generateLiftPayload(sampleCanonicalOrder, undefined, {
+      order_attachment: "order_attachment",
+      artwork_folder_url: "bad.field",
+      reference_proof_url: "reference_proof_url"
+    }),
+    /output field is invalid/
+  );
+  assert.throws(
+    () => generateLiftPayload(sampleCanonicalOrder, undefined, {
+      order_attachment: "order_attachment",
+      artwork_folder_url: "ext_id",
+      reference_proof_url: "reference_proof_url"
+    }),
+    /output field is invalid/
   );
 });

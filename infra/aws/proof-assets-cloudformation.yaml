@@ -1,7 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Private, fail-closed storage and delivery foundation for Vornan Proof uploads.
-  This stack intentionally contains no upload API, signer, resolver, runtime role,
+  Private, fail-closed Vornan asset-delivery edge. Proof uploads and Wrike Lift
+  source documents use physically separate buckets and path namespaces. This
+  stack intentionally contains no upload API, signer, resolver, runtime role,
   DNS record, or Lift integration.
 
 Parameters:
@@ -17,6 +18,16 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^vornan-pathfinder-proof-assets-[a-z0-9-]+$"
     Description: Optional explicit private bucket name.
+  WrikeDeliveryBucketName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^vornan-pathfinder-wrike-delivery-[a-z0-9-]+$"
+    Description: Optional explicit bucket for short-lived Wrike documents delivered to Lift.
+  WrikeDocumentDeliveryEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-dark edge gate for direct /d/* Wrike document delivery.
   AssetDomainName:
     Type: String
     Default: ""
@@ -93,10 +104,29 @@ Rules:
                 - Ref: AssetDomainName
                 - go.vornan.co
         AssertDescription: The production asset alias, when configured, must be go.vornan.co.
+  WrikeDeliveryRequiresAlias:
+    RuleCondition:
+      Fn::Equals:
+        - Ref: WrikeDocumentDeliveryEnabled
+        - "true"
+    Assertions:
+      - Assert:
+          Fn::Equals:
+            - Ref: AssetDomainName
+            - go.vornan.co
+        AssertDescription: Wrike document delivery requires the exact go.vornan.co alias.
+      - Assert:
+          Fn::Not:
+            - Fn::Equals:
+                - Ref: CertificateArn
+                - ""
+        AssertDescription: Wrike document delivery requires the reviewed us-east-1 certificate.
 
 Conditions:
   HasExplicitBucketName: !Not [!Equals [!Ref AssetBucketName, ""]]
+  HasExplicitWrikeDeliveryBucketName: !Not [!Equals [!Ref WrikeDeliveryBucketName, ""]]
   HasAssetAlias: !Not [!Equals [!Ref AssetDomainName, ""]]
+  WrikeDocumentDeliveryActive: !Equals [!Ref WrikeDocumentDeliveryEnabled, "true"]
 
 Resources:
   ProofAssetBucket:
@@ -172,6 +202,49 @@ Resources:
         - Key: DataBoundary
           Value: proof-uploads-only
 
+  WrikeDocumentDeliveryBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If
+        - HasExplicitWrikeDeliveryBucketName
+        - !Ref WrikeDeliveryBucketName
+        - !Sub vornan-pathfinder-wrike-delivery-${EnvironmentName}-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireWrikeLiftDocuments
+            Status: Enabled
+            Prefix: d/
+            ExpirationInDays: !Ref OutboundCopyDays
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref OutboundCopyDays
+          - Id: AbortIncompleteWrikeDocumentUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: !Ref IncompleteMultipartDays
+      Tags:
+        - Key: Application
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: DataBoundary
+          Value: wrike-lift-delivery-only
+
   ProofAssetOriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
@@ -206,6 +279,37 @@ Resources:
             }
           };
         }
+
+  WrikeDocumentDeliveryFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub vornan-wrike-documents-${EnvironmentName}
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Default-dark gate for immutable Wrike documents delivered to Lift
+        Runtime: cloudfront-js-2.0
+      FunctionCode: !If
+        - WrikeDocumentDeliveryActive
+        - |
+          function handler(event) {
+            return event.request;
+          }
+        - |
+          function handler(event) {
+            return {
+              statusCode: 404,
+              statusDescription: "Not Found",
+              headers: {
+                "cache-control": { value: "no-store, max-age=0" },
+                "content-type": { value: "text/plain; charset=utf-8" },
+                "x-content-type-options": { value: "nosniff" }
+              },
+              body: {
+                encoding: "text",
+                data: "Not Found"
+              }
+            };
+          }
 
   ProofAssetResponseHeadersPolicy:
     Type: AWS::CloudFront::ResponseHeadersPolicy
@@ -263,12 +367,33 @@ Resources:
           ResponseHeadersPolicyId: !Ref ProofAssetResponseHeadersPolicy
           TargetOriginId: proof-assets
           ViewerProtocolPolicy: redirect-to-https
+        CacheBehaviors:
+          - AllowedMethods:
+              - GET
+              - HEAD
+            CachedMethods:
+              - GET
+              - HEAD
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            Compress: false
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt WrikeDocumentDeliveryFunction.FunctionARN
+            PathPattern: d/*
+            ResponseHeadersPolicyId: !Ref ProofAssetResponseHeadersPolicy
+            TargetOriginId: wrike-lift-documents
+            ViewerProtocolPolicy: redirect-to-https
         Enabled: true
         HttpVersion: http2and3
         IPV6Enabled: true
         Origins:
           - DomainName: !GetAtt ProofAssetBucket.RegionalDomainName
             Id: proof-assets
+            OriginAccessControlId: !Ref ProofAssetOriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - DomainName: !GetAtt WrikeDocumentDeliveryBucket.RegionalDomainName
+            Id: wrike-lift-documents
             OriginAccessControlId: !Ref ProofAssetOriginAccessControl
             S3OriginConfig:
               OriginAccessIdentity: ""
@@ -316,6 +441,34 @@ Resources:
               StringEquals:
                 AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${ProofAssetDistribution}
 
+  WrikeDocumentDeliveryBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WrikeDocumentDeliveryBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt WrikeDocumentDeliveryBucket.Arn
+              - !Sub ${WrikeDocumentDeliveryBucket.Arn}/*
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+          - Sid: AllowExactCloudFrontDistributionRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action:
+              - s3:GetObject
+            Resource: !Sub ${WrikeDocumentDeliveryBucket.Arn}/d/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${ProofAssetDistribution}
+
 Outputs:
   ProofAssetBucketName:
     Value: !Ref ProofAssetBucket
@@ -327,6 +480,12 @@ Outputs:
     Value: !GetAtt ProofAssetDistribution.DomainName
   ProofAssetOriginAccessControlId:
     Value: !Ref ProofAssetOriginAccessControl
+  WrikeDocumentDeliveryBucketName:
+    Value: !Ref WrikeDocumentDeliveryBucket
+  WrikeDocumentDeliveryBucketArn:
+    Value: !GetAtt WrikeDocumentDeliveryBucket.Arn
+  WrikeDocumentDeliveryEnabled:
+    Value: !If [WrikeDocumentDeliveryActive, "true", "false"]
   ProofAssetAliasConfigured:
     Value: !If [HasAssetAlias, "true", "false"]
   ProofAssetUploadCapabilityEnabled:

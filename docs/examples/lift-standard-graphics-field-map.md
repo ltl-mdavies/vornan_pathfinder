@@ -86,6 +86,8 @@ Company ID: {company_id}
 | `order.requested_ship_date` | Customer policy | ISO date, `YYYY-MM-DD`. |
 | `order.due_date` | Customer policy | Due date requested for the order, distinct from requested ship date when needed. |
 | `order.order_attachment` | Optional | Link/reference to the imported source file that generated the order. |
+| `order.artwork_folder_url` | Optional | Momentara's configured artwork-folder URL. The Lift import-interface destination is configured separately from this canonical meaning. |
+| `order.reference_proof_url` | Optional | Direct-download URL for the optional single Wrike reference-proof PDF. |
 | `order.shipping` | Customer policy | Default ship-to inherited by lines unless line shipping is supplied. |
 | `order.shipping.acct_billing_zip` | Optional | Billing ZIP/postal code associated with the shipping account. |
 | `order.shipping.acct_billing_country` | Optional | Billing country associated with the shipping account. |

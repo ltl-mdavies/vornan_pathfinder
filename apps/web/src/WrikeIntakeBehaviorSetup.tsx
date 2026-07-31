@@ -16,6 +16,19 @@ export function WrikeIntakeBehaviorSetup({
   onChange
 }: WrikeIntakeBehaviorSetupProps) {
   const shipping = config.shipping_intake;
+  const referenceProof = config.reference_proof_intake;
+  const updateReferenceProof = (
+    patch: Partial<WrikeSourceConfig["reference_proof_intake"]>
+  ) => {
+    onChange({
+      reference_proof_intake: {
+        ...referenceProof,
+        ...patch,
+        attachment_extensions: ["pdf"],
+        attachment_selection: "single_current_attachment"
+      }
+    });
+  };
   const updateShipping = (patch: Partial<WrikeSourceConfig["shipping_intake"]>) => {
     onChange({
       shipping_intake: {
@@ -94,6 +107,50 @@ export function WrikeIntakeBehaviorSetup({
         <div className="wrike-contract-note">
           The QA task ID in Advanced Wrike identifiers is used only by the safe verification
           tools. Saved discovery uses the GPA Campaigns folder and the rules above.
+        </div>
+      </fieldset>
+
+      <fieldset className="wrike-intake-behavior">
+        <legend>Reference proof</legend>
+        <div className="wrike-contract-heading">
+          <div>
+            <span className="section-eyebrow">Optional order document</span>
+            <strong>Keep one Wrike proof PDF with the order</strong>
+            <small>
+              When active, Pathfinder accepts zero or one current PDF matching this rule.
+              More than one match stops for review instead of guessing.
+            </small>
+          </div>
+          <span className={referenceProof.enabled ? "mini-pill mini-pill-success" : "mini-pill mini-pill-warning"}>
+            {referenceProof.enabled ? "Included" : "Inactive"}
+          </span>
+        </div>
+        <label className="switch-field">
+          <input
+            type="checkbox"
+            checked={referenceProof.enabled}
+            onChange={(event) => updateReferenceProof({ enabled: event.target.checked })}
+          />
+          <span className="switch-field-track" aria-hidden="true" />
+          <span>
+            <strong>Include the reference proof PDF</strong>
+            <small>The file is retained as immutable source evidence; it is not a Pathfinder approval proof.</small>
+          </span>
+        </label>
+        <div className="setup-grid">
+          <label className="setup-control">
+            <span>PDF filename contains</span>
+            <input
+              value={referenceProof.filename_contains}
+              placeholder="Proof"
+              disabled={!referenceProof.enabled}
+              onChange={(event) => updateReferenceProof({ filename_contains: event.target.value })}
+            />
+            <small>Use a stable word that distinguishes the single reference PDF from other attachments.</small>
+          </label>
+          <div className="source-setup-callout source-setup-callout-muted">
+            Accepted type: PDF. Direct Lift delivery remains a separate, gated publication step.
+          </div>
         </div>
       </fieldset>
 

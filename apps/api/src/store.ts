@@ -604,6 +604,15 @@ export interface ProcessingJobPreview {
     version_id: string;
     captured_at: string;
   } | null;
+  source_document_publications?: Array<{
+    document_role: "order_grid" | "reference_proof";
+    evidence_id: string;
+    publication_id: string;
+    sha256: string;
+    object_version_id: string;
+    published_at: string;
+    expires_at: string;
+  }>;
 }
 
 export interface NormalizedLiftSubmitResponse {
@@ -959,7 +968,8 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
           requested_ship_date: "2026-06-23",
           due_date: "2026-06-24",
           order_attachment: "https://example.com/imports/momentara-order.xlsx",
-          FLEX_FIELD9: "https://example.com/artwork/momentara-order",
+          artwork_folder_url: "https://example.com/artwork/momentara-order",
+          reference_proof_url: "https://go.vornan.co/d/example/reference-proof.pdf",
           shipping: {
             method: "UPS Ground",
             account_number: null,
@@ -1053,7 +1063,8 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
       { sourceColumn: "body:order.requested_ship_date", targetField: "order.ship_date", required: false },
       { sourceColumn: "body:order.due_date", targetField: "order.due_date", required: false },
       { sourceColumn: "body:order.order_attachment", targetField: "order.order_attachment", required: false },
-      { sourceColumn: "body:order.FLEX_FIELD9", targetField: "order.artwork_folder_url", required: false },
+      { sourceColumn: "body:order.artwork_folder_url", targetField: "order.artwork_folder_url", required: false },
+      { sourceColumn: "body:order.reference_proof_url", targetField: "order.reference_proof_url", required: false },
       { sourceColumn: "body:order.shipping.method", targetField: "order.shipping.method", required: false },
       { sourceColumn: "body:order.shipping.acct_billing_zip", targetField: "order.shipping.acct_billing_zip", required: false },
       { sourceColumn: "body:order.shipping.acct_billing_country", targetField: "order.shipping.acct_billing_country", required: false },
@@ -1250,7 +1261,8 @@ function reorderStandardBody(body: Record<string, unknown>) {
     "requested_ship_date",
     "due_date",
     "order_attachment",
-    "FLEX_FIELD9",
+    "artwork_folder_url",
+    "reference_proof_url",
     "shipping"
   ]) {
     if (key in order) {
@@ -1291,7 +1303,13 @@ function normalizeStandardOutputTemplate(template: OutputTemplate): OutputTempla
   }
 
   const seedTemplate = createSeedOutputTemplate(template.updated_at);
-  const currentMappings = template.canonical_mappings.filter((mapping) => !lineShippingTemplateFields.has(mapping.sourceColumn));
+  const currentMappings = template.canonical_mappings
+    .filter((mapping) => !lineShippingTemplateFields.has(mapping.sourceColumn))
+    .map((mapping) =>
+      mapping.targetField === "order.artwork_folder_url" && mapping.sourceColumn === "body:order.FLEX_FIELD9"
+        ? { ...mapping, sourceColumn: "body:order.artwork_folder_url" }
+        : mapping
+    );
   const sourceColumns = new Set(currentMappings.map((mapping) => mapping.sourceColumn));
   const canonical_mappings = [
     ...currentMappings,
@@ -1324,7 +1342,11 @@ function normalizeStandardOutputTemplate(template: OutputTemplate): OutputTempla
     const order = asRecord(body.order);
     setMissing(order, "due_date", "{{order.due_date}}");
     setMissing(order, "order_attachment", "{{order.order_attachment}}");
-    setMissing(order, "FLEX_FIELD9", "{{order.artwork_folder_url}}");
+    if (order.FLEX_FIELD9 === "{{order.artwork_folder_url}}") {
+      delete order.FLEX_FIELD9;
+    }
+    setMissing(order, "artwork_folder_url", "{{order.artwork_folder_url}}");
+    setMissing(order, "reference_proof_url", "{{order.reference_proof_url}}");
     const orderShipping = asRecord(order.shipping);
     setMissing(orderShipping, "acct_billing_zip", "{{order.shipping.acct_billing_zip}}");
     setMissing(orderShipping, "acct_billing_country", "{{order.shipping.acct_billing_country}}");

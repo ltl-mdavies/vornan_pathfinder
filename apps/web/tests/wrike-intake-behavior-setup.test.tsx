@@ -18,6 +18,10 @@ test("renders separate configurable order discovery and inactive shipping behavi
   assert.match(markup, /Order task title/);
   assert.match(markup, /Larger Than Life/);
   assert.match(markup, /QA task ID.*safe verification tools/i);
+  assert.match(markup, /Reference proof/);
+  assert.match(markup, /Include the reference proof PDF/);
+  assert.match(markup, /zero or one current PDF/i);
+  assert.match(markup, /not a Pathfinder approval proof/i);
   assert.match(markup, /Shipping Information intake/);
   assert.match(markup, /Planned future step/);
   assert.match(markup, /Not active yet.*planned task and workbook rules/i);
@@ -36,6 +40,9 @@ test("normalization preserves configurable shipping metadata rules while keeping
   const config = createDefaultWrikeSourceConfig();
 
   assert.equal(config.shipping_intake.enabled, false);
+  assert.equal(config.reference_proof_intake.enabled, false);
+  assert.equal(config.reference_proof_intake.filename_contains, "proof");
+  assert.deepEqual(config.reference_proof_intake.attachment_extensions, ["pdf"]);
   assert.equal(config.shipping_intake.task_title, "Shipping Information");
   assert.equal(config.shipping_intake.trigger_status_label, "Have Address - LTL");
   assert.deepEqual(config.shipping_intake.attachment_extensions, ["xlsx"]);

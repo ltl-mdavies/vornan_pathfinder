@@ -2,12 +2,14 @@ import { pathToFileURL } from "node:url";
 
 const ALLOWED_ENVIRONMENTS = new Set(["dev", "qa", "prod"]);
 const BUCKET_NAME = /^vornan-pathfinder-proof-assets-[a-z0-9-]+$/;
+const WRIKE_DELIVERY_BUCKET_NAME = /^vornan-pathfinder-wrike-delivery-[a-z0-9-]+$/;
 const DISALLOWED_CAPABILITY_FLAGS = [
   "PATHFINDER_PROOF_ASSET_ENABLE_UPLOADS",
   "PATHFINDER_PROOF_ASSET_ENABLE_PUBLIC_DELIVERY",
   "PATHFINDER_PROOF_ASSET_ENABLE_SIGNED_URLS",
   "PATHFINDER_PROOF_ASSET_ENABLE_LIFT_PUBLICATION",
-  "PATHFINDER_PROOF_ASSET_ENABLE_EXTERNAL_INGEST"
+  "PATHFINDER_PROOF_ASSET_ENABLE_EXTERNAL_INGEST",
+  "PATHFINDER_ENABLE_WRIKE_LIFT_DOCUMENT_PUBLICATION"
 ];
 
 function enabled(value) {
@@ -54,6 +56,19 @@ export function validateProofAssetDeployment(env = process.env) {
     throw new Error(`${requestedCapability} cannot be enabled by the dark Proof asset foundation.`);
   }
 
+  const wrikeDeliveryBucketName = (
+    env.PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BUCKET
+    ?? `vornan-pathfinder-wrike-delivery-${environmentName}-${env.AWS_ACCOUNT_ID ?? "744016783602"}`
+  ).trim().toLowerCase();
+  if (
+    !WRIKE_DELIVERY_BUCKET_NAME.test(wrikeDeliveryBucketName)
+    || !wrikeDeliveryBucketName.startsWith(`vornan-pathfinder-wrike-delivery-${environmentName}-`)
+  ) {
+    throw new Error(
+      "PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BUCKET must use the vornan-pathfinder-wrike-delivery-{environment}-* boundary."
+    );
+  }
+
   const retainedSourceDays = boundedInteger(
     env,
     "PATHFINDER_PROOF_ASSET_RETAINED_SOURCE_DAYS",
@@ -82,6 +97,7 @@ export function validateProofAssetDeployment(env = process.env) {
     environment_name: environmentName,
     stack_name: `vornan-proof-assets-${environmentName}`,
     bucket_name: bucketName,
+    wrike_delivery_bucket_name: wrikeDeliveryBucketName,
     retained_source_cleanup_eligibility_days: retainedSourceDays,
     outbound_copy_days: outboundCopyDays,
     proof_packet_days: proofPacketDays,
@@ -91,7 +107,8 @@ export function validateProofAssetDeployment(env = process.env) {
     upload_capability_enabled: false,
     signed_delivery_enabled: false,
     lift_publication_enabled: false,
-    external_repository_ingest_enabled: false
+    external_repository_ingest_enabled: false,
+    wrike_document_delivery_enabled: false
   };
 }
 

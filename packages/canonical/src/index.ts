@@ -113,6 +113,7 @@ export interface CanonicalOrder {
     due_date?: string | null;
     order_attachment?: string | null;
     artwork_folder_url?: string | null;
+    reference_proof_url?: string | null;
     shipping?: ShippingAddress | null;
   };
   lines: CanonicalOrderLine[];
@@ -203,6 +204,9 @@ export const canonicalFieldRegistry = [
   canonicalField("order.order_attachment", "order", "Order Attachment", "url", { aliases: ["Imported file"] }),
   canonicalField("order.artwork_folder_url", "order", "Artwork Folder URL", "url", {
     aliases: ["Art Location", "LTL Artwork Folder URL"]
+  }),
+  canonicalField("order.reference_proof_url", "order", "Reference Proof URL", "url", {
+    aliases: ["Reference Proof", "Wrike Proof PDF"]
   }),
   canonicalField("order.shipping.method", "shipping", "Shipping Method", "string"),
   canonicalField("order.shipping.account_number", "shipping", "Shipping Account Number", "string"),
@@ -328,6 +332,24 @@ export function validateCanonicalOrder(order: CanonicalOrder, options: Canonical
         field: "order.artwork_folder_url",
         message: "Artwork Folder URL must be a valid HTTPS URL without embedded credentials.",
         suggested_action: "Provide a secure SharePoint, Dropbox, or other approved HTTPS folder link."
+      });
+    }
+  }
+
+  if (order.order.reference_proof_url) {
+    try {
+      const referenceProofUrl = new URL(order.order.reference_proof_url);
+      if (referenceProofUrl.protocol !== "https:" || referenceProofUrl.username || referenceProofUrl.password) {
+        throw new Error("Unsafe reference proof URL.");
+      }
+    } catch {
+      messages.push({
+        severity: "FAIL",
+        code: "VAL-REFERENCE-PROOF-URL",
+        object: "order",
+        field: "order.reference_proof_url",
+        message: "Reference Proof URL must be a valid HTTPS URL without embedded credentials.",
+        suggested_action: "Publish the retained reference proof through Pathfinder's approved direct-download boundary."
       });
     }
   }

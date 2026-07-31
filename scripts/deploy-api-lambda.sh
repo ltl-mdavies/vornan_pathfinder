@@ -35,6 +35,9 @@ aws cloudformation deploy \
     WrikeWorkbookEvidenceEnabled="${PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE:-false}" \
     WrikeEvidencePreviewEnabled="${PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW:-false}" \
     WrikeManualIntakeEnabled="${PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE:-false}" \
+    WrikeLiftDocumentPublicationEnabled="${PATHFINDER_ENABLE_WRIKE_LIFT_DOCUMENT_PUBLICATION:-false}" \
+    WrikeLiftDocumentDeliveryBucketName="${PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BUCKET:-}" \
+    WrikeLiftDocumentDeliveryBaseUrl="${PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BASE_URL:-}" \
     WrikeOAuthRedirectUri="${PATHFINDER_WRIKE_OAUTH_REDIRECT_URI:-https://api.pathfinder.vornan.co/oauth/wrike/callback}" \
     PathfinderAppBaseUrl="${PATHFINDER_APP_BASE_URL:-https://pathfinder.vornan.co}" \
     EmailFrom="${PATHFINDER_EMAIL_FROM:-Vornan Updates <notifications@notify.vornan.co>}" \

@@ -88,6 +88,26 @@ test("Wrike workbook evidence remains disabled by default and uses a retained pr
   assert.equal(evidenceStatement.Action.includes("s3:DeleteObject"), false);
 });
 
+test("Wrike Lift document publication is independently dark and scoped to its dedicated bucket", () => {
+  assert.match(template, /WrikeLiftDocumentPublicationEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /WrikeLiftDocumentDeliveryBucketName:[\s\S]*?Default: ""/);
+  assert.match(template, /WrikeLiftDocumentDeliveryBaseUrl:[\s\S]*?Default: ""/);
+  assert.match(
+    template,
+    /PATHFINDER_ENABLE_WRIKE_LIFT_DOCUMENT_PUBLICATION: !Ref WrikeLiftDocumentPublicationEnabled/
+  );
+  assert.match(
+    template,
+    /arn:\$\{AWS::Partition\}:s3:::\$\{WrikeLiftDocumentDeliveryBucketName\}\/d\/\*/
+  );
+  assert.match(template, /\$\{PathfinderSourceEvidenceBucket\.Arn\}\/wrike\/\*/);
+  assert.match(
+    workflow,
+    /WrikeLiftDocumentPublicationEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_LIFT_DOCUMENT_PUBLICATION \|\| 'false' \}\}"/
+  );
+  assert.doesNotMatch(template, /WrikeLiftDocumentDeliveryBucketName[\s\S]{0,400}s3:DeleteObject/);
+});
+
 test("operator-only Proof action QA remains independently dark and narrowly scoped by default", () => {
   assert.match(template, /ProofOperatorActionQaEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /ProofOperatorActionAllowedOrders:[\s\S]*?Default: ""/);
