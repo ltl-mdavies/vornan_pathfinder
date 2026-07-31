@@ -151,6 +151,52 @@ test("detects a second hardware section and blocks a populated line without quan
   assert.equal(parsed.incomplete_rows[0].values.Description, "20x12 / Clip Frames");
 });
 
+test("includes only AMZ Locker rows with a whole quantity of one or greater", async () => {
+  const parsed = await parseWorkbookArrayBuffer(
+    workbookBuffer({
+      "AMZ Lockers": [
+        ["Description", "Creative", "Qty"],
+        ["Locker A", "Creative A", null],
+        ["Locker B", "Creative B", 0],
+        ["Locker C", "Creative C", "0"],
+        ["Locker D", "Creative D", 0.5],
+        ["Locker E", "Creative E", 1],
+        ["Locker F", "Creative F", "2"]
+      ]
+    }),
+    {
+      referenceRowsMode: "rows_without_quantity",
+      sheetConfigs: {
+        "AMZ Lockers": {
+          role: "order_lines",
+          enabled: true,
+          sections: [
+            {
+              sectionId: "amz-lockers",
+              label: "Amazon lockers",
+              lineKind: "print",
+              headerRow: 1,
+              headerRowCount: 1,
+              headerSignature: ["Description", "Creative", "Qty"],
+              quantityColumn: "Qty",
+              missingQuantityBehavior: "reference",
+              required: true
+            }
+          ]
+        }
+      }
+    }
+  );
+
+  const [sheet] = parsed.source_sheets;
+  assert.equal(sheet.order_row_count, 2);
+  assert.equal(sheet.reference_row_count, 4);
+  assert.deepEqual(
+    parsed.parsed_order_rows.map((row) => row.values.Description),
+    ["Locker E", "Locker F"]
+  );
+});
+
 test("relocates configured sections by their saved columns when row counts change", async () => {
   const printHeader = ["Description", "Creative", "Print QTY"];
   const hardwareHeader = ["Hardware", "PS SKU", "Item SKU", "Description", "Qty. Needed"];

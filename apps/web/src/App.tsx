@@ -9669,8 +9669,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </div>
                     <div className="method-step-strip">
                       <span>1 Source setup</span>
-                      <span>2 Product resolution</span>
-                      <span>3 Order name resolution</span>
+                      <span>2 Order identity</span>
+                      <span>3 Product resolution</span>
                       <span>4 Field mapping</span>
                       <span>5 Review &amp; save</span>
                     </div>
@@ -11131,7 +11131,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <div>
                         <span>Order Rows</span>
                         <strong>{sourceOrderRowCount}</strong>
-                        <p>Rows with a valid quantity</p>
+                        <p>Rows with a whole quantity of 1 or more</p>
                       </div>
                       <div>
                         <span>Reference Rows</span>
@@ -11285,288 +11285,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         >
                           Open Manual Import
                         </button>
-                      </div>
-                    </div>
-                  </section>
-                ) : null}
-                {isImportMethodDetailOpen && activeImportMethod ? (
-                  <section className="panel setup-panel product-resolution-setup">
-                    <PanelHeader icon={Database} title="Product Resolution" detail="Customer key to route product" />
-                    {productResolutionScopes.length ? (
-                      <div className="product-scope-selector">
-                        <label className="setup-control">
-                          <span>Workbook Product Scope</span>
-                          <select
-                            value={effectiveProductScope?.scope_id ?? ""}
-                            onChange={(event) => {
-                              setSelectedProductScopeId(event.target.value);
-                              setCompositeColumnToAdd("");
-                              setProductExampleTestValue("");
-                            }}
-                          >
-                            {productResolutionScopes.map((scope) => (
-                              <option key={scope.scope_id} value={scope.scope_id}>
-                                {scope.sheet_name} · {scope.label} · {scope.line_kind}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <div className="resolver-explainer">
-                          <strong>{effectiveProductScope?.order_row_count ?? 0} detected products</strong>
-                          <p>
-                            Product resolution is saved independently for this section so print, hardware, and future
-                            sheet layouts cannot collide behind the scenes.
-                          </p>
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="method-source-context">
-                      <div>
-                        <span>Column Source</span>
-                        <strong>{sourceColumnOrigin}</strong>
-                      </div>
-                      <div>
-                        <span>Header Row</span>
-                        <strong>
-                          {sourceHeaderDisplay}
-                          {sourceHeaderRowCount === 2 ? " · two rows" : ""}
-                        </strong>
-                      </div>
-                      <div>
-                        <span>Order Row Rule</span>
-                        <strong>{sourceQuantityColumn || "Auto quantity"}</strong>
-                      </div>
-                      <div>
-                        <span>Embedded Headers</span>
-                        <strong>{sourceIgnoresRepeatedHeaders ? "Ignored" : "Kept"}</strong>
-                      </div>
-                    </div>
-                    <div className="resolver-strategy-row">
-                      <label className="setup-control resolver-strategy-control">
-                        <span>Resolver Strategy</span>
-                        <select
-                          value={activeProductConfig.strategy}
-                          onChange={(event) => {
-                            setProductExampleTestValue("");
-                            updateActiveProductResolutionConfig({
-                              ...activeProductConfig,
-                              strategy: event.target.value as ProductResolverStrategy,
-                              fallback_strategy: "none"
-                            });
-                          }}
-                        >
-                          <option value="derived_key">Derived key</option>
-                          <option value="composite_key">Composite key</option>
-                          <option value="direct_lift_unit_number">Direct product identifier</option>
-                        </select>
-                      </label>
-                      <div className="resolver-explainer">
-                        <strong>{activeResolverCopy.title}</strong>
-                        <p>{activeResolverCopy.body}</p>
-                      </div>
-                    </div>
-                    <div className="resolver-section-break" />
-                    <div className="resolver-subsection-heading">
-                      <h3>Configure Strategy Settings</h3>
-                      <span>
-                        {activeProductConfig.strategy === "direct_lift_unit_number"
-                          ? "Choose the source field that already contains the route product identifier."
-                          : activeProductConfig.strategy === "composite_key"
-                            ? "Choose the source fields Pathfinder should combine into one product key."
-                            : "Choose the source field and optional text added around the generated key."}
-                      </span>
-                    </div>
-                    <div className="setup-grid product-resolution-grid">
-                      {activeProductConfig.strategy === "derived_key" ? (
-                        <>
-                          <label className="setup-control">
-                            <span>Source Column</span>
-                            <select
-                              value={activeProductConfig.source_column}
-                              onChange={(event) =>
-                                updateActiveProductResolutionConfig({
-                                  ...activeProductConfig,
-                                  source_column: event.target.value
-                                })
-                              }
-                            >
-                              {availableInputColumns.map((column) => (
-                                <option key={column} value={column}>
-                                  {column}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="setup-control">
-                            <span>Prefix</span>
-                            <input
-                              value={activeProductConfig.prefix}
-                              onChange={(event) =>
-                                updateActiveProductResolutionConfig({
-                                  ...activeProductConfig,
-                                  prefix: event.target.value
-                                })
-                              }
-                            />
-                          </label>
-                          <label className="setup-control">
-                            <span>Suffix</span>
-                            <input
-                              value={activeProductConfig.suffix}
-                              onChange={(event) =>
-                                updateActiveProductResolutionConfig({
-                                  ...activeProductConfig,
-                                  suffix: event.target.value
-                                })
-                              }
-                            />
-                          </label>
-                        </>
-                      ) : null}
-                      {activeProductConfig.strategy === "direct_lift_unit_number" ? (
-                        <label className="setup-control setup-control-wide">
-                          <span>{activeOutputRoute.product_identifier_label} Column</span>
-                          <select
-                            value={activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column}
-                            onChange={(event) =>
-                              updateActiveProductResolutionConfig({
-                                ...activeProductConfig,
-                                direct_unit_number_column: event.target.value,
-                                source_column: event.target.value
-                              })
-                            }
-                          >
-                            {availableInputColumns.map((column) => (
-                              <option key={column} value={column}>
-                                {column}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      ) : null}
-                      {activeProductConfig.strategy === "composite_key" ? (
-                        <div className="setup-control setup-control-wide composite-builder">
-                          <span>
-                            Composite Columns
-                          </span>
-                          <div className="chip-list">
-                            {activeProductConfig.composite_columns.map((column) => (
-                              <button
-                                type="button"
-                                className="column-chip"
-                                key={column}
-                                onClick={() =>
-                                  updateActiveProductResolutionConfig({
-                                    ...activeProductConfig,
-                                    composite_columns: activeProductConfig.composite_columns.filter(
-                                      (candidate) => candidate !== column
-                                    )
-                                  })
-                                }
-                                title={`Remove ${column}`}
-                              >
-                                {column}
-                                <span>X</span>
-                              </button>
-                            ))}
-                            {activeProductConfig.composite_columns.length === 0 ? (
-                              <em>No columns selected</em>
-                            ) : null}
-                          </div>
-                          <div className="chip-add-row">
-                            <select
-                              value={compositeColumnToAdd}
-                              onChange={(event) => setCompositeColumnToAdd(event.target.value)}
-                            >
-                              <option value="">Choose column</option>
-                              {addableCompositeColumns.map((column) => (
-                                <option key={column} value={column}>
-                                  {column}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              disabled={!compositeColumnToAdd}
-                              onClick={() => {
-                                if (!compositeColumnToAdd) {
-                                  return;
-                                }
-                                updateActiveProductResolutionConfig({
-                                  ...activeProductConfig,
-                                  composite_columns: [...activeProductConfig.composite_columns, compositeColumnToAdd]
-                                });
-                                setCompositeColumnToAdd("");
-                              }}
-                            >
-                              <Plus size={14} />
-                              Add
-                            </button>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                    {activeProductConfig.strategy !== "direct_lift_unit_number" ? (
-                      <>
-                        <div className="resolver-section-break" />
-                        <div className="resolver-mode-row">
-                          <label className="setup-control">
-                            <span>Resolution Mode</span>
-                            <select
-                              value={activeProductConfig.mode}
-                              onChange={(event) =>
-                                updateActiveProductResolutionConfig({
-                                  ...activeProductConfig,
-                                  mode: event.target.value as ProductResolutionMode
-                                })
-                              }
-                            >
-                              <option value="map_to_lift_unit">Look up key in output product map</option>
-                              <option value="send_derived_unit">Use generated key as submitted product identifier</option>
-                            </select>
-                          </label>
-                          <div className="resolver-explainer resolver-mode-explainer">
-                            <strong>{activeResolutionModeCopy.title}</strong>
-                            <p>{activeResolutionModeCopy.body}</p>
-                          </div>
-                        </div>
-                      </>
-                    ) : null}
-                    <div className="resolver-section-break" />
-                    <div className="resolver-example">
-                      <div className="resolver-subsection-heading resolver-example-heading">
-                        <h3>Example Output</h3>
-                        <span>Type a test value or use the current source sample.</span>
-                      </div>
-                      {activeProductConfig.strategy !== "composite_key" ? (
-                        <label className="setup-control resolver-test-value">
-                          <span>
-                            Test {productExampleTestColumn}
-                            {activeProductConfig.strategy === "direct_lift_unit_number" ? " product identifier" : " value"}
-                          </span>
-                          <input
-                            value={productExampleTestValue}
-                            placeholder={
-                              activeProductConfig.strategy === "direct_lift_unit_number"
-                                ? outputIdentifierPlaceholder(activeOutputRoute)
-                                : "2 Sheet Poster"
-                            }
-                            onChange={(event) => setProductExampleTestValue(event.target.value)}
-                          />
-                        </label>
-                      ) : (
-                        <div className="resolver-example-note">
-                          Composite examples use the current source sample values from the selected columns.
-                        </div>
-                      )}
-                      <div className="resolver-example-grid">
-                        {productResolutionCards.map((card) => (
-                          <div key={card.label}>
-                            <span>{card.label}</span>
-                            <strong>{card.value}</strong>
-                          </div>
-                        ))}
                       </div>
                     </div>
                   </section>
@@ -12026,6 +11744,288 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               ? `The resolved name is ${orderNameResolution.result.value.length} characters and exceeds this method's maximum.`
                               : "The same mapped values will resolve to the same order name on retry. Duplicate blocking is enforced within each import batch."}
                         </span>
+                      </div>
+                    </div>
+                  </section>
+                ) : null}
+                {isImportMethodDetailOpen && activeImportMethod ? (
+                  <section className="panel setup-panel product-resolution-setup">
+                    <PanelHeader icon={Database} title="Product Resolution" detail="Customer key to route product" />
+                    {productResolutionScopes.length ? (
+                      <div className="product-scope-selector">
+                        <label className="setup-control">
+                          <span>Workbook Product Scope</span>
+                          <select
+                            value={effectiveProductScope?.scope_id ?? ""}
+                            onChange={(event) => {
+                              setSelectedProductScopeId(event.target.value);
+                              setCompositeColumnToAdd("");
+                              setProductExampleTestValue("");
+                            }}
+                          >
+                            {productResolutionScopes.map((scope) => (
+                              <option key={scope.scope_id} value={scope.scope_id}>
+                                {scope.sheet_name} · {scope.label} · {scope.line_kind}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="resolver-explainer">
+                          <strong>{effectiveProductScope?.order_row_count ?? 0} detected products</strong>
+                          <p>
+                            Product resolution is saved independently for this section so print, hardware, and future
+                            sheet layouts cannot collide behind the scenes.
+                          </p>
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="method-source-context">
+                      <div>
+                        <span>Column Source</span>
+                        <strong>{sourceColumnOrigin}</strong>
+                      </div>
+                      <div>
+                        <span>Header Row</span>
+                        <strong>
+                          {sourceHeaderDisplay}
+                          {sourceHeaderRowCount === 2 ? " · two rows" : ""}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Order Row Rule</span>
+                        <strong>{sourceQuantityColumn ? `${sourceQuantityColumn} · 1+` : "Auto quantity · 1+"}</strong>
+                      </div>
+                      <div>
+                        <span>Embedded Headers</span>
+                        <strong>{sourceIgnoresRepeatedHeaders ? "Ignored" : "Kept"}</strong>
+                      </div>
+                    </div>
+                    <div className="resolver-strategy-row">
+                      <label className="setup-control resolver-strategy-control">
+                        <span>Resolver Strategy</span>
+                        <select
+                          value={activeProductConfig.strategy}
+                          onChange={(event) => {
+                            setProductExampleTestValue("");
+                            updateActiveProductResolutionConfig({
+                              ...activeProductConfig,
+                              strategy: event.target.value as ProductResolverStrategy,
+                              fallback_strategy: "none"
+                            });
+                          }}
+                        >
+                          <option value="derived_key">Derived key</option>
+                          <option value="composite_key">Composite key</option>
+                          <option value="direct_lift_unit_number">Direct product identifier</option>
+                        </select>
+                      </label>
+                      <div className="resolver-explainer">
+                        <strong>{activeResolverCopy.title}</strong>
+                        <p>{activeResolverCopy.body}</p>
+                      </div>
+                    </div>
+                    <div className="resolver-section-break" />
+                    <div className="resolver-subsection-heading">
+                      <h3>Configure Strategy Settings</h3>
+                      <span>
+                        {activeProductConfig.strategy === "direct_lift_unit_number"
+                          ? "Choose the source field that already contains the route product identifier."
+                          : activeProductConfig.strategy === "composite_key"
+                            ? "Choose the source fields Pathfinder should combine into one product key."
+                            : "Choose the source field and optional text added around the generated key."}
+                      </span>
+                    </div>
+                    <div className="setup-grid product-resolution-grid">
+                      {activeProductConfig.strategy === "derived_key" ? (
+                        <>
+                          <label className="setup-control">
+                            <span>Source Column</span>
+                            <select
+                              value={activeProductConfig.source_column}
+                              onChange={(event) =>
+                                updateActiveProductResolutionConfig({
+                                  ...activeProductConfig,
+                                  source_column: event.target.value
+                                })
+                              }
+                            >
+                              {availableInputColumns.map((column) => (
+                                <option key={column} value={column}>
+                                  {column}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="setup-control">
+                            <span>Prefix</span>
+                            <input
+                              value={activeProductConfig.prefix}
+                              onChange={(event) =>
+                                updateActiveProductResolutionConfig({
+                                  ...activeProductConfig,
+                                  prefix: event.target.value
+                                })
+                              }
+                            />
+                          </label>
+                          <label className="setup-control">
+                            <span>Suffix</span>
+                            <input
+                              value={activeProductConfig.suffix}
+                              onChange={(event) =>
+                                updateActiveProductResolutionConfig({
+                                  ...activeProductConfig,
+                                  suffix: event.target.value
+                                })
+                              }
+                            />
+                          </label>
+                        </>
+                      ) : null}
+                      {activeProductConfig.strategy === "direct_lift_unit_number" ? (
+                        <label className="setup-control setup-control-wide">
+                          <span>{activeOutputRoute.product_identifier_label} Column</span>
+                          <select
+                            value={activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column}
+                            onChange={(event) =>
+                              updateActiveProductResolutionConfig({
+                                ...activeProductConfig,
+                                direct_unit_number_column: event.target.value,
+                                source_column: event.target.value
+                              })
+                            }
+                          >
+                            {availableInputColumns.map((column) => (
+                              <option key={column} value={column}>
+                                {column}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
+                      {activeProductConfig.strategy === "composite_key" ? (
+                        <div className="setup-control setup-control-wide composite-builder">
+                          <span>
+                            Composite Columns
+                          </span>
+                          <div className="chip-list">
+                            {activeProductConfig.composite_columns.map((column) => (
+                              <button
+                                type="button"
+                                className="column-chip"
+                                key={column}
+                                onClick={() =>
+                                  updateActiveProductResolutionConfig({
+                                    ...activeProductConfig,
+                                    composite_columns: activeProductConfig.composite_columns.filter(
+                                      (candidate) => candidate !== column
+                                    )
+                                  })
+                                }
+                                title={`Remove ${column}`}
+                              >
+                                {column}
+                                <span>X</span>
+                              </button>
+                            ))}
+                            {activeProductConfig.composite_columns.length === 0 ? (
+                              <em>No columns selected</em>
+                            ) : null}
+                          </div>
+                          <div className="chip-add-row">
+                            <select
+                              value={compositeColumnToAdd}
+                              onChange={(event) => setCompositeColumnToAdd(event.target.value)}
+                            >
+                              <option value="">Choose column</option>
+                              {addableCompositeColumns.map((column) => (
+                                <option key={column} value={column}>
+                                  {column}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={!compositeColumnToAdd}
+                              onClick={() => {
+                                if (!compositeColumnToAdd) {
+                                  return;
+                                }
+                                updateActiveProductResolutionConfig({
+                                  ...activeProductConfig,
+                                  composite_columns: [...activeProductConfig.composite_columns, compositeColumnToAdd]
+                                });
+                                setCompositeColumnToAdd("");
+                              }}
+                            >
+                              <Plus size={14} />
+                              Add
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                    {activeProductConfig.strategy !== "direct_lift_unit_number" ? (
+                      <>
+                        <div className="resolver-section-break" />
+                        <div className="resolver-mode-row">
+                          <label className="setup-control">
+                            <span>Resolution Mode</span>
+                            <select
+                              value={activeProductConfig.mode}
+                              onChange={(event) =>
+                                updateActiveProductResolutionConfig({
+                                  ...activeProductConfig,
+                                  mode: event.target.value as ProductResolutionMode
+                                })
+                              }
+                            >
+                              <option value="map_to_lift_unit">Look up key in output product map</option>
+                              <option value="send_derived_unit">Use generated key as submitted product identifier</option>
+                            </select>
+                          </label>
+                          <div className="resolver-explainer resolver-mode-explainer">
+                            <strong>{activeResolutionModeCopy.title}</strong>
+                            <p>{activeResolutionModeCopy.body}</p>
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+                    <div className="resolver-section-break" />
+                    <div className="resolver-example">
+                      <div className="resolver-subsection-heading resolver-example-heading">
+                        <h3>Example Output</h3>
+                        <span>Type a test value or use the current source sample.</span>
+                      </div>
+                      {activeProductConfig.strategy !== "composite_key" ? (
+                        <label className="setup-control resolver-test-value">
+                          <span>
+                            Test {productExampleTestColumn}
+                            {activeProductConfig.strategy === "direct_lift_unit_number" ? " product identifier" : " value"}
+                          </span>
+                          <input
+                            value={productExampleTestValue}
+                            placeholder={
+                              activeProductConfig.strategy === "direct_lift_unit_number"
+                                ? outputIdentifierPlaceholder(activeOutputRoute)
+                                : "2 Sheet Poster"
+                            }
+                            onChange={(event) => setProductExampleTestValue(event.target.value)}
+                          />
+                        </label>
+                      ) : (
+                        <div className="resolver-example-note">
+                          Composite examples use the current source sample values from the selected columns.
+                        </div>
+                      )}
+                      <div className="resolver-example-grid">
+                        {productResolutionCards.map((card) => (
+                          <div key={card.label}>
+                            <span>{card.label}</span>
+                            <strong>{card.value}</strong>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </section>
