@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [template, workflow, deployPolicy] = await Promise.all([
+const [template, workflow, deployScript, deployPolicy] = await Promise.all([
   readFile(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8"),
   readFile(new URL("../../.github/workflows/deploy-api.yml", import.meta.url), "utf8"),
+  readFile(new URL("../deploy-api-lambda.sh", import.meta.url), "utf8"),
   readFile(new URL("../../infra/aws/github-actions-api-deploy-policy.json", import.meta.url), "utf8")
 ]);
 
@@ -42,6 +43,11 @@ test("Wrike workbook evidence remains disabled by default and uses a retained pr
   assert.match(template, /WrikeWorkbookEvidenceEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /WrikeEvidencePreviewEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /WrikeManualIntakeEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /WrikeOrderRehearsalEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /WrikeOrderRehearsalCustomerId:[\s\S]*?Default: ""/);
+  assert.match(template, /WrikeOrderRehearsalImportMethodId:[\s\S]*?Default: ""/);
+  assert.match(template, /WrikeOrderRehearsalTaskId:[\s\S]*?Default: ""/);
+  assert.match(template, /WrikeOrderRehearsalExpiresAt:[\s\S]*?Default: ""/);
   assert.match(
     template,
     /PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: !Ref WrikeWorkbookEvidenceEnabled/
@@ -53,6 +59,23 @@ test("Wrike workbook evidence remains disabled by default and uses a retained pr
   assert.match(
     template,
     /PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !Ref WrikeManualIntakeEnabled/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: !Ref WrikeOrderRehearsalEnabled/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID: !Ref WrikeOrderRehearsalCustomerId/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_WRIKE_ORDER_REHEARSAL_IMPORT_METHOD_ID: !Ref WrikeOrderRehearsalImportMethodId/
+  );
+  assert.match(template, /PATHFINDER_WRIKE_ORDER_REHEARSAL_TASK_ID: !Ref WrikeOrderRehearsalTaskId/);
+  assert.match(
+    template,
+    /PATHFINDER_WRIKE_ORDER_REHEARSAL_EXPIRES_AT: !Ref WrikeOrderRehearsalExpiresAt/
   );
   assert.match(template, /PathfinderSourceEvidenceBucket:[\s\S]*?DeletionPolicy: Retain/);
   assert.match(template, /PathfinderSourceEvidenceBucket:[\s\S]*?UpdateReplacePolicy: Retain/);
@@ -76,6 +99,46 @@ test("Wrike workbook evidence remains disabled by default and uses a retained pr
   assert.match(
     workflow,
     /WrikeManualIntakeEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE \|\| 'false' \}\}"/
+  );
+  assert.match(
+    workflow,
+    /WrikeOrderRehearsalEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL \|\| 'false' \}\}"/
+  );
+  assert.match(
+    workflow,
+    /WrikeOrderRehearsalCustomerId="\$\{\{ vars\.PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID \|\| '' \}\}"/
+  );
+  assert.match(
+    workflow,
+    /WrikeOrderRehearsalImportMethodId="\$\{\{ vars\.PATHFINDER_WRIKE_ORDER_REHEARSAL_IMPORT_METHOD_ID \|\| '' \}\}"/
+  );
+  assert.match(
+    workflow,
+    /WrikeOrderRehearsalTaskId="\$\{\{ vars\.PATHFINDER_WRIKE_ORDER_REHEARSAL_TASK_ID \|\| '' \}\}"/
+  );
+  assert.match(
+    workflow,
+    /WrikeOrderRehearsalExpiresAt="\$\{\{ vars\.PATHFINDER_WRIKE_ORDER_REHEARSAL_EXPIRES_AT \|\| '' \}\}"/
+  );
+  assert.match(
+    deployScript,
+    /WrikeOrderRehearsalEnabled="\$\{PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL:-false\}"/
+  );
+  assert.match(
+    deployScript,
+    /WrikeOrderRehearsalCustomerId="\$\{PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID:-\}"/
+  );
+  assert.match(
+    deployScript,
+    /WrikeOrderRehearsalImportMethodId="\$\{PATHFINDER_WRIKE_ORDER_REHEARSAL_IMPORT_METHOD_ID:-\}"/
+  );
+  assert.match(
+    deployScript,
+    /WrikeOrderRehearsalTaskId="\$\{PATHFINDER_WRIKE_ORDER_REHEARSAL_TASK_ID:-\}"/
+  );
+  assert.match(
+    deployScript,
+    /WrikeOrderRehearsalExpiresAt="\$\{PATHFINDER_WRIKE_ORDER_REHEARSAL_EXPIRES_AT:-\}"/
   );
   const parsedPolicy = JSON.parse(deployPolicy);
   const evidenceStatement = parsedPolicy.Statement.find(

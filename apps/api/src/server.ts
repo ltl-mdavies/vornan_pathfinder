@@ -104,6 +104,11 @@ import {
 } from "./wrike-lift-document-publication.js";
 import { prepareWrikeManualIntake } from "./wrike-manual-intake.js";
 import {
+  authorizeWrikeOrderRehearsal,
+  getWrikeOrderRehearsalConfig,
+  WrikeOrderRehearsalError
+} from "./wrike-order-rehearsal.js";
+import {
   archiveImportMethod,
   addCanonicalRegistryCustomField,
   applyProductMappingReplacement,
@@ -233,6 +238,7 @@ const wrikeEvidencePreviewEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW === "true";
 const wrikeManualIntakeEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE === "true";
+const wrikeOrderRehearsalConfig = getWrikeOrderRehearsalConfig();
 const wrikeLiftDocumentPublicationConfig = getWrikeLiftDocumentPublicationConfig();
 const wrikeOAuthRedirectUri = process.env.PATHFINDER_WRIKE_OAUTH_REDIRECT_URI ??
   (process.env.PATHFINDER_RUNTIME === "lambda"
@@ -3945,7 +3951,7 @@ class WrikeIntakeRequestError extends Error {
 async function captureWrikeWorkbookEvidenceForMethod(
   liftCustomerId: string,
   methodId: string,
-  options: { requireActive?: boolean } = {}
+  options: { requireActive?: boolean; expectedTaskId?: string } = {}
 ) {
   let customerId = "";
   let connectionId = "";
@@ -3979,6 +3985,15 @@ async function captureWrikeWorkbookEvidenceForMethod(
         "Save the customer Wrike connection, folder, intake-ready status, workbook rule, and approved task ID before capturing evidence."
       );
     }
+    if (
+      options.expectedTaskId &&
+      config.approved_discovery_task_id !== options.expectedTaskId
+    ) {
+      throw new WrikeIntakeRequestError(
+        403,
+        "The saved Import Method task is outside the approved Wrike rehearsal scope."
+      );
+    }
     connectionId = config.connection_id;
     const connection = await findCustomerSourceConnection(customer, connectionId);
     if (!connection || connection.provider !== "wrike") {
@@ -3995,6 +4010,12 @@ async function captureWrikeWorkbookEvidenceForMethod(
     }
 
     const result = await fetchQualifiedWrikeWorkbookSources(oauth, config);
+    if (options.expectedTaskId && result.task_id !== options.expectedTaskId) {
+      throw new WrikeIntakeRequestError(
+        409,
+        "Wrike returned a task outside the approved rehearsal scope."
+      );
+    }
     await writeCustomerSourceConnectionSecrets(customerId, connectionId, {
       provider: "wrike",
       wrike: { ...existing, oauth: result.credentials }
@@ -4050,7 +4071,9 @@ async function captureWrikeWorkbookEvidenceForMethod(
 }
 
 function wrikeEvidenceCaptureErrorStatus(error: unknown) {
-  return error instanceof WrikeIntakeRequestError
+  return error instanceof WrikeOrderRehearsalError
+    ? error.statusCode
+    : error instanceof WrikeIntakeRequestError
     ? error.statusCode
     : error instanceof WrikeConnectionError && error.code === "invalid_configuration"
       ? 400
@@ -4062,7 +4085,8 @@ function wrikeEvidenceCaptureErrorStatus(error: unknown) {
 }
 
 function wrikeEvidenceCaptureErrorMessage(error: unknown) {
-  return error instanceof WrikeIntakeRequestError ||
+  return error instanceof WrikeOrderRehearsalError ||
+    error instanceof WrikeIntakeRequestError ||
     error instanceof WrikeConnectionError ||
     error instanceof WrikeSourceEvidenceError
     ? error.message
@@ -4109,6 +4133,7 @@ async function createWrikeEvidencePreviewForMethod(args: {
     reference_proof_url?: string | null;
   };
   sourceDocumentPublications?: ProcessingJobPreview["source_document_publications"];
+  expectedTaskId?: string;
 }) {
   const customer = await findLiftCustomer(args.liftCustomerId);
   const workspace = await getOrCreateWorkspace(customer);
@@ -4153,6 +4178,12 @@ async function createWrikeEvidencePreviewForMethod(args: {
     evidence_id: args.evidenceId,
     extension: args.extension
   });
+  if (args.expectedTaskId && loaded.record.task_id !== args.expectedTaskId) {
+    throw new WrikeIntakeRequestError(
+      403,
+      "The stored evidence is outside the approved Wrike rehearsal task."
+    );
+  }
   const baseFingerprint = importMethodFingerprint(method, outputRoute);
   const fingerprint = args.orderContext
     ? createHash("sha256")
@@ -4241,7 +4272,9 @@ async function createWrikeEvidencePreviewForMethod(args: {
 }
 
 function wrikeEvidencePreviewErrorStatus(error: unknown) {
-  return error instanceof WrikeIntakeRequestError
+  return error instanceof WrikeOrderRehearsalError
+    ? error.statusCode
+    : error instanceof WrikeIntakeRequestError
     ? error.statusCode
     : error instanceof WrikeSourceEvidenceError && error.code === "not_found"
       ? 404
@@ -4266,6 +4299,13 @@ app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discover
   let connectionId = "";
   let existing: WrikeConnectorSecrets = {};
   try {
+    const rehearsal = authorizeWrikeOrderRehearsal({
+      config: wrikeOrderRehearsalConfig,
+      customer_id: req.params.liftCustomerId,
+      import_method_id: req.params.methodId,
+      task_id: req.body?.task_id,
+      confirmation_phrase: req.body?.confirmation_phrase
+    });
     const customer = await findLiftCustomer(req.params.liftCustomerId);
     customerId = customer.lift_customer_id;
     const workspace = await getOrCreateWorkspace(customer);
@@ -4288,6 +4328,12 @@ app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discover
         error: "Select a customer Wrike connection and save the folder, intake-ready status, workbook rule, and approved discovery task ID first."
       });
       return;
+    }
+    if (config.approved_discovery_task_id !== rehearsal.task_id) {
+      throw new WrikeIntakeRequestError(
+        403,
+        "The saved Import Method task is outside the approved Wrike rehearsal scope."
+      );
     }
     connectionId = config.connection_id;
     const connection = await findCustomerSourceConnection(customer, connectionId);
@@ -4314,10 +4360,14 @@ app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discover
         wrike: { ...existing, oauth: error.rotated_credentials }
       });
     }
-    const message = error instanceof WrikeConnectionError
+    const message = error instanceof WrikeOrderRehearsalError || error instanceof WrikeIntakeRequestError
+      ? error.message
+      : error instanceof WrikeConnectionError
       ? error.message
       : "The bounded Wrike discovery preview failed.";
-    const status = error instanceof WrikeConnectionError && error.code === "invalid_configuration" ? 400 : 502;
+    const status = error instanceof WrikeOrderRehearsalError || error instanceof WrikeIntakeRequestError
+      ? error.statusCode
+      : error instanceof WrikeConnectionError && error.code === "invalid_configuration" ? 400 : 502;
     res.status(status).json({ error: message });
   }
 });
@@ -4332,9 +4382,17 @@ app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/workbook
   }
 
   try {
+    const rehearsal = authorizeWrikeOrderRehearsal({
+      config: wrikeOrderRehearsalConfig,
+      customer_id: req.params.liftCustomerId,
+      import_method_id: req.params.methodId,
+      task_id: req.body?.task_id,
+      confirmation_phrase: req.body?.confirmation_phrase
+    });
     const result = await captureWrikeWorkbookEvidenceForMethod(
       req.params.liftCustomerId,
-      req.params.methodId
+      req.params.methodId,
+      { expectedTaskId: rehearsal.task_id }
     );
     const { order_context: _privateOrderContext, ...publicResult } = result;
     res.status(result.status === "Stored" ? 201 : 200).json(publicResult);
@@ -4357,6 +4415,13 @@ app.post(
     }
 
     try {
+      const rehearsal = authorizeWrikeOrderRehearsal({
+        config: wrikeOrderRehearsalConfig,
+        customer_id: req.params.liftCustomerId,
+        import_method_id: req.params.methodId,
+        task_id: req.body?.task_id,
+        confirmation_phrase: req.body?.confirmation_phrase
+      });
       const extension = valueAsString(req.body?.extension).trim().toLowerCase();
       if (!["xlsx", "xls", "csv"].includes(extension)) {
         res.status(400).json({ error: "The stored workbook extension is invalid." });
@@ -4366,7 +4431,8 @@ app.post(
         liftCustomerId: req.params.liftCustomerId,
         methodId: req.params.methodId,
         evidenceId: req.params.evidenceId,
-        extension: extension as WrikeWorkbookExtension
+        extension: extension as WrikeWorkbookExtension,
+        expectedTaskId: rehearsal.task_id
       });
       res.status(result.preview_status === "Created" ? 201 : 200).json(result);
     } catch (error) {
@@ -4396,6 +4462,13 @@ app.post(
     }
 
     try {
+      const rehearsal = authorizeWrikeOrderRehearsal({
+        config: wrikeOrderRehearsalConfig,
+        customer_id: req.params.liftCustomerId,
+        import_method_id: req.params.methodId,
+        task_id: req.body?.task_id,
+        confirmation_phrase: req.body?.confirmation_phrase
+      });
       let orderContext:
         | {
             contract_number: string;
@@ -4410,7 +4483,7 @@ app.post(
           const captured = await captureWrikeWorkbookEvidenceForMethod(
             req.params.liftCustomerId,
             req.params.methodId,
-            { requireActive: true }
+            { requireActive: true, expectedTaskId: rehearsal.task_id }
           );
           orderContext = captured.order_context;
           referenceProofEvidence = captured.reference_proof_evidence;
@@ -4481,7 +4554,8 @@ app.post(
             evidenceId: record.evidence_id,
             extension: record.extension as WrikeWorkbookExtension,
             orderContext: previewOrderContext,
-            sourceDocumentPublications
+            sourceDocumentPublications,
+            expectedTaskId: rehearsal.task_id
           });
           return {
             preview_status: preview.preview_status,

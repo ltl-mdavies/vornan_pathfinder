@@ -76,3 +76,67 @@ test("keeps Wrike discovery preview dark when the server gate is not enabled", a
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("keeps Wrike order rehearsal dark before any provider read when broad intake gates are enabled", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathfinder-wrike-rehearsal-gate-"));
+  try {
+    const serverModuleUrl = new URL("../src/server.ts", import.meta.url).href;
+    const script = `
+      const assert = (await import("node:assert/strict")).default;
+      const request = (await import("supertest")).default;
+      let fetchCalls = 0;
+      globalThis.fetch = async () => {
+        fetchCalls += 1;
+        throw new Error("Wrike must not be contacted while rehearsal is gated.");
+      };
+      const { app } = await import(${JSON.stringify(serverModuleUrl)});
+      const body = {
+        task_id: "IEDEMOORDER",
+        confirmation_phrase: "PREPARE WRIKE PREVIEW IEDEMOORDER"
+      };
+      const discovery = await request(app)
+        .post("/api/customers/284619/import-methods/manual-xlsx/wrike/discovery-preview")
+        .send(body)
+        .expect(423);
+      assert.match(discovery.body.error, /rehearsal is disabled/i);
+      const evidence = await request(app)
+        .post("/api/customers/284619/import-methods/manual-xlsx/wrike/workbook-evidence")
+        .send(body)
+        .expect(423);
+      assert.match(evidence.body.error, /rehearsal is disabled/i);
+      const preview = await request(app)
+        .post("/api/customers/284619/import-methods/manual-xlsx/wrike/workbook-evidence/evidence-demo/preview")
+        .send({ ...body, extension: "xlsx" })
+        .expect(423);
+      assert.match(preview.body.error, /rehearsal is disabled/i);
+      const response = await request(app)
+        .post("/api/customers/284619/import-methods/manual-xlsx/wrike/prepare-order")
+        .send(body)
+        .expect(423);
+      assert.match(response.body.error, /rehearsal is disabled/i);
+      assert.equal(fetchCalls, 0);
+    `;
+    const result = spawnSync(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", script], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PATHFINDER_RUNTIME: "lambda",
+        PATHFINDER_STORAGE_DRIVER: "local",
+        PATHFINDER_SECRETS_DRIVER: "local",
+        PATHFINDER_LOCAL_STORE_PATH: join(directory, "store.json"),
+        PATHFINDER_LOCAL_SECRETS_PATH: join(directory, "secrets.json"),
+        PATHFINDER_REQUIRE_AUTH: "false",
+        PATHFINDER_ENABLE_LIFT_SUBMIT: "false",
+        PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW: "true",
+        PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: "true",
+        PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: "true",
+        PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: "true",
+        PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: "false"
+      },
+      encoding: "utf8"
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

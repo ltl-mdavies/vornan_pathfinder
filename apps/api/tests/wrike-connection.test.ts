@@ -17,6 +17,14 @@ function connectionPath(suffix = "") {
   return `/api/customers/${customerId}/source-connections/${connectionId}${suffix}`;
 }
 
+function rehearsalRequest(extension?: string) {
+  return {
+    ...(extension ? { extension } : {}),
+    task_id: "IEAPPROVEDTASK",
+    confirmation_phrase: "PREPARE WRIKE PREVIEW IEAPPROVEDTASK"
+  };
+}
+
 before(async () => {
   testDirectory = await mkdtemp(join(tmpdir(), "pathfinder-wrike-connection-test-"));
   process.env.PATHFINDER_RUNTIME = "lambda";
@@ -32,6 +40,13 @@ before(async () => {
   process.env.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE = "true";
   process.env.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW = "true";
   process.env.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE = "true";
+  process.env.PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL = "true";
+  process.env.PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID = customerId;
+  process.env.PATHFINDER_WRIKE_ORDER_REHEARSAL_IMPORT_METHOD_ID = "manual-xlsx";
+  process.env.PATHFINDER_WRIKE_ORDER_REHEARSAL_TASK_ID = "IEAPPROVEDTASK";
+  process.env.PATHFINDER_WRIKE_ORDER_REHEARSAL_EXPIRES_AT = new Date(
+    Date.now() + 60 * 60 * 1000
+  ).toISOString();
   process.env.PATHFINDER_LOCAL_SOURCE_EVIDENCE_DIR = join(testDirectory, "source-evidence");
   originalFetch = globalThis.fetch;
   ({ app } = await import("../src/server.ts"));
@@ -403,6 +418,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
 
   const response = await request(app)
     .post(`/api/customers/${customerId}/import-methods/manual-xlsx/wrike/discovery-preview`)
+    .send(rehearsalRequest())
     .expect(200);
 
   assert.equal(response.body.status, "Confirmed");
@@ -546,6 +562,7 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
 
   const stored = await request(app)
     .post(`/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence`)
+    .send(rehearsalRequest())
     .expect(201);
   assert.equal(stored.body.status, "Stored");
   assert.equal(stored.body.evidence.length, 1);
@@ -573,6 +590,7 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
 
   const replayed = await request(app)
     .post(`/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence`)
+    .send(rehearsalRequest())
     .expect(200);
   assert.equal(replayed.body.status, "Replayed");
   assert.equal(replayed.body.evidence[0].storage_status, "Replayed");
@@ -584,7 +602,7 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
     .post(
       `/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence/${evidence.evidence_id}/preview`
     )
-    .send({ extension: evidence.extension })
+    .send(rehearsalRequest(evidence.extension))
     .expect(201);
   assert.equal(preview.body.preview_status, "Created");
   assert.equal(preview.body.job.import_method_id, "manual-xlsx");
@@ -600,7 +618,7 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
     .post(
       `/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence/${evidence.evidence_id}/preview`
     )
-    .send({ extension: evidence.extension })
+    .send(rehearsalRequest(evidence.extension))
     .expect(200);
   assert.equal(previewReplay.body.preview_status, "Replayed");
   assert.equal(previewReplay.body.job.job_id, preview.body.job.job_id);
@@ -609,6 +627,7 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
 
   const prepared = await request(app)
     .post(`/api/customers/${customerId}/import-methods/manual-xlsx/wrike/prepare-order`)
+    .send(rehearsalRequest())
     .expect(200);
   assert.equal(prepared.body.status, "Prepared");
   assert.equal(prepared.body.task_id, "IEAPPROVEDTASK");
@@ -652,7 +671,7 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
     .post(
       `/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence/${evidence.evidence_id}/preview`
     )
-    .send({ extension: evidence.extension })
+    .send(rehearsalRequest(evidence.extension))
     .expect(201);
   assert.equal(revisedPreview.body.preview_status, "Created");
   assert.notEqual(revisedPreview.body.job.job_id, preview.body.job.job_id);

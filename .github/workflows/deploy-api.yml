@@ -123,6 +123,11 @@ jobs:
               WrikeWorkbookEvidenceEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE || 'false' }}" \
               WrikeEvidencePreviewEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW || 'false' }}" \
               WrikeManualIntakeEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE || 'false' }}" \
+              WrikeOrderRehearsalEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL || 'false' }}" \
+              WrikeOrderRehearsalCustomerId="${{ vars.PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID || '' }}" \
+              WrikeOrderRehearsalImportMethodId="${{ vars.PATHFINDER_WRIKE_ORDER_REHEARSAL_IMPORT_METHOD_ID || '' }}" \
+              WrikeOrderRehearsalTaskId="${{ vars.PATHFINDER_WRIKE_ORDER_REHEARSAL_TASK_ID || '' }}" \
+              WrikeOrderRehearsalExpiresAt="${{ vars.PATHFINDER_WRIKE_ORDER_REHEARSAL_EXPIRES_AT || '' }}" \
               WrikeLiftDocumentPublicationEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_LIFT_DOCUMENT_PUBLICATION || 'false' }}" \
               WrikeLiftDocumentDeliveryBucketName="${{ vars.PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BUCKET || '' }}" \
               WrikeLiftDocumentDeliveryBaseUrl="${{ vars.PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BASE_URL || '' }}" \
