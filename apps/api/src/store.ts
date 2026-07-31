@@ -205,6 +205,7 @@ export interface CustomerProductMapping {
   status: ProductMappingStatus;
   mapping_source?: ProductMappingSource;
   source_file_name?: string | null;
+  replacement_version_id?: string | null;
   last_seen_examples: Array<{
     sheet_name: string;
     row_number: number;
@@ -247,6 +248,7 @@ export interface ProductMappingReplacementSummary {
 export interface ProductMappingReplacementCheckpoint extends ProductMappingReplacementSummary {
   before_mappings: CustomerProductMapping[];
   introduced_mapping_ids: string[];
+  previous_version_id?: string | null;
 }
 
 export interface ProductMappingReplacementPreview {
@@ -652,6 +654,7 @@ export interface PathfinderCustomerWorkspace {
   catalog_presets: LiftCatalogPreset[];
   product_mapping_replacement_checkpoint?: ProductMappingReplacementCheckpoint | null;
   product_mapping_replacement_history?: ProductMappingReplacementSummary[];
+  product_mapping_active_versions?: Record<string, string | null>;
   status_access_policy: StatusAccessPolicy;
   primary_target_id: string;
   primary_output_route_id: string;
@@ -1895,11 +1898,36 @@ async function replaceDynamoTable(
 
 function workspaceRecord(workspace: PathfinderCustomerWorkspace) {
   const { import_methods, output_routes, jobs, submit_attempts, product_mappings, ...record } = workspace;
-  return record;
+  return {
+    ...record,
+    product_mapping_replacement_checkpoint: record.product_mapping_replacement_checkpoint
+      ? { ...record.product_mapping_replacement_checkpoint, before_mappings: [] }
+      : null
+  };
 }
 
-function customerRouteKey(customerId: string, outputRouteId: string) {
-  return `${customerId}#${outputRouteId}`;
+function customerRouteKey(customerId: string, outputRouteId: string, replacementVersionId?: string | null) {
+  const base = `${customerId}#${outputRouteId}`;
+  return replacementVersionId ? `${base}#version#${replacementVersionId}` : base;
+}
+
+function mappingReplacementVersion(mapping: CustomerProductMapping) {
+  return mapping.replacement_version_id ?? null;
+}
+
+function activeProductMappingVersion(workspace: PathfinderCustomerWorkspace, outputRouteId: string) {
+  return workspace.product_mapping_active_versions?.[outputRouteId] ?? null;
+}
+
+function mappingsForVersion(
+  mappings: CustomerProductMapping[],
+  outputRouteId: string,
+  replacementVersionId: string | null
+) {
+  return mappings.filter(
+    (mapping) =>
+      mapping.output_route_id === outputRouteId && mappingReplacementVersion(mapping) === replacementVersionId
+  );
 }
 
 function liftProductCachePartition(item: LiftUnitCatalogItem) {
@@ -2004,14 +2032,30 @@ async function readDynamoStore(): Promise<PathfinderStore | null> {
       .filter((workspace): workspace is PathfinderCustomerWorkspace => Boolean(workspace?.customer?.lift_customer_id))
       .map((workspace) => {
         const customerId = workspace.customer.lift_customer_id;
+        const allCustomerMappings = productMappingsByCustomer.get(customerId) ?? [];
+        const customerRoutes = outputRoutesByCustomer.get(customerId) ?? [];
+        const activeMappings = customerRoutes.flatMap((route) =>
+          mappingsForVersion(allCustomerMappings, route.output_route_id, activeProductMappingVersion(workspace, route.output_route_id))
+        );
+        const checkpoint = workspace.product_mapping_replacement_checkpoint;
+        const beforeMappings = checkpoint
+          ? mappingsForVersion(
+              allCustomerMappings,
+              checkpoint.output_route_id,
+              checkpoint.previous_version_id ?? null
+            )
+          : [];
         return [
           customerId,
           {
             ...workspace,
             customer: customers[customerId] ?? workspace.customer,
             import_methods: importMethodsByCustomer.get(customerId) ?? [],
-            output_routes: outputRoutesByCustomer.get(customerId) ?? [],
-            product_mappings: productMappingsByCustomer.get(customerId) ?? [],
+            output_routes: customerRoutes,
+            product_mappings: activeMappings,
+            product_mapping_replacement_checkpoint: checkpoint
+              ? { ...checkpoint, before_mappings: beforeMappings }
+              : null,
             jobs: jobsByCustomer.get(customerId) ?? [],
             submit_attempts: submitAttemptsByCustomer.get(customerId) ?? []
           }
@@ -2045,6 +2089,19 @@ async function readDynamoStore(): Promise<PathfinderStore | null> {
 async function writeDynamoStore(store: PathfinderStore) {
   const tables = getDynamoTableConfig();
   const workspaces = Object.values(store.workspaces);
+  const retainedProductMappings = Array.from(
+    new Map(
+      workspaces.flatMap((workspace) =>
+        [
+          ...workspace.product_mappings,
+          ...(workspace.product_mapping_replacement_checkpoint?.before_mappings ?? [])
+        ].map((mapping) => [
+          `${workspace.customer.lift_customer_id}\0${mapping.output_route_id}\0${mapping.replacement_version_id ?? "legacy"}\0${mapping.mapping_id}`,
+          { workspace, mapping }
+        ] as const)
+      )
+    ).values()
+  );
 
   await replaceDynamoTable(
     tables.targets,
@@ -2092,16 +2149,18 @@ async function writeDynamoStore(store: PathfinderStore) {
   await replaceDynamoTable(
     tables.product_mappings,
     ["customer_route_id", "mapping_id"],
-    workspaces.flatMap((workspace) =>
-      workspace.product_mappings.map((mapping) =>
+    retainedProductMappings.map(({ workspace, mapping }) =>
         dynamoItem(
           {
-            customer_route_id: customerRouteKey(workspace.customer.lift_customer_id, mapping.output_route_id),
+            customer_route_id: customerRouteKey(
+              workspace.customer.lift_customer_id,
+              mapping.output_route_id,
+              mapping.replacement_version_id
+            ),
             mapping_id: mapping.mapping_id
           },
           { ...mapping, customer_id: workspace.customer.lift_customer_id }
         )
-      )
     )
   );
   await replaceDynamoTable(
@@ -2703,6 +2762,10 @@ function normalizeProductMapping(mapping: CustomerProductMapping): CustomerProdu
         : mapping.lift_product_id ?? null,
     mapping_source: mapping.mapping_source ?? (mapping.last_seen_examples?.length ? "Observed order" : "Manual entry"),
     source_file_name: mapping.source_file_name ?? null,
+    replacement_version_id:
+      typeof mapping.replacement_version_id === "string" && mapping.replacement_version_id.trim()
+        ? mapping.replacement_version_id.trim().slice(0, 120)
+        : null,
     last_seen_examples: mapping.last_seen_examples ?? []
   };
 }
@@ -3074,6 +3137,7 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
     ),
     product_mapping_replacement_checkpoint: workspace.product_mapping_replacement_checkpoint ?? null,
     product_mapping_replacement_history: workspace.product_mapping_replacement_history ?? [],
+    product_mapping_active_versions: workspace.product_mapping_active_versions ?? {},
     status_access_policy: normalizeStatusAccessPolicy(workspace.status_access_policy, workspace.customer),
     primary_target_id: workspace.primary_target_id ?? route.target_id,
     primary_output_route_id: primaryOutputRouteId,
@@ -4497,6 +4561,7 @@ export async function updateProductMapping(
       lift_product_id: null,
       product_name: null,
       status: "Unmapped",
+      replacement_version_id: activeProductMappingVersion(workspace, route.output_route_id),
       last_seen_examples: [],
       created_at: timestamp,
       updated_at: timestamp
@@ -4508,6 +4573,10 @@ export async function updateProductMapping(
     output_route_id: patch.output_route_id ?? existing.output_route_id ?? route.output_route_id,
     target_id: patch.target_id ?? existing.target_id ?? route.target_id,
     target_template: patch.target_template ?? existing.target_template ?? route.output_template,
+    replacement_version_id:
+      patch.replacement_version_id ??
+      existing.replacement_version_id ??
+      activeProductMappingVersion(workspace, patch.output_route_id ?? existing.output_route_id ?? route.output_route_id),
     product_identifier_type:
       patch.product_identifier_type ?? existing.product_identifier_type ?? route.product_identifier_type,
     product_identifier_value:
@@ -4571,7 +4640,10 @@ export async function bulkUpsertProductMappings(customer: LiftCustomer, mappings
       target_template: mapping.target_template ?? route.output_template,
       product_identifier_type: mapping.product_identifier_type ?? route.product_identifier_type,
       product_identifier_value:
-        mapping.product_identifier_value ?? mapping.lift_unit_number ?? mapping.lift_product_id ?? null
+        mapping.product_identifier_value ?? mapping.lift_unit_number ?? mapping.lift_product_id ?? null,
+      replacement_version_id:
+        mapping.replacement_version_id ??
+        activeProductMappingVersion(workspace, mapping.output_route_id ?? route.output_route_id)
     });
     nextById.set(mapping.mapping_id, {
       ...(nextById.get(mapping.mapping_id) ?? normalizedMapping),
@@ -4778,9 +4850,9 @@ function buildProductMappingReplacementPlan(
   }).filter((mapping) => !seenKeys.has(mapping.customer_product_key));
 
   const nextRouteMappings = [...importedMappings, ...omittedMappings];
-  if (nextRouteMappings.length > 99) {
+  if (nextRouteMappings.length > 2000) {
     throw new ProductMappingReplacementValidationError(
-      "This route contains more than 99 product records. Split the authoritative list before applying an atomic replacement."
+      "This route contains more than 2,000 product records. Split the list into a separately reviewed catalog workflow."
     );
   }
   const counts = {
@@ -4810,7 +4882,11 @@ function buildProductMappingReplacementPlan(
   };
 }
 
-async function readDynamoReplacementContext(customerId: string, outputRouteId: string) {
+async function readDynamoReplacementContext(
+  customerId: string,
+  outputRouteId: string,
+  replacementVersionId: string | null
+) {
   const tables = getDynamoTableConfig();
   const [workspaceResponse, mappingsResponse] = await Promise.all([
     getDynamoClient().send(new GetItemCommand({
@@ -4821,7 +4897,9 @@ async function readDynamoReplacementContext(customerId: string, outputRouteId: s
     getDynamoClient().send(new QueryCommand({
       TableName: tables.product_mappings,
       KeyConditionExpression: "customer_route_id = :route",
-      ExpressionAttributeValues: { ":route": dynamoString(customerRouteKey(customerId, outputRouteId)) },
+      ExpressionAttributeValues: {
+        ":route": dynamoString(customerRouteKey(customerId, outputRouteId, replacementVersionId))
+      },
       ConsistentRead: true
     }))
   ]);
@@ -4841,6 +4919,7 @@ async function persistProductMappingReplacement(args: {
   expectedWorkspace: PathfinderCustomerWorkspace;
   nextRouteMappings: CustomerProductMapping[];
   expectedRouteMappings: CustomerProductMapping[];
+  nextVersionId: string | null;
 }) {
   const config = getPathfinderPersistenceRuntimeConfig();
   if (config.storage_driver !== "dynamodb") {
@@ -4852,12 +4931,11 @@ async function persistProductMappingReplacement(args: {
 
   const context = await readDynamoReplacementContext(
     args.customer.lift_customer_id,
-    args.nextRouteMappings[0]?.output_route_id ?? args.expectedRouteMappings[0]?.output_route_id ?? ""
-  );
-  const storedMappings = new Map(
-    context.mapping_items
-      .map((item) => [item.mapping_id?.S ?? "", item] as const)
-      .filter(([mappingId]) => Boolean(mappingId))
+    args.nextRouteMappings[0]?.output_route_id ?? args.expectedRouteMappings[0]?.output_route_id ?? "",
+    activeProductMappingVersion(
+      args.expectedWorkspace,
+      args.nextRouteMappings[0]?.output_route_id ?? args.expectedRouteMappings[0]?.output_route_id ?? ""
+    )
   );
   const expectedById = new Map(args.expectedRouteMappings.map((mapping) => [mapping.mapping_id, mapping]));
   const storedWorkspace = parseDynamoData<PathfinderCustomerWorkspace>(context.workspace_item);
@@ -4875,42 +4953,28 @@ async function persistProductMappingReplacement(args: {
     throw new ProductMappingReplacementConflictError();
   }
 
-  const transactItems = [
-    {
-      Put: {
-        TableName: context.tables.workspaces,
+  const stagedMappings = args.nextRouteMappings.map((mapping) => ({
+    ...mapping,
+    replacement_version_id: args.nextVersionId
+  }));
+  await batchWriteDynamo(
+    context.tables.product_mappings,
+    stagedMappings.map((mapping) => ({
+      PutRequest: {
         Item: dynamoItem(
-          { customer_id: args.customer.lift_customer_id },
-          workspaceRecord(args.workspace)
-        ),
-        ConditionExpression: "#data = :expected_data",
-        ExpressionAttributeNames: { "#data": "data" },
-        ExpressionAttributeValues: { ":expected_data": context.workspace_item.data as AttributeValue }
+          {
+            customer_route_id: customerRouteKey(
+              args.customer.lift_customer_id,
+              mapping.output_route_id,
+              mapping.replacement_version_id
+            ),
+            mapping_id: mapping.mapping_id
+          },
+          { ...mapping, customer_id: args.customer.lift_customer_id }
+        )
       }
-    },
-    ...args.nextRouteMappings.map((mapping) => {
-      const stored = storedMappings.get(mapping.mapping_id);
-      return {
-        Put: {
-          TableName: context.tables.product_mappings,
-          Item: dynamoItem(
-            {
-              customer_route_id: customerRouteKey(args.customer.lift_customer_id, mapping.output_route_id),
-              mapping_id: mapping.mapping_id
-            },
-            { ...mapping, customer_id: args.customer.lift_customer_id }
-          ),
-          ConditionExpression: stored ? "#data = :expected_data" : "attribute_not_exists(mapping_id)",
-          ...(stored
-            ? {
-                ExpressionAttributeNames: { "#data": "data" },
-                ExpressionAttributeValues: { ":expected_data": stored.data as AttributeValue }
-              }
-            : {})
-        }
-      };
-    })
-  ];
+    }))
+  );
   try {
     await getDynamoClient().send(new TransactWriteItemsCommand({
       ClientRequestToken: createHash("sha256")
@@ -4919,7 +4983,20 @@ async function persistProductMappingReplacement(args: {
         .update(args.workspace.updated_at)
         .digest("hex")
         .slice(0, 36),
-      TransactItems: transactItems
+      TransactItems: [
+        {
+          Put: {
+            TableName: context.tables.workspaces,
+            Item: dynamoItem(
+              { customer_id: args.customer.lift_customer_id },
+              workspaceRecord(args.workspace)
+            ),
+            ConditionExpression: "#data = :expected_data",
+            ExpressionAttributeNames: { "#data": "data" },
+            ExpressionAttributeValues: { ":expected_data": context.workspace_item.data as AttributeValue }
+          }
+        }
+      ]
     }));
   } catch (error) {
     if ((error as { name?: string }).name === "TransactionCanceledException") {
@@ -4956,6 +5033,11 @@ export async function applyProductMappingReplacement(
   );
   const expectedWorkspace = { ...workspace, product_mappings: [...workspace.product_mappings] };
   const replacementId = `product_replace_${randomBytes(12).toString("hex")}`;
+  const previousVersionId = activeProductMappingVersion(workspace, input.output_route_id);
+  const versionedRouteMappings = plan.next_route_mappings.map((mapping) => ({
+    ...mapping,
+    replacement_version_id: replacementId
+  }));
   const summary: ProductMappingReplacementSummary = {
     replacement_id: replacementId,
     output_route_id: input.output_route_id,
@@ -4972,12 +5054,17 @@ export async function applyProductMappingReplacement(
   };
   workspace.product_mappings = [
     ...workspace.product_mappings.filter((mapping) => mapping.output_route_id !== input.output_route_id),
-    ...plan.next_route_mappings
+    ...versionedRouteMappings
   ];
+  workspace.product_mapping_active_versions = {
+    ...(workspace.product_mapping_active_versions ?? {}),
+    [input.output_route_id]: replacementId
+  };
   workspace.product_mapping_replacement_checkpoint = {
     ...summary,
     before_mappings: beforeMappings,
-    introduced_mapping_ids: plan.introduced_mapping_ids
+    introduced_mapping_ids: plan.introduced_mapping_ids,
+    previous_version_id: previousVersionId
   };
   workspace.product_mapping_replacement_history = [
     summary,
@@ -4988,8 +5075,9 @@ export async function applyProductMappingReplacement(
     customer,
     workspace,
     expectedWorkspace,
-    nextRouteMappings: plan.next_route_mappings,
-    expectedRouteMappings: beforeMappings
+    nextRouteMappings: versionedRouteMappings,
+    expectedRouteMappings: beforeMappings,
+    nextVersionId: replacementId
   });
   return normalizeWorkspace((await readStore()).workspaces[customer.lift_customer_id] ?? workspace);
 }
@@ -5022,6 +5110,10 @@ export async function rollbackProductMappingReplacement(
     ...workspace.product_mappings.filter((mapping) => mapping.output_route_id !== checkpoint.output_route_id),
     ...restoredRouteMappings
   ];
+  workspace.product_mapping_active_versions = {
+    ...(workspace.product_mapping_active_versions ?? {}),
+    [checkpoint.output_route_id]: checkpoint.previous_version_id ?? null
+  };
   workspace.product_mapping_replacement_checkpoint = { ...checkpoint, rolled_back_at: timestamp };
   workspace.product_mapping_replacement_history = (workspace.product_mapping_replacement_history ?? []).map((entry) =>
     entry.replacement_id === replacementId
@@ -5034,7 +5126,8 @@ export async function rollbackProductMappingReplacement(
     workspace,
     expectedWorkspace,
     nextRouteMappings: restoredRouteMappings,
-    expectedRouteMappings: currentRouteMappings
+    expectedRouteMappings: currentRouteMappings,
+    nextVersionId: checkpoint.previous_version_id ?? null
   });
   return normalizeWorkspace((await readStore()).workspaces[customer.lift_customer_id] ?? workspace);
 }
