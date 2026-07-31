@@ -101,6 +101,7 @@ import { ProofingApiSetup } from "./ProofingApiSetup";
 import { ImportMethodWorkbookSetup } from "./ImportMethodWorkbookSetup";
 import { WrikeIntakeBehaviorSetup } from "./WrikeIntakeBehaviorSetup";
 import { CompositeFieldMappingSetup } from "./CompositeFieldMappingSetup";
+import { selectedDirectMappingTarget, updateDirectMapping } from "./field-mapping-draft";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
@@ -2235,23 +2236,6 @@ function ArrowGlyph() {
       <path d="M5.5 3.5 10 8l-4.5 4.5" />
     </svg>
   );
-}
-
-function updateMapping(mappings: FieldMapping[], sourceColumn: string, targetField: string, scopeId?: string | null) {
-  const normalizedScopeId = scopeId || null;
-  const nextMappings = mappings.filter(
-    (mapping) =>
-      !(
-        (mapping.scopeId ?? null) === normalizedScopeId &&
-        (
-          (!mapping.valueExpression && mapping.sourceColumn === sourceColumn) ||
-          (Boolean(targetField) && mapping.valueExpression?.kind === "composite" && mapping.targetField === targetField)
-        )
-      )
-  );
-  return targetField
-    ? [...nextMappings, { sourceColumn, targetField, ...(normalizedScopeId ? { scopeId: normalizedScopeId } : {}) }]
-    : nextMappings;
 }
 
 function DetailItem({ label, value }: { label: string; value?: string | null }) {
@@ -6659,12 +6643,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     displayedLiftPayload.order.ext_id || lastPreviewJob?.job_id || "preview"
   ) || "preview"}.json`;
   const mappedColumnCount = fieldMappingColumns.filter((column) =>
-    mappings.some(
-      (mapping) =>
-        !mapping.valueExpression &&
-        mapping.sourceColumn === column &&
-        (!effectiveProductScope || mapping.scopeId === effectiveProductScope.scope_id || !mapping.scopeId)
-    )
+    Boolean(selectedDirectMappingTarget(mappings, column, effectiveProductScope?.scope_id))
   ).length;
   const customerOrderCount = customerJobs.reduce((total, job) => total + jobOrderCount(job), 0);
   const readyJobCount = customerJobs.filter((job) => job.state === "Ready" || job.state === "Completed").length;
@@ -11900,18 +11879,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </thead>
                         <tbody>
                           {foundInputElements.map(({ column, sample }) => {
-                            const selected =
-                              mappings.find(
-                                (mapping) =>
-                                  !mapping.valueExpression &&
-                                  mapping.sourceColumn === column &&
-                                  mapping.scopeId === effectiveProductScope?.scope_id
-                              )?.targetField ??
-                              mappings.find(
-                                (mapping) =>
-                                  !mapping.valueExpression && mapping.sourceColumn === column && !mapping.scopeId
-                              )?.targetField ??
-                              "";
+                            const selected = selectedDirectMappingTarget(
+                              mappings,
+                              column,
+                              effectiveProductScope?.scope_id
+                            );
                             return (
                               <tr key={`${effectiveProductScope?.scope_id ?? "global"}-${column}`}>
                                 <td>
@@ -11923,7 +11895,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   <select
                                     value={selected}
                                     onChange={(event) => {
-                                      const nextMappings = updateMapping(
+                                      const nextMappings = updateDirectMapping(
                                         mappings,
                                         column,
                                         event.target.value,
@@ -13461,10 +13433,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </thead>
                       <tbody>
                         {foundInputElements.map(({ column, sample }) => {
-                      const selected =
-                        mappings.find(
-                          (mapping) => !mapping.valueExpression && mapping.sourceColumn === column
-                        )?.targetField ?? "";
+                      const selected = selectedDirectMappingTarget(mappings, column);
                       return (
                         <tr key={column}>
                           <td>
@@ -13475,7 +13444,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <td>
                             <select
                               value={selected}
-                              onChange={(event) => setMappings((current) => updateMapping(current, column, event.target.value))}
+                              onChange={(event) =>
+                                setMappings((current) => updateDirectMapping(current, column, event.target.value))
+                              }
                             >
                               <option value="">Ignore</option>
                               <CanonicalFieldOptionGroups fields={canonicalRegistryFields} />

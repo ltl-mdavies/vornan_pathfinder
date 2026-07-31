@@ -93,6 +93,7 @@ export interface FieldMapping {
   targetField: string;
   scopeId?: string | null;
   required?: boolean;
+  ignored?: boolean;
   valueExpression?: CompositeFieldMappingExpression;
 }
 
@@ -1321,6 +1322,13 @@ export function resolveFieldMappingValue(
   row: Record<string, string | number | boolean | null>,
   mapping: FieldMapping
 ): FieldMappingResolution {
+  if (mapping.ignored) {
+    return {
+      value: null,
+      status: "empty",
+      sourceColumns: mapping.sourceColumn ? [mapping.sourceColumn] : []
+    };
+  }
   const expression = mapping.valueExpression;
   if (!expression || expression.kind !== "composite") {
     const value = row[mapping.sourceColumn] ?? null;

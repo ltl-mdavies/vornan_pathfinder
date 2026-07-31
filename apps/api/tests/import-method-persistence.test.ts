@@ -168,6 +168,12 @@ test("persists detected schemas and mappings without retaining workbook rows", a
       required: true
     },
     {
+      sourceColumn: "Description",
+      targetField: "lines[].description",
+      scopeId: "Orders::orders-print-3",
+      ignored: true
+    },
+    {
       sourceColumn: "",
       targetField: "lines[].description",
       scopeId: "Orders::orders-print-3",
