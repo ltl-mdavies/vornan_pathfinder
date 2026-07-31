@@ -86,7 +86,8 @@ export function CompositeFieldMappingSetup({
       (mapping) =>
         !(
           (mapping.scopeId ?? null) === normalizedScopeId &&
-          mapping.targetField === preferredTarget
+          mapping.targetField === preferredTarget &&
+          !mapping.ignored
         )
     );
     onChange([
@@ -107,7 +108,8 @@ export function CompositeFieldMappingSetup({
           return [mapping];
         }
         return (candidate.scopeId ?? null) === normalizedScopeId &&
-          candidate.targetField === mapping.targetField
+          candidate.targetField === mapping.targetField &&
+          !candidate.ignored
           ? []
           : [candidate];
       })

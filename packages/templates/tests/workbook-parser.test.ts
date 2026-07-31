@@ -649,6 +649,21 @@ test("fails a bounded composite closed when its resolved value exceeds the confi
   assert.equal(result.value, null);
 });
 
+test("an explicit ignored mapping never resolves its source value", () => {
+  const result = resolveFieldMappingValue(
+    { DESCRIPTION: "Pump topper" },
+    {
+      sourceColumn: "DESCRIPTION",
+      targetField: "lines[].description",
+      scopeId: "Order Form::print",
+      ignored: true
+    }
+  );
+
+  assert.equal(result.status, "empty");
+  assert.equal(result.value, null);
+});
+
 test("does not invent print dimensions for an explicitly mapped hardware product", () => {
   const baseLine = sampleCanonicalOrder.lines[0];
   const hardwareOrder = {

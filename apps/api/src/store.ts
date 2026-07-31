@@ -2537,12 +2537,26 @@ function normalizeImportMethod(method: ImportMethod): ImportMethod {
 }
 
 function normalizeFieldMappings(mappings: FieldMapping[] | undefined): FieldMapping[] {
-  return (mappings ?? []).flatMap((mapping) => {
+  return (mappings ?? []).flatMap<FieldMapping>((mapping): FieldMapping[] => {
     const targetField = typeof mapping.targetField === "string" ? mapping.targetField.trim().slice(0, 240) : "";
     const scopeId =
       typeof mapping.scopeId === "string" && mapping.scopeId.trim()
         ? mapping.scopeId.trim().slice(0, 240)
         : null;
+    const sourceColumn =
+      typeof mapping.sourceColumn === "string" ? mapping.sourceColumn.trim().slice(0, 160) : "";
+    if (mapping.ignored === true) {
+      return sourceColumn && targetField
+        ? [
+            {
+              sourceColumn,
+              targetField,
+              ...(scopeId ? { scopeId } : {}),
+              ignored: true
+            }
+          ]
+        : [];
+    }
     if (!targetField) {
       return [];
     }
@@ -2597,8 +2611,6 @@ function normalizeFieldMappings(mappings: FieldMapping[] | undefined): FieldMapp
       ];
     }
 
-    const sourceColumn =
-      typeof mapping.sourceColumn === "string" ? mapping.sourceColumn.trim().slice(0, 160) : "";
     return sourceColumn
       ? [
           {
