@@ -103,7 +103,9 @@ test("renders configurable sheet roles and independent print and hardware sectio
   assert.match(markup, /Hardware/);
   assert.match(markup, /Qty\. Needed/);
   assert.match(markup, /1 quantity issue/);
-  assert.match(markup, /Block preview until fixed/);
+  assert.match(markup, /Quantity Below 1/);
+  assert.match(markup, /Exclude from order; keep as reference/);
+  assert.match(markup, /Block preview until corrected/);
   assert.match(markup, /Add another section/);
   assert.match(markup, /Remove section/);
   assert.match(markup, /Pathfinder finds each section by its saved column headers/);

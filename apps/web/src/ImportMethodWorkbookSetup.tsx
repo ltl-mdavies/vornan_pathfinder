@@ -325,7 +325,7 @@ export function ImportMethodWorkbookSetup({
                         </select>
                       </label>
                       <label className="setup-control">
-                        <span>Missing Quantity</span>
+                        <span>Quantity Below 1</span>
                         <select
                           value={section.missing_quantity_behavior}
                           onChange={(event) =>
@@ -334,8 +334,8 @@ export function ImportMethodWorkbookSetup({
                             })
                           }
                         >
-                          <option value="reference">Keep as reference row</option>
-                          <option value="block">Block preview until fixed</option>
+                          <option value="reference">Exclude from order; keep as reference</option>
+                          <option value="block">Block preview until corrected</option>
                         </select>
                       </label>
                     </div>

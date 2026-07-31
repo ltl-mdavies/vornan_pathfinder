@@ -845,7 +845,7 @@ function isLikelyRepeatedHeader(row: Record<string, string | number | boolean | 
 
 function isValidQuantity(value: unknown) {
   if (typeof value === "number") {
-    return Number.isFinite(value) && value > 0;
+    return Number.isFinite(value) && Number.isInteger(value) && value >= 1;
   }
 
   if (typeof value === "string") {
@@ -854,7 +854,7 @@ function isValidQuantity(value: unknown) {
       return false;
     }
     const parsed = Number.parseFloat(trimmed.replace(/[^0-9.-]/g, ""));
-    return Number.isFinite(parsed) && parsed > 0;
+    return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed >= 1;
   }
 
   return false;
