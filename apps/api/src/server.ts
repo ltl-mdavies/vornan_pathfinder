@@ -95,6 +95,7 @@ import { prepareWrikeManualIntake } from "./wrike-manual-intake.js";
 import {
   archiveImportMethod,
   addCanonicalRegistryCustomField,
+  applyProductMappingReplacement,
   bulkUpsertProductMappings,
   consumePublicIntakeEmailVerification,
   createCustomerSourceConnection,
@@ -129,8 +130,12 @@ import {
   persistPreviewJob,
   persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
+  previewProductMappingReplacement,
+  ProductMappingReplacementConflictError,
+  ProductMappingReplacementValidationError,
   PublicIntakeLifecycleError,
   reservePathfinderOrderNumber,
+  rollbackProductMappingReplacement,
   revokeImportMethodPublicIntakeKey,
   rotateImportMethodPublicIntakeKey,
   setJobsArchived,
@@ -5023,6 +5028,69 @@ app.get("/api/customers/:liftCustomerId/product-mappings", async (req, res) => {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Product mapping load failed."
     });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/product-mappings/replacement-preview", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    res.json({
+      preview: await previewProductMappingReplacement(customer, {
+        output_route_id: String(req.body?.output_route_id ?? ""),
+        source_file_name: String(req.body?.source_file_name ?? ""),
+        clear_existing_assignments: req.body?.clear_existing_assignments !== false,
+        product_mappings: (req.body?.product_mappings ?? []) as CustomerProductMapping[]
+      })
+    });
+  } catch (error) {
+    const status = error instanceof ProductMappingReplacementValidationError ? 400 : 500;
+    res.status(status).json({ error: error instanceof Error ? error.message : "Product-list replacement preview failed." });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/product-mappings/replacement-apply", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const authUser = res.locals.authUser as { uid?: unknown } | undefined;
+    const workspace = await applyProductMappingReplacement(
+      customer,
+      {
+        output_route_id: String(req.body?.output_route_id ?? ""),
+        source_file_name: String(req.body?.source_file_name ?? ""),
+        clear_existing_assignments: req.body?.clear_existing_assignments !== false,
+        product_mappings: (req.body?.product_mappings ?? []) as CustomerProductMapping[]
+      },
+      String(req.body?.preview_token ?? ""),
+      typeof authUser?.uid === "string" ? authUser.uid : "local-operator"
+    );
+    res.json({ workspace });
+  } catch (error) {
+    const status = error instanceof ProductMappingReplacementConflictError
+      ? 409
+      : error instanceof ProductMappingReplacementValidationError
+        ? 400
+        : 500;
+    res.status(status).json({ error: error instanceof Error ? error.message : "Product-list replacement failed." });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/product-mappings/replacement-rollback/:replacementId", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const authUser = res.locals.authUser as { uid?: unknown } | undefined;
+    const workspace = await rollbackProductMappingReplacement(
+      customer,
+      req.params.replacementId,
+      typeof authUser?.uid === "string" ? authUser.uid : "local-operator"
+    );
+    res.json({ workspace });
+  } catch (error) {
+    const status = error instanceof ProductMappingReplacementConflictError
+      ? 409
+      : error instanceof ProductMappingReplacementValidationError
+        ? 400
+        : 500;
+    res.status(status).json({ error: error instanceof Error ? error.message : "Product-list replacement rollback failed." });
   }
 });
 

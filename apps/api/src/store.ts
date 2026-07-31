@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -7,7 +7,9 @@ import {
   DynamoDBClient,
   GetItemCommand,
   PutItemCommand,
+  QueryCommand,
   ScanCommand,
+  TransactWriteItemsCommand,
   type AttributeValue,
   type WriteRequest
 } from "@aws-sdk/client-dynamodb";
@@ -214,6 +216,50 @@ export interface CustomerProductMapping {
   }>;
   created_at: string;
   updated_at: string;
+}
+
+export type ProductMappingReplacementAction = "New" | "Updated" | "Unchanged" | "Deactivate";
+
+export interface ProductMappingReplacementPreviewRow {
+  mapping_id: string;
+  customer_product_key: string;
+  display_label: string;
+  action: ProductMappingReplacementAction;
+  current_status: ProductMappingStatus | null;
+  next_status: ProductMappingStatus;
+}
+
+export interface ProductMappingReplacementSummary {
+  replacement_id: string;
+  output_route_id: string;
+  source_file_name: string;
+  actor_id: string;
+  created_at: string;
+  rolled_back_at: string | null;
+  imported_count: number;
+  new_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  deactivated_count: number;
+  clear_existing_assignments: boolean;
+}
+
+export interface ProductMappingReplacementCheckpoint extends ProductMappingReplacementSummary {
+  before_mappings: CustomerProductMapping[];
+  introduced_mapping_ids: string[];
+}
+
+export interface ProductMappingReplacementPreview {
+  preview_token: string;
+  output_route_id: string;
+  source_file_name: string;
+  clear_existing_assignments: boolean;
+  imported_count: number;
+  new_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  deactivated_count: number;
+  rows: ProductMappingReplacementPreviewRow[];
 }
 
 export interface LiftUnitCatalogItem {
@@ -604,6 +650,8 @@ export interface PathfinderCustomerWorkspace {
   submit_attempts?: SubmitAttempt[];
   product_mappings: CustomerProductMapping[];
   catalog_presets: LiftCatalogPreset[];
+  product_mapping_replacement_checkpoint?: ProductMappingReplacementCheckpoint | null;
+  product_mapping_replacement_history?: ProductMappingReplacementSummary[];
   status_access_policy: StatusAccessPolicy;
   primary_target_id: string;
   primary_output_route_id: string;
@@ -3024,6 +3072,8 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
     catalog_presets: catalogPresets.map((preset) =>
       normalizeCatalogPreset(preset, { ...workspace, output_routes: outputRoutes })
     ),
+    product_mapping_replacement_checkpoint: workspace.product_mapping_replacement_checkpoint ?? null,
+    product_mapping_replacement_history: workspace.product_mapping_replacement_history ?? [],
     status_access_policy: normalizeStatusAccessPolicy(workspace.status_access_policy, workspace.customer),
     primary_target_id: workspace.primary_target_id ?? route.target_id,
     primary_output_route_id: primaryOutputRouteId,
@@ -4535,6 +4585,458 @@ export async function bulkUpsertProductMappings(customer: LiftCustomer, mappings
   store.workspaces[customer.lift_customer_id] = workspace;
   await writeStore(store);
   return workspace.product_mappings;
+}
+
+export class ProductMappingReplacementConflictError extends Error {
+  constructor(message = "The product map changed after this replacement preview. Review it again before applying changes.") {
+    super(message);
+    this.name = "ProductMappingReplacementConflictError";
+  }
+}
+
+export class ProductMappingReplacementValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProductMappingReplacementValidationError";
+  }
+}
+
+interface ProductMappingReplacementInput {
+  output_route_id: string;
+  source_file_name: string;
+  clear_existing_assignments: boolean;
+  product_mappings: CustomerProductMapping[];
+}
+
+interface ProductMappingReplacementPlan {
+  preview: ProductMappingReplacementPreview;
+  next_route_mappings: CustomerProductMapping[];
+  introduced_mapping_ids: string[];
+}
+
+function replacementActorId(actorId: string) {
+  return `operator_${createHash("sha256").update(actorId || "local-operator").digest("hex").slice(0, 24)}`;
+}
+
+function replacementMappingId(outputRouteId: string, customerProductKey: string) {
+  return `product_${createHash("sha256")
+    .update(outputRouteId)
+    .update("\0")
+    .update(customerProductKey)
+    .digest("hex")
+    .slice(0, 24)}`;
+}
+
+function replacementComparable(mapping: CustomerProductMapping) {
+  return {
+    customer_product_key: mapping.customer_product_key,
+    display_label: mapping.display_label,
+    source_columns: mapping.source_columns,
+    product_identifier_type: mapping.product_identifier_type,
+    product_identifier_value: mapping.product_identifier_value,
+    lift_unit_number: mapping.lift_unit_number,
+    lift_product_id: mapping.lift_product_id ?? null,
+    product_name: mapping.product_name,
+    status: mapping.status
+  };
+}
+
+function replacementPreviewToken(args: {
+  outputRouteId: string;
+  sourceFileName: string;
+  clearExistingAssignments: boolean;
+  currentMappings: CustomerProductMapping[];
+  candidates: CustomerProductMapping[];
+}) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        output_route_id: args.outputRouteId,
+        source_file_name: args.sourceFileName,
+        clear_existing_assignments: args.clearExistingAssignments,
+        current: [...args.currentMappings]
+          .sort((first, second) => first.mapping_id.localeCompare(second.mapping_id))
+          .map((mapping) => ({ ...replacementComparable(mapping), mapping_id: mapping.mapping_id })),
+        candidates: [...args.candidates]
+          .sort((first, second) => first.customer_product_key.localeCompare(second.customer_product_key))
+          .map(replacementComparable)
+      })
+    )
+    .digest("hex");
+}
+
+function buildProductMappingReplacementPlan(
+  workspace: PathfinderCustomerWorkspace,
+  input: ProductMappingReplacementInput,
+  timestamp: string
+): ProductMappingReplacementPlan {
+  const route = workspace.output_routes.find((candidate) => candidate.output_route_id === input.output_route_id);
+  if (!route) {
+    throw new ProductMappingReplacementValidationError("The selected output route no longer exists.");
+  }
+  const sourceFileName = String(input.source_file_name ?? "").trim().slice(0, 240);
+  if (!sourceFileName) {
+    throw new ProductMappingReplacementValidationError("A source-list name is required for the replacement checkpoint.");
+  }
+  if (!Array.isArray(input.product_mappings) || input.product_mappings.length === 0) {
+    throw new ProductMappingReplacementValidationError("The authoritative product list must contain at least one valid product.");
+  }
+
+  const currentRouteMappings = workspace.product_mappings.filter(
+    (mapping) => mapping.output_route_id === route.output_route_id
+  );
+  const currentByKey = new Map(currentRouteMappings.map((mapping) => [mapping.customer_product_key, mapping]));
+  const seenKeys = new Set<string>();
+  const introducedMappingIds: string[] = [];
+  const rows: ProductMappingReplacementPreviewRow[] = [];
+
+  const importedMappings = input.product_mappings.map((candidate) => {
+    const customerProductKey = String(candidate.customer_product_key ?? "").trim().slice(0, 500);
+    if (!customerProductKey) {
+      throw new ProductMappingReplacementValidationError("Every imported product must have a customer product key.");
+    }
+    if (seenKeys.has(customerProductKey)) {
+      throw new ProductMappingReplacementValidationError(
+        `The authoritative list contains the product key ${customerProductKey} more than once.`
+      );
+    }
+    seenKeys.add(customerProductKey);
+    const existing = currentByKey.get(customerProductKey);
+    const mappingId = existing?.mapping_id ?? replacementMappingId(route.output_route_id, customerProductKey);
+    if (!existing) {
+      introducedMappingIds.push(mappingId);
+    }
+    const identifierValue = input.clear_existing_assignments
+      ? null
+      : candidate.product_identifier_value ?? candidate.lift_product_id ?? candidate.lift_unit_number ?? null;
+    const nextStatus: ProductMappingStatus = identifierValue ? "Mapped" : "Unmapped";
+    const importedExamples = Array.isArray(candidate.last_seen_examples) ? candidate.last_seen_examples : [];
+    const nextMapping: CustomerProductMapping = {
+      ...(existing ?? {}),
+      mapping_id: mappingId,
+      output_route_id: route.output_route_id,
+      target_id: route.target_id,
+      target_template: route.output_template,
+      source_scope_id: candidate.source_scope_id ?? existing?.source_scope_id ?? null,
+      customer_product_key: customerProductKey,
+      display_label: String(candidate.display_label || candidate.product_name || customerProductKey).trim().slice(0, 500),
+      source_columns: Array.from(
+        new Set((candidate.source_columns ?? []).map((column) => String(column).trim()).filter(Boolean))
+      ).slice(0, 20),
+      product_identifier_type: route.product_identifier_type,
+      product_identifier_value: identifierValue,
+      lift_unit_number:
+        route.product_identifier_type === "lift_unit_number" ? identifierValue : input.clear_existing_assignments ? null : candidate.lift_unit_number ?? null,
+      lift_product_id:
+        route.product_identifier_type === "lift_product_id" ? identifierValue : input.clear_existing_assignments ? null : candidate.lift_product_id ?? null,
+      product_name: input.clear_existing_assignments
+        ? null
+        : candidate.product_name ?? existing?.product_name ?? candidate.display_label ?? customerProductKey,
+      status: nextStatus,
+      mapping_source: "Preloaded catalog",
+      source_file_name: sourceFileName,
+      last_seen_examples: [
+        ...importedExamples,
+        ...(existing?.last_seen_examples ?? []).filter(
+          (example) => !importedExamples.some(
+            (imported) => imported.sheet_name === example.sheet_name && imported.row_number === example.row_number
+          )
+        )
+      ].slice(0, 8),
+      created_at: existing?.created_at ?? timestamp,
+      updated_at: timestamp
+    };
+    const action: ProductMappingReplacementAction = !existing
+      ? "New"
+      : JSON.stringify(replacementComparable(existing)) === JSON.stringify(replacementComparable(nextMapping))
+        ? "Unchanged"
+        : "Updated";
+    rows.push({
+      mapping_id: mappingId,
+      customer_product_key: customerProductKey,
+      display_label: nextMapping.display_label,
+      action,
+      current_status: existing?.status ?? null,
+      next_status: nextStatus
+    });
+    return nextMapping;
+  });
+
+  const omittedMappings = currentRouteMappings.map((mapping) => {
+    if (seenKeys.has(mapping.customer_product_key) || mapping.status === "Inactive") {
+      return mapping;
+    }
+    rows.push({
+      mapping_id: mapping.mapping_id,
+      customer_product_key: mapping.customer_product_key,
+      display_label: mapping.display_label,
+      action: "Deactivate",
+      current_status: mapping.status,
+      next_status: "Inactive"
+    });
+    return { ...mapping, status: "Inactive" as const, updated_at: timestamp };
+  }).filter((mapping) => !seenKeys.has(mapping.customer_product_key));
+
+  const nextRouteMappings = [...importedMappings, ...omittedMappings];
+  if (nextRouteMappings.length > 99) {
+    throw new ProductMappingReplacementValidationError(
+      "This route contains more than 99 product records. Split the authoritative list before applying an atomic replacement."
+    );
+  }
+  const counts = {
+    new_count: rows.filter((row) => row.action === "New").length,
+    updated_count: rows.filter((row) => row.action === "Updated").length,
+    unchanged_count: rows.filter((row) => row.action === "Unchanged").length,
+    deactivated_count: rows.filter((row) => row.action === "Deactivate").length
+  };
+  return {
+    preview: {
+      preview_token: replacementPreviewToken({
+        outputRouteId: route.output_route_id,
+        sourceFileName,
+        clearExistingAssignments: Boolean(input.clear_existing_assignments),
+        currentMappings: currentRouteMappings,
+        candidates: input.product_mappings
+      }),
+      output_route_id: route.output_route_id,
+      source_file_name: sourceFileName,
+      clear_existing_assignments: Boolean(input.clear_existing_assignments),
+      imported_count: importedMappings.length,
+      ...counts,
+      rows
+    },
+    next_route_mappings: nextRouteMappings,
+    introduced_mapping_ids: introducedMappingIds
+  };
+}
+
+async function readDynamoReplacementContext(customerId: string, outputRouteId: string) {
+  const tables = getDynamoTableConfig();
+  const [workspaceResponse, mappingsResponse] = await Promise.all([
+    getDynamoClient().send(new GetItemCommand({
+      TableName: tables.workspaces,
+      Key: { customer_id: dynamoString(customerId) },
+      ConsistentRead: true
+    })),
+    getDynamoClient().send(new QueryCommand({
+      TableName: tables.product_mappings,
+      KeyConditionExpression: "customer_route_id = :route",
+      ExpressionAttributeValues: { ":route": dynamoString(customerRouteKey(customerId, outputRouteId)) },
+      ConsistentRead: true
+    }))
+  ]);
+  if (!workspaceResponse.Item?.data?.S) {
+    throw new ProductMappingReplacementConflictError("The customer workspace changed before the replacement could be saved.");
+  }
+  return {
+    tables,
+    workspace_item: workspaceResponse.Item,
+    mapping_items: mappingsResponse.Items ?? []
+  };
+}
+
+async function persistProductMappingReplacement(args: {
+  customer: LiftCustomer;
+  workspace: PathfinderCustomerWorkspace;
+  expectedWorkspace: PathfinderCustomerWorkspace;
+  nextRouteMappings: CustomerProductMapping[];
+  expectedRouteMappings: CustomerProductMapping[];
+}) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver !== "dynamodb") {
+    const store = await readStore();
+    store.workspaces[args.customer.lift_customer_id] = args.workspace;
+    await writeStore(store);
+    return;
+  }
+
+  const context = await readDynamoReplacementContext(
+    args.customer.lift_customer_id,
+    args.nextRouteMappings[0]?.output_route_id ?? args.expectedRouteMappings[0]?.output_route_id ?? ""
+  );
+  const storedMappings = new Map(
+    context.mapping_items
+      .map((item) => [item.mapping_id?.S ?? "", item] as const)
+      .filter(([mappingId]) => Boolean(mappingId))
+  );
+  const expectedById = new Map(args.expectedRouteMappings.map((mapping) => [mapping.mapping_id, mapping]));
+  const storedWorkspace = parseDynamoData<PathfinderCustomerWorkspace>(context.workspace_item);
+  if (
+    !storedWorkspace ||
+    storedWorkspace.updated_at !== args.expectedWorkspace.updated_at ||
+    context.mapping_items.length !== args.expectedRouteMappings.length ||
+    context.mapping_items.some((item) => {
+      const mappingId = item.mapping_id?.S ?? "";
+      const expected = expectedById.get(mappingId);
+      const stored = parseDynamoData<CustomerProductMapping & { customer_id?: string }>(item);
+      return !expected || !stored || stored.updated_at !== expected.updated_at;
+    })
+  ) {
+    throw new ProductMappingReplacementConflictError();
+  }
+
+  const transactItems = [
+    {
+      Put: {
+        TableName: context.tables.workspaces,
+        Item: dynamoItem(
+          { customer_id: args.customer.lift_customer_id },
+          workspaceRecord(args.workspace)
+        ),
+        ConditionExpression: "#data = :expected_data",
+        ExpressionAttributeNames: { "#data": "data" },
+        ExpressionAttributeValues: { ":expected_data": context.workspace_item.data as AttributeValue }
+      }
+    },
+    ...args.nextRouteMappings.map((mapping) => {
+      const stored = storedMappings.get(mapping.mapping_id);
+      return {
+        Put: {
+          TableName: context.tables.product_mappings,
+          Item: dynamoItem(
+            {
+              customer_route_id: customerRouteKey(args.customer.lift_customer_id, mapping.output_route_id),
+              mapping_id: mapping.mapping_id
+            },
+            { ...mapping, customer_id: args.customer.lift_customer_id }
+          ),
+          ConditionExpression: stored ? "#data = :expected_data" : "attribute_not_exists(mapping_id)",
+          ...(stored
+            ? {
+                ExpressionAttributeNames: { "#data": "data" },
+                ExpressionAttributeValues: { ":expected_data": stored.data as AttributeValue }
+              }
+            : {})
+        }
+      };
+    })
+  ];
+  try {
+    await getDynamoClient().send(new TransactWriteItemsCommand({
+      ClientRequestToken: createHash("sha256")
+        .update(args.workspace.product_mapping_replacement_checkpoint?.replacement_id ?? randomBytes(16).toString("hex"))
+        .update("\0")
+        .update(args.workspace.updated_at)
+        .digest("hex")
+        .slice(0, 36),
+      TransactItems: transactItems
+    }));
+  } catch (error) {
+    if ((error as { name?: string }).name === "TransactionCanceledException") {
+      throw new ProductMappingReplacementConflictError();
+    }
+    throw error;
+  }
+}
+
+export async function previewProductMappingReplacement(
+  customer: LiftCustomer,
+  input: ProductMappingReplacementInput
+) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  return buildProductMappingReplacementPlan(workspace, input, now()).preview;
+}
+
+export async function applyProductMappingReplacement(
+  customer: LiftCustomer,
+  input: ProductMappingReplacementInput,
+  previewToken: string,
+  actorId: string
+) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const timestamp = now();
+  const plan = buildProductMappingReplacementPlan(workspace, input, timestamp);
+  if (!previewToken || previewToken !== plan.preview.preview_token) {
+    throw new ProductMappingReplacementConflictError();
+  }
+  const beforeMappings = workspace.product_mappings.filter(
+    (mapping) => mapping.output_route_id === input.output_route_id
+  );
+  const expectedWorkspace = { ...workspace, product_mappings: [...workspace.product_mappings] };
+  const replacementId = `product_replace_${randomBytes(12).toString("hex")}`;
+  const summary: ProductMappingReplacementSummary = {
+    replacement_id: replacementId,
+    output_route_id: input.output_route_id,
+    source_file_name: plan.preview.source_file_name,
+    actor_id: replacementActorId(actorId),
+    created_at: timestamp,
+    rolled_back_at: null,
+    imported_count: plan.preview.imported_count,
+    new_count: plan.preview.new_count,
+    updated_count: plan.preview.updated_count,
+    unchanged_count: plan.preview.unchanged_count,
+    deactivated_count: plan.preview.deactivated_count,
+    clear_existing_assignments: plan.preview.clear_existing_assignments
+  };
+  workspace.product_mappings = [
+    ...workspace.product_mappings.filter((mapping) => mapping.output_route_id !== input.output_route_id),
+    ...plan.next_route_mappings
+  ];
+  workspace.product_mapping_replacement_checkpoint = {
+    ...summary,
+    before_mappings: beforeMappings,
+    introduced_mapping_ids: plan.introduced_mapping_ids
+  };
+  workspace.product_mapping_replacement_history = [
+    summary,
+    ...(workspace.product_mapping_replacement_history ?? [])
+  ].slice(0, 20);
+  workspace.updated_at = timestamp;
+  await persistProductMappingReplacement({
+    customer,
+    workspace,
+    expectedWorkspace,
+    nextRouteMappings: plan.next_route_mappings,
+    expectedRouteMappings: beforeMappings
+  });
+  return normalizeWorkspace((await readStore()).workspaces[customer.lift_customer_id] ?? workspace);
+}
+
+export async function rollbackProductMappingReplacement(
+  customer: LiftCustomer,
+  replacementId: string,
+  actorId: string
+) {
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const checkpoint = workspace.product_mapping_replacement_checkpoint;
+  if (!checkpoint || checkpoint.replacement_id !== replacementId || checkpoint.rolled_back_at) {
+    throw new ProductMappingReplacementValidationError("Only the latest applied product-list replacement can be rolled back.");
+  }
+  const timestamp = now();
+  const currentRouteMappings = workspace.product_mappings.filter(
+    (mapping) => mapping.output_route_id === checkpoint.output_route_id
+  );
+  const expectedWorkspace = { ...workspace, product_mappings: [...workspace.product_mappings] };
+  const beforeIds = new Set(checkpoint.before_mappings.map((mapping) => mapping.mapping_id));
+  const inactiveIntroduced = currentRouteMappings
+    .filter((mapping) => !beforeIds.has(mapping.mapping_id))
+    .map((mapping) => ({ ...mapping, status: "Inactive" as const, updated_at: timestamp }));
+  const restoredRouteMappings = [
+    ...checkpoint.before_mappings.map((mapping) => ({ ...mapping, updated_at: timestamp })),
+    ...inactiveIntroduced
+  ];
+  workspace.product_mappings = [
+    ...workspace.product_mappings.filter((mapping) => mapping.output_route_id !== checkpoint.output_route_id),
+    ...restoredRouteMappings
+  ];
+  workspace.product_mapping_replacement_checkpoint = { ...checkpoint, rolled_back_at: timestamp };
+  workspace.product_mapping_replacement_history = (workspace.product_mapping_replacement_history ?? []).map((entry) =>
+    entry.replacement_id === replacementId
+      ? { ...entry, actor_id: replacementActorId(actorId), rolled_back_at: timestamp }
+      : entry
+  );
+  workspace.updated_at = timestamp;
+  await persistProductMappingReplacement({
+    customer,
+    workspace,
+    expectedWorkspace,
+    nextRouteMappings: restoredRouteMappings,
+    expectedRouteMappings: currentRouteMappings
+  });
+  return normalizeWorkspace((await readStore()).workspaces[customer.lift_customer_id] ?? workspace);
 }
 
 export async function listTargets(maskCredentials = true) {

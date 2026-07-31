@@ -403,6 +403,41 @@ interface BulkProductMappingReview {
   source: "manual" | "catalog";
 }
 
+interface ProductMappingReplacementPreview {
+  preview_token: string;
+  output_route_id: string;
+  source_file_name: string;
+  clear_existing_assignments: boolean;
+  imported_count: number;
+  new_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  deactivated_count: number;
+  rows: Array<{
+    mapping_id: string;
+    customer_product_key: string;
+    display_label: string;
+    action: "New" | "Updated" | "Unchanged" | "Deactivate";
+    current_status: ProductMappingStatus | null;
+    next_status: ProductMappingStatus;
+  }>;
+}
+
+interface ProductMappingReplacementSummary {
+  replacement_id: string;
+  output_route_id: string;
+  source_file_name: string;
+  actor_id: string;
+  created_at: string;
+  rolled_back_at: string | null;
+  imported_count: number;
+  new_count: number;
+  updated_count: number;
+  unchanged_count: number;
+  deactivated_count: number;
+  clear_existing_assignments: boolean;
+}
+
 interface LiftUnitCatalogItem {
   catalog_item_id: string;
   product_id: string | null;
@@ -840,6 +875,8 @@ interface PathfinderCustomerWorkspace {
   submit_attempts?: SubmitAttempt[];
   product_mappings: CustomerProductMapping[];
   catalog_presets: LiftCatalogPreset[];
+  product_mapping_replacement_checkpoint?: ProductMappingReplacementSummary | null;
+  product_mapping_replacement_history?: ProductMappingReplacementSummary[];
   status_access_policy: StatusAccessPolicy;
   primary_target_id: string;
   primary_output_route_id: string;
@@ -3875,6 +3912,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [preloadFinalHeightColumn, setPreloadFinalHeightColumn] = useState("");
   const [preloadDefaultUnit, setPreloadDefaultUnit] = useState("");
   const [preloadSelectedIds, setPreloadSelectedIds] = useState<string[]>([]);
+  const [preloadClearExistingAssignments, setPreloadClearExistingAssignments] = useState(true);
+  const [productMappingReplacementPreview, setProductMappingReplacementPreview] =
+    useState<ProductMappingReplacementPreview | null>(null);
+  const [productMappingReplacementConfirmed, setProductMappingReplacementConfirmed] = useState(false);
   const [liftUnitCatalog, setLiftUnitCatalog] = useState<LiftUnitCatalogItem[]>([]);
   const [unitCatalogSearch, setUnitCatalogSearch] = useState("");
   const [unitCatalogStatusFilter, setUnitCatalogStatusFilter] = useState<"Active" | "Inactive" | "All">("Active");
@@ -8236,6 +8277,64 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     );
   }
 
+  function preloadedMappingsForRows(rows: ProductMapPreloadRow[], clearExistingAssignments = false) {
+    return rows.map((row) => {
+      const productIdentifierValue = clearExistingAssignments
+        ? null
+        : row.product_identifier_value || row.existing_mapping?.product_identifier_value || null;
+      const liftUnitNumber = clearExistingAssignments
+        ? null
+        : selectedOutputMapRoute.product_identifier_type === "lift_unit_number"
+          ? row.product_identifier_value || row.existing_mapping?.lift_unit_number || null
+          : row.existing_mapping?.lift_unit_number ?? null;
+      const liftProductId = clearExistingAssignments
+        ? null
+        : selectedOutputMapRoute.product_identifier_type === "lift_product_id"
+          ? row.product_identifier_value || row.existing_mapping?.lift_product_id || null
+          : row.existing_mapping?.lift_product_id ?? null;
+      const productName = clearExistingAssignments
+        ? null
+        : row.product_name || row.existing_mapping?.product_name || row.display_label;
+
+      return {
+        ...(row.existing_mapping ?? {}),
+        mapping_id: row.existing_mapping?.mapping_id ?? mappingIdFromKey(row.customer_product_key),
+        output_route_id: selectedOutputMapRoute.output_route_id,
+        target_id: selectedOutputMapRoute.target_id,
+        target_template: selectedOutputMapRoute.output_template,
+        customer_product_key: row.customer_product_key,
+        display_label: row.display_label,
+        source_columns: row.source_columns,
+        product_identifier_type: selectedOutputMapRoute.product_identifier_type,
+        product_identifier_value: productIdentifierValue,
+        lift_unit_number: liftUnitNumber,
+        lift_product_id: liftProductId,
+        product_name: productName,
+        status: productIdentifierValue || liftUnitNumber || liftProductId ? "Mapped" as const : "Unmapped" as const,
+        mapping_source: "Preloaded catalog" as const,
+        source_file_name: preloadSourceName.trim() || "Customer product list",
+        last_seen_examples: [
+          {
+            sheet_name: preloadSourceName.trim() || "Preloaded catalog",
+            row_number: row.row_number,
+            description: row.product_name || row.display_label,
+            sign_type: row.source_value || null,
+            media_type: null,
+            final_width: row.final_width || null,
+            final_height: row.final_height || null
+          },
+          ...(row.existing_mapping?.last_seen_examples ?? []).filter(
+            (example) =>
+              example.sheet_name !== (preloadSourceName.trim() || "Preloaded catalog") ||
+              example.row_number !== row.row_number
+          )
+        ].slice(0, 8),
+        created_at: row.existing_mapping?.created_at ?? new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      } satisfies CustomerProductMapping;
+    });
+  }
+
   async function savePreloadedProductMappings(scope: "selected" | "all") {
     const rowsToSave = scope === "selected" ? selectedPreloadRows : validPreloadRows;
     const saveableRows = rowsToSave.filter((row) => row.customer_product_key && row.action !== "Duplicate");
@@ -8251,54 +8350,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          product_mappings: saveableRows.map((row) => {
-            const productIdentifierValue =
-              row.product_identifier_value || row.existing_mapping?.product_identifier_value || null;
-            const liftUnitNumber =
-              selectedOutputMapRoute.product_identifier_type === "lift_unit_number"
-                ? row.product_identifier_value || row.existing_mapping?.lift_unit_number || null
-                : row.existing_mapping?.lift_unit_number ?? null;
-            const liftProductId =
-              selectedOutputMapRoute.product_identifier_type === "lift_product_id"
-                ? row.product_identifier_value || row.existing_mapping?.lift_product_id || null
-                : row.existing_mapping?.lift_product_id ?? null;
-            const productName = row.product_name || row.existing_mapping?.product_name || row.display_label;
-
-            return {
-              ...(row.existing_mapping ?? {}),
-              mapping_id: row.existing_mapping?.mapping_id ?? mappingIdFromKey(row.customer_product_key),
-              output_route_id: selectedOutputMapRoute.output_route_id,
-              target_id: selectedOutputMapRoute.target_id,
-              target_template: selectedOutputMapRoute.output_template,
-              customer_product_key: row.customer_product_key,
-              display_label: row.display_label,
-              source_columns: row.source_columns,
-              product_identifier_type: selectedOutputMapRoute.product_identifier_type,
-              product_identifier_value: productIdentifierValue,
-              lift_unit_number: liftUnitNumber,
-              lift_product_id: liftProductId,
-              product_name: productName,
-              status: productIdentifierValue || liftUnitNumber || liftProductId ? "Mapped" : "Unmapped",
-              mapping_source: "Preloaded catalog",
-              source_file_name: preloadSourceName.trim() || "Customer product list",
-              last_seen_examples: [
-                {
-                  sheet_name: preloadSourceName.trim() || "Preloaded catalog",
-                  row_number: row.row_number,
-                  description: row.product_name || row.display_label,
-                  sign_type: row.source_value || null,
-                  media_type: null,
-                  final_width: row.final_width || null,
-                  final_height: row.final_height || null
-                },
-                ...(row.existing_mapping?.last_seen_examples ?? []).filter(
-                  (example) =>
-                    example.sheet_name !== (preloadSourceName.trim() || "Preloaded catalog") ||
-                    example.row_number !== row.row_number
-                )
-              ].slice(0, 8)
-            };
-          })
+          product_mappings: preloadedMappingsForRows(saveableRows)
         })
       });
       const payload = await readJsonResponse<{ product_mappings: CustomerProductMapping[] }>(response);
@@ -8310,6 +8362,94 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWorkspaceState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Preloaded product map save failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  async function reviewProductMappingReplacement() {
+    if (!validPreloadRows.length) {
+      setWorkspaceMessage("Load and preview the complete authoritative customer product list first.");
+      return;
+    }
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/product-mappings/replacement-preview`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            output_route_id: selectedOutputMapRoute.output_route_id,
+            source_file_name: preloadSourceName.trim() || "Customer product list",
+            clear_existing_assignments: preloadClearExistingAssignments,
+            product_mappings: preloadedMappingsForRows(validPreloadRows, preloadClearExistingAssignments)
+          })
+        }
+      );
+      const payload = await readJsonResponse<{ preview: ProductMappingReplacementPreview }>(response);
+      setProductMappingReplacementPreview(payload.preview);
+      setProductMappingReplacementConfirmed(false);
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Product-list replacement preview failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  async function applyReviewedProductMappingReplacement() {
+    const preview = productMappingReplacementPreview;
+    if (!preview || !productMappingReplacementConfirmed) {
+      return;
+    }
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/product-mappings/replacement-apply`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            output_route_id: selectedOutputMapRoute.output_route_id,
+            source_file_name: preloadSourceName.trim() || "Customer product list",
+            clear_existing_assignments: preloadClearExistingAssignments,
+            product_mappings: preloadedMappingsForRows(validPreloadRows, preloadClearExistingAssignments),
+            preview_token: preview.preview_token
+          })
+        }
+      );
+      const payload = await readJsonResponse<{ workspace: PathfinderCustomerWorkspace }>(response);
+      setWorkspace((current) => current ? { ...current, ...payload.workspace, primary_target: current.primary_target } : current);
+      setProductMappingReplacementPreview(null);
+      setProductMappingReplacementConfirmed(false);
+      setPreloadSelectedIds([]);
+      setOpenProductMapTool(null);
+      setWorkspaceMessage(
+        `${preview.imported_count} authoritative products applied. ${preview.deactivated_count} omitted product${preview.deactivated_count === 1 ? " was" : "s were"} marked inactive.`
+      );
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Product-list replacement failed.");
+      setWorkspaceState("error");
+    }
+  }
+
+  async function rollbackLatestProductMappingReplacement() {
+    const checkpoint = workspace?.product_mapping_replacement_checkpoint;
+    if (!checkpoint || checkpoint.rolled_back_at || checkpoint.output_route_id !== selectedOutputMapRoute.output_route_id) {
+      return;
+    }
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/product-mappings/replacement-rollback/${checkpoint.replacement_id}`,
+        { method: "POST" }
+      );
+      const payload = await readJsonResponse<{ workspace: PathfinderCustomerWorkspace }>(response);
+      setWorkspace((current) => current ? { ...current, ...payload.workspace, primary_target: current.primary_target } : current);
+      setWorkspaceMessage(`Restored the product map from before ${checkpoint.source_file_name}.`);
+      setWorkspaceState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Product-list replacement rollback failed.");
       setWorkspaceState("error");
     }
   }
@@ -12091,6 +12231,31 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </div>
                   </div>
 
+                  {workspace?.product_mapping_replacement_checkpoint &&
+                  workspace.product_mapping_replacement_checkpoint.output_route_id === selectedOutputMapRoute.output_route_id ? (
+                    <div className="product-map-replacement-checkpoint">
+                      <div>
+                        <span>Latest authoritative-list checkpoint</span>
+                        <strong>{workspace.product_mapping_replacement_checkpoint.source_file_name}</strong>
+                        <small>
+                          {workspace.product_mapping_replacement_checkpoint.imported_count} imported · {workspace.product_mapping_replacement_checkpoint.deactivated_count} deactivated · {displayTimestamp(workspace.product_mapping_replacement_checkpoint.created_at)}
+                        </small>
+                      </div>
+                      {workspace.product_mapping_replacement_checkpoint.rolled_back_at ? (
+                        <span className="mini-pill mini-pill-neutral">Rolled back</span>
+                      ) : (
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => void rollbackLatestProductMappingReplacement()}
+                          disabled={workspaceState === "saving"}
+                        >
+                          Restore Previous Map
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
+
                   {isMigrationQueueActive ? (
                     <div
                       className={`migration-remap-queue ${
@@ -12315,7 +12480,35 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             disabled={workspaceState === "saving" || validPreloadRows.length === 0}
                           >
                             <Upload size={15} />
-                            Save {preloadSelectedIds.length ? `${preloadSelectedIds.length} Selected` : "Valid Rows"}
+                            Add or Update {preloadSelectedIds.length ? `${preloadSelectedIds.length} Selected` : "Valid Rows"}
+                          </button>
+                        </div>
+                        <div className="authoritative-product-list-card">
+                          <div>
+                            <strong>Is this the complete customer product list?</strong>
+                            <span>
+                              Review a controlled replacement when this file contains every Momentara product expected for this route.
+                              Omitted products become inactive; nothing is permanently deleted.
+                            </span>
+                          </div>
+                          <label className="authoritative-product-list-option">
+                            <input
+                              type="checkbox"
+                              checked={preloadClearExistingAssignments}
+                              onChange={(event) => setPreloadClearExistingAssignments(event.target.checked)}
+                            />
+                            <span>
+                              <strong>Start imported products as unmapped</strong>
+                              <small>Recommended for this refresh. Existing Lift assignments will be cleared for matching products.</small>
+                            </span>
+                          </label>
+                          <button
+                            className="secondary-button"
+                            onClick={() => void reviewProductMappingReplacement()}
+                            disabled={workspaceState === "saving" || validPreloadRows.length === 0}
+                          >
+                            <ShieldCheck size={15} />
+                            Review Full-List Replacement
                           </button>
                         </div>
                       </div>
@@ -16860,6 +17053,108 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   disabled={workspaceState === "saving"}
                 >
                   Confirm {bulkProductMappingReview.mappings.length} Assignments
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {productMappingReplacementPreview ? (
+          <div
+            className="product-map-modal-backdrop"
+            role="presentation"
+            onClick={() => setProductMappingReplacementPreview(null)}
+          >
+            <section
+              className="product-map-modal product-map-replacement-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Confirm authoritative product-list replacement"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-section-header">
+                <div>
+                  <p className="eyebrow">Authoritative Product List</p>
+                  <h2>Review the complete route replacement</h2>
+                  <span>Nothing is permanently deleted. Omitted products become inactive and a rollback checkpoint is retained.</span>
+                </div>
+                <button
+                  className="modal-close-button"
+                  onClick={() => setProductMappingReplacementPreview(null)}
+                  aria-label="Cancel product-list replacement"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="product-map-replacement-body">
+                <div className="product-map-replacement-summary">
+                  {[
+                    ["Imported", productMappingReplacementPreview.imported_count],
+                    ["New", productMappingReplacementPreview.new_count],
+                    ["Updated", productMappingReplacementPreview.updated_count],
+                    ["Unchanged", productMappingReplacementPreview.unchanged_count],
+                    ["Deactivate", productMappingReplacementPreview.deactivated_count]
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <span>{label}</span>
+                      <strong>{value}</strong>
+                    </div>
+                  ))}
+                </div>
+                <div className="product-map-replacement-policy">
+                  <ShieldCheck size={18} />
+                  <div>
+                    <strong>
+                      {productMappingReplacementPreview.clear_existing_assignments
+                        ? "All imported products will start unmapped"
+                        : "Existing Lift assignments will be retained where available"}
+                    </strong>
+                    <span>
+                      Source history is preserved. Products absent from {productMappingReplacementPreview.source_file_name} become inactive for this route.
+                    </span>
+                  </div>
+                </div>
+                <div className="product-map-replacement-list">
+                  {productMappingReplacementPreview.rows
+                    .filter((row) => row.action !== "Unchanged")
+                    .slice(0, 14)
+                    .map((row) => (
+                      <div key={`${row.action}-${row.mapping_id}`}>
+                        <span className={`mini-pill ${row.action === "Deactivate" ? "mini-pill-warning" : "mini-pill-neutral"}`}>
+                          {row.action}
+                        </span>
+                        <div>
+                          <strong>{row.display_label}</strong>
+                          <small>{row.customer_product_key}</small>
+                        </div>
+                        <span>{row.current_status ?? "Not in Pathfinder"} → {row.next_status}</span>
+                      </div>
+                    ))}
+                  {productMappingReplacementPreview.rows.filter((row) => row.action !== "Unchanged").length > 14 ? (
+                    <small>
+                      Plus {productMappingReplacementPreview.rows.filter((row) => row.action !== "Unchanged").length - 14} additional changes.
+                    </small>
+                  ) : null}
+                </div>
+                <label className="product-map-replacement-confirmation">
+                  <input
+                    type="checkbox"
+                    checked={productMappingReplacementConfirmed}
+                    onChange={(event) => setProductMappingReplacementConfirmed(event.target.checked)}
+                  />
+                  <span>I reviewed these counts and confirm this file is the complete Momentara product list for this output route.</span>
+                </label>
+              </div>
+              <div className="modal-action-row">
+                <button className="secondary-button" onClick={() => setProductMappingReplacementPreview(null)}>
+                  Cancel
+                </button>
+                <button
+                  className="primary-button"
+                  onClick={() => void applyReviewedProductMappingReplacement()}
+                  disabled={!productMappingReplacementConfirmed || workspaceState === "saving"}
+                >
+                  Apply Authoritative List
                 </button>
               </div>
             </section>
