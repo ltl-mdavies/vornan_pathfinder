@@ -32,6 +32,7 @@ import {
   maskLiftSubmitRequest,
   submitLiftOrder,
   validateLiftPayload,
+  type LiftOrderDocumentOutputFields,
   type LiftOrderPayload,
   type LiftSubmitMockScenario,
   type LiftSubmitRequest,
@@ -82,15 +83,25 @@ import {
   getWrikeContractReadiness,
   normalizeWrikeHost,
   normalizeWrikeSourceConfig,
+  prepareWrikeLiftOrderDocumentPatch,
   WrikeConnectionError,
+  type WrikeLiftDocumentPublication,
+  type WrikeLiftSourceEvidenceBinding,
   type WrikeOAuthCredentials,
   type WrikeWorkbookExtension
 } from "@pathfinder/wrike-adapter";
 import {
+  loadWrikeReferenceProofEvidence,
   loadWrikeWorkbookEvidence,
+  persistWrikeReferenceProofEvidence,
   persistWrikeWorkbookEvidence,
-  WrikeSourceEvidenceError
+  WrikeSourceEvidenceError,
+  type WrikeWorkbookEvidenceRecord
 } from "./wrike-source-evidence.js";
+import {
+  getWrikeLiftDocumentPublicationConfig,
+  publishWrikeLiftSourceDocument
+} from "./wrike-lift-document-publication.js";
 import { prepareWrikeManualIntake } from "./wrike-manual-intake.js";
 import {
   archiveImportMethod,
@@ -222,6 +233,7 @@ const wrikeEvidencePreviewEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW === "true";
 const wrikeManualIntakeEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE === "true";
+const wrikeLiftDocumentPublicationConfig = getWrikeLiftDocumentPublicationConfig();
 const wrikeOAuthRedirectUri = process.env.PATHFINDER_WRIKE_OAUTH_REDIRECT_URI ??
   (process.env.PATHFINDER_RUNTIME === "lambda"
     ? "https://api.pathfinder.vornan.co/oauth/wrike/callback"
@@ -2325,6 +2337,26 @@ function routeEnvironmentForTarget(target: TargetConfig, route: OutputRoute) {
   return target.environments.find((candidate) => candidate.environment_id === route.environment_id) ?? null;
 }
 
+function liftDocumentOutputFieldsForRoute(
+  target: TargetConfig,
+  route: OutputRoute
+): LiftOrderDocumentOutputFields {
+  const template = target.output_templates.find(
+    (candidate) => candidate.output_template_id === route.output_template_id
+  );
+  const outputField = (canonicalField: string, fallback: string) => {
+    const sourceColumn = template?.canonical_mappings.find(
+      (mapping) => mapping.targetField === canonicalField && /^body:order\.[A-Za-z][A-Za-z0-9_]{0,63}$/.test(mapping.sourceColumn)
+    )?.sourceColumn;
+    return sourceColumn?.slice("body:order.".length) || fallback;
+  };
+  return {
+    order_attachment: outputField("order.order_attachment", "order_attachment"),
+    artwork_folder_url: outputField("order.artwork_folder_url", "artwork_folder_url"),
+    reference_proof_url: outputField("order.reference_proof_url", "reference_proof_url")
+  };
+}
+
 function submitProfileFromJob(route: OutputRoute, job: ProcessingJobPreview): SubmitProfile {
   const profile = route.submit_profiles.find((candidate) => candidate.profile_id === job.submit_profile_id);
   if (profile) {
@@ -3978,14 +4010,24 @@ async function captureWrikeWorkbookEvidenceForMethod(
         })
       );
     }
+    const referenceProofEvidence = result.reference_proof
+      ? await persistWrikeReferenceProofEvidence({
+          customer_id: customerId,
+          import_method_id: method.import_method_id,
+          connection_id: connectionId,
+          reference_proof: result.reference_proof
+        })
+      : null;
     return {
-      status: evidence.every((record) => record.storage_status === "Replayed")
+      status: evidence.every((record) => record.storage_status === "Replayed") &&
+        (!referenceProofEvidence || referenceProofEvidence.storage_status === "Replayed")
         ? "Replayed" as const
         : "Stored" as const,
       captured_at: new Date().toISOString(),
       task_id: result.task_id,
       order_context: result.order_context,
       evidence,
+      reference_proof_evidence: referenceProofEvidence,
       capabilities: {
         source_evidence_persistence: true,
         preview_job_creation: wrikeEvidencePreviewEnabled,
@@ -4027,6 +4069,34 @@ function wrikeEvidenceCaptureErrorMessage(error: unknown) {
     : "Wrike workbook evidence capture failed.";
 }
 
+function wrikeLiftSourceEvidenceBinding(
+  record: WrikeWorkbookEvidenceRecord
+): WrikeLiftSourceEvidenceBinding {
+  return {
+    evidence_id: record.evidence_id,
+    document_role: record.document_role,
+    task_id: record.task_id,
+    attachment_id: record.attachment_id,
+    version_id: record.version_id,
+    file_name: record.file_name,
+    content_type: record.content_type,
+    byte_size: record.byte_size,
+    sha256: record.sha256
+  };
+}
+
+function wrikeSourcePublicationSummary(publication: WrikeLiftDocumentPublication) {
+  return {
+    document_role: publication.document_role,
+    evidence_id: publication.evidence_id,
+    publication_id: publication.publication_id,
+    sha256: publication.source_sha256,
+    object_version_id: publication.object_version_id,
+    published_at: publication.published_at,
+    expires_at: publication.expires_at
+  };
+}
+
 async function createWrikeEvidencePreviewForMethod(args: {
   liftCustomerId: string;
   methodId: string;
@@ -4035,7 +4105,10 @@ async function createWrikeEvidencePreviewForMethod(args: {
   orderContext?: {
     contract_number: string;
     artwork_folder_url: string | null;
+    order_attachment_url?: string | null;
+    reference_proof_url?: string | null;
   };
+  sourceDocumentPublications?: ProcessingJobPreview["source_document_publications"];
 }) {
   const customer = await findLiftCustomer(args.liftCustomerId);
   const workspace = await getOrCreateWorkspace(customer);
@@ -4154,7 +4227,11 @@ async function createWrikeEvidencePreviewForMethod(args: {
       import_method_id: method.import_method_id
     },
     undefined,
-    { sourceEvidence, wrikeOrderContext: args.orderContext }
+    {
+      sourceEvidence,
+      wrikeOrderContext: args.orderContext,
+      sourceDocumentPublications: args.sourceDocumentPublications
+    }
   );
   return {
     ...result,
@@ -4323,8 +4400,11 @@ app.post(
         | {
             contract_number: string;
             artwork_folder_url: string | null;
+            order_attachment_url?: string | null;
+            reference_proof_url?: string | null;
           }
         | undefined;
+      let referenceProofEvidence: WrikeWorkbookEvidenceRecord | null = null;
       const result = await prepareWrikeManualIntake({
         captureEvidence: async () => {
           const captured = await captureWrikeWorkbookEvidenceForMethod(
@@ -4333,18 +4413,75 @@ app.post(
             { requireActive: true }
           );
           orderContext = captured.order_context;
+          referenceProofEvidence = captured.reference_proof_evidence;
           return {
             task_id: captured.task_id,
             evidence: captured.evidence
           };
         },
         createPreview: async (record) => {
+          if (!orderContext) {
+            throw new WrikeIntakeRequestError(409, "The qualified Wrike order context is unavailable.");
+          }
+          let previewOrderContext = orderContext;
+          let sourceDocumentPublications: ProcessingJobPreview["source_document_publications"] = [];
+          if (wrikeLiftDocumentPublicationConfig.enabled) {
+            const loadedWorkbook = await loadWrikeWorkbookEvidence({
+              customer_id: req.params.liftCustomerId,
+              import_method_id: req.params.methodId,
+              connection_id: record.connection_id,
+              evidence_id: record.evidence_id,
+              extension: record.extension as WrikeWorkbookExtension
+            });
+            const orderGridBinding = wrikeLiftSourceEvidenceBinding(loadedWorkbook.record);
+            const orderGridPublication = await publishWrikeLiftSourceDocument({
+              evidence: orderGridBinding,
+              bytes: loadedWorkbook.bytes,
+              config: wrikeLiftDocumentPublicationConfig
+            });
+            let referenceProofBinding: WrikeLiftSourceEvidenceBinding | null = null;
+            let referenceProofPublication: WrikeLiftDocumentPublication | null = null;
+            if (referenceProofEvidence) {
+              const loadedReferenceProof = await loadWrikeReferenceProofEvidence({
+                customer_id: req.params.liftCustomerId,
+                import_method_id: req.params.methodId,
+                connection_id: referenceProofEvidence.connection_id,
+                evidence_id: referenceProofEvidence.evidence_id
+              });
+              referenceProofBinding = wrikeLiftSourceEvidenceBinding(loadedReferenceProof.record);
+              referenceProofPublication = await publishWrikeLiftSourceDocument({
+                evidence: referenceProofBinding,
+                bytes: loadedReferenceProof.bytes,
+                config: wrikeLiftDocumentPublicationConfig
+              });
+            }
+            const documentPatch = prepareWrikeLiftOrderDocumentPatch({
+              task_id: record.task_id,
+              order_grid: orderGridBinding,
+              order_grid_publication: orderGridPublication,
+              reference_proof: referenceProofBinding,
+              reference_proof_publication: referenceProofPublication,
+              artwork_folder_url: orderContext.artwork_folder_url
+            });
+            previewOrderContext = {
+              ...orderContext,
+              order_attachment_url: documentPatch.order_attachment,
+              reference_proof_url: documentPatch.reference_proof_url
+            };
+            sourceDocumentPublications = [
+              wrikeSourcePublicationSummary(orderGridPublication),
+              ...(referenceProofPublication
+                ? [wrikeSourcePublicationSummary(referenceProofPublication)]
+                : [])
+            ];
+          }
           const preview = await createWrikeEvidencePreviewForMethod({
             liftCustomerId: req.params.liftCustomerId,
             methodId: req.params.methodId,
             evidenceId: record.evidence_id,
-            extension: record.extension,
-            orderContext
+            extension: record.extension as WrikeWorkbookExtension,
+            orderContext: previewOrderContext,
+            sourceDocumentPublications
           });
           return {
             preview_status: preview.preview_status,
@@ -5189,9 +5326,12 @@ async function createPreviewJobForRequest(
   publicIntake?: ProcessingJobPreview["public_intake"],
   options?: {
     sourceEvidence?: ProcessingJobPreview["source_evidence"];
+    sourceDocumentPublications?: ProcessingJobPreview["source_document_publications"];
     wrikeOrderContext?: {
       contract_number: string;
       artwork_folder_url: string | null;
+      order_attachment_url?: string | null;
+      reference_proof_url?: string | null;
     };
   }
 ) {
@@ -5412,6 +5552,12 @@ async function createPreviewJobForRequest(
       }
       mappedCanonicalOrder.order.contract_number = options.wrikeOrderContext.contract_number;
       mappedCanonicalOrder.order.artwork_folder_url = options.wrikeOrderContext.artwork_folder_url;
+      if (options.wrikeOrderContext.order_attachment_url !== undefined) {
+        mappedCanonicalOrder.order.order_attachment = options.wrikeOrderContext.order_attachment_url;
+      }
+      if (options.wrikeOrderContext.reference_proof_url !== undefined) {
+        mappedCanonicalOrder.order.reference_proof_url = options.wrikeOrderContext.reference_proof_url;
+      }
       mappedCanonicalOrder.source.source_record_id =
         options.sourceEvidence?.task_id ?? mappedCanonicalOrder.source.source_record_id;
     }
@@ -5446,7 +5592,7 @@ async function createPreviewJobForRequest(
       canonicalOrderId,
       pathfinderOrderId,
       extIdStrategy: method.ext_id_strategy
-    });
+    }, liftDocumentOutputFieldsForRoute(target, outputRoute));
     const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, outputRoute.value_normalization_rules);
     const liftPayload = normalizedLift.payload;
     const baseLiftValidation = validateLiftPayload(liftPayload, {
@@ -5521,7 +5667,8 @@ async function createPreviewJobForRequest(
       created_at: timestamp,
       updated_at: timestamp,
       public_intake: publicIntake ?? null,
-      source_evidence: options?.sourceEvidence ?? null
+      source_evidence: options?.sourceEvidence ?? null,
+      source_document_publications: options?.sourceDocumentPublications ?? []
     };
     const nextWorkspace = await persistPreviewJob(customer, job, method, {
       persistMethod: !isAdHocManualImport

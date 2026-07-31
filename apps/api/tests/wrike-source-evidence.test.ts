@@ -11,10 +11,14 @@ import path from "node:path";
 import test from "node:test";
 import {
   loadWrikeWorkbookEvidence,
+  persistWrikeReferenceProofEvidence,
   persistWrikeWorkbookEvidence,
   WrikeSourceEvidenceError
 } from "../src/wrike-source-evidence.ts";
-import type { WrikeQualifiedWorkbookSource } from "@pathfinder/wrike-adapter";
+import type {
+  WrikeQualifiedReferenceProofSource,
+  WrikeQualifiedWorkbookSource
+} from "@pathfinder/wrike-adapter";
 
 function workbook(bytes = "workbook-v1"): WrikeQualifiedWorkbookSource {
   const encoded = new TextEncoder().encode(bytes);
@@ -27,6 +31,22 @@ function workbook(bytes = "workbook-v1"): WrikeQualifiedWorkbookSource {
     extension: "xlsx",
     updated_at: "2026-07-23T12:00:00.000Z",
     content_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    byte_size: encoded.byteLength,
+    bytes: encoded
+  };
+}
+
+function referenceProof(bytes = "%PDF-1.7 synthetic-reference"): WrikeQualifiedReferenceProofSource {
+  const encoded = new TextEncoder().encode(bytes);
+  return {
+    account_id: "IEACCOUNT",
+    task_id: "IETASK",
+    attachment_id: "IEPROOFATTACHMENT",
+    version_id: "IEPROOFVERSION1",
+    file_name: "C123456 - Campaign Proof.pdf",
+    extension: "pdf",
+    updated_at: "2026-07-23T12:05:00.000Z",
+    content_type: "application/pdf",
     byte_size: encoded.byteLength,
     bytes: encoded
   };
@@ -220,6 +240,40 @@ test("stores one immutable local evidence envelope and safely replays identical 
       (error: unknown) =>
         error instanceof WrikeSourceEvidenceError && error.code === "identity_conflict"
     );
+  } finally {
+    if (previous === undefined) {
+      delete process.env.PATHFINDER_LOCAL_SOURCE_EVIDENCE_DIR;
+    } else {
+      process.env.PATHFINDER_LOCAL_SOURCE_EVIDENCE_DIR = previous;
+    }
+    if (previousDriver === undefined) {
+      delete process.env.PATHFINDER_STORAGE_DRIVER;
+    } else {
+      process.env.PATHFINDER_STORAGE_DRIVER = previousDriver;
+    }
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("stores reference proof evidence under a distinct immutable document role", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "pathfinder-wrike-evidence-"));
+  const previous = process.env.PATHFINDER_LOCAL_SOURCE_EVIDENCE_DIR;
+  const previousDriver = process.env.PATHFINDER_STORAGE_DRIVER;
+  process.env.PATHFINDER_LOCAL_SOURCE_EVIDENCE_DIR = directory;
+  process.env.PATHFINDER_STORAGE_DRIVER = "local";
+  try {
+    const stored = await persistWrikeReferenceProofEvidence({
+      customer_id: "284619",
+      import_method_id: "wrike-orders",
+      connection_id: "source_wrike_momentara",
+      reference_proof: referenceProof(),
+      now: new Date("2026-07-23T12:30:00.000Z")
+    });
+    assert.equal(stored.document_role, "reference_proof");
+    assert.equal(stored.extension, "pdf");
+    assert.match(stored.evidence_id, /^wrike_reference_proof_[a-f0-9]{64}$/);
+    assert.equal("download_url" in stored, false);
+    assert.equal("delivery_url" in stored, false);
   } finally {
     if (previous === undefined) {
       delete process.env.PATHFINDER_LOCAL_SOURCE_EVIDENCE_DIR;

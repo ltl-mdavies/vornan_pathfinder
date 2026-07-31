@@ -340,7 +340,12 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
           artwork_folder_custom_field_id: "IEARTWORKFOLDER",
           print_vendor_custom_field_id: "IEVENDOR",
           attachment_filename_contains: "",
-          attachment_extensions: ["xlsx"]
+          attachment_extensions: ["xlsx"],
+          reference_proof_intake: {
+            enabled: true,
+            filename_contains: "Proof",
+            attachment_extensions: ["pdf"]
+          }
         }
       }
     })
@@ -443,6 +448,7 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
     "Sheet1"
   );
   const workbookBytes = new Uint8Array(XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer);
+  const proofBytes = new TextEncoder().encode("%PDF-1.7 synthetic campaign reference");
   const calls: Array<{ url: string; headers: unknown }> = [];
   globalThis.fetch = async (input, init) => {
     const url = String(input);
@@ -460,10 +466,16 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
     if (url.includes("withUrls=false")) {
       return new Response(
         JSON.stringify({
-          data: [{
-            id: "IEATTACHMENT0001",
-            name: "Momentara_3 product_DEMO.xlsx"
-          }]
+          data: [
+            {
+              id: "IEATTACHMENT0001",
+              name: "Momentara_3 product_DEMO.xlsx"
+            },
+            {
+              id: "IEREFERENCEPROOF0001",
+              name: "C3168700 - Campaign Proof.pdf"
+            }
+          ]
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
@@ -471,13 +483,22 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
     if (url.includes("withUrls=true")) {
       return new Response(
         JSON.stringify({
-          data: [{
-            id: "IEATTACHMENT0001",
-            currentAttachmentId: "IEVERSION0002",
-            name: "Momentara_3 product_DEMO.xlsx",
-            updatedDate: "2026-07-23T14:00:00.000Z",
-            url: "https://files.example.test/private-signed-url"
-          }]
+          data: [
+            {
+              id: "IEATTACHMENT0001",
+              currentAttachmentId: "IEVERSION0002",
+              name: "Momentara_3 product_DEMO.xlsx",
+              updatedDate: "2026-07-23T14:00:00.000Z",
+              url: "https://files.example.test/private-signed-url"
+            },
+            {
+              id: "IEREFERENCEPROOF0001",
+              currentAttachmentId: "IEREFERENCEPROOFVERSION0002",
+              name: "C3168700 - Campaign Proof.pdf",
+              updatedDate: "2026-07-23T14:01:00.000Z",
+              url: "https://files.example.test/private-proof-url"
+            }
+          ]
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
@@ -491,6 +512,15 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
         }
       });
     }
+    if (url === "https://files.example.test/private-proof-url") {
+      return new Response(proofBytes, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Length": String(proofBytes.byteLength)
+        }
+      });
+    }
     return new Response(
       JSON.stringify({
         data: [{
@@ -498,7 +528,7 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
           accountId: "IEACCOUNT",
           parentIds: ["IEAPPROVEDFOLDER"],
           customStatusId: "IESENTTOPRINTLTL",
-          attachmentCount: 1,
+          attachmentCount: 2,
           title: "Placard Order",
           customFields: [
             { id: "IECONTRACT", value: "C3168700" },
@@ -523,22 +553,30 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
   assert.equal(stored.body.evidence[0].version_id, "IEVERSION0002");
   assert.equal(stored.body.evidence[0].byte_size, workbookBytes.byteLength);
   assert.match(stored.body.evidence[0].sha256, /^[a-f0-9]{64}$/);
+  assert.equal(stored.body.reference_proof_evidence.document_role, "reference_proof");
+  assert.equal(stored.body.reference_proof_evidence.extension, "pdf");
+  assert.equal(stored.body.reference_proof_evidence.byte_size, proofBytes.byteLength);
+  assert.match(stored.body.reference_proof_evidence.sha256, /^[a-f0-9]{64}$/);
   assert.equal(stored.body.capabilities.preview_job_creation, true);
   assert.equal(stored.body.capabilities.lift_actions, false);
   const publicPayload = JSON.stringify(stored.body);
   assert.equal(publicPayload.includes("private-signed-url"), false);
+  assert.equal(publicPayload.includes("private-proof-url"), false);
   assert.equal(publicPayload.includes("momentara.sharepoint.com"), false);
   assert.equal(publicPayload.includes("evidence-access-token"), false);
   assert.equal(publicPayload.includes("evidence-refresh-token"), false);
 
   const downloadCall = calls.find((call) => call.url === "https://files.example.test/private-signed-url");
   assert.deepEqual(downloadCall?.headers, { Accept: "*/*" });
+  const proofDownloadCall = calls.find((call) => call.url === "https://files.example.test/private-proof-url");
+  assert.deepEqual(proofDownloadCall?.headers, { Accept: "application/pdf" });
 
   const replayed = await request(app)
     .post(`/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence`)
     .expect(200);
   assert.equal(replayed.body.status, "Replayed");
   assert.equal(replayed.body.evidence[0].storage_status, "Replayed");
+  assert.equal(replayed.body.reference_proof_evidence.storage_status, "Replayed");
 
   const evidence = stored.body.evidence[0];
   const wrikeCallsBeforePreview = calls.length;
@@ -599,9 +637,10 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
     "https://momentara.sharepoint.com/sites/art/Private-Momentara"
   );
   assert.equal(
-    preparedJob.body.job.lift_payload.order.FLEX_FIELD9,
+    preparedJob.body.job.lift_payload.order.artwork_folder_url,
     "https://momentara.sharepoint.com/sites/art/Private-Momentara"
   );
+  assert.equal("FLEX_FIELD9" in preparedJob.body.job.lift_payload.order, false);
   assert.equal(preparedJob.body.job.canonical_order.source.source_record_id, "IEAPPROVEDTASK");
   const wrikeCallsAfterPrepare = calls.length;
 

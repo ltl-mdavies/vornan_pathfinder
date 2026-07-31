@@ -92,6 +92,23 @@ Parameters:
       - "true"
       - "false"
     Description: Explicit operator-only gate for capturing qualified Wrike workbooks and preparing separate Pathfinder preview jobs.
+  WrikeLiftDocumentPublicationEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Default-disabled gate for publishing verified Wrike evidence to the dedicated Lift delivery boundary.
+  WrikeLiftDocumentDeliveryBucketName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^vornan-pathfinder-wrike-delivery-[a-z0-9-]+$"
+    Description: Dedicated outbound-only bucket from the Vornan asset-delivery stack.
+  WrikeLiftDocumentDeliveryBaseUrl:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^https://go\\.vornan\\.co$"
+    Description: Exact direct-download origin. Keep empty while publication is dark.
   WrikeOAuthRedirectUri:
     Type: String
     Default: "https://api.pathfinder.vornan.co/oauth/wrike/callback"
@@ -261,6 +278,13 @@ Parameters:
     Description: Public origin used only when producing a one-time Proof fragment link.
 
 Rules:
+  WrikeLiftDocumentPublicationRequiresBoundary:
+    RuleCondition: !Equals [!Ref WrikeLiftDocumentPublicationEnabled, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref WrikeLiftDocumentDeliveryBucketName, ""]]
+        AssertDescription: Wrike Lift document publication requires its dedicated delivery bucket.
+      - Assert: !Equals [!Ref WrikeLiftDocumentDeliveryBaseUrl, "https://go.vornan.co"]
+        AssertDescription: Wrike Lift document publication requires the exact go.vornan.co origin.
   ProofGrantCreationRequiresBoundedCohort:
     RuleCondition: !Equals [!Ref ProofGrantCreationEnabled, "true"]
     Assertions:
@@ -314,6 +338,7 @@ Conditions:
   HasProofTables: !And
     - !Condition HasProofCoreTable
     - !Condition HasProofAuditTable
+  HasWrikeLiftDocumentDeliveryBucket: !Not [!Equals [!Ref WrikeLiftDocumentDeliveryBucketName, ""]]
 
 Resources:
   PathfinderSourceEvidenceBucket:
@@ -455,6 +480,15 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                 Resource: !Sub "${PathfinderSourceEvidenceBucket.Arn}/wrike/*"
+              - !If
+                - HasWrikeLiftDocumentDeliveryBucket
+                - Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:PutObject
+                  Resource:
+                    - !Sub "arn:${AWS::Partition}:s3:::${WrikeLiftDocumentDeliveryBucketName}/d/*"
+                - !Ref "AWS::NoValue"
 
   PathfinderApiFunction:
     Type: AWS::Lambda::Function
@@ -487,6 +521,9 @@ Resources:
           PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: !Ref WrikeWorkbookEvidenceEnabled
           PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: !Ref WrikeEvidencePreviewEnabled
           PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !Ref WrikeManualIntakeEnabled
+          PATHFINDER_ENABLE_WRIKE_LIFT_DOCUMENT_PUBLICATION: !Ref WrikeLiftDocumentPublicationEnabled
+          PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BUCKET: !Ref WrikeLiftDocumentDeliveryBucketName
+          PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BASE_URL: !Ref WrikeLiftDocumentDeliveryBaseUrl
           PATHFINDER_SOURCE_EVIDENCE_BUCKET: !Ref PathfinderSourceEvidenceBucket
           PATHFINDER_WRIKE_OAUTH_REDIRECT_URI: !Ref WrikeOAuthRedirectUri
           PATHFINDER_APP_BASE_URL: !Ref PathfinderAppBaseUrl

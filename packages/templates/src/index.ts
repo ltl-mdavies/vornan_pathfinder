@@ -514,6 +514,8 @@ const sourceColumnAliases: Record<string, CanonicalTargetField> = {
   "artwork folder url": "order.artwork_folder_url",
   "ltl artwork folder url": "order.artwork_folder_url",
   "art location": "order.artwork_folder_url",
+  "reference proof url": "order.reference_proof_url",
+  "wrike proof pdf": "order.reference_proof_url",
   "ship date": "order.ship_date",
   "requested ship date": "order.ship_date",
   "ship method": "order.shipping.method",
@@ -1627,6 +1629,7 @@ export function mapSourceRowsToCanonicalOrder(
       due_date: firstMappedValue(rows, mappings, "order.due_date", "") || null,
       order_attachment: firstMappedValue(rows, mappings, "order.order_attachment", "") || null,
       artwork_folder_url: firstMappedValue(rows, mappings, "order.artwork_folder_url", "") || null,
+      reference_proof_url: firstMappedValue(rows, mappings, "order.reference_proof_url", "") || null,
       ship_date: firstMappedValue(rows, mappings, "order.ship_date", "") || null,
       shipping: buildShipping(rows, mappings)
     },

@@ -23,7 +23,7 @@ Wrike recommends OAuth 2.0 for production integrations. Permanent access tokens 
 
 Wrike webhooks can be scoped to an account, space, or folder/project and can report task status or custom-field changes. Wrike documents possible duplicate webhook delivery and exposes an `Idempotency-Key`; Pathfinder should deduplicate that delivery key separately from its task/attachment/version ingestion identity. See [Wrike webhooks](https://developers.wrike.com/docs/webhooks).
 
-Wrike attachment URLs are temporary, so Pathfinder must download the selected workbook immediately into the processing boundary rather than persisting the signed URL as the source artifact. See [Wrike attachments](https://developers.wrike.com/reference/getattachmentsempty).
+Wrike attachment URLs are temporary, so Pathfinder must download each selected source document immediately into the processing boundary rather than persisting the signed URL as the source artifact. The order grid and optional single reference-proof PDF retain distinct immutable roles. See [Wrike attachments](https://developers.wrike.com/reference/getattachmentsempty).
 
 ## Import Method contract
 
@@ -57,7 +57,7 @@ It intentionally does not store:
 - Missing, empty, or invalid configured Contract Number custom field: no attachment metadata read.
 - No matching workbook: record a reviewable source failure; no job.
 - Workbook titles are descriptive rather than routing keys; an allowed extension and any configured optional filename filter determine candidacy.
-- PDFs and other reference attachments: ignore them; they are creative references, not order grids or print-ready artwork.
+- Reference PDFs remain ignored unless the saved Import Method explicitly activates the optional single-reference-proof rule. Zero matches are allowed; more than one match blocks for operator review.
 - Multiple current matching workbooks: keep each as a separate order candidate.
 - Multiple equally current versions of the same attachment: ambiguous; no job for that attachment set.
 - Duplicate webhook event: acknowledge without reprocessing.
@@ -77,7 +77,7 @@ It intentionally does not store:
 - Obtain two representative examples: one Placard Order task with one workbook and another with multiple workbooks.
 - Require the **Contract Number** custom field on the Placard Order task. Do not require the task title or workbook filename to repeat it.
 - Accept descriptive workbook filenames, including established demo grids, provided the extension and optional configured filename filter qualify.
-- Ignore reference-proof attachments. Momentara's creative team may later post a SharePoint folder link for print-ready artwork in the task thread or a dedicated custom field; artwork-location capture and any future Lift order update remain separate work.
+- Keep reference-proof capture optional and exact: one configured PDF may be retained as an order reference document, but it remains distinct from the SharePoint artwork-folder URL and from Pathfinder Proof approval assets.
 - Treat `Have Address - LTL` as a later shipping-readiness signal, not an order-ingestion trigger.
 - Treat edits or replacement workbooks after a Lift submission as manual exceptions initially. Lift order mutation is not yet supported by this workflow.
 - Confirm whether historical tasks need a one-time backfill and the earliest safe date.

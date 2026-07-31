@@ -17,6 +17,7 @@ import {
   parseWrikeOrderNameContract,
   resolveWrikeArtworkFolderUrl,
   resolveWrikeContractNumber,
+  selectWrikeReferenceProofAttachment,
   selectWrikeWorkbookAttachments,
   WrikeConnectionError
 } from "../src/index.ts";
@@ -44,6 +45,11 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
     access_token: "must-not-persist",
     create_preview_only: false
     ,
+    reference_proof_intake: {
+      enabled: true,
+      filename_contains: " Campaign Proof ",
+      attachment_extensions: ["pdf"]
+    },
     shipping_intake: {
       enabled: true,
       task_identity_mode: "custom_item_type",
@@ -76,6 +82,12 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
   assert.deepEqual(normalized.attachment_extensions, ["xlsx", "csv"]);
   assert.equal(normalized.poll_interval_minutes, 5);
   assert.equal(normalized.create_preview_only, true);
+  assert.deepEqual(normalized.reference_proof_intake, {
+    enabled: true,
+    filename_contains: "Campaign Proof",
+    attachment_extensions: ["pdf"],
+    attachment_selection: "single_current_attachment"
+  });
   assert.deepEqual(normalized.shipping_intake, {
     enabled: false,
     task_identity_mode: "custom_item_type",
@@ -94,6 +106,41 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
 test("snaps reconciliation intervals to the operator-visible presets", () => {
   assert.equal(normalizeWrikeSourceConfig({ poll_interval_minutes: 17 }).poll_interval_minutes, 15);
   assert.equal(normalizeWrikeSourceConfig({ poll_interval_minutes: 58 }).poll_interval_minutes, 60);
+});
+
+test("selects at most one optional reference-proof PDF and fails closed on ambiguity", () => {
+  const config = {
+    ...createDefaultWrikeSourceConfig().reference_proof_intake,
+    enabled: true,
+    filename_contains: "proof"
+  };
+  const first = {
+    attachment_id: "IEPROOF1",
+    version_id: "IEPROOFVERSION1",
+    file_name: "C316870 - Campaign Proof.pdf",
+    updated_at: "2026-07-31T12:00:00.000Z",
+    download_url: "https://files.example.test/proof-one"
+  };
+  const selected = selectWrikeReferenceProofAttachment([first], config);
+  assert.equal(selected.status, "matched");
+  assert.equal(selected.attachment?.attachment_id, "IEPROOF1");
+
+  const ambiguous = selectWrikeReferenceProofAttachment([
+    first,
+    {
+      ...first,
+      attachment_id: "IEPROOF2",
+      version_id: "IEPROOFVERSION2",
+      file_name: "C316870 - Second Proof.pdf"
+    }
+  ], config);
+  assert.equal(ambiguous.status, "ambiguous");
+  assert.equal(ambiguous.attachment, null);
+
+  const missing = selectWrikeReferenceProofAttachment([
+    { ...first, file_name: "C316870 - Order.xlsx" }
+  ], config);
+  assert.equal(missing.status, "missing");
 });
 
 test("reports the durable identifiers still needed before connection", () => {
@@ -801,6 +848,7 @@ test("requalifies and downloads only current matching workbooks without forwardi
   );
 
   assert.equal(result.workbooks.length, 1);
+  assert.equal(result.reference_proof, null);
   assert.equal(result.workbooks[0].version_id, "IEVERSION1");
   assert.equal(new TextDecoder().decode(result.workbooks[0].bytes), "bounded-workbook");
   assert.deepEqual(result.order_context, {

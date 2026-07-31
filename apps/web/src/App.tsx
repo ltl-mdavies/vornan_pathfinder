@@ -1420,7 +1420,8 @@ const liftStandardGraphicsBodyTemplateText = JSON.stringify(
       requested_ship_date: "{{order.ship_date}}",
       due_date: "{{order.due_date}}",
       order_attachment: "{{order.order_attachment}}",
-      FLEX_FIELD9: "{{order.artwork_folder_url}}",
+      artwork_folder_url: "{{order.artwork_folder_url}}",
+      reference_proof_url: "{{order.reference_proof_url}}",
       shipping: {
         method: "{{order.shipping.method}}",
         account_number: "{{order.shipping.account_number}}",

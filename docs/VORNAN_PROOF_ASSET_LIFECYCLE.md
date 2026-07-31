@@ -20,6 +20,12 @@ repositories. Any future external-repository ingestion requires a separate
 source-security design, capability gate, implementation review, and deployment
 approval.
 
+The `go.vornan.co` CloudFront distribution may also host a separately gated
+`/d/*` behavior for Wrike order documents. That behavior uses its own physically
+separate Wrike delivery bucket, permissions, lifecycle, and publication ledger.
+It does not place Wrike, SharePoint, order-grid, or reference-proof files in the
+Proof asset bucket and does not expand the Proof upload boundary described here.
+
 ## Recorded architecture decisions
 
 1. Use a dedicated private, encrypted, versioned Proof asset bucket. Do not reuse
