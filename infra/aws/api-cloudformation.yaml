@@ -432,6 +432,12 @@ Resources:
                 - !Ref "AWS::NoValue"
               - Effect: Allow
                 Action:
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !GetAtt PathfinderCustomerWorkspacesTable.Arn
+                  - !GetAtt PathfinderProductMappingsTable.Arn
+              - Effect: Allow
+                Action:
                   - secretsmanager:CreateSecret
                   - secretsmanager:DescribeSecret
                   - secretsmanager:GetSecretValue

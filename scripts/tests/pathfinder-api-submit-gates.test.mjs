@@ -113,10 +113,14 @@ test("operator-only Proof action QA remains independently dark and narrowly scop
     /HasProofTables: !And[\s\S]*?!Condition HasProofCoreTable[\s\S]*?!Condition HasProofAuditTable/
   );
   const transactionActions = template.match(/dynamodb:TransactWriteItems/g) ?? [];
-  assert.equal(transactionActions.length, 1);
+  assert.equal(transactionActions.length, 2);
   assert.match(
     template,
     /- !If\n\s+- HasProofTables\n\s+- Effect: Allow\n\s+Action:\n\s+- dynamodb:TransactWriteItems\n\s+Resource:\n\s+- !Ref ProofCoreTableArn\n\s+- !Ref ProofAuditTableArn\n\s+- !Ref "AWS::NoValue"/
+  );
+  assert.match(
+    template,
+    /- Effect: Allow\n\s+Action:\n\s+- dynamodb:TransactWriteItems\n\s+Resource:\n\s+- !GetAtt PathfinderCustomerWorkspacesTable\.Arn\n\s+- !GetAtt PathfinderProductMappingsTable\.Arn/
   );
   assert.match(
     template,
