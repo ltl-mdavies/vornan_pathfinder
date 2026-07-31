@@ -3808,6 +3808,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [wrikeManualIntakeState, setWrikeManualIntakeState] = useState<"idle" | "loading" | "error">("idle");
   const [wrikeManualIntakeMessage, setWrikeManualIntakeMessage] = useState<string | null>(null);
   const [wrikeManualIntakeResult, setWrikeManualIntakeResult] = useState<WrikeManualIntakePayload | null>(null);
+  const [wrikeManualIntakeConfirmation, setWrikeManualIntakeConfirmation] = useState("");
   const [wrikeConnectionDraft, setWrikeConnectionDraft] = useState({
     name: "",
     environment: "Production" as "Production" | "Sandbox",
@@ -4427,7 +4428,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/import-methods/${encodeURIComponent(activeImportMethod.import_method_id)}/wrike/discovery-preview`,
-        { method: "POST" }
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            task_id: activeWrikeConfig.approved_discovery_task_id.trim(),
+            confirmation_phrase: wrikeManualIntakeConfirmation
+          })
+        }
       );
       const payload = await readJsonResponse<WrikeTaskDiscoveryPreview>(response);
       setWrikeDiscoveryPreview(payload);
@@ -4452,7 +4460,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/import-methods/${encodeURIComponent(activeImportMethod.import_method_id)}/wrike/workbook-evidence`,
-        { method: "POST" }
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            task_id: activeWrikeConfig.approved_discovery_task_id.trim(),
+            confirmation_phrase: wrikeManualIntakeConfirmation
+          })
+        }
       );
       const payload = await readJsonResponse<WrikeWorkbookEvidencePayload>(response);
       setWrikeWorkbookEvidence(payload.evidence);
@@ -4481,7 +4496,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ extension: record.extension })
+          body: JSON.stringify({
+            extension: record.extension,
+            task_id: activeWrikeConfig.approved_discovery_task_id.trim(),
+            confirmation_phrase: wrikeManualIntakeConfirmation
+          })
         }
       );
       const payload = await readJsonResponse<WrikeEvidencePreviewPayload>(response);
@@ -4510,13 +4529,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     if (!selectedCustomerId || !activeImportMethod) {
       return;
     }
+    const taskId = activeWrikeConfig.approved_discovery_task_id.trim();
     setWrikeManualIntakeState("loading");
     setWrikeManualIntakeMessage(null);
     setWrikeManualIntakeResult(null);
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/import-methods/${encodeURIComponent(activeImportMethod.import_method_id)}/wrike/prepare-order`,
-        { method: "POST" }
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            task_id: taskId,
+            confirmation_phrase: wrikeManualIntakeConfirmation
+          })
+        }
       );
       const payload = await readJsonResponse<WrikeManualIntakePayload>(response);
       setWrikeManualIntakeResult(payload);
@@ -4526,6 +4553,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           : `${payload.summary.workbook_count} workbook order${payload.summary.workbook_count === 1 ? "" : "s"} prepared for operator review. Nothing was submitted to Lift.`
       );
       await loadTargetsAndJobs();
+      setWrikeManualIntakeConfirmation("");
       setWrikeManualIntakeState("idle");
     } catch (error) {
       setWrikeManualIntakeMessage(
@@ -10306,7 +10334,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                     !activeWrikeConnectionStatus?.configured ||
                                     activeImportMethodHasUnsavedChanges ||
                                     activeWrikeReadiness.status !== "Configured" ||
-                                    !activeWrikeConfig.approved_discovery_task_id
+                                    !activeWrikeConfig.approved_discovery_task_id ||
+                                    wrikeManualIntakeConfirmation !==
+                                      `PREPARE WRIKE PREVIEW ${activeWrikeConfig.approved_discovery_task_id.trim()}`
                                   }
                                   title={
                                     !activeWrikeConnectionStatus?.discovery_preview_enabled
@@ -10317,7 +10347,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                           ? "Save the folder, status, workbook rule, and approved task ID first."
                                           : !activeWrikeConnectionStatus?.configured
                                             ? "Configure and authorize this customer's Wrike connection first."
-                                            : undefined
+                                            : wrikeManualIntakeConfirmation !==
+                                                `PREPARE WRIKE PREVIEW ${activeWrikeConfig.approved_discovery_task_id.trim()}`
+                                              ? "Type the exact one-task rehearsal confirmation phrase below."
+                                              : undefined
                                   }
                                 >
                                   <Search size={14} />
@@ -10424,7 +10457,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                       !activeWrikeConnectionStatus?.evidence_preview_enabled ||
                                       !activeWrikeConnectionStatus?.configured ||
                                       activeWrikeReadiness.status !== "Configured" ||
-                                      activeImportMethodHasUnsavedChanges
+                                      activeImportMethodHasUnsavedChanges ||
+                                      wrikeManualIntakeConfirmation !==
+                                        `PREPARE WRIKE PREVIEW ${activeWrikeConfig.approved_discovery_task_id.trim()}`
                                     }
                                     title={
                                       !activeWrikeConnectionStatus?.manual_intake_enabled
@@ -10436,7 +10471,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                             ? "Save this Import Method before preparing an order."
                                             : activeWrikeReadiness.status !== "Configured"
                                               ? "Complete the saved Wrike intake contract first."
-                                              : undefined
+                                              : wrikeManualIntakeConfirmation !==
+                                                  `PREPARE WRIKE PREVIEW ${activeWrikeConfig.approved_discovery_task_id.trim()}`
+                                                ? "Type the exact one-task rehearsal confirmation phrase."
+                                                : undefined
                                     }
                                   >
                                     <ClipboardList size={14} />
@@ -10446,6 +10484,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   </button>
                                 </div>
                               </div>
+
+                              <label className="wrike-manual-intake-confirmation">
+                                <span>
+                                  <strong>Confirm this one-task rehearsal</strong>
+                                  <small>
+                                    Type the exact phrase shown below. Pathfinder will recheck only the saved QA task
+                                    and create a preview; it will not submit the order to Lift.
+                                  </small>
+                                  <code>{`PREPARE WRIKE PREVIEW ${activeWrikeConfig.approved_discovery_task_id.trim()}`}</code>
+                                </span>
+                                <input
+                                  value={wrikeManualIntakeConfirmation}
+                                  placeholder="Type the exact confirmation phrase"
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  onChange={(event) => setWrikeManualIntakeConfirmation(event.target.value)}
+                                />
+                              </label>
 
                               {wrikeManualIntakeResult ? (
                                 <div className="wrike-manual-intake-result">
@@ -10554,7 +10610,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                       !activeWrikeConnectionStatus?.workbook_evidence_enabled ||
                                       !activeWrikeConnectionStatus?.configured ||
                                       !wrikeDiscoveryQualified ||
-                                      activeImportMethodHasUnsavedChanges
+                                      activeImportMethodHasUnsavedChanges ||
+                                      wrikeManualIntakeConfirmation !==
+                                        `PREPARE WRIKE PREVIEW ${activeWrikeConfig.approved_discovery_task_id.trim()}`
                                     }
                                     title={
                                       !activeWrikeConnectionStatus?.workbook_evidence_enabled
@@ -10563,7 +10621,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                           ? "Run and review the approved task preview first."
                                           : activeImportMethodHasUnsavedChanges
                                             ? "Save this Import Method before capturing its source evidence."
-                                            : undefined
+                                            : wrikeManualIntakeConfirmation !==
+                                                `PREPARE WRIKE PREVIEW ${activeWrikeConfig.approved_discovery_task_id.trim()}`
+                                              ? "Type the exact one-task rehearsal confirmation phrase above."
+                                              : undefined
                                     }
                                   >
                                     <Database size={14} />
@@ -10602,14 +10663,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                           disabled={
                                             Boolean(wrikeEvidencePreviewId) ||
                                             !activeWrikeConnectionStatus?.evidence_preview_enabled ||
-                                            activeImportMethodHasUnsavedChanges
+                                            activeImportMethodHasUnsavedChanges ||
+                                            wrikeManualIntakeConfirmation !==
+                                              `PREPARE WRIKE PREVIEW ${activeWrikeConfig.approved_discovery_task_id.trim()}`
                                           }
                                           title={
                                             !activeWrikeConnectionStatus?.evidence_preview_enabled
                                               ? "The server evidence-preview gate is off."
                                               : activeImportMethodHasUnsavedChanges
                                                 ? "Save this Import Method before creating a preview."
-                                                : undefined
+                                                : wrikeManualIntakeConfirmation !==
+                                                    `PREPARE WRIKE PREVIEW ${activeWrikeConfig.approved_discovery_task_id.trim()}`
+                                                  ? "Type the exact one-task rehearsal confirmation phrase above."
+                                                  : undefined
                                           }
                                         >
                                           <ClipboardList size={14} />

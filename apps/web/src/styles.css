@@ -5222,6 +5222,45 @@ h1 {
   border-radius: 8px;
 }
 
+.wrike-manual-intake-confirmation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+  align-items: end;
+  gap: 14px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid rgba(57, 82, 59, 0.14);
+  border-radius: 7px;
+}
+
+.wrike-manual-intake-confirmation > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wrike-manual-intake-confirmation strong {
+  font-size: 13px;
+}
+
+.wrike-manual-intake-confirmation small {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.wrike-manual-intake-confirmation code {
+  overflow-wrap: anywhere;
+  color: var(--vornan-forest);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.wrike-manual-intake-confirmation input {
+  width: 100%;
+}
+
 .wrike-manual-intake-result,
 .wrike-manual-intake-workbooks {
   display: grid;
@@ -11513,6 +11552,10 @@ td {
   }
 
   .wrike-qa-readiness-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wrike-manual-intake-confirmation {
     grid-template-columns: 1fr;
   }
 

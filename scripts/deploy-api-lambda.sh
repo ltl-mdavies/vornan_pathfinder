@@ -35,6 +35,11 @@ aws cloudformation deploy \
     WrikeWorkbookEvidenceEnabled="${PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE:-false}" \
     WrikeEvidencePreviewEnabled="${PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW:-false}" \
     WrikeManualIntakeEnabled="${PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE:-false}" \
+    WrikeOrderRehearsalEnabled="${PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL:-false}" \
+    WrikeOrderRehearsalCustomerId="${PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID:-}" \
+    WrikeOrderRehearsalImportMethodId="${PATHFINDER_WRIKE_ORDER_REHEARSAL_IMPORT_METHOD_ID:-}" \
+    WrikeOrderRehearsalTaskId="${PATHFINDER_WRIKE_ORDER_REHEARSAL_TASK_ID:-}" \
+    WrikeOrderRehearsalExpiresAt="${PATHFINDER_WRIKE_ORDER_REHEARSAL_EXPIRES_AT:-}" \
     WrikeLiftDocumentPublicationEnabled="${PATHFINDER_ENABLE_WRIKE_LIFT_DOCUMENT_PUBLICATION:-false}" \
     WrikeLiftDocumentDeliveryBucketName="${PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BUCKET:-}" \
     WrikeLiftDocumentDeliveryBaseUrl="${PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BASE_URL:-}" \
