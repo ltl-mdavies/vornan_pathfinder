@@ -214,3 +214,55 @@ test("rejects an authoritative replacement when the reviewed product map has cha
     /changed after this replacement preview/
   );
 });
+
+test("applies and rolls back a 248-product authoritative list without the former transaction ceiling", async () => {
+  const customer = { ...testCustomer, lift_customer_id: "replacement-large-product-map" };
+  const workspace = await getOrCreateWorkspace(customer);
+  const route = workspace.output_routes[0];
+  const timestamp = "2026-07-31T14:00:00.000Z";
+  const candidates = Array.from({ length: 248 }, (_, index) => ({
+    mapping_id: `candidate-${index + 1}`,
+    output_route_id: route.output_route_id,
+    target_id: route.target_id,
+    target_template: route.output_template,
+    customer_product_key: index < 35 ? `AOM${397 + index}` : `MOMENTARA-PRODUCT-${index + 1}`,
+    display_label: index < 35 ? `Hardware ${index + 1} · AOM${397 + index}` : `Momentara Product ${index + 1}`,
+    source_columns: index < 35 ? ["PS SKU"] : ["DESCRIPTION"],
+    product_identifier_type: route.product_identifier_type,
+    product_identifier_value: null,
+    lift_unit_number: null,
+    lift_product_id: null,
+    product_name: null,
+    status: "Unmapped" as const,
+    mapping_source: "Preloaded catalog" as const,
+    source_file_name: "momentara-248.xlsx",
+    last_seen_examples: [{
+      sheet_name: index < 35 ? "Hardware" : "NEW Pricing",
+      row_number: index + 2
+    }],
+    created_at: timestamp,
+    updated_at: timestamp
+  }));
+  const input = {
+    output_route_id: route.output_route_id,
+    source_file_name: "momentara-248.xlsx",
+    clear_existing_assignments: true,
+    product_mappings: candidates
+  };
+
+  const preview = await previewProductMappingReplacement(customer, input);
+  assert.equal(preview.imported_count, 248);
+  const applied = await applyProductMappingReplacement(customer, input, preview.preview_token, "operator-large-test");
+  assert.equal(applied.product_mappings.length, 248);
+  assert.equal(new Set(applied.product_mappings.map((mapping) => mapping.replacement_version_id)).size, 1);
+  assert.ok(applied.product_mappings.every((mapping) => mapping.replacement_version_id));
+  assert.ok(applied.product_mapping_replacement_checkpoint?.previous_version_id === null);
+
+  const rolledBack = await rollbackProductMappingReplacement(
+    customer,
+    applied.product_mapping_replacement_checkpoint!.replacement_id,
+    "operator-large-test"
+  );
+  assert.equal(rolledBack.product_mappings.length, 248);
+  assert.ok(rolledBack.product_mappings.every((mapping) => mapping.status === "Inactive"));
+});

@@ -8994,6 +8994,90 @@ td {
   white-space: nowrap;
 }
 
+.product-workbook-structure {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  background: rgba(248, 250, 246, 0.82);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+.product-workbook-structure-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.product-workbook-structure-header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.product-workbook-structure-header strong,
+.product-workbook-sheet-toggle strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.product-workbook-structure-header span,
+.product-workbook-sheet-toggle small,
+.product-workbook-structure-note {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.product-workbook-sheet-list {
+  display: grid;
+  gap: 8px;
+}
+
+.product-workbook-sheet {
+  display: grid;
+  grid-template-columns: minmax(210px, 1.2fr) repeat(3, minmax(150px, 1fr));
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  opacity: 0.72;
+}
+
+.product-workbook-sheet-included {
+  border-color: rgba(57, 82, 59, 0.28);
+  box-shadow: inset 3px 0 0 var(--forest);
+  opacity: 1;
+}
+
+.product-workbook-sheet-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+}
+
+.product-workbook-sheet-toggle > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.product-workbook-sheet-toggle strong {
+  overflow-wrap: anywhere;
+}
+
+.product-workbook-structure-note {
+  margin: 0;
+  padding: 9px 11px;
+  background: rgba(228, 238, 220, 0.48);
+  border-radius: 7px;
+}
+
 .product-preload-grid {
   display: grid;
   grid-template-columns: minmax(320px, 1.1fr) minmax(420px, 1.45fr);
@@ -11249,6 +11333,7 @@ td {
   .bulk-product-mapping-review-summary,
   .bulk-product-mapping-review-row,
   .authoritative-product-list-card,
+  .product-workbook-sheet,
   .product-map-replacement-summary,
   .product-map-replacement-list > div,
   .order-name-route-strip,

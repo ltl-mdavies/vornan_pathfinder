@@ -84,6 +84,18 @@ import {
   type WorkbookSheetConfig
 } from "@pathfinder/templates";
 import {
+  PRODUCT_WORKBOOK_KEY_COLUMN,
+  PRODUCT_WORKBOOK_NAME_COLUMN,
+  PRODUCT_WORKBOOK_ROW_COLUMN,
+  PRODUCT_WORKBOOK_SHEET_COLUMN,
+  PRODUCT_WORKBOOK_SOURCE_COLUMN,
+  inferProductWorkbookProfile,
+  productWorkbookProfileGrid,
+  workbookColumn,
+  type ProductWorkbookProfileKind,
+  type ProductWorkbookSheetProfile
+} from "./product-workbook-import";
+import {
   createDefaultWrikeSourceConfig,
   evaluateWrikeReadOnlyQaReadiness,
   getWrikeContractReadiness,
@@ -3585,6 +3597,7 @@ function productMappingStatusClass(status: ProductMappingStatus) {
 interface ProductMapPreloadRow {
   row_id: string;
   row_number: number;
+  sheet_name: string;
   source_value: string;
   customer_product_key: string;
   display_label: string;
@@ -3598,6 +3611,7 @@ interface ProductMapPreloadRow {
   existing_mapping?: CustomerProductMapping;
   values: Record<string, string>;
 }
+
 
 function splitDelimitedLine(line: string, delimiter: string) {
   const cells: string[] = [];
@@ -3905,6 +3919,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [preloadText, setPreloadText] = useState("");
   const [preloadSourceName, setPreloadSourceName] = useState("Customer product list");
   const [preloadGrid, setPreloadGrid] = useState<SourceGrid>({ columns: [], rows: [] });
+  const [preloadWorkbookProfiles, setPreloadWorkbookProfiles] = useState<ProductWorkbookSheetProfile[]>([]);
   const [preloadSourceColumn, setPreloadSourceColumn] = useState("");
   const [preloadProductNameColumn, setPreloadProductNameColumn] = useState("");
   const [preloadUnitColumn, setPreloadUnitColumn] = useState("");
@@ -6165,6 +6180,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const preloadPreviewRows = useMemo<ProductMapPreloadRow[]>(() => {
     const seenKeys = new Set<string>();
     return preloadGrid.rows.map((row, index) => {
+      const workbookSheetName = valueAsString(row[PRODUCT_WORKBOOK_SHEET_COLUMN]);
+      const workbookRowNumber = Number(row[PRODUCT_WORKBOOK_ROW_COLUMN]) || index + 2;
+      const originalKeyColumn = valueAsString(row[PRODUCT_WORKBOOK_SOURCE_COLUMN]);
       const key = productKeyFromCatalogRow(
         row as Record<string, string>,
         selectedOutputMapProductConfig,
@@ -6188,8 +6206,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const finalHeight = valueAsString(row[preloadFinalHeightColumn]) || preloadDimensionValue(row, "height");
 
       return {
-        row_id: `${index + 2}-${key || "missing"}`,
-        row_number: index + 2,
+        row_id: `${workbookSheetName || "list"}-${workbookRowNumber}-${key || "missing"}`,
+        row_number: workbookRowNumber,
+        sheet_name: workbookSheetName || preloadSourceName.trim() || "Preloaded catalog",
         source_value:
           selectedOutputMapProductConfig.strategy === "composite_key"
             ? selectedOutputMapProductConfig.composite_columns.map((column) => valueAsString(row[column])).filter(Boolean).join(" / ")
@@ -6200,8 +6219,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         product_name: productName,
         final_width: finalWidth,
         final_height: finalHeight,
-        source_columns:
-          selectedOutputMapProductConfig.strategy === "composite_key"
+        source_columns: originalKeyColumn
+          ? [originalKeyColumn]
+          : selectedOutputMapProductConfig.strategy === "composite_key"
             ? selectedOutputMapProductConfig.composite_columns
             : [effectivePreloadSourceColumn].filter(Boolean),
         status,
@@ -8226,6 +8246,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     const guessedFinalHeightColumn = findPreloadDimensionColumn(parsed.columns, "height");
 
     setPreloadGrid(parsed);
+    setPreloadWorkbookProfiles([]);
     setPreloadSourceColumn(defaultSourceColumn);
     setPreloadProductNameColumn(guessedProductColumn);
     setPreloadUnitColumn(guessedUnitColumn === defaultSourceColumn ? "" : guessedUnitColumn);
@@ -8238,29 +8259,56 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   async function importPreloadCatalogFile(file: File) {
     try {
       const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer());
-      const grid = { columns: parsed.columns, rows: parsed.rows };
-      const defaultSourceColumn = grid.columns.includes(selectedOutputMapProductConfig.source_column)
-        ? selectedOutputMapProductConfig.source_column
-        : grid.columns[0] ?? "";
-      const guessedProductColumn =
-        grid.columns.find((column) => /product|description|label|name/i.test(column)) ?? "";
-      const guessedUnitColumn =
-        grid.columns.find((column) => /unit|lift|sku|identifier/i.test(column)) ?? "";
-      const guessedFinalWidthColumn = findPreloadDimensionColumn(grid.columns, "width");
-      const guessedFinalHeightColumn = findPreloadDimensionColumn(grid.columns, "height");
+      const profiles = parsed.source_sheets.map(inferProductWorkbookProfile);
+      const grid = productWorkbookProfileGrid(profiles);
+      if (!grid.rows.length) {
+        throw new Error("No product rows were found. Include a sheet and choose a product key column.");
+      }
 
+      setPreloadWorkbookProfiles(profiles);
       setPreloadGrid(grid);
       setPreloadSourceName(file.name);
-      setPreloadSourceColumn(defaultSourceColumn);
-      setPreloadProductNameColumn(guessedProductColumn);
-      setPreloadUnitColumn(guessedUnitColumn === defaultSourceColumn ? "" : guessedUnitColumn);
-      setPreloadFinalWidthColumn(guessedFinalWidthColumn);
-      setPreloadFinalHeightColumn(guessedFinalHeightColumn);
+      setPreloadSourceColumn(PRODUCT_WORKBOOK_KEY_COLUMN);
+      setPreloadProductNameColumn(PRODUCT_WORKBOOK_NAME_COLUMN);
+      setPreloadUnitColumn("");
+      setPreloadFinalWidthColumn("Final Size Width");
+      setPreloadFinalHeightColumn("Final Size Length");
       setPreloadSelectedIds([]);
-      setWorkspaceMessage(`${grid.rows.length} product row${grid.rows.length === 1 ? "" : "s"} loaded from ${file.name}.`);
+      setWorkspaceMessage(
+        `${grid.rows.length} products loaded from ${profiles.filter((profile) => profile.included).length} included workbook tabs.`
+      );
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Product list upload failed.");
     }
+  }
+
+  function updatePreloadWorkbookProfile(
+    sheetName: string,
+    patch: Partial<Pick<ProductWorkbookSheetProfile, "kind" | "included" | "key_column" | "name_column">>
+  ) {
+    setPreloadWorkbookProfiles((current) => {
+      const next = current.map((profile) => {
+        if (profile.sheet_name !== sheetName) {
+          return profile;
+        }
+        const updated = { ...profile, ...patch };
+        const validRowCount = updated.rows.filter((row) => valueAsString(row.values[updated.key_column])).length;
+        return {
+          ...updated,
+          included: updated.kind === "ignore" ? false : patch.included ?? updated.included,
+          valid_row_count: validRowCount
+        };
+      });
+      const grid = productWorkbookProfileGrid(next);
+      setPreloadGrid(grid);
+      setPreloadSourceColumn(PRODUCT_WORKBOOK_KEY_COLUMN);
+      setPreloadProductNameColumn(PRODUCT_WORKBOOK_NAME_COLUMN);
+      setPreloadFinalWidthColumn("Final Size Width");
+      setPreloadFinalHeightColumn("Final Size Length");
+      setPreloadSelectedIds([]);
+      setProductMappingReplacementPreview(null);
+      return next;
+    });
   }
 
   function togglePreloadRow(rowId: string) {
@@ -8315,7 +8363,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         source_file_name: preloadSourceName.trim() || "Customer product list",
         last_seen_examples: [
           {
-            sheet_name: preloadSourceName.trim() || "Preloaded catalog",
+            sheet_name: row.sheet_name,
             row_number: row.row_number,
             description: row.product_name || row.display_label,
             sign_type: row.source_value || null,
@@ -8325,7 +8373,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           },
           ...(row.existing_mapping?.last_seen_examples ?? []).filter(
             (example) =>
-              example.sheet_name !== (preloadSourceName.trim() || "Preloaded catalog") ||
+              example.sheet_name !== row.sheet_name ||
               example.row_number !== row.row_number
           )
         ].slice(0, 8),
@@ -12356,6 +12404,99 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </div>
                     </div>
 
+                    {preloadWorkbookProfiles.length ? (
+                      <section className="product-workbook-structure" aria-label="Product workbook structure">
+                        <div className="product-workbook-structure-header">
+                          <div>
+                            <strong>Product Workbook Structure</strong>
+                            <span>Include each product tab and confirm how Pathfinder identifies products on that tab.</span>
+                          </div>
+                          <span className="mini-pill mini-pill-success">
+                            {preloadWorkbookProfiles.filter((profile) => profile.included).length} tabs · {preloadGrid.rows.length} products
+                          </span>
+                        </div>
+                        <div className="product-workbook-sheet-list">
+                          {preloadWorkbookProfiles.map((profile) => (
+                            <article
+                              className={`product-workbook-sheet ${profile.included ? "product-workbook-sheet-included" : ""}`}
+                              key={profile.sheet_name}
+                            >
+                              <label className="product-workbook-sheet-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={profile.included}
+                                  disabled={profile.kind === "ignore" || !profile.key_column}
+                                  onChange={(event) =>
+                                    updatePreloadWorkbookProfile(profile.sheet_name, { included: event.target.checked })
+                                  }
+                                />
+                                <span>
+                                  <strong>{profile.sheet_name}</strong>
+                                  <small>{profile.valid_row_count} product rows</small>
+                                </span>
+                              </label>
+                              <label className="setup-control">
+                                <span>Sheet type</span>
+                                <select
+                                  value={profile.kind}
+                                  onChange={(event) => {
+                                    const kind = event.target.value as ProductWorkbookProfileKind;
+                                    const keyColumn = kind === "hardware"
+                                      ? workbookColumn(profile.columns, [/^PS SKU$/i, /^OPS SKU$/i])
+                                      : kind === "standard"
+                                        ? workbookColumn(profile.columns, [/^DESCRIPTION$/i])
+                                        : profile.key_column;
+                                    const nameColumn = kind === "hardware"
+                                      ? workbookColumn(profile.columns, [/^Hardware$/i, /^Description$/i])
+                                      : keyColumn;
+                                    updatePreloadWorkbookProfile(profile.sheet_name, {
+                                      kind,
+                                      included: kind !== "ignore" && Boolean(keyColumn),
+                                      key_column: keyColumn,
+                                      name_column: nameColumn
+                                    });
+                                  }}
+                                >
+                                  <option value="standard">Standard products</option>
+                                  <option value="hardware">Hardware products</option>
+                                  <option value="ignore">Ignore sheet</option>
+                                </select>
+                              </label>
+                              <label className="setup-control">
+                                <span>Product key</span>
+                                <select
+                                  value={profile.key_column}
+                                  disabled={profile.kind === "ignore"}
+                                  onChange={(event) =>
+                                    updatePreloadWorkbookProfile(profile.sheet_name, { key_column: event.target.value })
+                                  }
+                                >
+                                  <option value="">Choose column</option>
+                                  {profile.columns.map((column) => <option key={column} value={column}>{column}</option>)}
+                                </select>
+                              </label>
+                              <label className="setup-control">
+                                <span>Product name</span>
+                                <select
+                                  value={profile.name_column}
+                                  disabled={profile.kind === "ignore"}
+                                  onChange={(event) =>
+                                    updatePreloadWorkbookProfile(profile.sheet_name, { name_column: event.target.value })
+                                  }
+                                >
+                                  <option value="">Use product key</option>
+                                  {profile.columns.map((column) => <option key={column} value={column}>{column}</option>)}
+                                </select>
+                              </label>
+                            </article>
+                          ))}
+                        </div>
+                        <p className="product-workbook-structure-note">
+                          Standard tabs use Description. Hardware uses PS SKU as the stable key; OPS SKU in incoming order grids is treated as the matching alias. Hardware names include useful item detail without changing product identity.
+                        </p>
+                      </section>
+                    ) : null}
+
                     <div className="product-preload-grid">
                       <label className="setup-control product-preload-source">
                         <span>Paste Product List</span>
@@ -12566,7 +12707,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 </td>
                                 <td>
                                   <strong>{row.source_value || "Blank"}</strong>
-                                  <span className="cell-meta">Row {row.row_number}</span>
+                                  <span className="cell-meta">{row.sheet_name} · Row {row.row_number}</span>
                                 </td>
                                 <td>
                                   <strong>{row.customer_product_key || "No key generated"}</strong>
