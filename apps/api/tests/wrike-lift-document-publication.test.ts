@@ -29,6 +29,13 @@ function missingObject() {
   };
 }
 
+function maskedMissingObject() {
+  return {
+    name: "AccessDenied",
+    $metadata: { httpStatusCode: 403 }
+  };
+}
+
 function directResponse(url: string, length: number) {
   const response = new Response(new Uint8Array(length), {
     status: 200,
@@ -112,6 +119,57 @@ test("conditionally publishes one immutable object, verifies direct delivery, an
   assert.match(manifestInput?.Key ?? "", /^wrike\/publications\/wrike_publication_[a-f0-9]{64}\.json$/);
   assert.equal(calls.filter((call) => call.name === "PutObjectCommand").length, 2);
   assert.equal(JSON.stringify(manifestInput).includes("IEQUALIFIEDTASK"), false);
+});
+
+test("conditionally creates a publication when S3 masks a missing manifest as 403", async () => {
+  const calls: string[] = [];
+  let objectMetadata: Record<string, string> | undefined;
+  const result = await publishWrikeLiftSourceDocument({
+    evidence,
+    bytes,
+    config: {
+      enabled: true,
+      bucket_name: "wrike-delivery-test",
+      manifest_bucket_name: "wrike-evidence-test",
+      delivery_base_url: "https://go.vornan.co"
+    },
+    s3_sender: {
+      send: async (command: any) => {
+        calls.push(command.constructor.name);
+        if (command.constructor.name === "GetObjectCommand") {
+          throw maskedMissingObject();
+        }
+        if (command.constructor.name === "PutObjectCommand" && command.input.Bucket === "wrike-delivery-test") {
+          assert.equal(command.input.IfNoneMatch, "*");
+          objectMetadata = command.input.Metadata;
+          return { VersionId: "delivery-version-1" };
+        }
+        if (command.constructor.name === "HeadObjectCommand") {
+          return {
+            VersionId: "delivery-version-1",
+            ContentLength: evidence.byte_size,
+            Metadata: objectMetadata,
+            LastModified: new Date("2026-07-31T12:00:00.000Z")
+          };
+        }
+        if (command.constructor.name === "PutObjectCommand") {
+          assert.equal(command.input.IfNoneMatch, "*");
+          return { VersionId: "manifest-version-1" };
+        }
+        throw new Error("Unexpected S3 command.");
+      }
+    },
+    fetch_impl: async (url) => directResponse(String(url), evidence.byte_size),
+    now: () => new Date("2026-07-31T12:00:01.000Z")
+  });
+
+  assert.equal(result.document_role, "order_grid");
+  assert.deepEqual(calls, [
+    "GetObjectCommand",
+    "PutObjectCommand",
+    "HeadObjectCommand",
+    "PutObjectCommand"
+  ]);
 });
 
 test("replays an immutable manifest without rewriting the document or extending retention", async () => {
