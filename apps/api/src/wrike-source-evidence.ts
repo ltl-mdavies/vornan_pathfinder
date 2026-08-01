@@ -231,6 +231,20 @@ function decodeMetadata(value: string | undefined, label: string) {
   }
 }
 
+function decodeDocumentRole(value: string | undefined): WrikeSourceDocumentRole {
+  if (!value) {
+    return "order_grid";
+  }
+  if (value === "order_grid" || value === "reference_proof") {
+    return value;
+  }
+  const decoded = decodeMetadata(value, "document role");
+  if (decoded === "order_grid" || decoded === "reference_proof") {
+    return decoded;
+  }
+  throw new WrikeSourceEvidenceError("storage_failed", "Stored Wrike evidence document role is invalid.");
+}
+
 function s3ObjectKey(record: Omit<WrikeWorkbookEvidenceRecord, "storage_status">) {
   return `wrike/${record.customer_id}/${record.import_method_id}/${record.evidence_id}.${record.extension}`;
 }
@@ -248,9 +262,7 @@ function recordFromHead(
   }
   const existing = {
     ...record,
-    document_role: metadata?.document_role
-      ? decodeMetadata(metadata.document_role, "document role") as WrikeSourceDocumentRole
-      : "order_grid",
+    document_role: decodeDocumentRole(metadata?.document_role),
     account_id: decodeMetadata(metadata?.account_id, "account ID"),
     connection_id: decodeMetadata(metadata?.connection_id, "connection ID"),
     task_id: decodeMetadata(metadata?.task_id, "task ID"),
@@ -499,9 +511,7 @@ async function loadS3Evidence(bucket: string, args: LoadSourceEvidenceArgs) {
     }
     const record = {
       ...seed,
-      document_role: metadata?.document_role
-        ? decodeMetadata(metadata.document_role, "document role") as WrikeSourceDocumentRole
-        : "order_grid",
+      document_role: decodeDocumentRole(metadata?.document_role),
       account_id: decodeMetadata(metadata?.account_id, "account ID"),
       connection_id: decodeMetadata(metadata?.connection_id, "connection ID"),
       task_id: decodeMetadata(metadata?.task_id, "task ID"),

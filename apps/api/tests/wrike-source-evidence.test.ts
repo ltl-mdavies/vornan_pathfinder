@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -144,6 +145,66 @@ test("still fails closed when the conditional S3 evidence write is forbidden", a
         error.message === "Wrike workbook evidence could not be stored."
     );
     assert.equal(putAttempts, 1);
+  } finally {
+    S3Client.prototype.send = originalSend;
+    if (previousBucket === undefined) {
+      delete process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET;
+    } else {
+      process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET = previousBucket;
+    }
+    if (previousDriver === undefined) {
+      delete process.env.PATHFINDER_STORAGE_DRIVER;
+    } else {
+      process.env.PATHFINDER_STORAGE_DRIVER = previousDriver;
+    }
+  }
+});
+
+test("replays S3 evidence whose safe document role is stored as plain metadata", async () => {
+  const previousBucket = process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET;
+  const previousDriver = process.env.PATHFINDER_STORAGE_DRIVER;
+  const originalSend = S3Client.prototype.send;
+  process.env.PATHFINDER_SOURCE_EVIDENCE_BUCKET = "pathfinder-source-evidence-test";
+  process.env.PATHFINDER_STORAGE_DRIVER = "dynamodb";
+  const bytes = workbook().bytes;
+  let storedMetadata: Record<string, string> | undefined;
+  S3Client.prototype.send = (async (command: GetObjectCommand | HeadObjectCommand | PutObjectCommand) => {
+    if (command instanceof HeadObjectCommand) {
+      throw forbiddenS3Error();
+    }
+    if (command instanceof PutObjectCommand) {
+      storedMetadata = command.input.Metadata;
+      return {};
+    }
+    if (command instanceof GetObjectCommand) {
+      return {
+        Body: { transformToByteArray: async () => bytes },
+        ContentLength: bytes.byteLength,
+        Metadata: storedMetadata
+      };
+    }
+    throw new Error("Unexpected S3 command.");
+  }) as typeof S3Client.prototype.send;
+
+  try {
+    const stored = await persistWrikeWorkbookEvidence({
+      customer_id: "284619",
+      import_method_id: "wrike-orders",
+      connection_id: "source_wrike_momentara",
+      workbook: workbook(),
+      now: new Date("2026-07-27T14:00:00.000Z")
+    });
+    assert.equal(storedMetadata?.document_role, "order_grid");
+
+    const loaded = await loadWrikeWorkbookEvidence({
+      customer_id: "284619",
+      import_method_id: "wrike-orders",
+      connection_id: "source_wrike_momentara",
+      evidence_id: stored.evidence_id,
+      extension: "xlsx"
+    });
+    assert.equal(loaded.record.document_role, "order_grid");
+    assert.equal(loaded.record.storage_status, "Replayed");
   } finally {
     S3Client.prototype.send = originalSend;
     if (previousBucket === undefined) {
