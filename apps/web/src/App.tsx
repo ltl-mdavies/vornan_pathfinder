@@ -16564,7 +16564,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <tr key={`${result.source_sheet_name}-${result.source_row_number}-${result.line_number}`}>
                         <td>{result.line_number}</td>
                         <td>{result.customer_product_key || "No key"}</td>
-                        <td>{result.resolved_product_identifier ?? result.resolved_unit_number ?? result.resolved_product_id ?? "Needs mapping"}</td>
+                        <td>
+                          {result.resolved_product_identifier ?? result.resolved_unit_number ?? result.resolved_product_id ?? "Needs mapping"}
+                          <span className="cell-meta">
+                            {result.product_name ? `Lift product: ${result.product_name}` : "Lift product name unavailable"}
+                          </span>
+                        </td>
                         <td>{result.status}</td>
                       </tr>
                     ))}
