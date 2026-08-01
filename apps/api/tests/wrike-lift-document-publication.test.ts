@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { S3ServiceException } from "@aws-sdk/client-s3";
 import type { WrikeLiftSourceEvidenceBinding } from "@pathfinder/wrike-adapter";
 import {
   getWrikeLiftDocumentPublicationConfig,
@@ -24,11 +23,10 @@ const evidence: WrikeLiftSourceEvidenceBinding = {
 };
 
 function missingObject() {
-  return new S3ServiceException({
+  return {
     name: "NoSuchKey",
-    $fault: "client",
     $metadata: { httpStatusCode: 404 }
-  });
+  };
 }
 
 function directResponse(url: string, length: number) {
@@ -203,4 +201,54 @@ test("validates the exact dark configuration and rejects unsafe delivery origins
     }),
     WrikeLiftDocumentPublicationError
   );
+});
+
+test("reports a sanitized manifest-read stage when S3 does not return a missing-object observation", async () => {
+  await assert.rejects(
+    publishWrikeLiftSourceDocument({
+      evidence,
+      bytes,
+      config: {
+        enabled: true,
+        bucket_name: "wrike-delivery-test",
+        manifest_bucket_name: "wrike-evidence-test",
+        delivery_base_url: "https://go.vornan.co"
+      },
+      s3_sender: { send: async () => { throw new Error("provider-private-detail"); } },
+      fetch_impl: async () => { throw new Error("must not fetch"); }
+    }),
+    (error: unknown) =>
+      error instanceof WrikeLiftDocumentPublicationError &&
+      error.code === "manifest_read_failed" &&
+      !error.message.includes("provider-private-detail")
+  );
+});
+
+test("reports a sanitized object-write stage after structurally detecting a missing manifest", async () => {
+  let calls = 0;
+  await assert.rejects(
+    publishWrikeLiftSourceDocument({
+      evidence,
+      bytes,
+      config: {
+        enabled: true,
+        bucket_name: "wrike-delivery-test",
+        manifest_bucket_name: "wrike-evidence-test",
+        delivery_base_url: "https://go.vornan.co"
+      },
+      s3_sender: {
+        send: async () => {
+          calls += 1;
+          if (calls === 1) throw missingObject();
+          throw new Error("provider-private-detail");
+        }
+      },
+      fetch_impl: async () => { throw new Error("must not fetch"); }
+    }),
+    (error: unknown) =>
+      error instanceof WrikeLiftDocumentPublicationError &&
+      error.code === "object_write_failed" &&
+      !error.message.includes("provider-private-detail")
+  );
+  assert.equal(calls, 2);
 });

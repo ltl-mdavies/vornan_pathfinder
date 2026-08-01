@@ -20,3 +20,8 @@ test("keeps the rehearsal confirmation readable and responsive", () => {
   assert.match(styles, /\.wrike-manual-intake-confirmation code \{[\s\S]*?overflow-wrap: anywhere/);
   assert.match(styles, /@media[\s\S]*?\.wrike-manual-intake-confirmation \{[\s\S]*?grid-template-columns: 1fr/);
 });
+
+test("shows only sanitized failure stage and code for blocked previews", () => {
+  assert.match(appSource, /Stage: \{workbook\.failure_stage\.replaceAll\("_", " "\)\}/);
+  assert.match(appSource, /workbook\.failure_code\.replaceAll\("_", " "\)/);
+});

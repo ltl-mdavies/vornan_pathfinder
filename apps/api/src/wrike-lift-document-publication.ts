@@ -2,8 +2,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
-  S3Client,
-  S3ServiceException
+  S3Client
 } from "@aws-sdk/client-s3";
 import { createHash } from "node:crypto";
 import {
@@ -31,7 +30,10 @@ export class WrikeLiftDocumentPublicationError extends Error {
     public readonly code:
       | "disabled"
       | "invalid_configuration"
-      | "storage_failed"
+      | "manifest_read_failed"
+      | "object_write_failed"
+      | "object_head_failed"
+      | "manifest_write_failed"
       | "identity_conflict"
       | "delivery_preflight_failed",
     message: string
@@ -116,14 +118,28 @@ function publicationIdentity(evidence: WrikeLiftSourceEvidenceBinding) {
   };
 }
 
+function awsErrorObservation(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return { name: "", http_status: null };
+  }
+  const candidate = error as { name?: unknown; $metadata?: { httpStatusCode?: unknown } };
+  return {
+    name: typeof candidate.name === "string" ? candidate.name : "",
+    http_status:
+      typeof candidate.$metadata?.httpStatusCode === "number"
+        ? candidate.$metadata.httpStatusCode
+        : null
+  };
+}
+
 function isMissingObject(error: unknown) {
-  return error instanceof S3ServiceException &&
-    (error.$metadata.httpStatusCode === 404 || error.name === "NoSuchKey" || error.name === "NotFound");
+  const observation = awsErrorObservation(error);
+  return observation.http_status === 404 || observation.name === "NoSuchKey" || observation.name === "NotFound";
 }
 
 function isConditionalConflict(error: unknown) {
-  return error instanceof S3ServiceException &&
-    (error.$metadata.httpStatusCode === 412 || error.name === "PreconditionFailed");
+  const observation = awsErrorObservation(error);
+  return observation.http_status === 412 || observation.name === "PreconditionFailed";
 }
 
 function assertEvidenceBytes(evidence: WrikeLiftSourceEvidenceBinding, bytes: Uint8Array) {
@@ -176,7 +192,7 @@ async function readManifest(
   try {
     const result = await sender.send(new GetObjectCommand({ Bucket: bucketName, Key: manifestKey }));
     if (!result.Body) {
-      throw new WrikeLiftDocumentPublicationError("storage_failed", "Wrike publication manifest is empty.");
+      throw new WrikeLiftDocumentPublicationError("manifest_read_failed", "Wrike publication manifest is empty.");
     }
     return JSON.parse(await result.Body.transformToString("utf8")) as WrikeLiftDocumentPublication;
   } catch (error) {
@@ -187,7 +203,7 @@ async function readManifest(
       return null;
     }
     throw new WrikeLiftDocumentPublicationError(
-      "storage_failed",
+      "manifest_read_failed",
       "Pathfinder could not read the Wrike publication manifest."
     );
   }
@@ -309,7 +325,7 @@ export async function publishWrikeLiftSourceDocument(args: {
     } catch (error) {
       if (!isConditionalConflict(error)) {
         throw new WrikeLiftDocumentPublicationError(
-          "storage_failed",
+          "object_write_failed",
           "Pathfinder could not create the immutable Wrike delivery object."
         );
       }
@@ -320,7 +336,7 @@ export async function publishWrikeLiftSourceDocument(args: {
     head = await sender.send(new HeadObjectCommand({ Bucket: bucketName, Key: identity.object_key }));
   } catch {
     throw new WrikeLiftDocumentPublicationError(
-      "storage_failed",
+      "object_head_failed",
       "Pathfinder could not verify the immutable Wrike delivery object."
     );
   }
@@ -383,14 +399,14 @@ export async function publishWrikeLiftSourceDocument(args: {
   } catch (error) {
     if (!isConditionalConflict(error)) {
       throw new WrikeLiftDocumentPublicationError(
-        "storage_failed",
+        "manifest_write_failed",
         "Pathfinder could not finalize the Wrike publication manifest."
       );
     }
     const concurrentManifest = await readManifest(sender, manifestBucketName, identity.manifest_key);
     if (!concurrentManifest) {
       throw new WrikeLiftDocumentPublicationError(
-        "storage_failed",
+        "manifest_write_failed",
         "The concurrent Wrike publication manifest is unavailable."
       );
     }
