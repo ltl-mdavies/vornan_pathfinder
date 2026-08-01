@@ -1168,6 +1168,85 @@ async function resolveWrikeFolderId(
   return matches[0];
 }
 
+async function taskBelongsToWrikeFolderScope(
+  task: Record<string, unknown>,
+  folderId: string,
+  host: string,
+  accessToken: string,
+  fetchImpl: typeof fetch,
+  rotatedCredentials: WrikeOAuthCredentials
+) {
+  const parentIds = providerIdentifierList(task.parentIds);
+  const superParentIds = providerIdentifierList(task.superParentIds);
+  if (parentIds.includes(folderId) || superParentIds.includes(folderId)) {
+    return true;
+  }
+
+  const pending = [...parentIds, ...superParentIds];
+  const visited = new Set<string>();
+  const maxFolderReads = 32;
+
+  while (pending.length > 0) {
+    const currentFolderId = pending.shift();
+    if (!currentFolderId || visited.has(currentFolderId)) {
+      continue;
+    }
+    if (currentFolderId === folderId) {
+      return true;
+    }
+    if (visited.size >= maxFolderReads) {
+      throw new WrikeConnectionError(
+        "invalid_response",
+        "The approved Wrike task ancestry exceeded the bounded folder limit.",
+        rotatedCredentials
+      );
+    }
+    visited.add(currentFolderId);
+
+    const folderUrl = new URL(
+      `https://${host}/api/v4/folders/${encodeURIComponent(currentFolderId)}`
+    );
+    let response: Response;
+    try {
+      response = await fetchImpl(folderUrl, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+      });
+    } catch {
+      throw new WrikeConnectionError(
+        "task_discovery_failed",
+        "Pathfinder could not verify the approved Wrike task folder ancestry.",
+        rotatedCredentials
+      );
+    }
+
+    const payload = await readWrikeApiJson(
+      response,
+      "task_discovery_failed",
+      rotatedCredentials
+    );
+    const records = Array.isArray(payload.data) ? payload.data.map(asRecord) : [];
+    const folder = records[0];
+    if (records.length !== 1 || providerIdentifier(folder?.id) !== currentFolderId) {
+      throw new WrikeConnectionError(
+        "invalid_response",
+        "Wrike did not return the exact approved task parent folder.",
+        rotatedCredentials
+      );
+    }
+    const ancestors = [
+      ...providerIdentifierList(folder.parentIds),
+      ...providerIdentifierList(folder.superParentIds)
+    ];
+    if (ancestors.includes(folderId)) {
+      return true;
+    }
+    pending.push(...ancestors);
+  }
+
+  return false;
+}
+
 function normalizeWrikeFieldTitle(value: unknown) {
   return typeof value === "string"
     ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")
@@ -1614,9 +1693,11 @@ async function discoverApprovedWrikeTaskWithContext(
     rotatedCredentials
   );
   const taskUrl = new URL(`https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}`);
-  // Wrike returns customFields in the default task payload and rejects it when
-  // explicitly requested through the fields parameter.
-  taskUrl.searchParams.set("fields", JSON.stringify(["attachmentCount", "superParentIds"]));
+  // Wrike returns customFields and parentIds in the default task payload. Its
+  // exact-task endpoint rejects customFields and superParentIds when they are
+  // explicitly requested, so ancestry is verified through exact parent-folder
+  // reads below instead of widening discovery to unrelated tasks.
+  taskUrl.searchParams.set("fields", JSON.stringify(["attachmentCount"]));
 
   let taskResponse: Response;
   try {
@@ -1649,7 +1730,14 @@ async function discoverApprovedWrikeTaskWithContext(
   const taskAttachmentCount = providerCount(task.attachmentCount);
   const contractNumber = resolveWrikeContractNumber(task, config.contract_number_custom_field_id);
   const artworkFolder = resolveWrikeArtworkFolderUrl(task, config.artwork_folder_custom_field_id);
-  const folderMatches = parentIds.includes(folderId) || superParentIds.includes(folderId);
+  const folderMatches = await taskBelongsToWrikeFolderScope(
+    task,
+    folderId,
+    host,
+    accessToken,
+    fetchImpl,
+    rotatedCredentials
+  );
   const taskIdentityMatch = taskIdentityMatches(
     task,
     config.order_task_identity_mode,
