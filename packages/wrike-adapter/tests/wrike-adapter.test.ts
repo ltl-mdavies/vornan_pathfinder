@@ -740,7 +740,7 @@ test("previews one qualified task and counts every matching workbook without ret
   assert.match(calls[1].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\?fields=/);
   assert.deepEqual(
     JSON.parse(new URL(calls[1].url).searchParams.get("fields") ?? "[]"),
-    ["attachmentCount"]
+    ["attachmentCount", "superParentIds"]
   );
   assert.match(calls[2].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\/attachments\?versions=false&withUrls=false$/);
   assert.equal(calls.some((call) => /download|preview|webhooks/.test(call.url)), false);
@@ -750,6 +750,91 @@ test("previews one qualified task and counts every matching workbook without ret
   assert.equal(publicPayload.includes("temporary.example"), false);
   assert.equal(publicPayload.includes("momentara.sharepoint.com"), false);
   assert.equal(publicPayload.includes("rotated-access-token"), false);
+});
+
+test("converts a saved numeric campaign folder and requests exact-task ancestry", async () => {
+  const calls: string[] = [];
+  const result = await discoverApprovedWrikeTask(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    normalizeWrikeSourceConfig({
+      folder_id: "34000804",
+      approved_discovery_task_id: "MAAAAAENlV9Z",
+      trigger_status_id: "IEAALTG3JMHQJJJE",
+      contract_number_custom_field_id: "IECONTRACT",
+      attachment_extensions: ["xlsx"]
+    }),
+    {
+      fetch_impl: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "rotated-access-token",
+              refresh_token: "rotated-refresh-token",
+              host: "app-us2.wrike.com"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.includes("/api/v4/ids?")) {
+          return new Response(
+            JSON.stringify({ data: [{ id: "IEAALTG3I4BANT5E", apiV2Id: "34000804" }] }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.includes("/attachments")) {
+          return new Response(JSON.stringify({
+            data: [
+              {
+                id: "IEATTACHMENT",
+                version: 1,
+                taskId: "MAAAAAENlV9Z",
+                name: "C3168700 - Synthetic - OOH Order.xlsx"
+              }
+            ]
+          }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "MAAAAAENlV9Z",
+                accountId: "IEACCOUNT",
+                parentIds: ["MQAAAAENlV9D"],
+                superParentIds: ["IEAALTG3I4BANT5E"],
+                customStatusId: "IEAALTG3JMHQJJJE",
+                attachmentCount: 1,
+                title: "Placard Order",
+                customFields: [{ id: "IECONTRACT", value: "C3168700" }]
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(result.preview.status, "Confirmed");
+  const converterUrl = new URL(calls[1]);
+  assert.equal(converterUrl.pathname, "/api/v4/ids");
+  assert.equal(converterUrl.searchParams.get("type"), "ApiV2Folder");
+  assert.deepEqual(JSON.parse(converterUrl.searchParams.get("ids") ?? "[]"), ["34000804"]);
+  const taskUrl = new URL(calls[2]);
+  assert.deepEqual(JSON.parse(taskUrl.searchParams.get("fields") ?? "[]"), [
+    "attachmentCount",
+    "superParentIds"
+  ]);
+  assert.deepEqual(result.preview.approved_scope.folder_id, "IEAALTG3I4BANT5E");
 });
 
 test("requalifies and downloads only current matching workbooks without forwarding OAuth", async () => {
