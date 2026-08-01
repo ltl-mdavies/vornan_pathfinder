@@ -850,6 +850,7 @@ test("converts a saved numeric campaign folder and requests exact-task ancestry"
 test("requalifies and downloads only current matching workbooks without forwarding OAuth", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const workbookBytes = new TextEncoder().encode("bounded-workbook");
+  const referenceProofBytes = new TextEncoder().encode("%PDF-1.7 bounded-reference-proof");
   const result = await fetchQualifiedWrikeWorkbookSources(
     {
       client_id: "client-id",
@@ -863,7 +864,11 @@ test("requalifies and downloads only current matching workbooks without forwardi
       trigger_status_id: "IEORDEREDSTATUS",
       contract_number_custom_field_id: "IECONTRACT",
       artwork_folder_custom_field_id: "IEARTWORKFOLDER",
-      attachment_extensions: ["xlsx"]
+      attachment_extensions: ["xlsx"],
+      reference_proof_intake: {
+        enabled: true,
+        filename_contains: "proof"
+      }
     }),
     {
       now: () => new Date("2026-07-23T12:00:00.000Z"),
@@ -884,10 +889,16 @@ test("requalifies and downloads only current matching workbooks without forwardi
         if (url.includes("/attachments?versions=false&withUrls=false")) {
           return new Response(
             JSON.stringify({
-              data: [{
-                id: "IEATTACHMENT",
-                name: "Momentara_3 product_DEMO.xlsx"
-              }]
+              data: [
+                {
+                  id: "IEATTACHMENT",
+                  name: "Momentara_3 product_DEMO.xlsx"
+                },
+                {
+                  id: "IEPROOF",
+                  name: "Momentara reference proof.pdf"
+                }
+              ]
             }),
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
@@ -895,13 +906,22 @@ test("requalifies and downloads only current matching workbooks without forwardi
         if (url.includes("/attachments?versions=false&withUrls=true")) {
           return new Response(
             JSON.stringify({
-              data: [{
-                id: "IEATTACHMENT",
-                currentAttachmentId: "IEVERSION1",
-                name: "Momentara_3 product_DEMO.xlsx",
-                updatedDate: "2026-07-23T11:45:00.000Z",
-                url: "https://files.example.test/signed/current"
-              }]
+              data: [
+                {
+                  id: "IEATTACHMENT",
+                  currentAttachmentId: "IEVERSION1",
+                  name: "Momentara_3 product_DEMO.xlsx",
+                  updatedDate: "2026-07-23T11:45:00.000Z",
+                  url: "https://files.example.test/signed/current"
+                },
+                {
+                  id: "IEPROOF",
+                  currentAttachmentId: "IEPROOFVERSION1",
+                  name: "Momentara reference proof.pdf",
+                  updatedDate: "2026-07-23T11:50:00.000Z",
+                  url: "https://files.example.test/signed/reference-proof"
+                }
+              ]
             }),
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
@@ -917,6 +937,17 @@ test("requalifies and downloads only current matching workbooks without forwardi
             }
           });
         }
+        if (url === "https://files.example.test/signed/reference-proof") {
+          assert.deepEqual(init?.headers, { Accept: "application/pdf" });
+          assert.equal(init?.redirect, "error");
+          return new Response(referenceProofBytes, {
+            status: 200,
+            headers: {
+              "Content-Type": "application/octet-stream; charset=binary",
+              "Content-Length": String(referenceProofBytes.byteLength)
+            }
+          });
+        }
         return new Response(
           JSON.stringify({
             data: [{
@@ -925,7 +956,7 @@ test("requalifies and downloads only current matching workbooks without forwardi
               parentIds: ["IEAPPROVEDFOLDER"],
               superParentIds: [],
               customStatusId: "IEORDEREDSTATUS",
-              attachmentCount: 1,
+              attachmentCount: 2,
               title: "Placard Order",
               customFields: [
                 { id: "IECONTRACT", value: "C3168700" },
@@ -943,17 +974,21 @@ test("requalifies and downloads only current matching workbooks without forwardi
   );
 
   assert.equal(result.workbooks.length, 1);
-  assert.equal(result.reference_proof, null);
+  assert.ok(result.reference_proof);
+  assert.equal(result.reference_proof.attachment_id, "IEPROOF");
+  assert.equal(result.reference_proof.version_id, "IEPROOFVERSION1");
+  assert.equal(result.reference_proof.content_type, "application/pdf");
+  assert.equal(new TextDecoder().decode(result.reference_proof.bytes), "%PDF-1.7 bounded-reference-proof");
   assert.equal(result.workbooks[0].version_id, "IEVERSION1");
   assert.equal(new TextDecoder().decode(result.workbooks[0].bytes), "bounded-workbook");
   assert.deepEqual(result.order_context, {
     contract_number: "C3168700",
     artwork_folder_url: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
   });
-  assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET", "GET", "GET"]);
+  assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET", "GET", "GET", "GET"]);
   assert.equal(
     calls
-      .filter((call) => call.url === "https://files.example.test/signed/current")
+      .filter((call) => call.url.startsWith("https://files.example.test/signed/"))
       .some((call) => JSON.stringify(call.init?.headers).includes("rotated-access-token")),
     false
   );
