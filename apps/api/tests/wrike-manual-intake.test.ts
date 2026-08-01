@@ -1,6 +1,34 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareWrikeManualIntake } from "../src/wrike-manual-intake.js";
+import {
+  prepareWrikeManualIntake,
+  wrikeManualIntakePreviewDiagnostic
+} from "../src/wrike-manual-intake.js";
+
+test("reports only bounded preview diagnostics without provider details", () => {
+  assert.deepEqual(
+    wrikeManualIntakePreviewDiagnostic(Object.assign(new Error("private provider detail"), {
+      name: "ValidationException",
+      code: "ValidationException",
+      statusCode: 400,
+      token: "must-not-escape"
+    })),
+    {
+      error_name: "ValidationException",
+      error_code: "ValidationException",
+      status_code: 400
+    }
+  );
+  assert.deepEqual(
+    wrikeManualIntakePreviewDiagnostic({
+      name: "private-provider-name",
+      code: "private-provider-code",
+      statusCode: 200,
+      message: "private provider detail"
+    }),
+    { error_name: "UnknownError", error_code: null, status_code: null }
+  );
+});
 
 test("prepares one preview per captured workbook and preserves replay semantics", async () => {
   const calls: string[] = [];
