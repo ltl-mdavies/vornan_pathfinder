@@ -1119,6 +1119,55 @@ async function readWrikeApiJson(
   }
 }
 
+async function resolveWrikeFolderId(
+  folderId: string,
+  host: string,
+  accessToken: string,
+  fetchImpl: typeof fetch,
+  rotatedCredentials: WrikeOAuthCredentials
+) {
+  if (!/^\d{1,32}$/.test(folderId)) {
+    return folderId;
+  }
+
+  const converterUrl = new URL(`https://${host}/api/v4/ids`);
+  converterUrl.searchParams.set("type", "ApiV2Folder");
+  converterUrl.searchParams.set("ids", JSON.stringify([folderId]));
+
+  let response: Response;
+  try {
+    response = await fetchImpl(converterUrl, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+    });
+  } catch {
+    throw new WrikeConnectionError(
+      "task_discovery_failed",
+      "Pathfinder could not resolve the configured Wrike campaign folder.",
+      rotatedCredentials
+    );
+  }
+
+  const payload = await readWrikeApiJson(
+    response,
+    "task_discovery_failed",
+    rotatedCredentials
+  );
+  const matches = (Array.isArray(payload.data) ? payload.data : [])
+    .map(asRecord)
+    .filter((record) => String(record.apiV2Id ?? "") === folderId)
+    .map((record) => providerIdentifier(record.id))
+    .filter(Boolean);
+  if (matches.length !== 1) {
+    throw new WrikeConnectionError(
+      "invalid_response",
+      "Wrike did not return one exact API folder ID for the configured campaign folder.",
+      rotatedCredentials
+    );
+  }
+  return matches[0];
+}
+
 function normalizeWrikeFieldTitle(value: unknown) {
   return typeof value === "string"
     ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")
@@ -1285,14 +1334,14 @@ export async function discoverScopedWrikeIntakeTasks(
 ): Promise<WrikeScopedIntakeDiscoveryResult> {
   const fetchImpl = options.fetch_impl ?? fetch;
   const now = options.now ?? (() => new Date());
-  const folderId = providerIdentifier(config.folder_id);
+  const configuredFolderId = providerIdentifier(config.folder_id);
   const triggerStatusId = providerIdentifier(config.trigger_status_id);
   const vendorFieldId = providerIdentifier(config.print_vendor_custom_field_id);
   const orderTaskTitle = config.order_task_title.trim();
   const orderTaskTypeId = providerIdentifier(config.order_task_custom_item_type_id);
   const vendorValue = config.required_print_vendor_value.trim();
   if (
-    !folderId ||
+    !configuredFolderId ||
     !triggerStatusId ||
     !vendorFieldId ||
     !vendorValue ||
@@ -1322,6 +1371,13 @@ export async function discoverScopedWrikeIntakeTasks(
   const rotatedCredentials = refreshed.credentials;
   const host = rotatedCredentials.host;
   const accessToken = rotatedCredentials.access_token ?? "";
+  const folderId = await resolveWrikeFolderId(
+    configuredFolderId,
+    host,
+    accessToken,
+    fetchImpl,
+    rotatedCredentials
+  );
   const maxPages = Math.max(1, Math.min(options.max_pages ?? 10, 10));
   const maxTasks = Math.max(1, Math.min(options.max_tasks ?? 1000, 1000));
   const taskRecords: Record<string, unknown>[] = [];
@@ -1536,10 +1592,10 @@ async function discoverApprovedWrikeTaskWithContext(
   order_context: WrikeQualifiedWorkbookSourceResult["order_context"];
 }> {
   const fetchImpl = options.fetch_impl ?? fetch;
-  const folderId = providerIdentifier(config.folder_id);
+  const configuredFolderId = providerIdentifier(config.folder_id);
   const taskId = providerIdentifier(config.approved_discovery_task_id);
   const triggerStatusId = providerIdentifier(config.trigger_status_id);
-  if (!folderId || !taskId || !triggerStatusId) {
+  if (!configuredFolderId || !taskId || !triggerStatusId) {
     throw new WrikeConnectionError(
       "invalid_configuration",
       "Save the Wrike folder, intake-ready status, and approved discovery task IDs before running discovery."
@@ -1550,10 +1606,17 @@ async function discoverApprovedWrikeTaskWithContext(
   const rotatedCredentials = refreshed.credentials;
   const host = rotatedCredentials.host;
   const accessToken = rotatedCredentials.access_token ?? "";
+  const folderId = await resolveWrikeFolderId(
+    configuredFolderId,
+    host,
+    accessToken,
+    fetchImpl,
+    rotatedCredentials
+  );
   const taskUrl = new URL(`https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}`);
   // Wrike returns customFields in the default task payload and rejects it when
   // explicitly requested through the fields parameter.
-  taskUrl.searchParams.set("fields", JSON.stringify(["attachmentCount"]));
+  taskUrl.searchParams.set("fields", JSON.stringify(["attachmentCount", "superParentIds"]));
 
   let taskResponse: Response;
   try {
