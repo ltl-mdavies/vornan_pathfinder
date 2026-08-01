@@ -340,6 +340,8 @@ type WrikeManualIntakePayload = {
     job_id?: string;
     job_state?: string;
     message?: string;
+    failure_stage?: "source_evidence" | "document_publication" | "preview_creation" | "unknown";
+    failure_code?: string;
   }>;
 };
 
@@ -10545,6 +10547,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                             : `${workbook.preview_status} preview`}
                                         </span>
                                         {workbook.message ? <small>{workbook.message}</small> : null}
+                                        {workbook.failure_stage && workbook.failure_code ? (
+                                          <small>
+                                            Stage: {workbook.failure_stage.replaceAll("_", " ")} · Code:{" "}
+                                            {workbook.failure_code.replaceAll("_", " ")}
+                                          </small>
+                                        ) : null}
                                       </article>
                                     ))}
                                   </div>

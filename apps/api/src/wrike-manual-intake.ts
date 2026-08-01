@@ -11,6 +11,33 @@ export interface WrikeManualIntakePreview {
   job_state: string;
 }
 
+export type WrikeManualIntakeFailureStage =
+  | "source_evidence"
+  | "document_publication"
+  | "preview_creation"
+  | "unknown";
+
+export type WrikeManualIntakeFailureCode =
+  | "invalid_evidence"
+  | "evidence_identity_conflict"
+  | "evidence_not_found"
+  | "evidence_storage_failed"
+  | "publication_disabled"
+  | "publication_configuration_invalid"
+  | "manifest_read_failed"
+  | "object_write_failed"
+  | "object_head_failed"
+  | "publication_identity_conflict"
+  | "delivery_preflight_failed"
+  | "manifest_write_failed"
+  | "preview_failed"
+  | "unknown";
+
+export interface WrikeManualIntakeFailure {
+  failure_stage: WrikeManualIntakeFailureStage;
+  failure_code: WrikeManualIntakeFailureCode;
+}
+
 export interface WrikeManualIntakeWorkbookResult {
   evidence_id: string;
   file_name: string;
@@ -20,6 +47,8 @@ export interface WrikeManualIntakeWorkbookResult {
   job_id?: string;
   job_state?: string;
   message?: string;
+  failure_stage?: WrikeManualIntakeFailureStage;
+  failure_code?: WrikeManualIntakeFailureCode;
 }
 
 export interface WrikeManualIntakeResult {
@@ -50,6 +79,7 @@ const blockedPreviewMessage =
 export async function prepareWrikeManualIntake<TRecord extends WrikeManualIntakeEvidenceRecord>(args: {
   captureEvidence: () => Promise<{ task_id: string; evidence: TRecord[] }>;
   createPreview: (record: TRecord) => Promise<WrikeManualIntakePreview>;
+  classifyPreviewError?: (error: unknown) => WrikeManualIntakeFailure;
   now?: () => Date;
 }): Promise<WrikeManualIntakeResult> {
   const captured = await args.captureEvidence();
@@ -67,14 +97,20 @@ export async function prepareWrikeManualIntake<TRecord extends WrikeManualIntake
         job_id: preview.job_id,
         job_state: preview.job_state
       });
-    } catch {
+    } catch (error) {
+      const failure = args.classifyPreviewError?.(error) ?? {
+        failure_stage: "unknown" as const,
+        failure_code: "unknown" as const
+      };
       workbooks.push({
         evidence_id: record.evidence_id,
         file_name: record.file_name,
         extension: record.extension,
         evidence_status: record.storage_status,
         preview_status: "Blocked",
-        message: blockedPreviewMessage
+        message: blockedPreviewMessage,
+        failure_stage: failure.failure_stage,
+        failure_code: failure.failure_code
       });
     }
   }

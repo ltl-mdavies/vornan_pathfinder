@@ -92,6 +92,10 @@ test("contains per-workbook failures and never returns provider error details", 
         }
       ]
     }),
+    classifyPreviewError: () => ({
+      failure_stage: "document_publication",
+      failure_code: "object_write_failed"
+    }),
     createPreview: async (record) => {
       if (record.evidence_id === "evidence-blocked") {
         throw new Error("provider-token-and-private-url-must-not-escape");
@@ -104,6 +108,8 @@ test("contains per-workbook failures and never returns provider error details", 
   assert.equal(result.summary.created_count, 1);
   assert.equal(result.summary.blocked_count, 1);
   assert.equal(result.workbooks[1]?.preview_status, "Blocked");
+  assert.equal(result.workbooks[1]?.failure_stage, "document_publication");
+  assert.equal(result.workbooks[1]?.failure_code, "object_write_failed");
   assert.match(result.workbooks[1]?.message ?? "", /Review its source evidence/);
   assert.doesNotMatch(JSON.stringify(result), /provider-token|private-url/);
 });

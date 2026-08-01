@@ -100,9 +100,13 @@ import {
 } from "./wrike-source-evidence.js";
 import {
   getWrikeLiftDocumentPublicationConfig,
-  publishWrikeLiftSourceDocument
+  publishWrikeLiftSourceDocument,
+  WrikeLiftDocumentPublicationError
 } from "./wrike-lift-document-publication.js";
-import { prepareWrikeManualIntake } from "./wrike-manual-intake.js";
+import {
+  prepareWrikeManualIntake,
+  type WrikeManualIntakeFailure
+} from "./wrike-manual-intake.js";
 import {
   authorizeWrikeOrderRehearsal,
   getWrikeOrderRehearsalConfig,
@@ -4093,6 +4097,41 @@ function wrikeEvidenceCaptureErrorMessage(error: unknown) {
     : "Wrike workbook evidence capture failed.";
 }
 
+function classifyWrikeManualIntakePreviewError(error: unknown): WrikeManualIntakeFailure {
+  if (error instanceof WrikeLiftDocumentPublicationError) {
+    const failureCode = {
+      disabled: "publication_disabled",
+      invalid_configuration: "publication_configuration_invalid",
+      manifest_read_failed: "manifest_read_failed",
+      object_write_failed: "object_write_failed",
+      object_head_failed: "object_head_failed",
+      identity_conflict: "publication_identity_conflict",
+      delivery_preflight_failed: "delivery_preflight_failed",
+      manifest_write_failed: "manifest_write_failed"
+    } as const;
+    return {
+      failure_stage: "document_publication",
+      failure_code: failureCode[error.code]
+    };
+  }
+  if (error instanceof WrikeSourceEvidenceError) {
+    const failureCode = {
+      invalid_evidence: "invalid_evidence",
+      identity_conflict: "evidence_identity_conflict",
+      not_found: "evidence_not_found",
+      storage_failed: "evidence_storage_failed"
+    } as const;
+    return {
+      failure_stage: "source_evidence",
+      failure_code: failureCode[error.code]
+    };
+  }
+  return {
+    failure_stage: "preview_creation",
+    failure_code: "preview_failed"
+  };
+}
+
 function wrikeLiftSourceEvidenceBinding(
   record: WrikeWorkbookEvidenceRecord
 ): WrikeLiftSourceEvidenceBinding {
@@ -4486,6 +4525,7 @@ app.post(
         | undefined;
       let referenceProofEvidence: WrikeWorkbookEvidenceRecord | null = null;
       const result = await prepareWrikeManualIntake({
+        classifyPreviewError: classifyWrikeManualIntakePreviewError,
         captureEvidence: async () => {
           const captured = await captureWrikeWorkbookEvidenceForMethod(
             req.params.liftCustomerId,
