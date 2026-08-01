@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const MAX_REHEARSAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
@@ -11,14 +13,56 @@ export type WrikeOrderRehearsalConfig = {
   expires_at: string | null;
 };
 
+export type WrikeOrderRehearsalBindingDiagnostic = {
+  binding: "task_id";
+  expected_fingerprint: string;
+  received_fingerprint: string;
+  expected_length: number;
+  received_length: number;
+  received_type: "string" | "missing" | "other";
+};
+
 export class WrikeOrderRehearsalError extends Error {
   constructor(
     readonly statusCode: number,
-    message: string
+    message: string,
+    readonly bindingDiagnostic: WrikeOrderRehearsalBindingDiagnostic | null = null
   ) {
     super(message);
     this.name = "WrikeOrderRehearsalError";
   }
+}
+
+function requestIdentifier(value: unknown) {
+  return typeof value === "string" ? optionalIdentifier(value) : null;
+}
+
+function bindingFingerprint(value: string | null) {
+  return createHash("sha256")
+    .update("pathfinder:wrike-rehearsal-binding:v1\0", "utf8")
+    .update(value ?? "<missing>", "utf8")
+    .digest("hex")
+    .slice(0, 16);
+}
+
+function taskBindingDiagnostic(
+  expected: string,
+  received: unknown,
+  normalizedReceived: string | null
+): WrikeOrderRehearsalBindingDiagnostic {
+  return {
+    binding: "task_id",
+    expected_fingerprint: bindingFingerprint(expected),
+    received_fingerprint: bindingFingerprint(normalizedReceived),
+    expected_length: expected.length,
+    received_length: typeof received === "string" ? received.trim().length : 0,
+    received_type:
+      received === undefined || received === null
+        ? "missing"
+        : typeof received === "string"
+          ? "string"
+          : "other"
+  };
 }
 
 function optionalIdentifier(value: string | undefined) {
@@ -109,10 +153,12 @@ export function authorizeWrikeOrderRehearsal(args: {
       "This customer and Import Method are outside the approved Wrike rehearsal scope."
     );
   }
-  if (args.task_id !== args.config.task_id) {
+  const normalizedTaskId = requestIdentifier(args.task_id);
+  if (normalizedTaskId !== args.config.task_id) {
     throw new WrikeOrderRehearsalError(
       403,
-      "This Wrike task is outside the approved rehearsal scope."
+      "This Wrike task is outside the approved rehearsal scope.",
+      taskBindingDiagnostic(args.config.task_id, args.task_id, normalizedTaskId)
     );
   }
   if (
