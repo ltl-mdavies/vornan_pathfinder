@@ -943,7 +943,7 @@ test("requalifies and downloads only current matching workbooks without forwardi
           return new Response(referenceProofBytes, {
             status: 200,
             headers: {
-              "Content-Type": "application/octet-stream; charset=binary",
+              "Content-Type": "application/vnd.wrike.attachment; charset=binary",
               "Content-Length": String(referenceProofBytes.byteLength)
             }
           });
