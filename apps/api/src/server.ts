@@ -131,6 +131,7 @@ import {
   getOrCreateWorkspace,
   findCustomerSourceConnection,
   findCustomerSourceConnectionById,
+  finalizeReservedSubmitAttempt,
   getTarget,
   listProductMappings,
   listCatalogPresets,
@@ -151,6 +152,7 @@ import {
   persistPreviewJob,
   persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
+  reserveSubmitAttempt,
   previewProductMappingReplacement,
   ProductMappingReplacementConflictError,
   ProductMappingReplacementValidationError,
@@ -197,6 +199,15 @@ import {
   type TargetConfig,
   type TargetEnvironment
 } from "./store.js";
+import {
+  assertReviewedSubmitIntegrity,
+  buildSubmitIdempotencyKey,
+  buildSubmitIntegritySnapshot,
+  classifySubmitAttemptState,
+  preflightWrikeSubmitDocuments,
+  submitAttemptId,
+  SubmitIntegrityError
+} from "./submit-integrity.js";
 import { getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 import {
   buildPublicIntakeVerificationEmail,
@@ -2419,11 +2430,17 @@ async function refreshJobSubmitCertification(customer: LiftCustomer, job: Proces
     route: outputRoute,
     environment: routeEnvironment
   });
+  const submitIntegrity = buildSubmitIntegritySnapshot({
+    payload: job.lift_payload,
+    submit_request_masked: submitRequestMasked,
+    source_document_publications: job.source_document_publications
+  });
 
   return persistJobSnapshot(customer, {
     ...job,
     lift_validation: [...liftPayloadValidation, ...submitValidation],
     submit_certification: certification,
+    submit_integrity: submitIntegrity,
     submit_request_masked: submitRequestMasked
   });
 }
@@ -2621,7 +2638,7 @@ function buildSubmitCertification(args: {
   const canonicalFailures = args.canonicalValidation.filter((message) => message.severity === "FAIL");
   const liftFailures = args.liftValidation.filter((message) => message.severity === "FAIL");
   const submitFailures = args.submitValidation.filter((message) => message.severity === "FAIL");
-  const previewStateCanSubmit = args.state === "Ready" || args.state === "Submit Failed";
+  const previewStateCanSubmit = args.state === "Ready";
   const placeholderCredentialWarnings = args.submitValidation.filter((message) =>
     ["SUBMIT-USER", "SUBMIT-PASSWORD"].includes(message.code)
   );
@@ -2632,10 +2649,10 @@ function buildSubmitCertification(args: {
       "Preview state",
       previewStateCanSubmit,
       `Preview is ${args.state}, not Ready.`,
-      args.state === "Submit Failed"
-        ? "The persisted preview remains eligible for an intentional retry."
-        : "Preview job is Ready.",
-      "Resolve blocking preview validation or product mapping issues.",
+      "Preview job is Ready.",
+      args.state === "Submit Failed" || args.state === "Submitted"
+        ? "Reconcile the existing submit attempt before generating and reviewing a new preview."
+        : "Resolve blocking preview validation or product mapping issues.",
       args.unresolvedProducts.length ? "product-map" : "manual-import"
     ),
     certificationItem(
@@ -2804,19 +2821,6 @@ function buildSubmitCertification(args: {
   };
 }
 
-function submitIdempotencyKey(job: ProcessingJobPreview, requestedKey?: string) {
-  if (requestedKey?.trim()) {
-    return requestedKey.trim();
-  }
-  return [
-    job.job_id,
-    job.output_route_id,
-    job.submit_profile_id,
-    job.submit_request_masked.headers.Ext_ID,
-    job.submit_request_masked.headers.Company
-  ].join(":");
-}
-
 function createSubmitAttempt(args: {
   job: ProcessingJobPreview;
   idempotencyKey: string;
@@ -2826,6 +2830,9 @@ function createSubmitAttempt(args: {
   certification?: SubmitCertification;
   response?: SubmitAttempt["response"];
   submitRequestMasked?: ProcessingJobPreview["submit_request_masked"];
+  attemptId?: string;
+  requestFingerprint?: string;
+  documentPreflight?: SubmitAttempt["document_preflight"];
 }): SubmitAttempt {
   const timestamp = new Date().toISOString();
   const certification =
@@ -2841,7 +2848,9 @@ function createSubmitAttempt(args: {
     } satisfies SubmitCertification);
 
   return {
-    attempt_id: `submit_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`,
+    attempt_id:
+      args.attemptId ??
+      `submit_${timestamp.replace(/[-:.TZ]/g, "").slice(0, 14)}_${Math.random().toString(36).slice(2, 8)}`,
     idempotency_key: args.idempotencyKey,
     customer_id: args.job.customer_id,
     customer_name: args.job.customer_name,
@@ -2855,6 +2864,8 @@ function createSubmitAttempt(args: {
     state: args.state,
     transport_mode: liftSubmitTransportMode,
     external_submit_enabled: externalLiftSubmitEnabled,
+    request_fingerprint: args.requestFingerprint,
+    document_preflight: args.documentPreflight,
     endpoint_url: (args.submitRequestMasked ?? args.job.submit_request_masked).endpoint_url,
     ext_id: (args.submitRequestMasked ?? args.job.submit_request_masked).headers.Ext_ID,
     company_id: (args.submitRequestMasked ?? args.job.submit_request_masked).headers.Company,
@@ -5736,6 +5747,12 @@ async function createPreviewJobForRequest(
     const unmaskedSubmitRequest = buildLiftSubmitRequest(liftPayload, routeLiftConfig);
     const submitValidation = validateSubmitReadiness(unmaskedSubmitRequest, liftPayload, submitProfile, outputRoute);
     const submitRequest = maskLiftSubmitRequest(unmaskedSubmitRequest);
+    const submitIntegrity = buildSubmitIntegritySnapshot({
+      payload: liftPayload,
+      submit_request_masked: submitRequest,
+      source_document_publications: options?.sourceDocumentPublications,
+      reviewed_at: timestamp
+    });
     const allMessages = [...canonicalValidation, ...liftValidation, ...submitValidation];
     const jobState: ProcessingJobPreview["state"] = unresolvedProducts.length
       ? "Needs Mapping"
@@ -5789,6 +5806,7 @@ async function createPreviewJobForRequest(
       lift_payload: liftPayload,
       lift_validation: [...liftValidation, ...submitValidation],
       submit_certification: submitCertification,
+      submit_integrity: submitIntegrity,
       submit_request_masked: submitRequest,
       created_at: timestamp,
       updated_at: timestamp,
@@ -6210,16 +6228,10 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
       return;
     }
 
-    const idempotencyKey = submitIdempotencyKey(job, req.header("Idempotency-Key") ?? req.body?.idempotency_key);
-    const existingAttempt = await getSubmitAttemptByIdempotencyKey(customer, idempotencyKey);
-    if (existingAttempt) {
-      res.status(200).json({
-        attempt: existingAttempt,
-        reused: true,
-        message: "Existing submit attempt returned for idempotency key."
-      });
-      return;
-    }
+    const reviewedFingerprint =
+      typeof req.body?.reviewed_submit_fingerprint === "string"
+        ? req.body.reviewed_submit_fingerprint.trim().toLowerCase()
+        : "";
 
     const workspace = await getOrCreateWorkspace(customer);
     const outputRoute = workspace.output_routes.find((route) => route.output_route_id === job.output_route_id);
@@ -6229,7 +6241,7 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
         customer,
         createSubmitAttempt({
           job,
-          idempotencyKey,
+          idempotencyKey: `blocked:${job.job_id}:missing-route:${Date.now()}`,
           state: "Blocked",
           blockingItems: [],
           message: "Preview job output route could not be found."
@@ -6249,7 +6261,7 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
         customer,
         createSubmitAttempt({
           job,
-          idempotencyKey,
+          idempotencyKey: `blocked:${job.job_id}:missing-target:${Date.now()}`,
           state: "Blocked",
           blockingItems: [],
           message: "Preview job target could not be found."
@@ -6267,6 +6279,37 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
     const routeEnvironment = routeEnvironmentForTarget(target, outputRoute);
     const unmaskedSubmitRequest = buildLiftSubmitRequest(job.lift_payload, liftConfigForRoute(target, outputRoute));
     const submitRequestMasked = maskLiftSubmitRequest(unmaskedSubmitRequest);
+    let submitIntegrity;
+    try {
+      submitIntegrity = assertReviewedSubmitIntegrity({
+        job,
+        reviewed_fingerprint: reviewedFingerprint,
+        current_submit_request_masked: submitRequestMasked
+      });
+    } catch (error) {
+      if (error instanceof SubmitIntegrityError) {
+        res.status(409).json({ error: error.message, code: error.code });
+        return;
+      }
+      throw error;
+    }
+    const idempotencyKey = buildSubmitIdempotencyKey(job, submitIntegrity.fingerprint);
+    const existingAttempt = await getSubmitAttemptByIdempotencyKey(customer, idempotencyKey);
+    if (
+      existingAttempt &&
+      existingAttempt.state !== "Blocked" &&
+      existingAttempt.state !== "Gate Locked"
+    ) {
+      res.status(200).json({
+        attempt: existingAttempt,
+        reused: true,
+        message:
+          existingAttempt.state === "Submission Uncertain"
+            ? "The exact submit attempt is uncertain and will not be sent again until reconciled."
+            : "Existing submit attempt returned for the reviewed payload."
+      });
+      return;
+    }
     const submitValidation = validateSubmitReadiness(unmaskedSubmitRequest, job.lift_payload, submitProfile, outputRoute);
     const certification = buildSubmitCertification({
       state: job.state,
@@ -6351,28 +6394,59 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
       return;
     }
 
+    let documentPreflight: SubmitAttempt["document_preflight"];
+    try {
+      documentPreflight = await preflightWrikeSubmitDocuments({
+        job,
+        publication_enabled: wrikeLiftDocumentPublicationConfig.enabled,
+        delivery_bucket_name: wrikeLiftDocumentPublicationConfig.bucket_name
+      });
+    } catch (error) {
+      if (error instanceof SubmitIntegrityError) {
+        res.status(409).json({ error: error.message, code: error.code, certification });
+        return;
+      }
+      throw error;
+    }
+
+    const reservedAttempt = createSubmitAttempt({
+      job,
+      idempotencyKey,
+      attemptId: submitAttemptId(job.customer_id, idempotencyKey),
+      requestFingerprint: submitIntegrity.fingerprint,
+      documentPreflight,
+      state: "Submission Uncertain",
+      blockingItems: [],
+      certification,
+      submitRequestMasked,
+      message: "Submit intent reserved before the external Lift request."
+    });
+    const reservation = await reserveSubmitAttempt(customer, reservedAttempt);
+    if (!reservation.created) {
+      res.status(200).json({
+        attempt: reservation.attempt,
+        reused: true,
+        message:
+          reservation.attempt.state === "Submission Uncertain"
+            ? "The exact submit attempt is uncertain and will not be sent again until reconciled."
+            : "Existing submit attempt returned for the reviewed payload."
+      });
+      return;
+    }
+
     const transportResult = await submitLiftOrder(unmaskedSubmitRequest, {
       mode: liftSubmitTransportMode,
       mockScenario: liftMockScenario
     });
-    const attemptState: SubmitAttemptStatus =
-      transportResult.status === "accepted"
-        ? "Submitted"
-        : transportResult.status === "not_sent"
-          ? "Dry Run"
-          : "Failed";
-    const attempt = await persistSubmitAttempt(
+    const attemptState: SubmitAttemptStatus = classifySubmitAttemptState(transportResult);
+    const attempt = await finalizeReservedSubmitAttempt(
       customer,
-      createSubmitAttempt({
-        job,
-        idempotencyKey,
+      {
+        ...reservation.attempt,
         state: attemptState,
-        blockingItems: [],
-        certification,
-        message: transportResult.message,
         response: transportResult,
-        submitRequestMasked
-      })
+        updated_at: new Date().toISOString()
+      }
     );
     let submittedJob = await getJob(customer, job.job_id);
 
