@@ -38,28 +38,18 @@ export interface WrikeManualIntakeFailure {
   failure_code: WrikeManualIntakeFailureCode;
 }
 
-const safePreviewDiagnosticTokens = new Set([
-  "Error",
-  "TypeError",
-  "ValidationException",
-  "TransactionCanceledException",
-  "ConditionalCheckFailedException",
-  "ResourceNotFoundException",
-  "AccessDeniedException",
-  "SerializationException",
-  "PayloadTooLargeException"
-]);
+function safePreviewDiagnosticToken(value: unknown) {
+  return typeof value === "string" && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(value)
+    ? value
+    : null;
+}
 
 export function wrikeManualIntakePreviewDiagnostic(error: unknown) {
   const candidate = error && typeof error === "object"
     ? error as { name?: unknown; code?: unknown; statusCode?: unknown }
     : {};
-  const name = typeof candidate.name === "string" && safePreviewDiagnosticTokens.has(candidate.name)
-    ? candidate.name
-    : "UnknownError";
-  const code = typeof candidate.code === "string" && safePreviewDiagnosticTokens.has(candidate.code)
-    ? candidate.code
-    : null;
+  const name = safePreviewDiagnosticToken(candidate.name) ?? "UnknownError";
+  const code = safePreviewDiagnosticToken(candidate.code);
   const statusCode =
     typeof candidate.statusCode === "number" &&
     Number.isInteger(candidate.statusCode) &&
