@@ -1367,6 +1367,21 @@ function safeAttachmentUpdatedAt(attachment: Record<string, unknown>) {
   return Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
 }
 
+function effectiveAttachmentVersionId(attachment: Record<string, unknown>) {
+  const attachmentId = providerIdentifier(attachment.id);
+  const providerVersionId = providerIdentifier(
+    attachment.currentAttachmentId ?? attachment.versionId
+  );
+  if (!attachmentId) {
+    return "";
+  }
+  if (providerVersionId && providerVersionId !== attachmentId) {
+    return providerVersionId;
+  }
+  const updatedAt = safeAttachmentUpdatedAt(attachment);
+  return updatedAt ? `${attachmentId}:${updatedAt}` : "";
+}
+
 function shippingAttachmentMetadata(
   attachment: Record<string, unknown>,
   config: WrikeShippingIntakeConfig
@@ -1381,9 +1396,7 @@ function shippingAttachmentMetadata(
     return null;
   }
   const attachmentId = providerIdentifier(attachment.id);
-  const versionId = providerIdentifier(
-    attachment.currentAttachmentId ?? attachment.versionId ?? attachment.id
-  );
+  const versionId = effectiveAttachmentVersionId(attachment);
   if (!attachmentId || !versionId) {
     return null;
   }
@@ -2007,6 +2020,16 @@ function workbookContentTypeAllowed(extension: WrikeWorkbookExtension, value: st
   return contentType === "text/csv" || contentType === "application/csv" || contentType === "text/plain";
 }
 
+function canonicalWorkbookContentType(extension: WrikeWorkbookExtension) {
+  if (extension === "xlsx") {
+    return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  }
+  if (extension === "xls") {
+    return "application/vnd.ms-excel";
+  }
+  return "text/csv";
+}
+
 async function readBoundedResponseBytes(response: Response, maxBytes: number) {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
@@ -2103,14 +2126,9 @@ export async function fetchQualifiedWrikeWorkbookSources(
     .map(asRecord)
     .map((attachment): WrikeAttachmentCandidate => ({
       attachment_id: providerIdentifier(attachment.id),
-      version_id: providerIdentifier(attachment.currentAttachmentId ?? attachment.versionId ?? attachment.id),
+      version_id: effectiveAttachmentVersionId(attachment),
       file_name: typeof attachment.name === "string" ? attachment.name.trim() : "",
-      updated_at:
-        typeof attachment.updatedDate === "string"
-          ? attachment.updatedDate
-          : typeof attachment.createdDate === "string"
-            ? attachment.createdDate
-            : discovery.preview.checked_at,
+      updated_at: safeAttachmentUpdatedAt(attachment) ?? "",
       download_url:
         typeof attachment.url === "string"
           ? attachment.url
@@ -2206,9 +2224,7 @@ export async function fetchQualifiedWrikeWorkbookSources(
       file_name: candidate.file_name,
       extension,
       updated_at: new Date(candidate.updated_at).toISOString(),
-      content_type:
-        response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ||
-        (extension === "csv" ? "text/csv" : "application/octet-stream"),
+      content_type: canonicalWorkbookContentType(extension),
       byte_size: bytes.byteLength,
       bytes
     });

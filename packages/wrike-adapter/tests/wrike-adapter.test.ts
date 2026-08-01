@@ -909,7 +909,7 @@ test("requalifies and downloads only current matching workbooks without forwardi
               data: [
                 {
                   id: "IEATTACHMENT",
-                  currentAttachmentId: "IEVERSION1",
+                  currentAttachmentId: "IEATTACHMENT",
                   name: "Momentara_3 product_DEMO.xlsx",
                   updatedDate: "2026-07-23T11:45:00.000Z",
                   url: "https://files.example.test/signed/current"
@@ -932,7 +932,7 @@ test("requalifies and downloads only current matching workbooks without forwardi
           return new Response(workbookBytes, {
             status: 200,
             headers: {
-              "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "Content-Type": "application/octet-stream",
               "Content-Length": String(workbookBytes.byteLength)
             }
           });
@@ -979,7 +979,11 @@ test("requalifies and downloads only current matching workbooks without forwardi
   assert.equal(result.reference_proof.version_id, "IEPROOFVERSION1");
   assert.equal(result.reference_proof.content_type, "application/pdf");
   assert.equal(new TextDecoder().decode(result.reference_proof.bytes), "%PDF-1.7 bounded-reference-proof");
-  assert.equal(result.workbooks[0].version_id, "IEVERSION1");
+  assert.equal(result.workbooks[0].version_id, "IEATTACHMENT:2026-07-23T11:45:00.000Z");
+  assert.equal(
+    result.workbooks[0].content_type,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  );
   assert.equal(new TextDecoder().decode(result.workbooks[0].bytes), "bounded-workbook");
   assert.deepEqual(result.order_context, {
     contract_number: "C3168700",

@@ -48,7 +48,8 @@ interface LocalEvidenceEnvelope {
 export class WrikeSourceEvidenceError extends Error {
   constructor(
     public readonly code: "invalid_evidence" | "identity_conflict" | "not_found" | "storage_failed",
-    message: string
+    message: string,
+    public readonly conflict_fields: readonly string[] = []
   ) {
     super(message);
     this.name = "WrikeSourceEvidenceError";
@@ -156,10 +157,12 @@ function replayOrConflict(
     "sha256",
     "wrike_updated_at"
   ] as const;
-  if (immutableFields.some((field) => existing[field] !== next[field])) {
+  const conflictFields = immutableFields.filter((field) => existing[field] !== next[field]);
+  if (conflictFields.length) {
     throw new WrikeSourceEvidenceError(
       "identity_conflict",
-      "The same Wrike attachment version returned different evidence; operator review is required."
+      `The same Wrike attachment version returned different evidence; operator review is required (changed fields: ${conflictFields.join(", ")}).`,
+      conflictFields
     );
   }
   return { ...existing, storage_status: "Replayed" };

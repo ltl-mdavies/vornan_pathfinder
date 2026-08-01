@@ -303,11 +303,18 @@ test("fails closed when one Wrike attachment version returns different bytes", a
       now: new Date("2026-07-23T12:30:00.000Z")
     };
     await persistWrikeWorkbookEvidence({ ...base, workbook: workbook("first") });
+    let changedBytesError: WrikeSourceEvidenceError | null = null;
     await assert.rejects(
       persistWrikeWorkbookEvidence({ ...base, workbook: workbook("changed") }),
-      (error: unknown) =>
-        error instanceof WrikeSourceEvidenceError && error.code === "identity_conflict"
+      (error: unknown) => {
+        if (error instanceof WrikeSourceEvidenceError) {
+          changedBytesError = error;
+        }
+        return error instanceof WrikeSourceEvidenceError && error.code === "identity_conflict";
+      }
     );
+    assert.deepEqual(changedBytesError?.conflict_fields, ["byte_size", "sha256"]);
+    assert.match(changedBytesError?.message ?? "", /changed fields: byte_size, sha256/);
     await assert.rejects(
       persistWrikeWorkbookEvidence({
         ...base,
