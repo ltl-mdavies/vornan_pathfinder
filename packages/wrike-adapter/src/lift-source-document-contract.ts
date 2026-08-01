@@ -67,7 +67,7 @@ function sha256(value: string, label: string) {
 
 function objectVersionId(value: string) {
   const clean = value.trim();
-  if (!/^[A-Za-z0-9+/=_-]{1,1024}$/.test(clean)) {
+  if (!/^[A-Za-z0-9.+/=_-]{1,1024}$/.test(clean)) {
     throw new WrikeLiftDocumentContractError("Published object version ID is invalid.");
   }
   return clean;
@@ -158,7 +158,7 @@ function validatePublication(
     !Number.isFinite(checkedAt.getTime()) ||
     !Number.isFinite(publishedAt.getTime()) ||
     !Number.isFinite(expiresAt.getTime()) ||
-    checkedAt.getTime() < publishedAt.getTime() ||
+    checkedAt.getTime() + 1_000 < publishedAt.getTime() ||
     expiresAt.getTime() <= checkedAt.getTime() ||
     publication.published_byte_size !== evidence.byte_size ||
     publication.preflight.content_length !== evidence.byte_size
