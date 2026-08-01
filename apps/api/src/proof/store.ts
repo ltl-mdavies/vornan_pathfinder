@@ -31,6 +31,7 @@ export interface LocalProofStore {
   feedback_acknowledgements: Record<string, ProofFeedbackAcknowledgement>;
   decision_records: Record<string, ProofDecisionLedgerRecord>;
   operator_action_records: Record<string, unknown>;
+  asset_upload_records: Record<string, unknown>;
   audit_events: Record<string, ProofAuditEvent>;
 }
 
@@ -122,6 +123,7 @@ export async function readLocalProofStore(): Promise<LocalProofStore> {
       feedback_acknowledgements: collection<ProofFeedbackAcknowledgement>("feedback_acknowledgements"),
       decision_records: collection<ProofDecisionLedgerRecord>("decision_records"),
       operator_action_records: collection<unknown>("operator_action_records"),
+      asset_upload_records: collection<unknown>("asset_upload_records"),
       audit_events: collection<ProofAuditEvent>("audit_events")
     };
   } catch (error) {
@@ -134,6 +136,7 @@ export async function readLocalProofStore(): Promise<LocalProofStore> {
         feedback_acknowledgements: {},
         decision_records: {},
         operator_action_records: {},
+        asset_upload_records: {},
         audit_events: {}
       };
     }

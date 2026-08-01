@@ -151,6 +151,21 @@ Resources:
       OwnershipControls:
         Rules:
           - ObjectOwnership: BucketOwnerEnforced
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - POST
+            AllowedOrigins:
+              - https://pathfinder.vornan.co
+              - http://127.0.0.1:5183
+              - http://localhost:5183
+            ExposedHeaders:
+              - ETag
+              - x-amz-version-id
+              - x-amz-checksum-sha256
+            MaxAge: 600
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true

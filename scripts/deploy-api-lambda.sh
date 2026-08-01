@@ -77,7 +77,12 @@ aws cloudformation deploy \
     ProofPublicBaseUrl="${PATHFINDER_PROOF_PUBLIC_BASE_URL:-https://proof.vornan.co}" \
     ProofOperatorActionQaEnabled="${PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA:-false}" \
     ProofOperatorActionAllowedOrders="${PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS:-}" \
-    ProofOperatorActionExpiresAt="${PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT:-}"
+    ProofOperatorActionExpiresAt="${PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT:-}" \
+    ProofAssetUploadEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD:-false}" \
+    ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \
+    ProofAssetUploadExpiresAt="${PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT:-}" \
+    ProofAssetBucketName="${PATHFINDER_PROOF_ASSET_BUCKET:-}" \
+    ProofAssetBucketArn="${PATHFINDER_PROOF_ASSET_BUCKET_ARN:-}"
 
 echo "Stack outputs:"
 aws cloudformation describe-stacks \

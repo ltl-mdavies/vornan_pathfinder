@@ -22,6 +22,13 @@ import {
   ProofOperatorActionError,
   type ProofOperatorActionRequest
 } from "./operator-action-service.js";
+import {
+  createProofAssetUploadService,
+  ProofAssetUploadServiceError,
+  type ProofAssetUploadFinalizeRequest,
+  type ProofAssetUploadPrepareRequest
+} from "./asset-upload-service.js";
+import { getProofAssetUploadRuntimeConfig } from "./asset-upload-config.js";
 
 function operatorAuditContext(req: Request, res: Response): ProofAuditContext {
   const authUser = res.locals.authUser as { uid?: unknown } | undefined;
@@ -67,6 +74,14 @@ function errorStatus(error: unknown) {
     if (error.code === "disabled") return 503;
     return 400;
   }
+  if (error instanceof ProofAssetUploadServiceError) {
+    if (error.code === "unauthenticated") return 401;
+    if (error.code === "not_allowed") return 403;
+    if (error.code === "conflict" || error.code === "stale") return 409;
+    if (error.code === "disabled") return 503;
+    if (error.code === "storage_failed") return 502;
+    return 400;
+  }
   if (error instanceof Error && error.message === "Proof audit cursor is invalid.") {
     return 400;
   }
@@ -79,6 +94,7 @@ export interface ProofAdminRouterDependencies {
   createGrant?: typeof createProofGrant;
   orderIsStale?: typeof proofOrderIsStale;
   operatorActionService?: ReturnType<typeof createProofOperatorActionService>;
+  assetUploadService?: ReturnType<typeof createProofAssetUploadService>;
 }
 
 export function createProofAdminRouter(dependencies: ProofAdminRouterDependencies = {}) {
@@ -89,11 +105,14 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
   const orderIsStale = dependencies.orderIsStale ?? proofOrderIsStale;
   const operatorActionService =
     dependencies.operatorActionService ?? createProofOperatorActionService();
+  const assetUploadService =
+    dependencies.assetUploadService ?? createProofAssetUploadService();
 
   router.get("/health/lift", (_req, res) => {
     assertLiftProofWritesDisabled();
     const config = getProofRuntimeConfig();
     const operatorActionQa = getProofOperatorActionQaConfig();
+    const assetUpload = getProofAssetUploadRuntimeConfig();
     res.json({
       phase: config.phase,
       storage_driver: config.storage_driver,
@@ -132,6 +151,16 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         target_id: "lift-standard-graphics",
         environment_id: "env-lift-prod",
         automatic_retry: false
+      },
+      revised_art_upload: {
+        enabled: assetUpload.enabled,
+        bucket_configured: Boolean(assetUpload.bucket_name),
+        allowed_order_numbers: assetUpload.allowed_order_numbers,
+        activation_expires_at: assetUpload.activation_expires_at,
+        maximum_bytes: assetUpload.maximum_bytes,
+        scan_enabled: false,
+        publication_enabled: false,
+        lift_resolution_enabled: false
       }
     });
   });
@@ -175,6 +204,46 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
     } catch (error) {
       res.status(errorStatus(error)).json({
         error: error instanceof Error ? error.message : "Proof action could not be executed."
+      });
+    }
+  });
+
+  router.post("/operator-assets/uploads/prepare", async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    try {
+      assertLiftProofWritesDisabled();
+      const result = await assetUploadService.prepare({
+        request: req.body as ProofAssetUploadPrepareRequest,
+        operator_uid: operatorUid(res),
+        correlation_id: req.header("x-request-id") ?? `asset-prepare-${Date.now()}`
+      });
+      res.status(result.status === "new" ? 201 : 200).json(result);
+    } catch (error) {
+      res.status(errorStatus(error)).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Proof revised-art upload could not be prepared."
+      });
+    }
+  });
+
+  router.post("/operator-assets/uploads/finalize", async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    try {
+      assertLiftProofWritesDisabled();
+      const result = await assetUploadService.finalize({
+        request: req.body as ProofAssetUploadFinalizeRequest,
+        operator_uid: operatorUid(res),
+        correlation_id: req.header("x-request-id") ?? `asset-finalize-${Date.now()}`
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(errorStatus(error)).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Proof revised-art upload could not be finalized."
       });
     }
   });

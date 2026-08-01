@@ -226,3 +226,32 @@ test("operator-only Proof action QA remains independently dark and narrowly scop
   assert.match(template, /PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"/);
   assert.doesNotMatch(template, /PATHFINDER_PROOF_ENABLE_(APPROVE|REVISION|UNDO): "true"/);
 });
+
+test("operator revised-art upload stays independently dark and exact-bucket scoped", () => {
+  assert.match(template, /ProofAssetUploadEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /ProofAssetUploadAllowedOrders:[\s\S]*?Default: ""/);
+  assert.match(
+    template,
+    /ProofAssetUploadExpiresAt:[\s\S]*?Default: ""[\s\S]*?AllowedPattern: "\^\$\|\^\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}T/
+  );
+  assert.match(
+    template,
+    /ProofAssetUploadRequiresDurableIsolation:\n\s+RuleCondition: !Equals \[!Ref ProofAssetUploadEnabled, "true"\][\s\S]*?!Ref ProofCoreTableName[\s\S]*?!Ref ProofAuditTableArn[\s\S]*?!Ref ProofAssetBucketName[\s\S]*?!Ref ProofAssetBucketArn[\s\S]*?!Ref ProofAssetUploadAllowedOrders[\s\S]*?!Ref ProofAssetUploadExpiresAt/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !Ref ProofAssetUploadEnabled[\s\S]*?PATHFINDER_PROOF_ASSET_BUCKET: !If \[HasProofAssetBucket, !Ref ProofAssetBucketName/
+  );
+  assert.match(
+    template,
+    /ProofAssetUploadActive: !And[\s\S]*?!Condition HasProofAssetBucket[\s\S]*?!Ref ProofAssetUploadEnabled, "true"[\s\S]*?- ProofAssetUploadActive[\s\S]*?s3:GetObject[\s\S]*?s3:GetObjectTagging[\s\S]*?s3:PutObject[\s\S]*?s3:PutObjectTagging[\s\S]*?\$\{ProofAssetBucketArn\}\/orders\/\*/
+  );
+  assert.doesNotMatch(
+    template,
+    /ProofAssetBucketArn[\s\S]{0,500}s3:(DeleteObject|ListBucket)/
+  );
+  assert.match(
+    workflow,
+    /ProofAssetUploadEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD \|\| 'false' \}\}"/
+  );
+});

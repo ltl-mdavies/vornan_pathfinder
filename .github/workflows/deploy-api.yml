@@ -169,7 +169,12 @@ jobs:
               ProofPublicBaseUrl="${{ vars.PATHFINDER_PROOF_PUBLIC_BASE_URL || 'https://proof.vornan.co' }}" \
               ProofOperatorActionQaEnabled="${{ vars.PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA || 'false' }}" \
               ProofOperatorActionAllowedOrders="${{ vars.PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS || '' }}" \
-              ProofOperatorActionExpiresAt="${{ vars.PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT || '' }}"
+              ProofOperatorActionExpiresAt="${{ vars.PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT || '' }}" \
+              ProofAssetUploadEnabled="${{ vars.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD || 'false' }}" \
+              ProofAssetUploadAllowedOrders="${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS || '' }}" \
+              ProofAssetUploadExpiresAt="${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT || '' }}" \
+              ProofAssetBucketName="${{ vars.PATHFINDER_PROOF_ASSET_BUCKET || '' }}" \
+              ProofAssetBucketArn="${{ vars.PATHFINDER_PROOF_ASSET_BUCKET_ARN || '' }}"
 
       - name: Show stack outputs
         run: |
