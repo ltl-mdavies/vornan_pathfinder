@@ -21,8 +21,8 @@ test("reports only bounded preview diagnostics without provider details", () => 
   );
   assert.deepEqual(
     wrikeManualIntakePreviewDiagnostic({
-      name: "private-provider-name",
-      code: "private-provider-code",
+      name: "private-provider-name/<secret>",
+      code: "private-provider-code/<secret>",
       statusCode: 200,
       message: "private provider detail"
     }),
