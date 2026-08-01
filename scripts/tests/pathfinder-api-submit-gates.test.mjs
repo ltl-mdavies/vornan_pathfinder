@@ -169,7 +169,22 @@ test("Wrike Lift document publication is independently dark and scoped to its de
 test("operator-only Proof action QA remains independently dark and narrowly scoped by default", () => {
   assert.match(template, /ProofOperatorActionQaEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /ProofOperatorActionAllowedOrders:[\s\S]*?Default: ""/);
-  assert.match(template, /ProofOperatorActionExpiresAt:[\s\S]*?Default: ""/);
+  assert.match(
+    template,
+    /ProofOperatorActionExpiresAt:[\s\S]*?Default: ""[\s\S]*?AllowedPattern: "\^\$\|\^\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}T\[0-9\]\{2\}:\[0-9\]\{2\}:\[0-9\]\{2\}\(\\\\\.\[0-9\]\{3\}\)\?Z\$"/
+  );
+  assert.match(
+    template,
+    /ProofOperatorActionRequiresDurableIsolation:\n\s+RuleCondition: !Equals \[!Ref ProofOperatorActionQaEnabled, "true"\][\s\S]*?!Ref ProofCoreTableName[\s\S]*?!Ref ProofCoreTableArn[\s\S]*?!Ref ProofAuditTableName[\s\S]*?!Ref ProofAuditTableArn/
+  );
+  assert.match(
+    template,
+    /ProofOperatorActionRequiresDurableIsolation:[\s\S]*?!Ref ProofOperatorActionAllowedOrders[\s\S]*?!Ref ProofOperatorActionExpiresAt/
+  );
+  assert.match(
+    template,
+    /ProofOperatorActionRequiresDurableIsolation:[\s\S]*?!Equals \[!Ref ProofGrantCreationEnabled, "false"\][\s\S]*?!Equals \[!Ref ProofLinkEmailEnabled, "false"\]/
+  );
   assert.match(
     template,
     /PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA: !Ref ProofOperatorActionQaEnabled/
