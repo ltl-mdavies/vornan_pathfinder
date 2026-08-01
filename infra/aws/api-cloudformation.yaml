@@ -276,6 +276,7 @@ Parameters:
   ProofOperatorActionExpiresAt:
     Type: String
     Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
     Description: Required bounded ISO timestamp after which operator Proof action execution fails closed.
   ProofGrantCreationEnabled:
     Type: String
@@ -321,6 +322,23 @@ Rules:
           - !Equals [!Ref ProofLinkEmailEnabled, "false"]
           - !Equals [!Ref ProofGrantCreationEnabled, "true"]
         AssertDescription: Proof link email requires authenticated Proof grant creation to be enabled.
+  ProofOperatorActionRequiresDurableIsolation:
+    RuleCondition: !Equals [!Ref ProofOperatorActionQaEnabled, "true"]
+    Assertions:
+      - Assert: !And
+          - !Not [!Equals [!Ref ProofCoreTableName, ""]]
+          - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableName, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
+        AssertDescription: Operator Proof action QA requires the dedicated Proof core and audit table names and ARNs.
+      - Assert: !Not [!Equals [!Ref ProofOperatorActionAllowedOrders, ""]]
+        AssertDescription: Operator Proof action QA requires an exact nonempty order allowlist.
+      - Assert: !Not [!Equals [!Ref ProofOperatorActionExpiresAt, ""]]
+        AssertDescription: Operator Proof action QA requires a bounded UTC expiry.
+      - Assert: !Equals [!Ref ProofGrantCreationEnabled, "false"]
+        AssertDescription: Operator Proof action QA cannot be combined with customer grant creation.
+      - Assert: !Equals [!Ref ProofLinkEmailEnabled, "false"]
+        AssertDescription: Operator Proof action QA cannot be combined with Proof link email delivery.
   ProofTablesMustBeConfiguredTogether:
     Assertions:
       - Assert: !Or
