@@ -38,6 +38,38 @@ export interface WrikeManualIntakeFailure {
   failure_code: WrikeManualIntakeFailureCode;
 }
 
+const safePreviewDiagnosticTokens = new Set([
+  "Error",
+  "TypeError",
+  "ValidationException",
+  "TransactionCanceledException",
+  "ConditionalCheckFailedException",
+  "ResourceNotFoundException",
+  "AccessDeniedException",
+  "SerializationException",
+  "PayloadTooLargeException"
+]);
+
+export function wrikeManualIntakePreviewDiagnostic(error: unknown) {
+  const candidate = error && typeof error === "object"
+    ? error as { name?: unknown; code?: unknown; statusCode?: unknown }
+    : {};
+  const name = typeof candidate.name === "string" && safePreviewDiagnosticTokens.has(candidate.name)
+    ? candidate.name
+    : "UnknownError";
+  const code = typeof candidate.code === "string" && safePreviewDiagnosticTokens.has(candidate.code)
+    ? candidate.code
+    : null;
+  const statusCode =
+    typeof candidate.statusCode === "number" &&
+    Number.isInteger(candidate.statusCode) &&
+    candidate.statusCode >= 400 &&
+    candidate.statusCode <= 599
+      ? candidate.statusCode
+      : null;
+  return { error_name: name, error_code: code, status_code: statusCode };
+}
+
 export interface WrikeManualIntakeWorkbookResult {
   evidence_id: string;
   file_name: string;

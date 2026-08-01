@@ -105,6 +105,7 @@ import {
 } from "./wrike-lift-document-publication.js";
 import {
   prepareWrikeManualIntake,
+  wrikeManualIntakePreviewDiagnostic,
   type WrikeManualIntakeFailure
 } from "./wrike-manual-intake.js";
 import {
@@ -4126,6 +4127,10 @@ function classifyWrikeManualIntakePreviewError(error: unknown): WrikeManualIntak
       failure_code: failureCode[error.code]
     };
   }
+  console.warn(JSON.stringify({
+    event: "wrike_manual_intake_preview_blocked",
+    ...wrikeManualIntakePreviewDiagnostic(error)
+  }));
   return {
     failure_stage: "preview_creation",
     failure_code: "preview_failed"
