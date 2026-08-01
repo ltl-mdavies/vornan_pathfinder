@@ -36,6 +36,20 @@ test("authorizes only the exact bounded rehearsal tuple and confirmation phrase"
   );
 });
 
+test("normalizes harmless task whitespace while preserving the exact bounded identity", () => {
+  assert.equal(
+    authorizeWrikeOrderRehearsal({
+      config: readyConfig,
+      customer_id: "284619",
+      import_method_id: "method-wrike-placard",
+      task_id: "  IEDEMOORDER  ",
+      confirmation_phrase: wrikeOrderRehearsalConfirmationPhrase("IEDEMOORDER"),
+      now
+    }).task_id,
+    "IEDEMOORDER"
+  );
+});
+
 test("fails closed before rehearsal when disabled, incomplete, expired, or overlong", () => {
   const cases = [
     { config: { ...readyConfig, enabled: false }, message: /disabled/i },
@@ -82,6 +96,49 @@ test("rejects cross-customer, cross-method, cross-task, and confirmation drift",
         error instanceof WrikeOrderRehearsalError && error.statusCode === item.statusCode
     );
   }
+});
+
+test("reports only bounded fingerprints for task binding drift", () => {
+  assert.throws(
+    () => authorizeWrikeOrderRehearsal({
+      config: readyConfig,
+      customer_id: "284619",
+      import_method_id: "method-wrike-placard",
+      task_id: "IEOTHER",
+      confirmation_phrase: wrikeOrderRehearsalConfirmationPhrase("IEDEMOORDER"),
+      now
+    }),
+    (error) => {
+      assert.ok(error instanceof WrikeOrderRehearsalError);
+      assert.deepEqual(error.bindingDiagnostic, {
+        binding: "task_id",
+        expected_fingerprint: "1b08dcfd21fff9f4",
+        received_fingerprint: "e75aad6702c8facd",
+        expected_length: 11,
+        received_length: 7,
+        received_type: "string"
+      });
+      const serialized = JSON.stringify(error.bindingDiagnostic);
+      assert.equal(serialized.includes("IEDEMOORDER"), false);
+      assert.equal(serialized.includes("IEOTHER"), false);
+      return true;
+    }
+  );
+
+  assert.throws(
+    () => authorizeWrikeOrderRehearsal({
+      config: readyConfig,
+      customer_id: "284619",
+      import_method_id: "method-wrike-placard",
+      task_id: undefined,
+      confirmation_phrase: wrikeOrderRehearsalConfirmationPhrase("IEDEMOORDER"),
+      now
+    }),
+    (error) =>
+      error instanceof WrikeOrderRehearsalError &&
+      error.bindingDiagnostic?.received_type === "missing" &&
+      error.bindingDiagnostic.received_length === 0
+  );
 });
 
 test("normalizes safe environment configuration without leaking malformed values", () => {

@@ -4365,6 +4365,13 @@ app.post("/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discover
       : error instanceof WrikeConnectionError
       ? error.message
       : "The bounded Wrike discovery preview failed.";
+    if (error instanceof WrikeOrderRehearsalError && error.bindingDiagnostic) {
+      console.warn(JSON.stringify({
+        event: "wrike_rehearsal_binding_rejected",
+        status_code: error.statusCode,
+        diagnostic: error.bindingDiagnostic
+      }));
+    }
     const status = error instanceof WrikeOrderRehearsalError || error instanceof WrikeIntakeRequestError
       ? error.statusCode
       : error instanceof WrikeConnectionError && error.code === "invalid_configuration" ? 400 : 502;
