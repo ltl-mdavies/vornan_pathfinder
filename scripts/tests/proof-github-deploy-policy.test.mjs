@@ -24,6 +24,25 @@ test("allows the encrypted Proof bucket lifecycle without granting global S3 acc
   ]);
 });
 
+test("reads only the exact issued Proof certificate for DNS readiness reporting", () => {
+  const policy = JSON.parse(readFileSync(policyPath, "utf8"));
+  const certificateStatement = policy.Statement.find(
+    (statement) => statement.Sid === "ReadProofCertificate",
+  );
+
+  assert.deepEqual(certificateStatement, {
+    Sid: "ReadProofCertificate",
+    Effect: "Allow",
+    Action: "acm:DescribeCertificate",
+    Resource:
+      "arn:aws:acm:us-east-1:744016783602:certificate/bee3ed71-24fa-436a-bacc-ad27f7069b0f",
+  });
+  assert.equal(
+    policy.Statement.flatMap((statement) => statement.Action).includes("acm:*"),
+    false,
+  );
+});
+
 test("covers the CloudFormation handlers used by the Proof stack without global service wildcards", () => {
   const policy = JSON.parse(readFileSync(policyPath, "utf8"));
   const actionsByStatement = new Map(

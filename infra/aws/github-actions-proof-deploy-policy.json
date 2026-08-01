@@ -16,6 +16,12 @@
       "Resource": "arn:aws:cloudformation:us-east-1:744016783602:stack/vornan-proof-*/*"
     },
     {
+      "Sid": "ReadProofCertificate",
+      "Effect": "Allow",
+      "Action": "acm:DescribeCertificate",
+      "Resource": "arn:aws:acm:us-east-1:744016783602:certificate/bee3ed71-24fa-436a-bacc-ad27f7069b0f"
+    },
+    {
       "Sid": "PublishProofArtifactsAndWeb",
       "Effect": "Allow",
       "Action": [
