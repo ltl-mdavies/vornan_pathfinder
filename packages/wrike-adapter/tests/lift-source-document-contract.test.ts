@@ -33,7 +33,7 @@ function publication(source: WrikeLiftSourceEvidenceBinding): WrikeLiftDocumentP
     evidence_id: source.evidence_id,
     document_role: source.document_role,
     source_sha256: source.sha256,
-    object_version_id: "delivery-version-1",
+    object_version_id: "delivery.version-1",
     direct_url: `https://go.vornan.co/d/opaque-document-token/${sanitizeWrikeLiftDeliveryFileName(source.file_name)}`,
     published_byte_size: source.byte_size,
     published_at: "2026-07-31T15:59:00.000Z",
@@ -42,7 +42,7 @@ function publication(source: WrikeLiftSourceEvidenceBinding): WrikeLiftDocumentP
       http_status: 200,
       redirect_count: 0,
       content_length: source.byte_size,
-      checked_at: "2026-07-31T16:00:00.000Z"
+      checked_at: "2026-07-31T15:58:59.500Z"
     }
   };
 }
@@ -113,5 +113,12 @@ test("fails closed on redirects, cross-bound evidence, unsafe hosts, or changed 
     direct_url: "https://go.vornan.co/d/opaque-document-token/wrong-name.xlsx"
   }));
   assert.throws(() => run({ ...publication(grid), source_sha256: "b".repeat(64) }));
+  assert.throws(() => run({
+    ...publication(grid),
+    preflight: {
+      ...publication(grid).preflight,
+      checked_at: "2026-07-31T15:58:58.999Z"
+    }
+  }));
   assert.throws(() => run(publication(grid), { ...grid, task_id: "IEOTHER" }));
 });
