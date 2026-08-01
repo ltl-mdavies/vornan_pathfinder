@@ -137,6 +137,11 @@ function isMissingObject(error: unknown) {
   return observation.http_status === 404 || observation.name === "NoSuchKey" || observation.name === "NotFound";
 }
 
+function isMissingOrMaskedObject(error: unknown) {
+  const observation = awsErrorObservation(error);
+  return observation.http_status === 403 || isMissingObject(error);
+}
+
 function isConditionalConflict(error: unknown) {
   const observation = awsErrorObservation(error);
   return observation.http_status === 412 || observation.name === "PreconditionFailed";
@@ -199,7 +204,11 @@ async function readManifest(
     if (error instanceof WrikeLiftDocumentPublicationError) {
       throw error;
     }
-    if (isMissingObject(error)) {
+    if (isMissingOrMaskedObject(error)) {
+      // The runtime role intentionally has no ListBucket permission, so S3 may
+      // mask a missing manifest as 403. The caller follows this probe only with
+      // If-None-Match conditional writes; a real permission failure or an
+      // existing manifest therefore still fails closed.
       return null;
     }
     throw new WrikeLiftDocumentPublicationError(
