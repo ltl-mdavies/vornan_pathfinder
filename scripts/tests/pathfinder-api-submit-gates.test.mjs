@@ -66,16 +66,11 @@ test("Wrike workbook evidence remains disabled by default and uses a retained pr
   );
   assert.match(
     template,
-    /PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID: !Ref WrikeOrderRehearsalCustomerId/
+    /PATHFINDER_WRIKE_ORDER_REHEARSAL_SCOPE: !Join[\s\S]*?- "\|"[\s\S]*?!Ref WrikeOrderRehearsalCustomerId[\s\S]*?!Ref WrikeOrderRehearsalImportMethodId[\s\S]*?!Ref WrikeOrderRehearsalTaskId[\s\S]*?!Ref WrikeOrderRehearsalExpiresAt/
   );
-  assert.match(
+  assert.doesNotMatch(
     template,
-    /PATHFINDER_WRIKE_ORDER_REHEARSAL_IMPORT_METHOD_ID: !Ref WrikeOrderRehearsalImportMethodId/
-  );
-  assert.match(template, /PATHFINDER_WRIKE_ORDER_REHEARSAL_TASK_ID: !Ref WrikeOrderRehearsalTaskId/);
-  assert.match(
-    template,
-    /PATHFINDER_WRIKE_ORDER_REHEARSAL_EXPIRES_AT: !Ref WrikeOrderRehearsalExpiresAt/
+    /PATHFINDER_WRIKE_ORDER_REHEARSAL_(?:CUSTOMER_ID|IMPORT_METHOD_ID|TASK_ID|EXPIRES_AT):/
   );
   assert.match(template, /PathfinderSourceEvidenceBucket:[\s\S]*?DeletionPolicy: Retain/);
   assert.match(template, /PathfinderSourceEvidenceBucket:[\s\S]*?UpdateReplacePolicy: Retain/);

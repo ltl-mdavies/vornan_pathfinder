@@ -38,6 +38,17 @@ function optionalTimestamp(value: string | undefined) {
 export function getWrikeOrderRehearsalConfig(
   env: NodeJS.ProcessEnv = process.env
 ): WrikeOrderRehearsalConfig {
+  const compactScope = env.PATHFINDER_WRIKE_ORDER_REHEARSAL_SCOPE?.trim();
+  if (compactScope) {
+    const values = compactScope.split("|");
+    return {
+      enabled: env.PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL === "true",
+      customer_id: values.length === 4 ? optionalIdentifier(values[0]) : null,
+      import_method_id: values.length === 4 ? optionalIdentifier(values[1]) : null,
+      task_id: values.length === 4 ? optionalIdentifier(values[2]) : null,
+      expires_at: values.length === 4 ? optionalTimestamp(values[3]) : null
+    };
+  }
   return {
     enabled: env.PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL === "true",
     customer_id: optionalIdentifier(env.PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID),
