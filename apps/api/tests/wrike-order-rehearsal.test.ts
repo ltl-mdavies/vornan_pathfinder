@@ -102,3 +102,30 @@ test("normalizes safe environment configuration without leaking malformed values
     }
   );
 });
+
+test("reads the exact rehearsal tuple from the compact Lambda scope", () => {
+  assert.deepEqual(
+    getWrikeOrderRehearsalConfig({
+      PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: "true",
+      PATHFINDER_WRIKE_ORDER_REHEARSAL_SCOPE:
+        "284619|method-wrike-placard|IEDEMOORDER|2026-07-31T20:00:00.000Z",
+      PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID: "ignored-customer",
+      PATHFINDER_WRIKE_ORDER_REHEARSAL_TASK_ID: "ignored-task"
+    }),
+    readyConfig
+  );
+
+  assert.deepEqual(
+    getWrikeOrderRehearsalConfig({
+      PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: "true",
+      PATHFINDER_WRIKE_ORDER_REHEARSAL_SCOPE: "malformed|scope"
+    }),
+    {
+      enabled: true,
+      customer_id: null,
+      import_method_id: null,
+      task_id: null,
+      expires_at: null
+    }
+  );
+});

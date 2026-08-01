@@ -545,10 +545,12 @@ Resources:
           PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: !Ref WrikeEvidencePreviewEnabled
           PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !Ref WrikeManualIntakeEnabled
           PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: !Ref WrikeOrderRehearsalEnabled
-          PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID: !Ref WrikeOrderRehearsalCustomerId
-          PATHFINDER_WRIKE_ORDER_REHEARSAL_IMPORT_METHOD_ID: !Ref WrikeOrderRehearsalImportMethodId
-          PATHFINDER_WRIKE_ORDER_REHEARSAL_TASK_ID: !Ref WrikeOrderRehearsalTaskId
-          PATHFINDER_WRIKE_ORDER_REHEARSAL_EXPIRES_AT: !Ref WrikeOrderRehearsalExpiresAt
+          PATHFINDER_WRIKE_ORDER_REHEARSAL_SCOPE: !Join
+            - "|"
+            - - !Ref WrikeOrderRehearsalCustomerId
+              - !Ref WrikeOrderRehearsalImportMethodId
+              - !Ref WrikeOrderRehearsalTaskId
+              - !Ref WrikeOrderRehearsalExpiresAt
           PATHFINDER_ENABLE_WRIKE_LIFT_DOCUMENT_PUBLICATION: !Ref WrikeLiftDocumentPublicationEnabled
           PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BUCKET: !Ref WrikeLiftDocumentDeliveryBucketName
           PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BASE_URL: !Ref WrikeLiftDocumentDeliveryBaseUrl
