@@ -128,8 +128,23 @@ export type SubmitCertificationActionKey =
   | "target-output-routes"
   | "target-output-templates"
   | "target-health";
-export type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
+export type SubmitAttemptStatus =
+  | "Blocked"
+  | "Gate Locked"
+  | "Dry Run"
+  | "Submission Uncertain"
+  | "Submitted"
+  | "Failed";
 export type SubmitAttemptTransportMode = "dry_run" | "mock" | "live";
+
+export interface SubmitIntegritySnapshot {
+  version: 1;
+  fingerprint: string;
+  payload_sha256: string;
+  request_sha256: string;
+  document_set_sha256: string;
+  reviewed_at: string;
+}
 export type OrderStatusTokenStatus = "Active" | "Revoked";
 export type PublicIntakeEmailVerificationStatus = "Pending" | "Verified" | "Consumed" | "Expired";
 
@@ -580,6 +595,7 @@ export interface ProcessingJobPreview {
   lift_payload: LiftOrderPayload;
   lift_validation: ValidationMessage[];
   submit_certification?: SubmitCertification;
+  submit_integrity?: SubmitIntegritySnapshot;
   submit_request_masked: Omit<LiftSubmitRequest, "headers"> & {
     headers: Omit<LiftSubmitRequest["headers"], "Password"> & { Password: string };
   };
@@ -640,6 +656,19 @@ export interface SubmitAttempt {
   state: SubmitAttemptStatus;
   transport_mode?: SubmitAttemptTransportMode;
   external_submit_enabled: boolean;
+  request_fingerprint?: string;
+  document_preflight?: {
+    required: boolean;
+    checked_at: string | null;
+    documents: Array<{
+      document_role: "order_grid" | "reference_proof";
+      publication_id: string;
+      object_version_id: string;
+      content_length: number;
+      http_status: 200;
+      redirect_count: 0;
+    }>;
+  };
   endpoint_url: string;
   ext_id: string;
   company_id: string;
@@ -1814,11 +1843,12 @@ async function scanDynamoTable(tableName: string) {
   return items;
 }
 
-async function getDynamoData<T>(tableName: string, key: Record<string, string>) {
+async function getDynamoData<T>(tableName: string, key: Record<string, string>, consistentRead = false) {
   const response = await getDynamoClient().send(
     new GetItemCommand({
       TableName: tableName,
-      Key: Object.fromEntries(Object.entries(key).map(([keyName, value]) => [keyName, dynamoString(value)]))
+      Key: Object.fromEntries(Object.entries(key).map(([keyName, value]) => [keyName, dynamoString(value)])),
+      ConsistentRead: consistentRead
     })
   );
 
@@ -2190,13 +2220,8 @@ async function writeDynamoStore(store: PathfinderStore) {
     ["customer_id", "job_id"],
     store.jobs.map((job) => dynamoItem({ customer_id: job.customer_id, job_id: job.job_id }, job))
   );
-  await replaceDynamoTable(
-    tables.submit_attempts,
-    ["customer_id", "attempt_id"],
-    store.submit_attempts.map((attempt) =>
-      dynamoItem({ customer_id: attempt.customer_id, attempt_id: attempt.attempt_id }, attempt)
-    )
-  );
+  // Submit attempts are an append/update-only durability boundary. They are
+  // written individually and must not be replaced by an unrelated workspace save.
   await replaceDynamoTable(
     tables.lift_product_cache,
     ["route_environment_id", "product_id"],
@@ -4314,6 +4339,79 @@ export async function getSubmitAttemptByIdempotencyKey(customer: LiftCustomer, i
   );
 }
 
+function isConditionalCheckFailure(error: unknown) {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "name" in error &&
+    (error as { name?: unknown }).name === "ConditionalCheckFailedException"
+  );
+}
+
+let localSubmitAttemptReservationQueue: Promise<void> = Promise.resolve();
+
+export async function reserveSubmitAttempt(customer: LiftCustomer, attempt: SubmitAttempt) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tableName = getDynamoTableConfig().submit_attempts;
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: tableName,
+        Item: {
+          ...dynamoItem({ customer_id: attempt.customer_id, attempt_id: attempt.attempt_id }, attempt),
+          idempotency_key: dynamoString(attempt.idempotency_key),
+          state: dynamoString(attempt.state),
+          transport_completed: { BOOL: false }
+        },
+        ConditionExpression: "attribute_not_exists(customer_id) AND attribute_not_exists(attempt_id)"
+      }));
+      return { attempt, created: true as const };
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) {
+        throw error;
+      }
+      const response = await getDynamoClient().send(new GetItemCommand({
+        TableName: tableName,
+        Key: {
+          customer_id: dynamoString(attempt.customer_id),
+          attempt_id: dynamoString(attempt.attempt_id)
+        },
+        ConsistentRead: true
+      }));
+      const existing = response.Item
+        ? parseDynamoData<SubmitAttempt>(response.Item as Record<string, AttributeValue>)
+        : null;
+      if (!existing || existing.idempotency_key !== attempt.idempotency_key) {
+        throw new Error("The reserved submit attempt could not be reconciled safely.");
+      }
+      return { attempt: normalizeSubmitAttempt(existing), created: false as const };
+    }
+  }
+
+  const operation = localSubmitAttemptReservationQueue.then(async () => {
+    const store = await readStore();
+    const existing = store.submit_attempts.find(
+      (candidate) =>
+        candidate.customer_id === customer.lift_customer_id &&
+        (candidate.attempt_id === attempt.attempt_id || candidate.idempotency_key === attempt.idempotency_key)
+    );
+    if (existing) {
+      return { attempt: normalizeSubmitAttempt(existing), created: false as const };
+    }
+    const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+    store.submit_attempts = [attempt, ...(store.submit_attempts ?? [])];
+    workspace.submit_attempts = store.submit_attempts.filter(
+      (candidate) => candidate.customer_id === customer.lift_customer_id
+    );
+    workspace.updated_at = attempt.updated_at;
+    store.workspaces[customer.lift_customer_id] = workspace;
+    await writeStore(store);
+    return { attempt, created: true as const };
+  });
+  localSubmitAttemptReservationQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+
 function normalizeSubmitAttempt(attempt: SubmitAttempt): SubmitAttempt {
   if (attempt.response.lift_order_id) {
     return attempt;
@@ -4360,9 +4458,7 @@ export async function listSubmitAttemptsForJob(customer: LiftCustomer, jobId: st
   );
 }
 
-export async function persistSubmitAttempt(customer: LiftCustomer, attempt: SubmitAttempt) {
-  const store = await readStore();
-  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+function normalizePersistedSubmitAttempt(attempt: SubmitAttempt) {
   const targetOrderNumber =
     attempt.response.lift_order_id ?? extractLiftOrderId(attempt.response.raw_body, attempt.response.message) ?? null;
   const normalizedAttempt = targetOrderNumber && !attempt.response.lift_order_id
@@ -4379,9 +4475,116 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
       ? targetOrderNumber
         ? "Order Confirmed"
         : "Submitted"
-      : attempt.state === "Failed"
-        ? "Submit Failed"
-        : null;
+      : attempt.state === "Submission Uncertain"
+        ? "Submitted"
+        : attempt.state === "Failed"
+          ? "Submit Failed"
+          : null;
+  return { normalizedAttempt, submitJobState, targetOrderNumber };
+}
+
+async function persistDynamoSubmitJobState(
+  customer: LiftCustomer,
+  attempt: SubmitAttempt,
+  submitJobState: ProcessingState | null,
+  targetOrderNumber: string | null
+) {
+  if (!submitJobState) return;
+  const tables = getDynamoTableConfig();
+  const submittedJob = await getDynamoData<ProcessingJobPreview>(tables.jobs, {
+    customer_id: customer.lift_customer_id,
+    job_id: attempt.job_id
+  }, true);
+  if (!submittedJob) return;
+  const submittedRoute = await getDynamoData<OutputRoute>(tables.output_routes, {
+    customer_id: customer.lift_customer_id,
+    output_route_id: submittedJob.output_route_id
+  }, true);
+  const targetOrderLookupUrl = buildLiftOrderLookupUrl(submittedRoute?.order_lookup_url, targetOrderNumber);
+  const updatedJob: ProcessingJobPreview = {
+    ...submittedJob,
+    state: submitJobState,
+    target_order_number: targetOrderNumber ?? submittedJob.target_order_number ?? null,
+    target_order_lookup_url: targetOrderLookupUrl ?? submittedJob.target_order_lookup_url ?? null,
+    updated_at: attempt.updated_at
+  };
+  await putDynamoData(
+    tables.jobs,
+    { customer_id: updatedJob.customer_id, job_id: updatedJob.job_id },
+    updatedJob
+  );
+}
+
+async function putDynamoSubmitAttempt(attempt: SubmitAttempt, complete: boolean, requireReservation = false) {
+  const tables = getDynamoTableConfig();
+  await getDynamoClient().send(new PutItemCommand({
+    TableName: tables.submit_attempts,
+    Item: {
+      ...dynamoItem({ customer_id: attempt.customer_id, attempt_id: attempt.attempt_id }, attempt),
+      idempotency_key: dynamoString(attempt.idempotency_key),
+      state: dynamoString(attempt.state),
+      transport_completed: { BOOL: complete }
+    },
+    ...(requireReservation
+      ? {
+          ConditionExpression:
+            "idempotency_key = :idempotency_key AND #state = :submission_uncertain AND transport_completed = :false",
+          ExpressionAttributeNames: { "#state": "state" },
+          ExpressionAttributeValues: {
+            ":idempotency_key": dynamoString(attempt.idempotency_key),
+            ":submission_uncertain": dynamoString("Submission Uncertain"),
+            ":false": { BOOL: false }
+          }
+        }
+      : {})
+  }));
+}
+
+export async function finalizeReservedSubmitAttempt(customer: LiftCustomer, attempt: SubmitAttempt) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver !== "dynamodb") {
+    return persistSubmitAttempt(customer, attempt);
+  }
+  const { normalizedAttempt, submitJobState, targetOrderNumber } = normalizePersistedSubmitAttempt(attempt);
+  try {
+    await putDynamoSubmitAttempt(normalizedAttempt, true, true);
+  } catch (error) {
+    if (!isConditionalCheckFailure(error)) throw error;
+    const tables = getDynamoTableConfig();
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: tables.submit_attempts,
+      Key: {
+        customer_id: dynamoString(normalizedAttempt.customer_id),
+        attempt_id: dynamoString(normalizedAttempt.attempt_id)
+      },
+      ConsistentRead: true
+    }));
+    const existing = response.Item
+      ? parseDynamoData<SubmitAttempt>(response.Item as Record<string, AttributeValue>)
+      : null;
+    if (
+      !existing ||
+      existing.idempotency_key !== normalizedAttempt.idempotency_key ||
+      response.Item?.transport_completed?.BOOL !== true
+    ) {
+      throw new Error("The finalized submit attempt could not be reconciled safely.");
+    }
+    return normalizeSubmitAttempt(existing);
+  }
+  await persistDynamoSubmitJobState(customer, normalizedAttempt, submitJobState, targetOrderNumber);
+  return normalizedAttempt;
+}
+
+export async function persistSubmitAttempt(customer: LiftCustomer, attempt: SubmitAttempt) {
+  const { normalizedAttempt, submitJobState, targetOrderNumber } = normalizePersistedSubmitAttempt(attempt);
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    await putDynamoSubmitAttempt(normalizedAttempt, true);
+    await persistDynamoSubmitJobState(customer, normalizedAttempt, submitJobState, targetOrderNumber);
+    return normalizedAttempt;
+  }
+  const store = await readStore();
+  const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
   const timestamp = attempt.updated_at;
   const submittedJob = store.jobs.find(
     (job) => job.job_id === attempt.job_id && job.customer_id === customer.lift_customer_id

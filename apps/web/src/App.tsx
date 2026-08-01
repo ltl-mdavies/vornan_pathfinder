@@ -169,7 +169,13 @@ type SubmitProfileMode = "live_customer" | "sandbox_customer";
 type SubmitCertificationStatus = "Passed" | "Warning" | "Blocked";
 type RouteDiagnosticStatus = "Passed" | "Warning" | "Blocked";
 type EmailReadinessStatus = "Ready" | "Warning" | "Blocked";
-type SubmitAttemptStatus = "Blocked" | "Gate Locked" | "Dry Run" | "Submitted" | "Failed";
+type SubmitAttemptStatus =
+  | "Blocked"
+  | "Gate Locked"
+  | "Dry Run"
+  | "Submission Uncertain"
+  | "Submitted"
+  | "Failed";
 type SubmitAttemptTransportMode = "dry_run" | "mock" | "live";
 type SubmitCertificationActionKey =
   | "manual-import"
@@ -794,6 +800,14 @@ interface ProcessingJobPreview {
   lift_payload: LiftOrderPayload;
   lift_validation: ValidationMessage[];
   submit_certification?: SubmitCertification;
+  submit_integrity?: {
+    version: 1;
+    fingerprint: string;
+    payload_sha256: string;
+    request_sha256: string;
+    document_set_sha256: string;
+    reviewed_at: string;
+  };
   submit_request_masked: Omit<LiftSubmitRequest, "headers"> & {
     headers: Omit<LiftSubmitRequest["headers"], "Password"> & { Password: string };
   };
@@ -845,6 +859,7 @@ interface SubmitAttempt {
   state: SubmitAttemptStatus;
   transport_mode?: SubmitAttemptTransportMode;
   external_submit_enabled: boolean;
+  request_fingerprint?: string;
   endpoint_url: string;
   ext_id: string;
   company_id: string;
@@ -7807,7 +7822,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWorkspaceMessage(`Submit packet exported: ${submitPacketFileName}.`);
   }
 
-  async function requestLiftSubmit(jobOverride?: ProcessingJobPreview, forceNewAttempt = false) {
+  async function requestLiftSubmit(jobOverride?: ProcessingJobPreview) {
     const submitJob = jobOverride ?? lastPreviewJob;
     if (!submitJob) {
       setWorkspaceMessage("Generate a persisted preview job before requesting Lift submit.");
@@ -7815,6 +7830,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
     if (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed) {
       setWorkspaceMessage("Confirm the PROD sandbox submit lane in Lift Submit Preflight before requesting Lift submit.");
+      setWorkspaceState("error");
+      return;
+    }
+    if (!submitJob.submit_integrity?.fingerprint) {
+      setWorkspaceMessage("Refresh submit certification and review the exact payload before requesting Lift submit.");
       setWorkspaceState("error");
       return;
     }
@@ -7826,13 +7846,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            forceNewAttempt
-              ? {
-                  idempotency_key: `retry:${submitJob.job_id}:${Date.now()}`
-                }
-              : {}
-          )
+          body: JSON.stringify({
+            reviewed_submit_fingerprint: submitJob.submit_integrity.fingerprint
+          })
         }
       );
       const payload = (await response.json()) as {
@@ -13812,6 +13828,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         disabled={
                           !lastPreviewJob ||
                           workspaceState === "saving" ||
+                          !lastPreviewJob.submit_integrity?.fingerprint ||
                           !submitCertification.external_submit_enabled ||
                           (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed)
                         }
@@ -16160,19 +16177,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       ) : null}
                       <button
                         className="primary-button job-detail-submit-action"
-                        onClick={() => void requestLiftSubmit(selectedJobDetail, Boolean(latestJobAttempt))}
+                        onClick={() => void requestLiftSubmit(selectedJobDetail)}
                         disabled={
                           workspaceState === "saving" ||
                           selectedJobMissingOrderTitle ||
+                          !selectedJobDetail.submit_integrity?.fingerprint ||
+                          Boolean(
+                            latestJobAttempt &&
+                            latestJobAttempt.request_fingerprint === selectedJobDetail.submit_integrity?.fingerprint &&
+                            latestJobAttempt.state !== "Blocked" &&
+                            latestJobAttempt.state !== "Gate Locked"
+                          ) ||
                           (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed)
                         }
                       >
                         <Send size={16} />
                         {workspaceState === "saving"
                           ? "Submitting…"
-                          : latestJobAttempt
-                            ? "Retry Submit"
-                            : "Submit to Lift"}
+                          : "Submit to Lift"}
                       </button>
                     </>
                   ) : (
@@ -16311,6 +16333,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <DetailItem label="Output route" value={selectedJobDetail.output_route_name} />
                 <DetailItem label="Lift order number" value={selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id ?? "Pending"} />
                 <DetailItem label="Lines" value={`${selectedJobDetail.lift_payload.lines.length}`} />
+                <DetailItem
+                  label="Reviewed payload"
+                  value={
+                    selectedJobDetail.submit_integrity
+                      ? `${selectedJobDetail.submit_integrity.fingerprint.slice(0, 12)}…`
+                      : "Refresh certification required"
+                  }
+                />
                 <DetailItem label="Created" value={displayTimestamp(selectedJobDetail.created_at)} />
                 <DetailItem label="Updated" value={displayTimestamp(selectedJobDetail.updated_at)} />
               </dl>
