@@ -2007,16 +2007,6 @@ function workbookContentTypeAllowed(extension: WrikeWorkbookExtension, value: st
   return contentType === "text/csv" || contentType === "application/csv" || contentType === "text/plain";
 }
 
-function referenceProofContentTypeAllowed(value: string | null) {
-  const contentType = (value ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-  return (
-    !contentType ||
-    contentType === "application/pdf" ||
-    contentType === "application/octet-stream" ||
-    contentType === "binary/octet-stream"
-  );
-}
-
 async function readBoundedResponseBytes(response: Response, maxBytes: number) {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
@@ -2256,13 +2246,6 @@ export async function fetchQualifiedWrikeWorkbookSources(
         rotatedCredentials
       );
     }
-    if (!referenceProofContentTypeAllowed(response.headers.get("content-type"))) {
-      throw new WrikeConnectionError(
-        "attachment_validation_failed",
-        "The matching Wrike reference proof returned an unexpected content type.",
-        rotatedCredentials
-      );
-    }
     const maxReferenceProofBytes = Math.max(
       1,
       Math.min(
@@ -2270,6 +2253,8 @@ export async function fetchQualifiedWrikeWorkbookSources(
         WRIKE_DEFAULT_MAX_REFERENCE_PROOF_BYTES
       )
     );
+    // Wrike's signed-download edge may use a provider-specific content type. The
+    // bounded bytes and PDF signature are authoritative for this qualified .pdf.
     const bytes = await readBoundedResponseBytes(
       response,
       Math.min(maxReferenceProofBytes, maxTotalBytes - totalBytes)
