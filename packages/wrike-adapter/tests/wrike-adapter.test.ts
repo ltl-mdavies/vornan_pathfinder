@@ -740,7 +740,7 @@ test("previews one qualified task and counts every matching workbook without ret
   assert.match(calls[1].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\?fields=/);
   assert.deepEqual(
     JSON.parse(new URL(calls[1].url).searchParams.get("fields") ?? "[]"),
-    ["attachmentCount", "superParentIds"]
+    ["attachmentCount"]
   );
   assert.match(calls[2].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\/attachments\?versions=false&withUrls=false$/);
   assert.equal(calls.some((call) => /download|preview|webhooks/.test(call.url)), false);
@@ -788,6 +788,19 @@ test("converts a saved numeric campaign folder and requests exact-task ancestry"
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
+        if (url.includes("/folders/MQAAAAENlV9D")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "MQAAAAENlV9D",
+                  parentIds: ["IEAALTG3I4BANT5E"]
+                }
+              ]
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
         if (url.includes("/attachments")) {
           return new Response(JSON.stringify({
             data: [
@@ -810,7 +823,6 @@ test("converts a saved numeric campaign folder and requests exact-task ancestry"
                 id: "MAAAAAENlV9Z",
                 accountId: "IEACCOUNT",
                 parentIds: ["MQAAAAENlV9D"],
-                superParentIds: ["IEAALTG3I4BANT5E"],
                 customStatusId: "IEAALTG3JMHQJJJE",
                 attachmentCount: 1,
                 title: "Placard Order",
@@ -830,10 +842,8 @@ test("converts a saved numeric campaign folder and requests exact-task ancestry"
   assert.equal(converterUrl.searchParams.get("type"), "ApiV2Folder");
   assert.deepEqual(JSON.parse(converterUrl.searchParams.get("ids") ?? "[]"), ["34000804"]);
   const taskUrl = new URL(calls[2]);
-  assert.deepEqual(JSON.parse(taskUrl.searchParams.get("fields") ?? "[]"), [
-    "attachmentCount",
-    "superParentIds"
-  ]);
+  assert.deepEqual(JSON.parse(taskUrl.searchParams.get("fields") ?? "[]"), ["attachmentCount"]);
+  assert.equal(new URL(calls[3]).pathname, "/api/v4/folders/MQAAAAENlV9D");
   assert.deepEqual(result.preview.approved_scope.folder_id, "IEAALTG3I4BANT5E");
 });
 
@@ -1118,6 +1128,12 @@ test("does not read attachment metadata when the approved task is outside the sa
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
+        if (url.includes("/folders/IEUNAPPROVEDFOLDER")) {
+          return new Response(
+            JSON.stringify({ data: [{ id: "IEUNAPPROVEDFOLDER", parentIds: [] }] }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
         return new Response(
           JSON.stringify({
             data: [
@@ -1141,7 +1157,7 @@ test("does not read attachment metadata when the approved task is outside the sa
   assert.equal(result.preview.status, "Needs review");
   assert.equal(result.preview.capabilities.attachment_metadata_read, false);
   assert.equal(result.preview.observed.attachment_metadata_count, null);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   assert.equal(calls.some((url) => url.includes("/attachments")), false);
 });
 
