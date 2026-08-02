@@ -293,11 +293,6 @@ Resources:
                 Effect: Allow
                 Action: s3:ListBucket
                 Resource: !GetAtt ProofAssetBucket.Arn
-                Condition:
-                  StringLike:
-                    s3:prefix:
-                      - orders/
-                      - orders/*
               - Sid: AllowMalwareScan
                 Effect: Allow
                 Action:
