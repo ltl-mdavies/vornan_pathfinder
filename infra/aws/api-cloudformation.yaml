@@ -309,6 +309,16 @@ Parameters:
     Description: >
       Default-disabled worker for sanitized GuardDuty Proof asset scan results.
       This does not enable uploads, public delivery, publication, or Lift writes.
+  ProofAssetScanWorkerAllowedObjectKey:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^orders/A[0-9]{7,8}/tasks/[A-Za-z0-9][A-Za-z0-9._:-]{0,255}/revisions/prevision_[a-f0-9]{64}/source/passet_[a-f0-9]{64}/[A-Za-z0-9][A-Za-z0-9._() -]{0,239}$"
+    Description: Exact single Proof source-object key approved for a bounded scan-worker QA window.
+  ProofAssetScanWorkerExpiresAt:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+    Description: Required bounded UTC expiry for the exact-object scan-worker QA window.
   ProofGrantCreationEnabled:
     Type: String
     Default: "false"
@@ -404,6 +414,10 @@ Rules:
           - !Not [!Equals [!Ref ProofAssetBucketName, ""]]
           - !Not [!Equals [!Ref ProofAssetBucketArn, ""]]
         AssertDescription: Proof asset scan processing requires the exact existing private bucket.
+      - Assert: !Not [!Equals [!Ref ProofAssetScanWorkerAllowedObjectKey, ""]]
+        AssertDescription: Proof asset scan processing requires one exact source-object key.
+      - Assert: !Not [!Equals [!Ref ProofAssetScanWorkerExpiresAt, ""]]
+        AssertDescription: Proof asset scan processing requires a bounded UTC expiry.
       - Assert: !Equals [!Ref ProofGrantCreationEnabled, "false"]
         AssertDescription: Proof asset scan processing cannot be combined with customer grant creation.
       - Assert: !Equals [!Ref ProofLinkEmailEnabled, "false"]
@@ -604,6 +618,14 @@ Resources:
             - ProofAssetScanWorkerActive
             - "true"
             - "false"
+          PATHFINDER_PROOF_ASSET_SCAN_WORKER_ALLOWED_OBJECT_KEY: !If
+            - ProofAssetScanWorkerActive
+            - !Ref ProofAssetScanWorkerAllowedObjectKey
+            - ""
+          PATHFINDER_PROOF_ASSET_SCAN_WORKER_EXPIRES_AT: !If
+            - ProofAssetScanWorkerActive
+            - !Ref ProofAssetScanWorkerExpiresAt
+            - ""
 
   ProofAssetScanWorkerEventSource:
     Condition: ProofAssetScanWorkerActive
@@ -639,7 +661,7 @@ Resources:
             bucketName:
               - !Ref ProofAssetBucketName
             objectKey:
-              - prefix: orders/
+              - !Ref ProofAssetScanWorkerAllowedObjectKey
       State: ENABLED
       Targets:
         - Arn: !GetAtt ProofAssetScanWorkerQueue.Arn

@@ -19,6 +19,10 @@ import { emitProofMetric } from "./telemetry.js";
 const ACCOUNT_ID = /^[0-9]{12}$/;
 const REGION = /^[a-z]{2}-[a-z]+-[0-9]$/;
 const MESSAGE_ID = /^[A-Za-z0-9_-]{1,80}$/;
+const OBJECT_KEY =
+  /^orders\/A[0-9]{7,8}\/tasks\/[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\/revisions\/prevision_[a-f0-9]{64}\/source\/passet_[a-f0-9]{64}\/[A-Za-z0-9][A-Za-z0-9._() -]{0,239}$/;
+const UTC_EXPIRY = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{3})?Z$/;
+const MAXIMUM_ACTIVATION_WINDOW_MS = 4 * 60 * 60 * 1_000;
 const OBSERVATION_KEYS = [
   "bucket_name",
   "event_id",
@@ -52,6 +56,8 @@ export interface ProofAssetScanWorkerConfig {
   account_id: string;
   region: string;
   bucket_name: string;
+  allowed_object_key: string;
+  expires_at: string;
 }
 
 export interface ProofAssetScanWorkerDependencies {
@@ -66,8 +72,28 @@ export function getProofAssetScanWorkerConfig(
     enabled: env.PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER === "true",
     account_id: env.PATHFINDER_PROOF_ASSET_SCAN_ACCOUNT_ID?.trim() ?? "",
     region: env.PATHFINDER_PROOF_ASSET_SCAN_REGION?.trim() ?? "",
-    bucket_name: env.PATHFINDER_PROOF_ASSET_BUCKET?.trim() ?? ""
+    bucket_name: env.PATHFINDER_PROOF_ASSET_BUCKET?.trim() ?? "",
+    allowed_object_key:
+      env.PATHFINDER_PROOF_ASSET_SCAN_WORKER_ALLOWED_OBJECT_KEY?.trim() ?? "",
+    expires_at: env.PATHFINDER_PROOF_ASSET_SCAN_WORKER_EXPIRES_AT?.trim() ?? ""
   };
+}
+
+function assertActiveConfig(config: ProofAssetScanWorkerConfig, now: number) {
+  const expiry = Date.parse(config.expires_at);
+  if (
+    !config.enabled ||
+    !ACCOUNT_ID.test(config.account_id) ||
+    !REGION.test(config.region) ||
+    !config.bucket_name ||
+    !OBJECT_KEY.test(config.allowed_object_key) ||
+    !UTC_EXPIRY.test(config.expires_at) ||
+    !Number.isFinite(expiry) ||
+    expiry <= now ||
+    expiry > now + MAXIMUM_ACTIVATION_WINDOW_MS
+  ) {
+    throw new Error("ProofAssetScanWorkerDisabled");
+  }
 }
 
 function exactKeys(value: object, expected: string) {
@@ -100,7 +126,8 @@ function scanMessage(body: string | undefined, config: ProofAssetScanWorkerConfi
     !observation ||
     typeof observation !== "object" ||
     !exactKeys(observation, OBSERVATION_KEYS) ||
-    observation.bucket_name !== config.bucket_name
+    observation.bucket_name !== config.bucket_name ||
+    observation.object_key !== config.allowed_object_key
   ) {
     throw new Error("CrossBoundProofAssetScanMessage");
   }
@@ -209,14 +236,7 @@ export function createProofAssetScanWorkerHandler(
         ? record.messageId!
         : "invalid-message";
       try {
-        if (
-          !config.enabled ||
-          !ACCOUNT_ID.test(config.account_id) ||
-          !REGION.test(config.region) ||
-          !config.bucket_name
-        ) {
-          throw new Error("ProofAssetScanWorkerDisabled");
-        }
+        assertActiveConfig(config, dependencies.now?.() ?? Date.now());
         await dependencies.observeScan(scanMessage(record.body, config));
         emitProofMetric({
           service: "asset-worker",

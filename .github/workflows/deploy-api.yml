@@ -175,7 +175,9 @@ jobs:
               ProofAssetUploadExpiresAt="${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT || '' }}" \
               ProofAssetBucketName="${{ vars.PATHFINDER_PROOF_ASSET_BUCKET || '' }}" \
               ProofAssetBucketArn="${{ vars.PATHFINDER_PROOF_ASSET_BUCKET_ARN || '' }}" \
-              ProofAssetScanWorkerEnabled="${{ vars.PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER || 'false' }}"
+              ProofAssetScanWorkerEnabled="${{ vars.PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER || 'false' }}" \
+              ProofAssetScanWorkerAllowedObjectKey="${{ vars.PATHFINDER_PROOF_ASSET_SCAN_WORKER_ALLOWED_OBJECT_KEY || '' }}" \
+              ProofAssetScanWorkerExpiresAt="${{ vars.PATHFINDER_PROOF_ASSET_SCAN_WORKER_EXPIRES_AT || '' }}"
 
       - name: Show stack outputs
         run: |

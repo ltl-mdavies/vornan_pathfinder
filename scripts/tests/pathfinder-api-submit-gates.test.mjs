@@ -258,9 +258,15 @@ test("operator revised-art upload stays independently dark and exact-bucket scop
 
 test("Proof asset scan processing is dark, sanitized, queued, and least-privilege", () => {
   assert.match(template, /ProofAssetScanWorkerEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /ProofAssetScanWorkerAllowedObjectKey:[\s\S]*?Default: ""/);
   assert.match(
     template,
-    /ProofAssetScanWorkerRequiresDurableIsolation:[\s\S]*?!Ref ProofCoreTableName[\s\S]*?!Ref ProofAuditTableArn[\s\S]*?!Ref ProofAssetBucketName[\s\S]*?!Ref ProofAssetBucketArn/
+    /ProofAssetScanWorkerAllowedObjectKey:[\s\S]*?orders\/A\[0-9\]\{7,8\}[\s\S]*?prevision_\[a-f0-9\]\{64\}[\s\S]*?\/source\/passet_\[a-f0-9\]\{64\}[\s\S]*?A-Za-z0-9\._\(\) -/
+  );
+  assert.match(template, /ProofAssetScanWorkerExpiresAt:[\s\S]*?Default: ""[\s\S]*?AllowedPattern:/);
+  assert.match(
+    template,
+    /ProofAssetScanWorkerRequiresDurableIsolation:[\s\S]*?!Ref ProofCoreTableName[\s\S]*?!Ref ProofAuditTableArn[\s\S]*?!Ref ProofAssetBucketName[\s\S]*?!Ref ProofAssetBucketArn[\s\S]*?!Ref ProofAssetScanWorkerAllowedObjectKey[\s\S]*?!Ref ProofAssetScanWorkerExpiresAt/
   );
   assert.match(template, /ProofAssetScanWorkerDeadLetterQueue:[\s\S]*?SqsManagedSseEnabled: true/);
   assert.match(
@@ -269,7 +275,7 @@ test("Proof asset scan processing is dark, sanitized, queued, and least-privileg
   );
   assert.match(
     template,
-    /ProofAssetScanEventRule:[\s\S]*?GuardDuty Malware Protection Object Scan Result[\s\S]*?bucketName:[\s\S]*?!Ref ProofAssetBucketName[\s\S]*?prefix: orders\//
+    /ProofAssetScanEventRule:[\s\S]*?GuardDuty Malware Protection Object Scan Result[\s\S]*?bucketName:[\s\S]*?!Ref ProofAssetBucketName[\s\S]*?objectKey:[\s\S]*?!Ref ProofAssetScanWorkerAllowedObjectKey/
   );
   assert.match(
     template,
@@ -301,12 +307,20 @@ test("Proof asset scan processing is dark, sanitized, queued, and least-privileg
     /PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER: !If[\s\S]*?- ProofAssetScanWorkerActive[\s\S]*?- "true"[\s\S]*?- "false"/
   );
   assert.match(
+    template,
+    /PATHFINDER_PROOF_ASSET_SCAN_WORKER_ALLOWED_OBJECT_KEY: !If[\s\S]*?!Ref ProofAssetScanWorkerAllowedObjectKey[\s\S]*?PATHFINDER_PROOF_ASSET_SCAN_WORKER_EXPIRES_AT: !If[\s\S]*?!Ref ProofAssetScanWorkerExpiresAt/
+  );
+  assert.match(
     workflow,
     /ProofAssetScanWorkerEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER \|\| 'false' \}\}"/
   );
+  assert.match(workflow, /ProofAssetScanWorkerAllowedObjectKey="\$\{\{ vars\.PATHFINDER_PROOF_ASSET_SCAN_WORKER_ALLOWED_OBJECT_KEY \|\| '' \}\}"/);
+  assert.match(workflow, /ProofAssetScanWorkerExpiresAt="\$\{\{ vars\.PATHFINDER_PROOF_ASSET_SCAN_WORKER_EXPIRES_AT \|\| '' \}\}"/);
   assert.match(
     deployScript,
     /ProofAssetScanWorkerEnabled="\$\{PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER:-false\}"/
   );
+  assert.match(deployScript, /ProofAssetScanWorkerAllowedObjectKey="\$\{PATHFINDER_PROOF_ASSET_SCAN_WORKER_ALLOWED_OBJECT_KEY:-\}"/);
+  assert.match(deployScript, /ProofAssetScanWorkerExpiresAt="\$\{PATHFINDER_PROOF_ASSET_SCAN_WORKER_EXPIRES_AT:-\}"/);
   assert.match(template, /PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"/);
 });
