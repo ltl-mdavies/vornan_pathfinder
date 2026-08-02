@@ -13,11 +13,18 @@ import {
 
 process.env.PATHFINDER_PROOF_TELEMETRY_MODE = "off";
 
+const NOW = Date.parse("2026-08-02T12:00:00.000Z");
+const ALLOWED_OBJECT_KEY =
+  `orders/A0226753/tasks/task-1/revisions/prevision_${"b".repeat(64)}/source/` +
+  `passet_${"a".repeat(64)}/Revised Artwork (Final).pdf`;
+
 const config: ProofAssetScanWorkerConfig = {
   enabled: true,
   account_id: "744016783602",
   region: "us-east-1",
-  bucket_name: "vornan-pathfinder-proof-assets-dev-744016783602"
+  bucket_name: "vornan-pathfinder-proof-assets-dev-744016783602",
+  allowed_object_key: ALLOWED_OBJECT_KEY,
+  expires_at: "2026-08-02T15:59:59.000Z"
 };
 
 function body(overrides: Record<string, unknown> = {}) {
@@ -29,9 +36,7 @@ function body(overrides: Record<string, unknown> = {}) {
       event_id: "72c7d362-737a-6dce-fc78-9e27a0171419",
       occurred_at: "2026-08-02T12:00:00.000Z",
       bucket_name: config.bucket_name,
-      object_key:
-        "orders/A0226753/tasks/task-1/revisions/revision-1/source/" +
-        `passet_${"a".repeat(64)}/revision.pdf`,
+      object_key: ALLOWED_OBJECT_KEY,
       object_version_id: "version-1",
       scan_result: "NO_THREATS_FOUND",
       ...overrides
@@ -42,7 +47,7 @@ function body(overrides: Record<string, unknown> = {}) {
 test("keeps the asset worker dark before parsing or durable scan work", async () => {
   let calls = 0;
   const handler = createProofAssetScanWorkerHandler(
-    { observeScan: async () => { calls += 1; } },
+    { observeScan: async () => { calls += 1; }, now: () => NOW },
     () => ({ ...config, enabled: false })
   );
   const result = await handler({
@@ -57,7 +62,7 @@ test("keeps the asset worker dark before parsing or durable scan work", async ()
 test("accepts only the exact sanitized account, region, bucket, and observation", async () => {
   const observations: unknown[] = [];
   const handler = createProofAssetScanWorkerHandler(
-    { observeScan: async (observation) => { observations.push(observation); } },
+    { observeScan: async (observation) => { observations.push(observation); }, now: () => NOW },
     () => config
   );
   assert.deepEqual(
@@ -70,6 +75,7 @@ test("accepts only the exact sanitized account, region, bucket, and observation"
     JSON.stringify({ account: "111122223333", region: config.region, observation: JSON.parse(body()).observation }),
     JSON.stringify({ account: config.account_id, region: "us-west-2", observation: JSON.parse(body()).observation }),
     body({ bucket_name: "vornan-pathfinder-proof-assets-qa-744016783602" }),
+    body({ object_key: `${ALLOWED_OBJECT_KEY}.substituted` }),
     JSON.stringify({
       account: config.account_id,
       region: config.region,
@@ -86,6 +92,46 @@ test("accepts only the exact sanitized account, region, bucket, and observation"
   assert.equal(observations.length, 1);
 });
 
+test("requires one exact object key and a live activation window of at most four hours", async () => {
+  let calls = 0;
+  const unsafeConfigs = [
+    { ...config, allowed_object_key: "" },
+    { ...config, allowed_object_key: "malware-protection-resource-validation-object" },
+    {
+      ...config,
+      allowed_object_key:
+        `orders/A0226753/tasks/task-1/revisions/prevision_${"b".repeat(64)}/outbound/` +
+        `ppublication_${"c".repeat(64)}/Revised Artwork (Final).pdf`
+    },
+    {
+      ...config,
+      allowed_object_key:
+        `orders/A0226753/tasks/task-1/revisions/prevision_${"b".repeat(64)}/source/` +
+        `passet_${"a".repeat(64)}/../Revised Artwork.pdf`
+    },
+    {
+      ...config,
+      allowed_object_key:
+        `orders/__proof_guardduty_qa__/pqa_${"d".repeat(64)}/benign.pdf`
+    },
+    { ...config, expires_at: "" },
+    { ...config, expires_at: "2026-08-02T12:00:00.000Z" },
+    { ...config, expires_at: "2026-08-02T16:00:00.001Z" },
+    { ...config, expires_at: "2026-08-02 15:00:00Z" }
+  ];
+  for (const unsafe of unsafeConfigs) {
+    const handler = createProofAssetScanWorkerHandler(
+      { observeScan: async () => { calls += 1; }, now: () => NOW },
+      () => unsafe
+    );
+    assert.deepEqual(
+      await handler({ Records: [{ messageId: "message-bounded", body: body() }] }),
+      { batchItemFailures: [{ itemIdentifier: "message-bounded" }] }
+    );
+  }
+  assert.equal(calls, 0);
+});
+
 test("reports only the failed SQS item so successful scan events are not replayed", async () => {
   const seen: string[] = [];
   const handler = createProofAssetScanWorkerHandler(
@@ -93,7 +139,8 @@ test("reports only the failed SQS item so successful scan events are not replaye
       observeScan: async (observation) => {
         seen.push(observation.event_id);
         if (observation.scan_result === "FAILED") throw new Error("synthetic failure");
-      }
+      },
+      now: () => NOW
     },
     () => config
   );
@@ -135,9 +182,7 @@ test("preserves GuardDuty tags and verifies an exact lifecycle update on one obj
   await writer({
     record: {
       bucket_name: config.bucket_name,
-      source_key:
-        "orders/A0226753/tasks/task-1/revisions/revision-1/source/" +
-        `passet_${"a".repeat(64)}/revision.pdf`
+      source_key: ALLOWED_OBJECT_KEY
     } as ProofAssetUploadRecord,
     object_version_id: "version-1",
     lifecycle: "retained-source"
@@ -165,9 +210,7 @@ test("fails closed when the object tag does not match the scan lifecycle", async
     writer({
       record: {
         bucket_name: config.bucket_name,
-        source_key:
-          "orders/A0226753/tasks/task-1/revisions/revision-1/source/" +
-          `passet_${"a".repeat(64)}/revision.pdf`
+        source_key: ALLOWED_OBJECT_KEY
       } as ProofAssetUploadRecord,
       object_version_id: "version-1",
       lifecycle: "retained-source"
