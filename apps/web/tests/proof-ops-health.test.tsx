@@ -51,6 +51,18 @@ const deployedHealth: ProofIntegrationHealth = {
     target_id: "lift-standard-graphics",
     environment_id: "env-lift-prod",
     automatic_retry: false
+  },
+  revised_art_upload: {
+    enabled: false,
+    bucket_configured: true,
+    allowed_order_numbers: [],
+    activation_expires_at: null,
+    maximum_bytes: 1024 * 1024 * 1024,
+    allowed_content_types: ["application/pdf"],
+    upload_ticket_seconds: 600,
+    scan_enabled: false,
+    publication_enabled: false,
+    lift_resolution_enabled: false
   }
 };
 

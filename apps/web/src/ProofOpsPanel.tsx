@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, CircleAlert, ClipboardCheck, Copy, Database, History, Link2, LockKeyhole, Mail, Network, Plus, RefreshCw, ShieldCheck, Unlink, UserRound, X } from "lucide-react";
+import { CheckCircle2, CircleAlert, ClipboardCheck, Copy, Database, FileCheck2, History, Link2, LockKeyhole, Mail, Network, Plus, RefreshCw, ShieldCheck, Unlink, UploadCloud, UserRound, X } from "lucide-react";
 import { proofReadOnlyPosture, type ProofIntegrationHealth } from "./proof-ops-health";
+import {
+  assertPrivateProofUploadDestination,
+  buildProofUploadForm,
+  proofUploadContentType,
+  sanitizeProofUploadFilename,
+  sha256ProofUpload
+} from "./proof-asset-upload";
 
 interface ProofGrant {
   grant_id: string;
@@ -58,6 +65,24 @@ interface ProofTaskSummary {
   } | null;
 }
 
+interface ProofAssetUploadSummary {
+  asset_id: string;
+  revision_id: string;
+  order_number: string;
+  task_id: string;
+  attachment_id: string;
+  original_filename: string;
+  content_type: string;
+  content_length: number;
+  sha256: string;
+  state: "initialized" | "uploading" | "uploaded" | "verifying" | "scan_pending" | "ready_for_lift";
+  record_version: number;
+  initialized_at: string;
+  upload_completed_at: string | null;
+  verification_status: "pending" | "quarantined" | "cleared";
+  publication_status: "not_started" | "published" | "delivery_verified";
+}
+
 export type ProofActionDraftKind =
   | "APPROVE"
   | "REJECT"
@@ -109,7 +134,7 @@ export function buildProofActionDraft(input: {
     !/^passet_[a-f0-9]{64}$/.test(revisionAssetId ?? "")
   ) {
     throw new Error(
-      "Revised art requires a verified Pathfinder Proof upload. Upload support is not available in this release."
+      "Revised art requires a verified Pathfinder Proof upload that has completed scanning, publication, and delivery settling."
     );
   }
   const comment = input.comment.trim();
@@ -188,6 +213,12 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   const [approveQuantity, setApproveQuantity] = useState(1);
   const [proofComment, setProofComment] = useState("");
   const [revisionAssetId, setRevisionAssetId] = useState("");
+  const [revisionUploadFile, setRevisionUploadFile] = useState<File | null>(null);
+  const [revisionUploadProgress, setRevisionUploadProgress] = useState(0);
+  const [revisionUploadState, setRevisionUploadState] = useState<
+    "idle" | "hashing" | "uploading" | "finalizing" | "pending_verification" | "error"
+  >("idle");
+  const [revisionUploadAsset, setRevisionUploadAsset] = useState<ProofAssetUploadSummary | null>(null);
   const [preparedAction, setPreparedAction] = useState<{
     request: Record<string, unknown>;
     confirmation_phrase: string;
@@ -200,6 +231,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     task_state: string | null;
   } | null>(null);
   const operatorActionInFlight = useRef(false);
+  const revisionUploadKeys = useRef(new Map<string, string>());
 
   const request = (path: string, init?: RequestInit) => {
     const headers = new Headers(init?.headers);
@@ -225,6 +257,10 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     setProofAction("APPROVE");
     setProofComment("");
     setRevisionAssetId("");
+    setRevisionUploadFile(null);
+    setRevisionUploadProgress(0);
+    setRevisionUploadState("idle");
+    setRevisionUploadAsset(null);
   }, [order]);
 
   useEffect(() => {
@@ -484,6 +520,146 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     }
   }
 
+  async function uploadRevisedArt() {
+    if (!order || !selectedTask || !revisionUploadFile || operatorActionInFlight.current) return;
+    const uploadConfig = health?.revised_art_upload;
+    if (
+      !uploadConfig?.enabled ||
+      !uploadConfig.bucket_configured ||
+      !uploadConfig.allowed_order_numbers.includes(order.order_number)
+    ) {
+      setMessage("Revised-art upload is outside the current bounded operator window.");
+      return;
+    }
+    if (!selectedTask.attachment_id || !selectedTask.current_version) {
+      setMessage("Choose a current actionable proof before uploading revised art.");
+      return;
+    }
+    const contentType = proofUploadContentType(revisionUploadFile);
+    if (!uploadConfig.allowed_content_types.includes(contentType)) {
+      setMessage("This revised-art file type is not allowed by the reviewed upload policy.");
+      return;
+    }
+    if (revisionUploadFile.size < 1 || revisionUploadFile.size > uploadConfig.maximum_bytes) {
+      setMessage(`Revised art must be smaller than ${Math.round(uploadConfig.maximum_bytes / 1024 / 1024)} MB.`);
+      return;
+    }
+    operatorActionInFlight.current = true;
+    setMessage(null);
+    setRevisionUploadAsset(null);
+    setRevisionAssetId("");
+    setRevisionUploadProgress(0);
+    try {
+      const safeFilename = sanitizeProofUploadFilename(revisionUploadFile.name);
+      setRevisionUploadState("hashing");
+      const digest = await sha256ProofUpload(revisionUploadFile, (completed) => {
+        setRevisionUploadProgress(Math.round((completed / revisionUploadFile.size) * 100));
+      });
+      const fileIdentity = [
+        order.order_number,
+        selectedTask.task_id,
+        selectedTask.attachment_id,
+        safeFilename,
+        revisionUploadFile.size,
+        revisionUploadFile.lastModified,
+        digest
+      ].join("\0");
+      let idempotencyKey = revisionUploadKeys.current.get(fileIdentity);
+      if (!idempotencyKey) {
+        idempotencyKey = `proof-upload-${crypto.randomUUID()}`;
+        revisionUploadKeys.current.set(fileIdentity, idempotencyKey);
+      }
+      const prepared = await responseJson<{
+        asset: ProofAssetUploadSummary;
+        upload: {
+          method: "POST";
+          url: string;
+          fields: Record<string, string>;
+          expires_at: string;
+        };
+      }>(
+        await request("/api/proof/operator-assets/uploads/prepare", {
+          method: "POST",
+          body: JSON.stringify({
+            order_number: order.order_number,
+            task_id: selectedTask.task_id,
+            attachment_id: selectedTask.attachment_id,
+            idempotency_key: idempotencyKey,
+            original_filename: safeFilename,
+            content_type: contentType,
+            content_length: revisionUploadFile.size,
+            sha256: digest
+          })
+        })
+      );
+      if (Date.parse(prepared.upload.expires_at) <= Date.now()) {
+        throw new Error("The revised-art upload ticket expired before use. Try again.");
+      }
+      setRevisionUploadState("uploading");
+      const uploaded = await fetch(assertPrivateProofUploadDestination(prepared.upload.url), {
+        method: "POST",
+        body: buildProofUploadForm(prepared.upload.fields, revisionUploadFile, safeFilename),
+        redirect: "error",
+        credentials: "omit",
+        referrerPolicy: "no-referrer"
+      });
+      if (uploaded.status !== 201) {
+        throw new Error("Private revised-art storage did not accept the exact upload ticket.");
+      }
+      setRevisionUploadState("finalizing");
+      const finalized = await responseJson<{ asset: ProofAssetUploadSummary }>(
+        await request("/api/proof/operator-assets/uploads/finalize", {
+          method: "POST",
+          body: JSON.stringify({
+            order_number: order.order_number,
+            asset_id: prepared.asset.asset_id
+          })
+        })
+      );
+      setRevisionUploadAsset(finalized.asset);
+      setRevisionUploadState("pending_verification");
+      setMessage("Revised art is fully uploaded and finalized. It remains unavailable to Lift until scanning, publication, direct-delivery verification, and settling are complete.");
+      await loadAudit(order.order_number).catch(() => undefined);
+    } catch (error) {
+      setRevisionUploadState("error");
+      setMessage(error instanceof Error ? error.message : "Revised art could not be uploaded.");
+    } finally {
+      operatorActionInFlight.current = false;
+    }
+  }
+
+  async function inspectRevisedArtReadiness() {
+    if (!order || !revisionUploadAsset || operatorActionInFlight.current) return;
+    operatorActionInFlight.current = true;
+    setMessage(null);
+    try {
+      const payload = await responseJson<{ asset: ProofAssetUploadSummary }>(
+        await request(
+          `/api/proof/operator-assets/uploads/${encodeURIComponent(order.order_number)}/${encodeURIComponent(revisionUploadAsset.asset_id)}`
+        )
+      );
+      setRevisionUploadAsset(payload.asset);
+      if (
+        payload.asset.state === "ready_for_lift" &&
+        payload.asset.verification_status === "cleared" &&
+        payload.asset.publication_status === "delivery_verified"
+      ) {
+        setRevisionAssetId(payload.asset.asset_id);
+        setRevisionUploadState("pending_verification");
+        setMessage("Revised art is verified, directly deliverable, and ready to bind to one supervised action.");
+      } else {
+        setRevisionAssetId("");
+        setRevisionUploadState("pending_verification");
+        setMessage(`Revised art remains ${payload.asset.state.replaceAll("_", " ")}. No Lift action is available yet.`);
+      }
+    } catch (error) {
+      setRevisionAssetId("");
+      setMessage(error instanceof Error ? error.message : "Revised-art readiness could not be checked.");
+    } finally {
+      operatorActionInFlight.current = false;
+    }
+  }
+
   const pendingCount = order?.tasks.filter((task) => task.state === "pending").length ?? 0;
   const readOnlyPosture = health ? proofReadOnlyPosture(health) : null;
   const selectedTask = order?.tasks.find((task) => task.task_id === selectedTaskId) ?? null;
@@ -687,12 +863,78 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 <textarea value={proofComment} maxLength={2000} onChange={(event) => setProofComment(event.target.value)} placeholder="Optional note for this proof action" />
               </label>
               {proofAction === "REVISED_ART_WILL_BE_SENT" ? (
-                <div className="proof-action-art-url" role="note">
-                  <strong>Verified Proof upload required</strong>
-                  <small>
-                    Arbitrary URLs are not accepted. Revised-art execution remains
-                    unavailable until Pathfinder has fully uploaded, scanned,
-                    published, and settled the asset.
+                <div className="proof-action-art-url proof-revised-art-upload" role="group" aria-labelledby="proof-revised-art-upload-title">
+                  <div>
+                    <strong id="proof-revised-art-upload-title">Upload revised artwork</strong>
+                    <small>
+                      Pathfinder hashes the file locally, uploads it directly to private Proof storage,
+                      and verifies the immutable object before marking the upload complete.
+                    </small>
+                  </div>
+                  <label className="proof-revised-art-file">
+                    Revised-art file
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff,.psd,.ai,.eps"
+                      disabled={revisionUploadState === "hashing" || revisionUploadState === "uploading" || revisionUploadState === "finalizing"}
+                      onChange={(event) => {
+                        setRevisionUploadFile(event.target.files?.[0] ?? null);
+                        setRevisionUploadProgress(0);
+                        setRevisionUploadState("idle");
+                        setRevisionUploadAsset(null);
+                        setRevisionAssetId("");
+                      }}
+                    />
+                  </label>
+                  <div className="proof-revised-art-upload-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={
+                        !revisionUploadFile ||
+                        !selectedTask ||
+                        !health?.revised_art_upload.enabled ||
+                        !health.revised_art_upload.allowed_order_numbers.includes(order.order_number) ||
+                        ["hashing", "uploading", "finalizing"].includes(revisionUploadState)
+                      }
+                      onClick={() => void uploadRevisedArt()}
+                    >
+                      <UploadCloud size={15} />
+                      {revisionUploadState === "hashing"
+                        ? `Checking file ${revisionUploadProgress}%`
+                        : revisionUploadState === "uploading"
+                          ? "Uploading securely"
+                          : revisionUploadState === "finalizing"
+                            ? "Verifying upload"
+                            : "Upload revised art"}
+                    </button>
+                    <small>
+                      {health?.revised_art_upload.enabled
+                        ? `Bounded upload window expires ${dateLabel(health.revised_art_upload.activation_expires_at)}.`
+                        : "Uploads are default-disabled and require a separate bounded operator window."}
+                    </small>
+                  </div>
+                  {revisionUploadAsset ? (
+                    <div className="proof-revised-art-status" role="status">
+                      <FileCheck2 size={17} />
+                      <div>
+                        <strong>{revisionUploadAsset.original_filename}</strong>
+                        <span>
+                          {revisionAssetId
+                            ? "Delivery verified · revised-art action may be prepared"
+                            : `${revisionUploadAsset.state.replaceAll("_", " ")} · Lift action locked`}
+                        </span>
+                        <small>Asset {revisionUploadAsset.asset_id.slice(0, 20)}…</small>
+                      </div>
+                      <button className="secondary-button" type="button" onClick={() => void inspectRevisedArtReadiness()}>
+                        <RefreshCw size={14} /> Check readiness
+                      </button>
+                    </div>
+                  ) : null}
+                  <small className="proof-revised-art-boundary">
+                    Arbitrary URLs are never accepted. The revised-art action remains unavailable until
+                    Pathfinder records a cleared scan, immutable publication, direct HTTP 200 verification,
+                    and the required settling delay.
                   </small>
                 </div>
               ) : null}

@@ -26,7 +26,8 @@ import {
   createProofAssetUploadService,
   ProofAssetUploadServiceError,
   type ProofAssetUploadFinalizeRequest,
-  type ProofAssetUploadPrepareRequest
+  type ProofAssetUploadPrepareRequest,
+  type ProofAssetUploadStatusRequest
 } from "./asset-upload-service.js";
 import { getProofAssetUploadRuntimeConfig } from "./asset-upload-config.js";
 
@@ -158,6 +159,8 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         allowed_order_numbers: assetUpload.allowed_order_numbers,
         activation_expires_at: assetUpload.activation_expires_at,
         maximum_bytes: assetUpload.maximum_bytes,
+        allowed_content_types: assetUpload.allowed_content_types,
+        upload_ticket_seconds: assetUpload.upload_ticket_seconds,
         scan_enabled: false,
         publication_enabled: false,
         lift_resolution_enabled: false
@@ -224,6 +227,27 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
           error instanceof Error
             ? error.message
             : "Proof revised-art upload could not be prepared."
+      });
+    }
+  });
+
+  router.get("/operator-assets/uploads/:orderNumber/:assetId", async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    try {
+      assertLiftProofWritesDisabled();
+      const result = await assetUploadService.status({
+        request: {
+          order_number: req.params.orderNumber,
+          asset_id: req.params.assetId
+        } as ProofAssetUploadStatusRequest
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(errorStatus(error)).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Proof revised-art upload status could not be inspected."
       });
     }
   });

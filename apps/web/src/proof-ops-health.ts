@@ -48,6 +48,18 @@ export interface ProofIntegrationHealth {
     environment_id: "env-lift-prod";
     automatic_retry: false;
   };
+  revised_art_upload: {
+    enabled: boolean;
+    bucket_configured: boolean;
+    allowed_order_numbers: string[];
+    activation_expires_at: string | null;
+    maximum_bytes: number;
+    allowed_content_types: string[];
+    upload_ticket_seconds: number;
+    scan_enabled: false;
+    publication_enabled: false;
+    lift_resolution_enabled: false;
+  };
 }
 
 export interface ProofReadOnlyPosture {

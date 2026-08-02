@@ -114,6 +114,57 @@ test("dark upload gate denies before Lift read, persistence, or S3", async () =>
   assert.deepEqual(calls, []);
 });
 
+test("inspects only sanitized metadata inside the same bounded upload window", async () => {
+  const assetId = `passet_${"b".repeat(64)}`;
+  const record = {
+    asset_id: assetId,
+    bucket_name: config().bucket_name,
+    order_number: "A0226753",
+    task_id: "ptask_synthetic_001",
+    attachment_id: "proofing-synthetic-0001",
+    revision_id: `prevision_${"c".repeat(64)}`,
+    original_filename: "Revised Artwork.pdf",
+    declared_content_type: "application/pdf",
+    declared_content_length: 8192,
+    declared_sha256: checksum,
+    state: "uploaded",
+    record_version: 3,
+    initialized_at: "2026-08-01T12:00:00.000Z",
+    upload_completed_at: "2026-08-01T12:00:05.000Z",
+    verification_status: "pending",
+    publication_status: "not_started"
+  } as ProofAssetUploadRecord;
+  let reads = 0;
+  const service = createProofAssetUploadService({
+    runtimeConfig: () => config(),
+    now: () => now,
+    getRecord: async () => {
+      reads += 1;
+      return record;
+    }
+  });
+  const result = await service.status({
+    request: { order_number: "a0226753", asset_id: assetId }
+  });
+  assert.equal(reads, 1);
+  assert.equal(result.asset.asset_id, assetId);
+  assert.equal(result.asset.state, "uploaded");
+  assert.equal(JSON.stringify(result).includes("source_key"), false);
+
+  const dark = createProofAssetUploadService({
+    runtimeConfig: () => config(false),
+    now: () => now,
+    getRecord: async () => {
+      throw new Error("must not read");
+    }
+  });
+  await assert.rejects(
+    () => dark.status({ request: { order_number: "A0226753", asset_id: assetId } }),
+    (error: unknown) =>
+      error instanceof ProofAssetUploadServiceError && error.code === "disabled"
+  );
+});
+
 test("reserves immutable metadata before issuing one exact short-lived S3 POST", async () => {
   let stored: ProofAssetUploadRecord | null = null;
   let capturedPost: any = null;
