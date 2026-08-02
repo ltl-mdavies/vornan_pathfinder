@@ -2,8 +2,9 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Private, fail-closed Vornan asset-delivery edge. Proof uploads and Wrike Lift
   source documents use physically separate buckets and path namespaces. This
-  stack intentionally contains no upload API, signer, resolver, runtime role,
-  DNS record, or Lift integration.
+  stack intentionally contains no upload API, signer, resolver, application
+  runtime role, DNS record, or Lift integration. An optional GuardDuty service
+  role and malware-protection plan remain disabled by default.
 
 Parameters:
   EnvironmentName:
@@ -66,6 +67,14 @@ Parameters:
     Default: 1
     MinValue: 1
     MaxValue: 1
+  ProofAssetMalwareProtectionEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      Default-dark GuardDuty Malware Protection for S3 plan. When enabled, it
+      scans only newly uploaded objects under orders/ and applies the managed
+      GuardDutyMalwareScanStatus result tag.
 
 Rules:
   AssetAliasPair:
@@ -121,12 +130,24 @@ Rules:
                 - Ref: CertificateArn
                 - ""
         AssertDescription: Wrike document delivery requires the reviewed us-east-1 certificate.
+  MalwareProtectionDevOnly:
+    RuleCondition:
+      Fn::Equals:
+        - Ref: ProofAssetMalwareProtectionEnabled
+        - "true"
+    Assertions:
+      - Assert:
+          Fn::Equals:
+            - Ref: EnvironmentName
+            - dev
+        AssertDescription: Proof asset malware protection may be activated only in dev.
 
 Conditions:
   HasExplicitBucketName: !Not [!Equals [!Ref AssetBucketName, ""]]
   HasExplicitWrikeDeliveryBucketName: !Not [!Equals [!Ref WrikeDeliveryBucketName, ""]]
   HasAssetAlias: !Not [!Equals [!Ref AssetDomainName, ""]]
   WrikeDocumentDeliveryActive: !Equals [!Ref WrikeDocumentDeliveryEnabled, "true"]
+  GuardDutyMalwareProtectionActive: !Equals [!Ref ProofAssetMalwareProtectionEnabled, "true"]
 
 Resources:
   ProofAssetBucket:
@@ -216,6 +237,101 @@ Resources:
           Value: !Ref EnvironmentName
         - Key: DataBoundary
           Value: proof-uploads-only
+
+  GuardDutyMalwareProtectionRole:
+    Type: AWS::IAM::Role
+    Condition: GuardDutyMalwareProtectionActive
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: malware-protection-plan.guardduty.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: GuardDutyProofAssetMalwareProtection
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AllowManagedRuleToSendS3EventsToGuardDuty
+                Effect: Allow
+                Action:
+                  - events:PutRule
+                  - events:DeleteRule
+                  - events:PutTargets
+                  - events:RemoveTargets
+                Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*
+                Condition:
+                  StringLike:
+                    events:ManagedBy: malware-protection-plan.guardduty.amazonaws.com
+              - Sid: AllowGuardDutyToMonitorEventBridgeManagedRule
+                Effect: Allow
+                Action:
+                  - events:DescribeRule
+                  - events:ListTargetsByRule
+                Resource: !Sub arn:${AWS::Partition}:events:${AWS::Region}:${AWS::AccountId}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*
+              - Sid: AllowPostScanTag
+                Effect: Allow
+                Action:
+                  - s3:PutObjectTagging
+                  - s3:GetObjectTagging
+                  - s3:PutObjectVersionTagging
+                  - s3:GetObjectVersionTagging
+                Resource: !Sub ${ProofAssetBucket.Arn}/orders/*
+              - Sid: AllowEnableS3EventBridgeEvents
+                Effect: Allow
+                Action:
+                  - s3:PutBucketNotification
+                  - s3:GetBucketNotification
+                Resource: !GetAtt ProofAssetBucket.Arn
+              - Sid: AllowPutValidationObject
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub ${ProofAssetBucket.Arn}/malware-protection-resource-validation-object
+              - Sid: AllowCheckBucketOwnership
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt ProofAssetBucket.Arn
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - orders/
+                      - orders/*
+              - Sid: AllowMalwareScan
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource: !Sub ${ProofAssetBucket.Arn}/orders/*
+      Tags:
+        - Key: Application
+          Value: VornanProof
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Capability
+          Value: guardduty-malware-scan-only
+
+  GuardDutyMalwareProtectionPlan:
+    Type: AWS::GuardDuty::MalwareProtectionPlan
+    Condition: GuardDutyMalwareProtectionActive
+    Properties:
+      Actions:
+        Tagging:
+          Status: ENABLED
+      ProtectedResource:
+        S3Bucket:
+          BucketName: !Ref ProofAssetBucket
+          ObjectPrefixes:
+            - orders/
+      Role: !GetAtt GuardDutyMalwareProtectionRole.Arn
+      Tags:
+        - Key: Application
+          Value: VornanProof
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Capability
+          Value: proof-upload-malware-scan
 
   WrikeDocumentDeliveryBucket:
     Type: AWS::S3::Bucket
@@ -509,5 +625,22 @@ Outputs:
     Value: "false"
   ProofAssetLiftPublicationEnabled:
     Value: "false"
+  ProofAssetMalwareProtectionEnabled:
+    Value: !If [GuardDutyMalwareProtectionActive, "true", "false"]
+  GuardDutyMalwareProtectionPlanId:
+    Value: !If
+      - GuardDutyMalwareProtectionActive
+      - !GetAtt GuardDutyMalwareProtectionPlan.MalwareProtectionPlanId
+      - ""
+  GuardDutyMalwareProtectionPlanStatus:
+    Value: !If
+      - GuardDutyMalwareProtectionActive
+      - !GetAtt GuardDutyMalwareProtectionPlan.Status
+      - "DISABLED"
+  GuardDutyMalwareProtectionRoleArn:
+    Value: !If
+      - GuardDutyMalwareProtectionActive
+      - !GetAtt GuardDutyMalwareProtectionRole.Arn
+      - ""
   RetainedSourceCleanupEligibilityDays:
     Value: !Ref RetainedSourceDays

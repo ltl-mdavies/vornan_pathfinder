@@ -15,12 +15,14 @@ export PATHFINDER_PROOF_ASSET_OUTBOUND_DAYS="${PATHFINDER_PROOF_ASSET_OUTBOUND_D
 export PATHFINDER_PROOF_ASSET_PACKET_DAYS="${PATHFINDER_PROOF_ASSET_PACKET_DAYS:-30}"
 export PATHFINDER_PROOF_ASSET_UNFINALIZED_DAYS="${PATHFINDER_PROOF_ASSET_UNFINALIZED_DAYS:-7}"
 export PATHFINDER_PROOF_ASSET_INCOMPLETE_MULTIPART_DAYS="${PATHFINDER_PROOF_ASSET_INCOMPLETE_MULTIPART_DAYS:-1}"
+export PATHFINDER_PROOF_ASSET_MALWARE_PROTECTION_ENABLED="false"
 
 npm run verify:proof-assets
 
 aws cloudformation deploy \
   --stack-name "vornan-proof-assets-${PATHFINDER_PROOF_ASSET_ENVIRONMENT_NAME}" \
   --template-file infra/aws/proof-assets-cloudformation.yaml \
+  --capabilities CAPABILITY_IAM \
   --no-fail-on-empty-changeset \
   --parameter-overrides \
     EnvironmentName="${PATHFINDER_PROOF_ASSET_ENVIRONMENT_NAME}" \
@@ -33,7 +35,8 @@ aws cloudformation deploy \
     OutboundCopyDays="${PATHFINDER_PROOF_ASSET_OUTBOUND_DAYS}" \
     ProofPacketDays="${PATHFINDER_PROOF_ASSET_PACKET_DAYS}" \
     UnfinalizedUploadDays="${PATHFINDER_PROOF_ASSET_UNFINALIZED_DAYS}" \
-    IncompleteMultipartDays="${PATHFINDER_PROOF_ASSET_INCOMPLETE_MULTIPART_DAYS}"
+    IncompleteMultipartDays="${PATHFINDER_PROOF_ASSET_INCOMPLETE_MULTIPART_DAYS}" \
+    ProofAssetMalwareProtectionEnabled="false"
 
 distribution_domain="$(aws cloudformation describe-stacks \
   --stack-name "vornan-proof-assets-${PATHFINDER_PROOF_ASSET_ENVIRONMENT_NAME}" \
