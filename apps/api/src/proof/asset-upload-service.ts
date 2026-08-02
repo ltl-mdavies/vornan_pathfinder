@@ -64,6 +64,11 @@ export interface ProofAssetUploadFinalizeRequest {
   asset_id: string;
 }
 
+export interface ProofAssetUploadStatusRequest {
+  order_number: string;
+  asset_id: string;
+}
+
 export interface ProofAssetUploadServiceDependencies {
   syncOrder?: typeof syncProofOrder;
   getRecord?: typeof getProofAssetUploadRecord;
@@ -338,6 +343,30 @@ export function createProofAssetUploadService(
   const now = dependencies.now ?? (() => new Date());
 
   return {
+    async status(input: { request: ProofAssetUploadStatusRequest }) {
+      const config = requireGate(now(), runtimeConfig());
+      const orderNumber = input.request.order_number?.trim().toUpperCase();
+      const assetId = input.request.asset_id?.trim();
+      if (
+        !/^A\d{7,8}$/.test(orderNumber) ||
+        !ASSET_ID.test(assetId) ||
+        !config.allowed_order_numbers.includes(orderNumber)
+      ) {
+        throw new ProofAssetUploadServiceError(
+          "not_allowed",
+          "Proof asset inspection is outside the bounded upload window."
+        );
+      }
+      const record = await getRecord(orderNumber, assetId);
+      if (!record || record.bucket_name !== config.bucket_name) {
+        throw new ProofAssetUploadServiceError(
+          "stale",
+          "Proof asset upload metadata was not found."
+        );
+      }
+      return { asset: sanitized(record) };
+    },
+
     async prepare(input: {
       request: ProofAssetUploadPrepareRequest;
       operator_uid: string;

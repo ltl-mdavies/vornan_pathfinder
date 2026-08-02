@@ -256,7 +256,103 @@
 }
 
 .proof-action-art-url {
-  grid-column: 1 / span 2;
+  grid-column: 1 / -1;
+}
+
+.proof-revised-art-upload {
+  padding: 14px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.1fr) minmax(240px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  border: 1px solid #d4dfcf;
+  border-radius: 11px;
+  background: #f7faf4;
+}
+
+.proof-revised-art-upload > div:first-child {
+  align-self: center;
+  display: grid;
+  gap: 5px;
+}
+
+.proof-revised-art-upload strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.proof-revised-art-file {
+  color: var(--text-secondary) !important;
+}
+
+.proof-revised-art-file input[type="file"] {
+  min-height: 44px;
+  padding: 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.proof-revised-art-file input[type="file"]::file-selector-button {
+  margin-right: 8px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: #e8eee1;
+  color: #39523b;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.proof-revised-art-upload-actions {
+  display: grid;
+  gap: 6px;
+}
+
+.proof-revised-art-upload-actions .secondary-button {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.proof-revised-art-status {
+  grid-column: 1 / -1;
+  padding: 10px 11px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #cbd9c5;
+  border-radius: 9px;
+  background: #eef5e9;
+  color: #39523b;
+}
+
+.proof-revised-art-status > div {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: 2px;
+}
+
+.proof-revised-art-status .secondary-button {
+  flex: 0 0 auto;
+}
+
+.proof-revised-art-status span,
+.proof-revised-art-status small {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.proof-revised-art-boundary {
+  grid-column: 1 / -1;
+  padding-top: 2px;
+  border-top: 1px solid #dfe7db;
 }
 
 .proof-action-checkbox {
@@ -755,6 +851,15 @@
 
   .proof-action-comment,
   .proof-action-art-url {
+    grid-column: 1;
+  }
+
+  .proof-revised-art-upload {
+    grid-template-columns: 1fr;
+  }
+
+  .proof-revised-art-status,
+  .proof-revised-art-boundary {
     grid-column: 1;
   }
 
