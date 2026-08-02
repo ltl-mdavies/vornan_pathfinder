@@ -89,6 +89,10 @@ test("grants the GuardDuty service role only the documented exact-bucket boundar
   assert.match(template, /DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3\*/);
   assert.match(template, /events:ManagedBy: malware-protection-plan\.guardduty\.amazonaws\.com/);
   assert.match(template, /malware-protection-resource-validation-object/);
+  assert.match(
+    template,
+    /Sid: AllowCheckBucketOwnership\n\s+Effect: Allow\n\s+Action: s3:ListBucket\n\s+Resource: !GetAtt ProofAssetBucket\.Arn\n\s+- Sid: AllowMalwareScan/
+  );
   assert.doesNotMatch(template, /kms:Decrypt|kms:GenerateDataKey|s3:DeleteObject/);
   assert.equal((template.match(/Type: AWS::IAM::Role/g) ?? []).length, 1);
 });
