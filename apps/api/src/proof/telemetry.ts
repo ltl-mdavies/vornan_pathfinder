@@ -26,7 +26,7 @@ const SAFE_TASK_OPERATIONS = [
 ] as const;
 
 interface MetricEnvelopeInput {
-  service: "public-api" | "sync-worker" | "operator-admin";
+  service: "public-api" | "sync-worker" | "operator-admin" | "asset-worker";
   operation: string;
   duration_ms: number;
   server_error: boolean;

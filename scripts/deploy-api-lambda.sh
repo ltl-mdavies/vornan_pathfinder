@@ -82,7 +82,8 @@ aws cloudformation deploy \
     ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \
     ProofAssetUploadExpiresAt="${PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT:-}" \
     ProofAssetBucketName="${PATHFINDER_PROOF_ASSET_BUCKET:-}" \
-    ProofAssetBucketArn="${PATHFINDER_PROOF_ASSET_BUCKET_ARN:-}"
+    ProofAssetBucketArn="${PATHFINDER_PROOF_ASSET_BUCKET_ARN:-}" \
+    ProofAssetScanWorkerEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER:-false}"
 
 echo "Stack outputs:"
 aws cloudformation describe-stacks \
