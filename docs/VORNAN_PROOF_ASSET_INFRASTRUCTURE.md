@@ -167,6 +167,59 @@ returned dark before publication/resolver work begins. Customer uploads,
 malicious-file tests, asset publication, revised-art delivery, and every Lift
 action remain separate gates.
 
+### Read-only post-scan evidence reconciliation
+
+After one separately approved scan-worker activation has processed its exact
+non-customer object, run the post-scan reconciler before closing the worker
+window. It first reuses the full `active` evaluator, then performs only exact,
+consistent reads of the approved ProofCore record, its six deterministic audit
+milestones, and the approved S3 object version's metadata and tags. It also
+derives the exact outbound publication key and requires that no object version
+or delete marker exists at that key.
+
+The caller must supply the same approved object key and expiry plus the exact
+S3 version ID and SHA-256 observed during the controlled upload/finalization
+session:
+
+```bash
+PATHFINDER_PROOF_SCAN_WORKER_ALLOWED_OBJECT_KEY="orders/A0000000/tasks/approved-task/revisions/prevision_<64-lowercase-hex>/source/passet_<64-lowercase-hex>/safe-file.pdf" \
+PATHFINDER_PROOF_SCAN_WORKER_EXPIRES_AT="2026-08-02T22:00:00Z" \
+PATHFINDER_PROOF_SCAN_EVIDENCE_OBJECT_VERSION_ID="exact-s3-version-id" \
+PATHFINDER_PROOF_SCAN_EVIDENCE_SHA256="<64-lowercase-hex>" \
+npm run reconcile:proof-asset-scan-worker
+```
+
+Success requires all of the following:
+
+- worker rule, mapping, Lambda environment, gates, plan, and empty queues still
+  match the exact bounded active contract before and after evidence collection;
+- the exact order profile remains in LTL Demo customer `1249`, with the same
+  current actionable task, attachment, and Proof version as the asset record;
+- the durable asset is version 6 at `scan_pending`, cleared, and
+  `no_threats_found`, with no publication or delivery fields populated;
+- all six upload/verification/scan audit milestones exist exactly once and the
+  three system scan milestones share one opaque correlation;
+- the exact S3 version matches the durable checksum, content type, length,
+  AES256 encryption metadata, immutable Proof identity metadata, GuardDuty
+  `NO_THREATS_FOUND`, and `proof-lifecycle=retained-source`; and
+- no outbound publication object version or delete marker exists.
+
+Every S3 read is bound to AWS account `744016783602`, and an incomplete or
+paginated outbound-version inventory fails closed rather than claiming absence.
+
+Output contains only digests, bounded timestamps, booleans, and counts. It does
+not print raw object keys, S3 version IDs, filenames, audit IDs, order/task/
+attachment identifiers, or metadata. `scan_evidence_recomputed` remains false:
+the raw EventBridge event ID is intentionally not retained, so this reconciler
+proves mutual durable consistency but does not claim to reconstruct the
+event-level evidence digest independently.
+
+The reconciler performs no DynamoDB query/scan or write, object-body read,
+Secrets Manager/log read, object write/delete, change-set execution,
+publication, customer route, or Lift operation. Reconciliation success still
+does not authorize publication. Close and verify the worker window separately
+before starting any later capability.
+
 ## Storage layout contract
 
 Future upload code must use the versioned contract in

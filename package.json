@@ -35,6 +35,7 @@
     "preflight:proof-asset-scan-worker": "node scripts/proof-asset-scan-worker-activation-qa.mjs preflight",
     "review:proof-asset-scan-worker": "node scripts/proof-asset-scan-worker-activation-qa.mjs review",
     "active:proof-asset-scan-worker": "node scripts/proof-asset-scan-worker-activation-qa.mjs active",
+    "reconcile:proof-asset-scan-worker": "node scripts/proof-asset-scan-worker-evidence-reconcile.mjs",
     "closure:proof-asset-scan-worker": "node scripts/proof-asset-scan-worker-activation-qa.mjs closure",
     "smoke:proof-read-only": "node scripts/smoke-proof-read-only.mjs",
     "qa:proof-synthetic": "node --import tsx/esm scripts/proof-synthetic-lifecycle-qa.ts run",
