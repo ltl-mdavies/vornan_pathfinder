@@ -278,6 +278,30 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
     Description: Required bounded ISO timestamp after which operator Proof action execution fails closed.
+  ProofAssetUploadEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled authenticated operator gate for bounded revised-art uploads.
+  ProofAssetUploadAllowedOrders:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^A[0-9]{7,8}(,A[0-9]{7,8}){0,24}$"
+    Description: Exact comma-separated LTL Demo orders approved for revised-art upload QA.
+  ProofAssetUploadExpiresAt:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+    Description: Required bounded UTC expiry for revised-art upload QA.
+  ProofAssetBucketName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^vornan-pathfinder-proof-assets-[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    Description: Existing private Proof asset bucket; no bucket is created by the API stack.
+  ProofAssetBucketArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:aws[a-zA-Z-]*:s3:::vornan-pathfinder-proof-assets-[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
   ProofGrantCreationEnabled:
     Type: String
     Default: "false"
@@ -339,6 +363,27 @@ Rules:
         AssertDescription: Operator Proof action QA cannot be combined with customer grant creation.
       - Assert: !Equals [!Ref ProofLinkEmailEnabled, "false"]
         AssertDescription: Operator Proof action QA cannot be combined with Proof link email delivery.
+  ProofAssetUploadRequiresDurableIsolation:
+    RuleCondition: !Equals [!Ref ProofAssetUploadEnabled, "true"]
+    Assertions:
+      - Assert: !And
+          - !Not [!Equals [!Ref ProofCoreTableName, ""]]
+          - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableName, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
+        AssertDescription: Proof asset upload requires the dedicated Proof core and audit tables.
+      - Assert: !And
+          - !Not [!Equals [!Ref ProofAssetBucketName, ""]]
+          - !Not [!Equals [!Ref ProofAssetBucketArn, ""]]
+        AssertDescription: Proof asset upload requires the exact existing private bucket name and ARN.
+      - Assert: !Not [!Equals [!Ref ProofAssetUploadAllowedOrders, ""]]
+        AssertDescription: Proof asset upload requires an exact nonempty order allowlist.
+      - Assert: !Not [!Equals [!Ref ProofAssetUploadExpiresAt, ""]]
+        AssertDescription: Proof asset upload requires a bounded UTC expiry.
+      - Assert: !Equals [!Ref ProofGrantCreationEnabled, "false"]
+        AssertDescription: Operator asset upload cannot be combined with customer grant creation.
+      - Assert: !Equals [!Ref ProofLinkEmailEnabled, "false"]
+        AssertDescription: Operator asset upload cannot be combined with Proof link email delivery.
   ProofTablesMustBeConfiguredTogether:
     Assertions:
       - Assert: !Or
@@ -379,6 +424,12 @@ Conditions:
   HasProofTables: !And
     - !Condition HasProofCoreTable
     - !Condition HasProofAuditTable
+  HasProofAssetBucket: !And
+    - !Not [!Equals [!Ref ProofAssetBucketName, ""]]
+    - !Not [!Equals [!Ref ProofAssetBucketArn, ""]]
+  ProofAssetUploadActive: !And
+    - !Condition HasProofAssetBucket
+    - !Equals [!Ref ProofAssetUploadEnabled, "true"]
   HasWrikeLiftDocumentDeliveryBucket: !Not [!Equals [!Ref WrikeLiftDocumentDeliveryBucketName, ""]]
 
 Resources:
@@ -495,6 +546,16 @@ Resources:
                   Resource:
                     - !Ref ProofCoreTableArn
                     - !Ref ProofAuditTableArn
+                - !Ref "AWS::NoValue"
+              - !If
+                - ProofAssetUploadActive
+                - Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:GetObjectTagging
+                    - s3:PutObject
+                    - s3:PutObjectTagging
+                  Resource: !Sub "${ProofAssetBucketArn}/orders/*"
                 - !Ref "AWS::NoValue"
               - Effect: Allow
                 Action:
@@ -622,6 +683,10 @@ Resources:
           PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA: !Ref ProofOperatorActionQaEnabled
           PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS: !Ref ProofOperatorActionAllowedOrders
           PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT: !Ref ProofOperatorActionExpiresAt
+          PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !Ref ProofAssetUploadEnabled
+          PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !Ref ProofAssetUploadAllowedOrders
+          PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !Ref ProofAssetUploadExpiresAt
+          PATHFINDER_PROOF_ASSET_BUCKET: !If [HasProofAssetBucket, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"]
 
   PathfinderCustomersTable:
     Type: AWS::DynamoDB::Table

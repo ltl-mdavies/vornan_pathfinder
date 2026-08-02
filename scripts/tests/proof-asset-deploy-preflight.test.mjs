@@ -86,6 +86,11 @@ test("provisions a retained private encrypted versioned object-lock bucket", () 
   for (const property of ["BlockPublicAcls", "BlockPublicPolicy", "IgnorePublicAcls", "RestrictPublicBuckets"]) {
     assert.match(template, new RegExp(`${property}: true`));
   }
+  assert.match(
+    template,
+    /CorsConfiguration:[\s\S]*?AllowedMethods:\n\s+- POST[\s\S]*?https:\/\/pathfinder\.vornan\.co[\s\S]*?x-amz-version-id[\s\S]*?x-amz-checksum-sha256[\s\S]*?MaxAge: 600/
+  );
+  assert.doesNotMatch(template, /AllowedMethods:[\s\S]{0,100}- (PUT|DELETE)/);
 });
 
 test("keeps Wrike Lift delivery in a separate retained private 14-day bucket", () => {

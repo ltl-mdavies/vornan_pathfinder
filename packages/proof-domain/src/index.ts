@@ -301,7 +301,10 @@ export type ProofAuditAction =
   | "proof.decision_prepared"
   | "proof.operator_action_prepared"
   | "proof.operator_action_submission_started"
-  | "proof.operator_action_observed";
+  | "proof.operator_action_observed"
+  | "proof.asset_upload_initialized"
+  | "proof.asset_upload_started"
+  | "proof.asset_upload_completed";
 
 export type ProofAuditActorType = "operator" | "customer_session" | "system";
 export type ProofAuditOutcome = "succeeded" | "failed";
@@ -331,6 +334,8 @@ export interface ProofAuditMetadata {
     | "CANCEL_LINE"
     | "REVISED_ART_WILL_BE_SENT";
   response_classification?: string;
+  proof_asset_id?: string;
+  proof_asset_state?: "initialized" | "uploading" | "uploaded";
   failure_class?: string;
 }
 

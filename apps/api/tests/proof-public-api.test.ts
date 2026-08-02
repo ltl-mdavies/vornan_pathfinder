@@ -327,6 +327,8 @@ test("uses one generic denial and exposes no public decision routes", async () =
   await request(app).post("/api/public/proof/tasks/ptask_public_qa/revisions").send({ filename: "revision.pdf" }).expect(404);
   await request(app).put("/api/public/proof/tasks/ptask_public_qa").send({ approve: true }).expect(404);
   await request(app).post("/api/public/proof/operator-actions/execute").send({ action: "APPROVE" }).expect(404);
+  await request(app).post("/api/public/proof/operator-assets/uploads/prepare").send({}).expect(404);
+  await request(app).post("/api/public/proof/operator-assets/uploads/finalize").send({}).expect(404);
 
   const adminApp = express();
   adminApp.use(express.json());
@@ -335,6 +337,14 @@ test("uses one generic denial and exposes no public decision routes", async () =
   await request(adminApp)
     .post("/api/proof/operator-actions/execute")
     .send({ action: "APPROVE" })
+    .expect(401);
+  await request(adminApp)
+    .post("/api/proof/operator-assets/uploads/prepare")
+    .send({})
+    .expect(401);
+  await request(adminApp)
+    .post("/api/proof/operator-assets/uploads/finalize")
+    .send({})
     .expect(401);
 });
 
