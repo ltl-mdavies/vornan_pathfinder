@@ -206,7 +206,7 @@ test("operator-only Proof action QA remains independently dark and narrowly scop
     /HasProofTables: !And[\s\S]*?!Condition HasProofCoreTable[\s\S]*?!Condition HasProofAuditTable/
   );
   const transactionActions = template.match(/dynamodb:TransactWriteItems/g) ?? [];
-  assert.equal(transactionActions.length, 2);
+  assert.equal(transactionActions.length, 3);
   assert.match(
     template,
     /- !If\n\s+- HasProofTables\n\s+- Effect: Allow\n\s+Action:\n\s+- dynamodb:TransactWriteItems\n\s+Resource:\n\s+- !Ref ProofCoreTableArn\n\s+- !Ref ProofAuditTableArn\n\s+- !Ref "AWS::NoValue"/
@@ -254,4 +254,59 @@ test("operator revised-art upload stays independently dark and exact-bucket scop
     workflow,
     /ProofAssetUploadEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD \|\| 'false' \}\}"/
   );
+});
+
+test("Proof asset scan processing is dark, sanitized, queued, and least-privilege", () => {
+  assert.match(template, /ProofAssetScanWorkerEnabled:[\s\S]*?Default: "false"/);
+  assert.match(
+    template,
+    /ProofAssetScanWorkerRequiresDurableIsolation:[\s\S]*?!Ref ProofCoreTableName[\s\S]*?!Ref ProofAuditTableArn[\s\S]*?!Ref ProofAssetBucketName[\s\S]*?!Ref ProofAssetBucketArn/
+  );
+  assert.match(template, /ProofAssetScanWorkerDeadLetterQueue:[\s\S]*?SqsManagedSseEnabled: true/);
+  assert.match(
+    template,
+    /ProofAssetScanWorkerQueue:[\s\S]*?VisibilityTimeout: 180[\s\S]*?maxReceiveCount: 3/
+  );
+  assert.match(
+    template,
+    /ProofAssetScanEventRule:[\s\S]*?GuardDuty Malware Protection Object Scan Result[\s\S]*?bucketName:[\s\S]*?!Ref ProofAssetBucketName[\s\S]*?prefix: orders\//
+  );
+  assert.match(
+    template,
+    /InputPathsMap:[\s\S]*?scanResultStatus[\s\S]*?InputTemplate:[\s\S]*?"observation"/
+  );
+  assert.doesNotMatch(
+    template,
+    /InputPathsMap:[\s\S]{0,1000}(threats|statusReasons)/
+  );
+  assert.match(
+    template,
+    /ProofAssetScanWorkerEventSource:[\s\S]*?Condition: ProofAssetScanWorkerActive[\s\S]*?ReportBatchItemFailures/
+  );
+  const role = template.slice(
+    template.indexOf("  ProofAssetScanWorkerRole:"),
+    template.indexOf("  ProofAssetScanWorkerFunction:")
+  );
+  assert.match(role, /dynamodb:GetItem/);
+  assert.match(role, /dynamodb:TransactWriteItems/);
+  assert.match(role, /s3:GetObjectVersionTagging/);
+  assert.match(role, /s3:PutObjectVersionTagging/);
+  assert.match(role, /\$\{ProofAssetBucketArn\}\/orders\/\*/);
+  assert.doesNotMatch(
+    role,
+    /s3:(GetObject\s*$|PutObject\s*$|CopyObject|DeleteObject|ListBucket)|secretsmanager|cloudfront|execute-api|lambda:InvokeFunction/m
+  );
+  assert.match(
+    template,
+    /PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER: !If[\s\S]*?- ProofAssetScanWorkerActive[\s\S]*?- "true"[\s\S]*?- "false"/
+  );
+  assert.match(
+    workflow,
+    /ProofAssetScanWorkerEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER \|\| 'false' \}\}"/
+  );
+  assert.match(
+    deployScript,
+    /ProofAssetScanWorkerEnabled="\$\{PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER:-false\}"/
+  );
+  assert.match(template, /PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"/);
 });

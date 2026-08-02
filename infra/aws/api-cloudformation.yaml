@@ -302,6 +302,13 @@ Parameters:
     Type: String
     Default: ""
     AllowedPattern: "^$|^arn:aws[a-zA-Z-]*:s3:::vornan-pathfinder-proof-assets-[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+  ProofAssetScanWorkerEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      Default-disabled worker for sanitized GuardDuty Proof asset scan results.
+      This does not enable uploads, public delivery, publication, or Lift writes.
   ProofGrantCreationEnabled:
     Type: String
     Default: "false"
@@ -384,6 +391,23 @@ Rules:
         AssertDescription: Operator asset upload cannot be combined with customer grant creation.
       - Assert: !Equals [!Ref ProofLinkEmailEnabled, "false"]
         AssertDescription: Operator asset upload cannot be combined with Proof link email delivery.
+  ProofAssetScanWorkerRequiresDurableIsolation:
+    RuleCondition: !Equals [!Ref ProofAssetScanWorkerEnabled, "true"]
+    Assertions:
+      - Assert: !And
+          - !Not [!Equals [!Ref ProofCoreTableName, ""]]
+          - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableName, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
+        AssertDescription: Proof asset scan processing requires the dedicated Proof core and audit tables.
+      - Assert: !And
+          - !Not [!Equals [!Ref ProofAssetBucketName, ""]]
+          - !Not [!Equals [!Ref ProofAssetBucketArn, ""]]
+        AssertDescription: Proof asset scan processing requires the exact existing private bucket.
+      - Assert: !Equals [!Ref ProofGrantCreationEnabled, "false"]
+        AssertDescription: Proof asset scan processing cannot be combined with customer grant creation.
+      - Assert: !Equals [!Ref ProofLinkEmailEnabled, "false"]
+        AssertDescription: Proof asset scan processing cannot be combined with Proof link email delivery.
   ProofTablesMustBeConfiguredTogether:
     Assertions:
       - Assert: !Or
@@ -427,9 +451,15 @@ Conditions:
   HasProofAssetBucket: !And
     - !Not [!Equals [!Ref ProofAssetBucketName, ""]]
     - !Not [!Equals [!Ref ProofAssetBucketArn, ""]]
+  HasProofAssetScanWorkerBoundary: !And
+    - !Condition HasProofTables
+    - !Condition HasProofAssetBucket
   ProofAssetUploadActive: !And
     - !Condition HasProofAssetBucket
     - !Equals [!Ref ProofAssetUploadEnabled, "true"]
+  ProofAssetScanWorkerActive: !And
+    - !Condition HasProofAssetScanWorkerBoundary
+    - !Equals [!Ref ProofAssetScanWorkerEnabled, "true"]
   HasWrikeLiftDocumentDeliveryBucket: !Not [!Equals [!Ref WrikeLiftDocumentDeliveryBucketName, ""]]
 
 Resources:
@@ -476,6 +506,197 @@ Resources:
             Condition:
               Bool:
                 aws:SecureTransport: "false"
+
+  ProofAssetScanWorkerDeadLetterQueue:
+    Condition: HasProofAssetScanWorkerBoundary
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${LambdaFunctionName}-${EnvironmentName}-proof-asset-scan-dlq"
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  ProofAssetScanWorkerQueue:
+    Condition: HasProofAssetScanWorkerBoundary
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${LambdaFunctionName}-${EnvironmentName}-proof-asset-scan"
+      MessageRetentionPeriod: 345600
+      VisibilityTimeout: 180
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ProofAssetScanWorkerDeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  ProofAssetScanWorkerRole:
+    Condition: HasProofAssetScanWorkerBoundary
+    Type: AWS::IAM::Role
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - W3037
+    Properties:
+      RoleName: !Sub "${LambdaFunctionName}-${EnvironmentName}-proof-asset-scan-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: proof-asset-scan-worker
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ChangeMessageVisibility
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:ReceiveMessage
+                Resource: !GetAtt ProofAssetScanWorkerQueue.Arn
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                Resource:
+                  - !Ref ProofCoreTableArn
+                  - !Ref ProofAuditTableArn
+              - Effect: Allow
+                Action:
+                  - dynamodb:TransactWriteItems
+                Resource:
+                  - !Ref ProofCoreTableArn
+                  - !Ref ProofAuditTableArn
+              - Effect: Allow
+                Action:
+                  - s3:GetObjectTagging
+                  - s3:GetObjectVersionTagging
+                  - s3:PutObjectTagging
+                  - s3:PutObjectVersionTagging
+                Resource: !Sub "${ProofAssetBucketArn}/orders/*"
+
+  ProofAssetScanWorkerFunction:
+    Condition: HasProofAssetScanWorkerBoundary
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${LambdaFunctionName}-${EnvironmentName}-proof-asset-scan"
+      Description: Default-dark worker for sanitized GuardDuty Proof asset scan observations.
+      Runtime: nodejs22.x
+      Handler: proof-asset-scan-worker-lambda.handler
+      Role: !GetAtt ProofAssetScanWorkerRole.Arn
+      Code:
+        S3Bucket: !Ref LambdaCodeS3Bucket
+        S3Key: !Ref LambdaCodeS3Key
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          NODE_OPTIONS: "--enable-source-maps"
+          PATHFINDER_PROOF_ENVIRONMENT_NAME: !Ref EnvironmentName
+          PATHFINDER_PROOF_STORAGE_DRIVER: dynamodb
+          PATHFINDER_PROOF_CORE_TABLE: !Ref ProofCoreTableName
+          PATHFINDER_PROOF_AUDIT_TABLE: !Ref ProofAuditTableName
+          PATHFINDER_PROOF_ASSET_BUCKET: !Ref ProofAssetBucketName
+          PATHFINDER_PROOF_ASSET_SCAN_ACCOUNT_ID: !Ref AWS::AccountId
+          PATHFINDER_PROOF_ASSET_SCAN_REGION: !Ref AWS::Region
+          PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER: !If
+            - ProofAssetScanWorkerActive
+            - "true"
+            - "false"
+
+  ProofAssetScanWorkerEventSource:
+    Condition: ProofAssetScanWorkerActive
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 10
+      Enabled: true
+      EventSourceArn: !GetAtt ProofAssetScanWorkerQueue.Arn
+      FunctionName: !Ref ProofAssetScanWorkerFunction
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
+
+  ProofAssetScanEventRule:
+    Condition: ProofAssetScanWorkerActive
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Sanitizes exact GuardDuty Proof asset scan results before queueing.
+      EventPattern:
+        source:
+          - aws.guardduty
+        detail-type:
+          - GuardDuty Malware Protection Object Scan Result
+        account:
+          - !Ref AWS::AccountId
+        region:
+          - !Ref AWS::Region
+        detail:
+          schemaVersion:
+            - "1.0"
+          resourceType:
+            - S3_OBJECT
+          s3ObjectDetails:
+            bucketName:
+              - !Ref ProofAssetBucketName
+            objectKey:
+              - prefix: orders/
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt ProofAssetScanWorkerQueue.Arn
+          Id: ProofAssetScanQueue
+          InputTransformer:
+            InputPathsMap:
+              account: $.account
+              bucket: $.detail.s3ObjectDetails.bucketName
+              eventId: $.id
+              key: $.detail.s3ObjectDetails.objectKey
+              occurredAt: $.time
+              region: $.region
+              result: $.detail.scanResultDetails.scanResultStatus
+              schemaVersion: $.detail.schemaVersion
+              versionId: $.detail.s3ObjectDetails.versionId
+            InputTemplate: >-
+              {"account":<account>,"region":<region>,"observation":{"schema_version":<schemaVersion>,"event_id":<eventId>,"occurred_at":<occurredAt>,"bucket_name":<bucket>,"object_key":<key>,"object_version_id":<versionId>,"scan_result":<result>}}
+
+  ProofAssetScanEventQueuePolicy:
+    Condition: ProofAssetScanWorkerActive
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref ProofAssetScanWorkerQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowExactGuardDutyScanRule
+            Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt ProofAssetScanWorkerQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt ProofAssetScanEventRule.Arn
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+
+  ProofAssetScanDeadLetterAlarm:
+    Condition: ProofAssetScanWorkerActive
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Proof asset scan observations reached the dead-letter queue.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProofAssetScanWorkerDeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
 
   PathfinderApiRole:
     Type: AWS::IAM::Role
@@ -1119,3 +1340,16 @@ Outputs:
   SourceEvidenceBucketName:
     Description: Retained encrypted bucket for immutable Pathfinder source evidence.
     Value: !Ref PathfinderSourceEvidenceBucket
+  ProofAssetScanWorkerEnabled:
+    Condition: HasProofAssetScanWorkerBoundary
+    Description: Whether sanitized GuardDuty Proof asset scan observations are consumed.
+    Value: !If [ProofAssetScanWorkerActive, "true", "false"]
+  ProofAssetScanWorkerFunctionName:
+    Condition: HasProofAssetScanWorkerBoundary
+    Value: !Ref ProofAssetScanWorkerFunction
+  ProofAssetScanWorkerQueueUrl:
+    Condition: HasProofAssetScanWorkerBoundary
+    Value: !Ref ProofAssetScanWorkerQueue
+  ProofAssetScanWorkerDeadLetterQueueUrl:
+    Condition: HasProofAssetScanWorkerBoundary
+    Value: !Ref ProofAssetScanWorkerDeadLetterQueue
