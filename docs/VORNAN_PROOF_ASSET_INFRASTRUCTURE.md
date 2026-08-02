@@ -27,6 +27,32 @@ customer-visible capability.
 The issued certificate covering `go.vornan.co` may be attached later, but the
 dark deployment preflight rejects both a certificate and alias today.
 
+## Malware protection boundary
+
+The stack defines an optional GuardDuty Malware Protection for S3 plan for the
+Proof upload bucket. It is disabled by default and may be activated only in the
+`dev` environment through a separately inspected CloudFormation change set.
+The ordinary deployment script always passes
+`ProofAssetMalwareProtectionEnabled=false` and cannot activate the plan.
+
+When separately enabled, the plan:
+
+- protects only the exact `orders/` prefix in the Proof upload bucket;
+- enables the managed `GuardDutyMalwareScanStatus` result tag;
+- uses a dedicated GuardDuty service role scoped to the exact Proof bucket and
+  GuardDuty-managed EventBridge rule namespace;
+- may enable S3-to-EventBridge notifications, create a GuardDuty-managed rule,
+  and write the AWS validation object
+  `malware-protection-resource-validation-object`; and
+- does not grant access to the Wrike delivery bucket, KMS, object deletion,
+  application credentials, upload APIs, publication, delivery, or Lift.
+
+Creating the plan is operational activation: AWS service terms and scanning
+charges apply. It must not be combined with scan-worker activation. After a
+separate activation, require plan status `ACTIVE`, tagging `ENABLED`, the exact
+`orders/` prefix and role, and account for the validation object. Any warning or
+error status is a stop condition.
+
 ## Storage layout contract
 
 Future upload code must use the versioned contract in
@@ -99,14 +125,16 @@ stored in the action ledger, audit events, logs, or API responses.
 Each capability is a separate review and release:
 
 1. dark bucket/CloudFront foundation;
-2. malware/content-verification and upload-finalization state;
-3. authenticated upload initiation/completion API;
-4. opaque resolver and short-lived signed delivery;
-5. `go.vornan.co` alias and DNS;
-6. proof-packet assembly/download;
-7. revised-art publication resolver;
-8. bounded supervised Lift revised-art QA;
-9. any customer-facing activation.
+2. default-dark GuardDuty plan and service-role definition;
+3. dev-only GuardDuty plan activation;
+4. bounded malware-scan evidence and separate scan-worker activation;
+5. authenticated upload initiation/completion API;
+6. opaque resolver and short-lived signed delivery;
+7. `go.vornan.co` alias and DNS;
+8. proof-packet assembly/download;
+9. revised-art publication resolver;
+10. bounded supervised Lift revised-art QA;
+11. any customer-facing activation.
 
 Importing files from Wrike, SharePoint, Dropbox, order grids, or other external
 repositories is explicitly out of scope. It may be considered later as a
@@ -126,7 +154,8 @@ After the infrastructure change is reviewed and merged, deploy it with:
 PATHFINDER_PROOF_ASSET_ENVIRONMENT_NAME=dev npm run deploy:proof-assets
 ```
 
-The deployment script forces the alias and certificate parameters empty and
-finishes by requiring an HTTP 404 from the generated CloudFront hostname. A
-successful dark deployment does not authorize uploads, signing, DNS, customer
-access, or any Lift action.
+The deployment script forces the alias and certificate parameters empty, forces
+malware protection false, and finishes by requiring an HTTP 404 from the
+generated CloudFront hostname. A successful dark deployment does not authorize
+GuardDuty activation, uploads, signing, DNS, customer access, or any Lift
+action.

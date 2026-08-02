@@ -29,8 +29,68 @@ test("accepts only the default-dark Proof asset foundation", () => {
     signed_delivery_enabled: false,
     lift_publication_enabled: false,
     external_repository_ingest_enabled: false,
-    wrike_document_delivery_enabled: false
+    wrike_document_delivery_enabled: false,
+    guardduty_malware_protection_enabled: false,
+    guardduty_protected_prefix: null,
+    guardduty_result_tagging_enabled: false
   });
+});
+
+test("keeps GuardDuty malware protection default-dark and exact-prefix scoped", () => {
+  const enabledResult = validateProofAssetDeployment({
+    PATHFINDER_PROOF_ASSET_ENVIRONMENT_NAME: "dev",
+    AWS_ACCOUNT_ID: "744016783602",
+    PATHFINDER_PROOF_ASSET_MALWARE_PROTECTION_ENABLED: "true"
+  });
+  assert.equal(enabledResult.guardduty_malware_protection_enabled, true);
+  assert.equal(enabledResult.guardduty_protected_prefix, "orders/");
+  assert.equal(enabledResult.guardduty_result_tagging_enabled, true);
+
+  assert.match(template, /ProofAssetMalwareProtectionEnabled:\n\s+Type: String\n\s+Default: "false"/);
+  assert.match(template, /MalwareProtectionDevOnly:[\s\S]*Ref: ProofAssetMalwareProtectionEnabled[\s\S]*Ref: EnvironmentName[\s\S]*- dev/);
+  assert.match(template, /Type: AWS::GuardDuty::MalwareProtectionPlan/);
+  assert.match(template, /Condition: GuardDutyMalwareProtectionActive/);
+  assert.match(template, /ObjectPrefixes:\n\s+- orders\//);
+  assert.match(template, /Tagging:\n\s+Status: ENABLED/);
+  assert.match(template, /ProofAssetMalwareProtectionEnabled:\n\s+Value: !If \[GuardDutyMalwareProtectionActive, "true", "false"\]/);
+  assert.match(template, /GuardDutyMalwareProtectionPlanStatus:[\s\S]*DISABLED/);
+  assert.match(template, /GuardDutyMalwareProtectionRoleArn:/);
+  assert.match(template, /Resource: !Sub \$\{ProofAssetBucket\.Arn\}\/orders\/\*/);
+  assert.doesNotMatch(template, /Resource: !Sub \$\{WrikeDocumentDeliveryBucket\.Arn\}\/orders\/\*/);
+  assert.throws(() => validateProofAssetDeployment({
+    PATHFINDER_PROOF_ASSET_ENVIRONMENT_NAME: "prod",
+    AWS_ACCOUNT_ID: "744016783602",
+    PATHFINDER_PROOF_ASSET_MALWARE_PROTECTION_ENABLED: "true"
+  }), /only in dev/);
+});
+
+test("grants the GuardDuty service role only the documented exact-bucket boundary", () => {
+  assert.match(template, /Service: malware-protection-plan\.guardduty\.amazonaws\.com/);
+  for (const action of [
+    "events:PutRule",
+    "events:DeleteRule",
+    "events:PutTargets",
+    "events:RemoveTargets",
+    "events:DescribeRule",
+    "events:ListTargetsByRule",
+    "s3:PutObjectTagging",
+    "s3:GetObjectTagging",
+    "s3:PutObjectVersionTagging",
+    "s3:GetObjectVersionTagging",
+    "s3:PutBucketNotification",
+    "s3:GetBucketNotification",
+    "s3:PutObject",
+    "s3:ListBucket",
+    "s3:GetObject",
+    "s3:GetObjectVersion"
+  ]) {
+    assert.match(template, new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.match(template, /DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3\*/);
+  assert.match(template, /events:ManagedBy: malware-protection-plan\.guardduty\.amazonaws\.com/);
+  assert.match(template, /malware-protection-resource-validation-object/);
+  assert.doesNotMatch(template, /kms:Decrypt|kms:GenerateDataKey|s3:DeleteObject/);
+  assert.equal((template.match(/Type: AWS::IAM::Role/g) ?? []).length, 1);
 });
 
 test("rejects DNS, certificate, and every capability flag", () => {
@@ -114,13 +174,16 @@ test("keeps delivery fail-closed and grants only the exact distribution read acc
     template,
     /AWS:SourceArn: !Sub arn:\$\{AWS::Partition\}:cloudfront::\$\{AWS::AccountId\}:distribution\/\$\{ProofAssetDistribution\}/
   );
-  assert.doesNotMatch(template, /s3:PutObject|s3:DeleteObject|AWS::Route53|AWS::Lambda|AWS::ApiGateway|AWS::IAM::Role/);
+  assert.doesNotMatch(template, /s3:DeleteObject|AWS::Route53|AWS::Lambda|AWS::ApiGateway/);
 });
 
 test("the deployment script forces DNS and certificate parameters empty and verifies 404", () => {
   assert.match(deployScript, /AssetDomainName=""/);
   assert.match(deployScript, /CertificateArn=""/);
   assert.match(deployScript, /WrikeDocumentDeliveryEnabled="false"/);
+  assert.match(deployScript, /PATHFINDER_PROOF_ASSET_MALWARE_PROTECTION_ENABLED="false"/);
+  assert.match(deployScript, /ProofAssetMalwareProtectionEnabled="false"/);
+  assert.match(deployScript, /--capabilities CAPABILITY_IAM/);
   assert.match(deployScript, /a\/pre-activation-check/);
   assert.match(deployScript, /"\$\{status\}" != "404"/);
   assert.doesNotMatch(deployScript, /aws route53|curl[^\n]*lifterp|proof\.vornan\.co|go\.vornan\.co/i);

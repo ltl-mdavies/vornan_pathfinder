@@ -92,6 +92,12 @@ export function validateProofAssetDeployment(env = process.env) {
     1,
     1
   );
+  const guardDutyMalwareProtectionEnabled = enabled(
+    env.PATHFINDER_PROOF_ASSET_MALWARE_PROTECTION_ENABLED
+  );
+  if (guardDutyMalwareProtectionEnabled && environmentName !== "dev") {
+    throw new Error("Proof asset malware protection may be activated only in dev.");
+  }
 
   return {
     environment_name: environmentName,
@@ -108,7 +114,10 @@ export function validateProofAssetDeployment(env = process.env) {
     signed_delivery_enabled: false,
     lift_publication_enabled: false,
     external_repository_ingest_enabled: false,
-    wrike_document_delivery_enabled: false
+    wrike_document_delivery_enabled: false,
+    guardduty_malware_protection_enabled: guardDutyMalwareProtectionEnabled,
+    guardduty_protected_prefix: guardDutyMalwareProtectionEnabled ? "orders/" : null,
+    guardduty_result_tagging_enabled: guardDutyMalwareProtectionEnabled
   };
 }
 
