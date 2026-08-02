@@ -4,7 +4,7 @@ import {
   type AttributeValue
 } from "@aws-sdk/client-dynamodb";
 import { createHash } from "node:crypto";
-import type { ProofAuditEvent } from "@pathfinder/proof-domain";
+import type { ProofAuditAction, ProofAuditEvent } from "@pathfinder/proof-domain";
 import {
   validateProofAssetUploadRecord,
   type ProofAssetUploadRecord
@@ -81,26 +81,130 @@ function assetAuditEventId(
     .digest("hex")}`;
 }
 
+interface AssetAuditMilestone {
+  action: ProofAuditAction;
+  state: ProofAssetUploadRecord["state"];
+  occurred_at: string;
+  record_version: number;
+  actor: "operator" | "system";
+}
+
+function transitionMilestone(
+  current: ProofAssetUploadRecord,
+  next: ProofAssetUploadRecord
+): AssetAuditMilestone | null {
+  const base = {
+    state: next.state,
+    occurred_at: next.updated_at,
+    record_version: next.record_version
+  };
+  if (current.state === "initialized" && next.state === "uploading") {
+    return { ...base, action: "proof.asset_upload_started", actor: "operator" };
+  }
+  if (current.state === "uploading" && next.state === "uploaded") {
+    return { ...base, action: "proof.asset_upload_completed", actor: "operator" };
+  }
+  if (current.state === "uploaded" && next.state === "verifying") {
+    return { ...base, action: "proof.asset_verification_started", actor: "system" };
+  }
+  if (current.state === "verifying" && next.state === "scan_pending") {
+    return { ...base, action: "proof.asset_scan_started", actor: "system" };
+  }
+  if (
+    current.state === "scan_pending" &&
+    next.state === "scan_pending" &&
+    current.scan_completed_at === null &&
+    next.scan_completed_at !== null
+  ) {
+    return { ...base, action: "proof.asset_scan_completed", actor: "system" };
+  }
+  if (
+    current.state === "scan_pending" &&
+    next.state === "scan_pending" &&
+    current.published_at === null &&
+    next.published_at !== null
+  ) {
+    return { ...base, action: "proof.asset_published", actor: "system" };
+  }
+  if (current.state === "scan_pending" && next.state === "ready_for_lift") {
+    return { ...base, action: "proof.asset_delivery_verified", actor: "system" };
+  }
+  return null;
+}
+
+function auditMilestones(record: ProofAssetUploadRecord) {
+  const milestones: AssetAuditMilestone[] = [{
+    action: "proof.asset_upload_initialized",
+    state: "initialized",
+    occurred_at: record.initialized_at,
+    record_version: 1,
+    actor: "operator"
+  }];
+  if (record.upload_started_at) milestones.push({
+    action: "proof.asset_upload_started",
+    state: "uploading",
+    occurred_at: record.upload_started_at,
+    record_version: 2,
+    actor: "operator"
+  });
+  if (record.upload_completed_at) milestones.push({
+    action: "proof.asset_upload_completed",
+    state: "uploaded",
+    occurred_at: record.upload_completed_at,
+    record_version: 3,
+    actor: "operator"
+  });
+  if (record.verification_started_at) milestones.push({
+    action: "proof.asset_verification_started",
+    state: "verifying",
+    occurred_at: record.verification_started_at,
+    record_version: 4,
+    actor: "system"
+  });
+  if (record.scan_started_at) milestones.push({
+    action: "proof.asset_scan_started",
+    state: "scan_pending",
+    occurred_at: record.scan_started_at,
+    record_version: 5,
+    actor: "system"
+  });
+  if (record.scan_completed_at) milestones.push({
+    action: "proof.asset_scan_completed",
+    state: "scan_pending",
+    occurred_at: record.scan_completed_at,
+    record_version: 6,
+    actor: "system"
+  });
+  if (record.published_at) milestones.push({
+    action: "proof.asset_published",
+    state: "scan_pending",
+    occurred_at: record.published_at,
+    record_version: 7,
+    actor: "system"
+  });
+  if (record.delivery_verified_at) milestones.push({
+    action: "proof.asset_delivery_verified",
+    state: "ready_for_lift",
+    occurred_at: record.delivery_verified_at,
+    record_version: 8,
+    actor: "system"
+  });
+  return milestones;
+}
+
 function validateAudit(
   record: ProofAssetUploadRecord,
   event: ProofAuditEvent,
-  expectedState = record.state,
-  expectedAt = record.updated_at,
-  expectedRecordVersion = record.record_version
+  milestone: AssetAuditMilestone
 ) {
-  const expectedAction =
-    expectedState === "initialized"
-      ? "proof.asset_upload_initialized"
-      : expectedState === "uploading"
-        ? "proof.asset_upload_started"
-        : expectedState === "uploaded"
-          ? "proof.asset_upload_completed"
-          : null;
+  const expectedSource = milestone.actor === "operator" ? "operator" : "system";
+  const validActor = milestone.actor === "operator"
+    ? event.actor_type === "operator" && /^operator_[a-f0-9]{64}$/.test(event.actor_id)
+    : event.actor_type === "system" && event.actor_id === "system_proof_asset_worker";
   if (
-    !expectedAction ||
     event.event_id !==
-      assetAuditEventId(record.asset_id, expectedState, expectedRecordVersion) ||
-    event.action !== expectedAction ||
+      assetAuditEventId(record.asset_id, milestone.state, milestone.record_version) ||
+    event.action !== milestone.action ||
     event.outcome !== "succeeded" ||
     event.order_number !== record.order_number ||
     event.task_id !== record.task_id ||
@@ -108,13 +212,12 @@ function validateAudit(
     event.attachment_id !== record.attachment_id ||
     event.grant_id !== null ||
     event.participant_id !== null ||
-    event.actor_type !== "operator" ||
-    !/^operator_[a-f0-9]{64}$/.test(event.actor_id) ||
+    !validActor ||
     !/^pcorr_asset_[a-f0-9]{64}$/.test(event.correlation_id ?? "") ||
-    event.occurred_at !== expectedAt ||
-    event.metadata.source !== "operator" ||
+    event.occurred_at !== milestone.occurred_at ||
+    event.metadata.source !== expectedSource ||
     event.metadata.proof_asset_id !== record.asset_id ||
-    event.metadata.proof_asset_state !== expectedState ||
+    event.metadata.proof_asset_state !== milestone.state ||
     Object.keys(event.metadata).sort().join(",") !==
       "proof_asset_id,proof_asset_state,source"
   ) {
@@ -147,15 +250,17 @@ async function getDynamoAudit(
 
 async function requireAuditEvent(
   record: ProofAssetUploadRecord,
-  state: ProofAssetUploadRecord["state"],
-  occurredAt: string,
-  recordVersion: number
+  milestone: AssetAuditMilestone
 ) {
-  const eventId = assetAuditEventId(record.asset_id, state, recordVersion);
+  const eventId = assetAuditEventId(
+    record.asset_id,
+    milestone.state,
+    milestone.record_version
+  );
   const config = getProofRuntimeConfig();
   const event =
     config.storage_driver === "dynamodb"
-      ? await getDynamoAudit(record.order_number, occurredAt, eventId)
+      ? await getDynamoAudit(record.order_number, milestone.occurred_at, eventId)
       : (await readLocalProofStore()).audit_events[eventId] ?? null;
   if (!event) {
     throw new ProofAssetUploadStoreError(
@@ -163,15 +268,13 @@ async function requireAuditEvent(
       "Proof asset upload is missing its retained audit trail."
     );
   }
-  validateAudit(record, event, state, occurredAt, recordVersion);
+  validateAudit(record, event, milestone);
 }
 
 async function requireAuditTrail(record: ProofAssetUploadRecord) {
-  await requireAuditEvent(record, "initialized", record.initialized_at, 1);
-  if (record.state === "initialized") return;
-  await requireAuditEvent(record, "uploading", record.upload_started_at!, 2);
-  if (record.state === "uploading") return;
-  await requireAuditEvent(record, "uploaded", record.upload_completed_at!, 3);
+  for (const milestone of auditMilestones(record)) {
+    await requireAuditEvent(record, milestone);
+  }
 }
 
 function sameImmutableUpload(
@@ -241,7 +344,7 @@ export async function reserveProofAssetUpload(
   auditEvent: ProofAuditEvent
 ) {
   validateProofAssetUploadRecord(record);
-  validateAudit(record, auditEvent);
+  validateAudit(record, auditEvent, auditMilestones(record)[0]);
   const config = getProofRuntimeConfig();
   if (config.storage_driver === "disabled") {
     throw new ProofAssetUploadStoreError(
@@ -295,30 +398,7 @@ export async function reserveProofAssetUpload(
     if (existing) {
       const validated = validateProofAssetUploadRecord(existing);
       if (sameImmutableUpload(validated, record)) {
-        const milestones: Array<{
-          state: ProofAssetUploadRecord["state"];
-          occurred_at: string;
-          record_version: number;
-        }> = [{
-          state: "initialized",
-          occurred_at: validated.initialized_at,
-          record_version: 1
-        }];
-        if (validated.state !== "initialized") {
-          milestones.push({
-            state: "uploading",
-            occurred_at: validated.upload_started_at!,
-            record_version: 2
-          });
-        }
-        if (validated.state !== "initialized" && validated.state !== "uploading") {
-          milestones.push({
-            state: "uploaded",
-            occurred_at: validated.upload_completed_at!,
-            record_version: 3
-          });
-        }
-        for (const milestone of milestones) {
+        for (const milestone of auditMilestones(validated)) {
           const event = store.audit_events[assetAuditEventId(
             validated.asset_id,
             milestone.state,
@@ -333,9 +413,7 @@ export async function reserveProofAssetUpload(
           validateAudit(
             validated,
             event,
-            milestone.state,
-            milestone.occurred_at,
-            milestone.record_version
+            milestone
           );
         }
         return { status: "replay" as const, record: validated };
@@ -364,14 +442,17 @@ export async function transitionProofAssetUpload(
 ) {
   validateProofAssetUploadRecord(current);
   validateProofAssetUploadRecord(next);
-  validateAudit(next, auditEvent);
+  const milestone = transitionMilestone(current, next);
+  if (!milestone) {
+    throw new ProofAssetUploadStoreError(
+      "malformed",
+      "Proof asset upload transition is invalid."
+    );
+  }
+  validateAudit(next, auditEvent, milestone);
   if (
     !sameImmutableUpload(current, next) ||
-    next.record_version !== current.record_version + 1 ||
-    !(
-      (current.state === "initialized" && next.state === "uploading") ||
-      (current.state === "uploading" && next.state === "uploaded")
-    )
+    next.record_version !== current.record_version + 1
   ) {
     throw new ProofAssetUploadStoreError(
       "malformed",
