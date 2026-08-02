@@ -9,8 +9,14 @@ import {
 import test, { after, before, beforeEach } from "node:test";
 import type { ProofAuditEvent } from "@pathfinder/proof-domain";
 import {
+  beginProofAssetScan,
+  beginProofAssetVerification,
   beginProofAssetUpload,
+  completeProofAssetUpload,
+  completeProofAssetVerification,
   createProofAssetUploadRecord,
+  recordProofAssetDeliveryVerification,
+  recordProofAssetPublication,
   type ProofAssetUploadRecord
 } from "@pathfinder/proof-domain/proof-asset-upload";
 
@@ -48,9 +54,19 @@ const record = createProofAssetUploadRecord({
 });
 
 function audit(value: ProofAssetUploadRecord): ProofAuditEvent {
-  const action = value.state === "initialized"
-    ? "proof.asset_upload_initialized"
-    : "proof.asset_upload_started";
+  const actions = [
+    "proof.asset_upload_initialized",
+    "proof.asset_upload_started",
+    "proof.asset_upload_completed",
+    "proof.asset_verification_started",
+    "proof.asset_scan_started",
+    "proof.asset_scan_completed",
+    "proof.asset_published",
+    "proof.asset_delivery_verified"
+  ] as const;
+  const action = actions[value.record_version - 1];
+  assert.ok(action);
+  const system = value.record_version >= 4;
   return {
     event_id: `paudit_asset-${createHash("sha256")
       .update(value.asset_id)
@@ -69,13 +85,13 @@ function audit(value: ProofAssetUploadRecord): ProofAuditEvent {
     attachment_id: value.attachment_id,
     grant_id: null,
     participant_id: null,
-    actor_type: "operator",
-    actor_id: `operator_${"d".repeat(64)}`,
+    actor_type: system ? "system" : "operator",
+    actor_id: system ? "system_proof_asset_worker" : `operator_${"d".repeat(64)}`,
     correlation_id: `pcorr_asset_${"f".repeat(64)}`,
     metadata: {
-      source: "operator",
+      source: system ? "system" : "operator",
       proof_asset_id: value.asset_id,
-      proof_asset_state: value.state as "initialized" | "uploading"
+      proof_asset_state: value.state
     }
   };
 }
@@ -194,5 +210,88 @@ test("requires the complete retained milestone audit trail on reads", async () =
       error instanceof Error &&
       error.name === "ProofAssetUploadStoreError" &&
       error.message.includes("retained audit trail")
+  );
+});
+
+test("atomically retains every verification, publication, and delivery milestone", async () => {
+  await reserve(record, audit(record));
+  let current = beginProofAssetUpload({
+    record,
+    expected_record_version: 1,
+    upload_started_at: "2026-08-01T12:00:01.000Z"
+  }).record;
+  await transition(record, current, audit(current));
+
+  let next = completeProofAssetUpload({
+    record: current,
+    expected_record_version: 2,
+    upload_completed_at: "2026-08-01T12:00:02.000Z",
+    source_object_version_id: "3/L4kqtJlcpXroDTDmJ+sourceVersion=",
+    source_content_type: "application/pdf",
+    source_content_length: 8192,
+    source_sha256: "d".repeat(64)
+  }).record;
+  await transition(current, next, audit(next));
+  current = next;
+
+  next = beginProofAssetVerification({
+    record: current,
+    expected_record_version: 3,
+    verification_started_at: "2026-08-01T12:00:08.000Z"
+  }).record;
+  await transition(current, next, audit(next));
+  current = next;
+
+  next = beginProofAssetScan({
+    record: current,
+    expected_record_version: 4,
+    scan_started_at: "2026-08-01T12:00:08.000Z"
+  }).record;
+  await transition(current, next, audit(next));
+  current = next;
+
+  next = completeProofAssetVerification({
+    record: current,
+    expected_record_version: 5,
+    scan_completed_at: "2026-08-01T12:00:08.000Z",
+    scan_status: "no_threats_found",
+    scan_evidence_sha256: "1".repeat(64)
+  }).record;
+  await transition(current, next, audit(next));
+  current = next;
+
+  next = recordProofAssetPublication({
+    record: current,
+    expected_record_version: 6,
+    published_at: "2026-08-01T12:00:09.000Z",
+    outbound_object_version_id: "3/L4kqtJlcpXroDTDmJ+outboundVersion=",
+    outbound_content_length: 8192,
+    outbound_sha256: "d".repeat(64)
+  }).record;
+  await transition(current, next, audit(next));
+  current = next;
+
+  next = recordProofAssetDeliveryVerification({
+    record: current,
+    expected_record_version: 7,
+    delivery_verified_at: "2026-08-01T12:00:11.000Z",
+    delivery_locator_id: `plocator_${"e".repeat(64)}`,
+    delivery_host: "go.vornan.co",
+    delivery_url_sha256: "f".repeat(64),
+    direct_http_status: 200,
+    redirected: false,
+    observed_content_type: "application/pdf",
+    observed_content_length: 8192,
+    settle_delay_seconds: 2
+  }).record;
+  await transition(current, next, audit(next));
+
+  const persisted = await getRecord(record.order_number, record.asset_id);
+  assert.equal(persisted?.state, "ready_for_lift");
+  assert.equal(persisted?.record_version, 8);
+  assert.equal(storedAudits.size, 8);
+  assert.equal(
+    commands.filter((command) => command instanceof TransactWriteItemsCommand).length,
+    8
   );
 });

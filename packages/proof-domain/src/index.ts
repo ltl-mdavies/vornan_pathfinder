@@ -304,7 +304,12 @@ export type ProofAuditAction =
   | "proof.operator_action_observed"
   | "proof.asset_upload_initialized"
   | "proof.asset_upload_started"
-  | "proof.asset_upload_completed";
+  | "proof.asset_upload_completed"
+  | "proof.asset_verification_started"
+  | "proof.asset_scan_started"
+  | "proof.asset_scan_completed"
+  | "proof.asset_published"
+  | "proof.asset_delivery_verified";
 
 export type ProofAuditActorType = "operator" | "customer_session" | "system";
 export type ProofAuditOutcome = "succeeded" | "failed";
@@ -335,7 +340,13 @@ export interface ProofAuditMetadata {
     | "REVISED_ART_WILL_BE_SENT";
   response_classification?: string;
   proof_asset_id?: string;
-  proof_asset_state?: "initialized" | "uploading" | "uploaded";
+  proof_asset_state?:
+    | "initialized"
+    | "uploading"
+    | "uploaded"
+    | "verifying"
+    | "scan_pending"
+    | "ready_for_lift";
   failure_class?: string;
 }
 
