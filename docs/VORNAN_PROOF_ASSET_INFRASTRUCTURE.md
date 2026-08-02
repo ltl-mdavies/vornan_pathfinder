@@ -53,6 +53,61 @@ separate activation, require plan status `ACTIVE`, tagging `ENABLED`, the exact
 `orders/` prefix and role, and account for the validation object. Any warning or
 error status is a stop condition.
 
+### Controlled benign scan evidence
+
+The first object-scan proof uses only the repository's deterministic 676-byte
+benign PDF. It is not customer artwork and does not use the authenticated upload
+API. The QA harness is deliberately narrower than a general S3 utility:
+
+- `npm run preflight:proof-asset-scan` requires account `744016783602`, the
+  active dev plan, exact Proof bucket and `orders/` prefix, managed result
+  tagging, the expected GuardDuty rule/target, and only the AWS validation
+  object in the bucket;
+- every Pathfinder Proof upload, operator-action, grant, email, and scan-worker
+  gate must remain false, the worker has no event mapping, and its queue/DLQ
+  must be empty;
+- `npm run qa:proof-asset-scan` requires the exact confirmation phrase and a UTC
+  expiry no more than four hours away, writes exactly one deterministic object
+  with `AWS_MAX_ATTEMPTS=1`, AES-256, exact SHA-256 checksum, PDF content type,
+  `proof-lifecycle=unfinalized`, and synthetic-only metadata;
+- only the exact object version is polled. Success requires the managed
+  `GuardDutyMalwareScanStatus=NO_THREATS_FOUND` tag. Threat, unsupported,
+  access-denied, failed, unknown, or timeout results stop without re-upload or
+  automatic retry;
+- if S3 accepted the one write but its CLI response was lost, a repeat run
+  performs read-only reconciliation of exactly one matching key/version,
+  verifies its checksum/type/encryption/metadata/tags, and resumes polling
+  without another `PutObject`; ambiguous or missing versions stop;
+- the raw key/version exist only in a mode-`0600` manifest under `/tmp`; console
+  evidence contains digests instead; and
+- `npm run purge:proof-asset-scan` is a separate confirmed operation that
+  revalidates the plan, gates, manifest, checksum, exact version, tags, and legal
+  hold before deleting only that fixture version. It verifies no fixture version,
+  delete marker, or multipart upload remains and never touches GuardDuty's
+  validation object.
+
+A reserved manifest with no S3 fixture can be removed only through the confirmed
+purge command after a fresh preflight proves that no object version exists.
+
+The seven-day unfinalized lifecycle is only a fallback for an interrupted QA
+session. The normal successful path ends with the exact-version purge. Worker
+activation, EICAR/malicious evidence, customer uploads, publication, delivery,
+and Lift remain separate later approvals.
+
+Example bounded commands (choose a fresh future expiry):
+
+```bash
+npm run preflight:proof-asset-scan
+
+PATHFINDER_PROOF_SCAN_QA_CONFIRMATION="RUN ONE BENIGN PROOF ASSET SCAN" \
+PATHFINDER_PROOF_SCAN_QA_EXPIRES_AT="2026-08-02T22:00:00Z" \
+npm run qa:proof-asset-scan
+
+PATHFINDER_PROOF_SCAN_QA_CONFIRMATION="PURGE ONE BENIGN PROOF ASSET SCAN" \
+PATHFINDER_PROOF_SCAN_QA_EXPIRES_AT="2026-08-02T22:00:00Z" \
+npm run purge:proof-asset-scan
+```
+
 ## Storage layout contract
 
 Future upload code must use the versioned contract in
