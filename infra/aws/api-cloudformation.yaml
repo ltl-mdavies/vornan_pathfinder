@@ -572,9 +572,7 @@ Resources:
                   - !Ref ProofAuditTableArn
               - Effect: Allow
                 Action:
-                  - s3:GetObjectTagging
                   - s3:GetObjectVersionTagging
-                  - s3:PutObjectTagging
                   - s3:PutObjectVersionTagging
                 Resource: !Sub "${ProofAssetBucketArn}/orders/*"
 

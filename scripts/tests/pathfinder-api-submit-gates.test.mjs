@@ -294,7 +294,7 @@ test("Proof asset scan processing is dark, sanitized, queued, and least-privileg
   assert.match(role, /\$\{ProofAssetBucketArn\}\/orders\/\*/);
   assert.doesNotMatch(
     role,
-    /s3:(GetObject\s*$|PutObject\s*$|CopyObject|DeleteObject|ListBucket)|secretsmanager|cloudfront|execute-api|lambda:InvokeFunction/m
+    /s3:(GetObject\s*$|GetObjectTagging|PutObject\s*$|PutObjectTagging|CopyObject|DeleteObject|ListBucket)|secretsmanager|cloudfront|execute-api|lambda:InvokeFunction/m
   );
   assert.match(
     template,
