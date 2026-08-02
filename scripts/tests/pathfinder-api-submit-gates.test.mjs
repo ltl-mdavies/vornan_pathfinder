@@ -240,7 +240,7 @@ test("operator revised-art upload stays independently dark and exact-bucket scop
   );
   assert.match(
     template,
-    /PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !Ref ProofAssetUploadEnabled[\s\S]*?PATHFINDER_PROOF_ASSET_BUCKET: !If \[HasProofAssetBucket, !Ref ProofAssetBucketName/
+    /PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If \[ProofAssetUploadActive, "true", !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If \[ProofAssetUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If \[ProofAssetUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_BUCKET: !If \[ProofAssetUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"\]/
   );
   assert.match(
     template,

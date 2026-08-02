@@ -683,10 +683,15 @@ Resources:
           PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA: !Ref ProofOperatorActionQaEnabled
           PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS: !Ref ProofOperatorActionAllowedOrders
           PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT: !Ref ProofOperatorActionExpiresAt
-          PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !Ref ProofAssetUploadEnabled
-          PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !Ref ProofAssetUploadAllowedOrders
-          PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !Ref ProofAssetUploadExpiresAt
-          PATHFINDER_PROOF_ASSET_BUCKET: !If [HasProofAssetBucket, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"]
+          # Keep the entire upload configuration out of Lambda's constrained
+          # environment unless the bounded upload capability is active. The
+          # runtime treats absent values as disabled, and the stack rule above
+          # requires the durable tables, bucket, allowlist, and expiry before
+          # this condition can become true.
+          PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If [ProofAssetUploadActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If [ProofAssetUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If [ProofAssetUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_BUCKET: !If [ProofAssetUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"]
 
   PathfinderCustomersTable:
     Type: AWS::DynamoDB::Table
