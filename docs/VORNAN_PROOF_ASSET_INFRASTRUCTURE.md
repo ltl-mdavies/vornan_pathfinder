@@ -108,6 +108,65 @@ PATHFINDER_PROOF_SCAN_QA_EXPIRES_AT="2026-08-02T22:00:00Z" \
 npm run purge:proof-asset-scan
 ```
 
+### Bounded scan-worker activation review
+
+The scan worker remains default-disabled. Before any one-object activation,
+use the read-only four-mode evaluator to prove each transition without creating
+or executing a change set, uploading an object, writing DynamoDB, retrieving a
+credential, publishing an asset, or calling Lift.
+
+The exact source-object key must already follow the server-owned Proof storage
+contract. The activation expiry must be strict UTC, future, and no more than
+four hours away. Console output contains only the key's SHA-256 digest, bounded
+timestamps, booleans, and queue/resource counts; it never prints the raw key or
+an object payload.
+
+1. `preflight` requires the settled API and asset stacks, active GuardDuty plan,
+   healthy inert worker, no Pathfinder scan rule or event-source mapping, empty
+   worker queue/DLQ, and every Wrike, upload, operator, grant, email, and live
+   customer-submit capability dark. Existing production Lift order-submit
+   transport settings are verified but do not authorize a Lift call.
+2. `review` reads one supplied change-set ARN and requires only four conditional
+   Adds (exact EventBridge rule, queue policy, event-source mapping, and DLQ
+   alarm) plus a non-replacing worker Lambda modification. Its parameters must
+   contain the exact key and bounded expiry while every unrelated gate remains
+   dark. The standard API deployment's `CAPABILITY_NAMED_IAM` acknowledgement
+   is required, but no IAM resource change is allowed. Every included resource
+   `AfterContext` must match the exact reviewed properties, and the worker's
+   before/after contexts may differ only in its exact non-secret environment.
+   Review does not execute the change set.
+3. `active` requires the deployed Lambda environment, exact-key EventBridge
+   pattern, single exact-queue target and source-account policy, single enabled
+   mapping, future expiry, and empty starting queue/DLQ to match.
+4. `closure` requires the worker gate false, key and expiry blank, conditional
+   trigger resources absent, no mapping, and both queues empty.
+
+Example read-only commands, using values from a separately approved activation
+packet:
+
+```bash
+npm run preflight:proof-asset-scan-worker
+
+PATHFINDER_PROOF_SCAN_WORKER_CHANGE_SET_ARN="arn:aws:cloudformation:us-east-1:744016783602:changeSet/REVIEWED_NAME/REVIEWED_ID" \
+PATHFINDER_PROOF_SCAN_WORKER_ALLOWED_OBJECT_KEY="orders/A0000000/tasks/approved-task/revisions/prevision_<64-lowercase-hex>/source/passet_<64-lowercase-hex>/safe-file.pdf" \
+PATHFINDER_PROOF_SCAN_WORKER_EXPIRES_AT="2026-08-02T22:00:00Z" \
+npm run review:proof-asset-scan-worker
+
+PATHFINDER_PROOF_SCAN_WORKER_ALLOWED_OBJECT_KEY="orders/A0000000/tasks/approved-task/revisions/prevision_<64-lowercase-hex>/source/passet_<64-lowercase-hex>/safe-file.pdf" \
+PATHFINDER_PROOF_SCAN_WORKER_EXPIRES_AT="2026-08-02T22:00:00Z" \
+npm run active:proof-asset-scan-worker
+
+npm run closure:proof-asset-scan-worker
+```
+
+The example values are structural placeholders, not an activation packet. A
+real activation still requires separate approval of the exact non-customer
+evidence object, change set, and time window. The evaluator never authorizes or
+performs the change. Worker evidence must be reconciled durably and the worker
+returned dark before publication/resolver work begins. Customer uploads,
+malicious-file tests, asset publication, revised-art delivery, and every Lift
+action remain separate gates.
+
 ## Storage layout contract
 
 Future upload code must use the versioned contract in
