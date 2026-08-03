@@ -581,6 +581,7 @@ export interface ProcessingJobPreview {
   output_route_name: string;
   target_order_number?: string | null;
   target_order_lookup_url?: string | null;
+  target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;
@@ -631,6 +632,30 @@ export interface ProcessingJobPreview {
     published_at: string;
     expires_at: string;
   }>;
+}
+
+export interface LiftOrderAssociationVerification {
+  order_number: string;
+  customer_id: string;
+  customer_name: string | null;
+  order_title: string | null;
+  contract_number: string | null;
+  created_by: string | null;
+  order_status: string | null;
+  line_count: number;
+  fetched_at: string;
+}
+
+export interface LiftOrderAssociationHistoryEntry {
+  association_id: string;
+  source: "manual_verified";
+  action: "linked" | "replaced";
+  previous_order_number: string | null;
+  order_number: string;
+  linked_at: string;
+  linked_by_email: string | null;
+  reason: string;
+  verification: LiftOrderAssociationVerification;
 }
 
 export interface NormalizedLiftSubmitResponse {
@@ -3278,6 +3303,77 @@ export async function persistOrderStatusToken(tokenRecord: OrderStatusTokenRecor
   return tokenRecord;
 }
 
+function rebindStatusTokenRecord(
+  token: OrderStatusTokenRecord,
+  args: { customer_id: string; job_id: string; order_number: string; order_key: string; updated_at: string }
+) {
+  const bindings = token.orders?.length
+    ? token.orders
+    : [{
+        order_key: token.order_key,
+        customer_id: token.customer_id,
+        job_id: token.job_id,
+        order_number: token.order_number
+      }];
+  if (!bindings.some((binding) => binding.customer_id === args.customer_id && binding.job_id === args.job_id)) {
+    return null;
+  }
+  const orders = bindings.map((binding) =>
+    binding.customer_id === args.customer_id && binding.job_id === args.job_id
+      ? {
+          ...binding,
+          order_key: args.order_key,
+          order_number: args.order_number
+        }
+      : binding
+  );
+  const primary = orders[0];
+  return {
+    ...token,
+    order_key: primary.order_key,
+    customer_id: primary.customer_id,
+    job_id: primary.job_id,
+    order_number: primary.order_number,
+    orders,
+    updated_at: args.updated_at
+  } satisfies OrderStatusTokenRecord;
+}
+
+export async function rebindActiveOrderStatusTokensForJob(args: {
+  customer_id: string;
+  job_id: string;
+  order_number: string;
+  order_key: string;
+}) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+  const updatedAt = now();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    const items = await scanDynamoTable(tables.order_status_tokens);
+    const tokens: OrderStatusTokenRecord[] = [];
+    for (const item of items) {
+      const token = parseDynamoData<OrderStatusTokenRecord>(item);
+      if (!token || token.status !== "Active") continue;
+      const rebound = rebindStatusTokenRecord(token, { ...args, updated_at: updatedAt });
+      if (rebound) tokens.push(rebound);
+    }
+    await Promise.all(tokens.map((token) => persistOrderStatusToken(token)));
+    return tokens.length;
+  }
+
+  const store = await readStore();
+  let rebound = 0;
+  store.order_status_tokens = (store.order_status_tokens ?? []).map((token) => {
+    if (token.status !== "Active") return token;
+    const next = rebindStatusTokenRecord(token, { ...args, updated_at: updatedAt });
+    if (!next) return token;
+    rebound += 1;
+    return next;
+  });
+  await writeStore(store);
+  return rebound;
+}
+
 export async function getOrderStatusToken(tokenHash: string) {
   const config = getPathfinderPersistenceRuntimeConfig();
 
@@ -4301,6 +4397,202 @@ export async function persistJobSnapshot(customer: LiftCustomer, job: Processing
   await writeStore(store);
 
   return nextJob;
+}
+
+export class LiftOrderAssociationConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LiftOrderAssociationConflictError";
+  }
+}
+
+let localLiftOrderAssociationQueue: Promise<void> = Promise.resolve();
+
+function normalizedLiftOrderNumber(value: string | null | undefined) {
+  return value?.trim().toUpperCase() || null;
+}
+
+function buildLiftOrderAssociationEntry(args: {
+  job: ProcessingJobPreview;
+  order_number: string;
+  linked_at: string;
+  linked_by_email?: string | null;
+  reason: string;
+  verification: LiftOrderAssociationVerification;
+}): LiftOrderAssociationHistoryEntry {
+  const previousOrderNumber = normalizedLiftOrderNumber(args.job.target_order_number);
+  return {
+    association_id: `loa_${createHash("sha256")
+      .update("pathfinder-lift-order-association-v1")
+      .update("\0")
+      .update(args.job.customer_id)
+      .update("\0")
+      .update(args.job.job_id)
+      .update("\0")
+      .update(previousOrderNumber ?? "")
+      .update("\0")
+      .update(args.order_number)
+      .update("\0")
+      .update(args.linked_at)
+      .digest("hex")}`,
+    source: "manual_verified",
+    action: previousOrderNumber ? "replaced" : "linked",
+    previous_order_number: previousOrderNumber,
+    order_number: args.order_number,
+    linked_at: args.linked_at,
+    linked_by_email: args.linked_by_email?.trim().toLowerCase() || null,
+    reason: args.reason,
+    verification: args.verification
+  };
+}
+
+function nextLiftOrderAssociatedJob(args: {
+  job: ProcessingJobPreview;
+  order_number: string;
+  lookup_url: string | null;
+  linked_at: string;
+  linked_by_email?: string | null;
+  reason: string;
+  verification: LiftOrderAssociationVerification;
+}) {
+  const association = buildLiftOrderAssociationEntry(args);
+  const job: ProcessingJobPreview = {
+    ...args.job,
+    state: "Order Confirmed",
+    target_order_number: args.order_number,
+    target_order_lookup_url: args.lookup_url,
+    target_order_association_history: [
+      ...(args.job.target_order_association_history ?? []),
+      association
+    ],
+    updated_at: args.linked_at
+  };
+  return { job, association };
+}
+
+export async function associateJobWithLiftOrder(
+  customer: LiftCustomer,
+  args: {
+    job_id: string;
+    order_number: string;
+    expected_current_order_number?: string | null;
+    linked_by_email?: string | null;
+    reason: string;
+    verification: LiftOrderAssociationVerification;
+  }
+) {
+  const orderNumber = normalizedLiftOrderNumber(args.order_number);
+  const expectedCurrentOrderNumber = normalizedLiftOrderNumber(args.expected_current_order_number);
+  if (!orderNumber || args.verification.order_number !== orderNumber) {
+    throw new LiftOrderAssociationConflictError("The verified Lift order binding is invalid.");
+  }
+  const reason = args.reason.trim().replace(/\s+/g, " ");
+  if (reason.length < 8 || reason.length > 500) {
+    throw new LiftOrderAssociationConflictError("Enter an association reason between 8 and 500 characters.");
+  }
+
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: tables.jobs,
+      Key: {
+        customer_id: dynamoString(customer.lift_customer_id),
+        job_id: dynamoString(args.job_id)
+      },
+      ConsistentRead: true
+    }));
+    const item = response.Item as Record<string, AttributeValue> | undefined;
+    const job = item ? parseDynamoData<ProcessingJobPreview>(item) : null;
+    if (!job) return null;
+    const currentOrderNumber = normalizedLiftOrderNumber(job.target_order_number);
+    if (currentOrderNumber === orderNumber) {
+      return { job, association: null, reused: true as const };
+    }
+    if (currentOrderNumber !== expectedCurrentOrderNumber) {
+      throw new LiftOrderAssociationConflictError(
+        "The job's Lift order association changed after verification. Refresh and verify the replacement again."
+      );
+    }
+    const route = await getDynamoData<OutputRoute>(tables.output_routes, {
+      customer_id: customer.lift_customer_id,
+      output_route_id: job.output_route_id
+    }, true);
+    const linkedAt = now();
+    const next = nextLiftOrderAssociatedJob({
+      job,
+      order_number: orderNumber,
+      lookup_url: buildLiftOrderLookupUrl(route?.order_lookup_url, orderNumber),
+      linked_at: linkedAt,
+      linked_by_email: args.linked_by_email,
+      reason,
+      verification: args.verification
+    });
+    const expectedUpdatedAt = item?.updated_at?.S;
+    if (!expectedUpdatedAt) {
+      throw new LiftOrderAssociationConflictError("The current job version could not be verified safely.");
+    }
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: tables.jobs,
+        Item: {
+          ...dynamoItem({ customer_id: next.job.customer_id, job_id: next.job.job_id }, next.job),
+          updated_at: dynamoString(linkedAt),
+          target_order_number: dynamoString(orderNumber)
+        },
+        ConditionExpression: "updated_at = :expected_updated_at",
+        ExpressionAttributeValues: {
+          ":expected_updated_at": dynamoString(expectedUpdatedAt)
+        }
+      }));
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) throw error;
+      throw new LiftOrderAssociationConflictError(
+        "The job changed while the Lift order association was being saved. Refresh and verify it again."
+      );
+    }
+    return { ...next, reused: false as const };
+  }
+
+  const operation = localLiftOrderAssociationQueue.then(async () => {
+    const store = await readStore();
+    const job = store.jobs.find(
+      (candidate) => candidate.customer_id === customer.lift_customer_id && candidate.job_id === args.job_id
+    );
+    if (!job) return null;
+    const currentOrderNumber = normalizedLiftOrderNumber(job.target_order_number);
+    if (currentOrderNumber === orderNumber) {
+      return { job, association: null, reused: true as const };
+    }
+    if (currentOrderNumber !== expectedCurrentOrderNumber) {
+      throw new LiftOrderAssociationConflictError(
+        "The job's Lift order association changed after verification. Refresh and verify the replacement again."
+      );
+    }
+    const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+    const route = workspace.output_routes.find((candidate) => candidate.output_route_id === job.output_route_id);
+    const next = nextLiftOrderAssociatedJob({
+      job,
+      order_number: orderNumber,
+      lookup_url: buildLiftOrderLookupUrl(route?.order_lookup_url, orderNumber),
+      linked_at: now(),
+      linked_by_email: args.linked_by_email,
+      reason,
+      verification: args.verification
+    });
+    store.jobs = store.jobs.map((candidate) =>
+      candidate.customer_id === customer.lift_customer_id && candidate.job_id === args.job_id
+        ? next.job
+        : candidate
+    );
+    workspace.jobs = store.jobs.filter((candidate) => candidate.customer_id === customer.lift_customer_id);
+    workspace.updated_at = next.job.updated_at;
+    store.workspaces[customer.lift_customer_id] = workspace;
+    await writeStore(store);
+    return { ...next, reused: false as const };
+  });
+  localLiftOrderAssociationQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 export async function setJobsArchived(

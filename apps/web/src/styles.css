@@ -8873,6 +8873,196 @@ td {
   background: rgba(247, 250, 245, 0.66);
 }
 
+.lift-order-association-modal {
+  width: min(780px, calc(100vw - 64px));
+}
+
+.lift-order-association-body {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.lift-order-association-current,
+.lift-order-association-safe,
+.lift-order-association-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--surface-subtle, #f8faf6);
+}
+
+.lift-order-association-current {
+  display: grid;
+  gap: 3px;
+}
+
+.lift-order-association-current span,
+.lift-order-association-verification span,
+.lift-order-association-history article span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.lift-order-association-current strong {
+  font-size: 20px;
+}
+
+.lift-order-association-current small,
+.lift-order-association-verification small,
+.lift-order-association-history article small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.lift-order-association-verify-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.lift-order-association-verify-row .secondary-button {
+  min-height: 42px;
+}
+
+.lift-order-association-body .setup-control {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.lift-order-association-body .setup-control > span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lift-order-association-body .setup-control input,
+.lift-order-association-body .setup-control textarea {
+  width: 100%;
+  min-height: 42px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  outline: none;
+}
+
+.lift-order-association-body .setup-control textarea {
+  min-height: 82px;
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.lift-order-association-verification {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--border-subtle);
+}
+
+.lift-order-association-verification > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px;
+  background: #fff;
+}
+
+.lift-order-association-verification strong {
+  overflow-wrap: anywhere;
+}
+
+.lift-order-association-warning {
+  color: #6f511a;
+  border-color: rgba(190, 134, 31, 0.3);
+  background: #fff8e9;
+}
+
+.lift-order-association-warning > div {
+  display: grid;
+  gap: 3px;
+}
+
+.lift-order-association-warning span {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lift-order-association-safe {
+  align-items: center;
+  color: var(--vornan-forest);
+  font-size: 13px;
+  font-weight: 750;
+  background: var(--vornan-mist);
+}
+
+.lift-order-association-confirmation strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.lift-order-association-history {
+  margin-top: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: #fff;
+}
+
+.lift-order-association-history summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.lift-order-association-history > div {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.lift-order-association-history article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.lift-order-association-history article + article {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.lift-order-association-history article > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .lift-order-association-verify-row,
+  .lift-order-association-verification {
+    grid-template-columns: 1fr;
+  }
+}
+
 .canonical-impact-modal {
   width: min(760px, calc(100vw - 64px));
 }
