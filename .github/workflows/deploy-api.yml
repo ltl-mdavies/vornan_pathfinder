@@ -124,6 +124,9 @@ jobs:
               WrikeWorkbookEvidenceEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE || 'false' }}" \
               WrikeEvidencePreviewEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW || 'false' }}" \
               WrikeManualIntakeEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE || 'false' }}" \
+              WrikeStatusWritebackEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK || 'false' }}" \
+              WrikeStatusWritebackTaskId="${{ vars.PATHFINDER_WRIKE_STATUS_WRITEBACK_TASK_ID || '' }}" \
+              WrikeStatusWritebackExpiresAt="${{ vars.PATHFINDER_WRIKE_STATUS_WRITEBACK_EXPIRES_AT || '' }}" \
               WrikeOrderRehearsalEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL || 'false' }}" \
               WrikeOrderRehearsalCustomerId="${{ vars.PATHFINDER_WRIKE_ORDER_REHEARSAL_CUSTOMER_ID || '' }}" \
               WrikeOrderRehearsalImportMethodId="${{ vars.PATHFINDER_WRIKE_ORDER_REHEARSAL_IMPORT_METHOD_ID || '' }}" \

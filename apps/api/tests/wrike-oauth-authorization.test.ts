@@ -63,7 +63,7 @@ test("authorizes one customer Wrike connection with expiring state and isolated 
   const authorizationUrl = new URL(started.body.authorization_url);
   const state = authorizationUrl.searchParams.get("state") ?? "";
   assert.equal(authorizationUrl.origin, "https://login.wrike.com");
-  assert.equal(authorizationUrl.searchParams.get("scope"), "wsReadOnly");
+  assert.equal(authorizationUrl.searchParams.get("scope"), "wsReadWrite");
   assert.equal(
     authorizationUrl.searchParams.get("redirect_uri"),
     "https://api.pathfinder.vornan.co/oauth/wrike/callback"
@@ -122,6 +122,9 @@ test("authorizes one customer Wrike connection with expiring state and isolated 
   assert.equal(connection.provider_status.connection_test_enabled, false);
   assert.equal(connection.provider_status.custom_field_discovery_enabled, false);
   assert.equal(connection.provider_status.discovery_preview_enabled, false);
+  assert.equal(connection.provider_status.status_writeback_enabled, false);
+  assert.equal(connection.provider_status.capabilities.requested_scope, "wsReadWrite");
+  assert.equal(connection.provider_status.capabilities.wrike_writes, false);
   assert.equal(connection.provider_status.capabilities.custom_field_metadata, false);
   assert.equal(connection.provider_status.capabilities.task_discovery, false);
   assert.equal(JSON.stringify(connection).includes("authorized-access-token"), false);

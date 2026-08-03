@@ -582,6 +582,7 @@ export interface ProcessingJobPreview {
   target_order_number?: string | null;
   target_order_lookup_url?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
+  wrike_status_writebacks?: WrikeStatusWritebackRecord[];
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;
@@ -632,6 +633,23 @@ export interface ProcessingJobPreview {
     published_at: string;
     expires_at: string;
   }>;
+}
+
+export interface WrikeStatusWritebackRecord {
+  writeback_id: string;
+  task_id: string;
+  connection_id: string;
+  order_number: string;
+  contract_number: string;
+  comment_sha256: string;
+  status_url_sha256: string;
+  state: "prepared" | "submission_uncertain" | "posted" | "failed";
+  prepared_at: string;
+  updated_at: string;
+  posted_at: string | null;
+  comment_id: string | null;
+  failure_category: string | null;
+  prepared_by_email: string | null;
 }
 
 export interface LiftOrderAssociationVerification {
@@ -4593,6 +4611,192 @@ export async function associateJobWithLiftOrder(
   });
   localLiftOrderAssociationQueue = operation.then(() => undefined, () => undefined);
   return operation;
+}
+
+export class WrikeStatusWritebackConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WrikeStatusWritebackConflictError";
+  }
+}
+
+let localWrikeStatusWritebackQueue: Promise<void> = Promise.resolve();
+
+function wrikeStatusWritebackId(args: {
+  customer_id: string;
+  job_id: string;
+  task_id: string;
+  order_number: string;
+}) {
+  return `wsw_${createHash("sha256")
+    .update("pathfinder-wrike-status-writeback-v1\0")
+    .update(args.customer_id)
+    .update("\0")
+    .update(args.job_id)
+    .update("\0")
+    .update(args.task_id)
+    .update("\0")
+    .update(args.order_number)
+    .digest("hex")}`;
+}
+
+async function mutateJobForWrikeStatusWriteback(
+  customer: LiftCustomer,
+  jobId: string,
+  transform: (job: ProcessingJobPreview) => { job: ProcessingJobPreview; record: WrikeStatusWritebackRecord }
+) {
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: tables.jobs,
+      Key: { customer_id: dynamoString(customer.lift_customer_id), job_id: dynamoString(jobId) },
+      ConsistentRead: true
+    }));
+    const item = response.Item as Record<string, AttributeValue> | undefined;
+    const job = item ? parseDynamoData<ProcessingJobPreview>(item) : null;
+    if (!job) return null;
+    const expectedUpdatedAt = item?.updated_at?.S;
+    if (!expectedUpdatedAt) {
+      throw new WrikeStatusWritebackConflictError("The current job version could not be verified safely.");
+    }
+    const next = transform(job);
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: tables.jobs,
+        Item: {
+          ...dynamoItem({ customer_id: next.job.customer_id, job_id: next.job.job_id }, next.job),
+          updated_at: dynamoString(next.job.updated_at)
+        },
+        ConditionExpression: "updated_at = :expected_updated_at",
+        ExpressionAttributeValues: { ":expected_updated_at": dynamoString(expectedUpdatedAt) }
+      }));
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) throw error;
+      throw new WrikeStatusWritebackConflictError(
+        "The job changed while the Wrike status comment was being prepared. Refresh before trying again."
+      );
+    }
+    return next;
+  }
+
+  const operation = localWrikeStatusWritebackQueue.then(async () => {
+    const store = await readStore();
+    const job = store.jobs.find(
+      (candidate) => candidate.customer_id === customer.lift_customer_id && candidate.job_id === jobId
+    );
+    if (!job) return null;
+    const next = transform(job);
+    const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+    store.jobs = store.jobs.map((candidate) =>
+      candidate.customer_id === customer.lift_customer_id && candidate.job_id === jobId ? next.job : candidate
+    );
+    workspace.jobs = store.jobs.filter((candidate) => candidate.customer_id === customer.lift_customer_id);
+    workspace.updated_at = next.job.updated_at;
+    store.workspaces[customer.lift_customer_id] = workspace;
+    await writeStore(store);
+    return next;
+  });
+  localWrikeStatusWritebackQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+
+export async function prepareWrikeStatusWriteback(
+  customer: LiftCustomer,
+  args: {
+    job_id: string;
+    task_id: string;
+    connection_id: string;
+    order_number: string;
+    contract_number: string;
+    comment_sha256: string;
+    status_url_sha256: string;
+    prepared_by_email?: string | null;
+  }
+) {
+  const writebackId = wrikeStatusWritebackId({
+    customer_id: customer.lift_customer_id,
+    job_id: args.job_id,
+    task_id: args.task_id,
+    order_number: args.order_number
+  });
+  return mutateJobForWrikeStatusWriteback(customer, args.job_id, (job) => {
+    const existing = (job.wrike_status_writebacks ?? []).find((entry) => entry.writeback_id === writebackId);
+    if (existing) {
+      const same =
+        existing.connection_id === args.connection_id &&
+        existing.contract_number === args.contract_number &&
+        existing.comment_sha256 === args.comment_sha256 &&
+        existing.status_url_sha256 === args.status_url_sha256;
+      if (!same) {
+        throw new WrikeStatusWritebackConflictError(
+          "A different Wrike status comment is already bound to this task and Lift order."
+        );
+      }
+      return { job, record: existing };
+    }
+    const timestamp = now();
+    const record: WrikeStatusWritebackRecord = {
+      writeback_id: writebackId,
+      task_id: args.task_id,
+      connection_id: args.connection_id,
+      order_number: args.order_number,
+      contract_number: args.contract_number,
+      comment_sha256: args.comment_sha256,
+      status_url_sha256: args.status_url_sha256,
+      state: "prepared",
+      prepared_at: timestamp,
+      updated_at: timestamp,
+      posted_at: null,
+      comment_id: null,
+      failure_category: null,
+      prepared_by_email: args.prepared_by_email?.trim().toLowerCase() || null
+    };
+    return {
+      record,
+      job: { ...job, wrike_status_writebacks: [...(job.wrike_status_writebacks ?? []), record], updated_at: timestamp }
+    };
+  });
+}
+
+export async function transitionWrikeStatusWriteback(
+  customer: LiftCustomer,
+  args: {
+    job_id: string;
+    writeback_id: string;
+    expected_state: WrikeStatusWritebackRecord["state"];
+    next_state: WrikeStatusWritebackRecord["state"];
+    comment_id?: string | null;
+    failure_category?: string | null;
+  }
+) {
+  return mutateJobForWrikeStatusWriteback(customer, args.job_id, (job) => {
+    const entries = job.wrike_status_writebacks ?? [];
+    const current = entries.find((entry) => entry.writeback_id === args.writeback_id);
+    if (!current) throw new WrikeStatusWritebackConflictError("The prepared Wrike status comment was not found.");
+    if (current.state !== args.expected_state) {
+      throw new WrikeStatusWritebackConflictError(
+        `The Wrike status comment is already ${current.state.replace(/_/g, " ")}; it will not be posted again.`
+      );
+    }
+    const timestamp = now();
+    const record: WrikeStatusWritebackRecord = {
+      ...current,
+      state: args.next_state,
+      updated_at: timestamp,
+      posted_at: args.next_state === "posted" ? timestamp : current.posted_at,
+      comment_id: args.comment_id ?? current.comment_id,
+      failure_category: args.failure_category ?? null
+    };
+    return {
+      record,
+      job: {
+        ...job,
+        wrike_status_writebacks: entries.map((entry) => entry.writeback_id === record.writeback_id ? record : entry),
+        updated_at: timestamp
+      }
+    };
+  });
 }
 
 export async function setJobsArchived(

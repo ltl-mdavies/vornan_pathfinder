@@ -34,6 +34,15 @@ export interface WrikeOAuthCredentials {
   access_token?: string;
   access_token_expires_at?: string;
   host: string;
+  scope?: "wsReadOnly" | "wsReadWrite";
+}
+
+export interface WrikeTaskCommentResult {
+  credentials: WrikeOAuthCredentials;
+  comment: {
+    comment_id: string;
+    created_at: string | null;
+  };
 }
 
 export interface WrikeConnectionHealth {
@@ -70,6 +79,7 @@ export class WrikeConnectionError extends Error {
       | "attachment_metadata_failed"
       | "attachment_download_failed"
       | "attachment_validation_failed"
+      | "comment_write_failed"
       | "invalid_response",
     message: string,
     public readonly rotated_credentials?: WrikeOAuthCredentials
@@ -849,7 +859,7 @@ export function buildWrikeAuthorizationUrl(args: {
   authorizationUrl.searchParams.set("client_id", clientId);
   authorizationUrl.searchParams.set("response_type", "code");
   authorizationUrl.searchParams.set("redirect_uri", redirectUri);
-  authorizationUrl.searchParams.set("scope", "wsReadOnly");
+  authorizationUrl.searchParams.set("scope", "wsReadWrite");
   authorizationUrl.searchParams.set("state", state);
   return authorizationUrl.toString();
 }
@@ -940,7 +950,8 @@ export async function exchangeWrikeAuthorizationCode(
       refresh_token: refreshToken,
       access_token: accessToken,
       access_token_expires_at: accessTokenExpiresAt,
-      host
+      host,
+      scope: "wsReadWrite"
     },
     authorized_at: authorizedAt.toISOString()
   };
@@ -964,7 +975,7 @@ export async function refreshWrikeOAuthCredentials(
     client_secret: clientSecret,
     grant_type: "refresh_token",
     refresh_token: refreshToken,
-    scope: "wsReadOnly"
+    scope: credentials.scope ?? "wsReadOnly"
   });
 
   let tokenResponse: Response;
@@ -1009,9 +1020,85 @@ export async function refreshWrikeOAuthCredentials(
       refresh_token: nextRefreshToken,
       access_token: accessToken,
       access_token_expires_at: accessTokenExpiresAt,
-      host: responseHost
+      host: responseHost,
+      scope: credentials.scope ?? "wsReadOnly"
     },
     refreshed_at: refreshedAt.toISOString()
+  };
+}
+
+function normalizedWrikeTaskId(value: string) {
+  const taskId = value.trim();
+  if (!/^[A-Za-z0-9_-]{6,64}$/.test(taskId)) {
+    throw new WrikeConnectionError("invalid_configuration", "The Wrike task identifier is invalid.");
+  }
+  return taskId;
+}
+
+export async function postWrikeTaskComment(
+  credentials: WrikeOAuthCredentials,
+  args: { task_id: string; text: string },
+  options: { fetch_impl?: typeof fetch; now?: () => Date } = {}
+): Promise<WrikeTaskCommentResult> {
+  if (credentials.scope !== "wsReadWrite") {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      "Reconnect Wrike with read/write authorization before posting a status comment."
+    );
+  }
+  const taskId = normalizedWrikeTaskId(args.task_id);
+  const text = args.text.replace(/\r\n?/g, "\n").trim();
+  if (!text || text.length > 4000) {
+    throw new WrikeConnectionError("invalid_configuration", "The Wrike comment must contain 1 to 4,000 characters.");
+  }
+
+  const fetchImpl = options.fetch_impl ?? fetch;
+  const refreshed = await refreshWrikeOAuthCredentials(credentials, options);
+  const rotatedCredentials = refreshed.credentials;
+  const body = new URLSearchParams({ text, plainText: "true" });
+  let response: Response;
+  try {
+    response = await fetchImpl(`https://${rotatedCredentials.host}/api/v4/tasks/${taskId}/comments`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${rotatedCredentials.access_token ?? ""}`,
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body,
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000)
+    });
+  } catch {
+    throw new WrikeConnectionError(
+      "comment_write_failed",
+      "Wrike did not provide a definitive response to the comment request. Do not retry automatically.",
+      rotatedCredentials
+    );
+  }
+  if (!response.ok) {
+    throw new WrikeConnectionError(
+      "comment_write_failed",
+      `Wrike rejected the comment request (HTTP ${response.status}).`,
+      rotatedCredentials
+    );
+  }
+  const payload = await responseJson(response);
+  const data = Array.isArray(payload.data) ? payload.data[0] : undefined;
+  const commentId = data && typeof data === "object" && typeof data.id === "string" ? data.id.trim() : "";
+  const createdAt = data && typeof data === "object" && typeof data.createdDate === "string"
+    ? data.createdDate.trim()
+    : null;
+  if (!commentId) {
+    throw new WrikeConnectionError(
+      "invalid_response",
+      "Wrike accepted the request but did not return a comment identifier.",
+      rotatedCredentials
+    );
+  }
+  return {
+    credentials: rotatedCredentials,
+    comment: { comment_id: commentId, created_at: createdAt || options.now?.().toISOString() || null }
   };
 }
 

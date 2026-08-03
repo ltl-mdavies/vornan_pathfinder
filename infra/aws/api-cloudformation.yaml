@@ -92,6 +92,19 @@ Parameters:
       - "true"
       - "false"
     Description: Explicit operator-only gate for capturing qualified Wrike workbooks and preparing separate Pathfinder preview jobs.
+  WrikeStatusWritebackEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Bounded authenticated operator gate for posting one status comment to one exact Wrike task.
+  WrikeStatusWritebackTaskId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9_-]{6,64}$"
+  WrikeStatusWritebackExpiresAt:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
   WrikeOrderRehearsalEnabled:
     Type: String
     Default: "false"
@@ -343,6 +356,13 @@ Parameters:
     Description: Public origin used only when producing a one-time Proof fragment link.
 
 Rules:
+  WrikeStatusWritebackRequiresBoundedTask:
+    RuleCondition: !Equals [!Ref WrikeStatusWritebackEnabled, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref WrikeStatusWritebackTaskId, ""]]
+        AssertDescription: Wrike status writeback requires one exact task identifier.
+      - Assert: !Not [!Equals [!Ref WrikeStatusWritebackExpiresAt, ""]]
+        AssertDescription: Wrike status writeback requires a bounded UTC expiry.
   WrikeLiftDocumentPublicationRequiresBoundary:
     RuleCondition: !Equals [!Ref WrikeLiftDocumentPublicationEnabled, "true"]
     Assertions:
@@ -864,6 +884,11 @@ Resources:
           PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: !Ref WrikeWorkbookEvidenceEnabled
           PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: !Ref WrikeEvidencePreviewEnabled
           PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !Ref WrikeManualIntakeEnabled
+          PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK: !Ref WrikeStatusWritebackEnabled
+          PATHFINDER_WRIKE_STATUS_WRITEBACK_SCOPE: !Join
+            - "|"
+            - - !Ref WrikeStatusWritebackTaskId
+              - !Ref WrikeStatusWritebackExpiresAt
           PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: !Ref WrikeOrderRehearsalEnabled
           PATHFINDER_WRIKE_ORDER_REHEARSAL_SCOPE: !Join
             - "|"

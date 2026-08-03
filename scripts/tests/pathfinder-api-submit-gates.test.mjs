@@ -69,6 +69,29 @@ test("Wrike custom-field metadata discovery has an independent fail-closed gate"
   );
 });
 
+test("Wrike status writeback requires one exact task and bounded expiry", () => {
+  assert.match(template, /WrikeStatusWritebackEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /WrikeStatusWritebackTaskId:[\s\S]*?Default: ""[\s\S]*?AllowedPattern:/);
+  assert.match(template, /WrikeStatusWritebackExpiresAt:[\s\S]*?Default: ""[\s\S]*?AllowedPattern:/);
+  assert.match(
+    template,
+    /WrikeStatusWritebackRequiresBoundedTask:[\s\S]*?RuleCondition:[\s\S]*?WrikeStatusWritebackEnabled[\s\S]*?WrikeStatusWritebackTaskId[\s\S]*?WrikeStatusWritebackExpiresAt/
+  );
+  assert.match(template, /PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK: !Ref WrikeStatusWritebackEnabled/);
+  assert.match(
+    template,
+    /PATHFINDER_WRIKE_STATUS_WRITEBACK_SCOPE: !Join[\s\S]*?WrikeStatusWritebackTaskId[\s\S]*?WrikeStatusWritebackExpiresAt/
+  );
+  assert.match(
+    workflow,
+    /WrikeStatusWritebackEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK \|\| 'false' \}\}"/
+  );
+  assert.match(
+    deployScript,
+    /WrikeStatusWritebackEnabled="\$\{PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK:-false\}"/
+  );
+});
+
 test("Wrike workbook evidence remains disabled by default and uses a retained private bucket", () => {
   assert.match(template, /WrikeWorkbookEvidenceEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /WrikeEvidencePreviewEnabled:[\s\S]*?Default: "false"/);
