@@ -263,9 +263,9 @@ const wrikeEvidencePreviewEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW === "true";
 const wrikeManualIntakeEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE === "true";
-const wrikeStatusWritebackEnabled = process.env.PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK === "true";
-const [wrikeStatusWritebackTaskId = "", wrikeStatusWritebackExpiresAt = ""] =
+const [wrikeStatusWritebackEnabledValue = "false", wrikeStatusWritebackTaskId = "", wrikeStatusWritebackExpiresAt = ""] =
   (process.env.PATHFINDER_WRIKE_STATUS_WRITEBACK_SCOPE ?? "").split("|");
+const wrikeStatusWritebackEnabled = wrikeStatusWritebackEnabledValue === "true";
 const wrikeOrderRehearsalConfig = getWrikeOrderRehearsalConfig();
 const wrikeLiftDocumentPublicationConfig = getWrikeLiftDocumentPublicationConfig();
 const wrikeOAuthRedirectUri = process.env.PATHFINDER_WRIKE_OAUTH_REDIRECT_URI ??
