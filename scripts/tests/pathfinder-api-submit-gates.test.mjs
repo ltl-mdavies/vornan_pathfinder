@@ -27,6 +27,13 @@ test("production workflow enables only the certified sandbox-profile Lift lane b
   assert.match(workflow, /AllowLiveCustomerSubmit="\$\{\{ inputs\.allow_live_customer_submit \}\}"/);
 });
 
+test("API deployment packages oversized CloudFormation templates through the retained artifact bucket", () => {
+  assert.match(
+    workflow,
+    /--template-file infra\/aws\/api-cloudformation\.yaml[\s\S]*--s3-bucket "\$\{\{ vars\.PATHFINDER_API_ARTIFACT_BUCKET \}\}"/
+  );
+});
+
 test("Wrike custom-field metadata discovery has an independent fail-closed gate", () => {
   assert.match(template, /WrikeCustomFieldDiscoveryEnabled:[\s\S]*?Default: "false"/);
   assert.match(
