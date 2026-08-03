@@ -16253,6 +16253,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           className="topbar-menu-item"
                           onClick={() => {
                             setJobActionMenuOpen(false);
+                            void refreshSubmitCertification(selectedJobDetail, true);
+                          }}
+                          disabled={certificationRefreshState === "loading"}
+                        >
+                          <RefreshCw size={16} />
+                          <span>
+                            <strong>
+                              {certificationRefreshState === "loading"
+                                ? "Refreshing certification…"
+                                : "Refresh Submit Certification"}
+                            </strong>
+                            <small>Recheck and bind the exact reviewed Lift payload before submit.</small>
+                          </span>
+                        </button>
+                        <button
+                          className="topbar-menu-item"
+                          onClick={() => {
+                            setJobActionMenuOpen(false);
                             void createStatusLink(selectedJobDetail);
                           }}
                           disabled={
