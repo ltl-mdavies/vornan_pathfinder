@@ -34,6 +34,29 @@ test("API deployment packages oversized CloudFormation templates through the ret
   );
 });
 
+test("API deploy policy manages only the exact main and Proof scan-worker Lambda boundaries", () => {
+  const parsedPolicy = JSON.parse(deployPolicy);
+  const lambdaStatement = parsedPolicy.Statement.find(
+    (statement) => statement.Sid === "ManagePathfinderApiLambda"
+  );
+  const roleStatement = parsedPolicy.Statement.find(
+    (statement) => statement.Sid === "ManagePathfinderApiRole"
+  );
+
+  assert.deepEqual(lambdaStatement.Resource, [
+    "arn:aws:lambda:us-east-1:744016783602:function:vornan-pathfinder-api-prod",
+    "arn:aws:lambda:us-east-1:744016783602:function:vornan-pathfinder-api-prod-proof-asset-scan"
+  ]);
+  assert.deepEqual(roleStatement.Resource, [
+    "arn:aws:iam::744016783602:role/vornan-pathfinder-api-prod-role",
+    "arn:aws:iam::744016783602:role/vornan-pathfinder-api-prod-proof-asset-scan-role"
+  ]);
+  assert.equal(roleStatement.Action.includes("iam:GetRole"), true);
+  assert.equal(roleStatement.Action.includes("iam:PassRole"), true);
+  assert.equal(lambdaStatement.Resource.some((resource) => resource.includes("*")), false);
+  assert.equal(roleStatement.Resource.some((resource) => resource.includes("*")), false);
+});
+
 test("Wrike custom-field metadata discovery has an independent fail-closed gate", () => {
   assert.match(template, /WrikeCustomFieldDiscoveryEnabled:[\s\S]*?Default: "false"/);
   assert.match(

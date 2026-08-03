@@ -28,7 +28,10 @@
         "lambda:UpdateFunctionCode",
         "lambda:UpdateFunctionConfiguration"
       ],
-      "Resource": "arn:aws:lambda:us-east-1:744016783602:function:vornan-pathfinder-api-prod"
+      "Resource": [
+        "arn:aws:lambda:us-east-1:744016783602:function:vornan-pathfinder-api-prod",
+        "arn:aws:lambda:us-east-1:744016783602:function:vornan-pathfinder-api-prod-proof-asset-scan"
+      ]
     },
     {
       "Sid": "ManagePathfinderApiRole",
@@ -44,7 +47,10 @@
         "iam:PassRole",
         "iam:PutRolePolicy"
       ],
-      "Resource": "arn:aws:iam::744016783602:role/vornan-pathfinder-api-prod-role"
+      "Resource": [
+        "arn:aws:iam::744016783602:role/vornan-pathfinder-api-prod-role",
+        "arn:aws:iam::744016783602:role/vornan-pathfinder-api-prod-proof-asset-scan-role"
+      ]
     },
     {
       "Sid": "ManagePathfinderDynamoTables",
