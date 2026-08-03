@@ -83,6 +83,7 @@ import {
   getWrikeContractReadiness,
   normalizeWrikeHost,
   normalizeWrikeSourceConfig,
+  postWrikeTaskComment,
   prepareWrikeLiftOrderDocumentPatch,
   WrikeConnectionError,
   type WrikeLiftDocumentPublication,
@@ -116,6 +117,7 @@ import {
 import {
   archiveImportMethod,
   associateJobWithLiftOrder,
+  prepareWrikeStatusWriteback,
   addCanonicalRegistryCustomField,
   applyProductMappingReplacement,
   bulkUpsertProductMappings,
@@ -140,6 +142,7 @@ import {
   listJobs,
   listSubmitAttemptsForJob,
   listTargets,
+  transitionWrikeStatusWriteback,
   getJob,
   getOrderStatusToken,
   getPublicIntakeEmailVerification,
@@ -164,6 +167,7 @@ import {
   revokeImportMethodPublicIntakeKey,
   rotateImportMethodPublicIntakeKey,
   setJobsArchived,
+  WrikeStatusWritebackConflictError,
   updateProductMapping,
   upsertCatalogPreset,
   updateImportMethod,
@@ -259,6 +263,9 @@ const wrikeEvidencePreviewEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW === "true";
 const wrikeManualIntakeEnabled =
   process.env.PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE === "true";
+const wrikeStatusWritebackEnabled = process.env.PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK === "true";
+const [wrikeStatusWritebackTaskId = "", wrikeStatusWritebackExpiresAt = ""] =
+  (process.env.PATHFINDER_WRIKE_STATUS_WRITEBACK_SCOPE ?? "").split("|");
 const wrikeOrderRehearsalConfig = getWrikeOrderRehearsalConfig();
 const wrikeLiftDocumentPublicationConfig = getWrikeLiftDocumentPublicationConfig();
 const wrikeOAuthRedirectUri = process.env.PATHFINDER_WRIKE_OAUTH_REDIRECT_URI ??
@@ -3716,7 +3723,7 @@ app.get("/oauth/wrike/callback", async (req, res) => {
           host: result.credentials.host,
           checked_at: null,
           identity_confirmed: false,
-          message: "Wrike authorization is connected. Run the separately gated read-only identity test when approved."
+          message: "Wrike authorization is connected with read/write scope. Run the identity test before using writeback."
         }
       }
     });
@@ -3767,6 +3774,7 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
     workbook_evidence_enabled: wrikeWorkbookEvidenceEnabled,
     evidence_preview_enabled: wrikeEvidencePreviewEnabled,
     manual_intake_enabled: wrikeManualIntakeEnabled,
+    status_writeback_enabled: wrikeStatusWritebackEnabled,
     host,
     credentials: {
       client_id_configured: clientIdConfigured,
@@ -3780,13 +3788,13 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
       host,
       checked_at: null,
       identity_confirmed: false,
-      message: "Save the Wrike app credentials, then authorize the read-only connection."
+      message: "Save the Wrike app credentials, then authorize the read/write connection."
     },
     capabilities: {
       oauth_authorization: true,
       oauth_refresh: true,
       identity_check: true,
-      requested_scope: "wsReadOnly",
+      requested_scope: "wsReadWrite",
       custom_field_metadata: wrikeCustomFieldDiscoveryEnabled,
       task_discovery: wrikeDiscoveryPreviewEnabled || wrikeWorkbookEvidenceEnabled,
       attachment_metadata: wrikeDiscoveryPreviewEnabled || wrikeWorkbookEvidenceEnabled,
@@ -3796,7 +3804,7 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
       manual_intake: wrikeManualIntakeEnabled,
       webhook: false,
       polling: false,
-      wrike_writes: false,
+      wrike_writes: wrikeStatusWritebackEnabled && oauth.scope === "wsReadWrite",
       lift_actions: false
     }
   };
@@ -3891,7 +3899,8 @@ app.put("/api/customers/:liftCustomerId/source-connections/:connectionId", async
         refresh_token: changed ? "" : currentOauth.refresh_token ?? "",
         host: changed ? "" : currentOauth.host ?? "",
         access_token: changed ? undefined : currentOauth.access_token,
-        access_token_expires_at: changed ? undefined : currentOauth.access_token_expires_at
+        access_token_expires_at: changed ? undefined : currentOauth.access_token_expires_at,
+        scope: changed ? undefined : currentOauth.scope
       };
       await writeCustomerSourceConnectionSecrets(customer.lift_customer_id, current.connection_id, {
         provider: "wrike",
@@ -3904,7 +3913,7 @@ app.put("/api/customers/:liftCustomerId/source-connections/:connectionId", async
                 host: null,
                 checked_at: null,
                 identity_confirmed: false,
-                message: "App credentials changed. Authorize this customer connection before any read-only test."
+                message: "App credentials changed. Authorize this customer connection before any identity test."
               }
             : existing.health
         }
@@ -3950,7 +3959,7 @@ app.post("/api/customers/:liftCustomerId/source-connections/:connectionId/wrike/
       authorization_url: buildWrikeAuthorizationUrl({ client_id: clientId, redirect_uri: redirectUri, state }),
       expires_at: expiresAt,
       redirect_uri: redirectUri,
-      requested_scope: "wsReadOnly"
+      requested_scope: "wsReadWrite"
     });
   } catch (error) {
     res.status(400).json({ error: error instanceof Error ? error.message : "Wrike authorization could not be started." });
@@ -3979,7 +3988,7 @@ app.post("/api/customers/:liftCustomerId/source-connections/:connectionId/wrike/
     const result = await checkWrikeOAuthConnection(oauth);
     const next: WrikeConnectorSecrets = {
       oauth: result.credentials,
-      health: { ...result.health, message: "OAuth refresh and the read-only authorized-user check succeeded." }
+      health: { ...result.health, message: "OAuth refresh and the authorized-user identity check succeeded." }
     };
     await writeCustomerSourceConnectionSecrets(customer.lift_customer_id, connection.connection_id, {
       provider: "wrike",
@@ -3987,7 +3996,7 @@ app.post("/api/customers/:liftCustomerId/source-connections/:connectionId/wrike/
     });
     res.json(await customerSourceConnectionPayload(customer.lift_customer_id, connection));
   } catch (error) {
-    const message = error instanceof WrikeConnectionError ? error.message : "The Wrike read-only connection check failed.";
+    const message = error instanceof WrikeConnectionError ? error.message : "The Wrike connection check failed.";
     const failed: WrikeConnectorSecrets = {
       ...existing,
       oauth: error instanceof WrikeConnectionError && error.rotated_credentials ? error.rotated_credentials : existing.oauth,
@@ -6467,6 +6476,154 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/status-link", async (req, r
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Could not create order status link."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/jobs/:jobId/wrike-status-writeback", async (req, res) => {
+  if (!wrikeStatusWritebackEnabled) {
+    res.status(423).json({ error: "Wrike status writeback is disabled at the API boundary." });
+    return;
+  }
+  const expiresAt = Date.parse(wrikeStatusWritebackExpiresAt);
+  if (!wrikeStatusWritebackTaskId || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+    res.status(423).json({ error: "Wrike status writeback does not have an active bounded task window." });
+    return;
+  }
+
+  let customer: LiftCustomer | null = null;
+  let connection: CustomerSourceConnection | null = null;
+  let existingSecrets: WrikeConnectorSecrets | null = null;
+  let writebackId: string | null = null;
+  try {
+    customer = await findLiftCustomer(req.params.liftCustomerId);
+    const job = await getJob(customer, req.params.jobId);
+    if (!job) {
+      res.status(404).json({ error: "Preview job not found." });
+      return;
+    }
+    const evidence = job.source_evidence;
+    if (!evidence || evidence.provider !== "wrike" || evidence.task_id !== wrikeStatusWritebackTaskId) {
+      res.status(403).json({ error: "This job is not bound to the approved Wrike Placard Order task." });
+      return;
+    }
+    const orderNumber = valueAsString(job.target_order_number).trim().toUpperCase();
+    const contractNumber = valueAsString(job.canonical_order.order.contract_number).trim().toUpperCase();
+    if (!orderNumber || !contractNumber) {
+      res.status(409).json({ error: "The job needs a confirmed Lift order and contract number before writeback." });
+      return;
+    }
+    const requiredConfirmation = `POST ${orderNumber} TO WRIKE`;
+    if (valueAsString(req.body?.confirmation).trim().toUpperCase() !== requiredConfirmation) {
+      res.status(400).json({ error: `Type ${requiredConfirmation} to post this comment.` });
+      return;
+    }
+    const existing = (job.wrike_status_writebacks ?? []).find(
+      (entry) => entry.task_id === evidence.task_id && entry.order_number === orderNumber
+    );
+    if (existing?.state === "posted") {
+      res.json({ posted: true, reused: true, writeback: existing });
+      return;
+    }
+    if (existing?.state === "submission_uncertain") {
+      res.status(409).json({
+        error: "Wrike did not provide a definitive response to the prior post. Review the task before any manual retry.",
+        writeback: existing
+      });
+      return;
+    }
+
+    connection = await findCustomerSourceConnection(customer, evidence.connection_id);
+    if (!connection || connection.provider !== "wrike") {
+      res.status(409).json({ error: "The job's Wrike source connection is no longer available." });
+      return;
+    }
+    const connectionSecrets = await readCustomerSourceConnectionSecrets(customer.lift_customer_id, connection.connection_id);
+    existingSecrets = connectionSecrets.wrike ?? {};
+    const oauth = existingSecrets.oauth as WrikeOAuthCredentials | undefined;
+    if (!oauth || oauth.scope !== "wsReadWrite") {
+      res.status(409).json({ error: "Reconnect this Wrike connection with read/write authorization first." });
+      return;
+    }
+
+    const statusLink = await createPublicStatusLinkForJob({
+      customer,
+      jobId: job.job_id,
+      createdByEmail: typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null
+    });
+    if ("error" in statusLink) {
+      res.status(statusLink.errorStatus ?? 500).json({ error: statusLink.error });
+      return;
+    }
+    const comment = [
+      "Larger Than Life print order created successfully via Pathfinder.",
+      `Lift order #${orderNumber}.`,
+      `View live order status: ${statusLink.status_url}`,
+      `Contract: ${contractNumber}`
+    ].join("\n");
+    const prepared = await prepareWrikeStatusWriteback(customer, {
+      job_id: job.job_id,
+      task_id: evidence.task_id,
+      connection_id: evidence.connection_id,
+      order_number: orderNumber,
+      contract_number: contractNumber,
+      comment_sha256: createHash("sha256").update(comment).digest("hex"),
+      status_url_sha256: createHash("sha256").update(statusLink.status_url).digest("hex"),
+      prepared_by_email: typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null
+    });
+    if (!prepared) {
+      res.status(404).json({ error: "Preview job not found." });
+      return;
+    }
+    writebackId = prepared.record.writeback_id;
+    if (prepared.record.state !== "prepared") {
+      res.status(409).json({ error: `The Wrike status comment is already ${prepared.record.state}.` });
+      return;
+    }
+    const claimed = await transitionWrikeStatusWriteback(customer, {
+      job_id: job.job_id,
+      writeback_id: writebackId,
+      expected_state: "prepared",
+      next_state: "submission_uncertain"
+    });
+    if (!claimed) {
+      res.status(404).json({ error: "Preview job not found." });
+      return;
+    }
+
+    const posted = await postWrikeTaskComment(oauth, { task_id: evidence.task_id, text: comment });
+    await writeCustomerSourceConnectionSecrets(customer.lift_customer_id, connection.connection_id, {
+      provider: "wrike",
+      wrike: { ...existingSecrets, oauth: posted.credentials }
+    });
+    const finalized = await transitionWrikeStatusWriteback(customer, {
+      job_id: job.job_id,
+      writeback_id: writebackId,
+      expected_state: "submission_uncertain",
+      next_state: "posted",
+      comment_id: posted.comment.comment_id
+    });
+    res.status(201).json({
+      posted: true,
+      reused: false,
+      writeback: finalized?.record,
+      task_id: evidence.task_id,
+      order_number: orderNumber,
+      contract_number: contractNumber
+    });
+  } catch (error) {
+    if (
+      customer && connection && existingSecrets && error instanceof WrikeConnectionError && error.rotated_credentials
+    ) {
+      await writeCustomerSourceConnectionSecrets(customer.lift_customer_id, connection.connection_id, {
+        provider: "wrike",
+        wrike: { ...existingSecrets, oauth: error.rotated_credentials }
+      }).catch(() => undefined);
+    }
+    res.status(error instanceof WrikeConnectionError || error instanceof WrikeStatusWritebackConflictError ? 409 : 500).json({
+      error: error instanceof Error ? error.message : "Wrike status comment could not be posted.",
+      writeback_id: writebackId,
+      retryable: false
     });
   }
 });

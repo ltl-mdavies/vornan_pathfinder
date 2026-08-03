@@ -15,6 +15,7 @@ import {
   normalizeWrikeHost,
   normalizeWrikeSourceConfig,
   parseWrikeOrderNameContract,
+  postWrikeTaskComment,
   resolveWrikeArtworkFolderUrl,
   resolveWrikeContractNumber,
   selectWrikeReferenceProofAttachment,
@@ -434,7 +435,7 @@ test("accepts only a bare HTTPS Wrike regional host", () => {
   assert.throws(() => normalizeWrikeHost("https://www.wrike.com/api/v4/tasks"), WrikeConnectionError);
 });
 
-test("builds a read-only Wrike authorization request with opaque state", () => {
+test("builds a read/write Wrike authorization request with opaque state", () => {
   const authorizationUrl = new URL(
     buildWrikeAuthorizationUrl({
       client_id: "client-id",
@@ -447,7 +448,7 @@ test("builds a read-only Wrike authorization request with opaque state", () => {
   assert.equal(authorizationUrl.pathname, "/oauth2/authorize");
   assert.equal(authorizationUrl.searchParams.get("client_id"), "client-id");
   assert.equal(authorizationUrl.searchParams.get("response_type"), "code");
-  assert.equal(authorizationUrl.searchParams.get("scope"), "wsReadOnly");
+  assert.equal(authorizationUrl.searchParams.get("scope"), "wsReadWrite");
   assert.equal(authorizationUrl.searchParams.get("state"), "opaque-state");
   assert.equal(
     authorizationUrl.searchParams.get("redirect_uri"),
@@ -491,6 +492,7 @@ test("exchanges an authorization code without returning provider error details",
   assert.equal(result.credentials.host, "app-us2.wrike.com");
   assert.equal(result.credentials.refresh_token, "refresh-token");
   assert.equal(result.credentials.access_token_expires_at, "2026-07-22T16:00:00.000Z");
+  assert.equal(result.credentials.scope, "wsReadWrite");
   assert.equal(result.authorized_at, "2026-07-22T15:00:00.000Z");
 
   const providerSecret = "do-not-echo";
@@ -564,6 +566,69 @@ test("refreshes OAuth and performs only the read-only current-user health check"
     checked_at: "2026-07-21T20:00:00.000Z",
     identity_confirmed: true
   });
+});
+
+test("posts one plain-text task comment with read/write OAuth and returns only safe metadata", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const result = await postWrikeTaskComment(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com",
+      scope: "wsReadWrite"
+    },
+    {
+      task_id: "MAAAAAENlV9Z",
+      text: "Larger Than Life print order created successfully.\nLift order #A0227641.",
+    },
+    {
+      fetch_impl: async (input, init) => {
+        calls.push({ url: String(input), init });
+        if (String(input).endsWith("/oauth2/token")) {
+          return new Response(JSON.stringify({
+            access_token: "rotated-access-token",
+            refresh_token: "rotated-refresh-token",
+            host: "app-us2.wrike.com"
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        return new Response(JSON.stringify({
+          data: [{ id: "IECOMMENT", createdDate: "2026-08-03T18:00:00Z", text: "do-not-return" }]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+    }
+  );
+
+  assert.deepEqual(calls.map((call) => call.url), [
+    "https://www.wrike.com/oauth2/token",
+    "https://app-us2.wrike.com/api/v4/tasks/MAAAAAENlV9Z/comments"
+  ]);
+  const refreshBody = calls[0].init?.body as URLSearchParams;
+  assert.equal(refreshBody.get("scope"), "wsReadWrite");
+  const commentBody = calls[1].init?.body as URLSearchParams;
+  assert.equal(commentBody.get("plainText"), "true");
+  assert.match(commentBody.get("text") ?? "", /Larger Than Life/);
+  assert.equal(calls[1].init?.redirect, "error");
+  assert.deepEqual(result.comment, { comment_id: "IECOMMENT", created_at: "2026-08-03T18:00:00Z" });
+  assert.equal(JSON.stringify(result).includes("do-not-return"), false);
+  assert.equal(result.credentials.scope, "wsReadWrite");
+});
+
+test("refuses comment posting unless the saved OAuth grant is read/write", async () => {
+  await assert.rejects(
+    postWrikeTaskComment(
+      {
+        client_id: "client-id",
+        client_secret: "client-secret",
+        refresh_token: "refresh-token",
+        host: "www.wrike.com",
+        scope: "wsReadOnly"
+      },
+      { task_id: "MAAAAAENlV9Z", text: "comment" },
+      { fetch_impl: async () => { throw new Error("must not call"); } }
+    ),
+    (error: unknown) => error instanceof WrikeConnectionError && error.code === "invalid_configuration"
+  );
 });
 
 test("returns safe OAuth errors without echoing provider secrets", async () => {

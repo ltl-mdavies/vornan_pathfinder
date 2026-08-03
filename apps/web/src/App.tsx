@@ -21,6 +21,7 @@ import {
   Link2,
   LogOut,
   Map,
+  MessageSquare,
   Plus,
   RefreshCw,
   Search,
@@ -230,6 +231,7 @@ type WrikeConnectionStatusPayload = {
   workbook_evidence_enabled: boolean;
   evidence_preview_enabled: boolean;
   manual_intake_enabled: boolean;
+  status_writeback_enabled: boolean;
   host: string | null;
   credentials: {
     client_id_configured: boolean;
@@ -249,7 +251,7 @@ type WrikeConnectionStatusPayload = {
     oauth_authorization: boolean;
     oauth_refresh: boolean;
     identity_check: boolean;
-    requested_scope: "wsReadOnly";
+    requested_scope: "wsReadOnly" | "wsReadWrite";
     custom_field_metadata: boolean;
     task_discovery: boolean;
     attachment_metadata: boolean;
@@ -259,7 +261,7 @@ type WrikeConnectionStatusPayload = {
     manual_intake: boolean;
     webhook: false;
     polling: false;
-    wrike_writes: false;
+    wrike_writes: boolean;
     lift_actions: false;
   };
 };
@@ -786,6 +788,7 @@ interface ProcessingJobPreview {
   target_order_number?: string | null;
   target_order_lookup_url?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
+  wrike_status_writebacks?: WrikeStatusWritebackRecord[];
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;
@@ -834,6 +837,20 @@ interface ProcessingJobPreview {
     version_id: string;
     captured_at: string;
   } | null;
+}
+
+interface WrikeStatusWritebackRecord {
+  writeback_id: string;
+  task_id: string;
+  connection_id: string;
+  order_number: string;
+  contract_number: string;
+  state: "prepared" | "submission_uncertain" | "posted" | "failed";
+  prepared_at: string;
+  updated_at: string;
+  posted_at: string | null;
+  comment_id: string | null;
+  failure_category: string | null;
 }
 
 interface LiftOrderAssociationVerification {
@@ -4010,6 +4027,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     useState<LiftOrderAssociationVerificationResponse | null>(null);
   const [liftOrderAssociationState, setLiftOrderAssociationState] =
     useState<"idle" | "verifying" | "saving" | "error">("idle");
+  const [wrikeWritebackOpen, setWrikeWritebackOpen] = useState(false);
+  const [wrikeWritebackConfirmation, setWrikeWritebackConfirmation] = useState("");
+  const [wrikeWritebackState, setWrikeWritebackState] = useState<"idle" | "posting" | "error">("idle");
   const [jobArchiveFilter, setJobArchiveFilter] = useState<JobArchiveFilter>("Active");
   const [jobIntakeFilter, setJobIntakeFilter] = useState<JobIntakeFilter>("All");
   const [jobSortField, setJobSortField] = useState<JobSortField>("updated_at");
@@ -4362,7 +4382,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       });
       setWrikeConnectionMessage(
         payload.provider_status?.oauth_connect_ready
-          ? "Wrike app credentials are saved securely. Continue with Wrike to authorize read-only access."
+          ? "Wrike app credentials are saved securely. Continue with Wrike to authorize task reads and status comments."
           : "Wrike app credentials were not complete."
       );
       setWrikeConnectionState("idle");
@@ -4387,7 +4407,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         authorization_url: string;
         expires_at: string;
         redirect_uri: string;
-        requested_scope: "wsReadOnly";
+        requested_scope: "wsReadWrite";
       }>(response);
       const authorizationUrl = new URL(payload.authorization_url);
       if (authorizationUrl.origin !== "https://login.wrike.com") {
@@ -4412,10 +4432,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       );
       const payload = await readJsonResponse<CustomerSourceConnectionPayload>(response);
       updateSourceConnectionPayload(payload);
-      setWrikeConnectionMessage("Wrike OAuth refresh and read-only identity check passed.");
+      setWrikeConnectionMessage("Wrike OAuth refresh and identity check passed.");
       setWrikeConnectionState("idle");
     } catch (error) {
-      setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike read-only connection test failed.");
+      setWrikeConnectionMessage(error instanceof Error ? error.message : "Wrike connection test failed.");
       setWrikeConnectionState("error");
     }
   }
@@ -4808,6 +4828,54 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setLiftOrderAssociationOpen(false);
     setLiftOrderAssociationVerification(null);
     setLiftOrderAssociationState("idle");
+    setWrikeWritebackOpen(false);
+    setWrikeWritebackConfirmation("");
+    setWrikeWritebackState("idle");
+  }
+
+  function openWrikeStatusWriteback() {
+    setJobActionMenuOpen(false);
+    setWrikeWritebackConfirmation("");
+    setWrikeWritebackState("idle");
+    setWrikeWritebackOpen(true);
+  }
+
+  async function postWrikeStatusWriteback(job: ProcessingJobPreview) {
+    const orderNumber = job.target_order_number?.trim().toUpperCase();
+    if (!orderNumber) return;
+    setWrikeWritebackState("posting");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/wrike-status-writeback`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmation: wrikeWritebackConfirmation })
+        }
+      );
+      const payload = await readJsonResponse<{
+        posted: boolean;
+        reused: boolean;
+        writeback: WrikeStatusWritebackRecord;
+      }>(response);
+      const refreshed = { ...job, wrike_status_writebacks: [
+        ...(job.wrike_status_writebacks ?? []).filter((entry) => entry.writeback_id !== payload.writeback.writeback_id),
+        payload.writeback
+      ] };
+      setSelectedJobDetail(refreshed);
+      setGlobalJobs((current) => upsertJob(current, refreshed));
+      setWorkspace((current) => current ? { ...current, jobs: upsertJob(current.jobs, refreshed) } : current);
+      setWorkspaceMessage(
+        payload.reused
+          ? `The Larger Than Life status comment for ${orderNumber} was already posted to Wrike.`
+          : `Larger Than Life order ${orderNumber} and its live Status link were posted to Wrike.`
+      );
+      setWrikeWritebackState("idle");
+      setWrikeWritebackOpen(false);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Wrike status comment could not be posted.");
+      setWrikeWritebackState("error");
+    }
   }
 
   function openLiftOrderAssociation(job: ProcessingJobPreview) {
@@ -14328,7 +14396,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <div>
                           <span className="section-eyebrow">Wrike · {selectedWrikeConnection.environment}</span>
                           <strong>{selectedWrikeConnection.name}</strong>
-                          <small>OAuth 2.0 · least-privilege <code>wsReadOnly</code> access</small>
+                          <small>OAuth 2.0 · approved <code>wsReadWrite</code> access for task reads and status comments</small>
                         </div>
                         {selectedWrikeConnectionStatus ? (
                           <RouteDiagnosticPill
@@ -16405,6 +16473,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <small>Verify an order in Lift before associating it with this Pathfinder job.</small>
                           </span>
                         </button>
+                        {selectedJobDetail.source_evidence?.provider === "wrike" && selectedJobDetail.target_order_number ? (
+                          <button
+                            className="topbar-menu-item"
+                            onClick={openWrikeStatusWriteback}
+                          >
+                            <MessageSquare size={16} />
+                            <span>
+                              <strong>Post Status to Wrike</strong>
+                              <small>Post the Larger Than Life order number and a live customer Status link.</small>
+                            </span>
+                          </button>
+                        ) : null}
                         <button
                           className="topbar-menu-item"
                           onClick={() => {
@@ -17444,6 +17524,85 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </section>
           </>
+        ) : null}
+
+        {wrikeWritebackOpen && selectedJobDetail ? (
+          <div className="product-map-modal-backdrop" role="presentation" onClick={() => setWrikeWritebackOpen(false)}>
+            <section
+              className="product-map-modal lift-order-association-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="wrike-status-writeback-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-section-header">
+                <div>
+                  <p className="eyebrow">Momentara update</p>
+                  <h2 id="wrike-status-writeback-title">Post order status to Wrike</h2>
+                  <span>Pathfinder will post one comment to the Placard Order task that created this job.</span>
+                </div>
+                <button
+                  className="modal-close-button"
+                  onClick={() => setWrikeWritebackOpen(false)}
+                  aria-label="Close Wrike status writeback"
+                  disabled={wrikeWritebackState === "posting"}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="lift-order-association-body">
+                <div className="lift-order-association-current">
+                  <span>Comment preview</span>
+                  <strong>Larger Than Life print order created successfully via Pathfinder.</strong>
+                  <small>Lift order #{selectedJobDetail.target_order_number}.</small>
+                  <small>View live order status: a new secure status.vornan.co link</small>
+                  <small>Contract: {selectedJobDetail.canonical_order.order.contract_number || "Not provided"}</small>
+                </div>
+                {selectedJobDetail.wrike_status_writebacks?.find(
+                  (entry) => entry.order_number === selectedJobDetail.target_order_number
+                )?.state === "posted" ? (
+                  <div className="lift-order-association-safe">
+                    <CheckCircle2 size={18} />
+                    This exact order update has already been posted to Wrike.
+                  </div>
+                ) : (
+                  <label className="setup-control lift-order-association-confirmation">
+                    <span>Type this exact confirmation</span>
+                    <strong>POST {selectedJobDetail.target_order_number} TO WRIKE</strong>
+                    <input
+                      value={wrikeWritebackConfirmation}
+                      onChange={(event) => setWrikeWritebackConfirmation(event.target.value.toUpperCase())}
+                      autoComplete="off"
+                      autoFocus
+                    />
+                  </label>
+                )}
+              </div>
+              <div className="modal-action-row">
+                <button
+                  className="secondary-button"
+                  onClick={() => setWrikeWritebackOpen(false)}
+                  disabled={wrikeWritebackState === "posting"}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="primary-button"
+                  onClick={() => void postWrikeStatusWriteback(selectedJobDetail)}
+                  disabled={
+                    wrikeWritebackState === "posting" ||
+                    wrikeWritebackConfirmation !== `POST ${selectedJobDetail.target_order_number} TO WRIKE` ||
+                    selectedJobDetail.wrike_status_writebacks?.some(
+                      (entry) => entry.order_number === selectedJobDetail.target_order_number && entry.state === "posted"
+                    )
+                  }
+                >
+                  <MessageSquare size={16} />
+                  {wrikeWritebackState === "posting" ? "Posting once…" : "Post to Wrike"}
+                </button>
+              </div>
+            </section>
+          </div>
         ) : null}
 
         {liftOrderAssociationOpen && selectedJobDetail ? (
