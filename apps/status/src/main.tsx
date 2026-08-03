@@ -6,6 +6,7 @@ import type {
   OrderRollupDestination,
   OrderRollupHeaderFieldSource,
   OrderRollupProofSummary,
+  OrderRollupProofVisibility,
   OrderRollupShipmentSummary
 } from "@pathfinder/order-rollup";
 import { OrderRollup } from "@pathfinder/order-rollup-ui";
@@ -110,6 +111,7 @@ type PublicOrderStatusSnapshot = {
   live_order?: NormalizedLiftOrder | null;
   order_status?: NormalizedLiftOrder["status"];
   proof_summary?: OrderRollupProofSummary | null;
+  proof_visibility: OrderRollupProofVisibility;
   shipment_summary?: OrderRollupShipmentSummary | null;
   lines: StatusLine[];
   lookups: {
@@ -122,6 +124,7 @@ type PublicOrderStatusSnapshot = {
     audience: string;
     redacted_fields: string[];
     token_required: boolean;
+    proof_visibility: OrderRollupProofVisibility;
   };
   refreshed_at: string;
 };
@@ -223,20 +226,20 @@ function progressSteps(snapshot: PublicOrderStatusSnapshot) {
   const shippingPhase = hasHeaderStep && headerStepNumber >= 15.29;
   const completed = hasHeaderStep && headerStepNumber >= 18;
 
-  return [
+  const steps = [
     {
       label: "Received",
       detail: statusLabel(snapshot),
       state: "complete"
     },
-    proofReviewProgress(snapshot.proof_summary, {
+    ...(snapshot.proof_visibility === "off" ? [] : [proofReviewProgress(snapshot.proof_summary, {
       proof_files: proofs,
       proof_phase: proofPhase,
       production_phase: productionPhase,
       shipping_phase: shippingPhase,
       completed,
       has_error: hasError
-    }),
+    })]),
     {
       label: "Production",
       detail: packages || tracking ? "Production activity recorded" : "Production updates pending",
@@ -248,6 +251,7 @@ function progressSteps(snapshot: PublicOrderStatusSnapshot) {
       state: completed ? "complete" : tracking || shippingPhase ? "current" : "pending"
     }
   ];
+  return steps;
 }
 
 function productIdentifier(line: StatusLine) {

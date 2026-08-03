@@ -97,7 +97,7 @@ function realSiblingSnapshot(): OrderRollupSnapshot {
 
 test("renders the four real-shape sibling proofs as distinct view-only gallery cards", () => {
   const markup = renderToStaticMarkup(
-    <OrderRollup snapshot={realSiblingSnapshot()} audience="public" displayDate={(value) => value ?? "Not available"} />
+    <OrderRollup snapshot={realSiblingSnapshot()} audience="internal" displayDate={(value) => value ?? "Not available"} />
   );
 
   assert.equal((markup.match(/class="order-rollup__proof-card /g) ?? []).length, 4);
@@ -109,7 +109,7 @@ test("renders the four real-shape sibling proofs as distinct view-only gallery c
   assert.doesNotMatch(markup, />High resolution<\/a>/);
   assert.equal((markup.match(/Posted 2026-07-19/g) ?? []).length, 4);
   assert.match(markup, /Proof review required/);
-  assert.match(markup, /dedicated Vornan Proof email/);
+  assert.match(markup, /Normalized Proof cache synchronized/);
   assert.match(markup, /PO-LIFT-9001/);
   assert.match(markup, /CONTRACT-SUBMITTED-12/);
   assert.match(markup, /Jul 23, 2026/);
@@ -162,7 +162,7 @@ test("uses one safe proof control with high-resolution preference and low-resolu
   ];
 
   const markup = renderToStaticMarkup(
-    <OrderRollup snapshot={snapshot} audience="public" displayDate={(value) => value ?? "Not available"} />
+    <OrderRollup snapshot={snapshot} audience="internal" displayDate={(value) => value ?? "Not available"} />
   );
 
   assert.equal((markup.match(/>View proof<\/a>/g) ?? []).length, 3);
@@ -173,6 +173,32 @@ test("uses one safe proof control with high-resolution preference and low-resolu
   assert.doesNotMatch(markup, /unsafe-both-low/);
   assert.doesNotMatch(markup, /user:secret/);
   assert.equal((markup.match(/<img /g) ?? []).length, 2);
+});
+
+test("never renders direct Proof assets for the public Status audience and hides Proof entirely when disabled", () => {
+  const statusOnly = realSiblingSnapshot();
+  statusOnly.proof_visibility = "status_only";
+  statusOnly.proof_summary = {
+    ...statusOnly.proof_summary!,
+    access_mode: "status_only",
+    review_url: null
+  };
+  const publicMarkup = renderToStaticMarkup(
+    <OrderRollup snapshot={statusOnly} audience="public" displayDate={(value) => value ?? "Not available"} />
+  );
+  assert.equal((publicMarkup.match(/<img /g) ?? []).length, 0);
+  assert.equal((publicMarkup.match(/>View proof<\/a>/g) ?? []).length, 0);
+  assert.match(publicMarkup, /Files and review access are not included/);
+
+  const hidden = realSiblingSnapshot();
+  hidden.proof_visibility = "off";
+  hidden.proof_summary = null;
+  const hiddenMarkup = renderToStaticMarkup(
+    <OrderRollup snapshot={hidden} audience="public" displayDate={(value) => value ?? "Not available"} />
+  );
+  assert.doesNotMatch(hiddenMarkup, /Proof review required/);
+  assert.doesNotMatch(hiddenMarkup, /<strong>Proofs<\/strong>/);
+  assert.doesNotMatch(hiddenMarkup, /4 proofs/);
 });
 
 test("rejects unsafe proof assets before they reach an image or link", () => {

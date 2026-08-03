@@ -878,6 +878,7 @@ type StatusAccessPolicyMode =
   | "Internal only";
 type StatusAccessDomainStatus = "Approved" | "Suggested" | "Blocked";
 type StatusAccessDomainSource = "Customer email" | "Order email" | "Imported contact" | "Admin" | "Seed";
+type StatusProofVisibility = "off" | "status_only" | "review_link";
 
 interface StatusAccessDomain {
   domain: string;
@@ -890,6 +891,7 @@ interface StatusAccessDomain {
 interface StatusAccessPolicy {
   mode: StatusAccessPolicyMode;
   allow_public_status_links: boolean;
+  proof_visibility: StatusProofVisibility;
   approved_email_domains: StatusAccessDomain[];
   updated_at: string;
 }
@@ -2168,6 +2170,7 @@ function createStatusAccessPolicyFallback(customer: LiftCustomer): StatusAccessP
   return {
     mode: "Exact email or approved domain",
     allow_public_status_links: true,
+    proof_visibility: "status_only",
     approved_email_domains: inferredDomain
       ? [
           {
@@ -14402,6 +14405,26 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <option value="enabled">Enabled</option>
                           <option value="disabled">Disabled</option>
                         </select>
+                      </label>
+                      <label className="setup-control">
+                        <span>Proof access on Status page</span>
+                        <select
+                          value={statusAccessPolicy.proof_visibility}
+                          onChange={(event) =>
+                            updateStatusPolicyDraft({ proof_visibility: event.target.value as StatusProofVisibility })
+                          }
+                        >
+                          <option value="off">Hide Proof details</option>
+                          <option value="status_only">Show Proof status only</option>
+                          <option value="review_link">Show status + secure review access</option>
+                        </select>
+                        <small>
+                          {statusAccessPolicy.proof_visibility === "off"
+                            ? "Proof counts, files, and review prompts stay hidden."
+                            : statusAccessPolicy.proof_visibility === "review_link"
+                              ? "Show Proof progress and a separately issued secure Vornan Proof link when available."
+                              : "Show Proof progress without files, thumbnails, or review access."}
+                        </small>
                       </label>
                       <button className="primary-button" onClick={() => void saveStatusAccessPolicy()} disabled={workspaceState === "saving"}>
                         {workspaceState === "saving" ? "Saving" : "Save Access Policy"}

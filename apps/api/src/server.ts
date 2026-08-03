@@ -190,6 +190,7 @@ import {
   type PathfinderCustomerWorkspace,
   type PublicOrderStatusSnapshot,
   type StatusAccessPolicy,
+  type StatusProofVisibility,
   type SubmitCertificationActionKey,
   type SubmitCertification,
   type SubmitCertificationItem,
@@ -1259,13 +1260,61 @@ async function buildInternalOrderSnapshotForJob(
   };
 }
 
-export function publicOrderStatusSnapshotFromInternal(snapshot: InternalOrderSnapshot): PublicOrderStatusSnapshot {
+export function applyPublicProofVisibility(
+  snapshot: PublicOrderStatusSnapshot,
+  proofVisibility: StatusProofVisibility
+): PublicOrderStatusSnapshot {
+  const showProofStatus = proofVisibility !== "off";
+  const lines = snapshot.lines.map((line) => ({
+    ...line,
+    proof_count: showProofStatus ? line.proof_count : 0,
+    latest_proof_status: showProofStatus ? line.latest_proof_status : null,
+    proofs: showProofStatus
+      ? line.proofs.map((proof) => ({
+          ...proof,
+          proof_link_low: null,
+          proof_link_high: null,
+          preview_kind: "unavailable" as const
+        }))
+      : []
+  }));
+
+  return {
+    ...snapshot,
+    proof_visibility: proofVisibility,
+    proof_summary: showProofStatus && snapshot.proof_summary
+      ? {
+          ...snapshot.proof_summary,
+          access_mode: proofVisibility,
+          review_url: null
+        }
+      : null,
+    lines,
+    lookups: {
+      ...snapshot.lookups,
+      proofs: showProofStatus ? snapshot.lookups.proofs : null
+    },
+    visibility_policy: {
+      ...snapshot.visibility_policy,
+      proof_visibility: proofVisibility,
+      redacted_fields: Array.from(new Set([
+        ...snapshot.visibility_policy.redacted_fields,
+        "direct Lift proof URLs"
+      ]))
+    }
+  };
+}
+
+export function publicOrderStatusSnapshotFromInternal(
+  snapshot: InternalOrderSnapshot,
+  proofVisibility: StatusProofVisibility = "status_only"
+): PublicOrderStatusSnapshot {
   const publicLines = snapshot.lines.map((line) => ({
     ...line,
     proofs: line.proofs.map(toCustomerSafeOrderRollupProof),
     packages: line.packages.map(toCustomerSafeOrderRollupPackage)
   }));
-  return {
+  const publicSnapshot: PublicOrderStatusSnapshot = {
     snapshot_id: snapshot.snapshot_id,
     order_key: `${snapshot.customer.submit_customer_name}:${snapshot.order_number}:${snapshot.job.job_id}`,
     order_number: snapshot.order_number,
@@ -1294,6 +1343,7 @@ export function publicOrderStatusSnapshotFromInternal(snapshot: InternalOrderSna
     live_order: snapshot.live_order,
     order_status: snapshot.order_status,
     proof_summary: snapshot.proof_summary,
+    proof_visibility: proofVisibility,
     shipment_summary: buildOrderRollupShipmentSummary(publicLines),
     lines: publicLines,
     lookups: {
@@ -1317,10 +1367,12 @@ export function publicOrderStatusSnapshotFromInternal(snapshot: InternalOrderSna
         "submit_history",
         "raw Lift lookup payloads"
       ],
-      token_required: true
+      token_required: true,
+      proof_visibility: proofVisibility
     },
     refreshed_at: snapshot.refreshed_at
   };
+  return applyPublicProofVisibility(publicSnapshot, proofVisibility);
 }
 
 const orderSnapshotRefreshMinMs = Math.max(
@@ -1990,7 +2042,12 @@ async function createPublicStatusLinkForJobs(args: {
     return firstError ?? { error: "No order status snapshots could be created.", errorStatus: 404 };
   }
 
-  const snapshots = results.map((result) => publicOrderStatusSnapshotFromInternal(result.snapshot));
+  const snapshots = results.map((result) =>
+    publicOrderStatusSnapshotFromInternal(
+      result.snapshot,
+      result.context.workspace.status_access_policy.proof_visibility
+    )
+  );
   const snapshot = snapshots[0];
   const primaryResult = results[0];
   const rawToken = randomBytes(32).toString("base64url");
@@ -3040,13 +3097,28 @@ app.get("/public/status/:token", async (req, res) => {
             order_number: tokenRecord.order_number
           }
         ];
-    const snapshots = (
+    const persistedSnapshots = (
       await Promise.all(
         Array.from(new Set(tokenOrders.map((order) => order.order_key))).map((orderKey) =>
           getPublicOrderStatusSnapshot(orderKey)
         )
       )
     ).filter((snapshot): snapshot is PublicOrderStatusSnapshot => snapshot != null);
+
+    const snapshots = await Promise.all(
+      persistedSnapshots.map(async (snapshot) => {
+        const binding = tokenOrders.find((order) => order.order_key === snapshot.order_key);
+        if (!binding) {
+          return applyPublicProofVisibility(snapshot, "off");
+        }
+        const customer = await findLiftCustomer(binding.customer_id);
+        if (!customer) {
+          return applyPublicProofVisibility(snapshot, "off");
+        }
+        const workspace = await getOrCreateWorkspace(customer);
+        return applyPublicProofVisibility(snapshot, workspace.status_access_policy.proof_visibility);
+      })
+    );
 
     if (!snapshots.length) {
       res.status(404).json({ error: "Order status snapshots were not found." });

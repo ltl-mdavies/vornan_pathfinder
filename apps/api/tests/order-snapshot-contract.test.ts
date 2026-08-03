@@ -242,6 +242,9 @@ test("preserves customer-safe rollup detail while removing internal submit and r
     country: null
   });
   assert.equal(publicSnapshot.visibility_policy.token_required, true);
+  assert.equal(publicSnapshot.proof_visibility, "status_only");
+  assert.equal(publicSnapshot.lines[0]?.proofs[0]?.proof_link_low, null);
+  assert.equal(publicSnapshot.lines[0]?.proofs[0]?.proof_link_high, null);
   assert.equal(JSON.stringify(publicSnapshot.lines[0]?.proofs).includes("internal feedback"), false);
   assert.equal(JSON.stringify(publicSnapshot.lines[0]?.proofs).includes("internal@example.com"), false);
   assert.equal(JSON.stringify(publicSnapshot.lines[0]?.proofs).includes("private-report"), false);
@@ -264,7 +267,8 @@ test("preserves customer-safe rollup detail while removing internal submit and r
     "package dimensions and weight",
     "internal shipment identifiers",
     "submit_history",
-    "raw Lift lookup payloads"
+    "raw Lift lookup payloads",
+    "direct Lift proof URLs"
   ]);
 });
 
@@ -284,7 +288,9 @@ test("prefers the normalized cached Proof projection without sharing Proof autho
     total: 1,
     review_required: true,
     last_synced_at: checkedAt,
-    decisions_enabled: false
+    decisions_enabled: false,
+    access_mode: "status_only",
+    review_url: null
   });
   assert.equal(publicSnapshot.lines[0]?.proofs[0]?.proof_filename, "normalized-proof.jpg");
   const serialized = JSON.stringify(publicSnapshot);
@@ -294,4 +300,28 @@ test("prefers the normalized cached Proof projection without sharing Proof autho
   assert.equal(serialized.includes("grant"), false);
   assert.equal(serialized.includes("session"), false);
   assert.match(serialized, /"decisions_enabled":false/);
+});
+
+test("applies all three customer Proof visibility modes without exposing Lift asset URLs", () => {
+  const internal = buildFixtureSnapshot(cachedProofOrder());
+  const hidden = publicOrderStatusSnapshotFromInternal(internal, "off");
+  const statusOnly = publicOrderStatusSnapshotFromInternal(internal, "status_only");
+  const reviewLink = publicOrderStatusSnapshotFromInternal(internal, "review_link");
+
+  assert.equal(hidden.proof_summary, null);
+  assert.equal(hidden.lines[0]?.proof_count, 0);
+  assert.deepEqual(hidden.lines[0]?.proofs, []);
+  assert.equal(hidden.lookups.proofs, null);
+
+  assert.equal(statusOnly.proof_summary?.access_mode, "status_only");
+  assert.equal(reviewLink.proof_summary?.access_mode, "review_link");
+  assert.equal(reviewLink.proof_summary?.review_url, null);
+  assert.equal(statusOnly.lines[0]?.proofs[0]?.proof_filename, "normalized-proof.jpg");
+
+  for (const snapshot of [hidden, statusOnly, reviewLink]) {
+    const serialized = JSON.stringify(snapshot);
+    assert.equal(serialized.includes("proof-low.example.invalid"), false);
+    assert.equal(serialized.includes("proof-high.example.invalid"), false);
+    assert.equal(snapshot.proof_summary?.decisions_enabled ?? false, false);
+  }
 });
