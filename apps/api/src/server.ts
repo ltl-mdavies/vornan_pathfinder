@@ -115,6 +115,7 @@ import {
 } from "./wrike-order-rehearsal.js";
 import {
   archiveImportMethod,
+  associateJobWithLiftOrder,
   addCanonicalRegistryCustomField,
   applyProductMappingReplacement,
   bulkUpsertProductMappings,
@@ -153,6 +154,7 @@ import {
   persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
   reserveSubmitAttempt,
+  rebindActiveOrderStatusTokensForJob,
   previewProductMappingReplacement,
   ProductMappingReplacementConflictError,
   ProductMappingReplacementValidationError,
@@ -172,6 +174,7 @@ import {
   updateTarget,
   TargetInUseError,
   TargetNotFoundError,
+  LiftOrderAssociationConflictError,
   renameCanonicalRegistryCustomField,
   upsertLiftProductCatalog,
   type CustomerProductMapping,
@@ -180,6 +183,7 @@ import {
   type CanonicalFieldUsageSummary,
   type ImportMethod,
   type LiftUnitCatalogItem,
+  type LiftOrderAssociationVerification,
   type OutputRoute,
   type ProductMappingStatus,
   type ProductResolutionConfig,
@@ -657,6 +661,66 @@ async function fetchLiftOrderLookup(args: {
     payload: body,
     fetched_at: new Date().toISOString()
   };
+}
+
+function normalizeLiftAssociationOrderNumber(value: unknown) {
+  const normalized = valueAsString(value).trim().toUpperCase();
+  return /^[A-Z0-9][A-Z0-9_-]{3,31}$/.test(normalized) ? normalized : null;
+}
+
+async function verifyLiftOrderAssociation(args: {
+  job: ProcessingJobPreview;
+  target: TargetConfig;
+  route: OutputRoute;
+  orderNumber: string;
+}) {
+  const lookup = await fetchLiftOrderLookup({
+    target: args.target,
+    route: args.route,
+    orderNumber: args.orderNumber
+  });
+  if (!lookup.ok) {
+    throw new Error(`Lift order ${args.orderNumber} could not be found (${lookup.http_status}).`);
+  }
+  const order = normalizeLiftOrderLookupPayload(lookup.payload);
+  const normalizedResponseOrderNumber = normalizeLiftAssociationOrderNumber(order?.order_number);
+  if (!order || normalizedResponseOrderNumber !== args.orderNumber) {
+    throw new Error("Lift returned an order that did not match the requested order number.");
+  }
+  const customerId = valueAsString(order.customer_id).trim();
+  const expectedCustomerId = valueAsString(args.job.submit_customer_id ?? args.job.customer_id).trim();
+  if (!customerId || customerId !== expectedCustomerId) {
+    throw new Error(
+      `Lift order ${args.orderNumber} belongs to customer ${customerId || "unknown"}, not the job's submit customer ${expectedCustomerId || "unknown"}.`
+    );
+  }
+  if (!order.lines.length) {
+    throw new Error(`Lift order ${args.orderNumber} does not expose any order lines yet. Wait for Lift processing and verify again.`);
+  }
+
+  const verification: LiftOrderAssociationVerification = {
+    order_number: args.orderNumber,
+    customer_id: customerId,
+    customer_name: order.customer_name,
+    order_title: order.order_title,
+    contract_number: order.contract_number,
+    created_by: order.created_by,
+    order_status: order.status?.label ?? null,
+    line_count: order.lines.length,
+    fetched_at: lookup.fetched_at
+  };
+  const warnings: string[] = [];
+  const expectedContract = valueAsString(args.job.lift_payload.order.contract_number).trim().toUpperCase();
+  const actualContract = valueAsString(order.contract_number).trim().toUpperCase();
+  if (expectedContract && actualContract && expectedContract !== actualContract) {
+    warnings.push(`Contract differs: Pathfinder ${expectedContract}; Lift ${actualContract}.`);
+  }
+  if (args.job.lift_payload.lines.length !== order.lines.length) {
+    warnings.push(
+      `Line count differs: Pathfinder ${args.job.lift_payload.lines.length}; Lift ${order.lines.length}.`
+    );
+  }
+  return { verification, warnings, lookup, order };
 }
 
 function normalizeProofReportPayload(payload: unknown) {
@@ -6020,6 +6084,150 @@ app.post("/api/customers/:liftCustomerId/jobs/archive", async (req, res) => {
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Bulk job archive update failed."
+    });
+  }
+});
+
+async function liftOrderAssociationContext(liftCustomerId: string, jobId: string) {
+  const customer = await findLiftCustomer(liftCustomerId);
+  const job = await getJob(customer, jobId);
+  if (!job) return { customer, error: "Preview job not found.", errorStatus: 404 as const };
+  const workspace = await getOrCreateWorkspace(customer);
+  const route = workspace.output_routes.find((candidate) => candidate.output_route_id === job.output_route_id);
+  const target = route ? ((await getTarget(route.target_id, false)) as TargetConfig | null) : null;
+  if (!route || !target) {
+    return { customer, job, error: "Job output route or target could not be found.", errorStatus: 409 as const };
+  }
+  return { customer, job, workspace, route, target };
+}
+
+function liftOrderAssociationConfirmation(currentOrderNumber: string | null, nextOrderNumber: string) {
+  return currentOrderNumber
+    ? `REPLACE ${currentOrderNumber} WITH ${nextOrderNumber}`
+    : `LINK ${nextOrderNumber}`;
+}
+
+app.post("/api/customers/:liftCustomerId/jobs/:jobId/lift-order-association/verify", async (req, res) => {
+  try {
+    const context = await liftOrderAssociationContext(req.params.liftCustomerId, req.params.jobId);
+    if ("error" in context) {
+      res.status(context.errorStatus ?? 500).json({ error: context.error });
+      return;
+    }
+    const orderNumber = normalizeLiftAssociationOrderNumber(req.body?.order_number);
+    if (!orderNumber) {
+      res.status(400).json({ error: "Enter a valid Lift order number." });
+      return;
+    }
+    const verified = await verifyLiftOrderAssociation({
+      job: context.job,
+      target: context.target,
+      route: context.route,
+      orderNumber
+    });
+    const currentOrderNumber = normalizeLiftAssociationOrderNumber(context.job.target_order_number);
+    res.json({
+      verification: verified.verification,
+      warnings: verified.warnings,
+      current_order_number: currentOrderNumber,
+      replacing_existing_order: Boolean(currentOrderNumber && currentOrderNumber !== orderNumber),
+      already_linked: currentOrderNumber === orderNumber,
+      required_confirmation: liftOrderAssociationConfirmation(currentOrderNumber, orderNumber)
+    });
+  } catch (error) {
+    res.status(502).json({
+      error: error instanceof Error ? error.message : "Lift order verification failed."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/jobs/:jobId/lift-order-association", async (req, res) => {
+  try {
+    const context = await liftOrderAssociationContext(req.params.liftCustomerId, req.params.jobId);
+    if ("error" in context) {
+      res.status(context.errorStatus ?? 500).json({ error: context.error });
+      return;
+    }
+    const orderNumber = normalizeLiftAssociationOrderNumber(req.body?.order_number);
+    if (!orderNumber) {
+      res.status(400).json({ error: "Enter a valid Lift order number." });
+      return;
+    }
+    const currentOrderNumber = normalizeLiftAssociationOrderNumber(context.job.target_order_number);
+    const expectedCurrentOrderNumber = normalizeLiftAssociationOrderNumber(req.body?.expected_current_order_number);
+    if (currentOrderNumber !== expectedCurrentOrderNumber) {
+      res.status(409).json({ error: "The Lift order association changed. Refresh and verify the order again." });
+      return;
+    }
+    const requiredConfirmation = liftOrderAssociationConfirmation(currentOrderNumber, orderNumber);
+    if (valueAsString(req.body?.confirmation).trim().toUpperCase() !== requiredConfirmation) {
+      res.status(400).json({ error: `Enter ${requiredConfirmation} to confirm this association.` });
+      return;
+    }
+    const verified = await verifyLiftOrderAssociation({
+      job: context.job,
+      target: context.target,
+      route: context.route,
+      orderNumber
+    });
+    const result = await associateJobWithLiftOrder(context.customer, {
+      job_id: context.job.job_id,
+      order_number: orderNumber,
+      expected_current_order_number: currentOrderNumber,
+      linked_by_email: typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null,
+      reason: valueAsString(req.body?.reason),
+      verification: verified.verification
+    });
+    if (!result) {
+      res.status(404).json({ error: "Preview job not found." });
+      return;
+    }
+
+    orderSnapshotResponseCache.delete(`${context.customer.lift_customer_id}:${context.job.job_id}`);
+    const attempts = await listSubmitAttemptsForJob(context.customer, context.job.job_id);
+    const internalSnapshot = buildOrderSnapshot({
+      customer: context.customer,
+      job: result.job,
+      route: context.route,
+      target: context.target,
+      attempts,
+      orderNumber,
+      orderLookup: verified.lookup,
+      proofReport: null,
+      proofOrder: null,
+      packageDetails: null,
+      issues: [{
+        source: "manual_order_association",
+        severity: "warning",
+        message: "Proof and shipment details will refresh from Lift on the next synchronized order snapshot."
+      }]
+    });
+    orderSnapshotResponseCache.set(`${context.customer.lift_customer_id}:${context.job.job_id}`, internalSnapshot);
+    const publicSnapshot = publicOrderStatusSnapshotFromInternal(
+      internalSnapshot,
+      context.workspace.status_access_policy.proof_visibility
+    );
+    await persistPublicOrderStatusSnapshot(publicSnapshot);
+    const statusLinksRebound = await rebindActiveOrderStatusTokensForJob({
+      customer_id: context.customer.lift_customer_id,
+      job_id: context.job.job_id,
+      order_number: orderNumber,
+      order_key: publicSnapshot.order_key
+    });
+
+    res.json({
+      job: result.job,
+      association: result.association,
+      reused: result.reused,
+      verification: verified.verification,
+      warnings: verified.warnings,
+      status_links_rebound: statusLinksRebound,
+      proof_refresh_required: true
+    });
+  } catch (error) {
+    const status = error instanceof LiftOrderAssociationConflictError ? 409 : 502;
+    res.status(status).json({
+      error: error instanceof Error ? error.message : "Lift order association failed."
     });
   }
 });

@@ -18,6 +18,7 @@ import {
   FileText,
   Gauge,
   History,
+  Link2,
   LogOut,
   Map,
   Plus,
@@ -784,6 +785,7 @@ interface ProcessingJobPreview {
   output_route_name: string;
   target_order_number?: string | null;
   target_order_lookup_url?: string | null;
+  target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;
@@ -832,6 +834,39 @@ interface ProcessingJobPreview {
     version_id: string;
     captured_at: string;
   } | null;
+}
+
+interface LiftOrderAssociationVerification {
+  order_number: string;
+  customer_id: string;
+  customer_name: string | null;
+  order_title: string | null;
+  contract_number: string | null;
+  created_by: string | null;
+  order_status: string | null;
+  line_count: number;
+  fetched_at: string;
+}
+
+interface LiftOrderAssociationHistoryEntry {
+  association_id: string;
+  source: "manual_verified";
+  action: "linked" | "replaced";
+  previous_order_number: string | null;
+  order_number: string;
+  linked_at: string;
+  linked_by_email: string | null;
+  reason: string;
+  verification: LiftOrderAssociationVerification;
+}
+
+interface LiftOrderAssociationVerificationResponse {
+  verification: LiftOrderAssociationVerification;
+  warnings: string[];
+  current_order_number: string | null;
+  replacing_existing_order: boolean;
+  already_linked: boolean;
+  required_confirmation: string;
 }
 
 interface NormalizedLiftSubmitResponse {
@@ -3967,6 +4002,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [unitCatalogState, setUnitCatalogState] = useState<"idle" | "loading" | "error">("idle");
   const [openTopbarMenu, setOpenTopbarMenu] = useState<"environment" | "notifications" | "actions" | null>(null);
   const [jobActionMenuOpen, setJobActionMenuOpen] = useState(false);
+  const [liftOrderAssociationOpen, setLiftOrderAssociationOpen] = useState(false);
+  const [liftOrderAssociationOrderNumber, setLiftOrderAssociationOrderNumber] = useState("");
+  const [liftOrderAssociationReason, setLiftOrderAssociationReason] = useState("");
+  const [liftOrderAssociationConfirmation, setLiftOrderAssociationConfirmation] = useState("");
+  const [liftOrderAssociationVerification, setLiftOrderAssociationVerification] =
+    useState<LiftOrderAssociationVerificationResponse | null>(null);
+  const [liftOrderAssociationState, setLiftOrderAssociationState] =
+    useState<"idle" | "verifying" | "saving" | "error">("idle");
   const [jobArchiveFilter, setJobArchiveFilter] = useState<JobArchiveFilter>("Active");
   const [jobIntakeFilter, setJobIntakeFilter] = useState<JobIntakeFilter>("All");
   const [jobSortField, setJobSortField] = useState<JobSortField>("updated_at");
@@ -4762,6 +4805,107 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setOrderSnapshotState("idle");
     setStatusLinkResult(null);
     setStatusLinkState("idle");
+    setLiftOrderAssociationOpen(false);
+    setLiftOrderAssociationVerification(null);
+    setLiftOrderAssociationState("idle");
+  }
+
+  function openLiftOrderAssociation(job: ProcessingJobPreview) {
+    setJobActionMenuOpen(false);
+    setLiftOrderAssociationOrderNumber(job.target_order_number ?? "");
+    setLiftOrderAssociationReason(
+      job.target_order_number
+        ? "Replace the current Lift order association after operator verification."
+        : "Recover the Lift order association after incomplete submit confirmation."
+    );
+    setLiftOrderAssociationConfirmation("");
+    setLiftOrderAssociationVerification(null);
+    setLiftOrderAssociationState("idle");
+    setLiftOrderAssociationOpen(true);
+  }
+
+  function closeLiftOrderAssociation() {
+    if (liftOrderAssociationState === "saving") {
+      return;
+    }
+    setLiftOrderAssociationOpen(false);
+    setLiftOrderAssociationVerification(null);
+    setLiftOrderAssociationConfirmation("");
+    setLiftOrderAssociationState("idle");
+  }
+
+  async function verifyLiftOrderAssociation(job: ProcessingJobPreview) {
+    setLiftOrderAssociationState("verifying");
+    setLiftOrderAssociationVerification(null);
+    setLiftOrderAssociationConfirmation("");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/lift-order-association/verify`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_number: liftOrderAssociationOrderNumber.trim() })
+        }
+      );
+      const payload = await readJsonResponse<LiftOrderAssociationVerificationResponse>(response);
+      setLiftOrderAssociationVerification(payload);
+      setLiftOrderAssociationState("idle");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Lift order verification failed.");
+      setLiftOrderAssociationState("error");
+    }
+  }
+
+  async function saveLiftOrderAssociation(job: ProcessingJobPreview) {
+    if (!liftOrderAssociationVerification) {
+      return;
+    }
+    setLiftOrderAssociationState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/lift-order-association`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            order_number: liftOrderAssociationVerification.verification.order_number,
+            expected_current_order_number: liftOrderAssociationVerification.current_order_number,
+            confirmation: liftOrderAssociationConfirmation,
+            reason: liftOrderAssociationReason.trim()
+          })
+        }
+      );
+      const payload = await readJsonResponse<{
+        job: ProcessingJobPreview;
+        warnings: string[];
+        status_links_rebound: number;
+      }>(response);
+      setSelectedJobDetail(payload.job);
+      setLastPreviewJob((current) => (current?.job_id === payload.job.job_id ? payload.job : current));
+      setGlobalJobs((current) => upsertJob(current, payload.job));
+      setWorkspace((current) =>
+        current
+          ? {
+              ...current,
+              jobs: upsertJob(current.jobs, payload.job)
+            }
+          : current
+      );
+      setOrderLookupResult(null);
+      setProofReportResult(null);
+      setPackageDetailsResult(null);
+      setOrderSnapshotResult(null);
+      setStatusLinkResult(null);
+      setWorkspaceMessage(
+        `${payload.job.target_order_number} is now the verified Lift order for this job. ${payload.status_links_rebound} active status link${payload.status_links_rebound === 1 ? " was" : "s were"} rebound.${payload.warnings.length ? ` ${payload.warnings.join(" ")}` : ""}`
+      );
+      setLiftOrderAssociationState("idle");
+      setLiftOrderAssociationOpen(false);
+      setLiftOrderAssociationVerification(null);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Lift order association failed.");
+      setLiftOrderAssociationState("error");
+    }
   }
 
   function requestJobsArchive(jobs: ProcessingJobPreview[], archived: boolean) {
@@ -16251,6 +16395,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <div className="topbar-menu-list">
                         <button
                           className="topbar-menu-item"
+                          onClick={() => openLiftOrderAssociation(selectedJobDetail)}
+                        >
+                          <Link2 size={16} />
+                          <span>
+                            <strong>
+                              {selectedJobDetail.target_order_number ? "Replace Lift Order Link" : "Link Lift Order"}
+                            </strong>
+                            <small>Verify an order in Lift before associating it with this Pathfinder job.</small>
+                          </span>
+                        </button>
+                        <button
+                          className="topbar-menu-item"
                           onClick={() => {
                             setJobActionMenuOpen(false);
                             void refreshSubmitCertification(selectedJobDetail, true);
@@ -16394,6 +16550,35 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 >
                   Open Lift order lookup
                 </a>
+              ) : null}
+              {selectedJobDetail.target_order_association_history?.length ? (
+                <details className="lift-order-association-history">
+                  <summary>
+                    <History size={16} />
+                    Lift order association history ({selectedJobDetail.target_order_association_history.length})
+                  </summary>
+                  <div>
+                    {[...selectedJobDetail.target_order_association_history].reverse().map((association) => (
+                      <article key={association.association_id}>
+                        <span className="mini-pill mini-pill-neutral">
+                          {association.action === "replaced" ? "Replaced" : "Linked"}
+                        </span>
+                        <div>
+                          <strong>
+                            {association.previous_order_number
+                              ? `${association.previous_order_number} → ${association.order_number}`
+                              : association.order_number}
+                          </strong>
+                          <span>{association.reason}</span>
+                          <small>
+                            Verified {association.verification.customer_name ?? association.verification.customer_id} · {association.verification.line_count} line{association.verification.line_count === 1 ? "" : "s"} · {displayTimestamp(association.linked_at)}
+                            {association.linked_by_email ? ` · ${association.linked_by_email}` : ""}
+                          </small>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </details>
               ) : null}
               {statusLinkResult ? (
                 <div className="latest-attempt-callout public-status-link-callout">
@@ -17259,6 +17444,159 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </section>
           </>
+        ) : null}
+
+        {liftOrderAssociationOpen && selectedJobDetail ? (
+          <div className="product-map-modal-backdrop" role="presentation" onClick={closeLiftOrderAssociation}>
+            <section
+              className="product-map-modal lift-order-association-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="lift-order-association-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-section-header">
+                <div>
+                  <p className="eyebrow">Verified Recovery Control</p>
+                  <h2 id="lift-order-association-title">
+                    {selectedJobDetail.target_order_number ? "Replace the linked Lift order" : "Link this job to a Lift order"}
+                  </h2>
+                  <span>
+                    Pathfinder reads the order from Lift and verifies the customer before changing the job, status page, or Proof reference.
+                  </span>
+                </div>
+                <button className="modal-close-button" onClick={closeLiftOrderAssociation} aria-label="Close Lift order association">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="lift-order-association-body">
+                {selectedJobDetail.target_order_number ? (
+                  <div className="lift-order-association-current">
+                    <span>Current Lift order</span>
+                    <strong>{selectedJobDetail.target_order_number}</strong>
+                    <small>Replacing this value is recorded in the permanent job association history.</small>
+                  </div>
+                ) : null}
+                <div className="lift-order-association-verify-row">
+                  <label className="setup-control">
+                    <span>Lift order number</span>
+                    <input
+                      value={liftOrderAssociationOrderNumber}
+                      onChange={(event) => {
+                        setLiftOrderAssociationOrderNumber(event.target.value.toUpperCase());
+                        setLiftOrderAssociationVerification(null);
+                        setLiftOrderAssociationConfirmation("");
+                      }}
+                      placeholder="A0227641"
+                      autoComplete="off"
+                      autoFocus
+                    />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    onClick={() => void verifyLiftOrderAssociation(selectedJobDetail)}
+                    disabled={liftOrderAssociationState === "verifying" || !liftOrderAssociationOrderNumber.trim()}
+                  >
+                    <Search size={16} />
+                    {liftOrderAssociationState === "verifying" ? "Verifying…" : "Verify in Lift"}
+                  </button>
+                </div>
+                {liftOrderAssociationVerification ? (
+                  <>
+                    <div className="lift-order-association-verification">
+                      <div>
+                        <span>Verified order</span>
+                        <strong>{liftOrderAssociationVerification.verification.order_number}</strong>
+                      </div>
+                      <div>
+                        <span>Lift customer</span>
+                        <strong>
+                          {liftOrderAssociationVerification.verification.customer_name ?? "Customer name unavailable"}
+                        </strong>
+                        <small>{liftOrderAssociationVerification.verification.customer_id}</small>
+                      </div>
+                      <div>
+                        <span>Order title</span>
+                        <strong>{liftOrderAssociationVerification.verification.order_title ?? "Not provided"}</strong>
+                      </div>
+                      <div>
+                        <span>Contract</span>
+                        <strong>{liftOrderAssociationVerification.verification.contract_number ?? "Not provided"}</strong>
+                      </div>
+                      <div>
+                        <span>Order state</span>
+                        <strong>{liftOrderAssociationVerification.verification.order_status ?? "Available"}</strong>
+                      </div>
+                      <div>
+                        <span>Lines</span>
+                        <strong>{liftOrderAssociationVerification.verification.line_count}</strong>
+                      </div>
+                    </div>
+                    {liftOrderAssociationVerification.warnings.length ? (
+                      <div className="lift-order-association-warning" role="alert">
+                        <AlertTriangle size={18} />
+                        <div>
+                          <strong>Review before continuing</strong>
+                          {liftOrderAssociationVerification.warnings.map((warning) => <span key={warning}>{warning}</span>)}
+                        </div>
+                      </div>
+                    ) : null}
+                    {liftOrderAssociationVerification.already_linked ? (
+                      <div className="lift-order-association-safe">
+                        <CheckCircle2 size={18} />
+                        This job is already linked to the verified Lift order. No change is required.
+                      </div>
+                    ) : (
+                      <>
+                        <label className="setup-control">
+                          <span>Reason for this association</span>
+                          <textarea
+                            value={liftOrderAssociationReason}
+                            onChange={(event) => setLiftOrderAssociationReason(event.target.value)}
+                            rows={3}
+                            maxLength={500}
+                          />
+                          <small>This operator note is retained with the job history; do not include credentials or customer-sensitive content.</small>
+                        </label>
+                        <label className="setup-control lift-order-association-confirmation">
+                          <span>Type this exact confirmation</span>
+                          <strong>{liftOrderAssociationVerification.required_confirmation}</strong>
+                          <input
+                            value={liftOrderAssociationConfirmation}
+                            onChange={(event) => setLiftOrderAssociationConfirmation(event.target.value.toUpperCase())}
+                            autoComplete="off"
+                          />
+                        </label>
+                      </>
+                    )}
+                  </>
+                ) : null}
+              </div>
+              <div className="modal-action-row">
+                <button className="secondary-button" onClick={closeLiftOrderAssociation} disabled={liftOrderAssociationState === "saving"}>
+                  {liftOrderAssociationVerification?.already_linked ? "Close" : "Cancel"}
+                </button>
+                {liftOrderAssociationVerification && !liftOrderAssociationVerification.already_linked ? (
+                  <button
+                    className="primary-button"
+                    onClick={() => void saveLiftOrderAssociation(selectedJobDetail)}
+                    disabled={
+                      liftOrderAssociationState === "saving" ||
+                      liftOrderAssociationReason.trim().length < 8 ||
+                      liftOrderAssociationConfirmation.trim() !== liftOrderAssociationVerification.required_confirmation
+                    }
+                  >
+                    <Link2 size={16} />
+                    {liftOrderAssociationState === "saving"
+                      ? "Saving verified link…"
+                      : liftOrderAssociationVerification.replacing_existing_order
+                        ? "Replace Lift Order Link"
+                        : "Link Verified Lift Order"}
+                  </button>
+                ) : null}
+              </div>
+            </section>
+          </div>
         ) : null}
 
         {bulkProductMappingReview ? (

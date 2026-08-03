@@ -44,4 +44,8 @@ export class BoundedSnapshotCache<T extends RefreshableSnapshot> {
       next_refresh_at: new Date(cachedAt + this.minIntervalMs).toISOString()
     };
   }
+
+  delete(key: string) {
+    return this.entries.delete(key);
+  }
 }
