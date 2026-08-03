@@ -103,6 +103,7 @@ jobs:
           aws cloudformation deploy \
             --stack-name "${{ vars.PATHFINDER_API_STACK_NAME || 'vornan-pathfinder-api-prod' }}" \
             --template-file infra/aws/api-cloudformation.yaml \
+            --s3-bucket "${{ vars.PATHFINDER_API_ARTIFACT_BUCKET }}" \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
               EnvironmentName="${{ inputs.environment_name }}" \
