@@ -884,7 +884,7 @@ Resources:
           PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: !Ref WrikeWorkbookEvidenceEnabled
           PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: !Ref WrikeEvidencePreviewEnabled
           PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !Ref WrikeManualIntakeEnabled
-          PATHFINDER_WRIKE_STATUS_WRITEBACK_SCOPE: !Join
+          PATHFINDER_WRIKE_WB: !Join
             - "|"
             - - !Ref WrikeStatusWritebackEnabled
               - !Ref WrikeStatusWritebackTaskId
