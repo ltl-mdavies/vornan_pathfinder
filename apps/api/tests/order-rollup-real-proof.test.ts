@@ -107,15 +107,9 @@ test("projects the real proof gallery through the public status boundary without
   const proofs = snapshot.lines[0]?.proofs ?? [];
 
   assert.equal(proofs.length, 4);
-  assert.ok(proofs.every((proof) => {
-    const low = typeof (proof as { proof_link_low?: unknown }).proof_link_low === "string"
-      ? String((proof as { proof_link_low: string }).proof_link_low)
-      : "";
-    const high = typeof (proof as { proof_link_high?: unknown }).proof_link_high === "string"
-      ? String((proof as { proof_link_high: string }).proof_link_high)
-      : "";
-    return low.startsWith("https://") && high.startsWith("https://");
-  }));
+  assert.ok(proofs.every((proof) => proof.proof_link_low === null && proof.proof_link_high === null));
+  assert.ok(proofs.every((proof) => proof.preview_kind === "unavailable"));
+  assert.equal(snapshot.proof_visibility, "status_only");
   assert.equal(snapshot.proof_summary?.decisions_enabled, false);
   const serialized = JSON.stringify(snapshot);
   assert.equal(serialized.includes("ATTACHMENT_ID"), false);

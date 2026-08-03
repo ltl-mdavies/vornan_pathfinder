@@ -138,9 +138,9 @@ function proofStateLabel(proof: OrderRollupProof) {
   }
 }
 
-function ProofCard({ proof, displayDate }: { proof: OrderRollupProof; displayDate: (value?: string | null) => string }) {
-  const lowResolutionUrl = safeProofAssetUrl(proof.proof_link_low);
-  const highResolutionUrl = safeProofAssetUrl(proof.proof_link_high);
+function ProofCard({ proof, displayDate, allowAssetLinks }: { proof: OrderRollupProof; displayDate: (value?: string | null) => string; allowAssetLinks: boolean }) {
+  const lowResolutionUrl = allowAssetLinks ? safeProofAssetUrl(proof.proof_link_low) : null;
+  const highResolutionUrl = allowAssetLinks ? safeProofAssetUrl(proof.proof_link_high) : null;
   const primaryUrl = highResolutionUrl ?? lowResolutionUrl;
   const filename = proof.proof_filename ?? "Proof file";
   const previewUrl = proof.preview_kind === "image" || (!proof.preview_kind && inferredImageAsset(lowResolutionUrl, filename))
@@ -188,20 +188,22 @@ function ProofSummary({
       </div>
       <p>
         {audience === "public"
-          ? summary.review_required
-            ? "Use the dedicated Vornan Proof email to complete the review. This order-status link remains view-only."
-            : "This order-status link is view-only and does not authorize proof decisions."
+          ? summary.access_mode === "review_link" && summary.review_url
+            ? <a href={summary.review_url}>Open secure Vornan Proof review</a>
+            : summary.access_mode === "review_link"
+              ? "Use the separately issued secure Vornan Proof link to complete the review. This Status page remains view-only."
+              : "Proof progress is shown here. Files and review access are not included on this Status page."
           : `Normalized Proof cache synchronized ${displayDate(summary.last_synced_at)}. Decision capability remains separate.`}
       </p>
     </aside>
   );
 }
 
-function ProofList({ proofs, displayDate }: { proofs: OrderRollupProof[]; displayDate: (value?: string | null) => string }) {
+function ProofList({ proofs, displayDate, allowAssetLinks }: { proofs: OrderRollupProof[]; displayDate: (value?: string | null) => string; allowAssetLinks: boolean }) {
   if (!proofs.length) {
     return <p className="order-rollup__empty">Proofs have not been posted for this line yet.</p>;
   }
-  return <div className="order-rollup__proofs">{proofs.map((proof, index) => <ProofCard proof={proof} displayDate={displayDate} key={`${proof.proof_filename ?? "proof"}-${proof.creation_date ?? index}`} />)}</div>;
+  return <div className="order-rollup__proofs">{proofs.map((proof, index) => <ProofCard proof={proof} displayDate={displayDate} allowAssetLinks={allowAssetLinks} key={`${proof.proof_filename ?? "proof"}-${proof.creation_date ?? index}`} />)}</div>;
 }
 
 function PackageList({ packages }: { packages: OrderRollupPackage[] }) {
@@ -257,7 +259,7 @@ function ShipmentSummary({ summary }: { summary: OrderRollupShipmentSummary }) {
   );
 }
 
-function LineCard({ line, displayDate }: { line: OrderRollupLine; displayDate: (value?: string | null) => string }) {
+function LineCard({ line, displayDate, showProofs, allowProofAssetLinks }: { line: OrderRollupLine; displayDate: (value?: string | null) => string; showProofs: boolean; allowProofAssetLinks: boolean }) {
   const lineTitle = line.product_name ?? line.description ?? `Order line ${line.line_number}`;
   return (
     <article className="order-rollup__line-card">
@@ -272,14 +274,14 @@ function LineCard({ line, displayDate }: { line: OrderRollupLine; displayDate: (
         </span>
       </div>
       <StepRail line={line} />
-      <div className="order-rollup__line-activity">
-        <section>
+      <div className={`order-rollup__line-activity${showProofs ? "" : " is-shipping-only"}`}>
+        {showProofs ? <section>
           <div className="order-rollup__subheading">
             <strong>Proofs</strong>
             <span>{line.proof_count}</span>
           </div>
-          <ProofList proofs={line.proofs} displayDate={displayDate} />
-        </section>
+          <ProofList proofs={line.proofs} displayDate={displayDate} allowAssetLinks={allowProofAssetLinks} />
+        </section> : null}
         <section>
           <div className="order-rollup__subheading">
             <strong>Shipping</strong>
@@ -302,6 +304,8 @@ export function OrderRollup({
   displayDate?: (value?: string | null) => string;
 }) {
   const liveOrder = snapshot.live_order ?? null;
+  const proofVisibility = audience === "internal" ? "review_link" : snapshot.proof_visibility ?? "status_only";
+  const showProofs = proofVisibility !== "off";
   const orderStatus = snapshot.order_status ?? liveOrder?.status ?? null;
   const destination = shippingDestination(snapshot.header.shipping);
   const proofCount = snapshot.lines.reduce((total, line) => total + line.proof_count, 0);
@@ -337,12 +341,12 @@ export function OrderRollup({
         <MetaItem label="Delivery / due" value={displayDateOnly(snapshot.header.due_date)} detail={snapshot.header.due_date ? fieldSourceLabel(fieldSources?.due_date) : null} />
         <MetaItem label="Actual ship" value={displayDateOnly(snapshot.header.actual_ship_date)} detail={snapshot.header.actual_ship_date ? "Confirmed by Lift" : null} />
         <MetaItem label="Destination" value={destination} detail={destination !== "Not provided" ? fieldSourceLabel(fieldSources?.shipping) : null} />
-        <MetaItem label="Activity" value={`${proofCount} proofs · ${packageCount} packages`} />
+        <MetaItem label="Activity" value={showProofs ? `${proofCount} proofs · ${packageCount} packages` : `${packageCount} packages`} />
       </div>
 
       <ShipmentSummary summary={shipmentSummary} />
 
-      {snapshot.proof_summary ? (
+      {showProofs && snapshot.proof_summary ? (
         <ProofSummary summary={snapshot.proof_summary} audience={audience} displayDate={displayDate} />
       ) : null}
 
@@ -362,7 +366,7 @@ export function OrderRollup({
       </div>
 
       <div className="order-rollup__lines">
-        {snapshot.lines.map((line) => <LineCard line={line} displayDate={displayDate} key={`${line.line_number}-${line.order_line_id ?? line.product_id ?? "line"}`} />)}
+        {snapshot.lines.map((line) => <LineCard line={line} displayDate={displayDate} showProofs={showProofs} allowProofAssetLinks={audience === "internal"} key={`${line.line_number}-${line.order_line_id ?? line.product_id ?? "line"}`} />)}
       </div>
     </section>
   );

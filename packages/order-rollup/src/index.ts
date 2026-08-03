@@ -415,7 +415,11 @@ export interface OrderRollupProofSummary {
   review_required: boolean;
   last_synced_at: string;
   decisions_enabled: false;
+  access_mode?: "status_only" | "review_link";
+  review_url?: string | null;
 }
+
+export type OrderRollupProofVisibility = "off" | "status_only" | "review_link";
 
 export interface OrderRollupPackage {
   tracking_number?: string | null;
@@ -525,6 +529,7 @@ export interface OrderRollupSnapshot {
   live_order?: NormalizedLiftOrder | null;
   order_status?: NormalizedLiftOrder["status"];
   proof_summary?: OrderRollupProofSummary | null;
+  proof_visibility?: OrderRollupProofVisibility;
   shipment_summary?: OrderRollupShipmentSummary | null;
   lines: OrderRollupLine[];
   issues: Array<{ source: string; severity: "warning" | "error"; message: string }>;

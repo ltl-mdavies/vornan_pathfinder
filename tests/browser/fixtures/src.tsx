@@ -79,7 +79,7 @@ function StatusProofCardFixture() {
       <p className="browser-fixture-label">Deterministic non-customer fixture</p>
       <OrderRollup
         snapshot={statusFixture}
-        audience="public"
+        audience="internal"
         displayDate={(value) => value ?? "Not available"}
       />
     </main>

@@ -174,6 +174,7 @@ export type StatusAccessPolicyMode =
   | "Internal only";
 export type StatusAccessDomainStatus = "Approved" | "Suggested" | "Blocked";
 export type StatusAccessDomainSource = "Customer email" | "Order email" | "Imported contact" | "Admin" | "Seed";
+export type StatusProofVisibility = "off" | "status_only" | "review_link";
 
 export interface StatusAccessDomain {
   domain: string;
@@ -186,6 +187,7 @@ export interface StatusAccessDomain {
 export interface StatusAccessPolicy {
   mode: StatusAccessPolicyMode;
   allow_public_status_links: boolean;
+  proof_visibility: StatusProofVisibility;
   approved_email_domains: StatusAccessDomain[];
   updated_at: string;
 }
@@ -762,6 +764,7 @@ export interface PublicOrderStatusSnapshot {
   live_order?: NormalizedLiftOrder | null;
   order_status?: NormalizedLiftOrder["status"];
   proof_summary?: OrderRollupProofSummary | null;
+  proof_visibility: StatusProofVisibility;
   shipment_summary?: OrderRollupShipmentSummary | null;
   lines: Array<{
     line_number: number;
@@ -792,6 +795,7 @@ export interface PublicOrderStatusSnapshot {
     audience: "public_status";
     redacted_fields: string[];
     token_required: true;
+    proof_visibility: StatusProofVisibility;
   };
   refreshed_at: string;
 }
@@ -1659,6 +1663,7 @@ function createDefaultStatusAccessPolicy(customer: LiftCustomer, timestamp = now
   return {
     mode: "Exact email or approved domain",
     allow_public_status_links: true,
+    proof_visibility: "status_only",
     approved_email_domains: inferredDomains,
     updated_at: timestamp
   };
@@ -1692,6 +1697,12 @@ function normalizeStatusAccessPolicy(
   return {
     mode: policy?.mode ?? defaultPolicy.mode,
     allow_public_status_links: policy?.allow_public_status_links ?? defaultPolicy.allow_public_status_links,
+    proof_visibility:
+      policy?.proof_visibility === "off" ||
+      policy?.proof_visibility === "status_only" ||
+      policy?.proof_visibility === "review_link"
+        ? policy.proof_visibility
+        : defaultPolicy.proof_visibility,
     approved_email_domains: Array.from(domainsByName.values()).sort((first, second) =>
       first.domain.localeCompare(second.domain)
     ),

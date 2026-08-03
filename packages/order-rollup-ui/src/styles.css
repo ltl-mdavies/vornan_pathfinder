@@ -383,6 +383,10 @@
   padding: 16px 18px 18px;
 }
 
+.order-rollup__line-activity.is-shipping-only {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .order-rollup__line-activity > section {
   min-width: 0;
   padding: 14px;
