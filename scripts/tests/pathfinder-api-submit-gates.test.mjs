@@ -77,10 +77,10 @@ test("Wrike status writeback requires one exact task and bounded expiry", () => 
     template,
     /WrikeStatusWritebackRequiresBoundedTask:[\s\S]*?RuleCondition:[\s\S]*?WrikeStatusWritebackEnabled[\s\S]*?WrikeStatusWritebackTaskId[\s\S]*?WrikeStatusWritebackExpiresAt/
   );
-  assert.match(template, /PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK: !Ref WrikeStatusWritebackEnabled/);
+  assert.doesNotMatch(template, /PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK:/);
   assert.match(
     template,
-    /PATHFINDER_WRIKE_STATUS_WRITEBACK_SCOPE: !Join[\s\S]*?WrikeStatusWritebackTaskId[\s\S]*?WrikeStatusWritebackExpiresAt/
+    /PATHFINDER_WRIKE_STATUS_WRITEBACK_SCOPE: !Join[\s\S]*?WrikeStatusWritebackEnabled[\s\S]*?WrikeStatusWritebackTaskId[\s\S]*?WrikeStatusWritebackExpiresAt/
   );
   assert.match(
     workflow,

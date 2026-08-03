@@ -884,10 +884,10 @@ Resources:
           PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: !Ref WrikeWorkbookEvidenceEnabled
           PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: !Ref WrikeEvidencePreviewEnabled
           PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !Ref WrikeManualIntakeEnabled
-          PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK: !Ref WrikeStatusWritebackEnabled
           PATHFINDER_WRIKE_STATUS_WRITEBACK_SCOPE: !Join
             - "|"
-            - - !Ref WrikeStatusWritebackTaskId
+            - - !Ref WrikeStatusWritebackEnabled
+              - !Ref WrikeStatusWritebackTaskId
               - !Ref WrikeStatusWritebackExpiresAt
           PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: !Ref WrikeOrderRehearsalEnabled
           PATHFINDER_WRIKE_ORDER_REHEARSAL_SCOPE: !Join
