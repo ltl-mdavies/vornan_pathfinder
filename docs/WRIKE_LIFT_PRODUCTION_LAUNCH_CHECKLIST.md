@@ -45,7 +45,8 @@ This runbook covers the first supervised production submissions from a Wrike Pla
 
 ## 6. Close the window
 
-- Restore temporary Wrike discovery, evidence, manual-intake, and document-publication gates to their intended production posture.
+- Restore temporary Wrike discovery, evidence, manual-intake, and API document-publication gates to their intended production posture.
+- Keep the `/d/*` CloudFront delivery gate enabled while any issued document URL remains unexpired. Disable it only after the delivery bucket has no live publication that Lift or an operator may still fetch.
 - Confirm no unintended Wrike write, Lift call, Proof action, or background job occurred.
 - Preserve the job, reviewed fingerprint, submit attempt, sanitized document-preflight evidence, and audit history.
 - Confirm direct delivery URLs follow the configured retention policy; do not extend retention through retries or preview replays.
