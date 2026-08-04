@@ -47,6 +47,14 @@ The shared `go.vornan.co` CloudFront edge uses separate origins and path namespa
 - The `/d/*` viewer-request function and API publication gate both default to false/404.
 - No route can publish while either boundary remains dark.
 
+The two gates have different lifecycles. The API publication gate controls
+whether Pathfinder may create a new outbound copy and must return to its normal
+disabled posture after a bounded intake or submit window. The `/d/*` edge gate
+controls delivery of copies that already exist. Once Pathfinder has issued a
+URL, the edge gate must remain enabled until every issued URL has reached its
+fixed expiration or has been explicitly retired. Closing an intake window must
+never make an unexpired URL return 404.
+
 ## Create-order and fallback policy
 
 Preferred:

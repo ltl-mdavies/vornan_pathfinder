@@ -28,7 +28,11 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
-    Description: Default-dark edge gate for direct /d/* Wrike document delivery.
+    Description: >
+      Default-dark serving gate for direct /d/* Wrike document delivery. Once
+      an immutable URL has been issued, keep this enabled until every issued
+      document has expired or been explicitly retired. This is independent of
+      the API gate that permits creation of new publications.
   AssetDomainName:
     Type: String
     Default: ""

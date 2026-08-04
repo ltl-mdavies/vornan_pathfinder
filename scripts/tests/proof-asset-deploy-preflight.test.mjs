@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { validateProofAssetDeployment } from "../proof-asset-deploy-preflight.mjs";
 
 const template = readFileSync(
@@ -8,6 +19,35 @@ const template = readFileSync(
   "utf8"
 );
 const deployScript = readFileSync(new URL("../deploy-proof-assets-stack.sh", import.meta.url), "utf8");
+const deployScriptPath = fileURLToPath(new URL("../deploy-proof-assets-stack.sh", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../..", import.meta.url));
+
+function runDeployScriptWithStackLookup({ awsOutput, awsStatus, npmStatus = 23 }) {
+  const fakeBin = mkdtempSync(join(tmpdir(), "proof-asset-deploy-test-"));
+  const npmMarker = join(fakeBin, "npm-called");
+  try {
+    const awsPath = join(fakeBin, "aws");
+    const npmPath = join(fakeBin, "npm");
+    writeFileSync(awsPath, `#!/bin/sh\nprintf '%s\\n' "${awsOutput}" >&2\nexit ${awsStatus}\n`);
+    writeFileSync(npmPath, `#!/bin/sh\ntouch "${npmMarker}"\nexit ${npmStatus}\n`);
+    chmodSync(awsPath, 0o700);
+    chmodSync(npmPath, 0o700);
+
+    const result = spawnSync("bash", [deployScriptPath], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}:${process.env.PATH ?? ""}`,
+        AWS_ACCOUNT_ID: "744016783602",
+        PATHFINDER_PROOF_ASSET_ENVIRONMENT_NAME: "dev"
+      }
+    });
+    return { result, npmCalled: existsSync(npmMarker) };
+  } finally {
+    rmSync(fakeBin, { force: true, recursive: true });
+  }
+}
 
 test("accepts only the default-dark Proof asset foundation", () => {
   const result = validateProofAssetDeployment({
@@ -164,6 +204,10 @@ test("keeps Wrike Lift delivery in a separate retained private 14-day bucket", (
   assert.doesNotMatch(template, /Prefix: manifests\//);
   assert.match(template, /PathPattern: d\/\*/);
   assert.match(template, /WrikeDocumentDeliveryEnabled:\n\s+Value: !If \[WrikeDocumentDeliveryActive, "true", "false"\]/);
+  assert.match(
+    template,
+    /Once\n\s+an immutable URL has been issued, keep this enabled until every issued\n\s+document has expired or been explicitly retired/
+  );
 });
 
 test("keeps delivery fail-closed and grants only the exact distribution read access", () => {
@@ -182,6 +226,12 @@ test("keeps delivery fail-closed and grants only the exact distribution read acc
 });
 
 test("the deployment script forces DNS and certificate parameters empty and verifies 404", () => {
+  assert.match(deployScript, /existing_live_boundary="\$\{stack_lookup_result\}"/);
+  assert.match(
+    deployScript,
+    /OutputKey=='WrikeDocumentDeliveryEnabled' \|\| OutputKey=='ProofAssetAliasConfigured' \|\| OutputKey=='ProofAssetMalwareProtectionEnabled'/
+  );
+  assert.match(deployScript, /Refusing to apply the dark-foundation deploy over active asset-stack capabilities/);
   assert.match(deployScript, /AssetDomainName=""/);
   assert.match(deployScript, /CertificateArn=""/);
   assert.match(deployScript, /WrikeDocumentDeliveryEnabled="false"/);
@@ -190,5 +240,27 @@ test("the deployment script forces DNS and certificate parameters empty and veri
   assert.match(deployScript, /--capabilities CAPABILITY_IAM/);
   assert.match(deployScript, /a\/pre-activation-check/);
   assert.match(deployScript, /"\$\{status\}" != "404"/);
+  assert.doesNotMatch(deployScript, /describe-stacks[\s\S]{0,500}\|\| true/);
   assert.doesNotMatch(deployScript, /aws route53|curl[^\n]*lifterp|proof\.vornan\.co|go\.vornan\.co/i);
+});
+
+test("the deployment script fails closed when the active-boundary lookup fails", () => {
+  const { result, npmCalled } = runDeployScriptWithStackLookup({
+    awsOutput: "AccessDenied: not authorized to describe this stack",
+    awsStatus: 17
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Unable to inspect the existing Proof asset stack; refusing the dark-foundation deploy/);
+  assert.equal(npmCalled, false);
+});
+
+test("the deployment script treats only an explicitly missing stack as dark", () => {
+  const { result, npmCalled } = runDeployScriptWithStackLookup({
+    awsOutput: "ValidationError: Stack with id vornan-proof-assets-dev does not exist",
+    awsStatus: 255
+  });
+
+  assert.equal(result.status, 23);
+  assert.equal(npmCalled, true);
 });
