@@ -10,6 +10,7 @@ import {
   proofDecisionOutcomeClass,
   proofReviewLifecycleState,
   proofReviewLifecycleTransitions,
+  recordProofTaskDecisionContext,
   transitionProofDecisionOutcome,
   toCustomerSafeOrderRollupProof,
   toOrderRollupProofProjection,
@@ -201,6 +202,71 @@ test("emits read-derived review lifecycle transitions only when the normalized s
   const degraded = { ...reopened, health: "error" as const };
   assert.equal(proofReviewLifecycleState(degraded), "degraded");
   assert.deepEqual(proofReviewLifecycleTransitions(reviewed, degraded), []);
+});
+
+test("retains a Pathfinder-observed rejection only for the same pending attachment", () => {
+  const initial = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    synced_at: syncedAt
+  });
+  const pending = initial.tasks.find((task) => task.state === "pending")!;
+  const rejected = recordProofTaskDecisionContext(initial, {
+    task_id: pending.task_id,
+    attachment_id: pending.attachment_id!,
+    action: "REJECT",
+    recorded_at: "2026-07-20T12:01:00.000Z"
+  });
+
+  assert.equal(rejected.tasks.find((task) => task.task_id === pending.task_id)?.decision_context?.state, "rejected_pending_action");
+  assert.equal(toPublicProofOrder(rejected).tasks.find((task) => task.task_id === pending.task_id)?.decision_state, "rejected_pending_action");
+  assert.equal(JSON.stringify(toPublicProofOrder(rejected)).includes("pathfinder_operator_action"), false);
+
+  const refreshed = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    previous: rejected,
+    synced_at: "2026-07-20T12:02:00.000Z"
+  });
+  assert.equal(refreshed.tasks.find((task) => task.task_id === pending.task_id)?.decision_context?.state, "rejected_pending_action");
+
+  const approvedPayload = {
+    rowset: proofPayload.rowset.map((row) =>
+      row.ATTACHMENT_ID === Number(pending.attachment_id)
+        ? { ...row, PROOF_APPROVAL_STATUS: "APPROVED", PROOF_APPROVED_BY: "Synthetic reviewer" }
+        : row
+    )
+  };
+  const approved = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [approvedPayload],
+    previous: refreshed,
+    synced_at: "2026-07-20T12:03:00.000Z"
+  });
+  assert.equal(approved.tasks.find((task) => task.task_id === pending.task_id)?.decision_context, null);
+});
+
+test("rejects malformed Proof decision context timestamps", () => {
+  const initial = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    synced_at: syncedAt
+  });
+  const pending = initial.tasks.find((task) => task.state === "pending")!;
+
+  assert.throws(
+    () => recordProofTaskDecisionContext(initial, {
+      task_id: pending.task_id,
+      attachment_id: pending.attachment_id!,
+      action: "REJECT",
+      recorded_at: "2026-07-20 12:01:00"
+    }),
+    /exact UTC ISO instant/
+  );
 });
 
 test("projects one customer-safe cached Proof summary for Status and Order Rollup", () => {

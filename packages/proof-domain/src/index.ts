@@ -16,6 +16,24 @@ export type ProofTaskState =
   | "missing"
   | "error";
 
+export type ProofTaskDecisionState =
+  | "rejected_pending_action"
+  | "sent_back_to_artist"
+  | "revised_art_pending"
+  | "cancel_requested";
+
+export interface ProofTaskDecisionContext {
+  state: ProofTaskDecisionState;
+  action:
+    | "REJECT"
+    | "SEND_BACK_TO_ARTIST"
+    | "REVISED_ART_WILL_BE_SENT"
+    | "CANCEL_LINE";
+  attachment_id: string;
+  recorded_at: string;
+  source: "pathfinder_operator_action";
+}
+
 export type ProofOrderHealth = "active" | "complete" | "missing" | "stale" | "error";
 
 export interface ProofNormalizationWarning {
@@ -74,6 +92,7 @@ export interface ProofTask {
   quantity: number | null;
   state: ProofTaskState;
   actionable: boolean;
+  decision_context?: ProofTaskDecisionContext | null;
   sibling_index: number;
   sibling_count: number;
   version: number;
@@ -410,6 +429,7 @@ export interface PublicProofTask {
   product_name: string | null;
   quantity: number | null;
   state: ProofTaskState;
+  decision_state: ProofTaskDecisionState | null;
   sibling_index: number;
   sibling_count: number;
   feedback_required: boolean;
@@ -757,6 +777,10 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
       : previous.versions;
     return {
       ...incoming,
+      decision_context:
+        incoming.state === "pending" && previous.attachment_id === incoming.attachment_id
+          ? previous.decision_context ?? null
+          : null,
       task_id: previous.task_id,
       version: previous.version,
       current_version: refreshedCurrentVersion,
@@ -777,6 +801,10 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
     : priorVersions;
   return {
     ...incoming,
+    decision_context:
+      incoming.state === "pending" && previous.attachment_id === incoming.attachment_id
+        ? previous.decision_context ?? null
+        : null,
     task_id: previous.task_id,
     version: previous.version + 1,
     versions,
@@ -892,6 +920,7 @@ export function normalizeProofOrder(input: NormalizeProofOrderInput): ProofOrder
       quantity: line?.quantity ?? null,
       state,
       actionable: actionableState(state),
+      decision_context: null,
       sibling_index: 1,
       sibling_count: 1,
       version: 1,
@@ -916,6 +945,7 @@ export function normalizeProofOrder(input: NormalizeProofOrderInput): ProofOrder
         quantity: line.quantity,
         state,
         actionable: false,
+        decision_context: null,
         sibling_index: 1,
         sibling_count: 1,
         version: 1,
@@ -1312,6 +1342,7 @@ export function toPublicProofOrder(
       product_name: publicProofDisplayText(task.product_name, 160),
       quantity: publicProofQuantity(task.quantity),
       state: task.state,
+      decision_state: task.decision_context?.state ?? null,
       sibling_index: task.sibling_index,
       sibling_count: task.sibling_count,
       feedback_required: Boolean(task.current_version?.comments.length),
@@ -1322,6 +1353,63 @@ export function toPublicProofOrder(
     counts: publicProofCounts(order.tasks),
     last_synced_at: order.last_synced_at,
     access: { scope, decisions_enabled: false }
+  };
+}
+
+export function recordProofTaskDecisionContext(
+  order: ProofOrder,
+  input: {
+    task_id: string;
+    attachment_id: string;
+    action: ProofTaskDecisionContext["action"];
+    recorded_at: string;
+  }
+) {
+  const recordedAtEpoch = Date.parse(input.recorded_at);
+  if (
+    !Number.isFinite(recordedAtEpoch) ||
+    new Date(recordedAtEpoch).toISOString() !== input.recorded_at
+  ) {
+    throw new Error("The Proof decision context timestamp must be an exact UTC ISO instant.");
+  }
+  const stateByAction: Record<ProofTaskDecisionContext["action"], ProofTaskDecisionState> = {
+    REJECT: "rejected_pending_action",
+    SEND_BACK_TO_ARTIST: "sent_back_to_artist",
+    REVISED_ART_WILL_BE_SENT: "revised_art_pending",
+    CANCEL_LINE: "cancel_requested"
+  };
+  let matched = false;
+  const tasks = order.tasks.map((task) => {
+    if (task.task_id !== input.task_id) return task;
+    if (
+      task.attachment_id !== input.attachment_id ||
+      task.current_version?.attachment_id !== input.attachment_id ||
+      task.state !== "pending"
+    ) {
+      throw new Error("The Proof decision context no longer matches the current pending attachment.");
+    }
+    matched = true;
+    return {
+      ...task,
+      decision_context: {
+        state: stateByAction[input.action],
+        action: input.action,
+        attachment_id: input.attachment_id,
+        recorded_at: input.recorded_at,
+        source: "pathfinder_operator_action" as const
+      },
+      version: task.version + 1,
+      updated_at: input.recorded_at
+    };
+  });
+  if (!matched) {
+    throw new Error("The current Proof task was not found for the decision context.");
+  }
+  return {
+    ...order,
+    tasks,
+    version: order.version + 1,
+    updated_at: input.recorded_at
   };
 }
 

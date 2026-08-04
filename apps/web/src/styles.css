@@ -251,6 +251,38 @@
   text-transform: none;
 }
 
+.proof-action-decision-state {
+  grid-column: 1 / -1;
+  padding: 12px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #e4d5b6;
+  border-radius: 11px;
+  background: #fffaf0;
+  color: #6c552a;
+}
+
+.proof-action-decision-state > span {
+  display: grid;
+  gap: 3px;
+}
+
+.proof-action-decision-state strong {
+  font-size: 11px;
+}
+
+.proof-action-allocation-blocked {
+  padding: 10px 12px;
+  border: 1px solid #e4d5b6;
+  border-radius: 9px;
+  background: #fffaf0;
+  color: #6c552a;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .proof-approval-mode {
   grid-column: 1 / -1;
   overflow: hidden;
@@ -399,6 +431,10 @@
 
 .proof-action-comment {
   grid-column: 1 / -1;
+}
+
+.proof-action-comment small {
+  max-width: 760px;
 }
 
 .proof-action-art-url {
