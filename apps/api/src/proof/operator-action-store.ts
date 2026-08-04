@@ -36,6 +36,11 @@ export interface ProofOperatorActionRecord {
   expected_task_version: number;
   expected_version_id: string;
   feedback_fingerprint: string;
+  execution_scope_sha256: string;
+  approval_mode: "simple" | "quantity_allocation" | null;
+  approve_quantity: number | null;
+  expected_line_quantity: number | null;
+  allocation_plan_sha256: string | null;
   target_id: string;
   environment_id: string;
   note_sha256: string | null;
@@ -108,6 +113,23 @@ function operatorItem(record: ProofOperatorActionRecord) {
       canonical_body_hash: proofStringAttribute(record.canonical_body_hash),
       outcome: proofStringAttribute(record.outcome),
       record_version: { N: String(record.record_version) },
+      ttl_epoch: { N: String(record.expires_at_epoch) }
+    }
+  );
+}
+
+function executionScopeItem(record: ProofOperatorActionRecord) {
+  return proofDataItem(
+    `ORDER#${record.order_number}`,
+    `OPERATOR_ACTION_SCOPE#${record.execution_scope_sha256}`,
+    {
+      execution_scope_sha256: record.execution_scope_sha256,
+      canonical_body_hash: record.canonical_body_hash,
+      outcome: "submission_uncertain",
+      created_at: record.updated_at,
+      expires_at_epoch: record.expires_at_epoch
+    },
+    {
       ttl_epoch: { N: String(record.expires_at_epoch) }
     }
   );
@@ -225,6 +247,34 @@ export function validateProofOperatorActionRecord(value: unknown) {
     !IDENTIFIER.test(record.expected_version_id) ||
     typeof record.feedback_fingerprint !== "string" ||
     !record.feedback_fingerprint ||
+    typeof record.execution_scope_sha256 !== "string" ||
+    !HASH.test(record.execution_scope_sha256) ||
+    (record.approval_mode !== null &&
+      record.approval_mode !== "simple" &&
+      record.approval_mode !== "quantity_allocation") ||
+    (record.approve_quantity !== null &&
+      (!Number.isSafeInteger(record.approve_quantity) ||
+        record.approve_quantity <= 0)) ||
+    (record.expected_line_quantity !== null &&
+      (!Number.isSafeInteger(record.expected_line_quantity) ||
+        record.expected_line_quantity <= 0)) ||
+    (record.allocation_plan_sha256 !== null &&
+      !HASH.test(record.allocation_plan_sha256)) ||
+    (record.action === "APPROVE" &&
+      (record.approval_mode === null ||
+        record.expected_line_quantity === null ||
+        (record.approval_mode === "simple" &&
+          (record.approve_quantity !== null ||
+            record.allocation_plan_sha256 !== null)) ||
+        (record.approval_mode === "quantity_allocation" &&
+          (record.approve_quantity === null ||
+            record.approve_quantity > record.expected_line_quantity ||
+            record.allocation_plan_sha256 === null)))) ||
+    (record.action !== "APPROVE" &&
+      (record.approval_mode !== null ||
+        record.approve_quantity !== null ||
+        record.expected_line_quantity !== null ||
+        record.allocation_plan_sha256 !== null)) ||
     !["prepared", "submission_uncertain", "reconciling"].includes(record.outcome) ||
     !Number.isInteger(record.record_version) ||
     record.record_version < 1 ||
@@ -443,6 +493,7 @@ export async function transitionProofOperatorAction(
     current.order_number !== next.order_number ||
     current.idempotency_key !== next.idempotency_key ||
     current.canonical_body_hash !== next.canonical_body_hash ||
+    current.execution_scope_sha256 !== next.execution_scope_sha256 ||
     current.expires_at_epoch !== next.expires_at_epoch ||
     next.record_version !== current.record_version + 1 ||
     !(
@@ -494,7 +545,17 @@ export async function transitionProofOperatorAction(
               Item: auditEventItem(auditEvent),
               ConditionExpression: "attribute_not_exists(pk) AND attribute_not_exists(sk)"
             }
-          }
+          },
+          ...(current.outcome === "prepared"
+            ? [{
+                Put: {
+                  TableName: requiredProofCoreTable(),
+                  Item: executionScopeItem(next),
+                  ConditionExpression:
+                    "attribute_not_exists(pk) AND attribute_not_exists(sk)"
+                }
+              }]
+            : [])
         ]
       }));
       return next;
@@ -509,12 +570,14 @@ export async function transitionProofOperatorAction(
     const storageKey = key(current.order_number, current.idempotency_key);
     const stored = store.operator_action_records[storageKey];
     const validated = stored ? validateProofOperatorActionRecord(stored) : null;
+    const scopeStorageKey = `scope:${current.order_number}:${current.execution_scope_sha256}`;
     if (
       !validated ||
       validated.record_version !== current.record_version ||
       validated.outcome !== current.outcome ||
       validated.canonical_body_hash !== current.canonical_body_hash ||
-      store.audit_events[auditEvent.event_id]
+      store.audit_events[auditEvent.event_id] ||
+      (current.outcome === "prepared" && store.operator_action_records[scopeStorageKey])
     ) {
       throw new ProofOperatorActionStoreError(
         "concurrent_update",
@@ -526,6 +589,15 @@ export async function transitionProofOperatorAction(
       store.audit_events[validated.prepared_audit_event_id]
     );
     store.operator_action_records[storageKey] = next;
+    if (current.outcome === "prepared") {
+      store.operator_action_records[scopeStorageKey] = {
+        execution_scope_sha256: current.execution_scope_sha256,
+        canonical_body_hash: current.canonical_body_hash,
+        outcome: "submission_uncertain",
+        created_at: next.updated_at,
+        expires_at_epoch: next.expires_at_epoch
+      };
+    }
     store.audit_events[auditEvent.event_id] = auditEvent;
     return next;
   });

@@ -268,6 +268,45 @@ test("accepts query-only Lift token rotation and retains the second proven URL",
   assert.equal(result.order.tasks[0]?.current_version?.download_url, "https://files.example/stable.pdf?token=2");
 });
 
+test("rejects a quantity-only change between consecutive Lift reads", async () => {
+  let proofRead = 0;
+  let orderRead = 0;
+  const fetcher = async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    if (url.pathname.includes("AS360Orders")) {
+      orderRead += 1;
+      return new Response(JSON.stringify({
+        rowset: [{
+          ORDER_NUMBER: "A0221145",
+          ORDER_LINE_ID: 15,
+          LINE_NUMBER: 1,
+          QUANTITY: orderRead === 1 ? 4 : 5
+        }]
+      }), { headers: { "content-type": "application/json" } });
+    }
+    proofRead += 1;
+    return new Response(JSON.stringify({
+      rowset: [{
+        ORDER_NUMBER: "A0221145",
+        ORDER_LINE_ID: 15,
+        LINE_NUMBER: 1,
+        ATTACHMENT_ID: 150,
+        PROOF_FILENAME: "quantity-drift.pdf",
+        PROOF_LINK_HIGH: "https://files.example/quantity-drift.pdf",
+        PROOF_APPROVAL_STATUS: "PENDING"
+      }]
+    }), { headers: { "content-type": "application/json" } });
+  };
+
+  await assert.rejects(
+    () => syncProofOrder("A0221145", { fetcher, synced_at: "2026-08-03T20:02:30.000Z" }),
+    { name: "ProofSyncUnstableError" }
+  );
+  assert.equal(proofRead, 2);
+  assert.equal(orderRead, 2);
+  assert.equal(await getProofOrder("A0221145"), null);
+});
+
 test("rejects a feedback-only change between consecutive Lift reads", async () => {
   let proofRead = 0;
   const fetcher = async (input: string | URL | Request) => {

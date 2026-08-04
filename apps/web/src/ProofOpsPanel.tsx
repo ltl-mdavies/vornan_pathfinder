@@ -90,6 +90,14 @@ export type ProofActionDraftKind =
   | "CANCEL_LINE"
   | "REVISED_ART_WILL_BE_SENT";
 
+export type ProofApprovalMode = "simple" | "quantity_allocation";
+
+export interface ProofApprovalAllocation {
+  task_id: string;
+  attachment_id: string;
+  approve_quantity: number;
+}
+
 export interface ProofActionDraft {
   order_number: string;
   task_id: string;
@@ -97,7 +105,10 @@ export interface ProofActionDraft {
   proofing_id: string;
   proof_filename: string | null;
   action: ProofActionDraftKind;
+  approval_mode: ProofApprovalMode | null;
   approve_quantity: number | null;
+  allocation_plan: ProofApprovalAllocation[] | null;
+  expected_line_quantity: number | null;
   comment: string | null;
   revision_asset_id: string | null;
   execution: "locked";
@@ -109,7 +120,8 @@ export function buildProofActionDraft(input: {
   order: ProofOrderSummary;
   taskId: string;
   action: ProofActionDraftKind;
-  approveQuantity: number;
+  approvalMode: ProofApprovalMode;
+  allocationPlan: ProofApprovalAllocation[];
   comment: string;
   revisionAssetId: string;
 }): ProofActionDraft {
@@ -123,8 +135,69 @@ export function buildProofActionDraft(input: {
   if (task.current_version.attachment_id && task.current_version.attachment_id !== task.attachment_id) {
     throw new Error("The current proof attachment does not match the selected task.");
   }
-  if (input.action === "APPROVE" && input.approveQuantity !== 1) {
-    throw new Error("Supervised Proof approval is pinned to quantity 1.");
+  let approveQuantity: number | null = null;
+  let allocationPlan: ProofApprovalAllocation[] | null = null;
+  let expectedLineQuantity: number | null = null;
+  if (input.action === "APPROVE") {
+    if (!Number.isSafeInteger(task.quantity) || (task.quantity ?? 0) <= 0) {
+      throw new Error("The authoritative Lift line quantity is unavailable.");
+    }
+    expectedLineQuantity = task.quantity!;
+    if (input.approvalMode === "quantity_allocation") {
+      if (!task.order_line_id) {
+        throw new Error("Advanced approval requires a current Lift line.");
+      }
+      const currentProofs = input.order.tasks
+        .filter((candidate) =>
+          candidate.order_line_id === task.order_line_id &&
+          candidate.actionable &&
+          candidate.attachment_id &&
+          candidate.current_version?.attachment_id === candidate.attachment_id
+        )
+        .sort((left, right) =>
+          (left.attachment_id ?? "").localeCompare(right.attachment_id ?? "")
+        );
+      allocationPlan = [...input.allocationPlan].sort((left, right) =>
+        left.attachment_id.localeCompare(right.attachment_id)
+      );
+      if (
+        currentProofs.length < 2 ||
+        currentProofs.length !== allocationPlan.length ||
+        currentProofs.some((candidate) => candidate.quantity !== expectedLineQuantity)
+      ) {
+        throw new Error("Advanced approval requires multiple current proofs on one line.");
+      }
+      const seen = new Set<string>();
+      currentProofs.forEach((proof, index) => {
+        const allocation = allocationPlan![index];
+        if (
+          !allocation ||
+          allocation.task_id !== proof.task_id ||
+          allocation.attachment_id !== proof.attachment_id ||
+          !Number.isSafeInteger(allocation.approve_quantity) ||
+          allocation.approve_quantity <= 0 ||
+          seen.has(allocation.attachment_id)
+        ) {
+          throw new Error("Enter a positive whole-number quantity for every current proof.");
+        }
+        seen.add(allocation.attachment_id);
+      });
+      const allocated = allocationPlan.reduce(
+        (total, allocation) => total + allocation.approve_quantity,
+        0
+      );
+      if (allocated !== expectedLineQuantity) {
+        throw new Error(
+          `Allocate all ${expectedLineQuantity} items across the current proofs. ${expectedLineQuantity - allocated} remaining.`
+        );
+      }
+      approveQuantity = allocationPlan.find(
+        (allocation) => allocation.task_id === task.task_id
+      )?.approve_quantity ?? null;
+      if (approveQuantity === null) {
+        throw new Error("The selected proof is missing from the allocation.");
+      }
+    }
   }
   const revisionAssetId = input.action === "REVISED_ART_WILL_BE_SENT"
     ? input.revisionAssetId.trim()
@@ -146,7 +219,10 @@ export function buildProofActionDraft(input: {
     proofing_id: task.attachment_id,
     proof_filename: task.current_version.filename,
     action: input.action,
-    approve_quantity: input.action === "APPROVE" ? 1 : null,
+    approval_mode: input.action === "APPROVE" ? input.approvalMode : null,
+    approve_quantity: approveQuantity,
+    allocation_plan: allocationPlan,
+    expected_line_quantity: expectedLineQuantity,
     comment: comment || null,
     revision_asset_id: revisionAssetId,
     execution: "locked",
@@ -210,7 +286,8 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   const [qaOrders, setQaOrders] = useState<string[]>(initialQaOrders);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [proofAction, setProofAction] = useState<ProofActionDraftKind>("APPROVE");
-  const [approveQuantity, setApproveQuantity] = useState(1);
+  const [approvalMode, setApprovalMode] = useState<ProofApprovalMode>("simple");
+  const [allocationQuantities, setAllocationQuantities] = useState<Record<string, number>>({});
   const [proofComment, setProofComment] = useState("");
   const [revisionAssetId, setRevisionAssetId] = useState("");
   const [revisionUploadFile, setRevisionUploadFile] = useState<File | null>(null);
@@ -230,6 +307,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     classification: string | null;
     task_state: string | null;
   } | null>(null);
+  const [actionRequiresFreshSync, setActionRequiresFreshSync] = useState(false);
   const operatorActionInFlight = useRef(false);
   const revisionUploadKeys = useRef(new Map<string, string>());
 
@@ -253,7 +331,8 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     if (!order) return;
     const firstActionable = order.tasks.find((task) => task.actionable && task.attachment_id && task.current_version);
     setSelectedTaskId(firstActionable?.task_id ?? "");
-    setApproveQuantity(1);
+    setApprovalMode("simple");
+    setAllocationQuantities({});
     setProofAction("APPROVE");
     setProofComment("");
     setRevisionAssetId("");
@@ -262,6 +341,26 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     setRevisionUploadState("idle");
     setRevisionUploadAsset(null);
   }, [order]);
+
+  useEffect(() => {
+    if (!order || !selectedTaskId) {
+      setAllocationQuantities({});
+      return;
+    }
+    const selected = order.tasks.find((task) => task.task_id === selectedTaskId);
+    const siblings = selected?.order_line_id
+      ? order.tasks.filter((task) =>
+          task.order_line_id === selected.order_line_id &&
+          task.actionable &&
+          task.attachment_id &&
+          task.current_version?.attachment_id === task.attachment_id
+        )
+      : [];
+    setAllocationQuantities(Object.fromEntries(
+      siblings.map((task) => [task.task_id, 0])
+    ));
+    if (siblings.length < 2) setApprovalMode("simple");
+  }, [order, selectedTaskId]);
 
   useEffect(() => {
     try {
@@ -312,6 +411,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
         await request(`/api/proof/orders/${normalizedOrderNumber}/sync`, { method: "POST", body: "{}" })
       );
       setOrder(payload.order);
+      setActionRequiresFreshSync(false);
       addQaOrder(payload.order.order_number);
       await loadGrants(payload.order.order_number);
       await loadAudit(payload.order.order_number).catch(() => undefined);
@@ -459,7 +559,10 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
         target_id: health?.operator_action_qa.target_id,
         environment_id: health?.operator_action_qa.environment_id,
         comment: actionDraft.comment,
-        revision_asset_id: actionDraft.revision_asset_id
+        revision_asset_id: actionDraft.revision_asset_id,
+        approval_mode: actionDraft.approval_mode,
+        approve_quantity: actionDraft.approve_quantity,
+        allocation_plan: actionDraft.allocation_plan
       };
       const payload = await responseJson<{
         confirmation_phrase: string;
@@ -494,7 +597,12 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     try {
       const payload = await responseJson<{
         operator_action: { outcome: string; response_classification: string | null };
-        authoritative_reconciliation: { task_state: string | null };
+        authoritative_reconciliation: {
+          completed: boolean;
+          failure_class: string | null;
+          task_state: string | null;
+          requires_manual_review: boolean;
+        };
       }>(
         await request("/api/proof/operator-actions/execute", {
           method: "POST",
@@ -511,9 +619,35 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
       });
       setPreparedAction(null);
       setActionConfirmation("");
-      setMessage("One Proof action was attempted with zero retry. Review the authoritative Lift state.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Proof action execution failed.");
+      if (payload.authoritative_reconciliation.completed) {
+        try {
+          const refreshed = await responseJson<{ order: ProofOrderSummary }>(
+            await request(`/api/proof/orders/${order.order_number}`)
+          );
+          setOrder(refreshed.order);
+          setActionRequiresFreshSync(false);
+          setMessage(
+            "One Proof action was attempted with zero retry. The workbench was rebound to the authoritative post-action Lift snapshot."
+          );
+        } catch {
+          setActionRequiresFreshSync(true);
+          setMessage(
+            "The Proof action was attempted, but the refreshed snapshot is unavailable. Do not retry. Sync Lift and review the durable action state."
+          );
+        }
+      } else {
+        setActionRequiresFreshSync(true);
+        setMessage(
+          "The Proof action was attempted, but authoritative Lift reconciliation is incomplete. Do not retry. Sync Lift and review the durable action state."
+        );
+      }
+    } catch {
+      setPreparedAction(null);
+      setActionConfirmation("");
+      setActionRequiresFreshSync(true);
+      setMessage(
+        "The Proof execution response is unavailable. Do not retry. Sync Lift and review the durable action state before taking another action."
+      );
     } finally {
       operatorActionInFlight.current = false;
       setState("idle");
@@ -663,6 +797,24 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   const pendingCount = order?.tasks.filter((task) => task.state === "pending").length ?? 0;
   const readOnlyPosture = health ? proofReadOnlyPosture(health) : null;
   const selectedTask = order?.tasks.find((task) => task.task_id === selectedTaskId) ?? null;
+  const selectedLineProofs = selectedTask?.order_line_id
+    ? (order?.tasks ?? []).filter((task) =>
+        task.order_line_id === selectedTask.order_line_id &&
+        task.actionable &&
+        task.attachment_id &&
+        task.current_version?.attachment_id === task.attachment_id
+      )
+    : [];
+  const allocationPlan = selectedLineProofs.map((task) => ({
+    task_id: task.task_id,
+    attachment_id: task.attachment_id!,
+    approve_quantity: allocationQuantities[task.task_id] ?? 0
+  }));
+  const allocatedQuantity = allocationPlan.reduce(
+    (total, allocation) => total + allocation.approve_quantity,
+    0
+  );
+  const allocationRemainder = (selectedTask?.quantity ?? 0) - allocatedQuantity;
   let actionDraft: ProofActionDraft | null = null;
   let actionDraftError: string | null = null;
   if (order && selectedTaskId) {
@@ -671,7 +823,8 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
         order,
         taskId: selectedTaskId,
         action: proofAction,
-        approveQuantity,
+        approvalMode,
+        allocationPlan,
         comment: proofComment,
         revisionAssetId
       });
@@ -829,9 +982,8 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
               <label>
                 Proof
                 <select value={selectedTaskId} onChange={(event) => {
-                  const task = order.tasks.find((candidate) => candidate.task_id === event.target.value);
                   setSelectedTaskId(event.target.value);
-                  setApproveQuantity(1);
+                  setApprovalMode("simple");
                 }}>
                   <option value="">Choose current proof</option>
                   {order.tasks.filter((task) => task.actionable && task.attachment_id && task.current_version).map((task) => (
@@ -852,11 +1004,88 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 </select>
               </label>
               {proofAction === "APPROVE" ? (
-                <label>
-                  Approve quantity
-                  <input type="number" value={1} readOnly aria-describedby="proof-approve-quantity-note" />
-                  <small id="proof-approve-quantity-note">Pinned to 1 for the supervised Lift QA contract.</small>
-                </label>
+                <div className="proof-approval-mode" role="group" aria-labelledby="proof-approval-mode-title">
+                  <div className="proof-approval-mode-heading">
+                    <div>
+                      <strong id="proof-approval-mode-title">Approval mode</strong>
+                      <small>
+                        Simple approves this proof without sending a quantity. Advanced allocates the full line across current creatives.
+                      </small>
+                    </div>
+                    <div className="proof-segmented-control" aria-label="Approval mode">
+                      <button
+                        type="button"
+                        aria-pressed={approvalMode === "simple"}
+                        className={approvalMode === "simple" ? "is-selected" : ""}
+                        onClick={() => setApprovalMode("simple")}
+                      >
+                        Simple
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={approvalMode === "quantity_allocation"}
+                        className={approvalMode === "quantity_allocation" ? "is-selected" : ""}
+                        disabled={
+                          selectedLineProofs.length < 2 ||
+                          !health?.operator_action_qa.advanced_quantity_allocation_enabled
+                        }
+                        onClick={() => setApprovalMode("quantity_allocation")}
+                      >
+                        Advanced
+                      </button>
+                    </div>
+                  </div>
+                  {approvalMode === "simple" ? (
+                    <div className="proof-simple-approval-note">
+                      <CheckCircle2 size={16} />
+                      <span><strong>Approve</strong> sends no quantity override and keeps the customer experience intentionally simple.</span>
+                    </div>
+                  ) : (
+                    <div className="proof-allocation-editor">
+                      <div className="proof-allocation-summary">
+                        <span>Line quantity <strong>{selectedTask?.quantity ?? "—"}</strong></span>
+                        <span>Allocated <strong>{allocatedQuantity}</strong></span>
+                        <span className={allocationRemainder === 0 ? "is-complete" : ""}>
+                          Remaining <strong>{allocationRemainder}</strong>
+                        </span>
+                      </div>
+                      <div className="proof-allocation-list">
+                        {selectedLineProofs.map((proof) => (
+                          <label key={proof.task_id} className={proof.task_id === selectedTaskId ? "is-selected" : ""}>
+                            <span>
+                              <strong>{proof.current_version?.filename ?? `Proof ${proof.attachment_id}`}</strong>
+                              <small>{proof.task_id === selectedTaskId ? "Selected for the next single action" : "Current creative"}</small>
+                            </span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={selectedTask?.quantity ?? undefined}
+                              step={1}
+                              inputMode="numeric"
+                              aria-label={`Quantity for ${proof.current_version?.filename ?? proof.attachment_id}`}
+                              value={allocationQuantities[proof.task_id] || ""}
+                              onChange={(event) => {
+                                const value = Number.parseInt(event.target.value, 10);
+                                setAllocationQuantities((current) => ({
+                                  ...current,
+                                  [proof.task_id]: Number.isFinite(value) ? value : 0
+                                }));
+                              }}
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <small>
+                        Every current proof must receive a positive whole-number quantity and the remainder must be zero. Pathfinder sends one action, then requires a fresh Lift sync before the next.
+                      </small>
+                    </div>
+                  )}
+                  {!health?.operator_action_qa.advanced_quantity_allocation_enabled && selectedLineProofs.length >= 2 ? (
+                    <small className="proof-advanced-locked-note">
+                      Advanced allocation is visible for validation but remains behind a separate default-disabled QA gate.
+                    </small>
+                  ) : null}
+                </div>
               ) : null}
               <label className="proof-action-comment">
                 Comment
@@ -964,6 +1193,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 disabled={
                   state === "loading" ||
                   !actionDraft ||
+                  actionRequiresFreshSync ||
                   !health?.operator_action_qa.enabled ||
                   !health.operator_action_qa.allowed_order_numbers.includes(order.order_number)
                 }
@@ -972,6 +1202,11 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 <LockKeyhole size={15} /> Prepare supervised action
               </button>
             </div>
+            {actionRequiresFreshSync ? (
+              <p className="proof-action-boundary">
+                A fresh authoritative Lift sync is required before another Proof action can be prepared.
+              </p>
+            ) : null}
             <p className="proof-action-boundary">
               {health?.operator_action_qa.enabled
                 ? `Bounded operator gate expires ${dateLabel(health.operator_action_qa.activation_expires_at)}. Only allowlisted LTL Demo orders can proceed.`

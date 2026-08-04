@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { buildProofActionDraft } from "../src/ProofOpsPanel";
 
@@ -32,7 +33,8 @@ test("prepares a locked approval draft without transport or automatic retry", ()
     order,
     taskId: "ptask_synthetic_001",
     action: "APPROVE",
-    approveQuantity: 1,
+    approvalMode: "simple",
+    allocationPlan: [],
     comment: "Approved for synthetic QA",
     revisionAssetId: ""
   });
@@ -44,7 +46,10 @@ test("prepares a locked approval draft without transport or automatic retry", ()
     proofing_id: "proofing-synthetic-001",
     proof_filename: "synthetic-proof.pdf",
     action: "APPROVE",
-    approve_quantity: 1,
+    approval_mode: "simple",
+    approve_quantity: null,
+    allocation_plan: null,
+    expected_line_quantity: 4,
     comment: "Approved for synthetic QA",
     revision_asset_id: null,
     execution: "locked",
@@ -53,13 +58,66 @@ test("prepares a locked approval draft without transport or automatic retry", ()
   });
 });
 
+test("requires a complete multi-proof allocation and binds only the selected quantity", () => {
+  const secondTask = {
+    ...order.tasks[0],
+    task_id: "ptask_synthetic_002",
+    attachment_id: "proofing-synthetic-002",
+    current_version: {
+      ...order.tasks[0].current_version,
+      version_id: "version-synthetic-002",
+      filename: "synthetic-proof-b.pdf",
+      attachment_id: "proofing-synthetic-002"
+    }
+  };
+  const multiProofOrder = { ...order, tasks: [...order.tasks, secondTask] };
+  const allocationPlan = [
+    {
+      task_id: "ptask_synthetic_001",
+      attachment_id: "proofing-synthetic-001",
+      approve_quantity: 3
+    },
+    {
+      task_id: "ptask_synthetic_002",
+      attachment_id: "proofing-synthetic-002",
+      approve_quantity: 1
+    }
+  ];
+  const draft = buildProofActionDraft({
+    order: multiProofOrder,
+    taskId: "ptask_synthetic_001",
+    action: "APPROVE",
+    approvalMode: "quantity_allocation",
+    allocationPlan,
+    comment: "Allocate current creatives",
+    revisionAssetId: ""
+  });
+  assert.equal(draft.approve_quantity, 3);
+  assert.equal(draft.expected_line_quantity, 4);
+  assert.deepEqual(draft.allocation_plan, allocationPlan);
+
+  assert.throws(
+    () => buildProofActionDraft({
+      order: multiProofOrder,
+      taskId: "ptask_synthetic_001",
+      action: "APPROVE",
+      approvalMode: "quantity_allocation",
+      allocationPlan: allocationPlan.map((entry) => ({ ...entry, approve_quantity: 1 })),
+      comment: "",
+      revisionAssetId: ""
+    }),
+    /Allocate all 4 items/
+  );
+});
+
 test("requires a verified Pathfinder asset only for revised-art actions", () => {
   assert.throws(
     () => buildProofActionDraft({
       order,
       taskId: "ptask_synthetic_001",
       action: "REVISED_ART_WILL_BE_SENT",
-      approveQuantity: 1,
+      approvalMode: "simple",
+      allocationPlan: [],
       comment: "",
       revisionAssetId: ""
     }),
@@ -71,7 +129,8 @@ test("requires a verified Pathfinder asset only for revised-art actions", () => 
     order,
     taskId: "ptask_synthetic_001",
     action: "REVISED_ART_WILL_BE_SENT",
-    approveQuantity: 1,
+    approvalMode: "simple",
+    allocationPlan: [],
     comment: "Replacement supplied",
     revisionAssetId
   });
@@ -85,7 +144,8 @@ test("fails closed for stale, non-actionable, or cross-bound proof tasks", () =>
       order: { ...order, customer_id: "284619" },
       taskId: "ptask_synthetic_001",
       action: "APPROVE",
-      approveQuantity: 1,
+      approvalMode: "simple",
+      allocationPlan: [],
       comment: "",
       revisionAssetId: ""
     }),
@@ -103,7 +163,8 @@ test("fails closed for stale, non-actionable, or cross-bound proof tasks", () =>
       },
       taskId: "ptask_synthetic_001",
       action: "REJECT",
-      approveQuantity: 1,
+      approvalMode: "simple",
+      allocationPlan: [],
       comment: "",
       revisionAssetId: ""
     }),
@@ -124,10 +185,37 @@ test("fails closed for stale, non-actionable, or cross-bound proof tasks", () =>
       },
       taskId: "ptask_synthetic_001",
       action: "REJECT",
-      approveQuantity: 1,
+      approvalMode: "simple",
+      allocationPlan: [],
       comment: "",
       revisionAssetId: ""
     }),
     /does not match/
   );
+});
+
+test("treats every unavailable post-submit response as uncertain and never invites retry", async () => {
+  const source = await readFile(
+    new URL("../src/ProofOpsPanel.tsx", import.meta.url),
+    "utf8"
+  );
+  assert.match(
+    source,
+    /The Proof execution response is unavailable\. Do not retry\./
+  );
+  assert.match(
+    source,
+    /authoritative Lift reconciliation is incomplete\. Do not retry\./
+  );
+  assert.match(
+    source,
+    /refreshed snapshot is unavailable\. Do not retry\./
+  );
+  assert.match(source, /setActionRequiresFreshSync\(true\)/);
+  assert.match(source, /actionRequiresFreshSync \|\|/);
+  assert.match(
+    source,
+    /A fresh authoritative Lift sync is required before another Proof action can be prepared\./
+  );
+  assert.equal(source.includes("Proof action execution failed."), false);
 });

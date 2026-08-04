@@ -8,7 +8,6 @@ import type {
 } from "@pathfinder/proof-domain";
 import {
   buildLiftProofingApprovalExecutionPlan,
-  LIFT_PROOFING_APPROVAL_QUANTITY,
   LIFT_PROOFING_APPROVAL_REQUIRED_HEADER_NAMES,
   LIFT_PROOFING_APPROVAL_USER_NAME,
   LiftProofingApprovalPlanError
@@ -60,7 +59,6 @@ test("builds a deterministic synthetic approval plan bound to the current attach
   });
 
   assert.deepEqual(baseline, replay);
-  assert.equal(LIFT_PROOFING_APPROVAL_QUANTITY, 1);
   assert.equal(LIFT_PROOFING_APPROVAL_USER_NAME, "VORNAN_PROOF");
   assert.deepEqual(LIFT_PROOFING_APPROVAL_REQUIRED_HEADER_NAMES, [
     "Content-Type",
@@ -80,12 +78,11 @@ test("builds a deterministic synthetic approval plan bound to the current attach
       body: {
         approve: true,
         userName: "VORNAN_PROOF",
-        approveQuantity: 1,
         comment: "Approved after reviewing the current feedback."
       },
       canonical_body_json:
-        "{\"approve\":true,\"approveQuantity\":1,\"comment\":\"Approved after reviewing the current feedback.\",\"userName\":\"VORNAN_PROOF\"}",
-      canonical_body_sha256: "3d1fe0550ef9d8368f58d8c140bc1982280d61c0479a873117efbf656a47e2cf"
+        "{\"approve\":true,\"comment\":\"Approved after reviewing the current feedback.\",\"userName\":\"VORNAN_PROOF\"}",
+      canonical_body_sha256: "20c072670d715a4f95be5ecb935a7c5050faec422e169d9e322ef7cbbbf8df77"
     },
     execution_boundary: {
       jwt_policy: "authoritative_confirmation_required",
@@ -112,12 +109,11 @@ test("omits an absent note and changes the canonical body digest deterministical
 
   assert.deepEqual(withoutComment.request.body, {
     approve: true,
-    userName: "VORNAN_PROOF",
-    approveQuantity: 1
+    userName: "VORNAN_PROOF"
   });
   assert.equal(
     withoutComment.request.canonical_body_json,
-    "{\"approve\":true,\"approveQuantity\":1,\"userName\":\"VORNAN_PROOF\"}"
+    "{\"approve\":true,\"userName\":\"VORNAN_PROOF\"}"
   );
   assert.notEqual(
     withoutComment.request.canonical_body_sha256,

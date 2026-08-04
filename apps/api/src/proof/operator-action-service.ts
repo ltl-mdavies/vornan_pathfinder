@@ -69,6 +69,13 @@ export interface ProofOperatorActionRequest {
   environment_id?: string;
   comment?: string | null;
   revision_asset_id?: string | null;
+  approval_mode?: "simple" | "quantity_allocation" | null;
+  approve_quantity?: number | null;
+  allocation_plan?: Array<{
+    task_id: string;
+    attachment_id: string;
+    approve_quantity: number;
+  }> | null;
 }
 
 export interface ProofOperatorActionDependencies {
@@ -164,6 +171,91 @@ function normalizedRequest(input: ProofOperatorActionRequest) {
       "Revised-art actions require one verified Pathfinder Proof asset."
     );
   }
+  const approvalMode = input.action === "APPROVE"
+    ? input.approval_mode ?? "simple"
+    : null;
+  if (
+    (input.action === "APPROVE" &&
+      approvalMode !== "simple" &&
+      approvalMode !== "quantity_allocation") ||
+    (input.action !== "APPROVE" &&
+      (input.approval_mode != null ||
+        input.approve_quantity != null ||
+        input.allocation_plan != null))
+  ) {
+    throw new ProofOperatorActionError(
+      "invalid",
+      "Approval options are only valid for an approval action."
+    );
+  }
+  let approveQuantity: number | null = null;
+  let allocationPlan: Array<{
+    task_id: string;
+    attachment_id: string;
+    approve_quantity: number;
+  }> | null = null;
+  if (approvalMode === "simple") {
+    if (input.approve_quantity != null || input.allocation_plan != null) {
+      throw new ProofOperatorActionError(
+        "invalid",
+        "Simple approval does not accept a quantity allocation."
+      );
+    }
+  } else if (approvalMode === "quantity_allocation") {
+    if (
+      !Number.isSafeInteger(input.approve_quantity) ||
+      (input.approve_quantity ?? 0) <= 0 ||
+      !Array.isArray(input.allocation_plan) ||
+      input.allocation_plan.length < 2 ||
+      input.allocation_plan.length > 20
+    ) {
+      throw new ProofOperatorActionError(
+        "invalid",
+        "Advanced approval requires a complete positive whole-number allocation."
+      );
+    }
+    const seenTasks = new Set<string>();
+    const seenAttachments = new Set<string>();
+    allocationPlan = input.allocation_plan.map((entry) => {
+      if (
+        !entry ||
+        typeof entry.task_id !== "string" ||
+        !entry.task_id.trim() ||
+        typeof entry.attachment_id !== "string" ||
+        !entry.attachment_id.trim() ||
+        !Number.isSafeInteger(entry.approve_quantity) ||
+        entry.approve_quantity <= 0 ||
+        seenTasks.has(entry.task_id.trim()) ||
+        seenAttachments.has(entry.attachment_id.trim())
+      ) {
+        throw new ProofOperatorActionError(
+          "invalid",
+          "Advanced approval allocation entries are invalid."
+        );
+      }
+      seenTasks.add(entry.task_id.trim());
+      seenAttachments.add(entry.attachment_id.trim());
+      return {
+        task_id: entry.task_id.trim(),
+        attachment_id: entry.attachment_id.trim(),
+        approve_quantity: entry.approve_quantity
+      };
+    }).sort((left, right) =>
+      left.attachment_id.localeCompare(right.attachment_id)
+    );
+    approveQuantity = input.approve_quantity!;
+    const selected = allocationPlan.find(
+      (entry) =>
+        entry.task_id === input.task_id.trim() &&
+        entry.attachment_id === input.attachment_id.trim()
+    );
+    if (!selected || selected.approve_quantity !== approveQuantity) {
+      throw new ProofOperatorActionError(
+        "invalid",
+        "The selected proof quantity must match the complete allocation."
+      );
+    }
+  }
   return {
     order_number: orderNumber,
     task_id: input.task_id.trim(),
@@ -171,7 +263,10 @@ function normalizedRequest(input: ProofOperatorActionRequest) {
     action: input.action,
     idempotency_key: input.idempotency_key,
     comment: boundedText(input.comment, 2_000),
-    revision_asset_id: revisionAssetId
+    revision_asset_id: revisionAssetId,
+    approval_mode: approvalMode,
+    approve_quantity: approveQuantity,
+    allocation_plan: allocationPlan
   };
 }
 
@@ -193,6 +288,126 @@ function currentTask(order: ProofOrder, input: ReturnType<typeof normalizedReque
     );
   }
   return task;
+}
+
+function executionScopeSha256(order: ProofOrder, task: ProofTask) {
+  const currentProofs = (task.order_line_id
+    ? order.tasks.filter(
+        (candidate) =>
+          candidate.order_line_id === task.order_line_id &&
+          candidate.attachment_id &&
+          candidate.current_version?.attachment_id === candidate.attachment_id
+      )
+    : [task]
+  ).sort((left, right) =>
+    (left.attachment_id ?? "").localeCompare(right.attachment_id ?? "")
+  );
+  return sha256(
+    "vornan-proof-execution-scope-v1",
+    order.order_number,
+    task.order_line_id ?? task.task_id,
+    JSON.stringify(currentProofs.map((proof) => ({
+      task_id: proof.task_id,
+      task_version: proof.version,
+      attachment_id: proof.attachment_id,
+      current_version_id: proof.current_version?.version_id ?? null,
+      feedback_fingerprint: proof.current_version?.feedback_fingerprint ?? null,
+      quantity: proof.quantity,
+      state: proof.state
+    })))
+  );
+}
+
+function approvalContext(
+  order: ProofOrder,
+  request: ReturnType<typeof normalizedRequest>,
+  task: ProofTask
+) {
+  if (request.action !== "APPROVE") {
+    return {
+      expected_line_quantity: null,
+      allocation_plan_sha256: null
+    };
+  }
+  if (!Number.isSafeInteger(task.quantity) || (task.quantity ?? 0) <= 0) {
+    throw new ProofOperatorActionError(
+      "stale",
+      "The authoritative Lift line quantity is unavailable for approval."
+    );
+  }
+  const lineQuantity = task.quantity!;
+  if (request.approval_mode === "simple") {
+    return {
+      expected_line_quantity: lineQuantity,
+      allocation_plan_sha256: null
+    };
+  }
+  if (!task.order_line_id || !request.allocation_plan) {
+    throw new ProofOperatorActionError(
+      "invalid",
+      "Advanced approval requires a current Lift line and complete allocation."
+    );
+  }
+  const currentProofs = order.tasks
+    .filter(
+      (candidate) =>
+        candidate.order_line_id === task.order_line_id &&
+        candidate.actionable &&
+        candidate.attachment_id &&
+        candidate.current_version?.attachment_id === candidate.attachment_id
+    )
+    .sort((left, right) =>
+      (left.attachment_id ?? "").localeCompare(right.attachment_id ?? "")
+    );
+  if (
+    currentProofs.length < 2 ||
+    currentProofs.some((candidate) => candidate.quantity !== lineQuantity) ||
+    currentProofs.length !== request.allocation_plan.length
+  ) {
+    throw new ProofOperatorActionError(
+      "stale",
+      "Advanced approval requires multiple current proofs on one unchanged Lift line."
+    );
+  }
+  for (let index = 0; index < currentProofs.length; index += 1) {
+    const proof = currentProofs[index]!;
+    const allocation = request.allocation_plan[index]!;
+    if (
+      proof.task_id !== allocation.task_id ||
+      proof.attachment_id !== allocation.attachment_id
+    ) {
+      throw new ProofOperatorActionError(
+        "stale",
+        "The advanced approval allocation no longer matches the current proofs."
+      );
+    }
+  }
+  const allocated = request.allocation_plan.reduce(
+    (total, entry) => total + entry.approve_quantity,
+    0
+  );
+  if (allocated !== lineQuantity) {
+    throw new ProofOperatorActionError(
+      "invalid",
+      "Advanced approval must allocate the full current line quantity with no remainder."
+    );
+  }
+  return {
+    expected_line_quantity: lineQuantity,
+    allocation_plan_sha256: sha256(
+      "vornan-proof-allocation-v1",
+      task.order_line_id,
+      String(lineQuantity),
+      JSON.stringify(currentProofs.map((proof, index) => ({
+        task_id: proof.task_id,
+        task_version: proof.version,
+        attachment_id: proof.attachment_id,
+        current_version_id: proof.current_version!.version_id,
+        feedback_fingerprint: proof.current_version!.feedback_fingerprint,
+        approve_quantity: request.allocation_plan![index]!.approve_quantity
+      })))
+    )
+  };
 }
 
 function targetEnvironment(targets: TargetConfig[]) {
@@ -226,7 +441,8 @@ function buildPlan(
       company_id: COMPANY_ID,
       proofing_id: input.attachment_id,
       comment: input.comment,
-      revised_art_url: revisionAsset?.delivery_url ?? null
+      revised_art_url: revisionAsset?.delivery_url ?? null,
+      approve_quantity: input.approve_quantity
     });
   } catch (error) {
     throw new ProofOperatorActionError(
@@ -241,6 +457,8 @@ function recordHash(input: {
   task: ProofTask;
   plan: LiftProofingRuntimePlan;
   revisionAsset: ResolvedRevisionAsset | null;
+  approval: ReturnType<typeof approvalContext>;
+  executionScopeSha256: string;
 }) {
   return sha256(
     "vornan-proof-operator-action-v1",
@@ -255,6 +473,15 @@ function recordHash(input: {
     TARGET_ID,
     ENVIRONMENT_ID,
     input.plan.canonical_body_sha256,
+    input.executionScopeSha256,
+    input.request.approval_mode,
+    input.request.approve_quantity === null
+      ? null
+      : String(input.request.approve_quantity),
+    input.approval.expected_line_quantity === null
+      ? null
+      : String(input.approval.expected_line_quantity),
+    input.approval.allocation_plan_sha256,
     input.revisionAsset?.asset_id ?? null,
     input.revisionAsset?.publication_id ?? null,
     input.revisionAsset?.revision_id ?? null,
@@ -428,6 +655,15 @@ export function createProofOperatorActionService(
       const actorId = requireOperator(input.operator_uid);
       const gate = requireGate(currentTime, runtimeConfig());
       const request = normalizedRequest(input.request);
+      if (
+        request.approval_mode === "quantity_allocation" &&
+        !gate.advanced_quantity_allocation_enabled
+      ) {
+        throw new ProofOperatorActionError(
+          "not_allowed",
+          "Advanced Proof quantity allocation is not enabled for this QA window."
+        );
+      }
       if (!gate.allowed_order_numbers.includes(request.order_number)) {
         throw new ProofOperatorActionError(
           "not_allowed",
@@ -445,6 +681,8 @@ export function createProofOperatorActionService(
         }
       });
       const task = currentTask(order, request);
+      const executionScope = executionScopeSha256(order, task);
+      const approval = approvalContext(order, request, task);
       const revisionAsset = await readyRevisionAsset({
         request,
         task,
@@ -453,7 +691,14 @@ export function createProofOperatorActionService(
       });
       const plan = buildPlan(request, revisionAsset);
       const occurredAt = currentTime.toISOString();
-      const canonicalHash = recordHash({ request, task, plan, revisionAsset });
+      const canonicalHash = recordHash({
+        request,
+        task,
+        plan,
+        revisionAsset,
+        approval,
+        executionScopeSha256: executionScope
+      });
       const preparedAuditEventId = `paudit_operator-${sha256(
         "vornan-proof-operator-action-audit-v1",
         request.order_number,
@@ -472,6 +717,11 @@ export function createProofOperatorActionService(
         expected_task_version: task.version,
         expected_version_id: task.current_version!.version_id,
         feedback_fingerprint: task.current_version!.feedback_fingerprint,
+        execution_scope_sha256: executionScope,
+        approval_mode: request.approval_mode,
+        approve_quantity: request.approve_quantity,
+        expected_line_quantity: approval.expected_line_quantity,
+        allocation_plan_sha256: approval.allocation_plan_sha256,
         target_id: TARGET_ID,
         environment_id: ENVIRONMENT_ID,
         note_sha256: request.comment ? sha256(request.comment) : null,
@@ -533,6 +783,15 @@ export function createProofOperatorActionService(
       const actorId = requireOperator(input.operator_uid);
       const gate = requireGate(currentTime, runtimeConfig());
       const request = normalizedRequest(input.request);
+      if (
+        request.approval_mode === "quantity_allocation" &&
+        !gate.advanced_quantity_allocation_enabled
+      ) {
+        throw new ProofOperatorActionError(
+          "not_allowed",
+          "Advanced Proof quantity allocation is not enabled for this QA window."
+        );
+      }
       if (!gate.allowed_order_numbers.includes(request.order_number)) {
         throw new ProofOperatorActionError("not_allowed", "Proof order is not allowlisted.");
       }
@@ -567,6 +826,8 @@ export function createProofOperatorActionService(
         }
       });
       const task = currentTask(order, request);
+      const executionScope = executionScopeSha256(order, task);
+      const approval = approvalContext(order, request, task);
       const revisionAsset = await readyRevisionAsset({
         request,
         task,
@@ -576,11 +837,23 @@ export function createProofOperatorActionService(
       const plan = buildPlan(request, revisionAsset);
       if (
         existing.canonical_body_hash !==
-          recordHash({ request, task, plan, revisionAsset }) ||
+          recordHash({
+            request,
+            task,
+            plan,
+            revisionAsset,
+            approval,
+            executionScopeSha256: executionScope
+          }) ||
         existing.request_body_sha256 !== plan.canonical_body_sha256 ||
         existing.expected_task_version !== task.version ||
         existing.expected_version_id !== task.current_version!.version_id ||
         existing.feedback_fingerprint !== task.current_version!.feedback_fingerprint ||
+        existing.execution_scope_sha256 !== executionScope ||
+        existing.approval_mode !== request.approval_mode ||
+        existing.approve_quantity !== request.approve_quantity ||
+        existing.expected_line_quantity !== approval.expected_line_quantity ||
+        existing.allocation_plan_sha256 !== approval.allocation_plan_sha256 ||
         existing.revision_asset_id !== (revisionAsset?.asset_id ?? null) ||
         existing.revision_publication_id !==
           (revisionAsset?.publication_id ?? null) ||

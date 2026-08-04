@@ -54,7 +54,7 @@ const order: ProofOrder = {
       approved_at: null,
       comments: [],
       detailed_report: null,
-      feedback_fingerprint: "feedback-synthetic-001",
+  feedback_fingerprint: "feedback-synthetic-001",
       current: true,
       archived_at: null
     },
@@ -81,13 +81,17 @@ const targets = [{
   }]
 }] as TargetConfig[];
 
-function runtimeConfig(enabled = true): ProofOperatorActionQaConfig {
+function runtimeConfig(
+  enabled = true,
+  advancedQuantityAllocationEnabled = false
+): ProofOperatorActionQaConfig {
   return {
     enabled,
     allowed_customer_id: "1249",
     allowed_company_id: "91",
     allowed_order_numbers: ["A0226753"],
     jwt_ttl_seconds: 60,
+    advanced_quantity_allocation_enabled: advancedQuantityAllocationEnabled,
     activation_expires_at: "2026-07-27T13:00:00.000Z"
   };
 }
@@ -236,10 +240,159 @@ test("prepares only a sanitized atomic intent and does not read credentials or s
   assert.equal(prepared.operator_action.action_id.includes(request.idempotency_key), false);
   assert.equal(credentialReads, 0);
   assert.equal(sends, 0);
+  assert.equal(reserved?.approval_mode, "simple");
+  assert.equal(reserved?.approve_quantity, null);
+  assert.equal(reserved?.expected_line_quantity, 4);
+  assert.equal(reserved?.allocation_plan_sha256, null);
   const serialized = JSON.stringify(reserved);
   assert.equal(serialized.includes(request.comment), false);
   assert.equal(serialized.includes("client"), false);
   assert.equal(serialized.includes("Bearer"), false);
+});
+
+test("binds a complete same-line allocation and rejects quantity drift before credentials", async () => {
+  const secondTask = {
+    ...order.tasks[0],
+    task_id: "ptask_synthetic_002",
+    attachment_id: "proofing-synthetic-0002",
+    sibling_index: 1,
+    sibling_count: 2,
+    current_version: {
+      ...order.tasks[0].current_version!,
+      version_id: "pversion-synthetic-002",
+      attachment_id: "proofing-synthetic-0002",
+      filename: "synthetic-proof-b.pdf"
+    }
+  };
+  const firstTask = { ...order.tasks[0], sibling_count: 2 };
+  const multiProofOrder = { ...order, tasks: [firstTask, secondTask] };
+  const advancedRequest = {
+    ...request,
+    idempotency_key: "operator-action-allocation-0001",
+    approval_mode: "quantity_allocation" as const,
+    approve_quantity: 3,
+    allocation_plan: [
+      {
+        task_id: firstTask.task_id,
+        attachment_id: firstTask.attachment_id!,
+        approve_quantity: 3
+      },
+      {
+        task_id: secondTask.task_id,
+        attachment_id: secondTask.attachment_id!,
+        approve_quantity: 1
+      }
+    ]
+  };
+  let darkGateSyncs = 0;
+  const darkGate = createProofOperatorActionService({
+    runtimeConfig: () => runtimeConfig(true, false),
+    now: () => now,
+    listTargetConfigs: async () => targets,
+    syncOrder: async () => {
+      darkGateSyncs += 1;
+      return { order: multiProofOrder, diagnostics: null } as never;
+    }
+  });
+  await assert.rejects(
+    () => darkGate.prepare({
+      request: advancedRequest,
+      operator_uid: "operator-synthetic",
+      correlation_id: "correlation-synthetic"
+    }),
+    (error: unknown) =>
+      error instanceof ProofOperatorActionError && error.code === "not_allowed"
+  );
+  assert.equal(darkGateSyncs, 0);
+
+  let reserved: ProofOperatorActionRecord | null = null;
+  const preparation = createProofOperatorActionService({
+    runtimeConfig: () => runtimeConfig(true, true),
+    now: () => now,
+    listTargetConfigs: async () => targets,
+    syncOrder: async () => ({ order: multiProofOrder, diagnostics: null }) as never,
+    reserve: async (record) => {
+      reserved = record;
+      return { status: "new" as const, record };
+    }
+  });
+  await preparation.prepare({
+    request: advancedRequest,
+    operator_uid: "operator-synthetic",
+    correlation_id: "correlation-synthetic"
+  });
+  assert.equal(reserved?.approval_mode, "quantity_allocation");
+  assert.equal(reserved?.approve_quantity, 3);
+  assert.equal(reserved?.expected_line_quantity, 4);
+  assert.match(reserved?.allocation_plan_sha256 ?? "", /^[a-f0-9]{64}$/);
+
+  let credentialReads = 0;
+  const siblingVersionDrift = {
+    ...multiProofOrder,
+    tasks: multiProofOrder.tasks.map((task) =>
+      task.task_id === secondTask.task_id
+        ? {
+            ...task,
+            version: task.version + 1,
+            current_version: {
+              ...task.current_version!,
+              version_id: "pversion-synthetic-002-replaced",
+              feedback_fingerprint: "feedback-synthetic-002-replaced"
+            }
+          }
+        : task
+    )
+  };
+  const siblingDriftExecution = createProofOperatorActionService({
+    runtimeConfig: () => runtimeConfig(true, true),
+    now: () => now,
+    listTargetConfigs: async () => targets,
+    getRecord: async () => reserved,
+    syncOrder: async () => ({ order: siblingVersionDrift, diagnostics: null }) as never,
+    readCredentials: async () => {
+      credentialReads += 1;
+      throw new Error("must not run");
+    }
+  });
+  await assert.rejects(
+    () => siblingDriftExecution.execute({
+      request: advancedRequest,
+      confirmation_phrase: "CONFIRM APPROVE A0226753 proofing-synthetic-0001",
+      operator_uid: "operator-synthetic",
+      correlation_id: "correlation-synthetic"
+    }),
+    (error: unknown) =>
+      error instanceof ProofOperatorActionError && error.code === "stale"
+  );
+  assert.equal(credentialReads, 0);
+
+  const driftedOrder = {
+    ...multiProofOrder,
+    tasks: multiProofOrder.tasks.map((task) => ({ ...task, quantity: 5 }))
+  };
+  const execution = createProofOperatorActionService({
+    runtimeConfig: () => runtimeConfig(true, true),
+    now: () => now,
+    listTargetConfigs: async () => targets,
+    getRecord: async () => reserved,
+    syncOrder: async () => ({ order: driftedOrder, diagnostics: null }) as never,
+    readCredentials: async () => {
+      credentialReads += 1;
+      throw new Error("must not run");
+    }
+  });
+  await assert.rejects(
+    () => execution.execute({
+      request: advancedRequest,
+      confirmation_phrase: "CONFIRM APPROVE A0226753 proofing-synthetic-0001",
+      operator_uid: "operator-synthetic",
+      correlation_id: "correlation-synthetic"
+    }),
+    (error: unknown) =>
+      error instanceof ProofOperatorActionError &&
+      (error.code === "invalid" || error.code === "stale")
+  );
+  assert.equal(credentialReads, 0);
 });
 
 test("fails revised art closed without a verified Proof upload and binds only the opaque asset when ready", async () => {
@@ -425,6 +578,7 @@ test("persists submission_uncertain before one PUT and immediately reconciles wi
 
   let syncCount = 0;
   let sendCount = 0;
+  let sentBody: unknown = null;
   const execution = createProofOperatorActionService({
     runtimeConfig: () => runtimeConfig(),
     now: () => now,
@@ -447,8 +601,9 @@ test("persists submission_uncertain before one PUT and immediately reconciles wi
       currentRecord = next;
       return next;
     },
-    send: async () => {
+    send: async ({ plan }) => {
       sendCount += 1;
+      sentBody = plan.body;
       lifecycle.push("put");
       return {
         status: 202,
@@ -478,6 +633,11 @@ test("persists submission_uncertain before one PUT and immediately reconciles wi
     "persist-reconciling"
   ]);
   assert.equal(sendCount, 1);
+  assert.deepEqual(sentBody, {
+    approve: true,
+    comment: "Synthetic supervised approval",
+    userName: "VORNAN_PROOF"
+  });
   assert.equal(result.observation.confirmed, false);
   assert.equal(result.observation.automatic_retry, false);
   assert.equal(result.authoritative_reconciliation.requires_manual_review, true);

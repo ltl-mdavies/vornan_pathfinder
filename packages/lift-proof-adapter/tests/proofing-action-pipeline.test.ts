@@ -34,9 +34,9 @@ const EXPECTED_CANONICAL_HASHES: Record<
 > = {
   APPROVE: {
     intent: "c59bb54cfad8ce3f226757d04123352bdf715d5df6348436d33899a828e7ce34",
-    request: "b43102ebf21a8c7e0ab0043bc72f8d235e2ddaca49f362c8057432e7fe380ce9",
+    request: "79454af891f91f3338f33ad7aab2957596be3e1a3107bf6c323f43dfa7df5faf",
     body:
-      "{\"approve\":true,\"approveQuantity\":1,\"comment\":\"Reviewed the current proof and feedback.\",\"userName\":\"VORNAN_PROOF\"}"
+      "{\"approve\":true,\"comment\":\"Reviewed the current proof and feedback.\",\"userName\":\"VORNAN_PROOF\"}"
   },
   REJECT: {
     intent: "b12bf09f9016b6ceb7c8ac5a332865dce39a1bd3469e1142239441b634ce89b3",
@@ -209,7 +209,6 @@ test("builds deterministic plans for approval and every documented rejection rea
   assert.deepEqual(plans.APPROVE.request.body, {
     approve: true,
     userName: "VORNAN_PROOF",
-    approveQuantity: 1,
     comment: "Reviewed the current proof and feedback."
   });
   for (const action of ["REJECT", "SEND_BACK_TO_ARTIST", "CANCEL_LINE"] as const) {

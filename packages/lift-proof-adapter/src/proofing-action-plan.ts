@@ -17,7 +17,6 @@ export const LIFT_PROOFING_ACTIONS = [
 export type LiftProofingAction = (typeof LIFT_PROOFING_ACTIONS)[number];
 
 export const LIFT_PROOFING_ACTION_USER_NAME = "VORNAN_PROOF" as const;
-export const LIFT_PROOFING_ACTION_APPROVE_QUANTITY = 1 as const;
 export const LIFT_PROOFING_ACTION_REQUIRED_HEADER_NAMES = Object.freeze([
   "Content-Type",
   "Authorization",
@@ -310,7 +309,6 @@ function actionBody(intent: LiftProofingPreparedActionIntent): LiftProofingDecis
   if (intent.action === "APPROVE") {
     return {
       approve: true,
-      approveQuantity: LIFT_PROOFING_ACTION_APPROVE_QUANTITY,
       ...common
     };
   }

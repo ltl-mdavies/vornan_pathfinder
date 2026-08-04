@@ -15,6 +15,7 @@ type DynamoCommand = GetItemCommand | TransactWriteItemsCommand;
 const commands: DynamoCommand[] = [];
 let storedCore: Record<string, AttributeValue> | undefined;
 let storedAudit: Record<string, AttributeValue> | undefined;
+const claimedExecutionScopes = new Set<string>();
 const clientPrototype = DynamoDBClient.prototype as unknown as {
   send(command: DynamoCommand): Promise<unknown>;
 };
@@ -35,6 +36,11 @@ const record: ProofOperatorActionRecord = {
   expected_task_version: 7,
   expected_version_id: "pversion-dynamo-001",
   feedback_fingerprint: "feedback-dynamo-001",
+  execution_scope_sha256: "f".repeat(64),
+  approval_mode: "simple",
+  approve_quantity: null,
+  expected_line_quantity: 4,
+  allocation_plan_sha256: null,
   target_id: "lift-standard-graphics",
   environment_id: "env-lift-prod",
   note_sha256: null,
@@ -105,7 +111,14 @@ before(async () => {
       };
     }
     const items = command.input.TransactItems ?? [];
-    assert.equal(items.length, 2);
+    assert.ok(items.length === 2 || items.length === 3);
+    const scopeKey = items[2]?.Put?.Item?.sk?.S;
+    if (scopeKey) {
+      if (claimedExecutionScopes.has(scopeKey)) {
+        throw new Error("conditional execution scope conflict");
+      }
+      claimedExecutionScopes.add(scopeKey);
+    }
     storedCore = items[0]?.Put?.Item;
     storedAudit = items[1]?.Put?.Item;
     return {};
@@ -120,6 +133,7 @@ beforeEach(() => {
   commands.length = 0;
   storedCore = undefined;
   storedAudit = undefined;
+  claimedExecutionScopes.clear();
 });
 
 after(() => {
@@ -187,6 +201,18 @@ test("conditionally persists submission_uncertain before transport and keeps the
   assert.equal(core?.ExpressionAttributeValues?.[":version"]?.N, "1");
   assert.equal(core?.Item?.ttl_epoch?.N, String(record.expires_at_epoch));
   assert.equal(transaction.TransactItems?.[1]?.Put?.TableName, "Pathfinder-ProofAudit-operator-contract");
+  const scope = transaction.TransactItems?.[2]?.Put;
+  assert.equal(scope?.TableName, "Pathfinder-ProofCore-operator-contract");
+  assert.equal(scope?.Item?.pk?.S, "ORDER#A0226753");
+  assert.equal(
+    scope?.Item?.sk?.S,
+    `OPERATOR_ACTION_SCOPE#${record.execution_scope_sha256}`
+  );
+  assert.equal(
+    scope?.ConditionExpression,
+    "attribute_not_exists(pk) AND attribute_not_exists(sk)"
+  );
+  assert.equal(scope?.Item?.ttl_epoch?.N, String(record.expires_at_epoch));
 });
 
 test("fails closed when a durable core record has no paired prepared audit", async () => {
@@ -198,5 +224,66 @@ test("fails closed when a durable core record has no paired prepared audit", asy
   await assert.rejects(
     () => getRecord(record.order_number, record.idempotency_key),
     /prepared audit is invalid/
+  );
+});
+
+test("allows only one prepared action to claim the same authoritative execution scope", async () => {
+  await reserve(
+    record,
+    audit("proof.operator_action_prepared", record.prepared_audit_event_id)
+  );
+  const firstPreparedCore = storedCore;
+  const firstPreparedAudit = storedAudit;
+
+  const second: ProofOperatorActionRecord = {
+    ...record,
+    idempotency_key: "operator-action-dynamo-0002",
+    canonical_body_hash: "9".repeat(64),
+    prepared_audit_event_id: `paudit_operator-${"8".repeat(64)}`
+  };
+  await reserve(
+    second,
+    audit("proof.operator_action_prepared", second.prepared_audit_event_id)
+  );
+  const secondPreparedCore = storedCore;
+  const secondPreparedAudit = storedAudit;
+
+  storedCore = firstPreparedCore;
+  storedAudit = firstPreparedAudit;
+  await transition(
+    record,
+    {
+      ...record,
+      outcome: "submission_uncertain",
+      record_version: 2,
+      updated_at: "2026-07-27T12:01:00.000Z",
+      attempt_id: `paction_${"7".repeat(64)}`
+    },
+    audit(
+      "proof.operator_action_submission_started",
+      `paudit_operator-${"6".repeat(64)}`,
+      "submission_uncertain"
+    )
+  );
+
+  storedCore = secondPreparedCore;
+  storedAudit = secondPreparedAudit;
+  await assert.rejects(
+    () => transition(
+      second,
+      {
+        ...second,
+        outcome: "submission_uncertain",
+        record_version: 2,
+        updated_at: "2026-07-27T12:01:01.000Z",
+        attempt_id: `paction_${"5".repeat(64)}`
+      },
+      audit(
+        "proof.operator_action_submission_started",
+        `paudit_operator-${"4".repeat(64)}`,
+        "submission_uncertain"
+      )
+    ),
+    /transition was not durably confirmed/
   );
 });
