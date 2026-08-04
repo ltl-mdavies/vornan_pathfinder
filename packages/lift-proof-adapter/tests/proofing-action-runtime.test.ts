@@ -8,9 +8,9 @@ import {
 
 const syntheticSecret = "synthetic-signing-material-".repeat(2);
 
-test("builds the five exact runtime action bodies and pins approval quantity to one", () => {
+test("builds the five exact runtime action bodies and omits quantity for simple approval", () => {
   const cases = [
-    ["APPROVE", { approve: true, approveQuantity: 1, userName: "VORNAN_PROOF" }],
+    ["APPROVE", { approve: true, userName: "VORNAN_PROOF" }],
     ["REJECT", { approve: false, rejectReason: "REJECT", userName: "VORNAN_PROOF" }],
     [
       "SEND_BACK_TO_ARTIST",
@@ -48,6 +48,34 @@ test("builds the five exact runtime action bodies and pins approval quantity to 
     assert.match(plan.path, /91/);
     assert.match(plan.path, /proofing-synthetic-0001/);
   }
+});
+
+test("adds an explicit positive quantity only for an advanced approval allocation", () => {
+  const plan = buildLiftProofingRuntimePlan({
+    action: "APPROVE",
+    company_id: "91",
+    proofing_id: "proofing-synthetic-0001",
+    comment: "Synthetic allocation",
+    revised_art_url: null,
+    approve_quantity: 12
+  });
+  assert.deepEqual(plan.body, {
+    approve: true,
+    approveQuantity: 12,
+    comment: "Synthetic allocation",
+    userName: "VORNAN_PROOF"
+  });
+  assert.throws(
+    () => buildLiftProofingRuntimePlan({
+      action: "APPROVE",
+      company_id: "91",
+      proofing_id: "proofing-synthetic-0001",
+      comment: null,
+      revised_art_url: null,
+      approve_quantity: 0
+    }),
+    /positive whole number/
+  );
 });
 
 test("uses only injected credentials to create the server-only JWT header envelope", () => {

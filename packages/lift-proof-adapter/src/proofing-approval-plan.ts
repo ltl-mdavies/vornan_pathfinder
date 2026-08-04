@@ -9,7 +9,6 @@ import {
 } from "./proofing-decision-contract.js";
 
 export const LIFT_PROOFING_APPROVAL_USER_NAME = "VORNAN_PROOF" as const;
-export const LIFT_PROOFING_APPROVAL_QUANTITY = 1 as const;
 export const LIFT_PROOFING_APPROVAL_REQUIRED_HEADER_NAMES = Object.freeze([
   "Content-Type",
   "Authorization",
@@ -172,7 +171,6 @@ export function buildLiftProofingApprovalExecutionPlan(input: {
     proofing_id: input.prepared.intent.attachment_id,
     body: {
       approve: true,
-      approveQuantity: LIFT_PROOFING_APPROVAL_QUANTITY,
       userName: LIFT_PROOFING_APPROVAL_USER_NAME,
       ...(input.prepared.intent.note === null ? {} : { comment: input.prepared.intent.note })
     }

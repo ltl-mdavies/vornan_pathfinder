@@ -171,7 +171,7 @@ test("builds a pinned deterministic sanitized approval attempt", () => {
   assert.deepEqual(baseline, replay);
   assert.equal(
     baseline.attempt_id,
-    "pattempt_77192b267105bd8e770ad0712136513b9053ea4f3dfee1a8a0a90c41440372b0"
+    "pattempt_4d61ac2c8bffa18b8ecfa8a80bb556fa379a7e31d9c9d1551254c2e917c3b02f"
   );
   assert.deepEqual(baseline.ledger_directive, {
     expected_outcome: "prepared",

@@ -5,6 +5,7 @@ export interface ProofOperatorActionQaConfig {
   allowed_order_numbers: string[];
   jwt_ttl_seconds: 60;
   activation_expires_at: string | null;
+  advanced_quantity_allocation_enabled: boolean;
 }
 
 function orderNumbers(value: string | undefined) {
@@ -30,6 +31,8 @@ export function getProofOperatorActionQaConfig(): ProofOperatorActionQaConfig {
       process.env.PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS
     ),
     jwt_ttl_seconds: 60,
+    advanced_quantity_allocation_enabled:
+      process.env.PATHFINDER_ENABLE_PROOF_ADVANCED_ALLOCATION_QA === "true",
     activation_expires_at: optionalTimestamp(
       process.env.PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT
     )

@@ -44,6 +44,7 @@ export interface ProofIntegrationHealth {
     allowed_order_numbers: string[];
     activation_expires_at: string | null;
     jwt_ttl_seconds: number;
+    advanced_quantity_allocation_enabled: boolean;
     target_id: "lift-standard-graphics";
     environment_id: "env-lift-prod";
     automatic_retry: false;

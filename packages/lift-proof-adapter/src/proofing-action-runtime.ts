@@ -9,7 +9,6 @@ import {
   type LiftProofingDecisionResponseClassification
 } from "./proofing-decision-contract.js";
 import {
-  LIFT_PROOFING_ACTION_APPROVE_QUANTITY,
   LIFT_PROOFING_ACTION_USER_NAME,
   type LiftProofingAction
 } from "./proofing-action-plan.js";
@@ -22,6 +21,7 @@ export interface LiftProofingRuntimeRequest {
   proofing_id: string;
   comment: string | null;
   revised_art_url: string | null;
+  approve_quantity?: number | null;
 }
 
 export interface LiftProofingRuntimePlan {
@@ -64,6 +64,24 @@ function boundedComment(value: string | null) {
     throw new LiftProofingActionRuntimeError("Lift Proofing action comment is invalid.");
   }
   return normalized || null;
+}
+
+function approveQuantity(action: LiftProofingAction, value: number | null) {
+  if (action !== "APPROVE") {
+    if (value !== null) {
+      throw new LiftProofingActionRuntimeError(
+        "Approval quantity is only valid for an approval action."
+      );
+    }
+    return null;
+  }
+  if (value === null) return null;
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new LiftProofingActionRuntimeError(
+      "Lift Proofing approval quantity must be a positive whole number."
+    );
+  }
+  return value;
 }
 
 function safeHttpsUrl(value: string | null) {
@@ -109,6 +127,10 @@ export function buildLiftProofingRuntimePlan(
   const companyId = boundedIdentifier(input.company_id, "Lift company ID");
   const proofingId = boundedIdentifier(input.proofing_id, "Lift proofing ID");
   const comment = boundedComment(input.comment);
+  const requestedApproveQuantity = approveQuantity(
+    input.action,
+    input.approve_quantity ?? null
+  );
   const common = {
     userName: LIFT_PROOFING_ACTION_USER_NAME,
     ...(comment ? { comment } : {})
@@ -117,7 +139,9 @@ export function buildLiftProofingRuntimePlan(
     input.action === "APPROVE"
       ? {
           approve: true,
-          approveQuantity: LIFT_PROOFING_ACTION_APPROVE_QUANTITY,
+          ...(requestedApproveQuantity === null
+            ? {}
+            : { approveQuantity: requestedApproveQuantity }),
           ...common
         }
       : input.action === "REVISED_ART_WILL_BE_SENT"

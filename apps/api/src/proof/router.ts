@@ -149,6 +149,8 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         allowed_order_numbers: operatorActionQa.allowed_order_numbers,
         activation_expires_at: operatorActionQa.activation_expires_at,
         jwt_ttl_seconds: operatorActionQa.jwt_ttl_seconds,
+        advanced_quantity_allocation_enabled:
+          operatorActionQa.advanced_quantity_allocation_enabled,
         target_id: "lift-standard-graphics",
         environment_id: "env-lift-prod",
         automatic_retry: false

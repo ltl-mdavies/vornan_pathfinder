@@ -135,6 +135,7 @@ function currentProofManifest(order: ReturnType<typeof normalizeProofOrder>) {
         order_line_id: task.order_line_id,
         line_number: task.line_number,
         attachment_id: task.attachment_id,
+        quantity: task.quantity,
         state: task.state,
         actionable: task.actionable,
         current_version: task.current_version
