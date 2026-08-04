@@ -7,6 +7,7 @@ import {
   normalizeLiftOrderNumber,
   normalizeProofOrder,
   liftOrderCustomerId,
+  liftRows,
   proofReviewLifecycleState,
   proofReviewLifecycleTransitions,
   publicProofCounts,
@@ -47,6 +48,120 @@ export class ProofSyncCohortDeniedError extends Error {
   }
 }
 
+export class ProofSyncIncompleteError extends Error {
+  constructor() {
+    super("Proof synchronization did not read every expected Lift order line.");
+    this.name = "ProofSyncIncompleteError";
+  }
+}
+
+export class ProofSyncUnstableError extends Error {
+  constructor() {
+    super("Proof synchronization observed a changing current-proof manifest.");
+    this.name = "ProofSyncUnstableError";
+  }
+}
+
+export class ProofSyncOrderMismatchError extends Error {
+  constructor() {
+    super("Lift returned a different order than the requested Proof order.");
+    this.name = "ProofSyncOrderMismatchError";
+  }
+}
+
+function assertCompleteProofRead(diagnostics: LiftProofReadDiagnostics) {
+  if (diagnostics.line_reads.some((read) => !read.ok)) {
+    throw new ProofSyncIncompleteError();
+  }
+}
+
+function stableAssetIdentity(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return `${url.protocol}//${url.host}${url.pathname}`;
+  } catch {
+    return value.split(/[?#]/, 1)[0] ?? value;
+  }
+}
+
+function stableManifestValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try {
+        return stableManifestValue(JSON.parse(trimmed));
+      } catch {
+        // Preserve malformed or ordinary text exactly so any change still fails closed.
+      }
+    }
+    return /^https?:\/\//i.test(value) ? stableAssetIdentity(value) : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(stableManifestValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, nested]) => [key, stableManifestValue(nested)])
+    );
+  }
+  return value;
+}
+
+function assertRequestedLiftOrder(payload: unknown, expectedOrderNumber: string) {
+  const header = liftRows(payload)[0];
+  const rawOrderNumber = header?.ORDER_NUMBER ?? header?.order_number ?? header?.ORDER_REF ?? header?.order_ref;
+  if (rawOrderNumber == null || normalizeLiftOrderNumber(String(rawOrderNumber)) !== expectedOrderNumber) {
+    throw new ProofSyncOrderMismatchError();
+  }
+}
+
+function currentProofManifest(order: ReturnType<typeof normalizeProofOrder>) {
+  return JSON.stringify({
+    customer_id: order.customer_id ?? null,
+    lines: order.lines
+      .map((line) => ({
+        order_line_id: line.order_line_id,
+        line_number: line.line_number,
+        step_number: line.step_number,
+        status: line.status,
+        cancelled: line.cancelled
+      }))
+      .sort((left, right) => left.order_line_id.localeCompare(right.order_line_id)),
+    tasks: order.tasks
+      .map((task) => ({
+        order_line_id: task.order_line_id,
+        line_number: task.line_number,
+        attachment_id: task.attachment_id,
+        state: task.state,
+        actionable: task.actionable,
+        current_version: task.current_version
+          ? {
+              attachment_id: task.current_version.attachment_id,
+              created_at: task.current_version.created_at,
+              filename: task.current_version.filename,
+              content_type: task.current_version.content_type ?? null,
+              preview_asset: stableAssetIdentity(task.current_version.preview_url),
+              download_asset: stableAssetIdentity(task.current_version.download_url),
+              approval_status: task.current_version.approval_status,
+              approved_by: task.current_version.approved_by,
+              approved_at: task.current_version.approved_at,
+              comments: stableManifestValue(task.current_version.comments),
+              detailed_report: stableManifestValue(task.current_version.detailed_report),
+              current: task.current_version.current,
+              archived_at: task.current_version.archived_at
+            }
+          : null
+      }))
+      .sort((left, right) =>
+        `${left.order_line_id ?? ""}:${left.attachment_id ?? ""}`
+          .localeCompare(`${right.order_line_id ?? ""}:${right.attachment_id ?? ""}`)
+      )
+  });
+}
+
 export async function syncProofOrder(
   rawOrderNumber: string,
   options: {
@@ -60,19 +175,30 @@ export async function syncProofOrder(
   try {
     const previous = await getProofOrder(orderNumber);
     const config = getProofRuntimeConfig();
-    const snapshot = await readLiftProofOrder(orderNumber, {
+    const readSnapshot = () => readLiftProofOrder(orderNumber, {
       config: config.read,
       fetcher: options.fetcher,
       fetched_at: options.synced_at,
-      validateOrderPayload: options.allowed_customer_ids
-        ? (payload) => {
+      validateOrderPayload: (payload) => {
+            assertRequestedLiftOrder(payload, orderNumber);
+            if (!options.allowed_customer_ids) return;
             const customerId = liftOrderCustomerId(payload);
             if (!customerId || !options.allowed_customer_ids?.includes(customerId)) {
               throw new ProofSyncCohortDeniedError();
             }
           }
-        : undefined
     });
+    const firstSnapshot = await readSnapshot();
+    assertCompleteProofRead(firstSnapshot.diagnostics);
+    const firstNormalizedOrder = normalizeProofOrder({
+      order_number: orderNumber,
+      order_payload: firstSnapshot.order_payload,
+      proof_payloads: firstSnapshot.proof_payloads,
+      previous,
+      synced_at: firstSnapshot.fetched_at
+    });
+    const snapshot = await readSnapshot();
+    assertCompleteProofRead(snapshot.diagnostics);
     const normalizedOrder = normalizeProofOrder({
       order_number: orderNumber,
       order_payload: snapshot.order_payload,
@@ -80,6 +206,9 @@ export async function syncProofOrder(
       previous,
       synced_at: snapshot.fetched_at
     });
+    if (currentProofManifest(firstNormalizedOrder) !== currentProofManifest(normalizedOrder)) {
+      throw new ProofSyncUnstableError();
+    }
     const order = {
       ...normalizedOrder,
       last_sync_diagnostics: summarizeProofSyncDiagnostics(

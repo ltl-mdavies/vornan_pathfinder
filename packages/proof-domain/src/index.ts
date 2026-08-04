@@ -1191,7 +1191,11 @@ function publicCommentAttachments(attachment: unknown): PublicProofCommentAttach
   ) === index).slice(0, 20);
 }
 
-export function toPublicProofVersion(version: ProofVersion): PublicProofVersion {
+export function toPublicProofVersion(
+  version: ProofVersion,
+  options: { include_asset_urls?: boolean } = {}
+): PublicProofVersion {
+  const includeAssetUrls = options.include_asset_urls !== false;
   const filename = filenameFromAttachment(version.filename)
     ?? filenameFromUrl(publicProofAssetUrl(version.download_url))
     ?? filenameFromUrl(publicProofAssetUrl(version.preview_url));
@@ -1210,24 +1214,34 @@ export function toPublicProofVersion(version: ProofVersion): PublicProofVersion 
     filename,
     content_type: contentType,
     preview_kind: previewKind,
-    preview_url: previewKind === "image" || previewKind === "pdf" ? candidatePreviewUrl ?? downloadUrl : null,
-    download_url: downloadUrl,
+    preview_url:
+      includeAssetUrls && (previewKind === "image" || previewKind === "pdf")
+        ? candidatePreviewUrl ?? downloadUrl
+        : null,
+    download_url: includeAssetUrls ? downloadUrl : null,
     approval_status: publicProofDisplayText(version.approval_status, 40),
     approved_at: publicProofTimestamp(version.approved_at),
     comments: version.comments.slice(0, 100).map(({ text, created_at, attachment }) => ({
       text: publicProofDisplayText(text, 8_000),
       created_at: publicProofTimestamp(created_at),
-      attachments: publicCommentAttachments(attachment)
+      attachments: publicCommentAttachments(attachment).map((item) => ({
+        ...item,
+        url: includeAssetUrls ? item.url : null
+      }))
     })),
     technical_checks: publicTechnicalChecks(version.detailed_report),
     current: version.current
   };
 }
 
-export function toPublicProofTaskHistory(task: ProofTask): PublicProofTaskHistory {
+export function toPublicProofTaskHistory(
+  task: ProofTask,
+  options: { include_asset_urls?: boolean } = {}
+): PublicProofTaskHistory {
   return {
     task_id: task.task_id,
-    versions: (task.versions.length ? task.versions : task.current_version ? [task.current_version] : []).map(toPublicProofVersion)
+    versions: (task.versions.length ? task.versions : task.current_version ? [task.current_version] : [])
+      .map((version) => toPublicProofVersion(version, options))
   };
 }
 
@@ -1282,7 +1296,11 @@ export function proofReviewLifecycleTransitions(
   return [];
 }
 
-export function toPublicProofOrder(order: ProofOrder, scope: ProofGrantScope = "view"): PublicProofOrder {
+export function toPublicProofOrder(
+  order: ProofOrder,
+  scope: ProofGrantScope = "view",
+  options: { include_asset_urls?: boolean } = {}
+): PublicProofOrder {
   return {
     order_number: order.order_number,
     order_title: publicProofDisplayText(order.order_title, 160),
@@ -1298,8 +1316,8 @@ export function toPublicProofOrder(order: ProofOrder, scope: ProofGrantScope = "
       sibling_count: task.sibling_count,
       feedback_required: Boolean(task.current_version?.comments.length),
       feedback_acknowledged: false,
-      current_version: task.current_version ? toPublicProofVersion(task.current_version) : null,
-      versions: task.versions.map(toPublicProofVersion)
+      current_version: task.current_version ? toPublicProofVersion(task.current_version, options) : null,
+      versions: task.versions.map((version) => toPublicProofVersion(version, options))
     })),
     counts: publicProofCounts(order.tasks),
     last_synced_at: order.last_synced_at,

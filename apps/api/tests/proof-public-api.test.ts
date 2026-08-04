@@ -218,7 +218,7 @@ test("replaces an existing browser session only after another valid token is exc
   ), true);
 });
 
-test("marks an old active packet stale without removing its cached proofs", async () => {
+test("marks an old active packet stale while withholding every cached asset URL", async () => {
   const staleOrder: ProofOrder = {
     ...order,
     order_number: "A0221133",
@@ -236,6 +236,17 @@ test("marks an old active packet stale without removing its cached proofs", asyn
   assert.equal(response.body.order.tasks.length, staleOrder.tasks.length);
   assert.equal(response.body.order.tasks[0].filename, undefined);
   assert.equal(response.body.order.tasks[0].current_version.filename, "panel.pdf");
+  assert.equal(response.body.order.tasks[0].current_version.preview_url, null);
+  assert.equal(response.body.order.tasks[0].current_version.download_url, null);
+  assert.equal(response.body.order.tasks[0].current_version.comments[0].attachments[0].url, null);
+
+  const history = await request(app)
+    .get(`/api/public/proof/tasks/${staleOrder.tasks[0]!.task_id}/history`)
+    .set("Cookie", credentials.cookie)
+    .expect(200);
+  assert.equal(history.body.versions[0].preview_url, null);
+  assert.equal(history.body.versions[0].download_url, null);
+  assert.equal(history.body.versions[0].comments[0].attachments[0].url, null);
 });
 
 test("bounds automatic refresh to recently changed active orders while preserving manual refresh", async () => {
