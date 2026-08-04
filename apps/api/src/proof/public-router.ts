@@ -134,11 +134,13 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       const participant = session.participant_id
         ? participants.find((candidate) => candidate.participant_id === session.participant_id) ?? null
         : null;
-      const publicOrder = toPublicProofOrder(order, session.scope);
+      const automaticRefresh = proofAutomaticRefreshState(order);
+      const publicOrder = toPublicProofOrder(order, session.scope, {
+        include_asset_urls: !automaticRefresh.stale
+      });
       const feedbackStates = new Map(
         (await loadProofFeedbackStates(order, session)).map((state) => [state.task_id, state])
       );
-      const automaticRefresh = proofAutomaticRefreshState(order);
       const refresh = automaticRefresh.eligible
         ? await enqueueSync(order.order_number, "stale_public_read").catch(() => ({ queued: false as const }))
         : { queued: false as const };
@@ -172,7 +174,10 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         res.status(404).json({ error: "The selected proof is not available in this review session." });
         return;
       }
-      res.json(toPublicProofTaskHistory(task));
+      const automaticRefresh = proofAutomaticRefreshState(order);
+      res.json(toPublicProofTaskHistory(task, {
+        include_asset_urls: !automaticRefresh.stale
+      }));
     } catch (error) {
       handlePublicError(error, res, "Proof file history could not be loaded.");
     }

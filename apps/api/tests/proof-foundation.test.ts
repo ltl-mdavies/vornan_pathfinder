@@ -164,3 +164,163 @@ test("rejects a non-cohort order header before proof reads or aggregate persiste
   assert.equal(audit.events[0]?.action, "proof.sync_failed");
   assert.equal(audit.events[0]?.metadata.failure_class, "ProofSyncCohortDeniedError");
 });
+
+test("does not replace the aggregate when any expected Lift line read is incomplete", async () => {
+  const fetcher = async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    if (url.pathname.includes("AS360Orders")) {
+      return new Response(JSON.stringify({
+        rowset: [
+          { ORDER_NUMBER: "A0221140", ORDER_LINE_ID: 1, LINE_NUMBER: 1 },
+          { ORDER_NUMBER: "A0221140", ORDER_LINE_ID: 2, LINE_NUMBER: 2 }
+        ]
+      }), { headers: { "content-type": "application/json" } });
+    }
+    if (url.searchParams.get("p2") === "2") {
+      return new Response("unavailable", { status: 503 });
+    }
+    return new Response(JSON.stringify({
+      rowset: [{
+        ORDER_NUMBER: "A0221140",
+        ORDER_LINE_ID: 1,
+        LINE_NUMBER: 1,
+        ATTACHMENT_ID: 10,
+        PROOF_FILENAME: "line-one.pdf",
+        PROOF_LINK_HIGH: "https://files.example/line-one.pdf",
+        PROOF_APPROVAL_STATUS: "PENDING"
+      }]
+    }), { headers: { "content-type": "application/json" } });
+  };
+
+  await assert.rejects(
+    () => syncProofOrder("A0221140", { fetcher, synced_at: "2026-08-03T20:00:00.000Z" }),
+    { name: "ProofSyncIncompleteError" }
+  );
+  assert.equal(await getProofOrder("A0221140"), null);
+  const audit = await listProofAuditEvents("A0221140", { limit: 10 });
+  assert.equal(audit.events[0]?.action, "proof.sync_failed");
+  assert.equal(audit.events[0]?.metadata.failure_class, "ProofSyncIncompleteError");
+});
+
+test("requires two consecutive reads to agree on the current proof asset identity", async () => {
+  let proofRead = 0;
+  const fetcher = async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    if (url.pathname.includes("AS360Orders")) {
+      return new Response(JSON.stringify({
+        rowset: [{ ORDER_NUMBER: "A0221141", ORDER_LINE_ID: 11, LINE_NUMBER: 1 }]
+      }), { headers: { "content-type": "application/json" } });
+    }
+    proofRead += 1;
+    return new Response(JSON.stringify({
+      rowset: [{
+        ORDER_NUMBER: "A0221141",
+        ORDER_LINE_ID: 11,
+        LINE_NUMBER: 1,
+        ATTACHMENT_ID: 110,
+        PROOF_FILENAME: "changing.pdf",
+        PROOF_LINK_HIGH: `https://files.example/changing-v${proofRead}.pdf?token=${proofRead}`,
+        PROOF_APPROVAL_STATUS: "PENDING"
+      }]
+    }), { headers: { "content-type": "application/json" } });
+  };
+
+  await assert.rejects(
+    () => syncProofOrder("A0221141", { fetcher, synced_at: "2026-08-03T20:01:00.000Z" }),
+    { name: "ProofSyncUnstableError" }
+  );
+  assert.equal(proofRead, 2);
+  assert.equal(await getProofOrder("A0221141"), null);
+});
+
+test("accepts query-only Lift token rotation and retains the second proven URL", async () => {
+  let proofRead = 0;
+  const fetcher = async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    if (url.pathname.includes("AS360Orders")) {
+      return new Response(JSON.stringify({
+        rowset: [{ ORDER_NUMBER: "A0221142", ORDER_LINE_ID: 12, LINE_NUMBER: 1 }]
+      }), { headers: { "content-type": "application/json" } });
+    }
+    proofRead += 1;
+    return new Response(JSON.stringify({
+      rowset: [{
+        ORDER_NUMBER: "A0221142",
+        ORDER_LINE_ID: 12,
+        LINE_NUMBER: 1,
+        ATTACHMENT_ID: 120,
+        PROOF_FILENAME: "stable.pdf",
+        PROOF_LINK_HIGH: `https://files.example/stable.pdf?token=${proofRead}`,
+        PROOF_APPROVAL_STATUS: "PENDING",
+        COMMENT_ATTACHMENT: JSON.stringify({
+          filename: "reference.pdf",
+          url: `https://files.example/reference.pdf?token=${proofRead}`
+        })
+      }]
+    }), { headers: { "content-type": "application/json" } });
+  };
+
+  const result = await syncProofOrder("A0221142", {
+    fetcher,
+    synced_at: "2026-08-03T20:02:00.000Z"
+  });
+  assert.equal(proofRead, 2);
+  assert.equal(result.order.tasks[0]?.current_version?.download_url, "https://files.example/stable.pdf?token=2");
+});
+
+test("rejects a feedback-only change between consecutive Lift reads", async () => {
+  let proofRead = 0;
+  const fetcher = async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    if (url.pathname.includes("AS360Orders")) {
+      return new Response(JSON.stringify({
+        rowset: [{ ORDER_NUMBER: "A0221143", ORDER_LINE_ID: 13, LINE_NUMBER: 1 }]
+      }), { headers: { "content-type": "application/json" } });
+    }
+    proofRead += 1;
+    return new Response(JSON.stringify({
+      rowset: [{
+        ORDER_NUMBER: "A0221143",
+        ORDER_LINE_ID: 13,
+        LINE_NUMBER: 1,
+        ATTACHMENT_ID: 130,
+        PROOF_FILENAME: "feedback.pdf",
+        PROOF_LINK_HIGH: "https://files.example/feedback.pdf",
+        PROOF_APPROVAL_STATUS: "PENDING",
+        PROOF_COMMENT: proofRead === 1 ? "First note" : "Changed note"
+      }]
+    }), { headers: { "content-type": "application/json" } });
+  };
+
+  await assert.rejects(
+    () => syncProofOrder("A0221143", { fetcher, synced_at: "2026-08-03T20:03:00.000Z" }),
+    { name: "ProofSyncUnstableError" }
+  );
+  assert.equal(await getProofOrder("A0221143"), null);
+});
+
+test("rejects a stable same-customer Lift payload for a different order", async () => {
+  let fetchCount = 0;
+  const fetcher = async () => {
+    fetchCount += 1;
+    return new Response(JSON.stringify({
+      rowset: [{
+        ORDER_NUMBER: "A0221199",
+        CUSTOMER_ID: 1249,
+        ORDER_LINE_ID: 14,
+        LINE_NUMBER: 1
+      }]
+    }), { headers: { "content-type": "application/json" } });
+  };
+
+  await assert.rejects(
+    () => syncProofOrder("A0221144", {
+      fetcher,
+      synced_at: "2026-08-03T20:04:00.000Z",
+      allowed_customer_ids: ["1249"]
+    }),
+    { name: "ProofSyncOrderMismatchError" }
+  );
+  assert.equal(fetchCount, 1);
+  assert.equal(await getProofOrder("A0221144"), null);
+});
