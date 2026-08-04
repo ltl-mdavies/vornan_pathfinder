@@ -106,6 +106,16 @@ const request = {
   revision_asset_id: null
 };
 
+const advancedCustomerCapability = {
+  association_status: "associated" as const,
+  pathfinder_customer_id: "284619",
+  customer_name: "Synthetic Pathfinder customer",
+  access_mode: "review" as const,
+  review_experience: "advanced" as const,
+  source: "customer_default" as const,
+  policy_updated_at: "2026-07-27T11:30:00.000Z"
+};
+
 const revisionAssetId = `passet_${"a".repeat(64)}`;
 const revisionId = `prevision_${"b".repeat(64)}`;
 const publicationId = `ppublication_${"c".repeat(64)}`;
@@ -308,6 +318,7 @@ test("binds a complete same-line allocation and rejects quantity drift before cr
   let reserved: ProofOperatorActionRecord | null = null;
   const preparation = createProofOperatorActionService({
     runtimeConfig: () => runtimeConfig(true, true),
+    resolveCustomerCapability: async () => advancedCustomerCapability,
     now: () => now,
     listTargetConfigs: async () => targets,
     syncOrder: async () => ({ order: multiProofOrder, diagnostics: null }) as never,
@@ -325,6 +336,33 @@ test("binds a complete same-line allocation and rejects quantity drift before cr
   assert.equal(reserved?.approve_quantity, 3);
   assert.equal(reserved?.expected_line_quantity, 4);
   assert.match(reserved?.allocation_plan_sha256 ?? "", /^[a-f0-9]{64}$/);
+  assert.match(reserved?.customer_capability_sha256 ?? "", /^[a-f0-9]{64}$/);
+
+  let downgradedSyncs = 0;
+  const downgradedExecution = createProofOperatorActionService({
+    runtimeConfig: () => runtimeConfig(true, true),
+    now: () => now,
+    resolveCustomerCapability: async () => ({
+      ...advancedCustomerCapability,
+      review_experience: "simple"
+    }),
+    getRecord: async () => reserved,
+    syncOrder: async () => {
+      downgradedSyncs += 1;
+      return { order: multiProofOrder, diagnostics: null } as never;
+    }
+  });
+  await assert.rejects(
+    () => downgradedExecution.execute({
+      request: advancedRequest,
+      confirmation_phrase: "CONFIRM APPROVE A0226753 proofing-synthetic-0001",
+      operator_uid: "operator-synthetic",
+      correlation_id: "correlation-synthetic"
+    }),
+    (error: unknown) =>
+      error instanceof ProofOperatorActionError && error.code === "not_allowed"
+  );
+  assert.equal(downgradedSyncs, 0);
 
   let credentialReads = 0;
   const siblingVersionDrift = {
@@ -345,6 +383,7 @@ test("binds a complete same-line allocation and rejects quantity drift before cr
   };
   const siblingDriftExecution = createProofOperatorActionService({
     runtimeConfig: () => runtimeConfig(true, true),
+    resolveCustomerCapability: async () => advancedCustomerCapability,
     now: () => now,
     listTargetConfigs: async () => targets,
     getRecord: async () => reserved,
@@ -372,6 +411,7 @@ test("binds a complete same-line allocation and rejects quantity drift before cr
   };
   const execution = createProofOperatorActionService({
     runtimeConfig: () => runtimeConfig(true, true),
+    resolveCustomerCapability: async () => advancedCustomerCapability,
     now: () => now,
     listTargetConfigs: async () => targets,
     getRecord: async () => reserved,

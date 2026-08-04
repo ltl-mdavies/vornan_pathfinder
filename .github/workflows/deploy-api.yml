@@ -174,6 +174,7 @@ jobs:
               ProofOperatorActionQaEnabled="${{ vars.PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA || 'false' }}" \
               ProofOperatorActionAllowedOrders="${{ vars.PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS || '' }}" \
               ProofOperatorActionExpiresAt="${{ vars.PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT || '' }}" \
+              ProofAdvancedReviewEnabled="${{ vars.PATHFINDER_ENABLE_PROOF_ADVANCED_REVIEW || 'false' }}" \
               ProofAssetUploadEnabled="${{ vars.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD || 'false' }}" \
               ProofAssetUploadAllowedOrders="${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS || '' }}" \
               ProofAssetUploadExpiresAt="${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT || '' }}" \

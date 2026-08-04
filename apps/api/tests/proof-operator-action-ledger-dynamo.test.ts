@@ -41,6 +41,7 @@ const record: ProofOperatorActionRecord = {
   approve_quantity: null,
   expected_line_quantity: 4,
   allocation_plan_sha256: null,
+  customer_capability_sha256: null,
   target_id: "lift-standard-graphics",
   environment_id: "env-lift-prod",
   note_sha256: null,

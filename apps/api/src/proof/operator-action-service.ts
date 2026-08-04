@@ -21,7 +21,12 @@ import {
   readTargetEnvironmentProofingApiRuntimeCredentials,
   type TargetProofingApiRuntimeCredentials
 } from "../lift-proofing-credentials.js";
-import { listTargets, type TargetConfig } from "../store.js";
+import {
+  listTargets,
+  resolveCustomerProofCapabilityForOrder,
+  type ResolvedCustomerProofCapability,
+  type TargetConfig
+} from "../store.js";
 import { syncProofOrder } from "./service.js";
 import {
   getProofOperatorActionQaConfig,
@@ -89,6 +94,9 @@ export interface ProofOperatorActionDependencies {
   resolveRevisionAsset?: (
     assetId: string
   ) => Promise<ProofRevisionAssetReadiness | null>;
+  resolveCustomerCapability?: (
+    orderNumber: string
+  ) => Promise<ResolvedCustomerProofCapability>;
   runtimeConfig?: () => ProofOperatorActionQaConfig;
   now?: () => Date;
 }
@@ -144,6 +152,34 @@ function requireGate(
     );
   }
   return gate;
+}
+
+async function advancedCustomerCapabilityFingerprint(
+  request: ReturnType<typeof normalizedRequest>,
+  resolve: (orderNumber: string) => Promise<ResolvedCustomerProofCapability>
+) {
+  if (request.approval_mode !== "quantity_allocation") return null;
+  const capability = await resolve(request.order_number);
+  if (
+    capability.association_status !== "associated" ||
+    !capability.pathfinder_customer_id ||
+    capability.access_mode !== "review" ||
+    capability.review_experience !== "advanced" ||
+    !capability.policy_updated_at
+  ) {
+    throw new ProofOperatorActionError(
+      "not_allowed",
+      "Advanced Proof allocation is not enabled for the associated Pathfinder customer or order."
+    );
+  }
+  return sha256(
+    "vornan-proof-customer-capability-v1",
+    capability.pathfinder_customer_id,
+    capability.access_mode,
+    capability.review_experience,
+    capability.source,
+    capability.policy_updated_at
+  );
 }
 
 function normalizedRequest(input: ProofOperatorActionRequest) {
@@ -459,6 +495,7 @@ function recordHash(input: {
   revisionAsset: ResolvedRevisionAsset | null;
   approval: ReturnType<typeof approvalContext>;
   executionScopeSha256: string;
+  customerCapabilitySha256: string | null;
 }) {
   return sha256(
     "vornan-proof-operator-action-v1",
@@ -482,6 +519,7 @@ function recordHash(input: {
       ? null
       : String(input.approval.expected_line_quantity),
     input.approval.allocation_plan_sha256,
+    input.customerCapabilitySha256,
     input.revisionAsset?.asset_id ?? null,
     input.revisionAsset?.publication_id ?? null,
     input.revisionAsset?.revision_id ?? null,
@@ -641,6 +679,8 @@ export function createProofOperatorActionService(
   const send = dependencies.send ?? sendLiftProofingRuntimeAction;
   const resolveRevisionAsset =
     dependencies.resolveRevisionAsset ?? (async () => null);
+  const resolveCustomerCapability =
+    dependencies.resolveCustomerCapability ?? resolveCustomerProofCapabilityForOrder;
   const runtimeConfig =
     dependencies.runtimeConfig ?? getProofOperatorActionQaConfig;
   const now = dependencies.now ?? (() => new Date());
@@ -664,6 +704,10 @@ export function createProofOperatorActionService(
           "Advanced Proof quantity allocation is not enabled for this QA window."
         );
       }
+      const customerCapabilitySha256 = await advancedCustomerCapabilityFingerprint(
+        request,
+        resolveCustomerCapability
+      );
       if (!gate.allowed_order_numbers.includes(request.order_number)) {
         throw new ProofOperatorActionError(
           "not_allowed",
@@ -697,7 +741,8 @@ export function createProofOperatorActionService(
         plan,
         revisionAsset,
         approval,
-        executionScopeSha256: executionScope
+        executionScopeSha256: executionScope,
+        customerCapabilitySha256
       });
       const preparedAuditEventId = `paudit_operator-${sha256(
         "vornan-proof-operator-action-audit-v1",
@@ -722,6 +767,7 @@ export function createProofOperatorActionService(
         approve_quantity: request.approve_quantity,
         expected_line_quantity: approval.expected_line_quantity,
         allocation_plan_sha256: approval.allocation_plan_sha256,
+        customer_capability_sha256: customerCapabilitySha256,
         target_id: TARGET_ID,
         environment_id: ENVIRONMENT_ID,
         note_sha256: request.comment ? sha256(request.comment) : null,
@@ -792,6 +838,10 @@ export function createProofOperatorActionService(
           "Advanced Proof quantity allocation is not enabled for this QA window."
         );
       }
+      const customerCapabilitySha256 = await advancedCustomerCapabilityFingerprint(
+        request,
+        resolveCustomerCapability
+      );
       if (!gate.allowed_order_numbers.includes(request.order_number)) {
         throw new ProofOperatorActionError("not_allowed", "Proof order is not allowlisted.");
       }
@@ -843,7 +893,8 @@ export function createProofOperatorActionService(
             plan,
             revisionAsset,
             approval,
-            executionScopeSha256: executionScope
+            executionScopeSha256: executionScope,
+            customerCapabilitySha256
           }) ||
         existing.request_body_sha256 !== plan.canonical_body_sha256 ||
         existing.expected_task_version !== task.version ||
@@ -854,6 +905,7 @@ export function createProofOperatorActionService(
         existing.approve_quantity !== request.approve_quantity ||
         existing.expected_line_quantity !== approval.expected_line_quantity ||
         existing.allocation_plan_sha256 !== approval.allocation_plan_sha256 ||
+        existing.customer_capability_sha256 !== customerCapabilitySha256 ||
         existing.revision_asset_id !== (revisionAsset?.asset_id ?? null) ||
         existing.revision_publication_id !==
           (revisionAsset?.publication_id ?? null) ||
