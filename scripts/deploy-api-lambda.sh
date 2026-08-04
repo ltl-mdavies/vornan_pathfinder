@@ -81,6 +81,7 @@ aws cloudformation deploy \
     ProofOperatorActionQaEnabled="${PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA:-false}" \
     ProofOperatorActionAllowedOrders="${PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS:-}" \
     ProofOperatorActionExpiresAt="${PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT:-}" \
+    ProofAdvancedReviewEnabled="${PATHFINDER_ENABLE_PROOF_ADVANCED_REVIEW:-false}" \
     ProofAssetUploadEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD:-false}" \
     ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \
     ProofAssetUploadExpiresAt="${PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT:-}" \

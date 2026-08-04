@@ -112,6 +112,13 @@ import { configurePathfinderApiAuth, pathfinderFetch as fetch } from "./api-clie
 import { WorkspaceLoading } from "./WorkspaceLoading";
 import { ProofOpsPanel } from "./ProofOpsPanel";
 import { ProofingApiSetup } from "./ProofingApiSetup";
+import {
+  ProofCustomerCapabilitySetup,
+  type CustomerProofAccessMode,
+  type CustomerProofCapabilityAuditEntry,
+  type CustomerProofCapabilityPolicy,
+  type CustomerProofReviewExperience
+} from "./ProofCustomerCapabilitySetup";
 import { ImportMethodWorkbookSetup } from "./ImportMethodWorkbookSetup";
 import { WrikeIntakeBehaviorSetup } from "./WrikeIntakeBehaviorSetup";
 import { CompositeFieldMappingSetup } from "./CompositeFieldMappingSetup";
@@ -961,6 +968,8 @@ interface PathfinderCustomerWorkspace {
   product_mapping_replacement_checkpoint?: ProductMappingReplacementSummary | null;
   product_mapping_replacement_history?: ProductMappingReplacementSummary[];
   status_access_policy: StatusAccessPolicy;
+  proof_capability_policy: CustomerProofCapabilityPolicy;
+  proof_capability_audit: CustomerProofCapabilityAuditEntry[];
   primary_target_id: string;
   primary_output_route_id: string;
   primary_target: TargetConfig;
@@ -4213,6 +4222,77 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWorkspaceMessage("Public status access policy saved.");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Status access policy save failed.");
+      setWorkspaceState("error");
+      return;
+    }
+    setWorkspaceState("idle");
+  }
+
+  async function saveCustomerProofCapability(value: {
+    access_mode: CustomerProofAccessMode;
+    review_experience: CustomerProofReviewExperience;
+  }) {
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/proof-capability-policy`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(value)
+        }
+      );
+      const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      setWorkspace(updatedWorkspace);
+      setWorkspaceMessage("Vornan Proof customer settings saved.");
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Proof customer settings could not be saved.");
+      setWorkspaceState("error");
+      return;
+    }
+    setWorkspaceState("idle");
+  }
+
+  async function saveCustomerProofOrderOverride(
+    orderNumber: string,
+    value: {
+      access_mode: CustomerProofAccessMode;
+      review_experience: CustomerProofReviewExperience;
+    }
+  ) {
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/proof-capability-policy/orders/${encodeURIComponent(orderNumber)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(value)
+        }
+      );
+      const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      setWorkspace(updatedWorkspace);
+      setWorkspaceMessage(`Vornan Proof exception saved for ${orderNumber}.`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Proof order exception could not be saved.");
+      setWorkspaceState("error");
+      return;
+    }
+    setWorkspaceState("idle");
+  }
+
+  async function removeCustomerProofOrderOverride(orderNumber: string) {
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/proof-capability-policy/orders/${encodeURIComponent(orderNumber)}`,
+        { method: "DELETE" }
+      );
+      const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      setWorkspace(updatedWorkspace);
+      setWorkspaceMessage(`Vornan Proof exception removed for ${orderNumber}.`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Proof order exception could not be removed.");
       setWorkspaceState("error");
       return;
     }
@@ -14588,6 +14668,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </div>
                   ) : null}
                 </div>
+                {workspace ? <div className="panel customer-panel proof-capability-panel">
+                  <PanelHeader icon={ShieldCheck} title="Vornan Proof" detail="Customer experience" />
+                  <ProofCustomerCapabilitySetup
+                    policy={workspace.proof_capability_policy}
+                    audit={workspace.proof_capability_audit}
+                    busy={workspaceState === "saving"}
+                    onSave={saveCustomerProofCapability}
+                    onUpsertOverride={saveCustomerProofOrderOverride}
+                    onRemoveOverride={removeCustomerProofOrderOverride}
+                  />
+                </div> : null}
                 <div className="panel customer-panel status-access-panel">
                   <PanelHeader icon={ShieldCheck} title="Public Status Access" detail="Secure status links" />
                   <div className="status-access-body">

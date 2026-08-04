@@ -65,6 +65,16 @@ interface ProofTaskSummary {
   } | null;
 }
 
+interface ResolvedCustomerProofCapability {
+  association_status: "associated" | "unassociated" | "ambiguous";
+  pathfinder_customer_id: string | null;
+  customer_name: string | null;
+  access_mode: "disabled" | "view_only" | "review";
+  review_experience: "simple" | "advanced";
+  source: "customer_default" | "order_override" | "safe_default";
+  policy_updated_at: string | null;
+}
+
 interface ProofAssetUploadSummary {
   asset_id: string;
   revision_id: string;
@@ -271,6 +281,8 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   const [orderNumber, setOrderNumber] = useState("");
   const [label, setLabel] = useState("");
   const [order, setOrder] = useState<ProofOrderSummary | null>(null);
+  const [customerCapability, setCustomerCapability] =
+    useState<ResolvedCustomerProofCapability | null>(null);
   const [grants, setGrants] = useState<ProofGrant[]>([]);
   const [auditEvents, setAuditEvents] = useState<ProofAuditEvent[]>([]);
   const [auditCursor, setAuditCursor] = useState<string | null>(null);
@@ -326,6 +338,10 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   }, [apiBaseUrl, authToken]);
 
   const normalizedOrderNumber = orderNumber.trim().toUpperCase();
+  const advancedCustomerEnabled =
+    customerCapability?.association_status === "associated" &&
+    customerCapability.access_mode === "review" &&
+    customerCapability.review_experience === "advanced";
 
   useEffect(() => {
     if (!order) return;
@@ -407,10 +423,14 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     setMessage(null);
     setOneTimeAccess(null);
     try {
-      const payload = await responseJson<{ order: ProofOrderSummary }>(
+      const payload = await responseJson<{
+        order: ProofOrderSummary;
+        customer_capability: ResolvedCustomerProofCapability;
+      }>(
         await request(`/api/proof/orders/${normalizedOrderNumber}/sync`, { method: "POST", body: "{}" })
       );
       setOrder(payload.order);
+      setCustomerCapability(payload.customer_capability);
       setActionRequiresFreshSync(false);
       addQaOrder(payload.order.order_number);
       await loadGrants(payload.order.order_number);
@@ -432,10 +452,14 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     setMessage(null);
     setOneTimeAccess(null);
     try {
-      const payload = await responseJson<{ order: ProofOrderSummary }>(
+      const payload = await responseJson<{
+        order: ProofOrderSummary;
+        customer_capability: ResolvedCustomerProofCapability;
+      }>(
         await request(`/api/proof/orders/${normalizedOrderNumber}`)
       );
       setOrder(payload.order);
+      setCustomerCapability(payload.customer_capability);
       await loadGrants(payload.order.order_number);
       await loadAudit(payload.order.order_number).catch(() => undefined);
       setMessage(`Opened cached Proof order ${payload.order.order_number} without contacting Lift.`);
@@ -621,10 +645,14 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
       setActionConfirmation("");
       if (payload.authoritative_reconciliation.completed) {
         try {
-          const refreshed = await responseJson<{ order: ProofOrderSummary }>(
+          const refreshed = await responseJson<{
+            order: ProofOrderSummary;
+            customer_capability: ResolvedCustomerProofCapability;
+          }>(
             await request(`/api/proof/orders/${order.order_number}`)
           );
           setOrder(refreshed.order);
+          setCustomerCapability(refreshed.customer_capability);
           setActionRequiresFreshSync(false);
           setMessage(
             "One Proof action was attempted with zero retry. The workbench was rebound to the authoritative post-action Lift snapshot."
@@ -871,6 +899,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                   onClick={() => {
                     setOrderNumber(qaOrder);
                     setOrder(null);
+                    setCustomerCapability(null);
                     setMessage(`Selected ${qaOrder}. Sync it to load the current Lift proofs.`);
                   }}
                 >
@@ -1027,7 +1056,8 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                         className={approvalMode === "quantity_allocation" ? "is-selected" : ""}
                         disabled={
                           selectedLineProofs.length < 2 ||
-                          !health?.operator_action_qa.advanced_quantity_allocation_enabled
+                          !health?.operator_action_qa.advanced_quantity_allocation_enabled ||
+                          !advancedCustomerEnabled
                         }
                         onClick={() => setApprovalMode("quantity_allocation")}
                       >
@@ -1080,9 +1110,15 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                       </small>
                     </div>
                   )}
-                  {!health?.operator_action_qa.advanced_quantity_allocation_enabled && selectedLineProofs.length >= 2 ? (
+                  {selectedLineProofs.length >= 2 &&
+                  (!health?.operator_action_qa.advanced_quantity_allocation_enabled ||
+                    !advancedCustomerEnabled) ? (
                     <small className="proof-advanced-locked-note">
-                      Advanced allocation is visible for validation but remains behind a separate default-disabled QA gate.
+                      {!health?.operator_action_qa.advanced_quantity_allocation_enabled
+                        ? "Advanced allocation remains behind the default-disabled platform gate."
+                        : customerCapability?.association_status !== "associated"
+                          ? "Link this Lift order to one Pathfinder customer before enabling Advanced review."
+                          : "Advanced review is not enabled for this customer or order."}
                     </small>
                   ) : null}
                 </div>

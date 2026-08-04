@@ -222,6 +222,7 @@ test("Wrike Lift document publication is independently dark and scoped to its de
 test("operator-only Proof action QA remains independently dark and narrowly scoped by default", () => {
   assert.match(template, /ProofOperatorActionQaEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /ProofOperatorActionAllowedOrders:[\s\S]*?Default: ""/);
+  assert.match(template, /ProofAdvancedReviewEnabled:[\s\S]*?Default: "false"/);
   assert.match(
     template,
     /ProofOperatorActionExpiresAt:[\s\S]*?Default: ""[\s\S]*?AllowedPattern: "\^\$\|\^\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}T\[0-9\]\{2\}:\[0-9\]\{2\}:\[0-9\]\{2\}\(\\\\\.\[0-9\]\{3\}\)\?Z\$"/
@@ -249,6 +250,14 @@ test("operator-only Proof action QA remains independently dark and narrowly scop
   assert.match(
     template,
     /PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT: !Ref ProofOperatorActionExpiresAt/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_ENABLE_PROOF_ADVANCED_REVIEW: !Ref ProofAdvancedReviewEnabled/
+  );
+  assert.match(
+    template,
+    /ProofAdvancedReviewRequiresOperatorQa:\n\s+RuleCondition: !Equals \[!Ref ProofAdvancedReviewEnabled, "true"\][\s\S]*?!Equals \[!Ref ProofOperatorActionQaEnabled, "true"\]/
   );
   assert.match(
     workflow,

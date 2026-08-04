@@ -32,7 +32,7 @@ export function getProofOperatorActionQaConfig(): ProofOperatorActionQaConfig {
     ),
     jwt_ttl_seconds: 60,
     advanced_quantity_allocation_enabled:
-      process.env.PATHFINDER_ENABLE_PROOF_ADVANCED_ALLOCATION_QA === "true",
+      process.env.PATHFINDER_ENABLE_PROOF_ADVANCED_REVIEW === "true",
     activation_expires_at: optionalTimestamp(
       process.env.PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT
     )

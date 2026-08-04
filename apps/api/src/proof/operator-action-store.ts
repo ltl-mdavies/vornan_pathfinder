@@ -41,6 +41,7 @@ export interface ProofOperatorActionRecord {
   approve_quantity: number | null;
   expected_line_quantity: number | null;
   allocation_plan_sha256: string | null;
+  customer_capability_sha256: string | null;
   target_id: string;
   environment_id: string;
   note_sha256: string | null;
@@ -260,6 +261,8 @@ export function validateProofOperatorActionRecord(value: unknown) {
         record.expected_line_quantity <= 0)) ||
     (record.allocation_plan_sha256 !== null &&
       !HASH.test(record.allocation_plan_sha256)) ||
+    (record.customer_capability_sha256 !== null &&
+      !HASH.test(record.customer_capability_sha256)) ||
     (record.action === "APPROVE" &&
       (record.approval_mode === null ||
         record.expected_line_quantity === null ||
@@ -275,6 +278,10 @@ export function validateProofOperatorActionRecord(value: unknown) {
         record.approve_quantity !== null ||
         record.expected_line_quantity !== null ||
         record.allocation_plan_sha256 !== null)) ||
+    (record.approval_mode === "quantity_allocation" &&
+      record.customer_capability_sha256 === null) ||
+    (record.approval_mode !== "quantity_allocation" &&
+      record.customer_capability_sha256 !== null) ||
     !["prepared", "submission_uncertain", "reconciling"].includes(record.outcome) ||
     !Number.isInteger(record.record_version) ||
     record.record_version < 1 ||
@@ -494,6 +501,7 @@ export async function transitionProofOperatorAction(
     current.idempotency_key !== next.idempotency_key ||
     current.canonical_body_hash !== next.canonical_body_hash ||
     current.execution_scope_sha256 !== next.execution_scope_sha256 ||
+    current.customer_capability_sha256 !== next.customer_capability_sha256 ||
     current.expires_at_epoch !== next.expires_at_epoch ||
     next.record_version !== current.record_version + 1 ||
     !(

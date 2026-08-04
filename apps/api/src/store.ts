@@ -192,6 +192,47 @@ export interface StatusAccessPolicy {
   updated_at: string;
 }
 
+export type CustomerProofAccessMode = "disabled" | "view_only" | "review";
+export type CustomerProofReviewExperience = "simple" | "advanced";
+
+export interface CustomerProofOrderOverride {
+  order_number: string;
+  access_mode: CustomerProofAccessMode;
+  review_experience: CustomerProofReviewExperience;
+  updated_at: string;
+  updated_by: string;
+}
+
+export interface CustomerProofCapabilityPolicy {
+  access_mode: CustomerProofAccessMode;
+  review_experience: CustomerProofReviewExperience;
+  order_overrides: CustomerProofOrderOverride[];
+  updated_at: string;
+  updated_by: string;
+}
+
+export interface CustomerProofCapabilityAuditEntry {
+  change_id: string;
+  scope: "customer" | "order";
+  order_number: string | null;
+  previous_access_mode: CustomerProofAccessMode;
+  next_access_mode: CustomerProofAccessMode;
+  previous_review_experience: CustomerProofReviewExperience;
+  next_review_experience: CustomerProofReviewExperience;
+  actor_id: string;
+  created_at: string;
+}
+
+export interface ResolvedCustomerProofCapability {
+  association_status: "associated" | "unassociated" | "ambiguous";
+  pathfinder_customer_id: string | null;
+  customer_name: string | null;
+  access_mode: CustomerProofAccessMode;
+  review_experience: CustomerProofReviewExperience;
+  source: "customer_default" | "order_override" | "safe_default";
+  policy_updated_at: string | null;
+}
+
 export interface ProductResolutionConfig {
   strategy: ProductResolverStrategy;
   mode: ProductResolutionMode;
@@ -739,6 +780,8 @@ export interface PathfinderCustomerWorkspace {
   product_mapping_replacement_history?: ProductMappingReplacementSummary[];
   product_mapping_active_versions?: Record<string, string | null>;
   status_access_policy: StatusAccessPolicy;
+  proof_capability_policy: CustomerProofCapabilityPolicy;
+  proof_capability_audit: CustomerProofCapabilityAuditEntry[];
   primary_target_id: string;
   primary_output_route_id: string;
   updated_at: string;
@@ -1753,6 +1796,136 @@ function normalizeStatusAccessPolicy(
   };
 }
 
+function safeProofCapabilityActor(value: unknown) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return /^[A-Za-z0-9_.:@-]{1,180}$/.test(normalized) ? normalized : "unknown-operator";
+}
+
+function normalizedProofAccessMode(value: unknown): CustomerProofAccessMode {
+  return value === "disabled" || value === "view_only" || value === "review"
+    ? value
+    : "view_only";
+}
+
+function normalizedProofReviewExperience(
+  value: unknown,
+  accessMode: CustomerProofAccessMode
+): CustomerProofReviewExperience {
+  if (accessMode !== "review") return "simple";
+  return value === "advanced" ? "advanced" : "simple";
+}
+
+function createDefaultCustomerProofCapabilityPolicy(timestamp = now()): CustomerProofCapabilityPolicy {
+  return {
+    access_mode: "view_only",
+    review_experience: "simple",
+    order_overrides: [],
+    updated_at: timestamp,
+    updated_by: "system-default"
+  };
+}
+
+function normalizeCustomerProofCapabilityPolicy(
+  policy: CustomerProofCapabilityPolicy | undefined,
+  timestamp = now()
+): CustomerProofCapabilityPolicy {
+  const accessMode = normalizedProofAccessMode(policy?.access_mode);
+  const overrides = new Map<string, CustomerProofOrderOverride>();
+  for (const candidate of policy?.order_overrides ?? []) {
+    const orderNumber = candidate?.order_number?.trim().toUpperCase();
+    if (!/^A\d{7,8}$/.test(orderNumber)) continue;
+    const overrideAccessMode = normalizedProofAccessMode(candidate.access_mode);
+    overrides.set(orderNumber, {
+      order_number: orderNumber,
+      access_mode: overrideAccessMode,
+      review_experience: normalizedProofReviewExperience(
+        candidate.review_experience,
+        overrideAccessMode
+      ),
+      updated_at: Number.isFinite(Date.parse(candidate.updated_at))
+        ? new Date(candidate.updated_at).toISOString()
+        : timestamp,
+      updated_by: safeProofCapabilityActor(candidate.updated_by)
+    });
+  }
+  return {
+    access_mode: accessMode,
+    review_experience: normalizedProofReviewExperience(
+      policy?.review_experience,
+      accessMode
+    ),
+    order_overrides: [...overrides.values()]
+      .sort((left, right) => left.order_number.localeCompare(right.order_number))
+      .slice(0, 100),
+    updated_at: Number.isFinite(Date.parse(policy?.updated_at ?? ""))
+      ? new Date(policy!.updated_at).toISOString()
+      : timestamp,
+    updated_by: safeProofCapabilityActor(policy?.updated_by ?? "system-default")
+  };
+}
+
+function normalizedProofCapabilityAudit(
+  entries: CustomerProofCapabilityAuditEntry[] | undefined
+) {
+  return (entries ?? [])
+    .filter((entry) =>
+      /^pcap_[a-f0-9]{24}$/.test(entry?.change_id ?? "") &&
+      (entry.scope === "customer" || entry.scope === "order") &&
+      (entry.order_number === null || /^A\d{7,8}$/.test(entry.order_number)) &&
+      Number.isFinite(Date.parse(entry.created_at))
+    )
+    .slice(0, 100);
+}
+
+function assertCustomerProofCapabilityInput(
+  accessMode: unknown,
+  reviewExperience: unknown
+) {
+  if (
+    accessMode !== "disabled" &&
+    accessMode !== "view_only" &&
+    accessMode !== "review"
+  ) {
+    throw new CustomerProofCapabilityValidationError(
+      "Proof access must be Disabled, View only, or Review enabled."
+    );
+  }
+  if (reviewExperience !== "simple" && reviewExperience !== "advanced") {
+    throw new CustomerProofCapabilityValidationError(
+      "Proof review experience must be Simple or Advanced."
+    );
+  }
+  if (accessMode !== "review" && reviewExperience === "advanced") {
+    throw new CustomerProofCapabilityValidationError(
+      "Advanced review requires Proof review access to be enabled."
+    );
+  }
+}
+
+export class CustomerProofCapabilityValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CustomerProofCapabilityValidationError";
+  }
+}
+
+function proofCapabilityAuditEntry(input: {
+  scope: "customer" | "order";
+  order_number: string | null;
+  previous_access_mode: CustomerProofAccessMode;
+  next_access_mode: CustomerProofAccessMode;
+  previous_review_experience: CustomerProofReviewExperience;
+  next_review_experience: CustomerProofReviewExperience;
+  actor_id: string;
+  created_at: string;
+}): CustomerProofCapabilityAuditEntry {
+  return {
+    change_id: `pcap_${randomBytes(12).toString("hex")}`,
+    ...input,
+    actor_id: safeProofCapabilityActor(input.actor_id)
+  };
+}
+
 function createWorkspace(customer: LiftCustomer): PathfinderCustomerWorkspace {
   const timestamp = now();
   const method = createSeedMethod(timestamp);
@@ -1779,6 +1952,8 @@ function createWorkspace(customer: LiftCustomer): PathfinderCustomerWorkspace {
     product_mappings: [],
     catalog_presets: catalogPresets,
     status_access_policy: createDefaultStatusAccessPolicy(customer, timestamp),
+    proof_capability_policy: createDefaultCustomerProofCapabilityPolicy(timestamp),
+    proof_capability_audit: [],
     primary_target_id: targetId,
     primary_output_route_id: route.output_route_id,
     updated_at: timestamp
@@ -3240,6 +3415,12 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
     product_mapping_replacement_history: workspace.product_mapping_replacement_history ?? [],
     product_mapping_active_versions: workspace.product_mapping_active_versions ?? {},
     status_access_policy: normalizeStatusAccessPolicy(workspace.status_access_policy, workspace.customer),
+    proof_capability_policy: normalizeCustomerProofCapabilityPolicy(
+      workspace.proof_capability_policy
+    ),
+    proof_capability_audit: normalizedProofCapabilityAudit(
+      workspace.proof_capability_audit
+    ),
     primary_target_id: workspace.primary_target_id ?? route.target_id,
     primary_output_route_id: primaryOutputRouteId,
     submit_attempts: workspace.submit_attempts ?? [],
@@ -4383,6 +4564,225 @@ export async function updateStatusAccessPolicy(customer: LiftCustomer, policyPat
   await writeStore(store);
 
   return workspace;
+}
+
+export async function updateCustomerProofCapabilityPolicy(
+  customer: LiftCustomer,
+  policyPatch: Pick<CustomerProofCapabilityPolicy, "access_mode" | "review_experience">,
+  actorId: string
+) {
+  assertCustomerProofCapabilityInput(
+    policyPatch.access_mode,
+    policyPatch.review_experience
+  );
+  const store = await readStore();
+  const workspace = normalizeWorkspace(
+    store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer)
+  );
+  const timestamp = now();
+  const previous = workspace.proof_capability_policy;
+  const next = normalizeCustomerProofCapabilityPolicy({
+    ...previous,
+    access_mode: policyPatch.access_mode,
+    review_experience: policyPatch.review_experience,
+    updated_at: timestamp,
+    updated_by: safeProofCapabilityActor(actorId)
+  }, timestamp);
+  if (
+    previous.access_mode !== next.access_mode ||
+    previous.review_experience !== next.review_experience
+  ) {
+    workspace.proof_capability_audit = [
+      proofCapabilityAuditEntry({
+        scope: "customer",
+        order_number: null,
+        previous_access_mode: previous.access_mode,
+        next_access_mode: next.access_mode,
+        previous_review_experience: previous.review_experience,
+        next_review_experience: next.review_experience,
+        actor_id: actorId,
+        created_at: timestamp
+      }),
+      ...workspace.proof_capability_audit
+    ].slice(0, 100);
+  }
+  workspace.proof_capability_policy = next;
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return workspace;
+}
+
+export async function upsertCustomerProofOrderOverride(
+  customer: LiftCustomer,
+  orderNumberValue: string,
+  policyPatch: Pick<CustomerProofOrderOverride, "access_mode" | "review_experience">,
+  actorId: string
+) {
+  const orderNumber = orderNumberValue.trim().toUpperCase();
+  if (!/^A\d{7,8}$/.test(orderNumber)) {
+    throw new CustomerProofCapabilityValidationError(
+      "A valid Lift order number is required for a Proof override."
+    );
+  }
+  assertCustomerProofCapabilityInput(
+    policyPatch.access_mode,
+    policyPatch.review_experience
+  );
+  const store = await readStore();
+  const workspace = normalizeWorkspace(
+    store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer)
+  );
+  const timestamp = now();
+  const policy = workspace.proof_capability_policy;
+  const previousOverride = policy.order_overrides.find(
+    (candidate) => candidate.order_number === orderNumber
+  );
+  const previousAccessMode = previousOverride?.access_mode ?? policy.access_mode;
+  const previousReviewExperience = previousOverride?.review_experience ?? policy.review_experience;
+  const nextOverride: CustomerProofOrderOverride = {
+    order_number: orderNumber,
+    access_mode: policyPatch.access_mode,
+    review_experience: policyPatch.review_experience,
+    updated_at: timestamp,
+    updated_by: safeProofCapabilityActor(actorId)
+  };
+  workspace.proof_capability_policy = normalizeCustomerProofCapabilityPolicy({
+    ...policy,
+    order_overrides: [
+      nextOverride,
+      ...policy.order_overrides.filter(
+        (candidate) => candidate.order_number !== orderNumber
+      )
+    ],
+    updated_at: timestamp,
+    updated_by: safeProofCapabilityActor(actorId)
+  }, timestamp);
+  if (
+    previousAccessMode !== nextOverride.access_mode ||
+    previousReviewExperience !== nextOverride.review_experience
+  ) {
+    workspace.proof_capability_audit = [
+      proofCapabilityAuditEntry({
+        scope: "order",
+        order_number: orderNumber,
+        previous_access_mode: previousAccessMode,
+        next_access_mode: nextOverride.access_mode,
+        previous_review_experience: previousReviewExperience,
+        next_review_experience: nextOverride.review_experience,
+        actor_id: actorId,
+        created_at: timestamp
+      }),
+      ...workspace.proof_capability_audit
+    ].slice(0, 100);
+  }
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return workspace;
+}
+
+export async function removeCustomerProofOrderOverride(
+  customer: LiftCustomer,
+  orderNumberValue: string,
+  actorId: string
+) {
+  const orderNumber = orderNumberValue.trim().toUpperCase();
+  if (!/^A\d{7,8}$/.test(orderNumber)) {
+    throw new CustomerProofCapabilityValidationError(
+      "A valid Lift order number is required for a Proof override."
+    );
+  }
+  const store = await readStore();
+  const workspace = normalizeWorkspace(
+    store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer)
+  );
+  const policy = workspace.proof_capability_policy;
+  const previous = policy.order_overrides.find(
+    (candidate) => candidate.order_number === orderNumber
+  );
+  if (!previous) return workspace;
+  const timestamp = now();
+  workspace.proof_capability_policy = normalizeCustomerProofCapabilityPolicy({
+    ...policy,
+    order_overrides: policy.order_overrides.filter(
+      (candidate) => candidate.order_number !== orderNumber
+    ),
+    updated_at: timestamp,
+    updated_by: safeProofCapabilityActor(actorId)
+  }, timestamp);
+  workspace.proof_capability_audit = [
+    proofCapabilityAuditEntry({
+      scope: "order",
+      order_number: orderNumber,
+      previous_access_mode: previous.access_mode,
+      next_access_mode: policy.access_mode,
+      previous_review_experience: previous.review_experience,
+      next_review_experience: policy.review_experience,
+      actor_id: actorId,
+      created_at: timestamp
+    }),
+    ...workspace.proof_capability_audit
+  ].slice(0, 100);
+  workspace.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return workspace;
+}
+
+export async function resolveCustomerProofCapabilityForOrder(
+  orderNumberValue: string
+): Promise<ResolvedCustomerProofCapability> {
+  const orderNumber = orderNumberValue.trim().toUpperCase();
+  if (!/^A\d{7,8}$/.test(orderNumber)) {
+    throw new CustomerProofCapabilityValidationError(
+      "A valid Lift order number is required to resolve Proof capability."
+    );
+  }
+  const store = await readStore();
+  const customerIds = [...new Set(
+    store.jobs
+      .filter((job) => job.target_order_number?.trim().toUpperCase() === orderNumber)
+      .map((job) => job.customer_id)
+      .filter(Boolean)
+  )];
+  if (customerIds.length !== 1) {
+    return {
+      association_status: customerIds.length ? "ambiguous" : "unassociated",
+      pathfinder_customer_id: null,
+      customer_name: null,
+      access_mode: "view_only",
+      review_experience: "simple",
+      source: "safe_default",
+      policy_updated_at: null
+    };
+  }
+  const workspace = store.workspaces[customerIds[0]!];
+  if (!workspace) {
+    return {
+      association_status: "unassociated",
+      pathfinder_customer_id: null,
+      customer_name: null,
+      access_mode: "view_only",
+      review_experience: "simple",
+      source: "safe_default",
+      policy_updated_at: null
+    };
+  }
+  const normalized = normalizeWorkspace(workspace);
+  const policy = normalized.proof_capability_policy;
+  const override = policy.order_overrides.find(
+    (candidate) => candidate.order_number === orderNumber
+  );
+  return {
+    association_status: "associated",
+    pathfinder_customer_id: normalized.customer.lift_customer_id,
+    customer_name: normalized.customer.customer_name,
+    access_mode: override?.access_mode ?? policy.access_mode,
+    review_experience: override?.review_experience ?? policy.review_experience,
+    source: override ? "order_override" : "customer_default",
+    policy_updated_at: override?.updated_at ?? policy.updated_at
+  };
 }
 
 export async function listJobs() {

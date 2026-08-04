@@ -30,6 +30,10 @@ import {
   type ProofAssetUploadStatusRequest
 } from "./asset-upload-service.js";
 import { getProofAssetUploadRuntimeConfig } from "./asset-upload-config.js";
+import {
+  resolveCustomerProofCapabilityForOrder,
+  type ResolvedCustomerProofCapability
+} from "../store.js";
 
 function operatorAuditContext(req: Request, res: Response): ProofAuditContext {
   const authUser = res.locals.authUser as { uid?: unknown } | undefined;
@@ -96,6 +100,9 @@ export interface ProofAdminRouterDependencies {
   orderIsStale?: typeof proofOrderIsStale;
   operatorActionService?: ReturnType<typeof createProofOperatorActionService>;
   assetUploadService?: ReturnType<typeof createProofAssetUploadService>;
+  resolveCustomerCapability?: (
+    orderNumber: string
+  ) => Promise<ResolvedCustomerProofCapability>;
 }
 
 export function createProofAdminRouter(dependencies: ProofAdminRouterDependencies = {}) {
@@ -108,6 +115,8 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
     dependencies.operatorActionService ?? createProofOperatorActionService();
   const assetUploadService =
     dependencies.assetUploadService ?? createProofAssetUploadService();
+  const resolveCustomerCapability =
+    dependencies.resolveCustomerCapability ?? resolveCustomerProofCapabilityForOrder;
 
   router.get("/health/lift", (_req, res) => {
     assertLiftProofWritesDisabled();
@@ -278,7 +287,10 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
     try {
       assertLiftProofWritesDisabled();
       const result = await syncProofOrder(req.params.orderNumber, { audit_context: operatorAuditContext(req, res) });
-      res.json(result);
+      res.json({
+        ...result,
+        customer_capability: await resolveCustomerCapability(result.order.order_number)
+      });
     } catch (error) {
       res.status(errorStatus(error)).json({
         error: error instanceof Error ? error.message : "Vornan Proof sync failed."
@@ -295,7 +307,11 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         res.status(404).json({ error: `Proof order ${orderNumber} has not been synchronized.` });
         return;
       }
-      res.json({ order, feature_flags: getProofRuntimeConfig().feature_flags });
+      res.json({
+        order,
+        feature_flags: getProofRuntimeConfig().feature_flags,
+        customer_capability: await resolveCustomerCapability(order.order_number)
+      });
     } catch (error) {
       res.status(errorStatus(error)).json({
         error: error instanceof Error ? error.message : "Vornan Proof inspection failed."
@@ -351,6 +367,13 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         throw new ProofAccessFeatureDisabledError("grant creation");
       }
       const orderNumber = normalizeLiftOrderNumber(req.params.orderNumber);
+      const customerCapability = await resolveCustomerCapability(orderNumber);
+      if (
+        customerCapability.association_status === "associated" &&
+        customerCapability.access_mode === "disabled"
+      ) {
+        throw new ProofGrantCohortDeniedError();
+      }
       const cached = await getOrderForGrant(orderNumber);
       let eligibleOrder = cached;
       if (!cached || !cached.customer_id || orderIsStale(cached.last_synced_at)) {

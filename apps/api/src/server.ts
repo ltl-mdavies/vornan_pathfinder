@@ -175,6 +175,10 @@ import {
   updateCustomerSourceConnection,
   updateOutputRoute,
   updateStatusAccessPolicy,
+  updateCustomerProofCapabilityPolicy,
+  upsertCustomerProofOrderOverride,
+  removeCustomerProofOrderOverride,
+  CustomerProofCapabilityValidationError,
   updateTarget,
   TargetInUseError,
   TargetNotFoundError,
@@ -199,6 +203,8 @@ import {
   type PublicOrderStatusSnapshot,
   type StatusAccessPolicy,
   type StatusProofVisibility,
+  type CustomerProofCapabilityPolicy,
+  type CustomerProofOrderOverride,
   type SubmitCertificationActionKey,
   type SubmitCertification,
   type SubmitCertificationItem,
@@ -5433,6 +5439,78 @@ app.put("/api/customers/:liftCustomerId/status-access-policy", async (req, res) 
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Status access policy save failed."
+    });
+  }
+});
+
+app.put("/api/customers/:liftCustomerId/proof-capability-policy", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const authUser = res.locals.authUser as { uid?: unknown } | undefined;
+    const actorId = typeof authUser?.uid === "string" ? authUser.uid : "local-operator";
+    const patch = req.body as Partial<CustomerProofCapabilityPolicy>;
+    const workspace = await updateCustomerProofCapabilityPolicy(
+      customer,
+      {
+        access_mode: patch.access_mode as CustomerProofCapabilityPolicy["access_mode"],
+        review_experience: patch.review_experience as CustomerProofCapabilityPolicy["review_experience"]
+      },
+      actorId
+    );
+    res.json({
+      ...workspace,
+      primary_target: await getTarget(workspace.primary_target_id)
+    });
+  } catch (error) {
+    res.status(error instanceof CustomerProofCapabilityValidationError ? 400 : 500).json({
+      error: error instanceof Error ? error.message : "Proof capability policy save failed."
+    });
+  }
+});
+
+app.put("/api/customers/:liftCustomerId/proof-capability-policy/orders/:orderNumber", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const authUser = res.locals.authUser as { uid?: unknown } | undefined;
+    const actorId = typeof authUser?.uid === "string" ? authUser.uid : "local-operator";
+    const patch = req.body as Partial<CustomerProofOrderOverride>;
+    const workspace = await upsertCustomerProofOrderOverride(
+      customer,
+      req.params.orderNumber,
+      {
+        access_mode: patch.access_mode as CustomerProofOrderOverride["access_mode"],
+        review_experience: patch.review_experience as CustomerProofOrderOverride["review_experience"]
+      },
+      actorId
+    );
+    res.json({
+      ...workspace,
+      primary_target: await getTarget(workspace.primary_target_id)
+    });
+  } catch (error) {
+    res.status(error instanceof CustomerProofCapabilityValidationError ? 400 : 500).json({
+      error: error instanceof Error ? error.message : "Proof order override save failed."
+    });
+  }
+});
+
+app.delete("/api/customers/:liftCustomerId/proof-capability-policy/orders/:orderNumber", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const authUser = res.locals.authUser as { uid?: unknown } | undefined;
+    const actorId = typeof authUser?.uid === "string" ? authUser.uid : "local-operator";
+    const workspace = await removeCustomerProofOrderOverride(
+      customer,
+      req.params.orderNumber,
+      actorId
+    );
+    res.json({
+      ...workspace,
+      primary_target: await getTarget(workspace.primary_target_id)
+    });
+  } catch (error) {
+    res.status(error instanceof CustomerProofCapabilityValidationError ? 400 : 500).json({
+      error: error instanceof Error ? error.message : "Proof order override removal failed."
     });
   }
 });
