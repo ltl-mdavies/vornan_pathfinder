@@ -241,20 +241,12 @@ test("operator-only Proof action QA remains independently dark and narrowly scop
   );
   assert.match(
     template,
-    /PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA: !Ref ProofOperatorActionQaEnabled/
+    /PATHFINDER_PROOF_OPERATOR_ACTION_SCOPE: !Join[\s\S]*?- "\|"[\s\S]*?!Ref ProofOperatorActionQaEnabled[\s\S]*?!Ref ProofOperatorActionAllowedOrders[\s\S]*?!Ref ProofOperatorActionExpiresAt[\s\S]*?!Ref ProofAdvancedReviewEnabled/
   );
-  assert.match(
-    template,
-    /PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS: !Ref ProofOperatorActionAllowedOrders/
-  );
-  assert.match(
-    template,
-    /PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT: !Ref ProofOperatorActionExpiresAt/
-  );
-  assert.match(
-    template,
-    /PATHFINDER_ENABLE_PROOF_ADVANCED_REVIEW: !Ref ProofAdvancedReviewEnabled/
-  );
+  assert.doesNotMatch(template, /PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA:/);
+  assert.doesNotMatch(template, /PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS:/);
+  assert.doesNotMatch(template, /PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT:/);
+  assert.doesNotMatch(template, /PATHFINDER_ENABLE_PROOF_ADVANCED_REVIEW:/);
   assert.match(
     template,
     /ProofAdvancedReviewRequiresOperatorQa:\n\s+RuleCondition: !Equals \[!Ref ProofAdvancedReviewEnabled, "true"\][\s\S]*?!Equals \[!Ref ProofOperatorActionQaEnabled, "true"\]/

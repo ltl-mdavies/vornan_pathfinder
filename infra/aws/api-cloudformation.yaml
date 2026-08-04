@@ -956,10 +956,15 @@ Resources:
           PATHFINDER_PROOF_ENABLE_LINK_EMAIL: !Ref ProofLinkEmailEnabled
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"
           PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref ProofPublicBaseUrl
-          PATHFINDER_ENABLE_PROOF_OPERATOR_ACTION_QA: !Ref ProofOperatorActionQaEnabled
-          PATHFINDER_PROOF_OPERATOR_ACTION_ALLOWED_ORDERS: !Ref ProofOperatorActionAllowedOrders
-          PATHFINDER_PROOF_OPERATOR_ACTION_EXPIRES_AT: !Ref ProofOperatorActionExpiresAt
-          PATHFINDER_ENABLE_PROOF_ADVANCED_REVIEW: !Ref ProofAdvancedReviewEnabled
+          # Keep the bounded operator controls in one environment entry. Lambda
+          # limits the complete environment block to 4 KB; the CloudFormation
+          # parameters and rules above remain independently validated.
+          PATHFINDER_PROOF_OPERATOR_ACTION_SCOPE: !Join
+            - "|"
+            - - !Ref ProofOperatorActionQaEnabled
+              - !Ref ProofOperatorActionAllowedOrders
+              - !Ref ProofOperatorActionExpiresAt
+              - !Ref ProofAdvancedReviewEnabled
           # Keep the entire upload configuration out of Lambda's constrained
           # environment unless the bounded upload capability is active. The
           # runtime treats absent values as disabled, and the stack rule above
