@@ -1,4 +1,5 @@
 export type ProofState = "waiting" | "pending" | "revised" | "approved" | "reference" | "cancelled" | "missing" | "error";
+export type ProofDecisionState = "rejected_pending_action" | "sent_back_to_artist" | "revised_art_pending" | "cancel_requested";
 
 export interface ProofVersion {
   version_id: string;
@@ -25,6 +26,7 @@ export interface ProofTask {
   product_name: string | null;
   quantity: number | null;
   state: ProofState;
+  decision_state?: ProofDecisionState | null;
   sibling_index: number;
   sibling_count: number;
   feedback_required: boolean;

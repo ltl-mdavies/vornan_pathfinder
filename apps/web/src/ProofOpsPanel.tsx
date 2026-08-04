@@ -58,6 +58,17 @@ interface ProofTaskSummary {
   quantity: number | null;
   state: string;
   actionable: boolean;
+  decision_context?: {
+    state:
+      | "rejected_pending_action"
+      | "sent_back_to_artist"
+      | "revised_art_pending"
+      | "cancel_requested";
+    action: "REJECT" | "SEND_BACK_TO_ARTIST" | "REVISED_ART_WILL_BE_SENT" | "CANCEL_LINE";
+    attachment_id: string;
+    recorded_at: string;
+    source: "pathfinder_operator_action";
+  } | null;
   current_version: {
     version_id: string;
     filename: string | null;
@@ -126,6 +137,45 @@ export interface ProofActionDraft {
   confirmation: "authoritative_read_after_write_required";
 }
 
+function decisionContextLabel(task: ProofTaskSummary | null) {
+  switch (task?.decision_context?.state) {
+    case "rejected_pending_action":
+      return "Rejected — choose what happens next";
+    case "sent_back_to_artist":
+      return "Sent back to artist — awaiting revised direction";
+    case "revised_art_pending":
+      return "Revised artwork pending";
+    case "cancel_requested":
+      return "Line cancellation requested";
+    default:
+      return null;
+  }
+}
+
+function availableProofActions(task: ProofTaskSummary | null): ProofActionDraftKind[] {
+  switch (task?.decision_context?.state) {
+    case "rejected_pending_action":
+      return ["SEND_BACK_TO_ARTIST", "CANCEL_LINE", "REVISED_ART_WILL_BE_SENT"];
+    case "sent_back_to_artist":
+      return ["CANCEL_LINE", "REVISED_ART_WILL_BE_SENT"];
+    case "revised_art_pending":
+    case "cancel_requested":
+      return [];
+    default:
+      return ["APPROVE", "REJECT"];
+  }
+}
+
+function proofActionLabel(action: ProofActionDraftKind) {
+  switch (action) {
+    case "APPROVE": return "Approve";
+    case "REJECT": return "Reject";
+    case "SEND_BACK_TO_ARTIST": return "Send back to artist";
+    case "CANCEL_LINE": return "Cancel line";
+    case "REVISED_ART_WILL_BE_SENT": return "Revised artwork will be provided";
+  }
+}
+
 export function buildProofActionDraft(input: {
   order: ProofOrderSummary;
   taskId: string;
@@ -153,20 +203,23 @@ export function buildProofActionDraft(input: {
       throw new Error("The authoritative Lift line quantity is unavailable.");
     }
     expectedLineQuantity = task.quantity!;
+    const currentProofs = input.order.tasks
+      .filter((candidate) =>
+        candidate.order_line_id === task.order_line_id &&
+        candidate.actionable &&
+        candidate.attachment_id &&
+        candidate.current_version?.attachment_id === candidate.attachment_id
+      )
+      .sort((left, right) =>
+        (left.attachment_id ?? "").localeCompare(right.attachment_id ?? "")
+      );
+    if (input.approvalMode === "simple" && currentProofs.length !== 1) {
+      throw new Error("A line with multiple current proofs requires a complete quantity allocation.");
+    }
     if (input.approvalMode === "quantity_allocation") {
       if (!task.order_line_id) {
         throw new Error("Advanced approval requires a current Lift line.");
       }
-      const currentProofs = input.order.tasks
-        .filter((candidate) =>
-          candidate.order_line_id === task.order_line_id &&
-          candidate.actionable &&
-          candidate.attachment_id &&
-          candidate.current_version?.attachment_id === candidate.attachment_id
-        )
-        .sort((left, right) =>
-          (left.attachment_id ?? "").localeCompare(right.attachment_id ?? "")
-        );
       allocationPlan = [...input.allocationPlan].sort((left, right) =>
         left.attachment_id.localeCompare(right.attachment_id)
       );
@@ -221,7 +274,7 @@ export function buildProofActionDraft(input: {
     );
   }
   const comment = input.comment.trim();
-  if (comment.length > 2_000) throw new Error("Proof action comment is too long.");
+  if (comment.length > 2_000) throw new Error("The production-team message is too long.");
   return {
     order_number: input.order.order_number,
     task_id: task.task_id,
@@ -298,7 +351,6 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   const [qaOrders, setQaOrders] = useState<string[]>(initialQaOrders);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [proofAction, setProofAction] = useState<ProofActionDraftKind>("APPROVE");
-  const [approvalMode, setApprovalMode] = useState<ProofApprovalMode>("simple");
   const [allocationQuantities, setAllocationQuantities] = useState<Record<string, number>>({});
   const [proofComment, setProofComment] = useState("");
   const [revisionAssetId, setRevisionAssetId] = useState("");
@@ -347,7 +399,6 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     if (!order) return;
     const firstActionable = order.tasks.find((task) => task.actionable && task.attachment_id && task.current_version);
     setSelectedTaskId(firstActionable?.task_id ?? "");
-    setApprovalMode("simple");
     setAllocationQuantities({});
     setProofAction("APPROVE");
     setProofComment("");
@@ -375,7 +426,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     setAllocationQuantities(Object.fromEntries(
       siblings.map((task) => [task.task_id, 0])
     ));
-    if (siblings.length < 2) setApprovalMode("simple");
+    setProofAction(availableProofActions(selected ?? null)[0] ?? "REJECT");
   }, [order, selectedTaskId]);
 
   useEffect(() => {
@@ -833,6 +884,13 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
         task.current_version?.attachment_id === task.attachment_id
       )
     : [];
+  const approvalMode: ProofApprovalMode =
+    selectedLineProofs.length > 1 ? "quantity_allocation" : "simple";
+  const selectedTaskActions = availableProofActions(selectedTask);
+  const selectedDecisionLabel = decisionContextLabel(selectedTask);
+  const allocationAvailable =
+    health?.operator_action_qa.advanced_quantity_allocation_enabled &&
+    advancedCustomerEnabled;
   const allocationPlan = selectedLineProofs.map((task) => ({
     task_id: task.task_id,
     attachment_id: task.attachment_id!,
@@ -847,6 +905,16 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   let actionDraftError: string | null = null;
   if (order && selectedTaskId) {
     try {
+      if (!selectedTaskActions.length) {
+        throw new Error("This proof is waiting for Lift to return a new current proof before another action can be prepared.");
+      }
+      if (
+        proofAction === "APPROVE" &&
+        selectedLineProofs.length > 1 &&
+        !allocationAvailable
+      ) {
+        throw new Error("Multiple current proofs require Advanced review and a bounded allocation window.");
+      }
       actionDraft = buildProofActionDraft({
         order,
         taskId: selectedTaskId,
@@ -1012,7 +1080,6 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 Proof
                 <select value={selectedTaskId} onChange={(event) => {
                   setSelectedTaskId(event.target.value);
-                  setApprovalMode("simple");
                 }}>
                   <option value="">Choose current proof</option>
                   {order.tasks.filter((task) => task.actionable && task.attachment_id && task.current_version).map((task) => (
@@ -1024,45 +1091,50 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
               </label>
               <label>
                 Action
-                <select value={proofAction} onChange={(event) => setProofAction(event.target.value as ProofActionDraftKind)}>
-                  <option value="APPROVE">Approve proof</option>
-                  <option value="REJECT">Reject</option>
-                  <option value="SEND_BACK_TO_ARTIST">Send back to artist</option>
-                  <option value="CANCEL_LINE">Cancel line</option>
-                  <option value="REVISED_ART_WILL_BE_SENT">Revised art will be sent</option>
+                <select
+                  value={selectedTaskActions.includes(proofAction) ? proofAction : ""}
+                  disabled={!selectedTaskActions.length}
+                  onChange={(event) => setProofAction(event.target.value as ProofActionDraftKind)}
+                >
+                  {!selectedTaskActions.length ? <option value="">Awaiting a new current proof</option> : null}
+                  {selectedTask?.decision_context?.state === "rejected_pending_action" ? (
+                    <>
+                      <optgroup label="Artwork will not be used">
+                        <option value="SEND_BACK_TO_ARTIST">Send back to artist</option>
+                        <option value="CANCEL_LINE">Cancel line</option>
+                      </optgroup>
+                      <optgroup label="Revised artwork">
+                        <option value="REVISED_ART_WILL_BE_SENT">Revised artwork will be provided</option>
+                      </optgroup>
+                    </>
+                  ) : selectedTaskActions.map((action) => (
+                    <option key={action} value={action}>{proofActionLabel(action)}</option>
+                  ))}
                 </select>
               </label>
+              {selectedDecisionLabel ? (
+                <div className="proof-action-decision-state" role="status">
+                  <CircleAlert size={16} />
+                  <span>
+                    <strong>{selectedDecisionLabel}</strong>
+                    <small>
+                      Pathfinder recorded the last supervised action for this exact proof. This state clears when Lift returns a replacement proof or a non-pending result.
+                    </small>
+                  </span>
+                </div>
+              ) : null}
               {proofAction === "APPROVE" ? (
                 <div className="proof-approval-mode" role="group" aria-labelledby="proof-approval-mode-title">
                   <div className="proof-approval-mode-heading">
                     <div>
-                      <strong id="proof-approval-mode-title">Approval mode</strong>
+                      <strong id="proof-approval-mode-title">
+                        {approvalMode === "simple" ? "Simple approval" : "Creative quantity allocation"}
+                      </strong>
                       <small>
-                        Simple approves this proof without sending a quantity. Advanced allocates the full line across current creatives.
+                        {approvalMode === "simple"
+                          ? "One current proof is approved without sending a quantity override."
+                          : "Multiple current proofs require the full line quantity to be allocated before approval."}
                       </small>
-                    </div>
-                    <div className="proof-segmented-control" aria-label="Approval mode">
-                      <button
-                        type="button"
-                        aria-pressed={approvalMode === "simple"}
-                        className={approvalMode === "simple" ? "is-selected" : ""}
-                        onClick={() => setApprovalMode("simple")}
-                      >
-                        Simple
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={approvalMode === "quantity_allocation"}
-                        className={approvalMode === "quantity_allocation" ? "is-selected" : ""}
-                        disabled={
-                          selectedLineProofs.length < 2 ||
-                          !health?.operator_action_qa.advanced_quantity_allocation_enabled ||
-                          !advancedCustomerEnabled
-                        }
-                        onClick={() => setApprovalMode("quantity_allocation")}
-                      >
-                        Advanced
-                      </button>
                     </div>
                   </div>
                   {approvalMode === "simple" ? (
@@ -1072,6 +1144,11 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                     </div>
                   ) : (
                     <div className="proof-allocation-editor">
+                      {!allocationAvailable ? (
+                        <div className="proof-action-allocation-blocked" role="alert">
+                          This line has multiple current proofs. Enable Advanced review for this customer and open a bounded allocation QA window before approval.
+                        </div>
+                      ) : null}
                       <div className="proof-allocation-summary">
                         <span>Line quantity <strong>{selectedTask?.quantity ?? "—"}</strong></span>
                         <span>Allocated <strong>{allocatedQuantity}</strong></span>
@@ -1110,9 +1187,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                       </small>
                     </div>
                   )}
-                  {selectedLineProofs.length >= 2 &&
-                  (!health?.operator_action_qa.advanced_quantity_allocation_enabled ||
-                    !advancedCustomerEnabled) ? (
+                  {selectedLineProofs.length >= 2 && !allocationAvailable ? (
                     <small className="proof-advanced-locked-note">
                       {!health?.operator_action_qa.advanced_quantity_allocation_enabled
                         ? "Advanced allocation remains behind the default-disabled platform gate."
@@ -1124,8 +1199,9 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 </div>
               ) : null}
               <label className="proof-action-comment">
-                Comment
-                <textarea value={proofComment} maxLength={2000} onChange={(event) => setProofComment(event.target.value)} placeholder="Optional note for this proof action" />
+                Message to production team
+                <textarea value={proofComment} maxLength={2000} onChange={(event) => setProofComment(event.target.value)} placeholder="Optional line-specific message" />
+                <small>This appears in the Lift order history and references the order line. It is separate from Prepress team feedback attached to the proof.</small>
               </label>
               {proofAction === "REVISED_ART_WILL_BE_SENT" ? (
                 <div className="proof-action-art-url proof-revised-art-upload" role="group" aria-labelledby="proof-revised-art-upload-title">

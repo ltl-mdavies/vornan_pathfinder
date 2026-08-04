@@ -101,6 +101,19 @@ test("requires a complete multi-proof allocation and binds only the selected qua
       order: multiProofOrder,
       taskId: "ptask_synthetic_001",
       action: "APPROVE",
+      approvalMode: "simple",
+      allocationPlan: [],
+      comment: "",
+      revisionAssetId: ""
+    }),
+    /multiple current proofs requires a complete quantity allocation/
+  );
+
+  assert.throws(
+    () => buildProofActionDraft({
+      order: multiProofOrder,
+      taskId: "ptask_synthetic_001",
+      action: "APPROVE",
       approvalMode: "quantity_allocation",
       allocationPlan: allocationPlan.map((entry) => ({ ...entry, approve_quantity: 1 })),
       comment: "",
@@ -218,4 +231,17 @@ test("treats every unavailable post-submit response as uncertain and never invit
     /A fresh authoritative Lift sync is required before another Proof action can be prepared\./
   );
   assert.equal(source.includes("Proof action execution failed."), false);
+});
+
+test("uses contextual approval, guided rejection, and accurate production-message language", async () => {
+  const source = await readFile(
+    new URL("../src/ProofOpsPanel.tsx", import.meta.url),
+    "utf8"
+  );
+  assert.match(source, /selectedLineProofs\.length > 1 \? "quantity_allocation" : "simple"/);
+  assert.match(source, /Artwork will not be used/);
+  assert.match(source, /Revised artwork will be provided/);
+  assert.match(source, /Message to production team/);
+  assert.match(source, /Lift order history and references the order line/);
+  assert.equal(source.includes("aria-label=\"Approval mode\""), false);
 });

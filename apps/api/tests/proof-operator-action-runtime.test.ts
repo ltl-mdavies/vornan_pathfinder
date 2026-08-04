@@ -276,6 +276,28 @@ test("binds a complete same-line allocation and rejects quantity drift before cr
   };
   const firstTask = { ...order.tasks[0], sibling_count: 2 };
   const multiProofOrder = { ...order, tasks: [firstTask, secondTask] };
+  let simpleReservations = 0;
+  const contextualPreparation = createProofOperatorActionService({
+    runtimeConfig: () => runtimeConfig(),
+    now: () => now,
+    listTargetConfigs: async () => targets,
+    syncOrder: async () => ({ order: multiProofOrder, diagnostics: null }) as never,
+    reserve: async () => {
+      simpleReservations += 1;
+      throw new Error("must not reserve an ambiguous simple approval");
+    }
+  });
+  await assert.rejects(
+    () => contextualPreparation.prepare({
+      request,
+      operator_uid: "operator-synthetic",
+      correlation_id: "correlation-synthetic"
+    }),
+    (error: unknown) =>
+      error instanceof ProofOperatorActionError && error.code === "invalid"
+  );
+  assert.equal(simpleReservations, 0);
+
   const advancedRequest = {
     ...request,
     idempotency_key: "operator-action-allocation-0001",
@@ -680,6 +702,78 @@ test("persists submission_uncertain before one PUT and immediately reconciles wi
   });
   assert.equal(result.observation.confirmed, false);
   assert.equal(result.observation.automatic_retry, false);
+  assert.equal(result.authoritative_reconciliation.requires_manual_review, true);
+});
+
+test("records a sanitized follow-up state after an observed rejection on the same pending proof", async () => {
+  const rejectRequest = {
+    ...request,
+    action: "REJECT" as const,
+    idempotency_key: "operator-action-reject-0001",
+    comment: "Synthetic line-history message"
+  };
+  let currentRecord: ProofOperatorActionRecord | null = null;
+  const preparation = createProofOperatorActionService({
+    runtimeConfig: () => runtimeConfig(),
+    now: () => now,
+    listTargetConfigs: async () => targets,
+    syncOrder: async () => ({ order, diagnostics: null }) as never,
+    reserve: async (record) => {
+      currentRecord = record;
+      return { status: "new" as const, record };
+    }
+  });
+  await preparation.prepare({
+    request: rejectRequest,
+    operator_uid: "operator-synthetic",
+    correlation_id: "correlation-synthetic"
+  });
+
+  let persistedOrder: ProofOrder | null = null;
+  const execution = createProofOperatorActionService({
+    runtimeConfig: () => runtimeConfig(),
+    now: () => now,
+    listTargetConfigs: async () => targets,
+    getRecord: async () => currentRecord,
+    syncOrder: async () => ({ order, diagnostics: null }) as never,
+    readCredentials: async () => ({
+      base_url: "https://proofing.example.invalid/api",
+      company_id: "91",
+      action_user_name: "VORNAN_PROOF",
+      client_id: "client-synthetic-0001",
+      client_secret: "synthetic-signing-material-".repeat(2)
+    }),
+    transition: async (_existing, next) => {
+      currentRecord = next;
+      return next;
+    },
+    send: async () => ({
+      status: 202,
+      transport_error: false,
+      classification: {
+        classification: "success_observed_unconfirmed",
+        confirmed: false,
+        retryable: false,
+        reconciliation: "authoritative_read_after_write_required",
+        reason: "success_response_requires_authoritative_confirmation"
+      }
+    }),
+    persistOrder: async (nextOrder) => {
+      persistedOrder = nextOrder;
+      return nextOrder;
+    }
+  });
+  const result = await execution.execute({
+    request: rejectRequest,
+    confirmation_phrase: "CONFIRM REJECT A0226753 proofing-synthetic-0001",
+    operator_uid: "operator-synthetic",
+    correlation_id: "correlation-synthetic"
+  });
+
+  assert.equal(persistedOrder?.tasks[0]?.decision_context?.state, "rejected_pending_action");
+  assert.equal(persistedOrder?.tasks[0]?.decision_context?.attachment_id, "proofing-synthetic-0001");
+  assert.equal(JSON.stringify(persistedOrder).includes(rejectRequest.comment), false);
+  assert.equal(result.authoritative_reconciliation.task_state, "pending");
   assert.equal(result.authoritative_reconciliation.requires_manual_review, true);
 });
 

@@ -105,7 +105,27 @@ function formatQuantity(value: number | null) {
 }
 
 function statusLabel(task: ProofTask) {
+  if (task.decision_state === "rejected_pending_action") return "Rejected — action needed";
+  if (task.decision_state === "sent_back_to_artist") return "Sent back to artist";
+  if (task.decision_state === "revised_art_pending") return "Revised art pending";
+  if (task.decision_state === "cancel_requested") return "Cancellation requested";
   return proofStatePresentation(task.state).label;
+}
+
+function decisionStateDetail(task: ProofTask) {
+  if (task.decision_state === "rejected_pending_action") {
+    return "This proof was rejected. Choose whether the line should be cancelled, sent back to the artist, or receive revised artwork.";
+  }
+  if (task.decision_state === "sent_back_to_artist") {
+    return "The production team was asked to return this line to the artist. The rejected proof remains available for reference.";
+  }
+  if (task.decision_state === "revised_art_pending") {
+    return "Revised artwork is expected. Review resumes when Lift publishes a new current proof.";
+  }
+  if (task.decision_state === "cancel_requested") {
+    return "Cancellation was requested for this order line.";
+  }
+  return proofStatePresentation(task.state).detail;
 }
 
 function TaskStateIcon({ state }: { state: ProofTask["state"] }) {
@@ -435,7 +455,7 @@ export function App() {
         terminateSession();
         return;
       }
-      setFeedbackError(error instanceof Error ? error.message : "Feedback could not be acknowledged.");
+      setFeedbackError(error instanceof Error ? error.message : "Prepress team feedback could not be acknowledged.");
     } finally {
       setFeedbackSaving(false);
     }
@@ -662,11 +682,11 @@ export function App() {
                 <div>
                   <span className="eyebrow">Line {selectedTask.line_number ?? "—"}{formatQuantity(selectedTask.quantity) !== null ? ` · Qty ${formatQuantity(selectedTask.quantity)}` : ""}</span>
                   <h2>{selectedTask.product_name ?? "Artwork proof"}</h2>
-                  {proofStatePresentation(selectedTask.state).detail ? <p className={`task-state-copy ${selectedTask.state}`}>{proofStatePresentation(selectedTask.state).detail}</p> : null}
+                  {decisionStateDetail(selectedTask) ? <p className={`task-state-copy ${selectedTask.state}`}>{decisionStateDetail(selectedTask)}</p> : null}
                 </div>
                 <div className="detail-actions">
                   <button className="button secondary compact" type="button" onClick={(event) => openDetailDialog("feedback", selectedTask.task_id, event)}>
-                    <MessageSquareText aria-hidden="true" /> Feedback
+                    <MessageSquareText aria-hidden="true" /> Prepress team feedback
                   </button>
                   <button className="button secondary compact" type="button" onClick={(event) => openDetailDialog("history", selectedTask.task_id, event)}>
                     <History aria-hidden="true" /> File history
@@ -723,7 +743,7 @@ export function App() {
                   <div>
                     <span className="eyebrow">Line {task.line_number ?? "—"}</span>
                     <h2 id={`feed-title-${task.task_id}`}>{task.product_name ?? "Artwork proof"}</h2>
-                    {proofStatePresentation(task.state).detail ? <p className={`task-state-copy ${task.state}`}>{proofStatePresentation(task.state).detail}</p> : null}
+                    {decisionStateDetail(task) ? <p className={`task-state-copy ${task.state}`}>{decisionStateDetail(task)}</p> : null}
                   </div>
                   <span className={`status-pill ${task.state}`}>
                     <TaskStateIcon state={task.state} />
@@ -737,7 +757,7 @@ export function App() {
                 </div>
                 <div className="feed-preview"><ProofPreview version={version} /></div>
                 <div className="feed-toolbar" aria-label={`Actions for ${task.product_name ?? "proof"}`}>
-                  <button type="button" onClick={(event) => openDetailDialog("feedback", task.task_id, event)}><MessageSquareText aria-hidden="true" /> Feedback</button>
+                  <button type="button" onClick={(event) => openDetailDialog("feedback", task.task_id, event)}><MessageSquareText aria-hidden="true" /> Prepress team feedback</button>
                   <button type="button" onClick={(event) => openDetailDialog("history", task.task_id, event)}><History aria-hidden="true" /> History</button>
                   {asset.open ? <a href={asset.open} target="_blank" rel="noreferrer"><ExternalLink aria-hidden="true" /> Open full size</a> : null}
                 </div>
@@ -778,8 +798,8 @@ export function App() {
           <div className="dialog-heading">
             <div>
               <span className="eyebrow">{dialogTask.product_name ?? "Artwork proof"}</span>
-              <h2 id="proof-dialog-title">{detailDialog.kind === "feedback" ? "Feedback" : "File history"}</h2>
-              <p className="sr-only" id="proof-dialog-description">{detailDialog.kind === "feedback" ? "Review feedback and its available attachments for this proof." : "Review the current and previous customer-safe versions of this proof."}</p>
+              <h2 id="proof-dialog-title">{detailDialog.kind === "feedback" ? "Prepress team feedback" : "File history"}</h2>
+              <p className="sr-only" id="proof-dialog-description">{detailDialog.kind === "feedback" ? "Review Prepress team feedback and its available attachments for this proof." : "Review the current and previous customer-safe versions of this proof."}</p>
             </div>
             <button ref={detailDialogCloseButton} className="icon-button subtle" type="button" aria-label="Close dialog" onClick={closeDetailDialog}><X aria-hidden="true" /></button>
           </div>
@@ -787,15 +807,15 @@ export function App() {
             <div className="dialog-content comments-list">
               {dialogVersion?.comments.length ? dialogVersion.comments.map((comment, index) => (
                 <article className="comment" key={`${comment.created_at}-${index}`}>
-                  <p>{comment.text ?? "Feedback attached"}</p>
+                  <p>{comment.text ?? "Prepress team feedback attached"}</p>
                   {comment.attachments.length ? (
-                    <ul className="comment-attachments" aria-label="Feedback attachments">
+                    <ul className="comment-attachments" aria-label="Prepress team feedback attachments">
                       {comment.attachments.map((attachment, attachmentIndex) => (
                         <li key={`${attachment.filename}-${attachmentIndex}`}>
                           {attachment.url ? (
                             <a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`Open feedback attachment ${attachment.filename}`}>
                               <Paperclip aria-hidden="true" />
-                              <span><strong>{attachment.filename}</strong><small>{attachment.content_type ?? "Feedback file"}</small></span>
+                              <span><strong>{attachment.filename}</strong><small>{attachment.content_type ?? "Prepress feedback file"}</small></span>
                               <ExternalLink aria-hidden="true" />
                             </a>
                           ) : (
@@ -810,19 +830,19 @@ export function App() {
                   ) : null}
                   <time>{formatDate(comment.created_at, true)}</time>
                 </article>
-              )) : <p className="muted">No feedback has been recorded for this version.</p>}
+              )) : <p className="muted">No Prepress team feedback has been recorded for this version.</p>}
               {dialogTask.feedback_required ? (
                 <div className={`feedback-ack ${dialogTask.feedback_acknowledged ? "complete" : ""}`}>
                   <div>
                     <CheckCircle2 aria-hidden="true" />
                     <span>
-                      <strong>{dialogTask.feedback_acknowledged ? "Feedback reviewed" : "Confirm you reviewed this feedback"}</strong>
+                      <strong>{dialogTask.feedback_acknowledged ? "Prepress team feedback reviewed" : "Confirm you reviewed the Prepress team feedback"}</strong>
                       <small>This acknowledgement is a review record only. It does not approve the proof or submit a revision.</small>
                     </span>
                   </div>
                   {dialogTask.feedback_acknowledged ? null : participant ? (
                     <button className="button primary" type="button" disabled={feedbackSaving} onClick={() => void acknowledgeCurrentFeedback()}>
-                      {feedbackSaving ? "Saving…" : "Mark feedback reviewed"}
+                      {feedbackSaving ? "Saving…" : "Mark as reviewed"}
                     </button>
                   ) : (
                     <button className="button secondary" type="button" onClick={identifyFromFeedback}>Identify reviewer first</button>

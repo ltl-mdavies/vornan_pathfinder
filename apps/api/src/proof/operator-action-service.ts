@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  recordProofTaskDecisionContext,
   type ProofAuditEvent,
   type ProofOrder,
   type ProofTask
@@ -28,6 +29,7 @@ import {
   type TargetConfig
 } from "../store.js";
 import { syncProofOrder } from "./service.js";
+import { persistProofOrder } from "./store.js";
 import {
   getProofOperatorActionQaConfig,
   type ProofOperatorActionQaConfig
@@ -90,6 +92,7 @@ export interface ProofOperatorActionDependencies {
   reserve?: typeof reserveProofOperatorAction;
   getRecord?: typeof getProofOperatorActionRecord;
   transition?: typeof transitionProofOperatorAction;
+  persistOrder?: typeof persistProofOrder;
   send?: typeof sendLiftProofingRuntimeAction;
   resolveRevisionAsset?: (
     assetId: string
@@ -372,18 +375,6 @@ function approvalContext(
     );
   }
   const lineQuantity = task.quantity!;
-  if (request.approval_mode === "simple") {
-    return {
-      expected_line_quantity: lineQuantity,
-      allocation_plan_sha256: null
-    };
-  }
-  if (!task.order_line_id || !request.allocation_plan) {
-    throw new ProofOperatorActionError(
-      "invalid",
-      "Advanced approval requires a current Lift line and complete allocation."
-    );
-  }
   const currentProofs = order.tasks
     .filter(
       (candidate) =>
@@ -395,6 +386,24 @@ function approvalContext(
     .sort((left, right) =>
       (left.attachment_id ?? "").localeCompare(right.attachment_id ?? "")
     );
+  if (request.approval_mode === "simple") {
+    if (currentProofs.length !== 1) {
+      throw new ProofOperatorActionError(
+        "invalid",
+        "A line with multiple current proofs requires a complete Advanced allocation."
+      );
+    }
+    return {
+      expected_line_quantity: lineQuantity,
+      allocation_plan_sha256: null
+    };
+  }
+  if (!task.order_line_id || !request.allocation_plan) {
+    throw new ProofOperatorActionError(
+      "invalid",
+      "Advanced approval requires a current Lift line and complete allocation."
+    );
+  }
   if (
     currentProofs.length < 2 ||
     currentProofs.some((candidate) => candidate.quantity !== lineQuantity) ||
@@ -676,6 +685,7 @@ export function createProofOperatorActionService(
   const reserve = dependencies.reserve ?? reserveProofOperatorAction;
   const getRecord = dependencies.getRecord ?? getProofOperatorActionRecord;
   const transition = dependencies.transition ?? transitionProofOperatorAction;
+  const persistOrder = dependencies.persistOrder ?? persistProofOrder;
   const send = dependencies.send ?? sendLiftProofingRuntimeAction;
   const resolveRevisionAsset =
     dependencies.resolveRevisionAsset ?? (async () => null);
@@ -1043,6 +1053,28 @@ export function createProofOperatorActionService(
           classification: observation.classification.classification
         })
       );
+      if (
+        reconciledOrder &&
+        observation.status !== null &&
+        observation.status >= 200 &&
+        observation.status < 300 &&
+        request.action !== "APPROVE"
+      ) {
+        try {
+          reconciledOrder = await persistOrder(recordProofTaskDecisionContext(
+            reconciledOrder,
+            {
+              task_id: request.task_id,
+              attachment_id: request.attachment_id,
+              action: request.action,
+              recorded_at: observedAt
+            }
+          ));
+        } catch {
+          // The Lift observation remains reconciling. A stale or replaced proof
+          // must never be relabelled from a prior action.
+        }
+      }
       const authoritativeTask = reconciledOrder?.tasks.find(
         (candidate) => candidate.task_id === request.task_id
       );
