@@ -108,6 +108,10 @@ test("scheduled Wrike intake is default-off, prepare-only, and exactly scoped", 
   );
   assert.match(
     template,
+    /WrikeScheduledIntakeAsyncPolicy:[\s\S]*?Condition: WrikeScheduledIntakeActive[\s\S]*?Type: AWS::Lambda::EventInvokeConfig[\s\S]*?FunctionName: !Ref PathfinderApiFunction[\s\S]*?Qualifier: \$LATEST[\s\S]*?MaximumEventAgeInSeconds: 300[\s\S]*?MaximumRetryAttempts: 0/
+  );
+  assert.match(
+    template,
     /WrikeScheduledIntakeInvokePermission:[\s\S]*?Principal: events\.amazonaws\.com[\s\S]*?SourceArn: !GetAtt WrikeScheduledIntakeRule\.Arn/
   );
   assert.match(

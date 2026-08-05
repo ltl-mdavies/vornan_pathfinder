@@ -1044,6 +1044,15 @@ Resources:
             MaximumEventAgeInSeconds: 300
             MaximumRetryAttempts: 0
 
+  WrikeScheduledIntakeAsyncPolicy:
+    Condition: WrikeScheduledIntakeActive
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref PathfinderApiFunction
+      Qualifier: $LATEST
+      MaximumEventAgeInSeconds: 300
+      MaximumRetryAttempts: 0
+
   WrikeScheduledIntakeInvokePermission:
     Condition: WrikeScheduledIntakeActive
     Type: AWS::Lambda::Permission
