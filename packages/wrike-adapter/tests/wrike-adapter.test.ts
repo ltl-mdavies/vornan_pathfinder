@@ -695,6 +695,25 @@ test("retains rotated OAuth credentials when the identity check fails", async ()
   );
 });
 
+test("keeps rotated OAuth credentials non-enumerable on provider errors", () => {
+  const error = new WrikeConnectionError(
+    "task_discovery_failed",
+    "Wrike discovery failed.",
+    {
+      client_id: "client-id",
+      client_secret: "must-not-serialize",
+      refresh_token: "must-not-serialize",
+      access_token: "must-not-serialize",
+      host: "www.wrike.com"
+    }
+  );
+
+  assert.equal(error.rotated_credentials?.client_id, "client-id");
+  const serialized = JSON.stringify(error);
+  assert.equal(serialized.includes("rotated_credentials"), false);
+  assert.equal(serialized.includes("must-not-serialize"), false);
+});
+
 test("previews one qualified task and counts every matching workbook without returning provider content", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const config = normalizeWrikeSourceConfig({
@@ -1428,7 +1447,11 @@ test("discovers eligible Placard Orders across configured campaign descendants a
     "parentIds",
     "superParentIds"
   ]);
-  assert.equal(folderUrl.searchParams.get("pageSize"), "100");
+  assert.equal(folderUrl.searchParams.get("pageSize"), "1000");
+  assert.deepEqual(
+    JSON.parse(folderUrl.searchParams.get("customStatuses") ?? "[]"),
+    ["IESENTTOPRINT"]
+  );
 });
 
 test("discovers only safe shipping task and attachment metadata when the pure contract is explicitly activated", async () => {
@@ -1532,6 +1555,11 @@ test("discovers only safe shipping task and attachment metadata when the pure co
   ]);
   assert.equal(result.shipping.candidates[0].matching_attachment_count, 1);
   assert.equal(result.capabilities.shipping_attachment_metadata_read, true);
+  const folderUrl = new URL(calls[1]);
+  assert.deepEqual(
+    JSON.parse(folderUrl.searchParams.get("customStatuses") ?? "[]"),
+    ["IESENTTOPRINT", "IEHAVADDRESS"]
+  );
   assert.match(
     calls[2],
     /\/api\/v4\/tasks\/IESHIPPING1\/attachments\?versions=false&withUrls=false$/

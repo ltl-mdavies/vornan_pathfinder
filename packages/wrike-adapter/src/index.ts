@@ -68,6 +68,8 @@ export interface WrikeOAuthAuthorizationResult {
 }
 
 export class WrikeConnectionError extends Error {
+  public readonly rotated_credentials?: WrikeOAuthCredentials;
+
   constructor(
     public readonly code:
       | "invalid_configuration"
@@ -82,10 +84,20 @@ export class WrikeConnectionError extends Error {
       | "comment_write_failed"
       | "invalid_response",
     message: string,
-    public readonly rotated_credentials?: WrikeOAuthCredentials
+    rotatedCredentials?: WrikeOAuthCredentials
   ) {
     super(message);
     this.name = "WrikeConnectionError";
+    // Lambda serializes enumerable custom Error properties when an async
+    // invocation escapes the handler. Keep rotated credentials available to
+    // the in-process persistence recovery path without ever serializing them
+    // into logs or API responses.
+    Object.defineProperty(this, "rotated_credentials", {
+      value: rotatedCredentials,
+      enumerable: false,
+      configurable: false,
+      writable: false
+    });
   }
 }
 
@@ -1577,7 +1589,17 @@ export async function discoverScopedWrikeIntakeTasks(
         "superParentIds"
       ])
     );
-    taskUrl.searchParams.set("pageSize", "100");
+    // Filter at Wrike before pagination so the account's historical campaign
+    // volume does not dominate the scheduled ready-order scan. Shipping uses
+    // its own exact ready status when that separately gated intake is active.
+    const discoveryStatusIds = [
+      triggerStatusId,
+      ...(config.shipping_intake.enabled
+        ? [providerIdentifier(config.shipping_intake.trigger_status_id)]
+        : [])
+    ].filter((statusId, index, values) => statusId && values.indexOf(statusId) === index);
+    taskUrl.searchParams.set("customStatuses", JSON.stringify(discoveryStatusIds));
+    taskUrl.searchParams.set("pageSize", "1000");
     if (nextPageToken) {
       taskUrl.searchParams.set("nextPageToken", nextPageToken);
     }
