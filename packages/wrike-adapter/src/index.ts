@@ -557,6 +557,72 @@ function resolveWrikeTextCustomField(task: unknown, customFieldId: unknown) {
   return value && value.length <= 256 ? value : null;
 }
 
+function wrikeDropdownValueIds(value: string | null) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    const values = Array.isArray(parsed) ? parsed : [parsed];
+    const identifiers = values.map(providerIdentifier).filter(Boolean);
+    if (identifiers.length > 0) return identifiers;
+  } catch {
+    // Plain option IDs and display values are both valid Wrike representations.
+  }
+  return [value];
+}
+
+async function readWrikeDropdownOptionLabels(args: {
+  host: string;
+  access_token: string;
+  custom_field_id: string;
+  fetch_impl: typeof fetch;
+}) {
+  const labels = new Map<string, string>();
+  if (!args.custom_field_id) return labels;
+  try {
+    const url = new URL(`https://${args.host}/api/v4/customfields`);
+    url.searchParams.set("types", JSON.stringify(["DropDown"]));
+    const response = await args.fetch_impl(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${args.access_token}`,
+        Accept: "application/json"
+      }
+    });
+    if (!response.ok) return labels;
+    const payload = await responseJson(response);
+    const field = (Array.isArray(payload.data) ? payload.data : [])
+      .map(asRecord)
+      .find((candidate) => providerIdentifier(candidate.id) === args.custom_field_id);
+    const values = Array.isArray(asRecord(field?.settings).values)
+      ? (asRecord(field?.settings).values as unknown[]).map(asRecord)
+      : [];
+    for (const option of values) {
+      const id = providerIdentifier(option.id);
+      const label =
+        typeof (option.value ?? option.title ?? option.name) === "string"
+          ? String(option.value ?? option.title ?? option.name).trim().replace(/\s+/g, " ")
+          : "";
+      if (id && label && label.length <= 256) labels.set(id, label);
+    }
+  } catch {
+    return labels;
+  }
+  return labels;
+}
+
+function resolvedWrikeComparableCustomField(
+  task: unknown,
+  customFieldId: unknown,
+  dropdownLabels: Map<string, string>
+) {
+  const rawValue = resolveWrikeTextCustomField(task, customFieldId);
+  const resolved = wrikeDropdownValueIds(rawValue)
+    .map((value) => dropdownLabels.get(value) ?? value)
+    .filter(Boolean)
+    .join(", ");
+  return resolved || null;
+}
+
 function taskIdentityMatches(
   task: Record<string, unknown>,
   mode: WrikeTaskIdentityMode,
@@ -1823,9 +1889,17 @@ export async function discoverScopedWrikeIntakeTasks(
         orderTaskTypeId
       )
   );
+  const vendorDropdownLabels = await readWrikeDropdownOptionLabels({
+    host,
+    access_token: accessToken,
+    custom_field_id: vendorFieldId,
+    fetch_impl: fetchImpl
+  });
   const orderVendorMatchTasks = orderStatusAndIdentityTasks.filter(
     ({ task }) =>
-      normalizedComparableText(resolveWrikeTextCustomField(task, vendorFieldId)) ===
+      normalizedComparableText(
+        resolvedWrikeComparableCustomField(task, vendorFieldId, vendorDropdownLabels)
+      ) ===
       normalizedComparableText(vendorValue)
   );
   const orderContractReadyCount = orderVendorMatchTasks.filter(
@@ -1849,7 +1923,11 @@ export async function discoverScopedWrikeIntakeTasks(
       ) {
         return null;
       }
-      const vendor = resolveWrikeTextCustomField(task, vendorFieldId);
+      const vendor = resolvedWrikeComparableCustomField(
+        task,
+        vendorFieldId,
+        vendorDropdownLabels
+      );
       const contract = resolveWrikeContractNumber(task, config.contract_number_custom_field_id);
       if (
         normalizedComparableText(vendor) !== normalizedComparableText(vendorValue) ||
