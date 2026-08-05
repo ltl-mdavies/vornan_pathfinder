@@ -4805,7 +4805,12 @@ export async function runConfiguredWrikeScheduledIntake() {
         throw new Error("Scheduled Wrike intake requires the exact active Wrike Import Method.");
       }
       const config = normalizeWrikeSourceConfig(method.source_config.wrike);
-      if (!config.enabled || !config.connection_id) {
+      // The production scheduler gate is the activation boundary. Wrike source
+      // contracts intentionally normalize their legacy `enabled` field to false,
+      // so requiring it here would make a separately gated scheduled intake
+      // impossible to activate. The exact active Import Method and saved active
+      // connection remain mandatory below.
+      if (!config.connection_id) {
         throw new Error("Scheduled Wrike intake requires an active saved source contract.");
       }
       connection = await findCustomerSourceConnection(customer, config.connection_id);
