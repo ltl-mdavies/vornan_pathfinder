@@ -344,9 +344,12 @@ export interface WrikeScopedIntakeDiscoveryResult {
     task_count: number;
     eligible_order_count: number;
     eligible_shipping_task_count: number;
+    order_status_id_count: number;
+    shipping_status_id_count: number;
   };
   capabilities: {
     folder_task_metadata_read: true;
+    workflow_status_metadata_read: boolean;
     shipping_attachment_metadata_read: boolean;
     attachment_download: false;
     workbook_parse: false;
@@ -1218,6 +1221,60 @@ async function readWrikeApiJson(
   }
 }
 
+async function discoverWrikeStatusIdsByLabel(args: {
+  host: string;
+  access_token: string;
+  labels: string[];
+  fetch_impl: typeof fetch;
+}) {
+  const requestedLabels = new Set(
+    args.labels.map(normalizedComparableText).filter(Boolean)
+  );
+  const statusIdsByLabel = new Map<string, Set<string>>();
+  if (requestedLabels.size === 0) {
+    return { read: false, status_ids_by_label: statusIdsByLabel };
+  }
+
+  let response: Response;
+  try {
+    response = await args.fetch_impl(`https://${args.host}/api/v4/workflows`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${args.access_token}`,
+        Accept: "application/json"
+      }
+    });
+  } catch {
+    return { read: false, status_ids_by_label: statusIdsByLabel };
+  }
+  if (!response.ok) {
+    return { read: false, status_ids_by_label: statusIdsByLabel };
+  }
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = await responseJson(response);
+  } catch {
+    return { read: false, status_ids_by_label: statusIdsByLabel };
+  }
+  for (const workflow of Array.isArray(payload.data) ? payload.data.map(asRecord) : []) {
+    const statuses = Array.isArray(workflow.customStatuses)
+      ? workflow.customStatuses.map(asRecord)
+      : [];
+    for (const status of statuses) {
+      const label = normalizedComparableText(status.name ?? status.title);
+      const statusId = providerIdentifier(status.id);
+      if (!requestedLabels.has(label) || !statusId) {
+        continue;
+      }
+      const matches = statusIdsByLabel.get(label) ?? new Set<string>();
+      matches.add(statusId);
+      statusIdsByLabel.set(label, matches);
+    }
+  }
+  return { read: true, status_ids_by_label: statusIdsByLabel };
+}
+
 async function resolveWrikeFolderId(
   folderId: string,
   host: string,
@@ -1637,12 +1694,39 @@ export async function discoverScopedWrikeIntakeTasks(
     }
   }
 
+  const workflowStatuses = await discoverWrikeStatusIdsByLabel({
+    host,
+    access_token: accessToken,
+    labels: [
+      config.trigger_status_label,
+      ...(config.shipping_intake.enabled
+        ? [config.shipping_intake.trigger_status_label]
+        : [])
+    ],
+    fetch_impl: fetchImpl
+  });
+  const orderStatusIds = new Set([
+    triggerStatusId,
+    ...(workflowStatuses.status_ids_by_label.get(
+      normalizedComparableText(config.trigger_status_label)
+    ) ?? [])
+  ]);
+  const configuredShippingStatusId = providerIdentifier(
+    config.shipping_intake.trigger_status_id
+  );
+  const shippingStatusIds = new Set([
+    ...(configuredShippingStatusId ? [configuredShippingStatusId] : []),
+    ...(workflowStatuses.status_ids_by_label.get(
+      normalizedComparableText(config.shipping_intake.trigger_status_label)
+    ) ?? [])
+  ]);
+
   const orderCandidates = taskRecords
     .map((task): WrikeEligibleOrderTask | null => {
       const scoped = scopedTaskRecord(task, folderId);
       if (
         !scoped ||
-        scoped.custom_status_id !== triggerStatusId ||
+        !orderStatusIds.has(scoped.custom_status_id) ||
         !taskIdentityMatches(
           task,
           config.order_task_identity_mode,
@@ -1672,14 +1756,13 @@ export async function discoverScopedWrikeIntakeTasks(
 
   const shippingCandidates: WrikeEligibleShippingTask[] = [];
   if (config.shipping_intake.enabled) {
-    const shippingStatusId = providerIdentifier(config.shipping_intake.trigger_status_id);
     const shippingTypeId = providerIdentifier(config.shipping_intake.custom_item_type_id);
     const shippingTasks = taskRecords
       .map((task) => ({ task, scoped: scopedTaskRecord(task, folderId) }))
       .filter(({ task, scoped }) =>
         Boolean(
           scoped &&
-            scoped.custom_status_id === shippingStatusId &&
+            shippingStatusIds.has(scoped.custom_status_id) &&
             taskIdentityMatches(
               task,
               config.shipping_intake.task_identity_mode,
@@ -1760,10 +1843,13 @@ export async function discoverScopedWrikeIntakeTasks(
     summary: {
       task_count: taskRecords.length,
       eligible_order_count: orderCandidates.length,
-      eligible_shipping_task_count: shippingCandidates.length
+      eligible_shipping_task_count: shippingCandidates.length,
+      order_status_id_count: orderStatusIds.size,
+      shipping_status_id_count: shippingStatusIds.size
     },
     capabilities: {
       folder_task_metadata_read: true,
+      workflow_status_metadata_read: workflowStatuses.read,
       shipping_attachment_metadata_read: config.shipping_intake.enabled,
       attachment_download: false,
       workbook_parse: false,

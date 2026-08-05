@@ -4792,6 +4792,13 @@ export async function runConfiguredWrikeScheduledIntake() {
   let customer: LiftCustomer | null = null;
   let connection: CustomerSourceConnection | null = null;
   let existingSecrets: WrikeConnectorSecrets | null = null;
+  let discoverySummary = {
+    task_count: 0,
+    eligible_order_count: 0,
+    eligible_shipping_task_count: 0,
+    order_status_id_count: 0,
+    shipping_status_id_count: 0
+  };
   const intakeResult = await runWrikeScheduledIntake({
     config: wrikeScheduledIntakeConfig,
     discover: async () => {
@@ -4833,6 +4840,7 @@ export async function runConfiguredWrikeScheduledIntake() {
         max_pages: 10,
         max_tasks: 10_000
       });
+      discoverySummary = discovery.summary;
       await writeCustomerSourceConnectionSecrets(
         customer.lift_customer_id,
         connection.connection_id,
@@ -4954,6 +4962,7 @@ export async function runConfiguredWrikeScheduledIntake() {
 
   return {
     ...intakeResult,
+    discovery_summary: discoverySummary,
     status_writeback: statusWriteback,
     capabilities: {
       ...intakeResult.capabilities,
