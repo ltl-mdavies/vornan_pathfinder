@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent, MouseEvent } from "react";
+import type { FormEvent, MouseEvent } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
   Download,
   ExternalLink,
+  FileImage,
   FileText,
   History,
   Layers3,
@@ -20,23 +21,31 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { acknowledgeFeedback, endSession, exchangeToken, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofRefresh } from "./api";
+import { acknowledgeFeedback, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofRefresh } from "./api";
 import { proofAsset } from "./asset-state";
 import { demoActivityForHash, demoOrderForHash } from "./demo";
 import { restoreProofDialogFocus } from "./dialog-state";
 import { proofOrderDisplayStatus, proofOrderDisplayTitle } from "./display-state";
 import {
   filterProofTasks,
+  groupProofTasksByLine,
+  lineGroupForTask,
   queueEmptyMessage,
-  queueNavigationTarget,
   searchProofTasks,
   selectedVisibleTask,
-  type QueueFilter,
-  type QueueNavigationKey
+  type QueueFilter
 } from "./queue-state";
 import { proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation } from "./lifecycle-state";
 import { ProofPreview } from "./proof-preview";
-import { createFailClosedSessionTerminator, focusProofTerminalState, proofEntryState, sessionExpiryDelay } from "./session-state";
+import {
+  quantityDraftMatches,
+  buildDemoTransformationSummary,
+  saveQuantityDraft,
+  type QuantityTransformationSummary,
+  type SavedQuantityDraft
+} from "./quantity-review-state";
+import { summarizeQuantityAssignment } from "./quantity-assignment";
+import { createFailClosedSessionTerminator, focusProofTerminalState, proofEntryState, sessionExpiryDelay, sessionSecondsRemaining, sessionWarningVisible } from "./session-state";
 import type { ProofActivity, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
 
 type TerminalState = "link_unavailable" | "session_ended";
@@ -152,19 +161,381 @@ function TaskThumbnail({ task }: { task: ProofTask }) {
   );
 }
 
-function ActionTransport({ mobile = false }: { mobile?: boolean }) {
+type QuantityAssignmentProps = {
+  tasks: ProofTask[];
+  values: Record<string, string>;
+  mobile: boolean;
+  open: boolean;
+  onChange: (values: Record<string, string>) => void;
+  onClose: () => void;
+  onDone: () => void;
+  onReview: () => void;
+  saved: boolean;
+  reviewEnabled: boolean;
+};
+
+function QuantityAssignmentDialog({ tasks, values, mobile, open, onChange, onClose, onDone, onReview, saved, reviewEnabled }: QuantityAssignmentProps) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const lineQuantity = tasks[0]?.quantity ?? null;
+  const summary = summarizeQuantityAssignment(lineQuantity, tasks.map((task) => task.task_id), values);
+  const invalidTasks = new Set(summary.invalid_task_ids);
+  const remainingLabel = summary.remaining === null
+    ? "Quantity unavailable"
+    : summary.remaining === 0
+      ? "Ready to approve"
+      : summary.remaining > 0
+        ? `${summary.remaining} remaining`
+        : `${Math.abs(summary.remaining)} over`;
+
+  useEffect(() => {
+    if (open && dialog.current && !dialog.current.open) {
+      dialog.current.showModal();
+      window.requestAnimationFrame(() => closeButton.current?.focus({ preventScroll: true }));
+    }
+  }, [open]);
+
+  const close = () => dialog.current?.close();
+  const done = () => {
+    if (!summary.complete) return;
+    onDone();
+    close();
+  };
+  const review = () => {
+    if (!summary.complete || !reviewEnabled) return;
+    onDone();
+    close();
+    window.requestAnimationFrame(onReview);
+  };
+  const clear = () => onChange(Object.fromEntries(tasks.map((task) => [task.task_id, ""])));
+
   return (
-    <section className={`action-transport ${mobile ? "mobile" : ""}`} aria-label="Proof decision actions" aria-describedby={mobile ? undefined : "action-lock-message"}>
-      <div className="action-lock">
-        <LockKeyhole aria-hidden="true" />
-        <span><strong>Decision actions</strong><small id={mobile ? undefined : "action-lock-message"}>Locked during isolated lifecycle QA</small></span>
+    <dialog
+      ref={dialog}
+      className={`proof-dialog quantity-assignment-dialog ${mobile ? "mobile" : ""}`}
+      aria-labelledby={`quantity-assignment-title-${mobile ? "mobile" : "desktop"}`}
+      aria-describedby={`quantity-assignment-description-${mobile ? "mobile" : "desktop"}`}
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
+      onClose={onClose}
+    >
+      <div className="dialog-heading quantity-assignment-heading">
+        <div>
+          <span className="eyebrow">Line {tasks[0]?.line_number ?? "—"} · Qty {formatQuantity(lineQuantity) ?? "—"}</span>
+          <h2 id={`quantity-assignment-title-${mobile ? "mobile" : "desktop"}`}>Assign quantities</h2>
+          <p id={`quantity-assignment-description-${mobile ? "mobile" : "desktop"}`}>Distribute the full line quantity across the selected creatives. You’ll review everything before submitting.</p>
+        </div>
+        <button ref={closeButton} className="icon-button subtle" type="button" aria-label="Close quantity assignment" onClick={close}><X aria-hidden="true" /></button>
       </div>
-      {!mobile ? <textarea disabled aria-label="Optional note sent with this decision" placeholder="Optional note sent with this decision" /> : null}
-      <div className="transport-buttons">
-        <button type="button" disabled><ShieldCheck aria-hidden="true" /> Approve for Print</button>
-        <button type="button" disabled><Upload aria-hidden="true" /> Upload Revised File</button>
+
+      <div className="quantity-assignment-summary" aria-live="polite">
+        <span><small>Line quantity</small><strong>{formatQuantity(lineQuantity) ?? "—"}</strong></span>
+        <span><small>Assigned</small><strong>{summary.assigned}</strong></span>
+        <span className={summary.remaining !== null && summary.remaining < 0 ? "invalid" : summary.complete ? "complete" : ""}><small>Remaining</small><strong>{summary.remaining ?? "—"}</strong></span>
       </div>
+
+      <div className="quantity-assignment-content">
+        <div className="quantity-assignment-list" role="list" aria-label="Proof quantities">
+          {tasks.map((task, index) => {
+            const invalid = invalidTasks.has(task.task_id);
+            return (
+              <div className={`quantity-assignment-row ${invalid ? "invalid" : ""}`} role="listitem" key={task.task_id}>
+                <TaskThumbnail task={task} />
+                <span className="quantity-proof-copy">
+                  <strong>Creative {task.sibling_index ?? index + 1}</strong>
+                  <small>{task.current_version?.filename ?? "Proof pending"}</small>
+                  <em>{statusLabel(task)}</em>
+                </span>
+                <label>
+                  <span>Quantity</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={lineQuantity ?? undefined}
+                    step="1"
+                    inputMode="numeric"
+                    aria-label={`Quantity for creative ${task.sibling_index ?? index + 1}`}
+                    aria-invalid={invalid || undefined}
+                    value={values[task.task_id] ?? ""}
+                    onChange={(event) => onChange({ ...values, [task.task_id]: event.target.value })}
+                    placeholder="0"
+                  />
+                  {invalid ? <small role="alert">Enter a whole number from 0 to {lineQuantity ?? "the line total"}.</small> : null}
+                </label>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="quantity-assignment-footer">
+        <div className={`quantity-assignment-status ${summary.complete ? "complete" : summary.remaining !== null && summary.remaining < 0 ? "invalid" : ""}`} role="status">
+          <strong>{remainingLabel}</strong>
+          <small>{summary.complete ? saved ? "Saved, not submitted. You can continue reviewing." : "Ready to save. Nothing is sent until final confirmation." : "All proof quantities must add up to the line quantity."}</small>
+        </div>
+        <div>
+          <button className="button secondary" type="button" onClick={clear}>Clear all</button>
+          <button className="button secondary" type="button" disabled={!summary.complete} onClick={done}>Done</button>
+          <button className="button primary" type="button" disabled={!summary.complete || !reviewEnabled} onClick={review}><ShieldCheck aria-hidden="true" /> Continue to review</button>
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
+type BatchDialogProps = {
+  tasks: ProofTask[];
+  values: Record<string, string>;
+  message: string;
+  stage: "confirm" | "processing" | "summary" | null;
+  currentIndex: number;
+  summary: QuantityTransformationSummary | null;
+  onMessageChange: (message: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  onClose: () => void;
+};
+
+function BatchApprovalDialog({ tasks, values, message, stage, currentIndex, summary, onMessageChange, onCancel, onConfirm, onClose }: BatchDialogProps) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const total = tasks.length;
+
+  useEffect(() => {
+    if (stage && dialog.current && !dialog.current.open) {
+      dialog.current.showModal();
+      if (stage !== "processing") window.requestAnimationFrame(() => closeButton.current?.focus({ preventScroll: true }));
+    }
+    if (!stage && dialog.current?.open) dialog.current.close();
+  }, [stage]);
+
+  if (!stage) return null;
+  const processingTask = tasks[Math.min(currentIndex, Math.max(0, total - 1))];
+  return (
+    <dialog
+      ref={dialog}
+      className={`proof-dialog quantity-batch-dialog ${stage}`}
+      aria-labelledby="quantity-batch-title"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (stage !== "processing") onCancel();
+      }}
+    >
+      {stage === "confirm" ? (
+        <>
+          <div className="dialog-heading quantity-batch-heading">
+            <div><span className="eyebrow">Final review · Line {tasks[0]?.line_number ?? "—"}</span><h2 id="quantity-batch-title">Submit these approvals?</h2><p>Review every selected creative and quantity. Nothing has been sent yet.</p></div>
+            <button ref={closeButton} className="icon-button subtle" type="button" aria-label="Close approval review" onClick={onCancel}><X aria-hidden="true" /></button>
+          </div>
+          <div className="quantity-confirm-list" role="list" aria-label="Creative quantity approvals">
+            {tasks.map((task, index) => <div role="listitem" key={task.task_id}><TaskThumbnail task={task} /><span><strong>Creative {task.sibling_index ?? index + 1}</strong><small>{task.current_version?.filename ?? "Proof pending"}</small></span><b>Qty {values[task.task_id]}</b></div>)}
+          </div>
+          <div className="quantity-confirm-total"><span>Total quantity</span><strong>{tasks.reduce((totalQuantity, task) => totalQuantity + Number(values[task.task_id] ?? 0), 0)}</strong></div>
+          <label className="quantity-confirm-message">
+            <span>Message with approval <small>(optional)</small></span>
+            <textarea
+              value={message}
+              onChange={(event) => onMessageChange(event.target.value)}
+              placeholder="Add context for the production team with your approval"
+              maxLength={2000}
+            />
+          </label>
+          <div className="quantity-batch-footer"><button className="button secondary" type="button" onClick={onCancel}>Back</button><button className="button primary" type="button" onClick={onConfirm}><ShieldCheck aria-hidden="true" /> Submit approvals to print</button></div>
+        </>
+      ) : null}
+
+      {stage === "processing" ? (
+        <div className="quantity-processing" aria-live="polite" aria-busy="true">
+          <span className="processing-mark"><RefreshCw aria-hidden="true" /></span>
+          <span className="eyebrow">Approval in progress</span>
+          <h2 id="quantity-batch-title">Approving creative {Math.min(currentIndex + 1, total)} of {total}</h2>
+          <p>{processingTask?.current_version?.filename ?? "Current proof"}</p>
+          <div className="quantity-progress" aria-label={`${Math.min(currentIndex + 1, total)} of ${total} approvals processed`}><span style={{ width: `${((Math.min(currentIndex + 1, total)) / total) * 100}%` }} /></div>
+          <small>Keep this window open. Pathfinder is processing each approval once, then refreshing the order.</small>
+        </div>
+      ) : null}
+
+      {stage === "summary" && summary ? (
+        <>
+          <div className="dialog-heading quantity-batch-heading summary-heading">
+            <div><span className="summary-check"><CheckCircle2 aria-hidden="true" /></span><span className="eyebrow">Approval complete</span><h2 id="quantity-batch-title">Your proofs and quantities are now approved</h2><p>Each creative now appears on its own line with the quantity you assigned. Review the updates below.</p></div>
+            <button ref={closeButton} className="icon-button subtle" type="button" aria-label="Close approval summary" onClick={onClose}><X aria-hidden="true" /></button>
+          </div>
+          <div className="quantity-before-after">
+            <div className="quantity-before"><span>Before</span><strong>Line {summary.source_line_number ?? "—"}</strong><small>{tasks.length} creatives · Qty {summary.source_line_quantity}</small></div>
+            <div className="quantity-after"><span>After refresh</span><div>{summary.lines.map((line) => <div key={line.task_id}><TaskThumbnail task={tasks.find((task) => task.task_id === line.task_id)!} /><span><strong>Line {line.resulting_line_number}</strong><small>{line.filename}</small></span><b>Qty {line.quantity}</b><em><CheckCircle2 aria-hidden="true" /> Approved</em></div>)}</div></div>
+          </div>
+          <div className="quantity-batch-footer summary-footer"><span>Order details were refreshed after all approvals completed.</span><button className="button primary" type="button" onClick={onClose}>View updated proofs</button></div>
+        </>
+      ) : null}
+    </dialog>
+  );
+}
+
+type ActionTransportProps = {
+  tasks: ProofTask[];
+  selectedTaskId: string;
+  stagedTaskIds: string[];
+  values: Record<string, string>;
+  onChange: (values: Record<string, string>) => void;
+  onStageApproval: (taskId: string) => void;
+  onUndoApproval: (taskId: string) => void;
+  draft: SavedQuantityDraft | null;
+  onSaveDraft: (draft: SavedQuantityDraft) => void;
+  demoBatchEnabled: boolean;
+  mobile?: boolean;
+};
+
+function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, mobile = false }: ActionTransportProps) {
+  const multiProof = tasks.length > 1;
+  const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
+  const selectedCreativeNumber = tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1;
+  const stagedTasks = tasks.filter((task) => stagedTaskIds.includes(task.task_id));
+  const selectedIsStaged = stagedTaskIds.includes(selectedTask.task_id);
+  const lineQuantity = tasks[0]?.quantity ?? null;
+  const [assignmentOpen, setAssignmentOpen] = useState(false);
+  const [batchStage, setBatchStage] = useState<BatchDialogProps["stage"]>(null);
+  const [processingIndex, setProcessingIndex] = useState(0);
+  const [transformationSummary, setTransformationSummary] = useState<QuantityTransformationSummary | null>(null);
+  const [decisionMessage, setDecisionMessage] = useState("");
+  const assignmentOpener = useRef<HTMLButtonElement>(null);
+  const summary = summarizeQuantityAssignment(lineQuantity, stagedTasks.map((task) => task.task_id), values);
+  const saved = quantityDraftMatches(draft, stagedTasks, values);
+  const saveDraft = () => {
+    const savedDraft = saveQuantityDraft({ groupId: tasks[0]?.line_number ?? tasks[0]?.task_id ?? "line", tasks: stagedTasks, values, now: new Date() });
+    onSaveDraft(savedDraft);
+  };
+  const beginProcessing = async () => {
+    setBatchStage("processing");
+    for (let index = 0; index < stagedTasks.length; index += 1) {
+      setProcessingIndex(index);
+      await new Promise((resolve) => window.setTimeout(resolve, 650));
+    }
+    setProcessingIndex(stagedTasks.length - 1);
+    await new Promise((resolve) => window.setTimeout(resolve, 850));
+    setTransformationSummary(buildDemoTransformationSummary(stagedTasks, values));
+    setBatchStage("summary");
+  };
+  const distributionSummary = summary.remaining === null
+    ? "Quantity unavailable"
+    : summary.remaining === 0
+      ? "Distribution complete"
+      : summary.remaining > 0
+        ? `${summary.remaining} remaining`
+        : `${Math.abs(summary.remaining)} over`;
+  const quantityGuidance = stagedTasks.length === 0
+    ? "Select each creative you want to approve, then assign its quantity."
+    : lineQuantity === null
+      ? "Assign a quantity to each selected creative before final review."
+      : `Assign the full line quantity across the ${stagedTasks.length} selected ${stagedTasks.length === 1 ? "creative" : "creatives"}, then review before submitting.`;
+  const undoSelectedApproval = () => {
+    const next = { ...values };
+    delete next[selectedTask.task_id];
+    onChange(next);
+    onUndoApproval(selectedTask.task_id);
+  };
+  return (
+    <section className={`action-transport ${mobile ? "mobile" : ""} ${multiProof ? "distribution" : "simple"}`} aria-label="Proof decision actions" aria-describedby={mobile ? undefined : "action-lock-message"}>
+      <div className="decision-heading">
+        <strong>{multiProof ? "Creative decision" : "Review decision"}</strong>
+        <small className="decision-lock-status" id={mobile ? undefined : "action-lock-message"}><LockKeyhole aria-hidden="true" /> Actions remain locked during lifecycle QA</small>
+      </div>
+      {multiProof ? (
+        <>
+          <div className="creative-stage-entry">
+            <span className="creative-stage-copy">
+              <TaskThumbnail task={selectedTask} />
+              <span>
+                <small>Selected creative</small>
+                <strong>Creative {selectedCreativeNumber}</strong>
+                <em title={selectedTask.current_version?.filename ?? "Proof pending"}>{selectedTask.current_version?.filename ?? "Proof pending"}</em>
+              </span>
+            </span>
+            <span className="creative-stage-actions">
+              {selectedIsStaged ? <span className="staged-status"><CheckCircle2 aria-hidden="true" /> Ready to submit</span> : null}
+              {selectedIsStaged
+                ? <button className="button tertiary" type="button" onClick={undoSelectedApproval}>Undo</button>
+                : <button className="button primary" type="button" onClick={() => onStageApproval(selectedTask.task_id)}><ShieldCheck aria-hidden="true" /> Approve this creative</button>}
+              <button className="button secondary request-changes" type="button" disabled><Upload aria-hidden="true" /> Request changes</button>
+            </span>
+          </div>
+          <div className="quantity-entry">
+            <span className="quantity-entry-copy">
+              <Layers3 aria-hidden="true" />
+              <span>
+                <span className="quantity-title">Approval quantities</span>
+                <strong>{summary.complete ? "Approvals ready for final review" : `${stagedTasks.length} of ${tasks.length} selected for approval`}</strong>
+                <small>{quantityGuidance}</small>
+                <span className={`distribution-total ${summary.complete ? "complete" : summary.remaining !== null && summary.remaining < 0 ? "invalid" : ""}`}>
+                  <strong>{summary.assigned}</strong> of <strong>{formatQuantity(lineQuantity) ?? "—"}</strong> assigned <i aria-hidden="true">·</i> <strong>{distributionSummary}</strong>
+                </span>
+              </span>
+            </span>
+            <button
+              ref={assignmentOpener}
+              className="button secondary"
+              type="button"
+              data-quantity-assignment-trigger
+              disabled={stagedTasks.length === 0}
+              onClick={() => summary.complete && demoBatchEnabled ? setBatchStage("confirm") : setAssignmentOpen(true)}
+            >
+              {summary.complete && demoBatchEnabled ? "Review approvals" : "Assign quantities"}
+            </button>
+          </div>
+        </>
+      ) : null}
+      {!multiProof ? <div className="transport-buttons"><button type="button" disabled><ShieldCheck aria-hidden="true" /> Approve</button><button type="button" disabled><Upload aria-hidden="true" /> Request changes</button></div> : null}
+      {multiProof ? (
+        <QuantityAssignmentDialog
+          tasks={stagedTasks}
+          values={values}
+          mobile={mobile}
+          open={assignmentOpen}
+          onChange={onChange}
+          onDone={saveDraft}
+          onReview={() => setBatchStage("confirm")}
+          saved={saved}
+          reviewEnabled={demoBatchEnabled}
+          onClose={() => {
+            setAssignmentOpen(false);
+            window.requestAnimationFrame(() => assignmentOpener.current?.focus({ preventScroll: true }));
+          }}
+        />
+      ) : null}
+      {multiProof ? <BatchApprovalDialog tasks={stagedTasks} values={values} message={decisionMessage} stage={batchStage} currentIndex={processingIndex} summary={transformationSummary} onMessageChange={setDecisionMessage} onCancel={() => setBatchStage(null)} onConfirm={() => void beginProcessing()} onClose={() => setBatchStage(null)} /> : null}
     </section>
+  );
+}
+
+function ProofFilmstrip({ tasks, selectedTaskId, assignments = {}, stagedTaskIds = [], onSelect }: { tasks: ProofTask[]; selectedTaskId: string | null; assignments?: Record<string, string>; stagedTaskIds?: string[]; onSelect: (taskId: string) => void }) {
+  if (tasks.length < 2) return null;
+  return (
+    <nav className="proof-filmstrip" aria-label="Proofs on this order line">
+      <div className="filmstrip-heading"><Layers3 aria-hidden="true" /><span>{tasks.length} creatives</span></div>
+      <div className="filmstrip-items">
+        {tasks.map((task, index) => {
+          const filename = task.current_version?.filename ?? "Proof pending";
+          const staged = stagedTaskIds.includes(task.task_id);
+          const taskStatus = staged ? assignments[task.task_id] ? `Qty ${assignments[task.task_id]} · Ready` : "Ready to submit" : statusLabel(task);
+          return (
+            <button
+              key={task.task_id}
+              type="button"
+              className={`${task.task_id === selectedTaskId ? "selected" : ""} ${staged ? "staged" : ""}`.trim()}
+              aria-current={task.task_id === selectedTaskId ? "true" : undefined}
+              aria-label={`Creative ${index + 1}: ${filename}; ${taskStatus}`}
+              onClick={() => onSelect(task.task_id)}
+            >
+              <TaskThumbnail task={task} />
+              <span className="filmstrip-filename" title={filename}>{filename}</span>
+              <span className="filmstrip-meta"><strong>{index + 1}</strong><small>{taskStatus}</small></span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -191,6 +562,9 @@ export function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const [quantityAssignments, setQuantityAssignments] = useState<Record<string, Record<string, string>>>({});
+  const [quantityDrafts, setQuantityDrafts] = useState<Record<string, SavedQuantityDraft>>({});
+  const [stagedApprovals, setStagedApprovals] = useState<Record<string, string[]>>({});
   const [refreshState, setRefreshState] = useState<RefreshState>("idle");
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [detailDialog, setDetailDialog] = useState<DetailDialog | null>(null);
@@ -201,8 +575,10 @@ export function App() {
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  const [sessionExtending, setSessionExtending] = useState(false);
+  const [sessionExtendError, setSessionExtendError] = useState<string | null>(null);
   const [historyByTask, setHistoryByTask] = useState<Record<string, HistoryState>>({});
-  const taskButtons = useRef(new Map<string, HTMLButtonElement>());
   const dialogElement = useRef<HTMLDialogElement>(null);
   const identityDialogElement = useRef<HTMLDialogElement>(null);
   const dialogOpener = useRef<HTMLElement | null>(null);
@@ -304,15 +680,50 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [loadState.status === "ready" ? loadState.session_expires_at : null]);
 
+  useEffect(() => {
+    if (loadState.status !== "ready") return;
+    setClockMs(Date.now());
+    const timer = window.setInterval(() => setClockMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [loadState.status]);
+
+  const continueSession = async () => {
+    if (loadState.status !== "ready" || sessionExtending) return;
+    setSessionExtending(true);
+    setSessionExtendError(null);
+    try {
+      const result = demoEnabled
+        ? { extended: true as const, expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() }
+        : await extendSession();
+      setLoadState({ ...loadState, session_expires_at: result.expires_at });
+      setClockMs(Date.now());
+    } catch (error) {
+      if (error instanceof ProofApiError && error.status === 401) {
+        terminateSession();
+        return;
+      }
+      setSessionExtendError(error instanceof Error ? error.message : "Your session could not be continued.");
+    } finally {
+      setSessionExtending(false);
+    }
+  };
+
   const order = loadState.status === "ready" ? loadState.order : null;
   const participant = loadState.status === "ready" ? loadState.participant : null;
   const activity = loadState.status === "ready"
     ? loadState.activity
     : { identified_reviewers: 0, last_activity_at: null, reviewer_names_visible: false as const };
-  const visibleTasks = useMemo(() => {
+  const matchingTasks = useMemo(() => {
     return order ? searchProofTasks(filterProofTasks(order.tasks, filter), searchQuery) : [];
   }, [filter, order, searchQuery]);
+  const visibleGroups = useMemo(() => {
+    if (!order) return [];
+    const matchingIds = new Set(matchingTasks.map((task) => task.task_id));
+    return groupProofTasksByLine(order.tasks).filter((group) => group.tasks.some((task) => matchingIds.has(task.task_id)));
+  }, [matchingTasks, order]);
+  const visibleTasks = useMemo(() => visibleGroups.flatMap((group) => group.tasks), [visibleGroups]);
   const selectedTask = selectedVisibleTask(visibleTasks, selectedTaskId);
+  const selectedGroup = lineGroupForTask(visibleGroups, selectedTask?.task_id ?? null);
   const selectedVersion =
     selectedTask?.versions.find((version) => version.version_id === selectedVersionId) ?? selectedTask?.current_version ?? null;
   const selectedAsset = proofAsset(selectedVersion);
@@ -321,6 +732,8 @@ export function App() {
   const emptyState = completionEmpty ? completion : order ? queueEmptyMessage(filter, order.tasks, searchQuery) : null;
   const proofCounts = order?.counts ?? { pending: 0, regenerating: 0, waiting: 0, reviewed: 0, total: 0 };
   const orderHealthMessage = order ? proofOrderHealthMessage(order.health) : null;
+  const sessionRemaining = loadState.status === "ready" ? sessionSecondsRemaining(loadState.session_expires_at, clockMs) : 0;
+  const showSessionWarning = loadState.status === "ready" && sessionWarningVisible(loadState.session_expires_at, clockMs);
   const dialogTask = detailDialog ? order?.tasks.find((task) => task.task_id === detailDialog.task_id) ?? null : null;
   const dialogHistory = dialogTask ? historyByTask[dialogTask.task_id] : undefined;
   const dialogVersions = dialogTask
@@ -342,13 +755,12 @@ export function App() {
     setSelectedTaskId(nextTasks[0]?.task_id ?? null);
   };
 
-  const navigateQueue = (event: KeyboardEvent<HTMLButtonElement>, taskId: string) => {
-    if (!["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft", "Home", "End"].includes(event.key)) return;
-    event.preventDefault();
-    const targetId = queueNavigationTarget(visibleTasks, taskId, event.key as QueueNavigationKey);
-    if (!targetId) return;
-    setSelectedTaskId(targetId);
-    window.requestAnimationFrame(() => taskButtons.current.get(targetId)?.focus());
+  const updateQuantityAssignments = (groupId: string, values: Record<string, string>) => {
+    setQuantityAssignments((current) => ({ ...current, [groupId]: values }));
+  };
+
+  const saveQuantityReview = (groupId: string, draft: SavedQuantityDraft) => {
+    setQuantityDrafts((current) => ({ ...current, [groupId]: draft }));
   };
 
   const loadHistory = async (taskId: string) => {
@@ -551,6 +963,18 @@ export function App() {
         </div>
       </header>
 
+      {showSessionWarning ? (
+        <aside className="session-warning" role="alert" aria-live="assertive">
+          <span className="session-countdown" aria-label={`${sessionRemaining} seconds remaining`}><Clock3 aria-hidden="true" />0:{String(sessionRemaining).padStart(2, "0")}</span>
+          <span><strong>Your secure review session is ending soon.</strong><small>Continue to keep this order open without losing your place.</small></span>
+          <div>
+            <button className="button primary" type="button" disabled={sessionExtending} onClick={() => void continueSession()}>{sessionExtending ? "Continuing…" : "Continue reviewing"}</button>
+            <button className="button secondary" type="button" onClick={terminateSession}>End session</button>
+          </div>
+          {sessionExtendError ? <p>{sessionExtendError}</p> : null}
+        </aside>
+      ) : null}
+
       <section className="order-band" aria-labelledby="order-heading">
         <div>
           <div className="eyebrow">Order {order!.order_number}</div>
@@ -603,7 +1027,7 @@ export function App() {
           <div className="queue-heading">
             <div>
               <span className="eyebrow">Proof queue</span>
-              <h2>{visibleTasks.length} {visibleTasks.length === 1 ? "item" : "items"}</h2>
+              <h2>{visibleGroups.length} {visibleGroups.length === 1 ? "line" : "lines"}</h2>
             </div>
             <button
               className={`icon-button subtle ${refreshState === "requesting" ? "refreshing" : ""}`}
@@ -622,42 +1046,30 @@ export function App() {
             ))}
           </div>
           <QueueSearch value={searchQuery} onChange={changeSearch} />
-          <div className="task-list" role="listbox" aria-label={`${filter} proofs`}>
-            {visibleTasks.map((task) => (
-              <button
-                className={`task-card ${selectedTask?.task_id === task.task_id ? "selected" : ""}`}
-                key={task.task_id}
-                type="button"
-                role="option"
-                aria-selected={selectedTask?.task_id === task.task_id}
-                tabIndex={selectedTask?.task_id === task.task_id ? 0 : -1}
-                ref={(element) => {
-                  if (element) taskButtons.current.set(task.task_id, element);
-                  else taskButtons.current.delete(task.task_id);
-                }}
-                onClick={() => setSelectedTaskId(task.task_id)}
-                onKeyDown={(event) => navigateQueue(event, task.task_id)}
-              >
-                <TaskThumbnail task={task} />
-                <div className="task-card-copy">
-                  <div className="task-card-top">
-                    <span>Line {task.line_number ?? "—"}</span>
-                    <span className={`status-pill ${task.state}`}>
-                      <TaskStateIcon state={task.state} />
-                      {statusLabel(task)}
+          <div className="task-list" role="list" aria-label={`${filter} proof lines`}>
+            {visibleGroups.map((group) => {
+              const selected = selectedGroup?.group_id === group.group_id;
+              const representativeTask = group.tasks[0]!;
+              const reviewLabel = group.open_count
+                ? `${group.open_count} awaiting review`
+                : `${group.reviewed_count} reviewed`;
+              return (
+                <section className={`line-group-card ${selected ? "selected" : ""}`} key={group.group_id} role="listitem" aria-label={`Line ${group.line_number ?? "unassigned"}, ${group.tasks.length} proofs`}>
+                  <button className="line-group-summary" type="button" aria-pressed={selected} onClick={() => setSelectedTaskId(group.tasks[0]!.task_id)}>
+                    <span className="line-group-thumbnail" aria-hidden="true">
+                      <TaskThumbnail task={representativeTask} />
+                      {group.tasks.length > 1 ? <b>+{group.tasks.length - 1}</b> : null}
                     </span>
-                  </div>
-                  <strong>{task.product_name ?? "Artwork proof"}</strong>
-                  <div className="task-file"><FileText aria-hidden="true" />{task.current_version?.filename ?? "Proof pending"}</div>
-                  {formatQuantity(task.quantity) !== null || task.sibling_count > 1 ? (
-                    <div className="task-context">
-                      {formatQuantity(task.quantity) !== null ? <span>Qty {formatQuantity(task.quantity)}</span> : null}
-                      {task.sibling_count > 1 ? <span className="sibling"><Layers3 aria-hidden="true" /> Panel {task.sibling_index} of {task.sibling_count}</span> : null}
-                    </div>
-                  ) : null}
-                </div>
-              </button>
-            ))}
+                    <span className="line-group-copy">
+                      <span className="eyebrow">Line {group.line_number ?? "—"}</span>
+                      <strong>{group.product_name ?? "Artwork proof"}</strong>
+                      <small>Qty {formatQuantity(group.quantity) ?? "—"} · {reviewLabel}</small>
+                    </span>
+                    <span className="line-group-count">{group.tasks.length === 1 ? <FileImage aria-hidden="true" /> : <Layers3 aria-hidden="true" />}{group.tasks.length} {group.tasks.length === 1 ? "proof" : "proofs"}</span>
+                  </button>
+                </section>
+              );
+            })}
             {!visibleTasks.length && emptyState ? (
               <div className="empty-list" role={completionEmpty ? "region" : "status"} aria-label={completionEmpty ? "Proof review complete" : undefined}>
                 <strong>{emptyState.title}</strong>
@@ -696,8 +1108,35 @@ export function App() {
                 </div>
               </div>
 
-              <div className="preview-stage"><ProofPreview version={selectedVersion} /></div>
-              <ActionTransport />
+              <div className={`proof-viewer ${selectedGroup && selectedGroup.tasks.length > 1 ? "has-filmstrip" : ""}`}>
+                <ProofFilmstrip
+                  tasks={selectedGroup?.tasks ?? [selectedTask]}
+                  selectedTaskId={selectedTask.task_id}
+                  assignments={quantityAssignments[selectedGroup?.group_id ?? selectedTask.task_id]}
+                  stagedTaskIds={stagedApprovals[selectedGroup?.group_id ?? selectedTask.task_id]}
+                  onSelect={setSelectedTaskId}
+                />
+                <div className="preview-column">
+                  <div className="preview-filebar">
+                    <span title={selectedVersion?.filename ?? "Proof pending"}>{selectedVersion?.filename ?? "Proof pending"}</span>
+                    {selectedGroup && selectedGroup.tasks.length > 1 ? <small>Creative {selectedGroup.tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1} of {selectedGroup.tasks.length}</small> : null}
+                  </div>
+                  <div className="preview-stage"><ProofPreview version={selectedVersion} /></div>
+                </div>
+              </div>
+              <ActionTransport
+                key={selectedGroup?.group_id ?? selectedTask.task_id}
+                tasks={selectedGroup?.tasks ?? [selectedTask]}
+                selectedTaskId={selectedTask.task_id}
+                stagedTaskIds={stagedApprovals[selectedGroup?.group_id ?? selectedTask.task_id] ?? []}
+                values={quantityAssignments[selectedGroup?.group_id ?? selectedTask.task_id] ?? {}}
+                onChange={(values) => updateQuantityAssignments(selectedGroup?.group_id ?? selectedTask.task_id, values)}
+                onStageApproval={(taskId) => setStagedApprovals((current) => ({ ...current, [selectedGroup?.group_id ?? selectedTask.task_id]: [...new Set([...(current[selectedGroup?.group_id ?? selectedTask.task_id] ?? []), taskId])] }))}
+                onUndoApproval={(taskId) => setStagedApprovals((current) => ({ ...current, [selectedGroup?.group_id ?? selectedTask.task_id]: (current[selectedGroup?.group_id ?? selectedTask.task_id] ?? []).filter((candidate) => candidate !== taskId) }))}
+                draft={quantityDrafts[selectedGroup?.group_id ?? selectedTask.task_id] ?? null}
+                onSaveDraft={(draft) => saveQuantityReview(selectedGroup?.group_id ?? selectedTask.task_id, draft)}
+                demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
+              />
             </>
           ) : (
             <div className="preview-empty">
@@ -713,7 +1152,7 @@ export function App() {
       <section className="mobile-review" aria-label="Proof review feed">
         <div className="mobile-dock">
           <div className="mobile-dock-heading">
-            <div><span className="eyebrow">Proof inbox</span><strong>{visibleTasks.length} {visibleTasks.length === 1 ? "item" : "items"}</strong></div>
+            <div><span className="eyebrow">Proof inbox</span><strong>{visibleGroups.length} {visibleGroups.length === 1 ? "line" : "lines"}</strong></div>
             <button
               className={`icon-button subtle ${refreshState === "requesting" ? "refreshing" : ""}`}
               type="button"
@@ -734,15 +1173,16 @@ export function App() {
         </div>
 
         <div className="mobile-feed">
-          {visibleTasks.map((task) => {
+          {visibleGroups.map((group) => {
+            const task = group.tasks.find((candidate) => candidate.task_id === selectedTaskId) ?? group.tasks[0]!;
             const version = task.current_version;
             const asset = proofAsset(version);
             return (
-              <article className="feed-card" key={task.task_id} aria-labelledby={`feed-title-${task.task_id}`}>
+              <article className="feed-card" key={group.group_id} aria-labelledby={`feed-title-${group.group_id}`}>
                 <header className="feed-header">
                   <div>
-                    <span className="eyebrow">Line {task.line_number ?? "—"}</span>
-                    <h2 id={`feed-title-${task.task_id}`}>{task.product_name ?? "Artwork proof"}</h2>
+                    <span className="eyebrow">Line {group.line_number ?? "—"}{formatQuantity(group.quantity) !== null ? ` · Qty ${formatQuantity(group.quantity)}` : ""}</span>
+                    <h2 id={`feed-title-${group.group_id}`}>{group.product_name ?? "Artwork proof"}</h2>
                     {decisionStateDetail(task) ? <p className={`task-state-copy ${task.state}`}>{decisionStateDetail(task)}</p> : null}
                   </div>
                   <span className={`status-pill ${task.state}`}>
@@ -750,10 +1190,11 @@ export function App() {
                     {statusLabel(task)}
                   </span>
                 </header>
+                <ProofFilmstrip tasks={group.tasks} selectedTaskId={task.task_id} assignments={quantityAssignments[group.group_id]} stagedTaskIds={stagedApprovals[group.group_id]} onSelect={setSelectedTaskId} />
                 <div className="feed-meta">
                   <span><FileText aria-hidden="true" /> {version?.filename ?? "Proof pending"}</span>
                   {formatQuantity(task.quantity) !== null ? <span>Qty {formatQuantity(task.quantity)}</span> : null}
-                  {task.sibling_count > 1 ? <span><Layers3 aria-hidden="true" /> Panel {task.sibling_index} of {task.sibling_count}</span> : null}
+                  {group.tasks.length > 1 ? <span><Layers3 aria-hidden="true" /> Creative {group.tasks.indexOf(task) + 1} of {group.tasks.length}</span> : null}
                 </div>
                 <div className="feed-preview"><ProofPreview version={version} /></div>
                 <div className="feed-toolbar" aria-label={`Actions for ${task.product_name ?? "proof"}`}>
@@ -761,7 +1202,19 @@ export function App() {
                   <button type="button" onClick={(event) => openDetailDialog("history", task.task_id, event)}><History aria-hidden="true" /> History</button>
                   {asset.open ? <a href={asset.open} target="_blank" rel="noreferrer"><ExternalLink aria-hidden="true" /> Open full size</a> : null}
                 </div>
-                <ActionTransport mobile />
+                <ActionTransport
+                  tasks={group.tasks}
+                  selectedTaskId={task.task_id}
+                  stagedTaskIds={stagedApprovals[group.group_id] ?? []}
+                  values={quantityAssignments[group.group_id] ?? {}}
+                  onChange={(values) => updateQuantityAssignments(group.group_id, values)}
+                  onStageApproval={(taskId) => setStagedApprovals((current) => ({ ...current, [group.group_id]: [...new Set([...(current[group.group_id] ?? []), taskId])] }))}
+                  onUndoApproval={(taskId) => setStagedApprovals((current) => ({ ...current, [group.group_id]: (current[group.group_id] ?? []).filter((candidate) => candidate !== taskId) }))}
+                  draft={quantityDrafts[group.group_id] ?? null}
+                  onSaveDraft={(draft) => saveQuantityReview(group.group_id, draft)}
+                  demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
+                  mobile
+                />
               </article>
             );
           })}

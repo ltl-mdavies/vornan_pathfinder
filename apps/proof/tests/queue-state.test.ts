@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   filterProofTasks,
+  groupProofTasksByLine,
+  lineGroupForTask,
   queueEmptyMessage,
   queueNavigationTarget,
   searchProofTasks,
@@ -78,4 +80,20 @@ test("distinguishes no-proof, no-open-proof, and filter-empty states", () => {
   assert.equal(queueEmptyMessage("open", tasks).title, "No open proofs");
   assert.equal(queueEmptyMessage("history", tasks).title, "No proofs match this view");
   assert.equal(queueEmptyMessage("all", tasks, "missing artwork").title, "No proofs match your search");
+});
+
+test("groups sibling proofs into stable line-level review units", () => {
+  const grouped = groupProofTasksByLine([
+    { ...task("line-1-proof-2", "approved"), line_number: "1", product_name: "One Sheet", quantity: 16, sibling_index: 2, sibling_count: 2 },
+    { ...task("line-2-proof-1", "pending"), line_number: "2", product_name: "Pump topper", quantity: 7 },
+    { ...task("line-1-proof-1", "pending"), line_number: "1", product_name: "One Sheet", quantity: 16, sibling_index: 1, sibling_count: 2 },
+    task("unbound", "waiting")
+  ]);
+
+  assert.deepEqual(grouped.map((group) => group.group_id), ["line-1", "line-2", "task-unbound"]);
+  assert.deepEqual(grouped[0]?.tasks.map((item) => item.task_id), ["line-1-proof-1", "line-1-proof-2"]);
+  assert.equal(grouped[0]?.open_count, 1);
+  assert.equal(grouped[0]?.reviewed_count, 1);
+  assert.equal(lineGroupForTask(grouped, "line-1-proof-2")?.group_id, "line-1");
+  assert.equal(lineGroupForTask(grouped, "missing")?.group_id, "line-1");
 });

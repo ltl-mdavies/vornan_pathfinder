@@ -389,6 +389,41 @@ export async function validateProofSession(rawSession: string, now = new Date())
   return { session, grant };
 }
 
+export async function extendProofSession(rawSession: string, now = new Date()) {
+  const { session, grant } = await validateProofSession(rawSession, now);
+  const config = getProofRuntimeConfig();
+  const deadline = activationDeadline(now, true);
+  const expiresAt = new Date(Math.min(
+    addMilliseconds(now, config.access.session_ttl_minutes * 60 * 1000).getTime(),
+    deadline.getTime(),
+    Date.parse(grant.expires_at)
+  ));
+  if (expiresAt.getTime() <= now.getTime()) {
+    throw new ProofAccessDeniedError();
+  }
+  const extended: ProofAccessSession = {
+    ...session,
+    expires_at: expiresAt.toISOString(),
+    expires_at_epoch: Math.floor(expiresAt.getTime() / 1000),
+    last_seen_at: now.toISOString()
+  };
+  await persistProofSession(extended);
+  await recordProofAuditEvent({
+    action: "proof.session_extended",
+    order_number: extended.order_number,
+    grant_id: extended.grant_id,
+    metadata: { grant_scope: extended.scope },
+    context: {
+      actor_type: "customer_session",
+      actor_id: extended.session_id,
+      correlation_id: extended.session_id,
+      source: "public_api"
+    },
+    occurred_at: now.toISOString()
+  });
+  return extended;
+}
+
 export async function getProofSessionForLogout(rawSession: string) {
   const config = getProofRuntimeConfig();
   if (!config.feature_flags.public_read || !/^[A-Za-z0-9_-]{43}$/.test(rawSession)) {

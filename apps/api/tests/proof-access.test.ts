@@ -107,6 +107,30 @@ test("revalidates the grant on each request so revocation ends an existing sessi
   await assert.rejects(() => access.validateProofSession(exchanged.raw_session), access.ProofAccessDeniedError);
 });
 
+test("extends an active session without exceeding its grant or activation window", async () => {
+  const createdAt = new Date("2026-07-20T12:00:00.000Z");
+  const created = await access.createProofGrant({
+    order_number: order.order_number,
+    expires_at: "2026-07-20T12:45:00.000Z",
+    now: createdAt
+  });
+  const exchanged = await access.exchangeProofToken(created.access_url.split("/").at(-1)!, createdAt);
+  assert.equal(exchanged.session.expires_at, "2026-07-20T12:30:00.000Z");
+
+  const extended = await access.extendProofSession(
+    exchanged.raw_session,
+    new Date("2026-07-20T12:29:00.000Z")
+  );
+  assert.equal(extended.session_id, exchanged.session.session_id);
+  assert.equal(extended.expires_at, "2026-07-20T12:45:00.000Z");
+  assert.equal(extended.last_seen_at, "2026-07-20T12:29:00.000Z");
+
+  const audit = await store.listProofAuditEvents(order.order_number, { limit: 100 });
+  assert.equal(audit.events.some((event) =>
+    event.action === "proof.session_extended" && event.grant_id === created.grant.grant_id
+  ), true);
+});
+
 test("allows an expired or revoked session to be closed without restoring read access", async () => {
   const now = new Date("2026-07-20T12:00:00.000Z");
   const created = await access.createProofGrant({ order_number: order.order_number, now });

@@ -4,6 +4,47 @@ import { isOpenProofState, isReviewedProofState, proofStatePresentation } from "
 export type QueueFilter = "open" | "all" | "history";
 export type QueueNavigationKey = "ArrowDown" | "ArrowUp" | "ArrowRight" | "ArrowLeft" | "Home" | "End";
 
+export interface ProofLineGroup {
+  group_id: string;
+  line_number: string | null;
+  product_name: string | null;
+  quantity: number | null;
+  tasks: ProofTask[];
+  open_count: number;
+  reviewed_count: number;
+}
+
+export function groupProofTasksByLine(tasks: ProofTask[]): ProofLineGroup[] {
+  const groups = new Map<string, ProofLineGroup>();
+  for (const task of tasks) {
+    const groupId = task.line_number ? `line-${task.line_number}` : `task-${task.task_id}`;
+    const existing = groups.get(groupId);
+    if (existing) {
+      existing.tasks.push(task);
+      if (isOpenProofState(task.state)) existing.open_count += 1;
+      if (isReviewedProofState(task.state)) existing.reviewed_count += 1;
+      continue;
+    }
+    groups.set(groupId, {
+      group_id: groupId,
+      line_number: task.line_number,
+      product_name: task.product_name,
+      quantity: task.quantity,
+      tasks: [task],
+      open_count: isOpenProofState(task.state) ? 1 : 0,
+      reviewed_count: isReviewedProofState(task.state) ? 1 : 0
+    });
+  }
+  return [...groups.values()].map((group) => ({
+    ...group,
+    tasks: [...group.tasks].sort((left, right) => left.sibling_index - right.sibling_index)
+  }));
+}
+
+export function lineGroupForTask(groups: ProofLineGroup[], taskId: string | null) {
+  return groups.find((group) => group.tasks.some((task) => task.task_id === taskId)) ?? groups[0] ?? null;
+}
+
 export function filterProofTasks(tasks: ProofTask[], filter: QueueFilter) {
   if (filter === "open") {
     return tasks.filter((task) => isOpenProofState(task.state));

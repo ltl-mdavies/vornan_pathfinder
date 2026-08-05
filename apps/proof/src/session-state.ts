@@ -23,6 +23,15 @@ export function sessionExpiryDelay(expiresAt: string, nowMs = Date.now()) {
   return Math.max(0, expiresAtMs - nowMs);
 }
 
+export function sessionSecondsRemaining(expiresAt: string, nowMs = Date.now()) {
+  return Math.max(0, Math.ceil(sessionExpiryDelay(expiresAt, nowMs) / 1000));
+}
+
+export function sessionWarningVisible(expiresAt: string, nowMs = Date.now(), warningSeconds = 60) {
+  const remaining = sessionSecondsRemaining(expiresAt, nowMs);
+  return remaining > 0 && remaining <= warningSeconds;
+}
+
 export function createFailClosedSessionTerminator(
   endRemoteSession: () => Promise<void>,
   endLocalSession: () => void

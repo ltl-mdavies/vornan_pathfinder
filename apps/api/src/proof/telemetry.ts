@@ -16,6 +16,7 @@ const SAFE_OPERATIONS = new Map([
   ["POST /api/public/proof/sessions", "token_exchange"],
   ["GET /api/public/proof/order", "cached_order_read"],
   ["POST /api/public/proof/order/refresh", "manual_refresh"],
+  ["POST /api/public/proof/sessions/current/extend", "session_extend"],
   ["DELETE /api/public/proof/sessions/current", "session_logout"],
   ["POST /api/public/proof/participants", "participant_identity"],
   ["GET /api/public/proof/health", "health_read"]
