@@ -1241,44 +1241,92 @@ async function discoverWrikeStatusIdsByLabel(args: {
     return { read: false, status_ids_by_label: statusIdsByLabel };
   }
 
-  let response: Response;
-  try {
-    response = await args.fetch_impl(`https://${args.host}/api/v4/workflows`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${args.access_token}`,
-        Accept: "application/json"
+  const headers = {
+    Authorization: `Bearer ${args.access_token}`,
+    Accept: "application/json"
+  };
+  let metadataRead = false;
+
+  const collectStatuses = (payload: Record<string, unknown>) => {
+    for (const workflow of Array.isArray(payload.data) ? payload.data.map(asRecord) : []) {
+      const statuses = Array.isArray(workflow.customStatuses)
+        ? workflow.customStatuses.map(asRecord)
+        : [];
+      for (const status of statuses) {
+        const label = normalizedComparableText(status.name ?? status.title);
+        const statusId = providerIdentifier(status.id);
+        if (!requestedLabels.has(label) || !statusId) {
+          continue;
+        }
+        const matches = statusIdsByLabel.get(label) ?? new Set<string>();
+        matches.add(statusId);
+        statusIdsByLabel.set(label, matches);
       }
-    });
+    }
+  };
+
+  try {
+    const accountResponse = await args.fetch_impl(
+      `https://${args.host}/api/v4/workflows`,
+      { method: "GET", headers }
+    );
+    if (accountResponse.ok) {
+      collectStatuses(await responseJson(accountResponse));
+      metadataRead = true;
+    }
   } catch {
-    return { read: false, status_ids_by_label: statusIdsByLabel };
-  }
-  if (!response.ok) {
-    return { read: false, status_ids_by_label: statusIdsByLabel };
+    // Continue to the space-scoped workflow source. Wrike intentionally omits
+    // space workflows from the account-wide endpoint.
   }
 
-  let payload: Record<string, unknown>;
+  let spaceIds: string[] = [];
   try {
-    payload = await responseJson(response);
+    const spacesUrl = new URL(`https://${args.host}/api/v4/spaces`);
+    spacesUrl.searchParams.set("withArchived", "false");
+    const spacesResponse = await args.fetch_impl(spacesUrl, {
+      method: "GET",
+      headers
+    });
+    if (spacesResponse.ok) {
+      const spacesPayload = await responseJson(spacesResponse);
+      spaceIds = Array.from(
+        new Set(
+          (Array.isArray(spacesPayload.data) ? spacesPayload.data : [])
+            .map(asRecord)
+            .map((space) => providerIdentifier(space.id))
+            .filter(Boolean)
+        )
+      ).sort();
+    }
   } catch {
-    return { read: false, status_ids_by_label: statusIdsByLabel };
+    spaceIds = [];
   }
-  for (const workflow of Array.isArray(payload.data) ? payload.data.map(asRecord) : []) {
-    const statuses = Array.isArray(workflow.customStatuses)
-      ? workflow.customStatuses.map(asRecord)
-      : [];
-    for (const status of statuses) {
-      const label = normalizedComparableText(status.name ?? status.title);
-      const statusId = providerIdentifier(status.id);
-      if (!requestedLabels.has(label) || !statusId) {
-        continue;
+
+  // Bound provider work even for unusually large accounts. Five concurrent
+  // read-only calls keeps scheduled discovery responsive without creating a
+  // burst across Wrike's API.
+  if (spaceIds.length <= 100) {
+    for (let index = 0; index < spaceIds.length; index += 5) {
+      const batch = spaceIds.slice(index, index + 5);
+      const results = await Promise.allSettled(
+        batch.map(async (spaceId) => {
+          const response = await args.fetch_impl(
+            `https://${args.host}/api/v4/spaces/${encodeURIComponent(spaceId)}/workflows`,
+            { method: "GET", headers }
+          );
+          if (!response.ok) return null;
+          return responseJson(response);
+        })
+      );
+      for (const result of results) {
+        if (result.status !== "fulfilled" || !result.value) continue;
+        collectStatuses(result.value);
+        metadataRead = true;
       }
-      const matches = statusIdsByLabel.get(label) ?? new Set<string>();
-      matches.add(statusId);
-      statusIdsByLabel.set(label, matches);
     }
   }
-  return { read: true, status_ids_by_label: statusIdsByLabel };
+
+  return { read: metadataRead, status_ids_by_label: statusIdsByLabel };
 }
 
 async function resolveWrikeFolderId(
