@@ -351,6 +351,8 @@ export interface WrikeScopedIntakeDiscoveryResult {
     eligible_order_count: number;
     eligible_shipping_task_count: number;
     order_status_id_count: number;
+    order_identity_status_ids: string[];
+    resolved_order_status_ids: string[];
     shipping_status_id_count: number;
   };
   capabilities: {
@@ -1793,6 +1795,21 @@ export async function discoverScopedWrikeIntakeTasks(
       orderTaskTypeId
     )
   ).length;
+  const orderIdentityStatusIds = Array.from(
+    new Set(
+      scopedOrderTasks
+        .filter(({ task }) =>
+          taskIdentityMatches(
+            task,
+            config.order_task_identity_mode,
+            orderTaskTitle,
+            orderTaskTypeId
+          )
+        )
+        .map(({ scoped }) => scoped.custom_status_id)
+        .filter(Boolean)
+    )
+  ).sort();
   const orderStatusMatchCount = scopedOrderTasks.filter(({ scoped }) =>
     orderStatusIds.has(scoped.custom_status_id)
   ).length;
@@ -1947,6 +1964,8 @@ export async function discoverScopedWrikeIntakeTasks(
       eligible_order_count: orderCandidates.length,
       eligible_shipping_task_count: shippingCandidates.length,
       order_status_id_count: orderStatusIds.size,
+      order_identity_status_ids: orderIdentityStatusIds,
+      resolved_order_status_ids: Array.from(orderStatusIds).sort(),
       shipping_status_id_count: shippingStatusIds.size
     },
     capabilities: {

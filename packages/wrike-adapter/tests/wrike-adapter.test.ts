@@ -1432,6 +1432,8 @@ test("discovers eligible Placard Orders across configured campaign descendants a
   assert.equal(result.summary.order_contract_ready_count, 1);
   assert.equal(result.summary.eligible_order_count, 1);
   assert.equal(result.summary.order_status_id_count, 1);
+  assert.deepEqual(result.summary.order_identity_status_ids, ["IESENTTOPRINT"]);
+  assert.deepEqual(result.summary.resolved_order_status_ids, ["IESENTTOPRINT"]);
   assert.equal(result.order_candidates[0].task_id, "IEPLACARD1");
   assert.equal(result.order_candidates[0].contract_number, "C3168700");
   assert.equal(result.order_candidates[0].artwork_folder_status, "ready");
