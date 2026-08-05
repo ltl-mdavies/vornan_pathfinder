@@ -3,6 +3,7 @@ import { toPublicProofOrder, toPublicProofTaskHistory } from "@pathfinder/proof-
 import {
   endProofSession,
   exchangeProofToken,
+  extendProofSession,
   getProofSessionForLogout,
   ProofAccessDeniedError,
   ProofAccessFeatureDisabledError,
@@ -244,6 +245,34 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       res.status(202).json({ refresh_queued: true });
     } catch (error) {
       handlePublicError(error, res, "Proof refresh could not be requested.");
+    }
+  });
+
+  router.post("/sessions/current/extend", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session } = await validateProofSession(rawSession);
+      requireCsrf(req, session);
+      const extended = await extendProofSession(rawSession);
+      const maxAge = Math.max(0, Date.parse(extended.expires_at) - Date.now());
+      res.cookie(PROOF_SESSION_COOKIE, rawSession, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: PROOF_SESSION_COOKIE_PATH,
+        maxAge
+      });
+      const rawCsrf = cookieValue(req, PROOF_CSRF_COOKIE) ?? "";
+      res.cookie(PROOF_CSRF_COOKIE, rawCsrf, {
+        httpOnly: false,
+        secure: true,
+        sameSite: "lax",
+        path: PROOF_CSRF_COOKIE_PATH,
+        maxAge
+      });
+      res.json({ extended: true, expires_at: extended.expires_at });
+    } catch (error) {
+      handlePublicError(error, res, "Proof session could not be continued.");
     }
   });
 

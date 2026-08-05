@@ -4,7 +4,9 @@ import {
   createFailClosedSessionTerminator,
   focusProofTerminalState,
   proofEntryState,
-  sessionExpiryDelay
+  sessionExpiryDelay,
+  sessionSecondsRemaining,
+  sessionWarningVisible
 } from "../src/session-state.ts";
 
 test("classifies valid fragment tokens without accepting malformed token shapes", () => {
@@ -25,6 +27,14 @@ test("computes a bounded session expiry delay", () => {
   assert.equal(sessionExpiryDelay("2026-07-20T12:30:00.000Z", now), 30 * 60 * 1000);
   assert.equal(sessionExpiryDelay("2026-07-20T11:59:00.000Z", now), 0);
   assert.equal(sessionExpiryDelay("invalid", now), 0);
+});
+
+test("shows a one-minute warning with a whole-second countdown", () => {
+  const now = Date.parse("2026-07-20T12:00:00.250Z");
+  assert.equal(sessionSecondsRemaining("2026-07-20T12:01:00.000Z", now), 60);
+  assert.equal(sessionWarningVisible("2026-07-20T12:01:00.000Z", now), true);
+  assert.equal(sessionWarningVisible("2026-07-20T12:01:01.000Z", now), false);
+  assert.equal(sessionWarningVisible("2026-07-20T11:59:00.000Z", now), false);
 });
 
 test("hides proof data immediately before starting remote cleanup once", async () => {

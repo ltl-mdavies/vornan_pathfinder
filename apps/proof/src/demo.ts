@@ -140,6 +140,32 @@ export function demoActivityForHash(hash: string): ProofActivity {
 }
 
 export function demoOrderForHash(hash: string) {
+  if (hash === "#/proof/batch-qa") {
+    const singleProofTask = {
+      ...demoOrder.tasks[demoOrder.tasks.length - 1]!,
+      state: "pending" as const,
+      feedback_required: true,
+      current_version: {
+        ...demoOrder.tasks[demoOrder.tasks.length - 1]!.current_version!,
+        filename: "register-counter-decal-proof.jpg",
+        content_type: "image/jpeg",
+        preview_kind: "image" as const,
+        preview_url: "/brand/proof-placeholder.svg",
+        download_url: "/brand/proof-placeholder.svg",
+        approval_status: "PENDING",
+        approved_at: null,
+        comments: [{
+          text: "Please confirm the updated counter placement.",
+          created_at: "2026-07-20T15:10:00.000Z",
+          attachments: []
+        }],
+        current: true
+      },
+      versions: []
+    };
+    const tasks = [...demoOrder.tasks.slice(0, -1), singleProofTask];
+    return { ...demoOrder, tasks, counts: proofTaskCounts(tasks) };
+  }
   if (hash === "#/proof/complete-qa" || hash === "#/proof/all-reviewed-qa") {
     const completePacket = hash === "#/proof/complete-qa";
     const tasks = demoOrder.tasks.map((task, index) => {

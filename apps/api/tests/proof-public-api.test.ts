@@ -177,6 +177,29 @@ test("exchanges a fragment token for a narrow hardened cookie and returns only i
   assert.equal(serialized.includes("javascript:"), false);
 });
 
+test("continues a valid session only with its matching CSRF proof", async () => {
+  const created = await access.createProofGrant({ order_number: order.order_number });
+  const exchange = await request(app)
+    .post("/api/public/proof/sessions")
+    .send({ token: created.access_url.split("/").at(-1)! })
+    .expect(201);
+  const credentials = exchangeCredentials(exchange);
+
+  await request(app)
+    .post("/api/public/proof/sessions/current/extend")
+    .set("Cookie", credentials.cookie)
+    .expect(403);
+
+  const continued = await request(app)
+    .post("/api/public/proof/sessions/current/extend")
+    .set("Cookie", credentials.cookie)
+    .set("X-Vornan-Proof-Csrf", credentials.csrf)
+    .expect(200);
+  assert.equal(continued.body.extended, true);
+  assert.ok(Date.parse(continued.body.expires_at) >= Date.parse(exchange.body.expires_at));
+  assert.match(continued.headers["cache-control"], /no-store/);
+});
+
 test("replaces an existing browser session only after another valid token is exchanged", async () => {
   const firstGrant = await access.createProofGrant({ order_number: order.order_number });
   const firstExchange = await request(app)

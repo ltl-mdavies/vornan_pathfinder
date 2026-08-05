@@ -75,3 +75,11 @@ export async function acknowledgeFeedback(taskId: string) {
 export async function endSession() {
   await api<null>("/api/public/proof/sessions/current", { method: "DELETE" }, true);
 }
+
+export async function extendSession() {
+  return api<{ extended: true; expires_at: string }>(
+    "/api/public/proof/sessions/current/extend",
+    { method: "POST" },
+    true
+  );
+}

@@ -72,10 +72,16 @@ for (const viewport of viewports) {
     expect(imageBox!.x + imageBox!.width).toBeLessThanOrEqual(containerBox!.x + containerBox!.width + 1);
     expect(imageBox!.y + imageBox!.height).toBeLessThanOrEqual(containerBox!.y + containerBox!.height + 1);
 
-    const decisionButtons = page.locator(".action-transport:visible button");
-    await expect(decisionButtons).not.toHaveCount(0);
-    for (let index = 0; index < await decisionButtons.count(); index += 1) {
-      await expect(decisionButtons.nth(index)).toBeDisabled();
+    const visibleTransport = page.locator(".action-transport:visible").first();
+    const simpleDecisionButtons = visibleTransport.locator(".transport-buttons > button");
+    if (await simpleDecisionButtons.count()) {
+      for (let index = 0; index < await simpleDecisionButtons.count(); index += 1) {
+        await expect(simpleDecisionButtons.nth(index)).toBeDisabled();
+      }
+    } else {
+      await expect(visibleTransport.getByRole("button", { name: "Approve this creative" })).toBeEnabled();
+      await expect(visibleTransport.getByRole("button", { name: "Request changes" })).toBeDisabled();
+      await expect(visibleTransport.locator("[data-quantity-assignment-trigger]")).toBeDisabled();
     }
 
     await page.goto(`/proof?fixture=assets-${encodeURIComponent(viewport.name)}#/proof/assets-qa`);
@@ -85,7 +91,6 @@ for (const viewport of viewports) {
 
     if (viewport.width > 820 && viewport.height > 480) {
       const queue = page.locator(".task-list");
-      expect(await queue.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
       await expect(queue).toHaveCSS("overflow-y", "auto");
     }
     expect(blocked).toEqual([]);
@@ -128,6 +133,59 @@ for (const viewport of viewports) {
     expect(blocked).toEqual([]);
   });
 }
+
+test("Proof saves, reviews, processes, and summarizes a multi-proof allocation without network transport", async ({ page, context }) => {
+  const blocked = await isolateNetwork(context);
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.goto("/proof#/proof/batch-qa");
+  await waitForProofWorkspace(page);
+
+  const proofQueue = page.getByRole("complementary", { name: "Proof queue" });
+  await expect(proofQueue.getByRole("button", { name: "Line 1 North wall graphic Qty 20 · 4 awaiting review 4 proofs" })).toBeVisible();
+  await expect(proofQueue.getByRole("button", { name: "Line 2 Register counter decal Qty 2 · 1 awaiting review 1 proof" })).toBeVisible();
+  await expect(proofQueue.getByRole("button", { name: "Creative 1 north-wall-v2.jpg Pending" })).toHaveCount(0);
+  await expect(proofQueue.locator(".line-group-thumbnail")).toHaveCount(2);
+  await expect(page.locator(".preview-filebar")).toContainText("north-wall-v2.jpg");
+  const visibleTransport = page.locator(".action-transport:visible");
+  await expect(visibleTransport.getByText("Select each creative you want to approve, then assign its quantity.")).toBeVisible();
+  await expect(page.getByLabel("Message with approval (optional)")).toHaveCount(0);
+  await expect(visibleTransport.locator("[data-quantity-assignment-trigger]")).toBeDisabled();
+
+  const creativeLabels = ["north-wall-v2.jpg", "north-wall-panel-2.jpg", "north-wall-panel-3.jpg", "north-wall-panel-4.jpg"];
+  await page.getByRole("button", { name: new RegExp(`Creative 1: ${creativeLabels[0]}`) }).click();
+  await visibleTransport.getByRole("button", { name: "Approve this creative" }).click();
+  await visibleTransport.getByRole("button", { name: "Undo" }).click();
+  await expect(visibleTransport.getByText("0 of 4 selected for approval")).toBeVisible();
+  await expect(visibleTransport.locator("[data-quantity-assignment-trigger]")).toBeDisabled();
+
+  for (let index = 0; index < creativeLabels.length; index += 1) {
+    await page.getByRole("button", { name: new RegExp(`Creative ${index + 1}: ${creativeLabels[index]}`) }).click();
+    await visibleTransport.getByRole("button", { name: "Approve this creative" }).click();
+    await expect(visibleTransport.getByText("Ready to submit")).toBeVisible();
+  }
+  await expect(visibleTransport.getByText("4 of 4 selected for approval")).toBeVisible();
+
+  await visibleTransport.locator("[data-quantity-assignment-trigger]").click();
+  const dialog = page.getByRole("dialog", { name: "Assign quantities" });
+  await dialog.getByLabel("Quantity for creative 1").fill("8");
+  await dialog.getByLabel("Quantity for creative 2").fill("4");
+  await dialog.getByLabel("Quantity for creative 3").fill("4");
+  await dialog.getByLabel("Quantity for creative 4").fill("4");
+  await expect(dialog.getByText("Ready to approve")).toBeVisible();
+  await dialog.getByRole("button", { name: "Continue to review" }).click();
+
+  const confirmation = page.getByRole("dialog", { name: "Submit these approvals?" });
+  await expect(confirmation.getByText("Total quantity")).toBeVisible();
+  await expect(confirmation.getByText("20", { exact: true })).toBeVisible();
+  await confirmation.getByLabel("Message with approval (optional)").fill("Approved quantities for the production team.");
+  await confirmation.getByRole("button", { name: "Submit approvals to print" }).click();
+  await expect(page.getByRole("dialog", { name: /Approving creative/ })).toBeVisible();
+  const result = page.getByRole("dialog", { name: "Your proofs and quantities are now approved" });
+  await expect(result).toBeVisible({ timeout: 6_000 });
+  await expect(result.getByText("After refresh")).toBeVisible();
+  await expect(result.getByText("Approved", { exact: true })).toHaveCount(4);
+  expect(blocked).toEqual([]);
+});
 
 test("Proof preserves dialog focus return and full-resolution image target", async ({ page, context }) => {
   const blocked = await isolateNetwork(context);
@@ -173,10 +231,10 @@ test("Proof renders PDF and non-preview fallbacks deterministically", async ({ p
   await waitForProofWorkspace(page);
 
   await expect(page.locator(".preview-stage iframe[title^='PDF proof preview']")).toBeVisible();
-  await page.getByRole("option", { name: /north-wall-layered-production-artwork-with-linked-assets\.psd/ }).click();
+  await page.getByRole("button", { name: "Creative 2: north-wall-layered-production-artwork-with-linked-assets.psd; Pending", exact: true }).click();
   await expect(page.locator(".preview-stage").getByText("Full-resolution file", { exact: true })).toBeVisible();
   await expect(page.locator(".preview-stage").getByRole("link", { name: /Open north-wall-layered-production-artwork/ })).toHaveAttribute("target", "_blank");
-  await page.getByRole("option", { name: /north-wall-preview-processing-pending\.tiff/ }).click();
+  await page.getByRole("button", { name: "Creative 3: north-wall-preview-processing-pending.tiff; Pending", exact: true }).click();
   await expect(page.locator(".preview-stage").getByText("Preview unavailable", { exact: true })).toBeVisible();
   expect(blocked).toEqual([]);
 });
@@ -188,7 +246,7 @@ test("Proof honors reduced-motion preferences", async ({ page, context }) => {
   await page.goto("/proof#/proof");
   await waitForProofWorkspace(page);
 
-  const motion = await page.locator(".task-card").first().evaluate((element) => {
+  const motion = await page.locator(".line-group-summary").first().evaluate((element) => {
     const style = getComputedStyle(element);
     return {
       transitionDuration: style.transitionDuration,

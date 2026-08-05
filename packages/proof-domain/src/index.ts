@@ -316,6 +316,7 @@ export type ProofAuditAction =
   | "proof.participant_updated"
   | "proof.feedback_acknowledged"
   | "proof.session_exchanged"
+  | "proof.session_extended"
   | "proof.session_ended"
   | "proof.decision_prepared"
   | "proof.operator_action_prepared"
