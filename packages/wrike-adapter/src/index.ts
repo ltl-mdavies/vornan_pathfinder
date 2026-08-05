@@ -562,8 +562,14 @@ function wrikeDropdownValueIds(value: string | null) {
   try {
     const parsed = JSON.parse(value) as unknown;
     const values = Array.isArray(parsed) ? parsed : [parsed];
-    const identifiers = values.map(providerIdentifier).filter(Boolean);
-    if (identifiers.length > 0) return identifiers;
+    const normalizedValues = values
+      .map((candidate) =>
+        typeof candidate === "string"
+          ? candidate.trim().replace(/\s+/g, " ")
+          : ""
+      )
+      .filter((candidate) => candidate.length > 0 && candidate.length <= 256);
+    if (normalizedValues.length > 0) return normalizedValues;
   } catch {
     // Plain option IDs and display values are both valid Wrike representations.
   }
@@ -593,9 +599,11 @@ async function readWrikeDropdownOptionLabels(args: {
     const field = (Array.isArray(payload.data) ? payload.data : [])
       .map(asRecord)
       .find((candidate) => providerIdentifier(candidate.id) === args.custom_field_id);
-    const values = Array.isArray(asRecord(field?.settings).values)
-      ? (asRecord(field?.settings).values as unknown[]).map(asRecord)
-      : [];
+    const settings = asRecord(field?.settings);
+    const values = [
+      ...(Array.isArray(settings.values) ? settings.values : []),
+      ...(Array.isArray(settings.options) ? settings.options : [])
+    ].map(asRecord);
     for (const option of values) {
       const id = providerIdentifier(option.id);
       const label =

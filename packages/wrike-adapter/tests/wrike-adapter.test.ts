@@ -1523,7 +1523,7 @@ test("resolves a required print vendor from a Wrike dropdown option ID", async (
                 title: "Placard Order",
                 customFields: [
                   { id: "IECONTRACT", value: "C111111" },
-                  { id: "IEVENDOR", value: "IEOPTIONLTL" }
+                  { id: "IEVENDOR", value: JSON.stringify(["Larger Than Life"]) }
                 ]
               }
             ]
