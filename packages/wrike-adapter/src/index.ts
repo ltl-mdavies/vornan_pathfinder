@@ -342,6 +342,12 @@ export interface WrikeScopedIntakeDiscoveryResult {
   };
   summary: {
     task_count: number;
+    scoped_task_count: number;
+    order_identity_match_count: number;
+    order_status_match_count: number;
+    order_status_and_identity_match_count: number;
+    order_vendor_match_count: number;
+    order_contract_ready_count: number;
     eligible_order_count: number;
     eligible_shipping_task_count: number;
     order_status_id_count: number;
@@ -1721,6 +1727,48 @@ export async function discoverScopedWrikeIntakeTasks(
     ) ?? [])
   ]);
 
+  const scopedOrderTasks = taskRecords
+    .map((task) => ({ task, scoped: scopedTaskRecord(task, folderId) }))
+    .filter(
+      (
+        candidate
+      ): candidate is {
+        task: Record<string, unknown>;
+        scoped: NonNullable<ReturnType<typeof scopedTaskRecord>>;
+      } => candidate.scoped !== null
+    );
+  const orderIdentityMatchCount = scopedOrderTasks.filter(({ task }) =>
+    taskIdentityMatches(
+      task,
+      config.order_task_identity_mode,
+      orderTaskTitle,
+      orderTaskTypeId
+    )
+  ).length;
+  const orderStatusMatchCount = scopedOrderTasks.filter(({ scoped }) =>
+    orderStatusIds.has(scoped.custom_status_id)
+  ).length;
+  const orderStatusAndIdentityTasks = scopedOrderTasks.filter(
+    ({ task, scoped }) =>
+      orderStatusIds.has(scoped.custom_status_id) &&
+      taskIdentityMatches(
+        task,
+        config.order_task_identity_mode,
+        orderTaskTitle,
+        orderTaskTypeId
+      )
+  );
+  const orderVendorMatchTasks = orderStatusAndIdentityTasks.filter(
+    ({ task }) =>
+      normalizedComparableText(resolveWrikeTextCustomField(task, vendorFieldId)) ===
+      normalizedComparableText(vendorValue)
+  );
+  const orderContractReadyCount = orderVendorMatchTasks.filter(
+    ({ task }) =>
+      resolveWrikeContractNumber(task, config.contract_number_custom_field_id).status ===
+      "ready"
+  ).length;
+
   const orderCandidates = taskRecords
     .map((task): WrikeEligibleOrderTask | null => {
       const scoped = scopedTaskRecord(task, folderId);
@@ -1842,6 +1890,12 @@ export async function discoverScopedWrikeIntakeTasks(
     },
     summary: {
       task_count: taskRecords.length,
+      scoped_task_count: scopedOrderTasks.length,
+      order_identity_match_count: orderIdentityMatchCount,
+      order_status_match_count: orderStatusMatchCount,
+      order_status_and_identity_match_count: orderStatusAndIdentityTasks.length,
+      order_vendor_match_count: orderVendorMatchTasks.length,
+      order_contract_ready_count: orderContractReadyCount,
       eligible_order_count: orderCandidates.length,
       eligible_shipping_task_count: shippingCandidates.length,
       order_status_id_count: orderStatusIds.size,

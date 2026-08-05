@@ -1424,6 +1424,12 @@ test("discovers eligible Placard Orders across configured campaign descendants a
   );
 
   assert.equal(result.summary.task_count, 3);
+  assert.equal(result.summary.scoped_task_count, 3);
+  assert.equal(result.summary.order_identity_match_count, 2);
+  assert.equal(result.summary.order_status_match_count, 2);
+  assert.equal(result.summary.order_status_and_identity_match_count, 2);
+  assert.equal(result.summary.order_vendor_match_count, 1);
+  assert.equal(result.summary.order_contract_ready_count, 1);
   assert.equal(result.summary.eligible_order_count, 1);
   assert.equal(result.summary.order_status_id_count, 1);
   assert.equal(result.order_candidates[0].task_id, "IEPLACARD1");
@@ -1527,6 +1533,12 @@ test("matches the configured ready-status label across distinct Wrike workflows"
   );
 
   assert.equal(result.summary.task_count, 1);
+  assert.equal(result.summary.scoped_task_count, 1);
+  assert.equal(result.summary.order_identity_match_count, 1);
+  assert.equal(result.summary.order_status_match_count, 1);
+  assert.equal(result.summary.order_status_and_identity_match_count, 1);
+  assert.equal(result.summary.order_vendor_match_count, 1);
+  assert.equal(result.summary.order_contract_ready_count, 1);
   assert.equal(result.summary.order_status_id_count, 2);
   assert.equal(result.summary.eligible_order_count, 1);
   assert.equal(result.order_candidates[0].task_id, "IEREADY");
