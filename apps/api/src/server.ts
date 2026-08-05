@@ -4794,6 +4794,12 @@ export async function runConfiguredWrikeScheduledIntake() {
   let existingSecrets: WrikeConnectorSecrets | null = null;
   let discoverySummary = {
     task_count: 0,
+    scoped_task_count: 0,
+    order_identity_match_count: 0,
+    order_status_match_count: 0,
+    order_status_and_identity_match_count: 0,
+    order_vendor_match_count: 0,
+    order_contract_ready_count: 0,
     eligible_order_count: 0,
     eligible_shipping_task_count: 0,
     order_status_id_count: 0,
