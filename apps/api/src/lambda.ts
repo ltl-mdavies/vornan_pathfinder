@@ -26,6 +26,8 @@ export async function handler(event: unknown, context: unknown) {
       status: result.status,
       checked_at: result.checked_at,
       discovered_count: result.discovered_count,
+      scoped_task_count: result.discovery_summary.task_count,
+      matched_order_status_id_count: result.discovery_summary.order_status_id_count,
       prepared_count: result.prepared_count,
       replayed_count: result.replayed_count,
       failed_count: result.failed_count,

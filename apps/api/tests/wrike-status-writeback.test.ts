@@ -123,5 +123,6 @@ test("Wrike status writeback remains inside the authenticated admin boundary", a
     source,
     /discoverScopedWrikeIntakeTasks\(oauth, config, \{[\s\S]*?max_pages: 10,[\s\S]*?max_tasks: 10_000/
   );
+  assert.match(source, /discovery_summary: discoverySummary/);
   assert.doesNotMatch(source, /app\.(?:post|put|patch)\("\/public\/[^"']*wrike-status-writeback/);
 });
