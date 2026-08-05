@@ -4803,6 +4803,8 @@ export async function runConfiguredWrikeScheduledIntake() {
     eligible_order_count: 0,
     eligible_shipping_task_count: 0,
     order_status_id_count: 0,
+    order_identity_status_ids: [] as string[],
+    resolved_order_status_ids: [] as string[],
     shipping_status_id_count: 0
   };
   const intakeResult = await runWrikeScheduledIntake({
