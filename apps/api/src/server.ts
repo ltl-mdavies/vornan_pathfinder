@@ -4831,7 +4831,7 @@ export async function runConfiguredWrikeScheduledIntake() {
       }
       const discovery = await discoverScopedWrikeIntakeTasks(oauth, config, {
         max_pages: 10,
-        max_tasks: 1000
+        max_tasks: 10_000
       });
       await writeCustomerSourceConnectionSecrets(
         customer.lift_customer_id,

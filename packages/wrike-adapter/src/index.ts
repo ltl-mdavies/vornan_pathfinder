@@ -1570,7 +1570,7 @@ export async function discoverScopedWrikeIntakeTasks(
     rotatedCredentials
   );
   const maxPages = Math.max(1, Math.min(options.max_pages ?? 10, 10));
-  const maxTasks = Math.max(1, Math.min(options.max_tasks ?? 1000, 1000));
+  const maxTasks = Math.max(1, Math.min(options.max_tasks ?? 10_000, 10_000));
   const taskRecords: Record<string, unknown>[] = [];
   let nextPageToken = "";
 
@@ -1589,16 +1589,10 @@ export async function discoverScopedWrikeIntakeTasks(
         "superParentIds"
       ])
     );
-    // Filter at Wrike before pagination so the account's historical campaign
-    // volume does not dominate the scheduled ready-order scan. Shipping uses
-    // its own exact ready status when that separately gated intake is active.
-    const discoveryStatusIds = [
-      triggerStatusId,
-      ...(config.shipping_intake.enabled
-        ? [providerIdentifier(config.shipping_intake.trigger_status_id)]
-        : [])
-    ].filter((statusId, index, values) => statusId && values.indexOf(statusId) === index);
-    taskUrl.searchParams.set("customStatuses", JSON.stringify(discoveryStatusIds));
+    // Scan the configured campaign boundary without relying on Wrike's
+    // provider-side status filter. Accounts can contain distinct workflow
+    // status IDs with the same visible label, so eligibility remains an exact
+    // client-side contract over the returned task metadata.
     taskUrl.searchParams.set("pageSize", "1000");
     if (nextPageToken) {
       taskUrl.searchParams.set("nextPageToken", nextPageToken);

@@ -1448,10 +1448,97 @@ test("discovers eligible Placard Orders across configured campaign descendants a
     "superParentIds"
   ]);
   assert.equal(folderUrl.searchParams.get("pageSize"), "1000");
-  assert.deepEqual(
-    JSON.parse(folderUrl.searchParams.get("customStatuses") ?? "[]"),
-    ["IESENTTOPRINT"]
+  assert.equal(folderUrl.searchParams.has("customStatuses"), false);
+});
+
+test("discovers an eligible Placard Order on a later bounded Wrike page", async () => {
+  const calls: string[] = [];
+  const result = await discoverScopedWrikeIntakeTasks(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    normalizeWrikeSourceConfig({
+      folder_id: "IEGPACAMPAIGNS",
+      trigger_status_id: "IESENTTOPRINT",
+      contract_number_custom_field_id: "IECONTRACT",
+      print_vendor_custom_field_id: "IEVENDOR",
+      order_task_title: "Placard Order",
+      required_print_vendor_value: "Larger Than Life"
+    }),
+    {
+      now: () => new Date("2026-08-05T22:00:00.000Z"),
+      max_pages: 10,
+      max_tasks: 10_000,
+      fetch_impl: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-token",
+              refresh_token: "rotated-refresh-token",
+              host: "app-us2.wrike.com"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        const taskUrl = new URL(url);
+        if (!taskUrl.searchParams.has("nextPageToken")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "IEHISTORICAL",
+                  accountId: "IEACCOUNT",
+                  parentIds: ["IECAMPAIGNOLD"],
+                  superParentIds: ["IEGPACAMPAIGNS"],
+                  customStatusId: "IECOMPLETE",
+                  attachmentCount: 0,
+                  title: "Placard Order"
+                }
+              ],
+              nextPageToken: "page-two"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "IEREADY",
+                accountId: "IEACCOUNT",
+                parentIds: ["IECAMPAIGNNEW"],
+                superParentIds: ["IEGPACAMPAIGNS"],
+                customStatusId: "IESENTTOPRINT",
+                attachmentCount: 2,
+                title: "Placard Order",
+                customFields: [
+                  { id: "IECONTRACT", value: "C111111" },
+                  { id: "IEVENDOR", value: "Larger Than Life" }
+                ]
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
   );
+
+  assert.equal(result.summary.task_count, 2);
+  assert.equal(result.summary.eligible_order_count, 1);
+  assert.equal(result.order_candidates[0].task_id, "IEREADY");
+  assert.equal(result.order_candidates[0].contract_number, "C111111");
+  assert.equal(calls.length, 3);
+  const firstPage = new URL(calls[1]);
+  const secondPage = new URL(calls[2]);
+  assert.equal(firstPage.searchParams.get("pageSize"), "1000");
+  assert.equal(firstPage.searchParams.has("customStatuses"), false);
+  assert.equal(secondPage.searchParams.get("nextPageToken"), "page-two");
 });
 
 test("discovers only safe shipping task and attachment metadata when the pure contract is explicitly activated", async () => {
@@ -1556,10 +1643,7 @@ test("discovers only safe shipping task and attachment metadata when the pure co
   assert.equal(result.shipping.candidates[0].matching_attachment_count, 1);
   assert.equal(result.capabilities.shipping_attachment_metadata_read, true);
   const folderUrl = new URL(calls[1]);
-  assert.deepEqual(
-    JSON.parse(folderUrl.searchParams.get("customStatuses") ?? "[]"),
-    ["IESENTTOPRINT", "IEHAVADDRESS"]
-  );
+  assert.equal(folderUrl.searchParams.has("customStatuses"), false);
   assert.match(
     calls[2],
     /\/api\/v4\/tasks\/IESHIPPING1\/attachments\?versions=false&withUrls=false$/

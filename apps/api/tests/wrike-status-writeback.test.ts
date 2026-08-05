@@ -119,5 +119,9 @@ test("Wrike status writeback remains inside the authenticated admin boundary", a
     /const config = normalizeWrikeSourceConfig\(method\.source_config\.wrike\);[\s\S]*?if \(!config\.connection_id\)/
   );
   assert.doesNotMatch(source, /if \(!config\.enabled \|\| !config\.connection_id\)/);
+  assert.match(
+    source,
+    /discoverScopedWrikeIntakeTasks\(oauth, config, \{[\s\S]*?max_pages: 10,[\s\S]*?max_tasks: 10_000/
+  );
   assert.doesNotMatch(source, /app\.(?:post|put|patch)\("\/public\/[^"']*wrike-status-writeback/);
 });
