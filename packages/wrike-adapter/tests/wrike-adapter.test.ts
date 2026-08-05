@@ -1546,6 +1546,100 @@ test("matches the configured ready-status label across distinct Wrike workflows"
   assert.equal(calls.some((url) => url.endsWith("/api/v4/workflows")), true);
 });
 
+test("matches a ready status defined only in a Wrike space workflow", async () => {
+  const calls: string[] = [];
+  const result = await discoverScopedWrikeIntakeTasks(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    normalizeWrikeSourceConfig({
+      folder_id: "IEGPACAMPAIGNS",
+      trigger_status_id: "IEEARLIERWORKFLOWSTATUS",
+      trigger_status_label: "Sent to Print - LTL",
+      contract_number_custom_field_id: "IECONTRACT",
+      print_vendor_custom_field_id: "IEVENDOR",
+      order_task_title: "Placard Order",
+      required_print_vendor_value: "Larger Than Life"
+    }),
+    {
+      now: () => new Date("2026-08-05T23:00:00.000Z"),
+      fetch_impl: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-token",
+              refresh_token: "rotated-refresh-token",
+              host: "app-us2.wrike.com"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.endsWith("/api/v4/workflows")) {
+          return new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (url.includes("/api/v4/spaces?")) {
+          return new Response(JSON.stringify({ data: [{ id: "IESPACEONE" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (url.endsWith("/api/v4/spaces/IESPACEONE/workflows")) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                {
+                  id: "IESPACEWORKFLOW",
+                  customStatuses: [
+                    { id: "IESPACEREADYSTATUS", name: "Sent to Print - LTL" }
+                  ]
+                }
+              ]
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                id: "IEREADY",
+                accountId: "IEACCOUNT",
+                parentIds: ["IECAMPAIGNNEW"],
+                superParentIds: ["IEGPACAMPAIGNS"],
+                customStatusId: "IESPACEREADYSTATUS",
+                attachmentCount: 2,
+                title: "Placard Order",
+                customFields: [
+                  { id: "IECONTRACT", value: "C111111" },
+                  { id: "IEVENDOR", value: "Larger Than Life" }
+                ]
+              }
+            ]
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(result.summary.order_status_id_count, 2);
+  assert.equal(result.summary.order_status_match_count, 1);
+  assert.equal(result.summary.eligible_order_count, 1);
+  assert.equal(result.order_candidates[0].task_id, "IEREADY");
+  assert.equal(
+    calls.some((url) => url.endsWith("/api/v4/spaces/IESPACEONE/workflows")),
+    true
+  );
+});
+
 test("discovers an eligible Placard Order on a later bounded Wrike page", async () => {
   const calls: string[] = [];
   const result = await discoverScopedWrikeIntakeTasks(
@@ -1579,6 +1673,12 @@ test("discovers an eligible Placard Order on a later bounded Wrike page", async 
             }),
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
+        }
+        if (url.endsWith("/api/v4/workflows") || url.includes("/api/v4/spaces?")) {
+          return new Response(JSON.stringify({ data: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
         }
         const taskUrl = new URL(url);
         if (!taskUrl.searchParams.has("nextPageToken")) {
@@ -1628,7 +1728,7 @@ test("discovers an eligible Placard Order on a later bounded Wrike page", async 
   assert.equal(result.summary.eligible_order_count, 1);
   assert.equal(result.order_candidates[0].task_id, "IEREADY");
   assert.equal(result.order_candidates[0].contract_number, "C111111");
-  assert.equal(calls.length, 4);
+  assert.equal(calls.length, 5);
   const firstPage = new URL(calls[1]);
   const secondPage = new URL(calls[2]);
   assert.equal(firstPage.searchParams.get("pageSize"), "1000");
