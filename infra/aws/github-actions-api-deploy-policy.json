@@ -86,6 +86,19 @@
       ]
     },
     {
+      "Sid": "ManagePathfinderWrikeSchedule",
+      "Effect": "Allow",
+      "Action": [
+        "events:DeleteRule",
+        "events:DescribeRule",
+        "events:ListTargetsByRule",
+        "events:PutRule",
+        "events:PutTargets",
+        "events:RemoveTargets"
+      ],
+      "Resource": "arn:aws:events:us-east-1:744016783602:rule/vornan-pathfinder-api-prod-wrike-scheduled-intake"
+    },
+    {
       "Sid": "ManagePathfinderSourceEvidenceBucket",
       "Effect": "Allow",
       "Action": [

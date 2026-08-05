@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { sampleCanonicalOrder } from "@pathfinder/canonical";
-import { generateLiftPayload, validateLiftPayload, type LiftOrderPayload } from "../src/index.ts";
+import {
+  applyLiftOrderOutputMappings,
+  generateLiftPayload,
+  validateLiftPayload,
+  type LiftOrderPayload
+} from "../src/index.ts";
 
 function payload(orderTitle: string | null): LiftOrderPayload {
   return {
@@ -93,6 +98,20 @@ test("Lift validation accepts a resolved order title", () => {
   const messages = validateLiftPayload(payload("C316860 - Momentara Web Order - 20260721"));
 
   assert.deepEqual(messages.map((message) => message.code), ["LIFT-OK"]);
+});
+
+test("one canonical order value can fan out to multiple configured output fields", () => {
+  const canonical = {
+    ...sampleCanonicalOrder,
+    order: { ...sampleCanonicalOrder.order, contract_number: "C316870", po_number: null }
+  };
+  const result = applyLiftOrderOutputMappings(generateLiftPayload(canonical), canonical, [
+    { sourceColumn: "body:order.contract_number", targetField: "order.contract_number" },
+    { sourceColumn: "body:order.po_number", targetField: "order.contract_number" }
+  ]);
+
+  assert.equal(result.order.contract_number, "C316870");
+  assert.equal(result.order.po_number, "C316870");
 });
 
 test("maps source-document URLs to distinct configurable Lift create-order fields", () => {

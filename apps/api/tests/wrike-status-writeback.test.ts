@@ -108,7 +108,11 @@ test("Wrike status writeback remains inside the authenticated admin boundary", a
 
   assert.ok(authenticationBoundary >= 0);
   assert.ok(writebackRoute > authenticationBoundary);
-  assert.match(source, /evidence\.provider !== "wrike" \|\| evidence\.task_id !== wrikeStatusWritebackTaskId/);
+  assert.match(
+    source,
+    /job\.source_evidence\.provider !== "wrike" \|\|[\s\S]*?job\.source_evidence\.task_id !== wrikeStatusWritebackTaskId/
+  );
   assert.match(source, /oauth\.scope !== "wsReadWrite"/);
+  assert.match(source, /scheduled_wrike_intake[\s\S]*?source: "scheduled_polling"/);
   assert.doesNotMatch(source, /app\.(?:post|put|patch)\("\/public\/[^"']*wrike-status-writeback/);
 });

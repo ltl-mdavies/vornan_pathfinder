@@ -379,6 +379,27 @@ export function generateLiftPayload(
   };
 }
 
+export function applyLiftOrderOutputMappings(
+  payload: LiftOrderPayload,
+  canonicalOrder: CanonicalOrder,
+  mappings: Array<{ sourceColumn: string; targetField: string }>
+): LiftOrderPayload {
+  const order = { ...payload.order } as Record<string, unknown>;
+  const canonicalOrderFields = canonicalOrder.order as unknown as Record<string, unknown>;
+  for (const mapping of mappings) {
+    const outputMatch = /^body:order\.([A-Za-z][A-Za-z0-9_]{0,63})$/.exec(
+      mapping.sourceColumn.trim()
+    );
+    const canonicalMatch = /^order\.([A-Za-z][A-Za-z0-9_]{0,63})$/.exec(
+      mapping.targetField.trim()
+    );
+    if (!outputMatch || !canonicalMatch || outputMatch[1] === "ext_id") continue;
+    const value = canonicalOrderFields[canonicalMatch[1]];
+    if (value !== undefined) order[outputMatch[1]] = value;
+  }
+  return { ...payload, order: order as LiftOrderPayload["order"] };
+}
+
 function getPayloadValue(payload: LiftOrderPayload, field: string): unknown {
   return field.split(".").reduce<unknown>((current, segment) => {
     if (!current || typeof current !== "object") {
