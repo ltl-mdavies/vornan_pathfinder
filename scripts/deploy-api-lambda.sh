@@ -35,6 +35,11 @@ aws cloudformation deploy \
     WrikeWorkbookEvidenceEnabled="${PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE:-false}" \
     WrikeEvidencePreviewEnabled="${PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW:-false}" \
     WrikeManualIntakeEnabled="${PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE:-false}" \
+    WrikeScheduledIntakeEnabled="${PATHFINDER_ENABLE_WRIKE_SCHEDULED_INTAKE:-false}" \
+    WrikeScheduledIntakeCustomerId="${PATHFINDER_WRIKE_SCHEDULED_CUSTOMER_ID:-}" \
+    WrikeScheduledIntakeImportMethodId="${PATHFINDER_WRIKE_SCHEDULED_IMPORT_METHOD_ID:-}" \
+    WrikeScheduledIntakeMaxCandidates="${PATHFINDER_WRIKE_SCHEDULED_MAX_CANDIDATES:-25}" \
+    WrikeScheduledStatusWritebackEnabled="${PATHFINDER_ENABLE_WRIKE_SCHEDULED_STATUS_WRITEBACK:-false}" \
     WrikeStatusWritebackEnabled="${PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK:-false}" \
     WrikeStatusWritebackTaskId="${PATHFINDER_WRIKE_STATUS_WRITEBACK_TASK_ID:-}" \
     WrikeStatusWritebackExpiresAt="${PATHFINDER_WRIKE_STATUS_WRITEBACK_EXPIRES_AT:-}" \

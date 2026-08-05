@@ -92,6 +92,68 @@ test("Wrike status writeback requires one exact task and bounded expiry", () => 
   );
 });
 
+test("scheduled Wrike intake is default-off, prepare-only, and exactly scoped", () => {
+  assert.match(template, /WrikeScheduledIntakeEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /WrikeScheduledIntakeCustomerId:[\s\S]*?Default: ""[\s\S]*?AllowedPattern:/);
+  assert.match(template, /WrikeScheduledIntakeImportMethodId:[\s\S]*?Default: ""[\s\S]*?AllowedPattern:/);
+  assert.match(template, /WrikeScheduledIntakeMaxCandidates:[\s\S]*?Default: 25[\s\S]*?MaxValue: 25/);
+  assert.match(template, /WrikeScheduledStatusWritebackEnabled:[\s\S]*?Default: "false"/);
+  assert.match(
+    template,
+    /WrikeScheduledIntakeRequiresPreparedEvidence:[\s\S]*?WrikeScheduledIntakeCustomerId[\s\S]*?WrikeScheduledIntakeImportMethodId[\s\S]*?WrikeWorkbookEvidenceEnabled[\s\S]*?WrikeEvidencePreviewEnabled[\s\S]*?WrikeLiftDocumentPublicationEnabled/
+  );
+  assert.match(
+    template,
+    /WrikeScheduledIntakeRule:[\s\S]*?Condition: WrikeScheduledIntakeActive[\s\S]*?Name: !Sub "\$\{LambdaFunctionName\}-\$\{EnvironmentName\}-wrike-scheduled-intake"[\s\S]*?ScheduleExpression: rate\(15 minutes\)[\s\S]*?"prepare_only":true[\s\S]*?MaximumEventAgeInSeconds: 300[\s\S]*?MaximumRetryAttempts: 0/
+  );
+  assert.match(
+    template,
+    /WrikeScheduledIntakeInvokePermission:[\s\S]*?Principal: events\.amazonaws\.com[\s\S]*?SourceArn: !GetAtt WrikeScheduledIntakeRule\.Arn/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_WRIKE_SCHEDULED_INTAKE: !Join[\s\S]*?WrikeScheduledIntakeEnabled[\s\S]*?WrikeScheduledIntakeCustomerId[\s\S]*?WrikeScheduledIntakeImportMethodId[\s\S]*?WrikeScheduledIntakeMaxCandidates/
+  );
+  assert.match(
+    template,
+    /WrikeScheduledStatusWritebackRequiresScheduler:[\s\S]*?WrikeScheduledStatusWritebackEnabled[\s\S]*?WrikeScheduledIntakeEnabled/
+  );
+  assert.match(
+    workflow,
+    /WrikeScheduledIntakeEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_SCHEDULED_INTAKE \|\| 'false' \}\}"/
+  );
+  assert.match(
+    deployScript,
+    /WrikeScheduledIntakeEnabled="\$\{PATHFINDER_ENABLE_WRIKE_SCHEDULED_INTAKE:-false\}"/
+  );
+  assert.match(
+    workflow,
+    /WrikeScheduledStatusWritebackEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_SCHEDULED_STATUS_WRITEBACK \|\| 'false' \}\}"/
+  );
+  assert.match(
+    deployScript,
+    /WrikeScheduledStatusWritebackEnabled="\$\{PATHFINDER_ENABLE_WRIKE_SCHEDULED_STATUS_WRITEBACK:-false\}"/
+  );
+  const parsedPolicy = JSON.parse(deployPolicy);
+  const scheduleStatement = parsedPolicy.Statement.find(
+    (statement) => statement.Sid === "ManagePathfinderWrikeSchedule"
+  );
+  assert.deepEqual(scheduleStatement, {
+    Sid: "ManagePathfinderWrikeSchedule",
+    Effect: "Allow",
+    Action: [
+      "events:DeleteRule",
+      "events:DescribeRule",
+      "events:ListTargetsByRule",
+      "events:PutRule",
+      "events:PutTargets",
+      "events:RemoveTargets"
+    ],
+    Resource:
+      "arn:aws:events:us-east-1:744016783602:rule/vornan-pathfinder-api-prod-wrike-scheduled-intake"
+  });
+});
+
 test("Wrike workbook evidence remains disabled by default and uses a retained private bucket", () => {
   assert.match(template, /WrikeWorkbookEvidenceEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /WrikeEvidencePreviewEnabled:[\s\S]*?Default: "false"/);

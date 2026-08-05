@@ -624,6 +624,12 @@ export interface ProcessingJobPreview {
   target_order_lookup_url?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   wrike_status_writebacks?: WrikeStatusWritebackRecord[];
+  scheduled_wrike_intake?: {
+    source: "scheduled_polling";
+    task_id: string;
+    import_method_id: string;
+    discovered_at: string;
+  } | null;
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;

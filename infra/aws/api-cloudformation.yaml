@@ -92,6 +92,33 @@ Parameters:
       - "true"
       - "false"
     Description: Explicit operator-only gate for capturing qualified Wrike workbooks and preparing separate Pathfinder preview jobs.
+  WrikeScheduledIntakeEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Default-disabled 15-minute scheduler that prepares separate preview jobs without submitting to Lift.
+  WrikeScheduledIntakeCustomerId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+  WrikeScheduledIntakeImportMethodId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"
+  WrikeScheduledIntakeMaxCandidates:
+    Type: Number
+    Default: 25
+    MinValue: 1
+    MaxValue: 25
+  WrikeScheduledStatusWritebackEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Posts one replay-safe status-link comment after a scheduled Wrike job has a confirmed Lift order.
   WrikeStatusWritebackEnabled:
     Type: String
     Default: "false"
@@ -361,6 +388,24 @@ Parameters:
     Description: Public origin used only when producing a one-time Proof fragment link.
 
 Rules:
+  WrikeScheduledIntakeRequiresPreparedEvidence:
+    RuleCondition: !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref WrikeScheduledIntakeCustomerId, ""]]
+        AssertDescription: Scheduled Wrike intake requires one exact Pathfinder customer.
+      - Assert: !Not [!Equals [!Ref WrikeScheduledIntakeImportMethodId, ""]]
+        AssertDescription: Scheduled Wrike intake requires one exact saved Import Method.
+      - Assert: !Equals [!Ref WrikeWorkbookEvidenceEnabled, "true"]
+        AssertDescription: Scheduled Wrike intake requires immutable source evidence capture.
+      - Assert: !Equals [!Ref WrikeEvidencePreviewEnabled, "true"]
+        AssertDescription: Scheduled Wrike intake requires preview job creation.
+      - Assert: !Equals [!Ref WrikeLiftDocumentPublicationEnabled, "true"]
+        AssertDescription: Scheduled Wrike intake requires direct Lift document publication.
+  WrikeScheduledStatusWritebackRequiresScheduler:
+    RuleCondition: !Equals [!Ref WrikeScheduledStatusWritebackEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
+        AssertDescription: Automatic Wrike status writeback requires scheduled intake.
   WrikeStatusWritebackRequiresBoundedTask:
     RuleCondition: !Equals [!Ref WrikeStatusWritebackEnabled, "true"]
     Assertions:
@@ -480,6 +525,7 @@ Rules:
         AssertDescription: Proof core table name and ARN must either both be present or both be absent.
 
 Conditions:
+  WrikeScheduledIntakeActive: !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
   HasApiCustomDomain: !And
     - !Not [!Equals [!Ref ApiDomainName, ""]]
     - !Not [!Equals [!Ref ApiCertificateArn, ""]]
@@ -875,7 +921,7 @@ Resources:
         S3Bucket: !Ref LambdaCodeS3Bucket
         S3Key: !Ref LambdaCodeS3Key
       MemorySize: 1024
-      Timeout: 30
+      Timeout: 300
       Environment:
         Variables:
           NODE_OPTIONS: "--enable-source-maps"
@@ -894,6 +940,13 @@ Resources:
           PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: !Ref WrikeWorkbookEvidenceEnabled
           PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: !Ref WrikeEvidencePreviewEnabled
           PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !Ref WrikeManualIntakeEnabled
+          PATHFINDER_WRIKE_SCHEDULED_INTAKE: !Join
+            - "|"
+            - - !Ref WrikeScheduledIntakeEnabled
+              - !Ref WrikeScheduledIntakeCustomerId
+              - !Ref WrikeScheduledIntakeImportMethodId
+              - !Ref WrikeScheduledIntakeMaxCandidates
+              - !Ref WrikeScheduledStatusWritebackEnabled
           PATHFINDER_WRIKE_WB: !Join
             - "|"
             - - !Ref WrikeStatusWritebackEnabled
@@ -974,6 +1027,31 @@ Resources:
           PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If [ProofAssetUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If [ProofAssetUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_ASSET_BUCKET: !If [ProofAssetUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"]
+
+  WrikeScheduledIntakeRule:
+    Condition: WrikeScheduledIntakeActive
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${LambdaFunctionName}-${EnvironmentName}-wrike-scheduled-intake"
+      Description: Prepares independent Pathfinder preview jobs from eligible Wrike Placard Order tasks every 15 minutes.
+      ScheduleExpression: rate(15 minutes)
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt PathfinderApiFunction.Arn
+          Id: PathfinderWrikeScheduledIntake
+          Input: '{"source":"pathfinder.wrike","detail-type":"Wrike Scheduled Intake","detail":{"prepare_only":true}}'
+          RetryPolicy:
+            MaximumEventAgeInSeconds: 300
+            MaximumRetryAttempts: 0
+
+  WrikeScheduledIntakeInvokePermission:
+    Condition: WrikeScheduledIntakeActive
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref PathfinderApiFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt WrikeScheduledIntakeRule.Arn
 
   PathfinderCustomersTable:
     Type: AWS::DynamoDB::Table
