@@ -1064,6 +1064,26 @@ export async function refreshWrikeOAuthCredentials(
   const fetchImpl = options.fetch_impl ?? fetch;
   const now = options.now ?? (() => new Date());
   const host = normalizeWrikeHost(credentials.host);
+  const checkedAt = now();
+  const currentAccessToken = credentials.access_token?.trim() ?? "";
+  const currentAccessTokenExpiresAt = credentials.access_token_expires_at?.trim() ?? "";
+  const currentAccessTokenExpiresAtEpoch = Date.parse(currentAccessTokenExpiresAt);
+  const accessTokenReuseMarginMs = 2 * 60 * 1000;
+  if (
+    currentAccessToken &&
+    Number.isFinite(currentAccessTokenExpiresAtEpoch) &&
+    currentAccessTokenExpiresAtEpoch - checkedAt.getTime() > accessTokenReuseMarginMs
+  ) {
+    return {
+      credentials: {
+        ...credentials,
+        access_token: currentAccessToken,
+        access_token_expires_at: new Date(currentAccessTokenExpiresAtEpoch).toISOString(),
+        host
+      },
+      refreshed_at: checkedAt.toISOString()
+    };
+  }
   const clientId = requiredCredential(credentials.client_id, "Wrike OAuth client ID");
   const clientSecret = requiredCredential(credentials.client_secret, "Wrike OAuth client secret");
   const refreshToken = requiredCredential(credentials.refresh_token, "Wrike OAuth refresh token");
@@ -1104,7 +1124,7 @@ export async function refreshWrikeOAuthCredentials(
     throw new WrikeConnectionError("invalid_response", "Wrike OAuth did not return an access token.");
   }
 
-  const refreshedAt = now();
+  const refreshedAt = checkedAt;
   const expiresIn = Number(tokenPayload.expires_in);
   const accessTokenExpiresAt = Number.isFinite(expiresIn) && expiresIn > 0
     ? new Date(refreshedAt.getTime() + expiresIn * 1000).toISOString()
