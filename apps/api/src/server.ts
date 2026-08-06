@@ -28,6 +28,7 @@ import {
   buildLiftPackageDetailsUrl,
   buildLiftOrderLookupUrl,
   buildLiftProofReportUrl,
+  buildLiftShippingReportUrl,
   buildLiftSubmitRequest,
   generateLiftPayload,
   maskLiftSubmitRequest,
@@ -1080,6 +1081,180 @@ async function fetchLiftPackageDetails(args: {
   };
 }
 
+type ShippingReportRow = {
+  order_number: string | null;
+  order_line_id: string | number | null;
+  tracking_number: string | null;
+  tracker_message: string | null;
+  ship_method: string | null;
+  location_name: string | null;
+  destination: ReturnType<typeof toCustomerSafeOrderRollupDestination>;
+};
+
+export function normalizeShippingReportPayload(payload: unknown): ShippingReportRow[] {
+  return packageDetailRows(payload).flatMap((row) => {
+    if (!row || typeof row !== "object") {
+      return [];
+    }
+    const record = row as Record<string, unknown>;
+    const locationName = typeof record.LOCATION_NAME === "string" ? record.LOCATION_NAME.trim() || null : null;
+    const secondaryAddress = [record.ADDRESS_LINE2, record.ADDRESS_LINE3]
+      .filter((value): value is string | number => typeof value === "string" || typeof value === "number")
+      .map((value) => String(value).replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .join(", ") || null;
+
+    return [{
+      order_number: record.ORDER_NUMBER == null ? null : String(record.ORDER_NUMBER),
+      order_line_id: (record.ORDER_LINE_ID as string | number | null | undefined) ?? null,
+      tracking_number: typeof record.TRACKING_NUMBER === "string" ? record.TRACKING_NUMBER.trim() || null : null,
+      tracker_message:
+        typeof record.TRACKER_MESSAGE === "string"
+          ? record.TRACKER_MESSAGE.trim() || null
+          : typeof record.TRACKER_SHORT_MESSAGE === "string"
+            ? record.TRACKER_SHORT_MESSAGE.trim() || null
+            : null,
+      ship_method: typeof record.SHIP_METHOD === "string" ? record.SHIP_METHOD.trim() || null : null,
+      location_name: locationName,
+      destination: toCustomerSafeOrderRollupDestination({
+        company: locationName,
+        address_1: record.ADDRESS_LINE1,
+        address_2: secondaryAddress,
+        city: record.CITY,
+        state: record.STATE,
+        postal_code: record.ZIP
+      })
+    }];
+  });
+}
+
+async function fetchLiftShippingReport(args: {
+  target: TargetConfig;
+  route: OutputRoute;
+  orderNumber: string;
+  orderLineId?: string | number | null;
+}) {
+  const environment = routeEnvironmentForTarget(args.target, args.route);
+  const shippingReportUrl = buildLiftShippingReportUrl(args.route.shipping_report_url, args.orderNumber, args.orderLineId);
+
+  if (!shippingReportUrl) {
+    throw new Error("This output route does not have a valid Lift shipping report URL for the selected order number.");
+  }
+
+  const user = environment?.credentials.User ?? args.target.lift.credentials.User;
+  const password = environment?.credentials.Password ?? args.target.lift.credentials.Password;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (user && password && password !== "********") {
+    headers.Authorization = `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`;
+  }
+
+  const response = await fetch(shippingReportUrl, {
+    headers,
+    signal: AbortSignal.timeout(15000)
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  const body = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text();
+
+  return {
+    order_number: args.orderNumber,
+    shipping_report_url: shippingReportUrl,
+    http_status: response.status,
+    ok: response.ok,
+    shipments: normalizeShippingReportPayload(body),
+    fetched_at: new Date().toISOString()
+  };
+}
+
+function normalizedShipmentIdentity(value: string | number | null | undefined) {
+  return value == null ? null : String(value).replace(/\s+/g, "").trim().toUpperCase() || null;
+}
+
+function mergeDestinations(
+  current: ReturnType<typeof toCustomerSafeOrderRollupDestination>,
+  enrichment: ReturnType<typeof toCustomerSafeOrderRollupDestination>
+) {
+  if (!current) return enrichment;
+  if (!enrichment) return current;
+  return toCustomerSafeOrderRollupDestination({
+    company: enrichment.company ?? current.company,
+    attention_to: enrichment.attention_to ?? current.attention_to,
+    address_1: enrichment.address_1 ?? current.address_1,
+    address_2: enrichment.address_2 ?? current.address_2,
+    city: enrichment.city ?? current.city,
+    state: enrichment.state ?? current.state,
+    postal_code: enrichment.postal_code ?? current.postal_code,
+    country: enrichment.country ?? current.country
+  });
+}
+
+export function mergeShippingReportIntoPackages(
+  packages: ReturnType<typeof normalizePackageDetailsPayload>,
+  shippingRows: ShippingReportRow[]
+): ReturnType<typeof normalizePackageDetailsPayload> {
+  const packageOrderNumbers = new Set(
+    packages
+      .map((pkg) => normalizedShipmentIdentity(pkg.order_number as string | null | undefined))
+      .filter((value): value is string => Boolean(value))
+  );
+  const matchedRows = new Set<number>();
+  const enrichedPackages = packages.map((pkg) => {
+    const orderNumber = normalizedShipmentIdentity(pkg.order_number as string | null | undefined);
+    const orderLineId = normalizedShipmentIdentity(pkg.order_line_id as string | number | null | undefined);
+    const trackingNumber = normalizedShipmentIdentity(pkg.tracking_number as string | null | undefined);
+    const exactIndex = !orderLineId ? -1 : shippingRows.findIndex((row) =>
+      (!orderNumber || normalizedShipmentIdentity(row.order_number) === orderNumber) &&
+      normalizedShipmentIdentity(row.order_line_id) === orderLineId &&
+      normalizedShipmentIdentity(row.tracking_number) === trackingNumber
+    );
+    const fallbackIndex = exactIndex >= 0 || !orderLineId ? exactIndex : shippingRows.findIndex((row) =>
+      (!orderNumber || normalizedShipmentIdentity(row.order_number) === orderNumber) &&
+      normalizedShipmentIdentity(row.order_line_id) === orderLineId
+    );
+    const match = fallbackIndex >= 0 ? shippingRows[fallbackIndex] : null;
+    if (!match) return pkg;
+    matchedRows.add(fallbackIndex);
+    return {
+      ...pkg,
+      tracking_number: pkg.tracking_number ?? match.tracking_number,
+      tracker_message: pkg.tracker_message ?? match.tracker_message,
+      ship_method: pkg.ship_method ?? match.ship_method,
+      location_name: match.location_name ?? pkg.location_name,
+      destination: mergeDestinations(
+        toCustomerSafeOrderRollupDestination(pkg.destination),
+        match.destination
+      )
+    };
+  });
+
+  const shippingOnlyPackages = shippingRows.flatMap((row, index) => {
+    const rowOrderNumber = normalizedShipmentIdentity(row.order_number);
+    const isWrongOrder = packageOrderNumbers.size > 0 && Boolean(rowOrderNumber) && !packageOrderNumbers.has(rowOrderNumber!);
+    return matchedRows.has(index) || !row.tracking_number || isWrongOrder ? [] : [{
+      header_id: null,
+      order_number: row.order_number,
+      order_line_id: row.order_line_id,
+      shipping_id: null,
+      line_number: null,
+      product: null,
+      material: null,
+      laminate: null,
+      height: null,
+      width: null,
+      quantity: null,
+      tracking_number: row.tracking_number,
+      tracker_message: row.tracker_message,
+      ship_method: row.ship_method,
+      location_name: row.location_name,
+      box_number: null,
+      package_type: null,
+      dimensions: { length: null, width: null, height: null, weight: null },
+      destination: row.destination
+    }];
+  });
+
+  return [...enrichedPackages, ...shippingOnlyPackages];
+}
+
 async function getJobLiftContext(customer: LiftCustomer, jobId: string) {
   const job = await getJob(customer, jobId);
 
@@ -1134,11 +1309,15 @@ export function buildOrderSnapshot(args: {
   proofReport: Awaited<ReturnType<typeof fetchLiftProofReport>> | null;
   proofOrder?: ProofOrder | null;
   packageDetails: Awaited<ReturnType<typeof fetchLiftPackageDetails>> | null;
+  shippingReport?: Awaited<ReturnType<typeof fetchLiftShippingReport>> | null;
   issues: Array<{ source: string; severity: "warning" | "error"; message: string }>;
 }) {
   const proofProjection = args.proofOrder ? toOrderRollupProofProjection(args.proofOrder) : null;
   const proofs = proofProjection?.proofs ?? args.proofReport?.proofs ?? [];
-  const packages = args.packageDetails?.packages ?? [];
+  const packages = mergeShippingReportIntoPackages(
+    args.packageDetails?.packages ?? [],
+    args.shippingReport?.shipments ?? []
+  );
   const liveOrder = normalizeLiftOrderLookupPayload(args.orderLookup?.payload ?? null);
   const submittedHeader = args.job.lift_payload.order;
   const resolvedHeader = {
@@ -1305,7 +1484,7 @@ async function buildInternalOrderSnapshotForJob(
     }
   }
 
-  const [orderLookupResult, proofReportResult, packageDetailsResult] = await Promise.allSettled([
+  const [orderLookupResult, proofReportResult, packageDetailsResult, shippingReportResult] = await Promise.allSettled([
     context.route.order_lookup_url
       ? fetchLiftOrderLookup({
           target: context.target,
@@ -1322,6 +1501,13 @@ async function buildInternalOrderSnapshotForJob(
       : Promise.resolve(null),
     context.route.package_details_url
       ? fetchLiftPackageDetails({
+          target: context.target,
+          route: context.route,
+          orderNumber: context.orderNumber
+        })
+      : Promise.resolve(null),
+    context.route.shipping_report_url
+      ? fetchLiftShippingReport({
           target: context.target,
           route: context.route,
           orderNumber: context.orderNumber
@@ -1348,6 +1534,13 @@ async function buildInternalOrderSnapshotForJob(
       source: "package_details",
       severity: "warning",
       message: "Output route has no Lift package details URL configured."
+    });
+  }
+  if (!context.route.shipping_report_url) {
+    issues.push({
+      source: "shipping_report",
+      severity: "warning",
+      message: "Output route has no Lift shipping report URL configured. Recipient and address details may be incomplete."
     });
   }
 
@@ -1382,6 +1575,18 @@ async function buildInternalOrderSnapshotForJob(
               : "Lift package details failed."
         }),
         null);
+  const shippingReport =
+    shippingReportResult.status === "fulfilled"
+      ? shippingReportResult.value
+      : (issues.push({
+          source: "shipping_report",
+          severity: "warning",
+          message:
+            shippingReportResult.reason instanceof Error
+              ? shippingReportResult.reason.message
+              : "Lift shipping report failed."
+        }),
+        null);
   if (orderLookup && !orderLookup.ok) {
     issues.push({
       source: "order_lookup",
@@ -1403,6 +1608,13 @@ async function buildInternalOrderSnapshotForJob(
       message: "Lift did not return current shipment details. The last confirmed shipment status remains visible."
     });
   }
+  if (shippingReport && !shippingReport.ok) {
+    issues.push({
+      source: "shipping_report",
+      severity: "warning",
+      message: "Lift did not return current recipient or address details. Existing shipment data remains visible."
+    });
+  }
   return {
     snapshot: buildOrderSnapshot({
       customer,
@@ -1415,6 +1627,7 @@ async function buildInternalOrderSnapshotForJob(
       proofReport,
       proofOrder: proofOrderForSnapshot,
       packageDetails,
+      shippingReport,
       issues
     }),
     context

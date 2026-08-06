@@ -545,7 +545,7 @@ export function OrderRollup({
         <div>
           <p className="order-rollup__eyebrow">Order Context</p>
           <h2>{title}</h2>
-          <p>{snapshot.customer.source_customer_name}{destination !== "Not provided" ? ` · ${destination}` : ""}</p>
+          <p>{snapshot.customer.source_customer_name}</p>
         </div>
         <div className="order-rollup__header-status">
           <span>Lift order status</span>
