@@ -198,7 +198,7 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { pro
           lightboxUrl ? (
             <button className="order-rollup__proof-preview" type="button" onClick={() => setPreviewOpen(true)} aria-label={`Open high-resolution proof ${filename}`}>
               <img src={previewUrl} alt="" loading="lazy" />
-              <span aria-hidden="true"><ZoomIn size={14} strokeWidth={2.25} /></span>
+              <span aria-hidden="true"><ZoomIn size={17} strokeWidth={2.15} /></span>
             </button>
           ) : (
             <div className="order-rollup__proof-preview">
@@ -230,7 +230,11 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { pro
               {lightboxKind === "image" ? (
                 <img src={lightboxUrl} alt={`High-resolution proof ${filename}`} />
               ) : (
-                <iframe src={lightboxUrl} title={`High-resolution proof ${filename}`} sandbox="" referrerPolicy="no-referrer" />
+                <iframe
+                  src={lightboxUrl}
+                  title={`High-resolution proof ${filename}`}
+                  referrerPolicy="no-referrer"
+                />
               )}
             </div>
           </section>
