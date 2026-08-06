@@ -6,7 +6,7 @@ import { normalizeProofOrder } from "@pathfinder/proof-domain";
 process.env.PATHFINDER_RUNTIME = "lambda";
 process.env.PATHFINDER_REQUIRE_AUTH = "false";
 
-const { buildOrderSnapshot, publicOrderStatusSnapshotFromInternal } = await import("../src/server.ts");
+const { applyPublicProofVisibility, buildOrderSnapshot, publicOrderStatusSnapshotFromInternal } = await import("../src/server.ts");
 
 const captured = JSON.parse(
   await readFile(
@@ -117,4 +117,22 @@ test("projects the real proof gallery through the public status boundary without
   assert.equal(serialized.includes("DETAILED_REPORT"), false);
   assert.equal(serialized.includes("grant"), false);
   assert.equal(serialized.includes("session"), false);
+});
+
+test("returns safe proof thumbnails transiently while keeping the durable status projection URL-free", () => {
+  const transient = publicOrderStatusSnapshotFromInternal(realProofSnapshot(), "status_only", {
+    include_transient_proof_assets: true
+  });
+  const transientProofs = transient.lines[0]?.proofs ?? [];
+
+  assert.equal(transientProofs.length, 4);
+  assert.ok(transientProofs.every((proof) => proof.preview_kind === "image"));
+  assert.ok(transientProofs.every((proof) => proof.proof_link_low?.startsWith("https://")));
+  assert.equal(transient.visibility_policy.redacted_fields.includes("direct Lift proof URLs"), false);
+  assert.equal(transient.proof_summary?.decisions_enabled, false);
+
+  const durable = applyPublicProofVisibility(transient, "status_only");
+  assert.ok(durable.lines[0]?.proofs.every((proof) => proof.proof_link_low === null && proof.proof_link_high === null));
+  assert.ok(durable.lines[0]?.proofs.every((proof) => proof.preview_kind === "unavailable"));
+  assert.equal(durable.visibility_policy.redacted_fields.includes("direct Lift proof URLs"), true);
 });
