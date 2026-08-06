@@ -4,7 +4,6 @@ import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin
 import { getAuth } from "firebase-admin/auth";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import {
   enrichLiftCustomers,
@@ -3486,23 +3485,10 @@ app.get("/public/status/:token/proof-asset", async (req, res) => {
       return;
     }
 
-    const upstream = await fetch(assetUrl, {
-      redirect: "error",
-      signal: AbortSignal.timeout(30_000)
-    });
-    if (!upstream.ok || !upstream.body) {
-      res.status(502).json({ error: "Current high-resolution proof could not be loaded." });
-      return;
-    }
-
-    const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
-    const contentLength = upstream.headers.get("content-length");
     res.setHeader("Cache-Control", "private, no-store, max-age=0");
-    res.setHeader("Content-Type", contentType);
     res.setHeader("Content-Disposition", `inline; filename="${inlineProofFilename(assetUrl.pathname.split("/").pop() ?? filename)}"`);
     res.setHeader("X-Content-Type-Options", "nosniff");
-    if (contentLength) res.setHeader("Content-Length", contentLength);
-    Readable.fromWeb(upstream.body as never).pipe(res);
+    res.redirect(302, assetUrl.toString());
   } catch {
     if (!res.headersSent) {
       res.status(502).json({ error: "Current high-resolution proof could not be loaded." });
