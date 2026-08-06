@@ -568,6 +568,39 @@ test("refreshes OAuth and performs only the read-only current-user health check"
   });
 });
 
+test("reuses a current OAuth access token without rotating the refresh token", async () => {
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const result = await checkWrikeOAuthConnection(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      access_token: "current-access-token",
+      access_token_expires_at: "2026-07-21T20:10:00.000Z",
+      host: "app-us2.wrike.com",
+      scope: "wsReadWrite"
+    },
+    {
+      now: () => new Date("2026-07-21T20:00:00.000Z"),
+      fetch_impl: async (input, init) => {
+        calls.push({ url: String(input), init });
+        return new Response(JSON.stringify({ data: [{ id: "CURRENTUSER" }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+  );
+
+  assert.deepEqual(calls.map((call) => call.url), [
+    "https://app-us2.wrike.com/api/v4/contacts?me=true"
+  ]);
+  assert.equal(result.credentials.access_token, "current-access-token");
+  assert.equal(result.credentials.refresh_token, "refresh-token");
+  assert.equal(result.credentials.access_token_expires_at, "2026-07-21T20:10:00.000Z");
+  assert.equal(result.health.identity_confirmed, true);
+});
+
 test("posts one plain-text task comment with read/write OAuth and returns only safe metadata", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const result = await postWrikeTaskComment(
