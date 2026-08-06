@@ -228,6 +228,32 @@ p {
   line-height: 1.35;
 }
 
+.status-badge .live-refresh {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding-top: 9px;
+  border-top: 1px solid #dce5d8;
+}
+
+.status-badge .live-refresh::before {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  margin-top: 4px;
+  border-radius: 50%;
+  background: #2f7d46;
+  content: "";
+}
+
+.status-badge .live-refresh.checking::before {
+  background: #c99429;
+}
+
+.status-badge .live-refresh.degraded::before {
+  background: #a76d23;
+}
+
 .progress-panel {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

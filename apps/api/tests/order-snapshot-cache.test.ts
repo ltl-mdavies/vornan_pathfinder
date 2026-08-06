@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BoundedSnapshotCache } from "../src/order-snapshot-cache.ts";
+import { BoundedSnapshotCache, CoalescedRefreshes } from "../src/order-snapshot-cache.ts";
 
 test("reuses a recent snapshot only inside the configured refresh window", () => {
   const cache = new BoundedSnapshotCache<{ refreshed_at: string; value: string }>(15_000);
@@ -29,4 +29,29 @@ test("evicts the oldest bounded entry and replaces an existing key cleanly", () 
   assert.equal(cache.getRecent("one", start + 4)?.snapshot.value, "new");
   assert.equal(cache.getRecent("two", start + 4), null);
   assert.equal(cache.getRecent("three", start + 4)?.snapshot.value, "three");
+});
+
+test("coalesces concurrent refreshes for one order and releases the key afterward", async () => {
+  const refreshes = new CoalescedRefreshes<string>();
+  let calls = 0;
+  let release: ((value: string) => void) | undefined;
+  const load = () => {
+    calls += 1;
+    return new Promise<string>((resolve) => {
+      release = resolve;
+    });
+  };
+
+  const first = refreshes.run("order-1", load);
+  const second = refreshes.run("order-1", load);
+  assert.equal(calls, 1);
+  release?.("fresh");
+  assert.deepEqual(await Promise.all([first, second]), ["fresh", "fresh"]);
+
+  const third = await refreshes.run("order-1", async () => {
+    calls += 1;
+    return "newer";
+  });
+  assert.equal(third, "newer");
+  assert.equal(calls, 2);
 });

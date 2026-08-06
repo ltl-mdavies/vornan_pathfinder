@@ -12,6 +12,7 @@ import type {
 import { OrderRollup } from "@pathfinder/order-rollup-ui";
 import { proofReviewProgress } from "./proof-state";
 import { CustomerIntake } from "./intake";
+import { publicStatusPollDelay, shouldPollPublicStatus } from "./live-refresh";
 import "./styles.css";
 import "@pathfinder/order-rollup-ui/styles.css";
 
@@ -132,6 +133,12 @@ type PublicOrderStatusSnapshot = {
 type PublicStatusResponse = {
   snapshot: PublicOrderStatusSnapshot;
   snapshots?: PublicOrderStatusSnapshot[];
+  refresh?: {
+    status: "live" | "degraded";
+    checked_at: string;
+    next_refresh_at: string;
+    poll_after_seconds: number;
+  };
   link: {
     status: string;
     expires_at: string;
@@ -442,7 +449,13 @@ function PackageList({ packages }: { packages: StatusPackage[] }) {
   );
 }
 
-function StatusView({ payload }: { payload: PublicStatusResponse }) {
+function StatusView({
+  payload,
+  refreshState
+}: {
+  payload: PublicStatusResponse;
+  refreshState: "live" | "checking" | "degraded";
+}) {
   const snapshots = payload.snapshots?.length ? payload.snapshots : [payload.snapshot];
   const [selectedOrderKey, setSelectedOrderKey] = useState(snapshots[0].order_key);
   const snapshot = snapshots.find((candidate) => candidate.order_key === selectedOrderKey) ?? snapshots[0];
@@ -494,6 +507,13 @@ function StatusView({ payload }: { payload: PublicStatusResponse }) {
           <span>Current status</span>
           <strong>{currentStatus}</strong>
           <small>Updated {displayDate(snapshot.refreshed_at)}</small>
+          <small className={`live-refresh ${refreshState}`} aria-live="polite">
+            {refreshState === "checking"
+              ? "Checking for updates…"
+              : refreshState === "degraded"
+                ? "Showing the last confirmed update · retrying automatically"
+                : "Live updates on"}
+          </small>
         </div>
       </section>
 
@@ -517,6 +537,7 @@ function App() {
   const initialToken = useMemo(tokenFromLocation, []);
   const [payload, setPayload] = useState<PublicStatusResponse | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">(initialToken ? "loading" : "idle");
+  const [refreshState, setRefreshState] = useState<"live" | "checking" | "degraded">("checking");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -525,10 +546,41 @@ function App() {
     }
 
     let ignore = false;
-    async function loadStatus() {
-      setState("loading");
+    let loaded = false;
+    let requestActive = false;
+    let pollTimer: number | null = null;
+
+    function clearPollTimer() {
+      if (pollTimer != null) {
+        window.clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+    }
+
+    function schedulePoll(seconds?: number) {
+      clearPollTimer();
+      if (ignore || !shouldPollPublicStatus(document.visibilityState)) {
+        return;
+      }
+      pollTimer = window.setTimeout(() => {
+        void loadStatus(false);
+      }, publicStatusPollDelay(seconds));
+    }
+
+    async function loadStatus(initial: boolean) {
+      if (ignore || requestActive) {
+        return;
+      }
+      requestActive = true;
+      if (initial) {
+        setState("loading");
+      } else {
+        setRefreshState("checking");
+      }
       try {
-        const response = await fetch(`${apiBaseUrl}/public/status/${encodeURIComponent(initialToken)}`);
+        const response = await fetch(`${apiBaseUrl}/public/status/${encodeURIComponent(initialToken)}`, {
+          cache: "no-store"
+        });
         const data = await response.json();
         if (!response.ok) {
           throw new Error(data.error ?? "This status link could not be opened.");
@@ -536,18 +588,43 @@ function App() {
         if (!ignore) {
           setPayload(data);
           setState("idle");
+          setRefreshState(data.refresh?.status === "degraded" ? "degraded" : "live");
+          setMessage("");
+          loaded = true;
+          schedulePoll(data.refresh?.poll_after_seconds);
         }
       } catch (error) {
         if (!ignore) {
-          setMessage(error instanceof Error ? error.message : "This status link could not be opened.");
-          setState("error");
+          if (loaded) {
+            setRefreshState("degraded");
+            schedulePoll();
+          } else {
+            setMessage(error instanceof Error ? error.message : "This status link could not be opened.");
+            setState("error");
+          }
         }
+      } finally {
+        requestActive = false;
       }
     }
 
-    void loadStatus();
+    function handleVisibilityChange() {
+      clearPollTimer();
+      if (shouldPollPublicStatus(document.visibilityState)) {
+        void loadStatus(false);
+      }
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleVisibilityChange);
+    window.addEventListener("online", handleVisibilityChange);
+    void loadStatus(true);
     return () => {
       ignore = true;
+      clearPollTimer();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleVisibilityChange);
+      window.removeEventListener("online", handleVisibilityChange);
     };
   }, [initialToken]);
 
@@ -579,7 +656,7 @@ function App() {
         </section>
       ) : null}
 
-      {payload ? <StatusView payload={payload} /> : null}
+      {payload ? <StatusView payload={payload} refreshState={refreshState} /> : null}
     </main>
   );
 }
