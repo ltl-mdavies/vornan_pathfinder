@@ -129,6 +129,14 @@ function inferredImageAsset(url: string | null, filename: string) {
 
 function proofAssetKind(url: string | null, filename: string) {
   if (!url) return "unavailable" as const;
+  try {
+    const declaredKind = new URL(url).searchParams.get("asset_kind");
+    if (declaredKind === "pdf" || declaredKind === "image" || declaredKind === "document") {
+      return declaredKind;
+    }
+  } catch {
+    // Fall through to the extension-based compatibility behavior.
+  }
   if (/\.pdf(?:$|[?#])/i.test(`${filename} ${url}`)) return "pdf" as const;
   if (inferredImageAsset(url, filename)) return "image" as const;
   return "document" as const;

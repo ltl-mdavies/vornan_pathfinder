@@ -4,7 +4,7 @@ import test from "node:test";
 
 test("Dynamo persistence never deletes core lifecycle records during a whole-store save", async () => {
   const source = await readFile(new URL("../src/store.ts", import.meta.url), "utf8");
-  for (const table of ["customers", "workspaces", "import_methods", "output_routes", "jobs"]) {
+  for (const table of ["customers", "workspaces", "import_methods", "output_routes", "product_mappings", "jobs"]) {
     const persistence = source.match(
       new RegExp(`(?:await )?(upsertDynamoTable|replaceDynamoTable)\\(\\s*tables\\.${table},[\\s\\S]*?\\n\\s*\\);`)
     );
@@ -15,5 +15,13 @@ test("Dynamo persistence never deletes core lifecycle records during a whole-sto
   assert.match(
     source,
     /Import methods are lifecycle records:[\s\S]*concurrent writer holding an older workspace snapshot cannot erase/
+  );
+  assert.match(
+    source,
+    /Product-list replacement has its own conditional persistence boundary[\s\S]*preserve that durable version pointer/
+  );
+  assert.match(
+    source,
+    /Versioned product mappings are durable lifecycle records[\s\S]*must never delete a[\s\S]*complete prior version/
   );
 });

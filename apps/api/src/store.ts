@@ -2192,7 +2192,9 @@ async function upsertDynamoTable(tableName: string, putItems: Array<Record<strin
   await batchWriteDynamo(tableName, putRequests);
 }
 
-function workspaceRecord(workspace: PathfinderCustomerWorkspace) {
+function workspaceRecord(
+  workspace: PathfinderCustomerWorkspace
+): Omit<PathfinderCustomerWorkspace, "import_methods" | "output_routes" | "jobs" | "submit_attempts" | "product_mappings"> {
   const { import_methods, output_routes, jobs, submit_attempts, product_mappings, ...record } = workspace;
   return {
     ...record,
@@ -2412,12 +2414,26 @@ async function writeDynamoStore(store: PathfinderStore) {
       dynamoItem({ customer_id: workspace.customer.lift_customer_id }, workspace.customer)
     )
   );
-  await upsertDynamoTable(
-    tables.workspaces,
-    workspaces.map((workspace) =>
-      dynamoItem({ customer_id: workspace.customer.lift_customer_id }, workspaceRecord(workspace))
-    )
-  );
+  const durableWorkspaceRecords = await Promise.all(workspaces.map(async (workspace) => {
+    const customerId = workspace.customer.lift_customer_id;
+    const current = await getDynamoClient().send(new GetItemCommand({
+      TableName: tables.workspaces,
+      Key: { customer_id: dynamoString(customerId) },
+      ConsistentRead: true
+    }));
+    const stored = current.Item ? parseDynamoData<PathfinderCustomerWorkspace>(current.Item) : null;
+    const record = workspaceRecord(workspace);
+    // Product-list replacement has its own conditional persistence boundary.
+    // Generic whole-store saves must preserve that durable version pointer and
+    // history so a stale or partial workspace cannot hide the active catalog.
+    if (stored) {
+      record.product_mapping_active_versions = stored.product_mapping_active_versions ?? {};
+      record.product_mapping_replacement_checkpoint = stored.product_mapping_replacement_checkpoint ?? null;
+      record.product_mapping_replacement_history = stored.product_mapping_replacement_history ?? [];
+    }
+    return dynamoItem({ customer_id: customerId }, record);
+  }));
+  await upsertDynamoTable(tables.workspaces, durableWorkspaceRecords);
   // Import methods are lifecycle records: removal is represented by an
   // Archived status, not by deleting the DynamoDB item. Upsert them so a
   // concurrent writer holding an older workspace snapshot cannot erase a
@@ -2444,9 +2460,11 @@ async function writeDynamoStore(store: PathfinderStore) {
       )
     )
   );
-  await replaceDynamoTable(
+  // Versioned product mappings are durable lifecycle records. Active-version
+  // pointers select the visible catalog; unrelated saves must never delete a
+  // complete prior version while persisting a partial workspace snapshot.
+  await upsertDynamoTable(
     tables.product_mappings,
-    ["customer_route_id", "mapping_id"],
     retainedProductMappings.map(({ workspace, mapping }) =>
         dynamoItem(
           {

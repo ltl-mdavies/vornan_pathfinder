@@ -26,8 +26,24 @@ test("routes high-resolution proof files through the token-bound inline viewer",
   assert.equal(proof?.proof_link_low, "https://proof.example.invalid/low.jpg");
   assert.equal(
     proof?.proof_link_high,
-    "https://api.pathfinder.vornan.co/public/status/private%2Ftoken/proof-asset?order_number=A0227641&line_number=1&filename=Proof+panel+1.jpg"
+    "https://api.pathfinder.vornan.co/public/status/private%2Ftoken/proof-asset?order_number=A0227641&line_number=1&filename=Proof+panel+1.jpg&asset_kind=pdf"
   );
+});
+
+test("marks image high-resolution assets for the lightbox renderer", () => {
+  const [snapshot] = proxyHighResolutionProofAssets([{
+    order_key: "order-1",
+    order_number: "A0227641",
+    lines: [{
+      line_number: 1,
+      proofs: [{
+        proof_filename: "proof.pdf",
+        proof_link_high: "https://proof.example.invalid/original.jpg?token=short-lived"
+      }]
+    }]
+  }], "https://api.pathfinder.vornan.co", "token");
+
+  assert.match(snapshot?.lines[0]?.proofs[0]?.proof_link_high ?? "", /asset_kind=image/);
 });
 
 test("uses a bounded server-directed polling interval", () => {
