@@ -49,3 +49,24 @@ export class BoundedSnapshotCache<T extends RefreshableSnapshot> {
     return this.entries.delete(key);
   }
 }
+
+export class CoalescedRefreshes<T> {
+  private readonly inFlight = new Map<string, Promise<T>>();
+
+  async run(key: string, load: () => Promise<T>) {
+    const existing = this.inFlight.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const refresh = load();
+    this.inFlight.set(key, refresh);
+    try {
+      return await refresh;
+    } finally {
+      if (this.inFlight.get(key) === refresh) {
+        this.inFlight.delete(key);
+      }
+    }
+  }
+}

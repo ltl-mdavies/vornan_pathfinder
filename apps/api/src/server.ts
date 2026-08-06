@@ -233,6 +233,11 @@ import {
 } from "./submit-integrity.js";
 import { getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 import {
+  mergePublicStatusRefresh,
+  summarizePublicStatusRefresh,
+  type PublicStatusRefreshState
+} from "./public-status-refresh.js";
+import {
   buildPublicIntakeVerificationEmail,
   buildStatusLinkEmail,
   getEmailRuntimeConfig,
@@ -243,7 +248,7 @@ import {
 import { createProofAdminRouter } from "./proof/router.js";
 import { getProofRuntimeConfig } from "./proof/runtime-config.js";
 import { getProofOrder } from "./proof/store.js";
-import { BoundedSnapshotCache } from "./order-snapshot-cache.js";
+import { BoundedSnapshotCache, CoalescedRefreshes } from "./order-snapshot-cache.js";
 import {
   clearTargetEnvironmentProofingApi,
   readTargetEnvironmentProofingApi,
@@ -1225,7 +1230,8 @@ type InternalOrderSnapshotResult =
 
 async function buildInternalOrderSnapshotForJob(
   customer: LiftCustomer,
-  jobId: string
+  jobId: string,
+  options: { preferFreshProofReport?: boolean } = {}
 ): Promise<InternalOrderSnapshotResult> {
   const context = await getJobLiftContext(customer, jobId);
 
@@ -1260,7 +1266,7 @@ async function buildInternalOrderSnapshotForJob(
           orderNumber: context.orderNumber
         })
       : Promise.resolve(null),
-    !proofOrder && context.route.proof_report_url
+    (!proofOrder || options.preferFreshProofReport) && context.route.proof_report_url
       ? fetchLiftProofReport({
           target: context.target,
           route: context.route,
@@ -1316,6 +1322,7 @@ async function buildInternalOrderSnapshotForJob(
           message: proofReportResult.reason instanceof Error ? proofReportResult.reason.message : "Lift proof report failed."
         }),
         null);
+  const proofOrderForSnapshot = options.preferFreshProofReport && proofReport?.ok ? null : proofOrder;
   const packageDetails =
     packageDetailsResult.status === "fulfilled"
       ? packageDetailsResult.value
@@ -1328,6 +1335,27 @@ async function buildInternalOrderSnapshotForJob(
               : "Lift package details failed."
         }),
         null);
+  if (orderLookup && !orderLookup.ok) {
+    issues.push({
+      source: "order_lookup",
+      severity: "error",
+      message: "Lift did not return a current order update. The last confirmed status remains visible."
+    });
+  }
+  if (proofReport && !proofReport.ok) {
+    issues.push({
+      source: "proof_report",
+      severity: "error",
+      message: "Lift did not return current proof details. The last confirmed proof status remains visible."
+    });
+  }
+  if (packageDetails && !packageDetails.ok) {
+    issues.push({
+      source: "package_details",
+      severity: "error",
+      message: "Lift did not return current shipment details. The last confirmed shipment status remains visible."
+    });
+  }
   return {
     snapshot: buildOrderSnapshot({
       customer,
@@ -1338,7 +1366,7 @@ async function buildInternalOrderSnapshotForJob(
       orderNumber: context.orderNumber,
       orderLookup,
       proofReport,
-      proofOrder,
+      proofOrder: proofOrderForSnapshot,
       packageDetails,
       issues
     }),
@@ -1466,9 +1494,14 @@ const orderSnapshotRefreshMinMs = Math.max(
   Number(process.env.PATHFINDER_ORDER_SNAPSHOT_REFRESH_MIN_MS ?? 15_000) || 15_000
 );
 const orderSnapshotResponseCache = new BoundedSnapshotCache<InternalOrderSnapshot>(orderSnapshotRefreshMinMs);
+const orderSnapshotRefreshes = new CoalescedRefreshes<Awaited<ReturnType<typeof buildInternalOrderSnapshotForJob>>>();
 
-async function loadBoundedInternalOrderSnapshot(customer: LiftCustomer, jobId: string) {
-  const cacheKey = `${customer.lift_customer_id}:${jobId}`;
+async function loadBoundedInternalOrderSnapshot(
+  customer: LiftCustomer,
+  jobId: string,
+  options: { preferFreshProofReport?: boolean } = {}
+) {
+  const cacheKey = `${options.preferFreshProofReport ? "live" : "cached"}:${customer.lift_customer_id}:${jobId}`;
   const cached = orderSnapshotResponseCache.getRecent(cacheKey);
 
   if (cached) {
@@ -1482,7 +1515,9 @@ async function loadBoundedInternalOrderSnapshot(customer: LiftCustomer, jobId: s
     };
   }
 
-  const result = await buildInternalOrderSnapshotForJob(customer, jobId);
+  const result = await orderSnapshotRefreshes.run(cacheKey, () =>
+    buildInternalOrderSnapshotForJob(customer, jobId, options)
+  );
   if ("error" in result) {
     return result;
   }
@@ -1498,6 +1533,64 @@ async function loadBoundedInternalOrderSnapshot(customer: LiftCustomer, jobId: s
       next_refresh_at: refreshWindow.next_refresh_at
     }
   };
+}
+
+const publicStatusPollAfterSeconds = 30;
+
+async function refreshPublicStatusOrder(binding: {
+  order_key: string;
+  customer_id: string;
+  job_id: string;
+  order_number: string;
+}) {
+  const previous = await getPublicOrderStatusSnapshot(binding.order_key);
+
+  try {
+    const customer = await findLiftCustomer(binding.customer_id);
+    const workspace = await getOrCreateWorkspace(customer);
+    const result = await loadBoundedInternalOrderSnapshot(customer, binding.job_id, {
+      preferFreshProofReport: true
+    });
+
+    if ("error" in result) {
+      return previous
+        ? {
+            snapshot: applyPublicProofVisibility(previous, workspace.status_access_policy.proof_visibility),
+            status: "degraded" as PublicStatusRefreshState,
+            checked_at: new Date().toISOString()
+          }
+        : null;
+    }
+
+    const projected = publicOrderStatusSnapshotFromInternal(result.snapshot, "status_only");
+    const merged = applyPublicProofVisibility(
+      mergePublicStatusRefresh(previous, projected, {
+        order: result.snapshot.lookups.order?.ok === true,
+        proofs: result.snapshot.lookups.proofs?.ok === true,
+        packages: result.snapshot.lookups.packages?.ok === true
+      }),
+      workspace.status_access_policy.proof_visibility
+    );
+    if (previous?.refreshed_at !== merged.refreshed_at) {
+      await persistPublicOrderStatusSnapshot(merged);
+    }
+
+    return {
+      snapshot: merged,
+      status: result.snapshot.issues.some((issue) => issue.severity === "error")
+        ? "degraded" as PublicStatusRefreshState
+        : "live" as PublicStatusRefreshState,
+      checked_at: result.refresh.checked_at
+    };
+  } catch {
+    return previous
+      ? {
+          snapshot: applyPublicProofVisibility(previous, "off"),
+          status: "degraded" as PublicStatusRefreshState,
+          checked_at: new Date().toISOString()
+        }
+      : null;
+  }
 }
 
 function hashStatusToken(token: string) {
@@ -3183,37 +3276,25 @@ app.get("/public/status/:token", async (req, res) => {
             order_number: tokenRecord.order_number
           }
         ];
-    const persistedSnapshots = (
-      await Promise.all(
-        Array.from(new Set(tokenOrders.map((order) => order.order_key))).map((orderKey) =>
-          getPublicOrderStatusSnapshot(orderKey)
-        )
-      )
-    ).filter((snapshot): snapshot is PublicOrderStatusSnapshot => snapshot != null);
-
-    const snapshots = await Promise.all(
-      persistedSnapshots.map(async (snapshot) => {
-        const binding = tokenOrders.find((order) => order.order_key === snapshot.order_key);
-        if (!binding) {
-          return applyPublicProofVisibility(snapshot, "off");
-        }
-        const customer = await findLiftCustomer(binding.customer_id);
-        if (!customer) {
-          return applyPublicProofVisibility(snapshot, "off");
-        }
-        const workspace = await getOrCreateWorkspace(customer);
-        return applyPublicProofVisibility(snapshot, workspace.status_access_policy.proof_visibility);
-      })
+    const uniqueOrders = Array.from(
+      new Map(tokenOrders.map((order) => [order.order_key, order])).values()
     );
+    const refreshResults = (
+      await Promise.all(uniqueOrders.map((order) => refreshPublicStatusOrder(order)))
+    ).filter((result): result is NonNullable<typeof result> => result != null);
+    const snapshots = refreshResults.map((result) => result.snapshot);
 
     if (!snapshots.length) {
       res.status(404).json({ error: "Order status snapshots were not found." });
       return;
     }
 
+    res.set("Cache-Control", "private, no-store, max-age=0");
+    res.set("Pragma", "no-cache");
     res.json({
       snapshot: snapshots[0],
       snapshots,
+      refresh: summarizePublicStatusRefresh(refreshResults, publicStatusPollAfterSeconds),
       link: {
         status: tokenRecord.status,
         expires_at: tokenRecord.expires_at,
