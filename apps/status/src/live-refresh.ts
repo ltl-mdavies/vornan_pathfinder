@@ -27,7 +27,32 @@ export interface TransientProofLine {
 
 export interface TransientProofSnapshot {
   order_key: string;
+  order_number?: string;
   lines: TransientProofLine[];
+}
+
+export function proxyHighResolutionProofAssets<T extends TransientProofSnapshot>(
+  snapshots: T[],
+  apiBaseUrl: string,
+  token: string
+) {
+  const base = apiBaseUrl.replace(/\/$/, "");
+  return snapshots.map((snapshot) => ({
+    ...snapshot,
+    lines: snapshot.lines.map((line) => ({
+      ...line,
+      proofs: line.proofs.map((proof) => proof.proof_link_high && snapshot.order_number
+        ? {
+            ...proof,
+            proof_link_high: `${base}/public/status/${encodeURIComponent(token)}/proof-asset?${new URLSearchParams({
+              order_number: snapshot.order_number,
+              line_number: String(line.line_number),
+              filename: proof.proof_filename ?? "Proof file"
+            }).toString()}`
+          }
+        : proof)
+    }))
+  }));
 }
 
 function proofKey(proof: TransientProofAsset) {

@@ -4,6 +4,7 @@ import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin
 import { getAuth } from "firebase-admin/auth";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { Readable } from "node:stream";
 import { pathToFileURL } from "node:url";
 import {
   enrichLiftCustomers,
@@ -3419,6 +3420,91 @@ app.post("/public/status/:token/refresh", async (req, res) => {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Order status refresh failed."
     });
+  }
+});
+
+function allowedLiftProofAssetUrl(value: unknown) {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    const isLiftS3Host = url.hostname.endsWith(".s3.amazonaws.com");
+    const isProofObject = /^\/(?:originals|thumbs)\/91\//.test(url.pathname);
+    return url.protocol === "https:" && !url.username && !url.password && isLiftS3Host && isProofObject
+      ? url
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function inlineProofFilename(value: string) {
+  const safe = value.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^\.+/, "").slice(0, 180);
+  return safe || "proof-file";
+}
+
+app.get("/public/status/:token/proof-asset", async (req, res) => {
+  try {
+    const lookup = await activePublicStatusToken(req.params.token);
+    if ("error" in lookup) {
+      res.status(lookup.status).json({ error: lookup.error });
+      return;
+    }
+
+    const orderNumber = valueAsString(req.query.order_number).toUpperCase();
+    const lineNumber = valueAsString(req.query.line_number);
+    const filename = valueAsString(req.query.filename);
+    const binding = lookup.orders.find((order) => order.order_number === orderNumber);
+    if (!binding || !lineNumber || !filename) {
+      res.status(404).json({ error: "Proof asset was not found for this status link." });
+      return;
+    }
+
+    const customer = await findLiftCustomer(binding.customer_id);
+    const context = await getJobLiftContext(customer, binding.job_id);
+    if (context.error) {
+      res.status(context.errorStatus ?? 404).json({ error: "Proof asset is unavailable." });
+      return;
+    }
+
+    const proofReport = await fetchLiftProofReport({
+      target: context.target,
+      route: context.route,
+      orderNumber: binding.order_number
+    });
+    const proof = proofReport.ok
+      ? proofReport.proofs.find((candidate) =>
+          String(candidate.line_number ?? "") === lineNumber && candidate.proof_filename === filename
+        )
+      : null;
+    const assetUrl = allowedLiftProofAssetUrl(proof?.proof_link_high ?? proof?.proof_link_low);
+    if (!assetUrl) {
+      res.status(404).json({ error: "Current high-resolution proof is unavailable." });
+      return;
+    }
+
+    const upstream = await fetch(assetUrl, {
+      redirect: "error",
+      signal: AbortSignal.timeout(30_000)
+    });
+    if (!upstream.ok || !upstream.body) {
+      res.status(502).json({ error: "Current high-resolution proof could not be loaded." });
+      return;
+    }
+
+    const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
+    const contentLength = upstream.headers.get("content-length");
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", `inline; filename="${inlineProofFilename(assetUrl.pathname.split("/").pop() ?? filename)}"`);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (contentLength) res.setHeader("Content-Length", contentLength);
+    Readable.fromWeb(upstream.body as never).pipe(res);
+  } catch {
+    if (!res.headersSent) {
+      res.status(502).json({ error: "Current high-resolution proof could not be loaded." });
+    } else {
+      res.end();
+    }
   }
 });
 

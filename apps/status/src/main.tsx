@@ -12,7 +12,7 @@ import type {
 import { OrderRollup } from "@pathfinder/order-rollup-ui";
 import { proofReviewProgress } from "./proof-state";
 import { CustomerIntake } from "./intake";
-import { publicStatusPollDelay, retainTransientProofAssets, shouldPollPublicStatus } from "./live-refresh";
+import { proxyHighResolutionProofAssets, publicStatusPollDelay, retainTransientProofAssets, shouldPollPublicStatus } from "./live-refresh";
 import "./styles.css";
 import "@pathfinder/order-rollup-ui/styles.css";
 
@@ -606,10 +606,11 @@ function App() {
                 latestPayload?.snapshots?.length ? latestPayload.snapshots : latestPayload ? [latestPayload.snapshot] : undefined,
                 incomingSnapshots
               ) as PublicOrderStatusSnapshot[];
+          const proxiedSnapshots = proxyHighResolutionProofAssets(retainedSnapshots, apiBaseUrl, initialToken) as PublicOrderStatusSnapshot[];
           const data: PublicStatusResponse = {
             ...incoming,
-            snapshot: retainedSnapshots[0] ?? incoming.snapshot,
-            snapshots: retainedSnapshots
+            snapshot: proxiedSnapshots[0] ?? incoming.snapshot,
+            snapshots: proxiedSnapshots
           };
           latestPayload = data;
           setPayload(data);
