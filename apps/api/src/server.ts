@@ -3460,15 +3460,19 @@ app.get("/public/status/:token/proof-asset", async (req, res) => {
     }
 
     const customer = await findLiftCustomer(binding.customer_id);
-    const context = await getJobLiftContext(customer, binding.job_id);
-    if (context.error) {
-      res.status(context.errorStatus ?? 404).json({ error: "Proof asset is unavailable." });
+    const workspace = await getOrCreateWorkspace(customer);
+    const route =
+      workspace.output_routes.find((candidate) => candidate.output_route_id === workspace.primary_output_route_id) ??
+      workspace.output_routes.find((candidate) => Boolean(candidate.proof_report_url));
+    const target = route ? ((await getTarget(route.target_id, false)) as TargetConfig | null) : null;
+    if (!route || !target || !route.proof_report_url) {
+      res.status(404).json({ error: "Proof asset is unavailable." });
       return;
     }
 
     const proofReport = await fetchLiftProofReport({
-      target: context.target,
-      route: context.route,
+      target,
+      route,
       orderNumber: binding.order_number
     });
     const proof = proofReport.ok
