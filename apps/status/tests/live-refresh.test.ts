@@ -2,10 +2,33 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_PUBLIC_STATUS_POLL_MS,
+  proxyHighResolutionProofAssets,
   publicStatusPollDelay,
   retainTransientProofAssets,
   shouldPollPublicStatus
 } from "../src/live-refresh.js";
+
+test("routes high-resolution proof files through the token-bound inline viewer", () => {
+  const [snapshot] = proxyHighResolutionProofAssets([{
+    order_key: "order-1",
+    order_number: "A0227641",
+    lines: [{
+      line_number: 1,
+      proofs: [{
+        proof_filename: "Proof panel 1.jpg",
+        proof_link_low: "https://proof.example.invalid/low.jpg",
+        proof_link_high: "https://proof.example.invalid/high.pdf"
+      }]
+    }]
+  }], "https://api.pathfinder.vornan.co/", "private/token");
+
+  const proof = snapshot?.lines[0]?.proofs[0];
+  assert.equal(proof?.proof_link_low, "https://proof.example.invalid/low.jpg");
+  assert.equal(
+    proof?.proof_link_high,
+    "https://api.pathfinder.vornan.co/public/status/private%2Ftoken/proof-asset?order_number=A0227641&line_number=1&filename=Proof+panel+1.jpg"
+  );
+});
 
 test("uses a bounded server-directed polling interval", () => {
   assert.equal(publicStatusPollDelay(undefined), DEFAULT_PUBLIC_STATUS_POLL_MS);
