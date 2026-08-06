@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
   matchLiftLineRecord,
   normalizeLiftOrderLookupPayload,
@@ -158,7 +159,8 @@ test("builds a bounded shipment summary from customer-safe package fields", () =
     tracker_message: "In transit",
     box_number: "2",
     package_type: "Box",
-    location_name: "Cincinnati Hub"
+    location_name: "Cincinnati Hub",
+    destination: null
   });
 
   const summary = buildOrderRollupShipmentSummary([{
@@ -178,10 +180,65 @@ test("builds a bounded shipment summary from customer-safe package fields", () =
     tracking_count: 1,
     methods: ["UPS Ground", "Courier"],
     locations: ["Cincinnati Hub"],
-    status_messages: ["In transit"]
+    status_messages: ["In transit"],
+    destinations: [{
+      destination: null,
+      location_name: "Cincinnati Hub",
+      package_count: 2,
+      methods: ["UPS Ground", "Courier"],
+      status_messages: ["In transit"],
+      line_numbers: [1],
+      tracking: [{
+        tracking_number: "1Z TEST 001",
+        ship_method: "UPS Ground",
+        tracker_message: "In transit",
+        box_numbers: ["2"],
+        package_types: ["Box"],
+        line_numbers: [1]
+      }]
+    }]
   });
   const serialized = JSON.stringify(summary);
   assert.equal(serialized.includes("99.00"), false);
   assert.equal(serialized.includes("PRIVATE-ACCOUNT"), false);
   assert.equal(serialized.includes("weight"), false);
+});
+
+test("deduplicates physical packages across lines and builds only known carrier links", () => {
+  const sharedPackage = {
+    tracking_number: "1Z60V157P299088946",
+    ship_method: "UPS Ground",
+    tracker_message: "Label created",
+    box_number: 3,
+    package_type: "Custom Package",
+    location_name: "Customer Receiving"
+  };
+  const line = (lineNumber: number) => ({
+    line_number: lineNumber,
+    quantity: 1,
+    proof_count: 0,
+    package_count: 1,
+    latest_proof_status: null,
+    latest_tracking_message: "Label created",
+    proofs: [],
+    packages: [sharedPackage]
+  });
+  const summary = buildOrderRollupShipmentSummary([line(12), line(13)], {
+    company: "Customer Receiving",
+    address_1: "123 Main St",
+    city: "Cincinnati",
+    state: "OH",
+    postal_code: "45202"
+  });
+
+  assert.equal(summary.package_count, 1);
+  assert.equal(summary.tracking_count, 1);
+  assert.deepEqual(summary.destinations[0]?.line_numbers, [12, 13]);
+  assert.deepEqual(summary.destinations[0]?.tracking[0]?.line_numbers, [12, 13]);
+  assert.equal(summary.destinations[0]?.destination?.address_1, "123 Main St");
+  assert.equal(
+    buildCarrierTrackingUrl("1Z60V157P299088946", "UPS Ground"),
+    "https://www.ups.com/track?loc=en_US&tracknum=1Z60V157P299088946"
+  );
+  assert.equal(buildCarrierTrackingUrl("not a safe value", "Unknown"), null);
 });

@@ -120,16 +120,18 @@ for (const viewport of viewports) {
     await expect(page.getByText("Qty 1 · 46.375”h x 30.375”w")).toBeVisible();
     await expect(page.getByText("INTERNAL-PRODUCT-ID")).toHaveCount(0);
 
-    const control = page.getByRole("link", { name: "View proof" });
+    const control = card.getByRole("button", { name: /^Open a larger preview of / });
     await expect(control).toHaveCount(1);
-    await expect(control).toHaveAttribute("href", "https://assets.fixture.invalid/proof-high.svg");
-    await expect(control).toHaveAttribute("target", "_blank");
-    await expect(control).toHaveAttribute("rel", "noreferrer");
-    const popupPromise = page.waitForEvent("popup");
     await control.click();
-    const popup = await popupPromise;
-    await expect.poll(() => popup.url()).toBe("https://assets.fixture.invalid/proof-high.svg");
-    await popup.close();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("img", { name: /^Larger preview of / })).toHaveAttribute("src", "https://assets.fixture.invalid/proof-high.svg");
+    const fullResolution = dialog.getByRole("link", { name: "Open full resolution" });
+    await expect(fullResolution).toHaveAttribute("href", "https://assets.fixture.invalid/proof-high.svg");
+    await expect(fullResolution).toHaveAttribute("target", "_blank");
+    await expect(fullResolution).toHaveAttribute("rel", "noreferrer");
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
     expect(blocked).toEqual([]);
   });
 }

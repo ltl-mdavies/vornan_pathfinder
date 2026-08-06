@@ -1,8 +1,10 @@
-import React, { type ReactNode } from "react";
+import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
+  buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
   standardGraphicsRail,
   stepProgressIndex,
+  type OrderRollupDestination,
   type OrderRollupHeaderFieldSource,
   type OrderRollupLine,
   type OrderRollupPackage,
@@ -139,6 +141,10 @@ function proofStateLabel(proof: OrderRollupProof) {
 }
 
 function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { proof: OrderRollupProof; displayDate: (value?: string | null) => string; allowAssetLinks: boolean; assetsLoading: boolean }) {
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const dialogTitleId = useId();
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const lowResolutionUrl = allowAssetLinks ? safeProofAssetUrl(proof.proof_link_low) : null;
   const highResolutionUrl = allowAssetLinks ? safeProofAssetUrl(proof.proof_link_high) : null;
   const primaryUrl = highResolutionUrl ?? lowResolutionUrl;
@@ -146,18 +152,85 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { pro
   const previewUrl = proof.preview_kind === "image" || (!proof.preview_kind && inferredImageAsset(lowResolutionUrl, filename))
     ? lowResolutionUrl
     : null;
+  const lightboxUrl = inferredImageAsset(highResolutionUrl, filename) ? highResolutionUrl : previewUrl;
+
+  useEffect(() => {
+    if (!previewOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreviewOpen(false);
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>("a[href], button:not([disabled]), [tabindex]:not([tabindex='-1'])"));
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", closeOnEscape);
+    closeButtonRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+      previousFocus?.focus();
+    };
+  }, [previewOpen]);
+
   return (
-    <article className={`order-rollup__proof-card proof-state--${proof.proof_state ?? "pending"}`}>
-      {previewUrl ? <img src={previewUrl} alt={`Preview of ${filename}`} loading="lazy" /> : <div className="order-rollup__proof-empty">{assetsLoading ? "Refreshing artwork…" : "Preview unavailable"}</div>}
-      <div className="order-rollup__proof-card-copy">
-        <strong className="order-rollup__proof-filename">{filename}</strong>
-        <span className="order-rollup__proof-state">{proofStateLabel(proof)}</span>
-        {proof.creation_date ? <small>Posted {displayDate(proof.creation_date)}</small> : null}
-        <div className="order-rollup__links">
-          {primaryUrl ? <a href={primaryUrl} target="_blank" rel="noreferrer">View proof</a> : null}
+    <>
+      <article className={`order-rollup__proof-card proof-state--${proof.proof_state ?? "pending"}`}>
+        {previewUrl ? (
+          lightboxUrl ? (
+            <button className="order-rollup__proof-preview" type="button" onClick={() => setPreviewOpen(true)} aria-label={`Open a larger preview of ${filename}`}>
+              <img src={previewUrl} alt="" loading="lazy" />
+              <span>Preview larger</span>
+            </button>
+          ) : (
+            <a className="order-rollup__proof-preview" href={primaryUrl ?? previewUrl} target="_blank" rel="noreferrer" aria-label={`Open ${filename} in a new tab`}>
+              <img src={previewUrl} alt="" loading="lazy" />
+              <span>Open artwork</span>
+            </a>
+          )
+        ) : <div className={`order-rollup__proof-empty${assetsLoading ? " is-loading" : ""}`}>{assetsLoading ? "Loading current artwork…" : "Preview unavailable"}</div>}
+        <div className="order-rollup__proof-card-copy">
+          <strong className="order-rollup__proof-filename">{filename}</strong>
+          <span className="order-rollup__proof-state">{proofStateLabel(proof)}</span>
+          {proof.creation_date ? <small>Posted {displayDate(proof.creation_date)}</small> : null}
+          <div className="order-rollup__links">
+            {lightboxUrl ? <button type="button" onClick={() => setPreviewOpen(true)}>Preview larger</button> : null}
+            {primaryUrl ? <a href={primaryUrl} target="_blank" rel="noreferrer">Open full resolution</a> : null}
+          </div>
         </div>
-      </div>
-    </article>
+      </article>
+      {previewOpen && lightboxUrl ? (
+        <div className="order-rollup__lightbox-backdrop" onMouseDown={(event) => {
+          if (event.currentTarget === event.target) setPreviewOpen(false);
+        }}>
+          <section ref={dialogRef} className="order-rollup__lightbox" role="dialog" aria-modal="true" aria-labelledby={dialogTitleId}>
+            <header>
+              <div>
+                <span>Artwork preview</span>
+                <strong id={dialogTitleId}>{filename}</strong>
+              </div>
+              <div className="order-rollup__lightbox-actions">
+                {primaryUrl ? <a href={primaryUrl} target="_blank" rel="noreferrer">Open full resolution</a> : null}
+                <button ref={closeButtonRef} type="button" onClick={() => setPreviewOpen(false)}>Close</button>
+              </div>
+            </header>
+            <div className="order-rollup__lightbox-canvas">
+              <img src={lightboxUrl} alt={`Larger preview of ${filename}`} />
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -220,11 +293,15 @@ function PackageList({ packages }: { packages: OrderRollupPackage[] }) {
         const packageLabel = pkg.box_number != null && pkg.box_number !== ""
           ? `Package ${pkg.box_number}`
           : pkg.package_type ?? `Package ${index + 1}`;
+        const trackingUrl = buildCarrierTrackingUrl(pkg.tracking_number, pkg.ship_method);
         return (
           <article className="order-rollup__package-card" key={`${pkg.tracking_number ?? "package"}-${pkg.box_number ?? index}`}>
             <div>
               <strong>{packageLabel}</strong>
-              <span>{pkg.tracking_number ? `Tracking ${pkg.tracking_number}` : "Tracking pending"}</span>
+              <span>{pkg.tracking_number ? trackingUrl
+                ? <a href={trackingUrl} target="_blank" rel="noreferrer">Track {pkg.tracking_number}</a>
+                : `Tracking ${pkg.tracking_number}`
+                : "Tracking pending"}</span>
             </div>
             <p>{pkg.tracker_message ?? "Package activity recorded"}</p>
             <small>{[pkg.package_type, pkg.ship_method, pkg.location_name].filter(Boolean).join(" · ") || "Shipment details pending"}</small>
@@ -233,6 +310,25 @@ function PackageList({ packages }: { packages: OrderRollupPackage[] }) {
       })}
     </div>
   );
+}
+
+function destinationAddressLines(destination?: OrderRollupDestination | null) {
+  if (!destination) return [];
+  const locality = [destination.city, destination.state].filter(Boolean).join(", ");
+  const localityWithPostal = [locality, destination.postal_code].filter(Boolean).join(" ");
+  return [
+    destination.company,
+    destination.attention_to ? `Attn: ${destination.attention_to}` : null,
+    destination.address_1,
+    destination.address_2,
+    [localityWithPostal, destination.country].filter(Boolean).join(" · ")
+  ].filter((line): line is string => Boolean(line));
+}
+
+function lineNumberSummary(lineNumbers: number[]) {
+  if (!lineNumbers.length) return null;
+  if (lineNumbers.length <= 4) return `Line${lineNumbers.length === 1 ? "" : "s"} ${lineNumbers.join(", ")}`;
+  return `${lineNumbers.length} order lines`;
 }
 
 function shipmentSummaryTitle(summary: OrderRollupShipmentSummary) {
@@ -249,16 +345,62 @@ function ShipmentSummary({ summary }: { summary: OrderRollupShipmentSummary }) {
   ].filter(Boolean).join(" · ");
   return (
     <aside className={`order-rollup__shipment-summary shipment-state--${summary.state}`} aria-label="Shipment summary">
-      <div>
-        <span>Shipping</span>
-        <strong>{shipmentSummaryTitle(summary)}</strong>
-        <small>{context || "Lift has not posted package or tracking activity yet."}</small>
+      <div className="order-rollup__shipment-overview">
+        <div>
+          <span>Shipping</span>
+          <strong>{shipmentSummaryTitle(summary)}</strong>
+          <small>{context || "Lift has not posted package or tracking activity yet."}</small>
+        </div>
+        <dl>
+          <div><dt>Packages</dt><dd>{summary.package_count}</dd></div>
+          <div><dt>Tracking numbers</dt><dd>{summary.tracking_count}</dd></div>
+          <div><dt>Destinations</dt><dd>{summary.destinations.length || "—"}</dd></div>
+        </dl>
       </div>
-      <dl>
-        <div><dt>Packages</dt><dd>{summary.package_count}</dd></div>
-        <div><dt>Tracking numbers</dt><dd>{summary.tracking_count}</dd></div>
-        <div><dt>Ship methods</dt><dd>{summary.methods.length || "—"}</dd></div>
-      </dl>
+      {summary.destinations.length ? (
+        <details className="order-rollup__shipment-details" open>
+          <summary>
+            <span>View shipment destinations and tracking</span>
+            <small>{summary.package_count} package{summary.package_count === 1 ? "" : "s"} grouped without duplicates</small>
+          </summary>
+          <div className="order-rollup__shipment-destinations">
+            {summary.destinations.map((group, index) => {
+              const addressLines = destinationAddressLines(group.destination);
+              return (
+                <section className="order-rollup__shipment-destination" key={`${group.location_name ?? "destination"}-${index}`}>
+                  <header>
+                    <div>
+                      <span>Destination {summary.destinations.length > 1 ? index + 1 : ""}</span>
+                      <strong>{addressLines[0] ?? group.location_name ?? "Destination details pending"}</strong>
+                    </div>
+                    <small>{group.package_count} package{group.package_count === 1 ? "" : "s"}</small>
+                  </header>
+                  {addressLines.length > 1 ? <address>{addressLines.slice(1).map((line) => <span key={line}>{line}</span>)}</address> : (
+                    <p className="order-rollup__shipment-address-pending">The current Lift status feed has not provided the street address yet.</p>
+                  )}
+                  <div className="order-rollup__shipment-tracking-list">
+                    {group.tracking.map((tracking) => {
+                      const trackingUrl = buildCarrierTrackingUrl(tracking.tracking_number, tracking.ship_method);
+                      return (
+                        <article key={tracking.tracking_number}>
+                          <div>
+                            <strong>{trackingUrl
+                              ? <a href={trackingUrl} target="_blank" rel="noreferrer">{tracking.tracking_number}</a>
+                              : tracking.tracking_number}</strong>
+                            <span>{[tracking.ship_method, tracking.box_numbers.length ? `Package ${tracking.box_numbers.join(", ")}` : null].filter(Boolean).join(" · ")}</span>
+                          </div>
+                          <p>{tracking.tracker_message ?? "Tracking activity is available from the carrier."}</p>
+                          {lineNumberSummary(tracking.line_numbers) ? <small>{lineNumberSummary(tracking.line_numbers)}</small> : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </details>
+      ) : null}
     </aside>
   );
 }
@@ -315,10 +457,20 @@ export function OrderRollup({
   const proofVisibility = audience === "internal" ? "review_link" : snapshot.proof_visibility ?? "status_only";
   const showProofs = proofVisibility !== "off";
   const orderStatus = snapshot.order_status ?? liveOrder?.status ?? null;
-  const destination = shippingDestination(snapshot.header.shipping);
+  const headerDestination = shippingDestination(snapshot.header.shipping);
   const proofCount = snapshot.lines.reduce((total, line) => total + line.proof_count, 0);
-  const packageCount = snapshot.lines.reduce((total, line) => total + line.package_count, 0);
-  const shipmentSummary = snapshot.shipment_summary ?? buildOrderRollupShipmentSummary(snapshot.lines);
+  const shipmentSummary = snapshot.shipment_summary ?? buildOrderRollupShipmentSummary(snapshot.lines, snapshot.header.shipping);
+  const packageCount = shipmentSummary.package_count;
+  const summarizedDestinations = shipmentSummary.destinations.filter((group) => group.destination || group.location_name);
+  const destination = headerDestination !== "Not provided"
+    ? headerDestination
+    : summarizedDestinations.length === 1
+      ? shippingDestination(summarizedDestinations[0]?.destination) !== "Not provided"
+        ? shippingDestination(summarizedDestinations[0]?.destination)
+        : summarizedDestinations[0]?.location_name ?? "Not provided"
+      : summarizedDestinations.length > 1
+        ? `${summarizedDestinations.length} destinations`
+        : "Not provided";
   const title = liveOrder?.order_title ?? snapshot.header.order_title ?? snapshot.order_number;
   const fieldSources = snapshot.header.field_sources;
 
