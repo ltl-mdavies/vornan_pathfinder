@@ -740,6 +740,7 @@ interface OutputRoute {
   order_lookup_url?: string | null;
   proof_report_url?: string | null;
   package_details_url?: string | null;
+  shipping_report_url?: string | null;
   status: "Active" | "Draft" | "Inactive";
   updated_at: string;
 }
@@ -1328,6 +1329,7 @@ const seedTimestamp = "2026-07-09T13:41:00.000Z";
 const defaultLiftOrderLookupUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360Orders/N?offset=0";
 const defaultLiftProofReportUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0";
 const defaultLiftPackageDetailsUrl = "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/PackageDetails/package_details?offset=0";
+const defaultLiftShippingReportUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/ShippingReport/N?offset=0";
 const importMethodSourceOptions: ImportMethodSource[] = [
   "XLSX",
   "Google Sheet",
@@ -1417,6 +1419,7 @@ const defaultOutputRoute: OutputRoute = {
   order_lookup_url: defaultLiftOrderLookupUrl,
   proof_report_url: defaultLiftProofReportUrl,
   package_details_url: defaultLiftPackageDetailsUrl,
+  shipping_report_url: defaultLiftShippingReportUrl,
   status: "Active",
   updated_at: seedTimestamp
 };
@@ -1929,6 +1932,7 @@ function buildRouteDiagnostics(args: {
   const hasOrderLookupUrl = validUrlWithParam(route.order_lookup_url, "p0");
   const hasProofReportUrl = validUrlWithParam(route.proof_report_url, "p1");
   const hasPackageDetailsUrl = validUrlWithParam(route.package_details_url, "p0");
+  const hasShippingReportUrl = validUrlWithParam(route.shipping_report_url, "p1");
   const liftCatalogReady = target?.adapter === "lift-standard-graphics" && configuredSecret(user) && configuredSecret(password);
   const hasValueRuleIssues = (route.value_normalization_rules ?? []).some(
     (rule) =>
@@ -2076,6 +2080,18 @@ function buildRouteDiagnostics(args: {
         ? undefined
         : "Add the PackageDetails URL when shipment/package visibility is needed.",
       hasPackageDetailsUrl ? undefined : "target-output-routes"
+    ),
+    routeDiagnosticItem(
+      "shipping-report",
+      "Shipping report URL",
+      hasShippingReportUrl ? "Passed" : "Warning",
+      hasShippingReportUrl
+        ? "Shipping report URL can be built with p1."
+        : "Shipping report URL is missing or invalid for p1.",
+      hasShippingReportUrl
+        ? undefined
+        : "Add the ShippingReport URL when recipient and destination address visibility is needed.",
+      hasShippingReportUrl ? undefined : "target-output-routes"
     ),
     routeDiagnosticItem(
       "product-catalog",
@@ -15979,6 +15995,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   placeholder="Optional endpoint for PackageDetails lookup"
                                   onChange={(event) =>
                                     updateOutputRouteDraft(route.output_route_id, { package_details_url: event.target.value })
+                                  }
+                                />
+                              </label>
+                              <label className="setup-control setup-control-wide">
+                                <span>Lift Shipping Report URL</span>
+                                <input
+                                  value={route.shipping_report_url ?? ""}
+                                  placeholder="Optional endpoint for ShippingReport address enrichment"
+                                  onChange={(event) =>
+                                    updateOutputRouteDraft(route.output_route_id, { shipping_report_url: event.target.value })
                                   }
                                 />
                               </label>

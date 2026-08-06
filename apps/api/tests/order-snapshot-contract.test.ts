@@ -5,9 +5,106 @@ import { normalizeProofOrder, type ProofOrder } from "@pathfinder/proof-domain";
 process.env.PATHFINDER_RUNTIME = "lambda";
 process.env.PATHFINDER_REQUIRE_AUTH = "false";
 
-const { buildOrderSnapshot, publicOrderStatusSnapshotFromInternal } = await import("../src/server.ts");
+const {
+  buildOrderSnapshot,
+  mergeShippingReportIntoPackages,
+  normalizeShippingReportPayload,
+  publicOrderStatusSnapshotFromInternal
+} = await import("../src/server.ts");
 
 const checkedAt = "2026-07-20T20:30:00.000Z";
+
+test("enriches exact package records with ShippingReport recipients and addresses without duplicating tracking", () => {
+  const shippingRows = normalizeShippingReportPayload({
+    rowset: [
+      {
+        ORDER_NUMBER: "A0221993",
+        ORDER_LINE_ID: 9368150,
+        TRACKING_NUMBER: "1Z60V1572999272694",
+        TRACKER_MESSAGE: "Label created",
+        SHIP_METHOD: "UPS Next Day Saver",
+        LOCATION_NAME: "J. Perez and Associates",
+        ADDRESS_LINE1: "1460 Tully Road",
+        ADDRESS_LINE2: "Suite 605",
+        ADDRESS_LINE3: "Receiving",
+        CITY: "San Jose",
+        STATE: "CA",
+        ZIP: 95122
+      },
+      {
+        ORDER_NUMBER: "A0221993",
+        ORDER_LINE_ID: 9368151,
+        TRACKING_NUMBER: "1Z60V1572999272694",
+        TRACKER_MESSAGE: "Label created",
+        SHIP_METHOD: "UPS Next Day Saver",
+        LOCATION_NAME: "J. Perez and Associates",
+        ADDRESS_LINE1: "1460 Tully Road",
+        ADDRESS_LINE2: "Suite 605",
+        CITY: "San Jose",
+        STATE: "CA",
+        ZIP: 95122
+      },
+      {
+        ORDER_NUMBER: "A0221993",
+        ORDER_LINE_ID: 9368152,
+        TRACKING_NUMBER: null,
+        SHIP_METHOD: "UPS Next Day Saver",
+        LOCATION_NAME: "J. Perez and Associates",
+        ADDRESS_LINE1: "1460 Tully Road",
+        CITY: "San Jose",
+        STATE: "CA",
+        ZIP: 95122
+      },
+      {
+        ORDER_NUMBER: "A9999999",
+        ORDER_LINE_ID: 9368150,
+        TRACKING_NUMBER: "1Z60V1572999272694",
+        LOCATION_NAME: "Wrong order",
+        ADDRESS_LINE1: "Never merge this address"
+      }
+    ]
+  });
+  const packages = mergeShippingReportIntoPackages([
+    {
+      header_id: 1,
+      order_number: "A0221993",
+      order_line_id: 9368150,
+      shipping_id: 10,
+      line_number: 1,
+      product: "One Sheet",
+      material: null,
+      laminate: null,
+      height: null,
+      width: null,
+      quantity: 1,
+      box_number: 1,
+      package_type: "Custom Package",
+      tracking_number: "1Z60V1572999272694",
+      dimensions: { length: null, width: null, height: null, weight: null },
+      tracker_message: "Label created",
+      location_name: "Legacy destination label",
+      ship_method: "UPS Next Day Saver",
+      destination: null
+    }
+  ], shippingRows);
+
+  assert.equal(packages.length, 2);
+  assert.equal(packages[0]?.box_number, 1);
+  assert.equal(packages[0]?.location_name, "J. Perez and Associates");
+  assert.deepEqual(packages[0]?.destination, {
+    company: "J. Perez and Associates",
+    attention_to: null,
+    address_1: "1460 Tully Road",
+    address_2: "Suite 605, Receiving",
+    city: "San Jose",
+    state: "CA",
+    postal_code: "95122",
+    country: null
+  });
+  assert.equal(packages[1]?.order_line_id, 9368151);
+  assert.equal(packages[1]?.tracking_number, "1Z60V1572999272694");
+  assert.equal(JSON.stringify(packages).includes("ACTUAL_SHIP_DATE"), false);
+});
 
 function buildFixtureSnapshot(proofOrder: ProofOrder | null = null) {
   return buildOrderSnapshot({

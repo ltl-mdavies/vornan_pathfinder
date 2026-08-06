@@ -568,6 +568,7 @@ export interface OutputRoute {
   order_lookup_url?: string | null;
   proof_report_url?: string | null;
   package_details_url?: string | null;
+  shipping_report_url?: string | null;
   status: "Active" | "Draft" | "Inactive";
   updated_at: string;
 }
@@ -996,6 +997,7 @@ const manualImportMethodId = "manual-xlsx";
 const defaultLiftOrderLookupUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360Orders/N?offset=0";
 const defaultLiftProofReportUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0";
 const defaultLiftPackageDetailsUrl = "https://ltlco.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/PackageDetails/package_details?offset=0";
+const defaultLiftShippingReportUrl = "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/ShippingReport/N?offset=0";
 
 function now() {
   return new Date().toISOString();
@@ -1564,6 +1566,7 @@ function createSeedOutputRoute(timestamp = now()): OutputRoute {
     order_lookup_url: defaultLiftOrderLookupUrl,
     proof_report_url: defaultLiftProofReportUrl,
     package_details_url: defaultLiftPackageDetailsUrl,
+    shipping_report_url: defaultLiftShippingReportUrl,
     status: "Active",
     updated_at: timestamp
   };
@@ -3429,7 +3432,8 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
         : route.value_normalization_rules,
       order_lookup_url: candidate.order_lookup_url ?? route.order_lookup_url ?? null,
       proof_report_url: candidate.proof_report_url ?? route.proof_report_url ?? null,
-      package_details_url: candidate.package_details_url ?? route.package_details_url ?? null
+      package_details_url: candidate.package_details_url ?? route.package_details_url ?? null,
+      shipping_report_url: candidate.shipping_report_url ?? route.shipping_report_url ?? null
     };
   });
   const primaryOutputRouteId = workspace.primary_output_route_id ?? outputRoutes[0]?.output_route_id ?? route.output_route_id;
@@ -4552,6 +4556,7 @@ export async function updateOutputRoute(customer: LiftCustomer, routeId: string,
     order_lookup_url: routePatch.order_lookup_url ?? existingRoute.order_lookup_url ?? null,
     proof_report_url: routePatch.proof_report_url ?? existingRoute.proof_report_url ?? null,
     package_details_url: routePatch.package_details_url ?? existingRoute.package_details_url ?? null,
+    shipping_report_url: routePatch.shipping_report_url ?? existingRoute.shipping_report_url ?? null,
     updated_at: timestamp
   };
 

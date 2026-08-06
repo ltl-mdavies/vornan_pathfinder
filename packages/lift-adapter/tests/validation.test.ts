@@ -6,6 +6,7 @@ import {
   applyLiftOrderOutputMappings,
   buildLiftSubmitRequest,
   buildLiftProofReportUrl,
+  buildLiftShippingReportUrl,
   generateLiftPayload,
   validateLiftPayload,
   type LiftOrderPayload
@@ -22,6 +23,19 @@ test("always scopes ProofReport reads to one exact order and optional line", () 
     "https://lift.example.invalid/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0&p1=A0226753&p2=9748545"
   );
   assert.equal(buildLiftProofReportUrl(base, ""), null);
+});
+
+test("always scopes ShippingReport reads to one exact order and optional line", () => {
+  const base = "https://lift.example.invalid/ords/lifterp/lift/erp/flush/ondemand/91/ShippingReport/N?offset=0";
+  assert.equal(
+    buildLiftShippingReportUrl(base, "A0221993"),
+    "https://lift.example.invalid/ords/lifterp/lift/erp/flush/ondemand/91/ShippingReport/N?offset=0&p1=A0221993"
+  );
+  assert.equal(
+    buildLiftShippingReportUrl(base, "A0221993", 9368150),
+    "https://lift.example.invalid/ords/lifterp/lift/erp/flush/ondemand/91/ShippingReport/N?offset=0&p1=A0221993&p2=9368150"
+  );
+  assert.equal(buildLiftShippingReportUrl(base, ""), null);
 });
 
 function payload(orderTitle: string | null): LiftOrderPayload {
