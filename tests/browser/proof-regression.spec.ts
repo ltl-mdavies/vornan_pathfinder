@@ -25,6 +25,14 @@ async function isolateNetwork(context: BrowserContext) {
       return;
     }
     if (url.hostname === "assets.fixture.invalid") {
+      if (url.pathname.endsWith(".pdf")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/pdf",
+          body: "%PDF-1.4\n%%EOF"
+        });
+        return;
+      }
       await route.fulfill({
         status: 200,
         contentType: "image/svg+xml",
@@ -120,18 +128,23 @@ for (const viewport of viewports) {
     await expect(page.getByText("Qty 1 · 46.375”h x 30.375”w")).toBeVisible();
     await expect(page.getByText("INTERNAL-PRODUCT-ID")).toHaveCount(0);
 
-    const control = card.getByRole("button", { name: /^Open a larger preview of / });
+    const control = card.getByRole("button", { name: /^Open high-resolution proof / });
     await expect(control).toHaveCount(1);
     await control.click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole("img", { name: /^Larger preview of / })).toHaveAttribute("src", "https://assets.fixture.invalid/proof-high.svg");
-    const fullResolution = dialog.getByRole("link", { name: "Open full resolution" });
-    await expect(fullResolution).toHaveAttribute("href", "https://assets.fixture.invalid/proof-high.svg");
-    await expect(fullResolution).toHaveAttribute("target", "_blank");
-    await expect(fullResolution).toHaveAttribute("rel", "noreferrer");
+    await expect(dialog.getByRole("img", { name: /^High-resolution proof / })).toHaveAttribute("src", "https://assets.fixture.invalid/proof-high.svg");
+    await expect(dialog.getByRole("link")).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
+
+    await page.goto("/order-rollup?document=pdf");
+    const pdfControl = page.getByRole("button", { name: "Open high-resolution proof proof-packet.pdf" });
+    await pdfControl.click();
+    const pdfDialog = page.getByRole("dialog");
+    await expect(pdfDialog.locator("iframe")).toHaveAttribute("src", "https://assets.fixture.invalid/proof-packet.pdf");
+    await expect(pdfDialog.locator("iframe")).toHaveAttribute("title", "High-resolution proof proof-packet.pdf");
+    await expect(pdfDialog.locator("iframe")).toHaveAttribute("sandbox", "");
     expect(blocked).toEqual([]);
   });
 }
