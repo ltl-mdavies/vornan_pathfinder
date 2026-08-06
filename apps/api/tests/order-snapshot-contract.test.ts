@@ -195,7 +195,32 @@ test("keeps enriched Lift order, line, proof, and package data in the internal s
     tracking_count: 1,
     methods: ["UPS Ground"],
     locations: ["Cincinnati Hub"],
-    status_messages: ["Label created"]
+    status_messages: ["Label created"],
+    destinations: [{
+      destination: {
+        company: "Momentara",
+        attention_to: null,
+        address_1: "123 Main St",
+        address_2: null,
+        city: "Cincinnati",
+        state: "OH",
+        postal_code: "45202",
+        country: null
+      },
+      location_name: "Cincinnati Hub",
+      package_count: 1,
+      methods: ["UPS Ground"],
+      status_messages: ["Label created"],
+      line_numbers: [1],
+      tracking: [{
+        tracking_number: "1ZTEST",
+        ship_method: "UPS Ground",
+        tracker_message: "Label created",
+        box_numbers: ["4"],
+        package_types: ["Custom Package"],
+        line_numbers: [1]
+      }]
+    }]
   });
   assert.equal(snapshot.lookups.order?.payload != null, true);
   assert.equal(Number.isNaN(Date.parse(snapshot.refreshed_at)), false);
@@ -215,7 +240,8 @@ test("preserves customer-safe rollup detail while removing internal submit and r
     tracker_message: "Label created",
     box_number: "4",
     package_type: "Custom Package",
-    location_name: "Cincinnati Hub"
+    location_name: "Cincinnati Hub",
+    destination: null
   });
   assert.deepEqual(publicSnapshot.shipment_summary, {
     source: "package_details",
@@ -224,7 +250,32 @@ test("preserves customer-safe rollup detail while removing internal submit and r
     tracking_count: 1,
     methods: ["UPS Ground"],
     locations: ["Cincinnati Hub"],
-    status_messages: ["Label created"]
+    status_messages: ["Label created"],
+    destinations: [{
+      destination: {
+        company: "Momentara",
+        attention_to: null,
+        address_1: "123 Main St",
+        address_2: null,
+        city: "Cincinnati",
+        state: "OH",
+        postal_code: "45202",
+        country: null
+      },
+      location_name: "Cincinnati Hub",
+      package_count: 1,
+      methods: ["UPS Ground"],
+      status_messages: ["Label created"],
+      line_numbers: [1],
+      tracking: [{
+        tracking_number: "1ZTEST",
+        ship_method: "UPS Ground",
+        tracker_message: "Label created",
+        box_numbers: ["4"],
+        package_types: ["Custom Package"],
+        line_numbers: [1]
+      }]
+    }]
   });
   assert.equal(publicSnapshot.header.po_number, "PO-LIFT-9001");
   assert.equal(publicSnapshot.header.contract_number, "CONTRACT-SUBMITTED-12");

@@ -948,6 +948,7 @@ function normalizePackageDetailsPayload(payload: unknown) {
     tracker_message: string | null;
     location_name: string | null;
     ship_method: string | null;
+    destination: ReturnType<typeof toCustomerSafeOrderRollupDestination>;
   }>();
 
   rows.forEach((row) => {
@@ -993,7 +994,17 @@ function normalizePackageDetailsPayload(payload: unknown) {
       },
       tracker_message: typeof record.TRACKER_MESSAGE === "string" ? record.TRACKER_MESSAGE : null,
       location_name: typeof record.LOCATION_NAME === "string" ? record.LOCATION_NAME : null,
-      ship_method: typeof record.SHIP_METHOD === "string" ? record.SHIP_METHOD : null
+      ship_method: typeof record.SHIP_METHOD === "string" ? record.SHIP_METHOD : null,
+      destination: toCustomerSafeOrderRollupDestination({
+        company: record.SHIP_TO_COMPANY ?? record.DESTINATION_COMPANY ?? record.LOCATION_NAME,
+        attention_to: record.SHIP_TO_ATTENTION ?? record.ATTENTION_TO,
+        address_1: record.SHIP_TO_ADDRESS_1 ?? record.SHIPPING_ADDRESS_1 ?? record.DELIVERY_ADDRESS_1,
+        address_2: record.SHIP_TO_ADDRESS_2 ?? record.SHIPPING_ADDRESS_2 ?? record.DELIVERY_ADDRESS_2,
+        city: record.SHIP_TO_CITY ?? record.SHIPPING_CITY ?? record.DELIVERY_CITY,
+        state: record.SHIP_TO_STATE ?? record.SHIPPING_STATE ?? record.DELIVERY_STATE,
+        postal_code: record.SHIP_TO_POSTAL_CODE ?? record.SHIP_TO_ZIP ?? record.SHIPPING_POSTAL_CODE ?? record.DELIVERY_POSTAL_CODE,
+        country: record.SHIP_TO_COUNTRY ?? record.SHIPPING_COUNTRY ?? record.DELIVERY_COUNTRY
+      })
     });
   });
 
@@ -1216,7 +1227,7 @@ export function buildOrderSnapshot(args: {
     live_order: liveOrder,
     order_status: liveOrder?.status ?? null,
     proof_summary: proofProjection?.summary ?? null,
-    shipment_summary: buildOrderRollupShipmentSummary(lines),
+    shipment_summary: buildOrderRollupShipmentSummary(lines, resolvedHeader.shipping),
     lines,
     proofs,
     packages,
@@ -1499,7 +1510,7 @@ export function publicOrderStatusSnapshotFromInternal(
     order_status: snapshot.order_status,
     proof_summary: snapshot.proof_summary,
     proof_visibility: proofVisibility,
-    shipment_summary: buildOrderRollupShipmentSummary(publicLines),
+    shipment_summary: buildOrderRollupShipmentSummary(publicLines, snapshot.header.shipping),
     lines: publicLines,
     lookups: {
       order: snapshot.lookups.order

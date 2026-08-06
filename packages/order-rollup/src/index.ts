@@ -428,6 +428,26 @@ export interface OrderRollupPackage {
   box_number?: string | number | null;
   package_type?: string | null;
   location_name?: string | null;
+  destination?: OrderRollupDestination | null;
+}
+
+export interface OrderRollupShipmentTracking {
+  tracking_number: string;
+  ship_method: string | null;
+  tracker_message: string | null;
+  box_numbers: string[];
+  package_types: string[];
+  line_numbers: number[];
+}
+
+export interface OrderRollupShipmentDestinationGroup {
+  destination: OrderRollupDestination | null;
+  location_name: string | null;
+  package_count: number;
+  methods: string[];
+  status_messages: string[];
+  line_numbers: number[];
+  tracking: OrderRollupShipmentTracking[];
 }
 
 export interface OrderRollupShipmentSummary {
@@ -438,6 +458,7 @@ export interface OrderRollupShipmentSummary {
   methods: string[];
   locations: string[];
   status_messages: string[];
+  destinations: OrderRollupShipmentDestinationGroup[];
 }
 
 function boundedPackageText(valueToNormalize: unknown, maximumLength: number) {
@@ -458,7 +479,8 @@ export function toCustomerSafeOrderRollupPackage(pkg: unknown): OrderRollupPacka
     tracker_message: boundedPackageText(record.tracker_message, 240),
     box_number: boundedPackageText(record.box_number, 40),
     package_type: boundedPackageText(record.package_type, 100),
-    location_name: boundedPackageText(record.location_name, 160)
+    location_name: boundedPackageText(record.location_name, 160),
+    destination: toCustomerSafeOrderRollupDestination(record.destination)
   };
 }
 
@@ -466,17 +488,110 @@ function uniquePackageValues(values: Array<string | null | undefined>, maximumIt
   return [...new Set(values.filter((candidate): candidate is string => Boolean(candidate)))].slice(0, maximumItems);
 }
 
-export function buildOrderRollupShipmentSummary(lines: readonly OrderRollupLine[]): OrderRollupShipmentSummary {
-  const packages = lines.flatMap((line) => line.packages.map(toCustomerSafeOrderRollupPackage));
-  const trackingNumbers = uniquePackageValues(packages.map((pkg) => pkg.tracking_number), Number.MAX_SAFE_INTEGER);
+function destinationIdentity(destination: OrderRollupDestination | null | undefined) {
+  return destination
+    ? [destination.company, destination.attention_to, destination.address_1, destination.address_2, destination.city, destination.state, destination.postal_code, destination.country]
+        .map((valueToNormalize) => valueToNormalize?.trim().toLowerCase() ?? "")
+        .join("|")
+    : "";
+}
+
+function physicalPackageIdentity(pkg: OrderRollupPackage, lineNumber: number) {
+  const tracking = pkg.tracking_number?.replace(/\s+/g, "").toUpperCase();
+  if (tracking) return `tracking:${tracking}`;
+  const box = pkg.box_number == null ? "" : String(pkg.box_number).trim();
+  if (!box) return `line:${lineNumber}`;
+  const fallback = [box, pkg.package_type, pkg.ship_method, pkg.location_name, destinationIdentity(pkg.destination)]
+    .map((valueToNormalize) => valueToNormalize?.toLowerCase() ?? "")
+    .join("|");
+  return `package:${fallback}`;
+}
+
+export function buildCarrierTrackingUrl(trackingNumber?: string | null, shipMethod?: string | null) {
+  const tracking = trackingNumber?.replace(/\s+/g, "").trim();
+  if (!tracking || tracking.length > 100) return null;
+  const method = shipMethod?.toLocaleLowerCase() ?? "";
+  if (/^1Z[0-9A-Z]{16}$/i.test(tracking) || method.includes("ups")) {
+    return /^[-0-9A-Z]+$/i.test(tracking)
+      ? `https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(tracking)}`
+      : null;
+  }
+  if ((/^\d{12,22}$/.test(tracking) && method.includes("fedex")) || /^\d{12}$/.test(tracking)) {
+    return `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(tracking)}`;
+  }
+  if (method.includes("usps") || /^(?:9[2345]\d{20,22}|[A-Z]{2}\d{9}US)$/i.test(tracking)) {
+    return /^[0-9A-Z]+$/i.test(tracking)
+      ? `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(tracking)}`
+      : null;
+  }
+  return null;
+}
+
+export function buildOrderRollupShipmentSummary(
+  lines: readonly OrderRollupLine[],
+  fallbackDestination?: unknown
+): OrderRollupShipmentSummary {
+  const safeFallbackDestination = toCustomerSafeOrderRollupDestination(fallbackDestination);
+  const packageOccurrences = lines.flatMap((line) => line.packages.map((candidate) => {
+    const safePackage = toCustomerSafeOrderRollupPackage(candidate);
+    return {
+      line_number: line.line_number,
+      package: {
+        ...safePackage,
+        destination: safePackage.destination ?? safeFallbackDestination
+      }
+    };
+  }));
+  const uniquePackages = new Map<string, { package: OrderRollupPackage; line_numbers: Set<number> }>();
+  packageOccurrences.forEach((occurrence) => {
+    const key = physicalPackageIdentity(occurrence.package, occurrence.line_number);
+    const existing = uniquePackages.get(key);
+    if (existing) {
+      existing.line_numbers.add(occurrence.line_number);
+    } else {
+      uniquePackages.set(key, { package: occurrence.package, line_numbers: new Set([occurrence.line_number]) });
+    }
+  });
+  const packages = [...uniquePackages.values()];
+  const trackingNumbers = uniquePackageValues(packages.map(({ package: pkg }) => pkg.tracking_number), Number.MAX_SAFE_INTEGER);
+  const destinationGroups = new Map<string, Array<{ package: OrderRollupPackage; line_numbers: Set<number> }>>();
+  packages.forEach((item) => {
+    const groupKey = destinationIdentity(item.package.destination) || `location:${item.package.location_name?.toLowerCase() ?? "unknown"}`;
+    destinationGroups.set(groupKey, [...(destinationGroups.get(groupKey) ?? []), item]);
+  });
+  const destinations: OrderRollupShipmentDestinationGroup[] = [...destinationGroups.values()].map((groupPackages) => {
+    const firstPackage = groupPackages[0]?.package;
+    const trackingGroups = new Map<string, typeof groupPackages>();
+    groupPackages.forEach((item) => {
+      const trackingKey = item.package.tracking_number?.replace(/\s+/g, "").toUpperCase() ?? "";
+      if (trackingKey) trackingGroups.set(trackingKey, [...(trackingGroups.get(trackingKey) ?? []), item]);
+    });
+    return {
+      destination: firstPackage?.destination ?? null,
+      location_name: firstPackage?.location_name ?? null,
+      package_count: groupPackages.length,
+      methods: uniquePackageValues(groupPackages.map(({ package: pkg }) => pkg.ship_method), 4),
+      status_messages: uniquePackageValues(groupPackages.map(({ package: pkg }) => pkg.tracker_message), 3),
+      line_numbers: [...new Set(groupPackages.flatMap(({ line_numbers }) => [...line_numbers]))].sort((left, right) => left - right),
+      tracking: [...trackingGroups.values()].map((trackingPackages) => ({
+        tracking_number: trackingPackages[0]?.package.tracking_number ?? "",
+        ship_method: trackingPackages[0]?.package.ship_method ?? null,
+        tracker_message: trackingPackages[0]?.package.tracker_message ?? null,
+        box_numbers: uniquePackageValues(trackingPackages.map(({ package: pkg }) => pkg.box_number == null ? null : String(pkg.box_number)), 20),
+        package_types: uniquePackageValues(trackingPackages.map(({ package: pkg }) => pkg.package_type), 20),
+        line_numbers: [...new Set(trackingPackages.flatMap(({ line_numbers }) => [...line_numbers]))].sort((left, right) => left - right)
+      }))
+    };
+  });
   return {
     source: "package_details",
     state: packages.length === 0 ? "pending" : trackingNumbers.length > 0 ? "tracking_available" : "activity_recorded",
     package_count: packages.length,
     tracking_count: trackingNumbers.length,
-    methods: uniquePackageValues(packages.map((pkg) => pkg.ship_method), 4),
-    locations: uniquePackageValues(packages.map((pkg) => pkg.location_name), 3),
-    status_messages: uniquePackageValues(packages.map((pkg) => pkg.tracker_message), 3)
+    methods: uniquePackageValues(packages.map(({ package: pkg }) => pkg.ship_method), 4),
+    locations: uniquePackageValues(packages.map(({ package: pkg }) => pkg.location_name), 3),
+    status_messages: uniquePackageValues(packages.map(({ package: pkg }) => pkg.tracker_message), 3),
+    destinations
   };
 }
 

@@ -23,6 +23,7 @@ function realSiblingSnapshot(): OrderRollupSnapshot {
       actual_ship_date: "2026-07-24",
       shipping: {
         company: "Redacted receiving",
+        address_1: "123 Main St",
         city: "Cincinnati",
         state: "OH",
         postal_code: "45202"
@@ -102,10 +103,11 @@ test("renders the four real-shape sibling proofs as distinct view-only gallery c
 
   assert.equal((markup.match(/class="order-rollup__proof-card /g) ?? []).length, 4);
   assert.equal((markup.match(/<img /g) ?? []).length, 4);
-  assert.equal((markup.match(/>View proof<\/a>/g) ?? []).length, 4);
+  assert.equal((markup.match(/>Preview larger<\/button>/g) ?? []).length, 4);
+  assert.equal((markup.match(/>Open full resolution<\/a>/g) ?? []).length, 4);
   assert.equal((markup.match(/order-rollup__proof-card-copy/g) ?? []).length, 4);
   assert.equal((markup.match(/order-rollup__proof-filename/g) ?? []).length, 4);
-  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/redacted-proof-1\.jpg" target="_blank" rel="noreferrer">View proof/);
+  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/redacted-proof-1\.jpg" target="_blank" rel="noreferrer">Open full resolution/);
   assert.doesNotMatch(markup, />High resolution<\/a>/);
   assert.equal((markup.match(/Posted 2026-07-19/g) ?? []).length, 4);
   assert.match(markup, /Proof review required/);
@@ -120,7 +122,10 @@ test("renders the four real-shape sibling proofs as distinct view-only gallery c
   assert.equal((markup.match(/Submitted order/g) ?? []).length >= 3, true);
   assert.match(markup, /Tracking is available/);
   assert.match(markup, /Tracking numbers/);
-  assert.match(markup, /Tracking 1ZTEST001/);
+  assert.match(markup, /Track 1ZTEST001/);
+  assert.match(markup, /www\.ups\.com\/track\?loc=en_US&amp;tracknum=1ZTEST001/);
+  assert.match(markup, /View shipment destinations and tracking/);
+  assert.match(markup, /123 Main St/);
   assert.match(markup, /Package 2/);
   assert.match(markup, /Tracking pending/);
   assert.match(markup, /UPS Ground, Courier/);
@@ -165,10 +170,10 @@ test("uses one safe proof control with high-resolution preference and low-resolu
     <OrderRollup snapshot={snapshot} audience="internal" displayDate={(value) => value ?? "Not available"} />
   );
 
-  assert.equal((markup.match(/>View proof<\/a>/g) ?? []).length, 3);
-  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/safe-high\.jpg" target="_blank" rel="noreferrer">View proof/);
-  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/unsafe-high-low\.jpg" target="_blank" rel="noreferrer">View proof/);
-  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/unsafe-low-high\.jpg" target="_blank" rel="noreferrer">View proof/);
+  assert.equal((markup.match(/>Open full resolution<\/a>/g) ?? []).length, 3);
+  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/safe-high\.jpg" target="_blank" rel="noreferrer">Open full resolution/);
+  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/unsafe-high-low\.jpg" target="_blank" rel="noreferrer">Open full resolution/);
+  assert.match(markup, /href="https:\/\/proof-assets\.example\.invalid\/unsafe-low-high\.jpg" target="_blank" rel="noreferrer">Open full resolution/);
   assert.doesNotMatch(markup, /javascript:alert/);
   assert.doesNotMatch(markup, /unsafe-both-low/);
   assert.doesNotMatch(markup, /user:secret/);
@@ -187,7 +192,7 @@ test("never renders direct Proof assets for the public Status audience and hides
     <OrderRollup snapshot={statusOnly} audience="public" displayDate={(value) => value ?? "Not available"} />
   );
   assert.equal((publicMarkup.match(/<img /g) ?? []).length, 0);
-  assert.equal((publicMarkup.match(/>View proof<\/a>/g) ?? []).length, 0);
+  assert.equal((publicMarkup.match(/>Open full resolution<\/a>/g) ?? []).length, 0);
   assert.match(publicMarkup, /Files and review access are not included/);
 
   const hidden = realSiblingSnapshot();
@@ -214,7 +219,7 @@ test("renders safe transient Proof assets only when a token-authorized public ca
   );
 
   assert.equal((markup.match(/<img /g) ?? []).length, 4);
-  assert.equal((markup.match(/>View proof<\/a>/g) ?? []).length, 4);
+  assert.equal((markup.match(/>Open full resolution<\/a>/g) ?? []).length, 4);
   assert.doesNotMatch(markup, /javascript:alert/);
 });
 
@@ -231,7 +236,7 @@ test("explains that missing public thumbnails are being refreshed", () => {
     <OrderRollup snapshot={snapshot} audience="public" allowProofAssetLinks proofAssetsLoading />
   );
 
-  assert.equal((markup.match(/Refreshing artwork…/g) ?? []).length, 4);
+  assert.equal((markup.match(/Loading current artwork…/g) ?? []).length, 4);
 });
 
 test("rejects unsafe proof assets before they reach an image or link", () => {
