@@ -127,6 +127,32 @@ export interface LiftSubmitRequest {
   body: LiftOrderPayload;
 }
 
+function withoutNullishValues(value: unknown): unknown {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => withoutNullishValues(item))
+      .filter((item) => item !== undefined);
+  }
+
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).flatMap<[string, unknown]>(([key, item]) => {
+      const normalized = withoutNullishValues(item);
+      return normalized === undefined ? [] : [[key, normalized]];
+    });
+    return entries.length ? Object.fromEntries(entries) : undefined;
+  }
+
+  return value;
+}
+
+function withoutNullishLiftFields(payload: LiftOrderPayload): LiftOrderPayload {
+  return withoutNullishValues(payload) as LiftOrderPayload;
+}
+
 export type LiftSubmitTransportMode = "dry_run" | "mock" | "live";
 export type LiftSubmitMockScenario =
   | "accepted"
@@ -337,7 +363,7 @@ export function generateLiftPayload(
   orderPayload[documentFields.artwork_folder_url] = canonicalOrder.order.artwork_folder_url ?? null;
   orderPayload[documentFields.reference_proof_url] = canonicalOrder.order.reference_proof_url ?? null;
 
-  return {
+  return withoutNullishLiftFields({
     customer: {
       lift_customer_id: canonicalOrder.customer.destination_customer_id,
       customer_name: canonicalOrder.customer.customer_name,
@@ -376,7 +402,7 @@ export function generateLiftPayload(
       production: line.production,
       line_note: line.line_note ?? null
     }))
-  };
+  });
 }
 
 export function applyLiftOrderOutputMappings(
@@ -395,9 +421,13 @@ export function applyLiftOrderOutputMappings(
     );
     if (!outputMatch || !canonicalMatch || outputMatch[1] === "ext_id") continue;
     const value = canonicalOrderFields[canonicalMatch[1]];
-    if (value !== undefined) order[outputMatch[1]] = value;
+    if (value === null || value === undefined) {
+      delete order[outputMatch[1]];
+    } else {
+      order[outputMatch[1]] = value;
+    }
   }
-  return { ...payload, order: order as LiftOrderPayload["order"] };
+  return withoutNullishLiftFields({ ...payload, order: order as LiftOrderPayload["order"] });
 }
 
 function getPayloadValue(payload: LiftOrderPayload, field: string): unknown {
@@ -632,7 +662,7 @@ export function buildLiftSubmitRequest(
       Password: config.credentials.Password,
       Company: config.headers.Company
     },
-    body: payload
+    body: withoutNullishLiftFields(payload)
   };
 }
 
