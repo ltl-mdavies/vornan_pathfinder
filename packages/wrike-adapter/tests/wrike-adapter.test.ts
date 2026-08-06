@@ -1416,7 +1416,9 @@ test("discovers eligible Placard Orders across configured campaign descendants a
                 id: "IEPLACARD1",
                 accountId: "IEACCOUNT",
                 parentIds: ["IECAMPAIGN1"],
-                superParentIds: ["IEGPACAMPAIGNS"],
+                // Wrike's descendant query does not always repeat a deeply
+                // nested campaign root in task ancestry metadata.
+                superParentIds: ["IECAMPAIGNYEAR"],
                 customStatusId: "IESENTTOPRINT",
                 attachmentCount: 2,
                 title: "Placard Order",
