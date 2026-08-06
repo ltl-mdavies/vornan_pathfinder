@@ -1646,11 +1646,11 @@ export async function discoverWrikeCustomFields(
   };
 }
 
-function scopedTaskRecord(task: Record<string, unknown>, folderId: string) {
+function scopedTaskRecord(task: Record<string, unknown>) {
   const taskId = providerIdentifier(task.id);
   const parentIds = providerIdentifierList(task.parentIds);
   const superParentIds = providerIdentifierList(task.superParentIds);
-  if (!taskId || (!parentIds.includes(folderId) && !superParentIds.includes(folderId))) {
+  if (!taskId) {
     return null;
   }
   return {
@@ -1872,7 +1872,12 @@ export async function discoverScopedWrikeIntakeTasks(
   ]);
 
   const scopedOrderTasks = taskRecords
-    .map((task) => ({ task, scoped: scopedTaskRecord(task, folderId) }))
+    // Wrike has already scoped this response to the exact configured folder
+    // with descendants=true. Deeply nested campaign tasks do not consistently
+    // repeat the root folder in parentIds/superParentIds, so treating those
+    // advisory ancestry arrays as a second authorization boundary drops valid
+    // orders. The provider query remains the authoritative scope boundary.
+    .map((task) => ({ task, scoped: scopedTaskRecord(task) }))
     .filter(
       (
         candidate
@@ -1938,7 +1943,7 @@ export async function discoverScopedWrikeIntakeTasks(
 
   const orderCandidates = taskRecords
     .map((task): WrikeEligibleOrderTask | null => {
-      const scoped = scopedTaskRecord(task, folderId);
+      const scoped = scopedTaskRecord(task);
       if (
         !scoped ||
         !orderStatusIds.has(scoped.custom_status_id) ||
@@ -1977,7 +1982,7 @@ export async function discoverScopedWrikeIntakeTasks(
   if (config.shipping_intake.enabled) {
     const shippingTypeId = providerIdentifier(config.shipping_intake.custom_item_type_id);
     const shippingTasks = taskRecords
-      .map((task) => ({ task, scoped: scopedTaskRecord(task, folderId) }))
+      .map((task) => ({ task, scoped: scopedTaskRecord(task) }))
       .filter(({ task, scoped }) =>
         Boolean(
           scoped &&
