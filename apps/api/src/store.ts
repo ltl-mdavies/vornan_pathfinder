@@ -2404,16 +2404,16 @@ async function writeDynamoStore(store: PathfinderStore) {
     ["target_id"],
     Object.values(store.targets).map((target) => dynamoItem({ target_id: target.target_id }, target))
   );
-  await replaceDynamoTable(
+  // Customers and customer workspaces are lifecycle records. Upsert them so
+  // readers never observe a delete/rewrite gap and seed a partial workspace.
+  await upsertDynamoTable(
     tables.customers,
-    ["customer_id"],
     workspaces.map((workspace) =>
       dynamoItem({ customer_id: workspace.customer.lift_customer_id }, workspace.customer)
     )
   );
-  await replaceDynamoTable(
+  await upsertDynamoTable(
     tables.workspaces,
-    ["customer_id"],
     workspaces.map((workspace) =>
       dynamoItem({ customer_id: workspace.customer.lift_customer_id }, workspaceRecord(workspace))
     )
@@ -2433,9 +2433,8 @@ async function writeDynamoStore(store: PathfinderStore) {
       )
     )
   );
-  await replaceDynamoTable(
+  await upsertDynamoTable(
     tables.output_routes,
-    ["customer_id", "output_route_id"],
     workspaces.flatMap((workspace) =>
       workspace.output_routes.map((route) =>
         dynamoItem(
@@ -2462,9 +2461,9 @@ async function writeDynamoStore(store: PathfinderStore) {
         )
     )
   );
-  await replaceDynamoTable(
+  // Jobs are archived in place and must remain durable across unrelated saves.
+  await upsertDynamoTable(
     tables.jobs,
-    ["customer_id", "job_id"],
     store.jobs.map((job) => dynamoItem({ customer_id: job.customer_id, job_id: job.job_id }, job))
   );
   // Submit attempts are an append/update-only durability boundary. They are
