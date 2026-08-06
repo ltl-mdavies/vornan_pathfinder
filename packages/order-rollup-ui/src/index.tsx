@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { ZoomIn } from "lucide-react";
 import {
   buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
@@ -126,6 +127,13 @@ function inferredImageAsset(url: string | null, filename: string) {
   return Boolean(url && /\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i.test(`${url} ${filename}`));
 }
 
+function proofAssetKind(url: string | null, filename: string) {
+  if (!url) return "unavailable" as const;
+  if (/\.pdf(?:$|[?#])/i.test(`${filename} ${url}`)) return "pdf" as const;
+  if (inferredImageAsset(url, filename)) return "image" as const;
+  return "document" as const;
+}
+
 function proofStateLabel(proof: OrderRollupProof) {
   if (proof.proof_approval_status) return proof.proof_approval_status;
   switch (proof.proof_state) {
@@ -147,12 +155,12 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { pro
   const dialogRef = useRef<HTMLElement>(null);
   const lowResolutionUrl = allowAssetLinks ? safeProofAssetUrl(proof.proof_link_low) : null;
   const highResolutionUrl = allowAssetLinks ? safeProofAssetUrl(proof.proof_link_high) : null;
-  const primaryUrl = highResolutionUrl ?? lowResolutionUrl;
   const filename = proof.proof_filename ?? "Proof file";
   const previewUrl = proof.preview_kind === "image" || (!proof.preview_kind && inferredImageAsset(lowResolutionUrl, filename))
     ? lowResolutionUrl
     : null;
-  const lightboxUrl = inferredImageAsset(highResolutionUrl, filename) ? highResolutionUrl : previewUrl;
+  const lightboxUrl = highResolutionUrl ?? previewUrl;
+  const lightboxKind = proofAssetKind(lightboxUrl, filename);
 
   useEffect(() => {
     if (!previewOpen) return undefined;
@@ -188,25 +196,20 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { pro
       <article className={`order-rollup__proof-card proof-state--${proof.proof_state ?? "pending"}`}>
         {previewUrl ? (
           lightboxUrl ? (
-            <button className="order-rollup__proof-preview" type="button" onClick={() => setPreviewOpen(true)} aria-label={`Open a larger preview of ${filename}`}>
+            <button className="order-rollup__proof-preview" type="button" onClick={() => setPreviewOpen(true)} aria-label={`Open high-resolution proof ${filename}`}>
               <img src={previewUrl} alt="" loading="lazy" />
-              <span>Preview larger</span>
+              <span aria-hidden="true"><ZoomIn size={14} strokeWidth={2.25} /></span>
             </button>
           ) : (
-            <a className="order-rollup__proof-preview" href={primaryUrl ?? previewUrl} target="_blank" rel="noreferrer" aria-label={`Open ${filename} in a new tab`}>
+            <div className="order-rollup__proof-preview">
               <img src={previewUrl} alt="" loading="lazy" />
-              <span>Open artwork</span>
-            </a>
+            </div>
           )
         ) : <div className={`order-rollup__proof-empty${assetsLoading ? " is-loading" : ""}`}>{assetsLoading ? "Loading current artwork…" : "Preview unavailable"}</div>}
         <div className="order-rollup__proof-card-copy">
           <strong className="order-rollup__proof-filename">{filename}</strong>
           <span className="order-rollup__proof-state">{proofStateLabel(proof)}</span>
           {proof.creation_date ? <small>Posted {displayDate(proof.creation_date)}</small> : null}
-          <div className="order-rollup__links">
-            {lightboxUrl ? <button type="button" onClick={() => setPreviewOpen(true)}>Preview larger</button> : null}
-            {primaryUrl ? <a href={primaryUrl} target="_blank" rel="noreferrer">Open full resolution</a> : null}
-          </div>
         </div>
       </article>
       {previewOpen && lightboxUrl ? (
@@ -220,12 +223,15 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { pro
                 <strong id={dialogTitleId}>{filename}</strong>
               </div>
               <div className="order-rollup__lightbox-actions">
-                {primaryUrl ? <a href={primaryUrl} target="_blank" rel="noreferrer">Open full resolution</a> : null}
                 <button ref={closeButtonRef} type="button" onClick={() => setPreviewOpen(false)}>Close</button>
               </div>
             </header>
             <div className="order-rollup__lightbox-canvas">
-              <img src={lightboxUrl} alt={`Larger preview of ${filename}`} />
+              {lightboxKind === "image" ? (
+                <img src={lightboxUrl} alt={`High-resolution proof ${filename}`} />
+              ) : (
+                <iframe src={lightboxUrl} title={`High-resolution proof ${filename}`} sandbox="" referrerPolicy="no-referrer" />
+              )}
             </div>
           </section>
         </div>
@@ -287,9 +293,17 @@ function PackageList({ packages }: { packages: OrderRollupPackage[] }) {
   if (!packages.length) {
     return <p className="order-rollup__empty">No shipment activity has been recorded for this line.</p>;
   }
+  const sortedPackages = [...packages].sort((left, right) => {
+    const leftNumber = left.box_number == null ? "" : String(left.box_number).trim();
+    const rightNumber = right.box_number == null ? "" : String(right.box_number).trim();
+    if (leftNumber && rightNumber) return leftNumber.localeCompare(rightNumber, "en", { numeric: true, sensitivity: "base" });
+    if (leftNumber) return -1;
+    if (rightNumber) return 1;
+    return (left.tracking_number ?? "").localeCompare(right.tracking_number ?? "", "en", { numeric: true, sensitivity: "base" });
+  });
   return (
     <div className="order-rollup__packages">
-      {packages.map((pkg, index) => {
+      {sortedPackages.map((pkg, index) => {
         const packageLabel = pkg.box_number != null && pkg.box_number !== ""
           ? `Package ${pkg.box_number}`
           : pkg.package_type ?? `Package ${index + 1}`;

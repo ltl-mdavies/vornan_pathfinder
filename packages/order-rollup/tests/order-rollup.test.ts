@@ -242,3 +242,29 @@ test("deduplicates physical packages across lines and builds only known carrier 
   );
   assert.equal(buildCarrierTrackingUrl("not a safe value", "Unknown"), null);
 });
+
+test("sorts shipment tracking groups by package number within each destination", () => {
+  const packages = [3, 1, 2].map((boxNumber) => ({
+    tracking_number: `1Z60V157P29908894${boxNumber}`,
+    ship_method: "UPS Ground",
+    tracker_message: "Label created",
+    box_number: boxNumber,
+    package_type: "Custom Package",
+    location_name: "Customer Receiving"
+  }));
+  const summary = buildOrderRollupShipmentSummary([{
+    line_number: 1,
+    quantity: 1,
+    proof_count: 0,
+    package_count: 3,
+    latest_proof_status: null,
+    latest_tracking_message: "Label created",
+    proofs: [],
+    packages
+  }]);
+
+  assert.deepEqual(
+    summary.destinations[0]?.tracking.map((tracking) => tracking.box_numbers),
+    [["1"], ["2"], ["3"]]
+  );
+});

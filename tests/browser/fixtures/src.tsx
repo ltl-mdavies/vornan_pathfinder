@@ -74,11 +74,23 @@ const statusFixture: OrderRollupSnapshot = {
 };
 
 function StatusProofCardFixture() {
+  const usePdf = new URLSearchParams(window.location.search).get("document") === "pdf";
+  const snapshot = usePdf ? {
+    ...statusFixture,
+    lines: statusFixture.lines.map((line) => ({
+      ...line,
+      proofs: line.proofs.map((proof) => ({
+        ...proof,
+        proof_filename: "proof-packet.pdf",
+        proof_link_high: "https://assets.fixture.invalid/proof-packet.pdf"
+      }))
+    }))
+  } : statusFixture;
   return (
     <main className="browser-fixture-shell">
       <p className="browser-fixture-label">Deterministic non-customer fixture</p>
       <OrderRollup
-        snapshot={statusFixture}
+        snapshot={snapshot}
         audience="internal"
         displayDate={(value) => value ?? "Not available"}
       />

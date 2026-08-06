@@ -507,6 +507,20 @@ function physicalPackageIdentity(pkg: OrderRollupPackage, lineNumber: number) {
   return `package:${fallback}`;
 }
 
+const packageNumberCollator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+
+function comparePackagesByNumber(
+  left: { package: OrderRollupPackage },
+  right: { package: OrderRollupPackage }
+) {
+  const leftNumber = left.package.box_number == null ? "" : String(left.package.box_number).trim();
+  const rightNumber = right.package.box_number == null ? "" : String(right.package.box_number).trim();
+  if (leftNumber && rightNumber) return packageNumberCollator.compare(leftNumber, rightNumber);
+  if (leftNumber) return -1;
+  if (rightNumber) return 1;
+  return packageNumberCollator.compare(left.package.tracking_number ?? "", right.package.tracking_number ?? "");
+}
+
 export function buildCarrierTrackingUrl(trackingNumber?: string | null, shipMethod?: string | null) {
   const tracking = trackingNumber?.replace(/\s+/g, "").trim();
   if (!tracking || tracking.length > 100) return null;
@@ -559,7 +573,8 @@ export function buildOrderRollupShipmentSummary(
     const groupKey = destinationIdentity(item.package.destination) || `location:${item.package.location_name?.toLowerCase() ?? "unknown"}`;
     destinationGroups.set(groupKey, [...(destinationGroups.get(groupKey) ?? []), item]);
   });
-  const destinations: OrderRollupShipmentDestinationGroup[] = [...destinationGroups.values()].map((groupPackages) => {
+  const destinations: OrderRollupShipmentDestinationGroup[] = [...destinationGroups.values()].map((unsortedGroupPackages) => {
+    const groupPackages = [...unsortedGroupPackages].sort(comparePackagesByNumber);
     const firstPackage = groupPackages[0]?.package;
     const trackingGroups = new Map<string, typeof groupPackages>();
     groupPackages.forEach((item) => {
@@ -577,7 +592,8 @@ export function buildOrderRollupShipmentSummary(
         tracking_number: trackingPackages[0]?.package.tracking_number ?? "",
         ship_method: trackingPackages[0]?.package.ship_method ?? null,
         tracker_message: trackingPackages[0]?.package.tracker_message ?? null,
-        box_numbers: uniquePackageValues(trackingPackages.map(({ package: pkg }) => pkg.box_number == null ? null : String(pkg.box_number)), 20),
+        box_numbers: uniquePackageValues(trackingPackages.map(({ package: pkg }) => pkg.box_number == null ? null : String(pkg.box_number)), 20)
+          .sort((left, right) => packageNumberCollator.compare(left, right)),
         package_types: uniquePackageValues(trackingPackages.map(({ package: pkg }) => pkg.package_type), 20),
         line_numbers: [...new Set(trackingPackages.flatMap(({ line_numbers }) => [...line_numbers]))].sort((left, right) => left - right)
       }))
