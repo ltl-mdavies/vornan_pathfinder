@@ -136,6 +136,46 @@ test("renders the four real-shape sibling proofs as distinct view-only gallery c
   assert.doesNotMatch(markup, />Request revision</);
 });
 
+test("sorts a precomputed shipment summary by package number at the final render boundary", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.shipment_summary = {
+    source: "package_details",
+    state: "tracking_available",
+    package_count: 3,
+    tracking_count: 3,
+    methods: ["UPS Ground"],
+    locations: ["Cincinnati Hub"],
+    status_messages: ["Label created"],
+    destinations: [{
+      destination: snapshot.header.shipping ?? null,
+      location_name: "Cincinnati Hub",
+      package_count: 3,
+      methods: ["UPS Ground"],
+      status_messages: ["Label created"],
+      line_numbers: [1],
+      tracking: [3, 1, 2].map((boxNumber) => ({
+        tracking_number: `1ZTEST00${boxNumber}`,
+        ship_method: "UPS Ground",
+        tracker_message: "Label created",
+        box_numbers: [String(boxNumber)],
+        package_types: ["Box"],
+        line_numbers: [1]
+      }))
+    }]
+  };
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="internal" displayDate={(value) => value ?? "Not available"} />
+  );
+
+  const packageOne = markup.indexOf("Package 1");
+  const packageTwo = markup.indexOf("Package 2");
+  const packageThree = markup.indexOf("Package 3");
+  assert.equal(packageOne >= 0, true);
+  assert.equal(packageOne < packageTwo, true);
+  assert.equal(packageTwo < packageThree, true);
+});
+
 test("uses one safe proof control with high-resolution preference and low-resolution fallback", () => {
   const snapshot = realSiblingSnapshot();
   snapshot.lines[0].proofs = [

@@ -351,6 +351,26 @@ function shipmentSummaryTitle(summary: OrderRollupShipmentSummary) {
   return "Shipment updates pending";
 }
 
+function compareShipmentTrackingByPackage(
+  left: OrderRollupShipmentSummary["destinations"][number]["tracking"][number],
+  right: OrderRollupShipmentSummary["destinations"][number]["tracking"][number]
+) {
+  const leftNumbers = [...left.box_numbers].sort((first, second) =>
+    first.localeCompare(second, "en", { numeric: true, sensitivity: "base" })
+  );
+  const rightNumbers = [...right.box_numbers].sort((first, second) =>
+    first.localeCompare(second, "en", { numeric: true, sensitivity: "base" })
+  );
+  const leftNumber = leftNumbers[0] ?? "";
+  const rightNumber = rightNumbers[0] ?? "";
+  if (leftNumber && rightNumber) {
+    return leftNumber.localeCompare(rightNumber, "en", { numeric: true, sensitivity: "base" });
+  }
+  if (leftNumber) return -1;
+  if (rightNumber) return 1;
+  return left.tracking_number.localeCompare(right.tracking_number, "en", { numeric: true, sensitivity: "base" });
+}
+
 function ShipmentSummary({ summary }: { summary: OrderRollupShipmentSummary }) {
   const context = [
     summary.status_messages[0],
@@ -393,7 +413,7 @@ function ShipmentSummary({ summary }: { summary: OrderRollupShipmentSummary }) {
                     <p className="order-rollup__shipment-address-pending">The current Lift status feed has not provided the street address yet.</p>
                   )}
                   <div className="order-rollup__shipment-tracking-list">
-                    {group.tracking.map((tracking) => {
+                    {[...group.tracking].sort(compareShipmentTrackingByPackage).map((tracking) => {
                       const trackingUrl = buildCarrierTrackingUrl(tracking.tracking_number, tracking.ship_method);
                       return (
                         <article key={tracking.tracking_number}>
