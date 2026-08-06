@@ -535,26 +535,35 @@
 }
 
 .order-rollup__proof-preview {
-  display: block;
+  display: grid;
+  place-items: center;
   padding: 0;
+  border: 1px solid #d6dfd2;
   color: inherit;
   cursor: zoom-in;
   font: inherit;
+  line-height: 0;
   text-decoration: none;
 }
 .order-rollup__proof-preview img { width: 100%; height: 100%; object-fit: contain; }
 .order-rollup__proof-preview span {
   position: absolute;
-  right: 6px;
-  bottom: 6px;
+  right: 8px;
+  bottom: 8px;
   margin: 0;
   border-radius: 999px;
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   background: rgba(26, 49, 31, 0.9);
   color: #fff;
+  line-height: 0;
+}
+.order-rollup__proof-preview span svg {
+  display: block;
+  width: 17px;
+  height: 17px;
 }
 .order-rollup__proof-preview:hover,
 .order-rollup__proof-preview:focus-visible { border-color: #315c3b; box-shadow: 0 0 0 3px rgba(49, 92, 59, 0.14); }

@@ -4,6 +4,7 @@ import test from "node:test";
 import { sampleCanonicalOrder } from "@pathfinder/canonical";
 import {
   applyLiftOrderOutputMappings,
+  buildLiftSubmitRequest,
   buildLiftProofReportUrl,
   generateLiftPayload,
   validateLiftPayload,
@@ -126,6 +127,69 @@ test("one canonical order value can fan out to multiple configured output fields
 
   assert.equal(result.order.contract_number, "C316870");
   assert.equal(result.order.po_number, "C316870");
+});
+
+test("omits empty optional values from the final Lift JSON without removing zero or false", () => {
+  const canonical = {
+    ...sampleCanonicalOrder,
+    customer: { ...sampleCanonicalOrder.customer, crm_id: null },
+    source: { ...sampleCanonicalOrder.source, source_record_url: null, source_template: null },
+    order: {
+      ...sampleCanonicalOrder.order,
+      po_number: null,
+      order_note: null,
+      due_date: null,
+      shipping: null
+    },
+    lines: sampleCanonicalOrder.lines.map((line) => ({
+      ...line,
+      customer_sku: null,
+      artwork: { file_name: null, file_url: null, checksum: null },
+      dimensions: {
+        ...line.dimensions,
+        final_width: 0,
+        live_width: null,
+        bleed: null
+      },
+      production: { material: null, laminate: false },
+      line_note: null
+    }))
+  };
+
+  const result = generateLiftPayload(canonical);
+  const serialized = JSON.stringify(result);
+
+  assert.equal(serialized.includes(":null"), false);
+  assert.equal("crm_id" in result.customer, false);
+  assert.equal("source_record_url" in result.source, false);
+  assert.equal("po_number" in result.order, false);
+  assert.equal("shipping" in result.order, false);
+  assert.equal("artwork" in result.lines[0], false);
+  assert.equal("customer_sku" in result.lines[0], false);
+  assert.equal(result.lines[0].dimensions.final_width, 0);
+  assert.equal(result.lines[0].production?.laminate, false);
+  assert.equal("material" in (result.lines[0].production ?? {}), false);
+});
+
+test("output mappings cannot reintroduce a null value", () => {
+  const canonical = {
+    ...sampleCanonicalOrder,
+    order: { ...sampleCanonicalOrder.order, po_number: null }
+  };
+  const result = applyLiftOrderOutputMappings(generateLiftPayload(canonical), canonical, [
+    { sourceColumn: "body:order.po_number", targetField: "order.po_number" }
+  ]);
+
+  assert.equal("po_number" in result.order, false);
+  assert.equal(JSON.stringify(result).includes(":null"), false);
+});
+
+test("strips null values again at the transport boundary for previously stored payloads", () => {
+  const request = buildLiftSubmitRequest(payload("C316860 - Momentara Web Order - 20260721"));
+
+  assert.equal(JSON.stringify(request.body).includes(":null"), false);
+  assert.equal("po_number" in request.body.order, false);
+  assert.equal("artwork" in request.body.lines[0], false);
 });
 
 test("maps source-document URLs to distinct configurable Lift create-order fields", () => {

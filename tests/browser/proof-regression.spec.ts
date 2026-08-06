@@ -144,7 +144,7 @@ for (const viewport of viewports) {
     const pdfDialog = page.getByRole("dialog");
     await expect(pdfDialog.locator("iframe")).toHaveAttribute("src", "https://assets.fixture.invalid/proof-packet.pdf");
     await expect(pdfDialog.locator("iframe")).toHaveAttribute("title", "High-resolution proof proof-packet.pdf");
-    await expect(pdfDialog.locator("iframe")).toHaveAttribute("sandbox", "");
+    await expect(pdfDialog.locator("iframe")).not.toHaveAttribute("sandbox");
     expect(blocked).toEqual([]);
   });
 }
