@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ZoomIn } from "lucide-react";
+import { LoaderCircle, ZoomIn } from "lucide-react";
 import {
   buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
@@ -95,7 +95,6 @@ function StepRail({ line }: { line: OrderRollupLine }) {
         <strong>
           {line.step ? `${line.step.step_number}: ${line.step.step_name}` : "Waiting for Lift step information"}
         </strong>
-        <small>{line.step?.order_status ?? "No line status available"}</small>
       </div>
       <ol className="order-rollup__rail" aria-label={`Production steps for line ${line.line_number}`}>
         {standardGraphicsRail.map((step, index) => {
@@ -158,6 +157,8 @@ function proofStateLabel(proof: OrderRollupProof) {
 
 function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { proof: OrderRollupProof; displayDate: (value?: string | null) => string; allowAssetLinks: boolean; assetsLoading: boolean }) {
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoaded, setPreviewLoaded] = useState(false);
+  const [previewFailed, setPreviewFailed] = useState(false);
   const dialogTitleId = useId();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
@@ -199,6 +200,13 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { pro
     };
   }, [previewOpen]);
 
+  useEffect(() => {
+    if (!previewOpen) {
+      setPreviewLoaded(false);
+      setPreviewFailed(false);
+    }
+  }, [previewOpen, lightboxUrl]);
+
   return (
     <>
       <article className={`order-rollup__proof-card proof-state--${proof.proof_state ?? "pending"}`}>
@@ -227,21 +235,33 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { pro
           <section ref={dialogRef} className="order-rollup__lightbox" role="dialog" aria-modal="true" aria-labelledby={dialogTitleId}>
             <header>
               <div>
-                <span>Artwork preview</span>
                 <strong id={dialogTitleId}>{filename}</strong>
               </div>
               <div className="order-rollup__lightbox-actions">
                 <button ref={closeButtonRef} type="button" onClick={() => setPreviewOpen(false)}>Close</button>
               </div>
             </header>
-            <div className="order-rollup__lightbox-canvas">
+            <div className={`order-rollup__lightbox-canvas${previewLoaded ? " is-ready" : " is-loading"}${previewFailed ? " is-error" : ""}`}>
+              {!previewLoaded ? (
+                <div className="order-rollup__lightbox-loading" role="status" aria-live="polite">
+                  {previewFailed ? null : <LoaderCircle size={24} strokeWidth={2} aria-hidden="true" />}
+                  <strong>{previewFailed ? "Proof preview unavailable" : "Loading high-resolution proof…"}</strong>
+                  <span>{previewFailed ? "Close this window and try again." : "Large proof files can take a few seconds to display."}</span>
+                </div>
+              ) : null}
               {lightboxKind === "image" ? (
-                <img src={lightboxUrl} alt={`High-resolution proof ${filename}`} />
+                <img
+                  src={lightboxUrl}
+                  alt={`High-resolution proof ${filename}`}
+                  onLoad={() => setPreviewLoaded(true)}
+                  onError={() => setPreviewFailed(true)}
+                />
               ) : (
                 <iframe
                   src={lightboxUrl}
                   title={`High-resolution proof ${filename}`}
                   referrerPolicy="no-referrer"
+                  onLoad={() => setPreviewLoaded(true)}
                 />
               )}
             </div>
