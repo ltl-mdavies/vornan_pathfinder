@@ -31,6 +31,17 @@ export interface TransientProofSnapshot {
   lines: TransientProofLine[];
 }
 
+function highResolutionAssetKind(url: string) {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    if (pathname.endsWith(".pdf")) return "pdf";
+    if (/\.(?:avif|gif|jpe?g|png|webp)$/.test(pathname)) return "image";
+  } catch {
+    // The server will still validate and resolve the token-bound asset.
+  }
+  return "document";
+}
+
 export function proxyHighResolutionProofAssets<T extends TransientProofSnapshot>(
   snapshots: T[],
   apiBaseUrl: string,
@@ -47,7 +58,8 @@ export function proxyHighResolutionProofAssets<T extends TransientProofSnapshot>
             proof_link_high: `${base}/public/status/${encodeURIComponent(token)}/proof-asset?${new URLSearchParams({
               order_number: snapshot.order_number,
               line_number: String(line.line_number),
-              filename: proof.proof_filename ?? "Proof file"
+              filename: proof.proof_filename ?? "Proof file",
+              asset_kind: highResolutionAssetKind(proof.proof_link_high)
             }).toString()}`
           }
         : proof)
