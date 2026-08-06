@@ -4,10 +4,24 @@ import test from "node:test";
 import { sampleCanonicalOrder } from "@pathfinder/canonical";
 import {
   applyLiftOrderOutputMappings,
+  buildLiftProofReportUrl,
   generateLiftPayload,
   validateLiftPayload,
   type LiftOrderPayload
 } from "../src/index.ts";
+
+test("always scopes ProofReport reads to one exact order and optional line", () => {
+  const base = "https://lift.example.invalid/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0";
+  assert.equal(
+    buildLiftProofReportUrl(base, "A0226753"),
+    "https://lift.example.invalid/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0&p1=A0226753"
+  );
+  assert.equal(
+    buildLiftProofReportUrl(base, "A0226753", 9748545),
+    "https://lift.example.invalid/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0&p1=A0226753&p2=9748545"
+  );
+  assert.equal(buildLiftProofReportUrl(base, ""), null);
+});
 
 function payload(orderTitle: string | null): LiftOrderPayload {
   return {

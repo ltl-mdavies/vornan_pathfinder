@@ -12,7 +12,7 @@ import type {
 import { OrderRollup } from "@pathfinder/order-rollup-ui";
 import { proofReviewProgress } from "./proof-state";
 import { CustomerIntake } from "./intake";
-import { publicStatusPollDelay, shouldPollPublicStatus } from "./live-refresh";
+import { publicStatusPollDelay, retainTransientProofAssets, shouldPollPublicStatus } from "./live-refresh";
 import "./styles.css";
 import "@pathfinder/order-rollup-ui/styles.css";
 
@@ -38,6 +38,8 @@ type StatusProof = {
   proof_approval_status?: string | null;
   proof_link_low?: string | null;
   proof_link_high?: string | null;
+  creation_date?: string | null;
+  preview_kind?: "image" | "pdf" | "download" | "unavailable";
 };
 
 type StatusPackage = {
@@ -523,7 +525,13 @@ function StatusView({
         ))}
       </section>
 
-      <OrderRollup snapshot={snapshot} audience="public" displayDate={displayDate} />
+      <OrderRollup
+        snapshot={snapshot}
+        audience="public"
+        displayDate={displayDate}
+        allowProofAssetLinks
+        proofAssetsLoading={refreshState === "checking"}
+      />
 
       <section className="privacy-note">
         <strong>Private link</strong>
@@ -548,6 +556,7 @@ function App() {
     let ignore = false;
     let loaded = false;
     let requestActive = false;
+    let latestPayload: PublicStatusResponse | null = null;
     let pollTimer: number | null = null;
 
     function clearPollTimer() {
@@ -572,26 +581,47 @@ function App() {
         return;
       }
       requestActive = true;
+      let refreshAfterCachedLoad = false;
       if (initial) {
         setState("loading");
       } else {
         setRefreshState("checking");
       }
       try {
-        const response = await fetch(`${apiBaseUrl}/public/status/${encodeURIComponent(initialToken)}`, {
+        const endpoint = `${apiBaseUrl}/public/status/${encodeURIComponent(initialToken)}${initial ? "" : "/refresh"}`;
+        const response = await fetch(endpoint, {
+          method: initial ? "GET" : "POST",
           cache: "no-store"
         });
-        const data = await response.json();
+        const rawData = await response.json();
         if (!response.ok) {
-          throw new Error(data.error ?? "This status link could not be opened.");
+          throw new Error(rawData.error ?? "This status link could not be opened.");
         }
         if (!ignore) {
+          const incoming = rawData as PublicStatusResponse;
+          const incomingSnapshots = incoming.snapshots?.length ? incoming.snapshots : [incoming.snapshot];
+          const retainedSnapshots = initial
+            ? incomingSnapshots
+            : retainTransientProofAssets(
+                latestPayload?.snapshots?.length ? latestPayload.snapshots : latestPayload ? [latestPayload.snapshot] : undefined,
+                incomingSnapshots
+              ) as PublicOrderStatusSnapshot[];
+          const data: PublicStatusResponse = {
+            ...incoming,
+            snapshot: retainedSnapshots[0] ?? incoming.snapshot,
+            snapshots: retainedSnapshots
+          };
+          latestPayload = data;
           setPayload(data);
           setState("idle");
-          setRefreshState(data.refresh?.status === "degraded" ? "degraded" : "live");
+          setRefreshState(initial ? "checking" : data.refresh?.status === "degraded" ? "degraded" : "live");
           setMessage("");
           loaded = true;
-          schedulePoll(data.refresh?.poll_after_seconds);
+          if (initial) {
+            refreshAfterCachedLoad = true;
+          } else {
+            schedulePoll(data.refresh?.poll_after_seconds);
+          }
         }
       } catch (error) {
         if (!ignore) {
@@ -605,6 +635,9 @@ function App() {
         }
       } finally {
         requestActive = false;
+        if (refreshAfterCachedLoad && !ignore) {
+          void loadStatus(false);
+        }
       }
     }
 
@@ -639,9 +672,18 @@ function App() {
 
       {state === "loading" ? (
         <section className="loading-card">
-          <span className="loading-dot" />
-          <strong>Loading order status</strong>
-          <p>Opening the latest Pathfinder order view.</p>
+          <div className="loading-copy">
+            <span className="loading-dot" />
+            <div>
+              <strong>Opening your order status</strong>
+              <p>Loading the last confirmed view now. The newest Lift updates will follow in the background.</p>
+            </div>
+          </div>
+          <div className="status-skeleton" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </div>
         </section>
       ) : null}
 

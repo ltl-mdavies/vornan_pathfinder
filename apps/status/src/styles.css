@@ -668,11 +668,16 @@ button:disabled {
 }
 
 .loading-card {
+  display: grid;
+  gap: 22px;
+  padding: 24px;
+  border-radius: 8px;
+}
+
+.loading-copy {
   display: flex;
   gap: 14px;
   align-items: center;
-  padding: 24px;
-  border-radius: 8px;
 }
 
 .loading-card p {
@@ -686,6 +691,25 @@ button:disabled {
   border-radius: 999px;
   background: #315c3b;
   box-shadow: 0 0 0 8px rgba(49, 92, 59, 0.14);
+}
+
+.status-skeleton {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 12px;
+}
+
+.status-skeleton span {
+  min-height: 74px;
+  border-radius: 7px;
+  background: linear-gradient(100deg, #edf1e9 20%, #f8faf6 42%, #edf1e9 64%);
+  background-size: 240% 100%;
+  animation: status-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes status-skeleton-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
 }
 
 .intake-shell {
@@ -1153,7 +1177,8 @@ button:disabled {
   .progress-panel,
   .line-status,
   .line-detail,
-  .order-selector {
+  .order-selector,
+  .status-skeleton {
     grid-template-columns: 1fr;
   }
 

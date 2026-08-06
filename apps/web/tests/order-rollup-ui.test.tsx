@@ -201,6 +201,39 @@ test("never renders direct Proof assets for the public Status audience and hides
   assert.doesNotMatch(hiddenMarkup, /4 proofs/);
 });
 
+test("renders safe transient Proof assets only when a token-authorized public caller opts in", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.proof_visibility = "status_only";
+  const markup = renderToStaticMarkup(
+    <OrderRollup
+      snapshot={snapshot}
+      audience="public"
+      allowProofAssetLinks
+      displayDate={(value) => value ?? "Not available"}
+    />
+  );
+
+  assert.equal((markup.match(/<img /g) ?? []).length, 4);
+  assert.equal((markup.match(/>View proof<\/a>/g) ?? []).length, 4);
+  assert.doesNotMatch(markup, /javascript:alert/);
+});
+
+test("explains that missing public thumbnails are being refreshed", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.proof_visibility = "status_only";
+  snapshot.lines[0].proofs = snapshot.lines[0].proofs.map((proof) => ({
+    ...proof,
+    proof_link_low: null,
+    proof_link_high: null,
+    preview_kind: "unavailable" as const
+  }));
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" allowProofAssetLinks proofAssetsLoading />
+  );
+
+  assert.equal((markup.match(/Refreshing artwork…/g) ?? []).length, 4);
+});
+
 test("rejects unsafe proof assets before they reach an image or link", () => {
   assert.equal(safeProofAssetUrl("javascript:alert(1)"), null);
   assert.equal(safeProofAssetUrl("http://proof.example.invalid/file.jpg"), null);

@@ -209,6 +209,7 @@ import {
   type PublicIntakeEmailVerificationRecord,
   type PathfinderCustomerWorkspace,
   type PublicOrderStatusSnapshot,
+  type OrderStatusTokenRecord,
   type StatusAccessPolicy,
   type StatusProofVisibility,
   type CustomerProofCapabilityPolicy,
@@ -750,7 +751,36 @@ async function verifyLiftOrderAssociation(args: {
   return { verification, warnings, lookup, order };
 }
 
-function normalizeProofReportPayload(payload: unknown) {
+function normalizeOriginalArts(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const originals = value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+    const record = candidate as Record<string, unknown>;
+    const originalArtId = valueAsString(record.ORIGINAL_ART_ID ?? record.original_art_id).trim();
+    const filename = valueAsString(record.ORIGINAL_ART_FILENAME ?? record.original_art_filename)
+      .replace(/[\u0000-\u001f\u007f]+/g, " ")
+      .trim();
+    const rawLink = valueAsString(record.ORIGINAL_ART_LINK ?? record.original_art_link).trim();
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(originalArtId) || !filename || filename.length > 180 || !rawLink) return [];
+    try {
+      const url = new URL(rawLink);
+      if (url.protocol !== "https:" || url.username || url.password) return [];
+      return [{
+        original_art_id: originalArtId,
+        original_art_filename: filename,
+        original_art_link: url.toString()
+      }];
+    } catch {
+      return [];
+    }
+  });
+
+  return originals.filter((art, index, all) =>
+    all.findIndex((candidate) => candidate.original_art_id === art.original_art_id) === index
+  ).slice(0, 100);
+}
+
+export function normalizeProofReportPayload(payload: unknown) {
   const rows = Array.isArray(payload)
     ? payload
     : payload && typeof payload === "object" && Array.isArray((payload as { rowset?: unknown }).rowset)
@@ -776,6 +806,11 @@ function normalizeProofReportPayload(payload: unknown) {
       comment_attachment: unknown;
     }>;
     detailed_report: unknown;
+    original_arts: Array<{
+      original_art_id: string;
+      original_art_filename: string;
+      original_art_link: string;
+    }> | null;
   }>();
 
   rows.forEach((row) => {
@@ -821,7 +856,8 @@ function normalizeProofReportPayload(payload: unknown) {
       proof_approved_by: typeof record.PROOF_APPROVED_BY === "string" ? record.PROOF_APPROVED_BY : null,
       proof_approved_date: typeof record.PROOF_APPROVED_DATE === "string" ? record.PROOF_APPROVED_DATE : null,
       comments: comment.proof_comment || comment.comment_ts || comment.comment_attachment ? [comment] : [],
-      detailed_report: record.DETAILED_REPORT ?? null
+      detailed_report: record.DETAILED_REPORT ?? null,
+      original_arts: normalizeOriginalArts(record.ORIGINAL_ARTS ?? record.original_arts)
     });
   });
 
@@ -1376,20 +1412,24 @@ async function buildInternalOrderSnapshotForJob(
 
 export function applyPublicProofVisibility(
   snapshot: PublicOrderStatusSnapshot,
-  proofVisibility: StatusProofVisibility
+  proofVisibility: StatusProofVisibility,
+  options: { include_transient_proof_assets?: boolean } = {}
 ): PublicOrderStatusSnapshot {
   const showProofStatus = proofVisibility !== "off";
+  const includeTransientProofAssets = showProofStatus && options.include_transient_proof_assets === true;
   const lines = snapshot.lines.map((line) => ({
     ...line,
     proof_count: showProofStatus ? line.proof_count : 0,
     latest_proof_status: showProofStatus ? line.latest_proof_status : null,
     proofs: showProofStatus
-      ? line.proofs.map((proof) => ({
-          ...proof,
-          proof_link_low: null,
-          proof_link_high: null,
-          preview_kind: "unavailable" as const
-        }))
+      ? line.proofs.map((proof) => includeTransientProofAssets
+        ? toCustomerSafeOrderRollupProof(proof)
+        : ({
+            ...proof,
+            proof_link_low: null,
+            proof_link_high: null,
+            preview_kind: "unavailable" as const
+          }))
       : []
   }));
 
@@ -1413,7 +1453,7 @@ export function applyPublicProofVisibility(
       proof_visibility: proofVisibility,
       redacted_fields: Array.from(new Set([
         ...snapshot.visibility_policy.redacted_fields,
-        "direct Lift proof URLs"
+        ...(includeTransientProofAssets ? [] : ["direct Lift proof URLs"])
       ]))
     }
   };
@@ -1421,7 +1461,8 @@ export function applyPublicProofVisibility(
 
 export function publicOrderStatusSnapshotFromInternal(
   snapshot: InternalOrderSnapshot,
-  proofVisibility: StatusProofVisibility = "status_only"
+  proofVisibility: StatusProofVisibility = "status_only",
+  options: { include_transient_proof_assets?: boolean } = {}
 ): PublicOrderStatusSnapshot {
   const publicLines = snapshot.lines.map((line) => ({
     ...line,
@@ -1486,7 +1527,7 @@ export function publicOrderStatusSnapshotFromInternal(
     },
     refreshed_at: snapshot.refreshed_at
   };
-  return applyPublicProofVisibility(publicSnapshot, proofVisibility);
+  return applyPublicProofVisibility(publicSnapshot, proofVisibility, options);
 }
 
 const orderSnapshotRefreshMinMs = Math.max(
@@ -1562,17 +1603,21 @@ async function refreshPublicStatusOrder(binding: {
         : null;
     }
 
-    const projected = publicOrderStatusSnapshotFromInternal(result.snapshot, "status_only");
+    const projected = publicOrderStatusSnapshotFromInternal(result.snapshot, "status_only", {
+      include_transient_proof_assets: true
+    });
     const merged = applyPublicProofVisibility(
       mergePublicStatusRefresh(previous, projected, {
         order: result.snapshot.lookups.order?.ok === true,
         proofs: result.snapshot.lookups.proofs?.ok === true,
         packages: result.snapshot.lookups.packages?.ok === true
       }),
-      workspace.status_access_policy.proof_visibility
+      workspace.status_access_policy.proof_visibility,
+      { include_transient_proof_assets: true }
     );
-    if (previous?.refreshed_at !== merged.refreshed_at) {
-      await persistPublicOrderStatusSnapshot(merged);
+    const durableSnapshot = applyPublicProofVisibility(merged, workspace.status_access_policy.proof_visibility);
+    if (previous?.refreshed_at !== durableSnapshot.refreshed_at) {
+      await persistPublicOrderStatusSnapshot(durableSnapshot);
     }
 
     return {
@@ -1595,6 +1640,45 @@ async function refreshPublicStatusOrder(binding: {
 
 function hashStatusToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+type PublicStatusOrderBinding = {
+  order_key: string;
+  customer_id: string;
+  job_id: string;
+  order_number: string;
+};
+
+async function activePublicStatusToken(rawToken: string | undefined): Promise<
+  | { error: string; status: 400 | 404 | 410 }
+  | { tokenRecord: OrderStatusTokenRecord; orders: PublicStatusOrderBinding[] }
+> {
+  const token = rawToken?.trim();
+  if (!token) {
+    return { error: "Missing status token.", status: 400 };
+  }
+
+  const tokenRecord = await getOrderStatusToken(hashStatusToken(token));
+  if (!tokenRecord || tokenRecord.status !== "Active") {
+    return { error: "Order status link was not found.", status: 404 };
+  }
+  if (Date.parse(tokenRecord.expires_at) <= Date.now()) {
+    return { error: "Order status link has expired.", status: 410 };
+  }
+
+  const orders: PublicStatusOrderBinding[] = tokenRecord.orders?.length
+    ? tokenRecord.orders
+    : [{
+        order_key: tokenRecord.order_key,
+        customer_id: tokenRecord.customer_id,
+        job_id: tokenRecord.job_id,
+        order_number: tokenRecord.order_number
+      }];
+
+  return {
+    tokenRecord,
+    orders: Array.from(new Map(orders.map((order) => [order.order_key, order])).values())
+  };
 }
 
 function hashPublicLogValue(value: unknown) {
@@ -3247,40 +3331,59 @@ app.get("/health", (_req, res) => {
 
 app.get("/public/status/:token", async (req, res) => {
   try {
-    const token = req.params.token?.trim();
-
-    if (!token) {
-      res.status(400).json({ error: "Missing status token." });
+    const lookup = await activePublicStatusToken(req.params.token);
+    if ("error" in lookup) {
+      res.status(lookup.status).json({ error: lookup.error });
       return;
     }
 
-    const tokenRecord = await getOrderStatusToken(hashStatusToken(token));
+    const snapshots = (
+      await Promise.all(lookup.orders.map(async (order) => {
+        const snapshot = await getPublicOrderStatusSnapshot(order.order_key);
+        if (!snapshot) return null;
+        try {
+          const customer = await findLiftCustomer(order.customer_id);
+          const workspace = await getOrCreateWorkspace(customer);
+          return applyPublicProofVisibility(snapshot, workspace.status_access_policy.proof_visibility);
+        } catch {
+          return applyPublicProofVisibility(snapshot, "off");
+        }
+      }))
+    ).filter((snapshot): snapshot is PublicOrderStatusSnapshot => snapshot != null);
 
-    if (!tokenRecord || tokenRecord.status !== "Active") {
-      res.status(404).json({ error: "Order status link was not found." });
+    if (!snapshots.length) {
+      res.status(404).json({ error: "Order status snapshots were not found." });
       return;
     }
 
-    if (Date.parse(tokenRecord.expires_at) <= Date.now()) {
-      res.status(410).json({ error: "Order status link has expired." });
+    res.set("Cache-Control", "private, no-store, max-age=0");
+    res.set("Pragma", "no-cache");
+    res.json({
+      snapshot: snapshots[0],
+      snapshots,
+      link: {
+        status: lookup.tokenRecord.status,
+        expires_at: lookup.tokenRecord.expires_at,
+        order_count: snapshots.length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Order status lookup failed."
+    });
+  }
+});
+
+app.post("/public/status/:token/refresh", async (req, res) => {
+  try {
+    const lookup = await activePublicStatusToken(req.params.token);
+    if ("error" in lookup) {
+      res.status(lookup.status).json({ error: lookup.error });
       return;
     }
 
-    const tokenOrders = tokenRecord.orders?.length
-      ? tokenRecord.orders
-      : [
-          {
-            order_key: tokenRecord.order_key,
-            customer_id: tokenRecord.customer_id,
-            job_id: tokenRecord.job_id,
-            order_number: tokenRecord.order_number
-          }
-        ];
-    const uniqueOrders = Array.from(
-      new Map(tokenOrders.map((order) => [order.order_key, order])).values()
-    );
     const refreshResults = (
-      await Promise.all(uniqueOrders.map((order) => refreshPublicStatusOrder(order)))
+      await Promise.all(lookup.orders.map((order) => refreshPublicStatusOrder(order)))
     ).filter((result): result is NonNullable<typeof result> => result != null);
     const snapshots = refreshResults.map((result) => result.snapshot);
 
@@ -3296,14 +3399,14 @@ app.get("/public/status/:token", async (req, res) => {
       snapshots,
       refresh: summarizePublicStatusRefresh(refreshResults, publicStatusPollAfterSeconds),
       link: {
-        status: tokenRecord.status,
-        expires_at: tokenRecord.expires_at,
+        status: lookup.tokenRecord.status,
+        expires_at: lookup.tokenRecord.expires_at,
         order_count: snapshots.length
       }
     });
   } catch (error) {
     res.status(500).json({
-      error: error instanceof Error ? error.message : "Order status lookup failed."
+      error: error instanceof Error ? error.message : "Order status refresh failed."
     });
   }
 });
