@@ -308,6 +308,7 @@ export interface WrikeEligibleOrderTask {
   account_id: string;
   parent_ids: string[];
   super_parent_ids: string[];
+  custom_status_id: string;
   contract_number: string;
   attachment_count: number | null;
   artwork_folder_status: WrikeArtworkFolderStatus;

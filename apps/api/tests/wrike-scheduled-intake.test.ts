@@ -46,11 +46,11 @@ test("scheduled intake prepares every candidate independently in deterministic o
       prepare_only: true
     },
     discover: async () => [
-      { task_id: "TASK-B", contract_number: "C2" },
-      { task_id: "TASK-A", contract_number: "C1" }
+      { task_id: "TASK-B", contract_number: "C2", trigger_status_id: "STATUS-B" },
+      { task_id: "TASK-A", contract_number: "C1", trigger_status_id: "STATUS-A" }
     ],
     prepare: async (candidate) => {
-      prepared.push(candidate.task_id);
+      prepared.push(`${candidate.task_id}:${candidate.trigger_status_id}`);
       if (candidate.task_id === "TASK-A") {
         return { task_id: candidate.task_id, status: "Created", job_ids: ["job-a"] };
       }
@@ -59,7 +59,7 @@ test("scheduled intake prepares every candidate independently in deterministic o
     now: () => new Date("2026-08-05T20:00:00.000Z")
   });
 
-  assert.deepEqual(prepared, ["TASK-A", "TASK-B"]);
+  assert.deepEqual(prepared, ["TASK-A:STATUS-A", "TASK-B:STATUS-B"]);
   assert.equal(result.prepared_count, 1);
   assert.equal(result.replayed_count, 1);
   assert.equal(result.failed_count, 0);
@@ -78,8 +78,8 @@ test("one candidate failure does not block another order", async () => {
       prepare_only: true
     },
     discover: async () => [
-      { task_id: "TASK-A", contract_number: "C1" },
-      { task_id: "TASK-B", contract_number: "C2" }
+      { task_id: "TASK-A", contract_number: "C1", trigger_status_id: "STATUS-A" },
+      { task_id: "TASK-B", contract_number: "C2", trigger_status_id: "STATUS-B" }
     ],
     prepare: async (candidate) => {
       if (candidate.task_id === "TASK-A") throw new TypeError("private provider detail");
@@ -111,8 +111,8 @@ test("bounded discovery stops before preparing an oversized batch", async () => 
         prepare_only: true
       },
       discover: async () => [
-        { task_id: "TASK-A", contract_number: "C1" },
-        { task_id: "TASK-B", contract_number: "C2" }
+        { task_id: "TASK-A", contract_number: "C1", trigger_status_id: "STATUS-A" },
+        { task_id: "TASK-B", contract_number: "C2", trigger_status_id: "STATUS-B" }
       ],
       prepare: async (candidate) => {
         prepares += 1;

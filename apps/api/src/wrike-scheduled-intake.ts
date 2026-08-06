@@ -10,6 +10,7 @@ export interface WrikeScheduledIntakeConfig {
 export interface WrikeScheduledOrderCandidate {
   task_id: string;
   contract_number: string;
+  trigger_status_id: string;
 }
 
 export interface WrikeScheduledPreparedOrder {
