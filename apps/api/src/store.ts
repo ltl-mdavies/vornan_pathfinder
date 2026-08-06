@@ -2183,6 +2183,15 @@ async function replaceDynamoTable(
   await batchWriteDynamo(tableName, putRequests);
 }
 
+async function upsertDynamoTable(tableName: string, putItems: Array<Record<string, AttributeValue>>) {
+  const putRequests = putItems.map((item) => ({
+    PutRequest: {
+      Item: item
+    }
+  }));
+  await batchWriteDynamo(tableName, putRequests);
+}
+
 function workspaceRecord(workspace: PathfinderCustomerWorkspace) {
   const { import_methods, output_routes, jobs, submit_attempts, product_mappings, ...record } = workspace;
   return {
@@ -2409,9 +2418,12 @@ async function writeDynamoStore(store: PathfinderStore) {
       dynamoItem({ customer_id: workspace.customer.lift_customer_id }, workspaceRecord(workspace))
     )
   );
-  await replaceDynamoTable(
+  // Import methods are lifecycle records: removal is represented by an
+  // Archived status, not by deleting the DynamoDB item. Upsert them so a
+  // concurrent writer holding an older workspace snapshot cannot erase a
+  // newly saved method during an unrelated whole-store persistence pass.
+  await upsertDynamoTable(
     tables.import_methods,
-    ["customer_id", "import_method_id"],
     workspaces.flatMap((workspace) =>
       workspace.import_methods.map((method) =>
         dynamoItem(
