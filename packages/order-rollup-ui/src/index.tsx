@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { LoaderCircle, ZoomIn } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import {
   buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
@@ -214,7 +214,6 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading }: { pro
           lightboxUrl ? (
             <button className="order-rollup__proof-preview" type="button" onClick={() => setPreviewOpen(true)} aria-label={`Open high-resolution proof ${filename}`}>
               <img src={previewUrl} alt="" loading="lazy" />
-              <span aria-hidden="true"><ZoomIn size={17} strokeWidth={2.15} /></span>
             </button>
           ) : (
             <div className="order-rollup__proof-preview">
