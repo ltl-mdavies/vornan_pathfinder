@@ -4322,7 +4322,12 @@ class WrikeIntakeRequestError extends Error {
 async function captureWrikeWorkbookEvidenceForMethod(
   liftCustomerId: string,
   methodId: string,
-  options: { requireActive?: boolean; expectedTaskId?: string; taskIdOverride?: string } = {}
+  options: {
+    requireActive?: boolean;
+    expectedTaskId?: string;
+    taskIdOverride?: string;
+    triggerStatusIdOverride?: string;
+  } = {}
 ) {
   let customerId = "";
   let connectionId = "";
@@ -4348,7 +4353,9 @@ async function captureWrikeWorkbookEvidenceForMethod(
     const taskId = options.taskIdOverride?.trim() || savedConfig.approved_discovery_task_id;
     const config = {
       ...savedConfig,
-      approved_discovery_task_id: taskId
+      approved_discovery_task_id: taskId,
+      trigger_status_id:
+        options.triggerStatusIdOverride?.trim() || savedConfig.trigger_status_id
     };
     const readiness = getWrikeContractReadiness(config);
     if (
@@ -4869,6 +4876,7 @@ async function prepareWrikeOrderForTask(args: {
   liftCustomerId: string;
   methodId: string;
   taskId: string;
+  triggerStatusId?: string;
 }) {
   let orderContext:
     | {
@@ -4888,7 +4896,8 @@ async function prepareWrikeOrderForTask(args: {
         {
           requireActive: true,
           expectedTaskId: args.taskId,
-          taskIdOverride: args.taskId
+          taskIdOverride: args.taskId,
+          triggerStatusIdOverride: args.triggerStatusId
         }
       );
       orderContext = captured.order_context;
@@ -5055,14 +5064,16 @@ export async function runConfiguredWrikeScheduledIntake() {
       existingSecrets = { ...existingSecrets, oauth: discovery.credentials };
       return discovery.order_candidates.map((candidate) => ({
         task_id: candidate.task_id,
-        contract_number: candidate.contract_number
+        contract_number: candidate.contract_number,
+        trigger_status_id: candidate.custom_status_id
       }));
     },
     prepare: async (candidate: WrikeScheduledOrderCandidate) => {
       const result = await prepareWrikeOrderForTask({
         liftCustomerId: wrikeScheduledIntakeConfig.customer_id,
         methodId: wrikeScheduledIntakeConfig.import_method_id,
-        taskId: candidate.task_id
+        taskId: candidate.task_id,
+        triggerStatusId: candidate.trigger_status_id
       });
       if (result.summary.blocked_count > 0) {
         throw new Error("WrikeScheduledPreviewBlocked");
