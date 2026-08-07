@@ -121,6 +121,7 @@ h1, h2, h3, p { margin-top: 0; }
 .task-thumbnail { width: 76px; height: 88px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: #e9ecdf; color: #8a9585; }
 .task-thumbnail img { display: block; width: 100%; height: 100%; object-fit: contain; background: white; }
 .task-thumbnail svg { width: 25px; height: 25px; }
+.task-thumbnail .thumbnail-refreshing { animation: spin .8s linear infinite; }
 .task-card-copy { min-width: 0; align-self: center; }
 .task-card-top { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 7px; color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; }
 .task-card-copy > strong { display: block; font-size: 13px; line-height: 1.3; }
@@ -182,6 +183,7 @@ h1, h2, h3, p { margin-top: 0; }
 .preview-empty svg { width: 32px; height: 32px; color: #94a286; }
 .preview-empty strong { color: var(--ink); }
 .preview-empty span { max-width: 370px; font-size: 11px; line-height: 1.5; }
+.preview-empty.preview-loading .spinner { width: 34px; height: 34px; }
 
 .action-transport { min-width: 0; min-height: 90px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: white; display: grid; grid-template-columns: minmax(180px, .7fr) minmax(240px, 1.4fr) minmax(210px, .9fr); align-items: center; gap: 12px; box-shadow: 0 10px 28px rgba(38,62,42,.07); }
 .action-transport.simple { grid-template-columns: 1fr; grid-template-rows: auto auto; gap: 10px; }

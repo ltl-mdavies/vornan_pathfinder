@@ -28,7 +28,7 @@ export function proofOrderIsStale(lastSyncedAt: string, now = new Date()) {
 export type ProofAutomaticRefreshState = {
   stale: boolean;
   eligible: boolean;
-  reason: "fresh" | "active_recent" | "non_interactive" | "inactive";
+  reason: "fresh" | "active_recent" | "complete_recent" | "non_interactive" | "inactive";
 };
 
 export function proofAutomaticRefreshState(
@@ -38,7 +38,7 @@ export function proofAutomaticRefreshState(
   if (!proofOrderIsStale(order.last_synced_at, now)) {
     return { stale: false, eligible: false, reason: "fresh" };
   }
-  if (order.health !== "active") {
+  if (order.health !== "active" && order.health !== "complete") {
     return { stale: true, eligible: false, reason: "non_interactive" };
   }
   const updatedAt = Date.parse(order.updated_at);
@@ -46,5 +46,9 @@ export function proofAutomaticRefreshState(
   if (!Number.isFinite(updatedAt) || now.getTime() - updatedAt >= maximumInactiveMs) {
     return { stale: true, eligible: false, reason: "inactive" };
   }
-  return { stale: true, eligible: true, reason: "active_recent" };
+  return {
+    stale: true,
+    eligible: true,
+    reason: order.health === "complete" ? "complete_recent" : "active_recent"
+  };
 }

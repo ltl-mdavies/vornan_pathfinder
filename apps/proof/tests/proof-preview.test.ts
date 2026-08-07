@@ -42,3 +42,14 @@ test("does not make an image preview interactive when no safe open target is ava
   assert.doesNotMatch(markup, /proof-image-link/);
   assert.match(markup, /Preview unavailable/);
 });
+
+test("shows a clear loading state while current artwork URLs are refreshing", () => {
+  const markup = renderToStaticMarkup(createElement(ProofPreview, {
+    version: imageVersion({ preview_url: null, download_url: null }),
+    refreshing: true
+  }));
+
+  assert.match(markup, /Loading current artwork/);
+  assert.match(markup, /It will appear here automatically/);
+  assert.doesNotMatch(markup, /Preview unavailable/);
+});

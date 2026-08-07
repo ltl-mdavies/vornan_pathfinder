@@ -150,7 +150,7 @@ function technicalCheckState(status: string | null) {
   return "notice";
 }
 
-function TaskThumbnail({ task }: { task: ProofTask }) {
+function TaskThumbnail({ task, refreshing = false }: { task: ProofTask; refreshing?: boolean }) {
   const asset = proofAsset(task.current_version);
   const [failedPreview, setFailedPreview] = useState<string | null>(null);
   const previewAvailable = asset.preview && asset.kind === "image" && failedPreview !== asset.preview;
@@ -158,7 +158,7 @@ function TaskThumbnail({ task }: { task: ProofTask }) {
     <span className="task-thumbnail" aria-hidden="true">
       {previewAvailable
         ? <img src={asset.preview!} referrerPolicy="no-referrer" alt="" onError={() => setFailedPreview(asset.preview)} />
-        : <FileText />}
+        : refreshing ? <RefreshCw className="thumbnail-refreshing" /> : <FileText />}
     </span>
   );
 }
@@ -608,7 +608,7 @@ export function App() {
 
   function scheduleRefreshReload() {
     if (refreshPollTimer.current !== null) return;
-    if (refreshPollAttempts.current >= 8) {
+    if (refreshPollAttempts.current >= 12) {
       setRefreshState("error");
       setRefreshMessage("Fresh proof details are taking longer than expected. Select refresh to check again.");
       return;
@@ -618,7 +618,7 @@ export function App() {
       refreshPollTimer.current = null;
       bootstrapPromise = null;
       load(true);
-    }, 3_000);
+    }, 2_000);
   }
 
   const load = (silent = false) => {
@@ -752,6 +752,7 @@ export function App() {
   const selectedVersion =
     selectedTask?.versions.find((version) => version.version_id === selectedVersionId) ?? selectedTask?.current_version ?? null;
   const selectedAsset = proofAsset(selectedVersion);
+  const artworkRefreshing = refreshState === "requesting" || refreshState === "queued";
   const completion = order ? proofOrderCompletion(order) : null;
   const completionEmpty = Boolean(completion && filter === "open" && !searchQuery.trim());
   const emptyState = completionEmpty ? completion : order ? queueEmptyMessage(filter, order.tasks, searchQuery) : null;
@@ -1048,7 +1049,7 @@ export function App() {
       </div>
 
       <main className="workspace">
-        <aside className="queue-panel" aria-label="Proof queue" aria-busy={refreshState === "requesting"}>
+        <aside className="queue-panel" aria-label="Proof queue" aria-busy={artworkRefreshing}>
           <div className="queue-heading">
             <div>
               <span className="eyebrow">Proof queue</span>
@@ -1082,7 +1083,7 @@ export function App() {
                 <section className={`line-group-card ${selected ? "selected" : ""}`} key={group.group_id} role="listitem" aria-label={`Line ${group.line_number ?? "unassigned"}, ${group.tasks.length} proofs`}>
                   <button className="line-group-summary" type="button" aria-pressed={selected} onClick={() => setSelectedTaskId(group.tasks[0]!.task_id)}>
                     <span className="line-group-thumbnail" aria-hidden="true">
-                      <TaskThumbnail task={representativeTask} />
+                      <TaskThumbnail task={representativeTask} refreshing={artworkRefreshing} />
                       {group.tasks.length > 1 ? <b>+{group.tasks.length - 1}</b> : null}
                     </span>
                     <span className="line-group-copy">
@@ -1146,7 +1147,7 @@ export function App() {
                     <span title={selectedVersion?.filename ?? "Proof pending"}>{selectedVersion?.filename ?? "Proof pending"}</span>
                     {selectedGroup && selectedGroup.tasks.length > 1 ? <small>Creative {selectedGroup.tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1} of {selectedGroup.tasks.length}</small> : null}
                   </div>
-                  <div className="preview-stage"><ProofPreview version={selectedVersion} /></div>
+                  <div className="preview-stage"><ProofPreview version={selectedVersion} refreshing={artworkRefreshing} /></div>
                 </div>
               </div>
               <ActionTransport
@@ -1221,7 +1222,7 @@ export function App() {
                   {formatQuantity(task.quantity) !== null ? <span>Qty {formatQuantity(task.quantity)}</span> : null}
                   {group.tasks.length > 1 ? <span><Layers3 aria-hidden="true" /> Creative {group.tasks.indexOf(task) + 1} of {group.tasks.length}</span> : null}
                 </div>
-                <div className="feed-preview"><ProofPreview version={version} /></div>
+                <div className="feed-preview"><ProofPreview version={version} refreshing={artworkRefreshing} /></div>
                 <div className="feed-toolbar" aria-label={`Actions for ${task.product_name ?? "proof"}`}>
                   <button type="button" onClick={(event) => openDetailDialog("feedback", task.task_id, event)}><MessageSquareText aria-hidden="true" /> Prepress team feedback</button>
                   <button type="button" onClick={(event) => openDetailDialog("history", task.task_id, event)}><History aria-hidden="true" /> History</button>
