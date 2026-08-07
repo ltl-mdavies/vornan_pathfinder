@@ -175,6 +175,69 @@ test("keeps sibling attachments separate and joins by ORDER_LINE_ID before LINE_
   assert.equal(order.warnings.some((warning) => warning.code === "line_number_fallback"), false);
 });
 
+test("keeps a Lift attachment that is shared across order lines visible on every line", () => {
+  const sharedProofRow = {
+    ORDER_NUMBER: "A0221132",
+    ATTACHMENT_ID: 25435041,
+    CREATION_DATE: "2026-07-19T10:00:00Z",
+    PROOF_FILENAME: "shared-hardware.pdf",
+    PROOF_MIME_TYPE: "application/pdf",
+    PROOF_LINK_LOW: "https://files.example/shared-hardware-preview",
+    PROOF_LINK_HIGH: "https://files.example/shared-hardware.pdf",
+    PROOF_APPROVAL_STATUS: "APPROVED"
+  };
+  const initial = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [{
+      rowset: [{ ...sharedProofRow, ORDER_LINE_ID: 9301338, LINE_NUMBER: 10 }]
+    }],
+    synced_at: syncedAt
+  });
+  const originalTaskId = initial.tasks.find((task) => task.order_line_id === "9301338")?.task_id;
+
+  const shared = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [{
+      rowset: [
+        { ...sharedProofRow, ORDER_LINE_ID: 9301338, LINE_NUMBER: 10 },
+        { ...sharedProofRow, ORDER_LINE_ID: 9301339, LINE_NUMBER: 20 }
+      ]
+    }],
+    previous: initial,
+    synced_at: "2026-07-20T12:05:00.000Z"
+  });
+
+  assert.equal(shared.tasks.length, 2);
+  assert.deepEqual(shared.tasks.map((task) => task.order_line_id), ["9301338", "9301339"]);
+  assert.deepEqual(shared.tasks.map((task) => task.attachment_id), ["25435041", "25435041"]);
+  assert.equal(new Set(shared.tasks.map((task) => task.task_id)).size, 2);
+  assert.equal(shared.tasks[0]?.task_id, originalTaskId);
+  assert.deepEqual(shared.tasks.map((task) => task.current_version?.filename), [
+    "shared-hardware.pdf",
+    "shared-hardware.pdf"
+  ]);
+  assert.deepEqual(shared.tasks.map((task) => task.actionable), [false, false]);
+  assert.equal(shared.tasks.some((task) => task.state === "waiting"), false);
+  assert.equal(shared.warnings.length, 0);
+
+  const replayed = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [{
+      rowset: [
+        { ...sharedProofRow, ORDER_LINE_ID: 9301338, LINE_NUMBER: 10 },
+        { ...sharedProofRow, ORDER_LINE_ID: 9301339, LINE_NUMBER: 20 }
+      ]
+    }],
+    previous: shared,
+    synced_at: "2026-07-20T12:10:00.000Z"
+  });
+  assert.deepEqual(replayed.tasks.map((task) => task.task_id), shared.tasks.map((task) => task.task_id));
+  assert.deepEqual(replayed.tasks.map((task) => task.updated_at), shared.tasks.map((task) => task.updated_at));
+});
+
 test("emits read-derived review lifecycle transitions only when the normalized state changes", () => {
   const ready = normalizeProofOrder({
     order_number: "A0221132",
