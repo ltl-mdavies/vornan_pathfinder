@@ -814,10 +814,6 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
   };
 }
 
-function proofIdentity(task: ProofTask) {
-  return task.attachment_id ? `attachment:${task.attachment_id}` : `waiting-line:${task.order_line_id ?? task.line_number ?? task.task_id}`;
-}
-
 export function normalizeProofOrder(input: NormalizeProofOrderInput): ProofOrder {
   const orderNumber = normalizeLiftOrderNumber(input.order_number);
   const orderHeaders = liftRows(input.order_payload);
@@ -852,7 +848,7 @@ export function normalizeProofOrder(input: NormalizeProofOrderInput): ProofOrder
   );
   const proofRows = input.proof_payloads.flatMap(liftRows);
   const warnings: ProofNormalizationWarning[] = [];
-  const rowsByAttachment = new Map<string, Record<string, unknown>[]>();
+  const rowsByAttachmentAndLine = new Map<string, Map<string, Record<string, unknown>[]>>();
 
   proofRows.forEach((row) => {
     const attachmentId = text(row, "ATTACHMENT_ID", "attachment_id");
@@ -865,71 +861,103 @@ export function normalizeProofOrder(input: NormalizeProofOrderInput): ProofOrder
       });
       return;
     }
-    rowsByAttachment.set(attachmentId, [...(rowsByAttachment.get(attachmentId) ?? []), row]);
+    const explicitLineId = text(row, "ORDER_LINE_ID", "order_line_id");
+    const proofLineNumber = text(row, "LINE_NUMBER", "line_number");
+    const lineIdentity = explicitLineId
+      ? `order-line:${explicitLineId}`
+      : proofLineNumber
+        ? `line-number:${proofLineNumber}`
+        : "unmatched";
+    const rowsByLine = rowsByAttachmentAndLine.get(attachmentId) ?? new Map<string, Record<string, unknown>[]>();
+    rowsByLine.set(lineIdentity, [...(rowsByLine.get(lineIdentity) ?? []), row]);
+    rowsByAttachmentAndLine.set(attachmentId, rowsByLine);
   });
 
   const draftTasks: ProofTask[] = [];
   const linesWithProof = new Set<string>();
 
-  rowsByAttachment.forEach((rows, attachmentId) => {
-    const first = rows[0] ?? {};
-    const explicitLineId = text(first, "ORDER_LINE_ID", "order_line_id");
-    const proofLineNumber = text(first, "LINE_NUMBER", "line_number");
-    const lineMatch = matchLiftLineRecord(lines, {
-      order_line_id: explicitLineId,
-      line_number: proofLineNumber
-    });
-    const line = lineMatch?.line ?? null;
-    if (lineMatch?.matched_by === "line_number") {
-      warnings.push({
-        code: "line_number_fallback",
-        message: `Attachment ${attachmentId} used LINE_NUMBER compatibility fallback because ORDER_LINE_ID did not match.`,
-        order_line_id: explicitLineId,
-        line_number: proofLineNumber,
-        attachment_id: attachmentId
+  rowsByAttachmentAndLine.forEach((rowsByLine, attachmentId) => {
+    const lineGroups = Array.from(rowsByLine.entries())
+      .map(([lineIdentity, rows]) => {
+        const first = rows[0] ?? {};
+        const explicitLineId = text(first, "ORDER_LINE_ID", "order_line_id");
+        const proofLineNumber = text(first, "LINE_NUMBER", "line_number");
+        const lineMatch = matchLiftLineRecord(lines, {
+          order_line_id: explicitLineId,
+          line_number: proofLineNumber
+        });
+        return {
+          lineIdentity,
+          rows,
+          first,
+          explicitLineId,
+          proofLineNumber,
+          lineMatch,
+          line: lineMatch?.line ?? null
+        };
+      })
+      .sort((left, right) => {
+        const leftLineNumber = Number(left.line?.line_number ?? left.proofLineNumber ?? Number.MAX_SAFE_INTEGER);
+        const rightLineNumber = Number(right.line?.line_number ?? right.proofLineNumber ?? Number.MAX_SAFE_INTEGER);
+        return leftLineNumber - rightLineNumber || left.lineIdentity.localeCompare(right.lineIdentity);
       });
-    }
-    if (!line) {
-      warnings.push({
-        code: "proof_without_line",
-        message: `Attachment ${attachmentId} could not be joined to an AS360Orders line.`,
-        order_line_id: explicitLineId,
-        line_number: proofLineNumber,
-        attachment_id: attachmentId
-      });
-    } else {
-      linesWithProof.add(line.order_line_id);
-    }
 
-    const version = proofVersionFromRows(rows);
-    const state = taskState(line, version, input.policy ?? {});
-    if (!version.preview_url && !version.download_url) {
-      warnings.push({
-        code: "proof_without_url",
-        message: `Attachment ${attachmentId} has no usable proof URL.`,
+    lineGroups.forEach((group, groupIndex) => {
+      const { rows, first, explicitLineId, proofLineNumber, lineMatch, line, lineIdentity } = group;
+      if (lineMatch?.matched_by === "line_number") {
+        warnings.push({
+          code: "line_number_fallback",
+          message: `Attachment ${attachmentId} used LINE_NUMBER compatibility fallback because ORDER_LINE_ID did not match.`,
+          order_line_id: explicitLineId,
+          line_number: proofLineNumber,
+          attachment_id: attachmentId
+        });
+      }
+      if (!line) {
+        warnings.push({
+          code: "proof_without_line",
+          message: `Attachment ${attachmentId} could not be joined to an AS360Orders line.`,
+          order_line_id: explicitLineId,
+          line_number: proofLineNumber,
+          attachment_id: attachmentId
+        });
+      } else {
+        linesWithProof.add(line.order_line_id);
+      }
+
+      const version = proofVersionFromRows(rows);
+      const state = taskState(line, version, input.policy ?? {});
+      if (!version.preview_url && !version.download_url) {
+        warnings.push({
+          code: "proof_without_url",
+          message: `Attachment ${attachmentId} has no usable proof URL.`,
+          order_line_id: line?.order_line_id ?? explicitLineId,
+          line_number: line?.line_number ?? proofLineNumber,
+          attachment_id: attachmentId
+        });
+      }
+      const taskIdentity = groupIndex === 0
+        ? `attachment:${attachmentId}`
+        : `attachment:${attachmentId}:line:${line?.order_line_id ?? explicitLineId ?? proofLineNumber ?? lineIdentity}`;
+      draftTasks.push({
+        task_id: stableTaskId(orderNumber, taskIdentity),
         order_line_id: line?.order_line_id ?? explicitLineId,
         line_number: line?.line_number ?? proofLineNumber,
-        attachment_id: attachmentId
+        attachment_id: attachmentId,
+        product_name: line?.product_name ?? text(first, "PRODUCT_NAME", "PRODUCT", "product_name"),
+        quantity: line?.quantity ?? null,
+        state,
+        actionable: actionableState(state) && lineGroups.length === 1,
+        decision_context: null,
+        sibling_index: 1,
+        sibling_count: 1,
+        version: 1,
+        current_version: version,
+        versions: [version],
+        created_at: syncedAt,
+        updated_at: syncedAt,
+        archived_at: null
       });
-    }
-    draftTasks.push({
-      task_id: stableTaskId(orderNumber, `attachment:${attachmentId}`),
-      order_line_id: line?.order_line_id ?? explicitLineId,
-      line_number: line?.line_number ?? proofLineNumber,
-      attachment_id: attachmentId,
-      product_name: line?.product_name ?? text(first, "PRODUCT_NAME", "PRODUCT", "product_name"),
-      quantity: line?.quantity ?? null,
-      state,
-      actionable: actionableState(state),
-      decision_context: null,
-      sibling_index: 1,
-      sibling_count: 1,
-      version: 1,
-      current_version: version,
-      versions: [version],
-      created_at: syncedAt,
-      updated_at: syncedAt,
-      archived_at: null
     });
   });
 
@@ -973,16 +1001,16 @@ export function normalizeProofOrder(input: NormalizeProofOrderInput): ProofOrder
       });
   });
 
-  const previousByIdentity = new Map((previous?.tasks ?? []).map((task) => [proofIdentity(task), task]));
+  const previousByTaskId = new Map((previous?.tasks ?? []).map((task) => [task.task_id, task]));
   const tasks = draftTasks
-    .map((task) => mergeTask(previousByIdentity.get(proofIdentity(task)), task, syncedAt))
+    .map((task) => mergeTask(previousByTaskId.get(task.task_id), task, syncedAt))
     .sort((left, right) => {
       const lineDifference = Number(left.line_number ?? Number.MAX_SAFE_INTEGER) - Number(right.line_number ?? Number.MAX_SAFE_INTEGER);
       return lineDifference || left.sibling_index - right.sibling_index;
     });
-  const currentIdentities = new Set(tasks.map(proofIdentity));
+  const currentTaskIds = new Set(tasks.map((task) => task.task_id));
   const newlyArchived = (previous?.tasks ?? [])
-    .filter((task) => !currentIdentities.has(proofIdentity(task)))
+    .filter((task) => !currentTaskIds.has(task.task_id))
     .map((task) => ({
       ...task,
       actionable: false,
