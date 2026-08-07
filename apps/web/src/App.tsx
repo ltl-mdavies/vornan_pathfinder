@@ -1383,7 +1383,7 @@ const defaultValueNormalizationRules: ValueNormalizationRule[] = [
 
 const defaultOutputRoute: OutputRoute = {
   output_route_id: "route-ltl-lift-91-standard-graphics",
-  name: "Larger Than Life · Lift / 91 · Standard Graphics",
+  name: "Larger Than Life · Lift / 91 · High End Work",
   target_id: "lift-standard-graphics",
   environment_id: "env-lift-qa1",
   output_template_id: "template-lift-standard-graphics",
@@ -1391,9 +1391,9 @@ const defaultOutputRoute: OutputRoute = {
   destination_account_name: "Larger Than Life",
   destination_account_id: "91",
   company_id: "91",
-  output_template: "Lift Standard Graphics Order",
-  product_identifier_type: "lift_unit_number",
-  product_identifier_label: "Lift unit_number",
+  output_template: "Lift High End Work",
+  product_identifier_type: "lift_product_id",
+  product_identifier_label: "Lift product_id",
   submit_profiles: [
     {
       profile_id: "live-customer",
@@ -9348,7 +9348,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   function resetOutputTemplateToLiftSample(targetId: string, templateId: string) {
     updateOutputTemplateDraft(targetId, templateId, (template) => ({
       ...template,
-      name: template.name || "Lift Standard Graphics Order",
+      name: template.name || "Lift High End Work",
       destination_method: "HTTP POST",
       output_format: "JSON",
       body_template: liftStandardGraphicsBodyTemplateText,
@@ -9357,7 +9357,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       filename_format: template.filename_format || "orders-%y-%m-%d-%h-%i-%s.json",
       updated_at: new Date().toISOString()
     }));
-    setWorkspaceMessage("Lift Standard Graphics sample template restored.");
+    setWorkspaceMessage("Lift High End Work sample template restored.");
   }
 
   function updateOutputTemplateMapping(targetId: string, templateId: string, field: TemplateFieldReference, targetField: string) {
