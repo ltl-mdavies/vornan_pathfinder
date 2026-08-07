@@ -427,6 +427,7 @@ export interface PublicProofVersion {
 export interface PublicProofTask {
   task_id: string;
   line_number: string | null;
+  shared_line_numbers: string[];
   product_name: string | null;
   quantity: number | null;
   state: ProofTaskState;
@@ -1360,6 +1361,18 @@ export function toPublicProofOrder(
   scope: ProofGrantScope = "view",
   options: { include_asset_urls?: boolean } = {}
 ): PublicProofOrder {
+  const sharedLinesByAttachment = new Map<string, string[]>();
+  for (const task of order.tasks) {
+    const attachmentId = task.attachment_id;
+    const lineNumber = publicProofDisplayText(task.line_number, 32);
+    if (!attachmentId || !lineNumber) continue;
+    const lineNumbers = sharedLinesByAttachment.get(attachmentId) ?? [];
+    if (!lineNumbers.includes(lineNumber)) lineNumbers.push(lineNumber);
+    sharedLinesByAttachment.set(attachmentId, lineNumbers);
+  }
+  for (const [attachmentId, lineNumbers] of sharedLinesByAttachment) {
+    sharedLinesByAttachment.set(attachmentId, lineNumbers.sort((left, right) => left.localeCompare(right, undefined, { numeric: true })));
+  }
   return {
     order_number: order.order_number,
     order_title: publicProofDisplayText(order.order_title, 160),
@@ -1368,6 +1381,9 @@ export function toPublicProofOrder(
     tasks: order.tasks.map((task) => ({
       task_id: task.task_id,
       line_number: publicProofDisplayText(task.line_number, 32),
+      shared_line_numbers: task.attachment_id && (sharedLinesByAttachment.get(task.attachment_id)?.length ?? 0) > 1
+        ? sharedLinesByAttachment.get(task.attachment_id) ?? []
+        : [],
       product_name: publicProofDisplayText(task.product_name, 160),
       quantity: publicProofQuantity(task.quantity),
       state: task.state,

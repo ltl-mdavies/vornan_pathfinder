@@ -1,5 +1,7 @@
 import type { ProofVersion } from "./types";
 
+type ProofAssetKind = ProofVersion["preview_kind"];
+
 export function safeProofAssetUrl(value: string | null | undefined, origin = typeof window === "undefined" ? null : window.location.origin) {
   if (!value) return null;
   try {
@@ -15,15 +17,38 @@ export function safeProofAssetUrl(value: string | null | undefined, origin = typ
   }
 }
 
+function proofAssetKindForUrl(value: string | null, fallback: ProofAssetKind, origin: string | null): ProofAssetKind {
+  if (!value) return fallback;
+  try {
+    const pathname = new URL(value, origin ?? undefined).pathname.toLowerCase();
+    if (pathname.endsWith(".pdf")) return "pdf";
+    if (/\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/.test(pathname)) return "image";
+  } catch {
+    return fallback;
+  }
+  return fallback;
+}
+
 export function proofAsset(version: ProofVersion | null, origin?: string | null) {
-  const download = safeProofAssetUrl(version?.download_url, origin ?? (typeof window === "undefined" ? null : window.location.origin));
-  const candidatePreview = safeProofAssetUrl(version?.preview_url, origin ?? (typeof window === "undefined" ? null : window.location.origin));
+  const resolvedOrigin = origin ?? (typeof window === "undefined" ? null : window.location.origin);
+  const download = safeProofAssetUrl(version?.download_url, resolvedOrigin);
+  const candidatePreview = safeProofAssetUrl(version?.preview_url, resolvedOrigin);
   const kind = version?.preview_kind ?? "unavailable";
   const preview = kind === "image" || kind === "pdf" ? candidatePreview ?? download : null;
+  const display = download ?? preview;
+  const contentKind: ProofAssetKind = kind === "download"
+    ? "download"
+    : version?.content_type === "application/pdf"
+    ? "pdf"
+    : version?.content_type?.startsWith("image/")
+      ? "image"
+      : kind;
   return {
     preview,
     download: download ?? candidatePreview,
     open: download ?? candidatePreview,
-    kind
+    display,
+    kind,
+    display_kind: kind === "download" ? "download" : proofAssetKindForUrl(display, contentKind, resolvedOrigin)
   };
 }

@@ -139,7 +139,7 @@ export function demoActivityForHash(hash: string): ProofActivity {
     : { identified_reviewers: 0, last_activity_at: null, reviewer_names_visible: false };
 }
 
-export function demoOrderForHash(hash: string) {
+export function demoOrderForHash(hash: string): ProofOrder {
   if (hash === "#/proof/batch-qa") {
     const singleProofTask = {
       ...demoOrder.tasks[demoOrder.tasks.length - 1]!,
@@ -165,6 +165,24 @@ export function demoOrderForHash(hash: string) {
     };
     const tasks = [...demoOrder.tasks.slice(0, -1), singleProofTask];
     return { ...demoOrder, tasks, counts: proofTaskCounts(tasks) };
+  }
+  if (hash === "#/proof/shared-asset-qa") {
+    const batchOrder: ProofOrder = demoOrderForHash("#/proof/batch-qa");
+    const sharedSource = batchOrder.tasks[batchOrder.tasks.length - 1]!;
+    const sharedLines = ["2", "3"];
+    const tasks = [
+      ...batchOrder.tasks.slice(0, -1),
+      { ...sharedSource, shared_line_numbers: sharedLines },
+      {
+        ...sharedSource,
+        task_id: "ptask_shared_line_3",
+        line_number: "3",
+        product_name: "Register counter decal · second location",
+        quantity: 2,
+        shared_line_numbers: sharedLines
+      }
+    ];
+    return { ...batchOrder, tasks, counts: proofTaskCounts(tasks) };
   }
   if (hash === "#/proof/complete-qa" || hash === "#/proof/all-reviewed-qa") {
     const completePacket = hash === "#/proof/complete-qa";
@@ -209,29 +227,33 @@ export function demoOrderForHash(hash: string) {
           return { ...task, current_version: pdfVersion, versions: [pdfVersion, ...task.versions.slice(1)] };
         }
         if (index === 1 && task.current_version) {
+          const downloadVersion = {
+            ...task.current_version,
+            filename: "north-wall-layered-production-artwork-with-linked-assets.psd",
+            content_type: "image/vnd.adobe.photoshop",
+            preview_kind: "download" as const,
+            preview_url: null,
+            download_url: "/brand/proof-placeholder.svg"
+          };
           return {
             ...task,
-            current_version: {
-              ...task.current_version,
-              filename: "north-wall-layered-production-artwork-with-linked-assets.psd",
-              content_type: "image/vnd.adobe.photoshop",
-              preview_kind: "download" as const,
-              preview_url: null,
-              download_url: "/brand/proof-placeholder.svg"
-            }
+            current_version: downloadVersion,
+            versions: [downloadVersion, ...task.versions.slice(1)]
           };
         }
         if (index === 2 && task.current_version) {
+          const unavailableVersion = {
+            ...task.current_version,
+            filename: "north-wall-preview-processing-pending.tiff",
+            content_type: "image/tiff",
+            preview_kind: "unavailable" as const,
+            preview_url: null,
+            download_url: null
+          };
           return {
             ...task,
-            current_version: {
-              ...task.current_version,
-              filename: "north-wall-preview-processing-pending.tiff",
-              content_type: "image/tiff",
-              preview_kind: "unavailable" as const,
-              preview_url: null,
-              download_url: null
-            }
+            current_version: unavailableVersion,
+            versions: [unavailableVersion, ...task.versions.slice(1)]
           };
         }
         return task;

@@ -222,6 +222,14 @@ test("keeps a Lift attachment that is shared across order lines visible on every
   assert.equal(shared.tasks.some((task) => task.state === "waiting"), false);
   assert.equal(shared.warnings.length, 0);
 
+  const publicOrder = toPublicProofOrder(shared, "view", { include_asset_urls: true });
+  assert.deepEqual(publicOrder.tasks.map((task) => task.shared_line_numbers), [["10", "20"], ["10", "20"]]);
+  assert.deepEqual(publicOrder.tasks.map((task) => task.current_version?.preview_url), [
+    "https://files.example/shared-hardware-preview",
+    "https://files.example/shared-hardware-preview"
+  ]);
+  assert.equal(JSON.stringify(publicOrder).includes("attachment_id"), false);
+
   const replayed = normalizeProofOrder({
     order_number: "A0221132",
     order_payload: orderPayload,

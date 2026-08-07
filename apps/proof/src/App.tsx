@@ -10,6 +10,7 @@ import {
   FileText,
   History,
   Layers3,
+  Link2,
   LockKeyhole,
   LogOut,
   MessageSquareText,
@@ -159,6 +160,22 @@ function TaskThumbnail({ task, refreshing = false }: { task: ProofTask; refreshi
       {previewAvailable
         ? <img src={asset.preview!} referrerPolicy="no-referrer" alt="" onError={() => setFailedPreview(asset.preview)} />
         : refreshing ? <RefreshCw className="thumbnail-refreshing" /> : <FileText />}
+    </span>
+  );
+}
+
+function sharedProofLines(task: ProofTask) {
+  return [...new Set(task.shared_line_numbers ?? [])].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+}
+
+function SharedProofScope({ task, compact = false }: { task: ProofTask; compact?: boolean }) {
+  const lineNumbers = sharedProofLines(task);
+  if (lineNumbers.length < 2) return null;
+  const otherLines = lineNumbers.filter((lineNumber) => lineNumber !== task.line_number);
+  return (
+    <span className={`shared-proof-scope ${compact ? "compact" : ""}`}>
+      <Link2 aria-hidden="true" />
+      <span><strong>Shared proof.</strong> {otherLines.length ? `Also used on ${otherLines.length === 1 ? "line" : "lines"} ${otherLines.join(", ")}. ` : ""}A decision applies to every listed line.</span>
     </span>
   );
 }
@@ -1088,8 +1105,9 @@ export function App() {
                     </span>
                     <span className="line-group-copy">
                       <span className="eyebrow">Line {group.line_number ?? "—"}</span>
-                      <strong>{group.product_name ?? "Artwork proof"}</strong>
+                      <strong title={group.product_name ?? "Artwork proof"}>{group.product_name ?? "Artwork proof"}</strong>
                       <small>Qty {formatQuantity(group.quantity) ?? "—"} · {reviewLabel}</small>
+                      {sharedProofLines(representativeTask).length > 1 ? <span className="shared-proof-queue"><Link2 aria-hidden="true" /> Shared proof</span> : null}
                     </span>
                     <span className="line-group-count">{group.tasks.length === 1 ? <FileImage aria-hidden="true" /> : <Layers3 aria-hidden="true" />}{group.tasks.length} {group.tasks.length === 1 ? "proof" : "proofs"}</span>
                   </button>
@@ -1119,8 +1137,9 @@ export function App() {
               <div className="detail-heading">
                 <div>
                   <span className="eyebrow">Line {selectedTask.line_number ?? "—"}{formatQuantity(selectedTask.quantity) !== null ? ` · Qty ${formatQuantity(selectedTask.quantity)}` : ""}</span>
-                  <h2>{selectedTask.product_name ?? "Artwork proof"}</h2>
+                  <h2 title={selectedTask.product_name ?? "Artwork proof"}>{selectedTask.product_name ?? "Artwork proof"}</h2>
                   {decisionStateDetail(selectedTask) ? <p className={`task-state-copy ${selectedTask.state}`}>{decisionStateDetail(selectedTask)}</p> : null}
+                  <SharedProofScope task={selectedTask} />
                 </div>
                 <div className="detail-actions">
                   <button className="button secondary compact" type="button" onClick={(event) => openDetailDialog("feedback", selectedTask.task_id, event)}>
@@ -1208,8 +1227,9 @@ export function App() {
                 <header className="feed-header">
                   <div>
                     <span className="eyebrow">Line {group.line_number ?? "—"}{formatQuantity(group.quantity) !== null ? ` · Qty ${formatQuantity(group.quantity)}` : ""}</span>
-                    <h2 id={`feed-title-${group.group_id}`}>{group.product_name ?? "Artwork proof"}</h2>
+                    <h2 id={`feed-title-${group.group_id}`} title={group.product_name ?? "Artwork proof"}>{group.product_name ?? "Artwork proof"}</h2>
                     {decisionStateDetail(task) ? <p className={`task-state-copy ${task.state}`}>{decisionStateDetail(task)}</p> : null}
+                    <SharedProofScope task={task} compact />
                   </div>
                   <span className={`status-pill ${task.state}`}>
                     <TaskStateIcon state={task.state} />
@@ -1222,7 +1242,7 @@ export function App() {
                   {formatQuantity(task.quantity) !== null ? <span>Qty {formatQuantity(task.quantity)}</span> : null}
                   {group.tasks.length > 1 ? <span><Layers3 aria-hidden="true" /> Creative {group.tasks.indexOf(task) + 1} of {group.tasks.length}</span> : null}
                 </div>
-                <div className="feed-preview"><ProofPreview version={version} refreshing={artworkRefreshing} /></div>
+                <div className="feed-preview"><ProofPreview version={version} refreshing={artworkRefreshing} quality="preview" /></div>
                 <div className="feed-toolbar" aria-label={`Actions for ${task.product_name ?? "proof"}`}>
                   <button type="button" onClick={(event) => openDetailDialog("feedback", task.task_id, event)}><MessageSquareText aria-hidden="true" /> Prepress team feedback</button>
                   <button type="button" onClick={(event) => openDetailDialog("history", task.task_id, event)}><History aria-hidden="true" /> History</button>

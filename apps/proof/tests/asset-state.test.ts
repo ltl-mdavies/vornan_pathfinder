@@ -30,10 +30,18 @@ test("allows same-origin relative assets and credential-free HTTPS assets only",
   assert.equal(safeProofAssetUrl("//files.example/proof.pdf", "https://proof.vornan.co"), null);
 });
 
-test("uses server-owned preview kinds instead of guessing from the browser URL", () => {
+test("keeps the low-resolution preview while selecting the high-resolution display kind", () => {
   const pdf = proofAsset(version({ preview_url: "/proof.pdf", download_url: "/proof-high.pdf" }), "https://proof.vornan.co");
-  assert.deepEqual(pdf, { preview: "/proof.pdf", download: "/proof-high.pdf", open: "/proof-high.pdf", kind: "pdf" });
+  assert.deepEqual(pdf, { preview: "/proof.pdf", download: "/proof-high.pdf", open: "/proof-high.pdf", display: "/proof-high.pdf", kind: "pdf", display_kind: "pdf" });
+
+  const imagePreviewWithPdfOriginal = proofAsset(version({ preview_kind: "image", content_type: "image/jpeg", preview_url: "/proof-preview.jpg", download_url: "/proof-high.pdf" }), "https://proof.vornan.co");
+  assert.equal(imagePreviewWithPdfOriginal.preview, "/proof-preview.jpg");
+  assert.equal(imagePreviewWithPdfOriginal.display, "/proof-high.pdf");
+  assert.equal(imagePreviewWithPdfOriginal.display_kind, "pdf");
 
   const prepress = proofAsset(version({ preview_kind: "download", filename: "artwork.psd", content_type: "image/vnd.adobe.photoshop", preview_url: null, download_url: "/artwork.psd" }), "https://proof.vornan.co");
-  assert.deepEqual(prepress, { preview: null, download: "/artwork.psd", open: "/artwork.psd", kind: "download" });
+  assert.deepEqual(prepress, { preview: null, download: "/artwork.psd", open: "/artwork.psd", display: "/artwork.psd", kind: "download", display_kind: "download" });
+
+  const explicitDownloadWithImageLocator = proofAsset(version({ preview_kind: "download", filename: "artwork.psd", content_type: "image/vnd.adobe.photoshop", preview_url: null, download_url: "/brand/proof-placeholder.svg" }), "https://proof.vornan.co");
+  assert.equal(explicitDownloadWithImageLocator.display_kind, "download");
 });

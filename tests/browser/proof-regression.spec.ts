@@ -214,7 +214,7 @@ test("Proof preserves dialog focus return and full-resolution image target", asy
   await page.getByRole("button", { name: "Close dialog" }).click();
   await expect(feedbackButton).toBeFocused();
 
-  const imageLink = page.getByRole("link", { name: "Open north-wall-v2.jpg full size in a new tab" });
+  const imageLink = page.getByRole("link", { name: "Open proof in a new tab" });
   await expect(imageLink).toHaveAttribute("href", "/brand/proof-placeholder.svg");
   await expect(imageLink).toHaveAttribute("target", "_blank");
   await expect(imageLink).toHaveAttribute("rel", "noreferrer");
