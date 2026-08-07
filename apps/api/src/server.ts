@@ -118,6 +118,7 @@ import {
   WrikeOrderRehearsalError
 } from "./wrike-order-rehearsal.js";
 import {
+  findWrikeSourceTaskSiblingJobs,
   getWrikeScheduledIntakeConfig,
   runWrikeScheduledIntake,
   runWrikeScheduledSubmits,
@@ -5295,13 +5296,10 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
   // A source task can acquire a newer preview job when its workbook or Import Method
   // fingerprint changes. Never treat that new preview identity as permission to submit
   // the same Wrike task again after any sibling job has reached transport.
-  const siblingJobs = (await listJobs()).filter(
-    (candidate) =>
-      candidate.customer_id === existingJob.customer_id &&
-      candidate.job_id !== existingJob.job_id &&
-      candidate.scheduled_wrike_intake?.source === "scheduled_polling" &&
-      candidate.source_evidence?.task_id === marker.task_id
-  );
+  const siblingJobs = findWrikeSourceTaskSiblingJobs({
+    current: existingJob,
+    jobs: await listJobs()
+  });
   for (const sibling of siblingJobs) {
     if (valueAsString(sibling.target_order_number).trim()) {
       return { reused: true };
