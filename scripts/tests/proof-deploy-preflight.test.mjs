@@ -96,6 +96,20 @@ test("keeps synthetic QA disabled in normal workflow deploys and isolated to the
   assert.doesNotMatch(publicFunction, /PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA/);
 });
 
+test("retains and deletion-protects both durable Proof tables", () => {
+  const template = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
+  const resources = [
+    template.slice(template.indexOf("  ProofCoreTable:"), template.indexOf("  ProofAuditTable:")),
+    template.slice(template.indexOf("  ProofAuditTable:"), template.indexOf("  ProofSyncDeadLetterQueue:"))
+  ];
+  for (const resource of resources) {
+    assert.match(resource, /DeletionPolicy: Retain/);
+    assert.match(resource, /UpdateReplacePolicy: Retain/);
+    assert.match(resource, /DeletionProtectionEnabled: true/);
+    assert.match(resource, /PointInTimeRecoveryEnabled: true/);
+  }
+});
+
 test("requires a bounded activation deadline and customer cohort in deployment contracts", () => {
   const proofTemplate = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
   const apiTemplate = readFileSync(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8");
