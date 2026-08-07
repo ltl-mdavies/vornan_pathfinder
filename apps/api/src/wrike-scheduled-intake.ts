@@ -28,6 +28,32 @@ export interface WrikeScheduledOrderCandidate {
   trigger_status_id: string;
 }
 
+export interface WrikeSourceTaskJob {
+  customer_id: string;
+  job_id: string;
+  import_method_id?: string | null;
+  source_evidence?: {
+    provider?: string | null;
+    task_id?: string | null;
+  } | null;
+}
+
+export function findWrikeSourceTaskSiblingJobs<T extends WrikeSourceTaskJob>(args: {
+  current: T;
+  jobs: T[];
+}): T[] {
+  const taskId = args.current.source_evidence?.task_id?.trim() ?? "";
+  if (args.current.source_evidence?.provider !== "wrike" || !taskId) return [];
+  return args.jobs.filter(
+    (candidate) =>
+      candidate.job_id !== args.current.job_id &&
+      candidate.customer_id === args.current.customer_id &&
+      candidate.import_method_id === args.current.import_method_id &&
+      candidate.source_evidence?.provider === "wrike" &&
+      candidate.source_evidence.task_id?.trim() === taskId
+  );
+}
+
 export interface WrikeScheduledPreparedOrder {
   task_id: string;
   status: "Created" | "Replayed";

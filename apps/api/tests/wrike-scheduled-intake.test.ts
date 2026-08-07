@@ -1,11 +1,59 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  findWrikeSourceTaskSiblingJobs,
   getWrikeScheduledIntakeConfig,
   runWrikeScheduledIntake,
   runWrikeScheduledSubmits,
   runWrikeScheduledStatusWritebacks
 } from "../src/wrike-scheduled-intake.js";
+
+test("scheduled submit finds an earlier manual job for the same Wrike task", () => {
+  const current = {
+    customer_id: "284619",
+    job_id: "scheduled-preview",
+    import_method_id: "method-1",
+    source_evidence: { provider: "wrike", task_id: "TASK-1" },
+    scheduled_wrike_intake: { source: "scheduled_polling" }
+  };
+  const manualSubmitted = {
+    customer_id: "284619",
+    job_id: "manual-submitted",
+    import_method_id: "method-1",
+    source_evidence: { provider: "wrike", task_id: "TASK-1" }
+  };
+  const unrelated = {
+    customer_id: "284619",
+    job_id: "other-task",
+    import_method_id: "method-1",
+    source_evidence: { provider: "wrike", task_id: "TASK-2" }
+  };
+
+  assert.deepEqual(
+    findWrikeSourceTaskSiblingJobs({ current, jobs: [current, manualSubmitted, unrelated] }),
+    [manualSubmitted]
+  );
+});
+
+test("Wrike source-task siblings stay isolated by customer, method, and provider", () => {
+  const current = {
+    customer_id: "284619",
+    job_id: "current",
+    import_method_id: "method-1",
+    source_evidence: { provider: "wrike", task_id: "TASK-1" }
+  };
+  const candidates = [
+    { ...current, job_id: "other-customer", customer_id: "1249" },
+    { ...current, job_id: "other-method", import_method_id: "method-2" },
+    {
+      ...current,
+      job_id: "other-provider",
+      source_evidence: { provider: "manual", task_id: "TASK-1" }
+    }
+  ];
+
+  assert.deepEqual(findWrikeSourceTaskSiblingJobs({ current, jobs: candidates }), []);
+});
 
 test("scheduled intake and each mutating capability are default-disabled", () => {
   assert.deepEqual(getWrikeScheduledIntakeConfig({}), {
