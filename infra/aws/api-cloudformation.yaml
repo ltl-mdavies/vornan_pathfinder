@@ -1081,9 +1081,64 @@ Resources:
       Principal: events.amazonaws.com
       SourceArn: !GetAtt WrikeScheduledIntakeRule.Arn
 
+  PathfinderApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${LambdaFunctionName}-${EnvironmentName}-errors"
+      AlarmDescription: Pathfinder API Lambda reported one or more errors in five minutes.
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref PathfinderApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  PathfinderApiThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${LambdaFunctionName}-${EnvironmentName}-throttles"
+      AlarmDescription: Pathfinder API Lambda was throttled one or more times in five minutes.
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref PathfinderApiFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  WrikeScheduledIntakeFailedInvocationsAlarm:
+    Condition: WrikeScheduledIntakeActive
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${LambdaFunctionName}-${EnvironmentName}-wrike-scheduled-failed-invocations"
+      AlarmDescription: The scheduled Wrike intake rule failed to invoke Pathfinder.
+      Namespace: AWS/Events
+      MetricName: FailedInvocations
+      Dimensions:
+        - Name: RuleName
+          Value: !Ref WrikeScheduledIntakeRule
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
   PathfinderCustomersTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-Customers-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1104,7 +1159,10 @@ Resources:
 
   PathfinderCustomerWorkspacesTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-CustomerWorkspaces-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1125,7 +1183,10 @@ Resources:
 
   PathfinderTargetsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-Targets-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1146,7 +1207,10 @@ Resources:
 
   PathfinderImportMethodsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-ImportMethods-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1171,7 +1235,10 @@ Resources:
 
   PathfinderOutputRoutesTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-OutputRoutes-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1196,7 +1263,10 @@ Resources:
 
   PathfinderProductMappingsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-ProductMappings-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1221,7 +1291,10 @@ Resources:
 
   PathfinderJobsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-Jobs-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1246,7 +1319,10 @@ Resources:
 
   PathfinderOrderIdsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-OrderIds-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1267,7 +1343,10 @@ Resources:
 
   PathfinderSubmitAttemptsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-SubmitAttempts-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1292,7 +1371,10 @@ Resources:
 
   PathfinderLiftProductCacheTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-LiftProductCache-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1317,7 +1399,10 @@ Resources:
 
   PathfinderOrderStatusTokensTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-OrderStatusTokens-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1341,7 +1426,10 @@ Resources:
 
   PathfinderOrderStatusSnapshotsTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-OrderStatusSnapshots-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
@@ -1362,7 +1450,10 @@ Resources:
 
   PathfinderCanonicalRegistryTable:
     Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
+      DeletionProtectionEnabled: true
       TableName: !Sub "${DataTablePrefix}-CanonicalRegistry-${EnvironmentName}"
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
