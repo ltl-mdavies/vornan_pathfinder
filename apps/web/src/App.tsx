@@ -1928,7 +1928,6 @@ function buildRouteDiagnostics(args: {
   const endpointUrl = environment?.endpoint_url ?? "";
   const companyId = route.company_id ?? environment?.headers.Company ?? target?.lift.headers.Company ?? "";
   const enabledProfiles = route.submit_profiles.filter((profile) => profile.enabled);
-  const hasSandboxProfile = enabledProfiles.some((profile) => profile.mode === "sandbox_customer");
   const hasOrderLookupUrl = validUrlWithParam(route.order_lookup_url, "p0");
   const hasProofReportUrl = validUrlWithParam(route.proof_report_url, "p1");
   const hasPackageDetailsUrl = validUrlWithParam(route.package_details_url, "p0");
@@ -2036,14 +2035,14 @@ function buildRouteDiagnostics(args: {
     routeDiagnosticItem(
       "submit-profiles",
       "Submit profiles",
-      enabledProfiles.length && hasSandboxProfile ? "Passed" : enabledProfiles.length ? "Warning" : "Blocked",
+      enabledProfiles.length ? "Passed" : "Blocked",
       enabledProfiles.length
-        ? hasSandboxProfile
-          ? `${enabledProfiles.length} enabled submit profile${enabledProfiles.length === 1 ? "" : "s"}, including sandbox.`
-          : `${enabledProfiles.length} enabled submit profile${enabledProfiles.length === 1 ? "" : "s"}, but no sandbox profile.`
+        ? `${enabledProfiles.length} enabled submit profile${enabledProfiles.length === 1 ? "" : "s"}: ${enabledProfiles
+            .map((profile) => profile.name)
+            .join(", ")}.`
         : "No enabled submit profiles are available for this route.",
-      enabledProfiles.length && hasSandboxProfile ? undefined : "Enable at least one submit profile, preferably the LTL Demo sandbox profile.",
-      enabledProfiles.length && hasSandboxProfile ? undefined : "target-output-routes"
+      enabledProfiles.length ? undefined : "Enable the intended submit profile for this route.",
+      enabledProfiles.length ? undefined : "target-output-routes"
     ),
     routeDiagnosticItem(
       "order-lookup",
@@ -14535,8 +14534,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </div>
                         <div>
                           <span>Capabilities</span>
-                          <strong>Read-only</strong>
-                          <small>No Wrike writes, Lift actions, polling, or webhooks are enabled by this setup.</small>
+                          <strong>
+                            {selectedWrikeConnectionStatus?.capabilities.wrike_writes
+                              ? "Read + status comments"
+                              : "Read access"}
+                          </strong>
+                          <small>
+                            {selectedWrikeConnectionStatus?.capabilities.wrike_writes
+                              ? "Scheduled order discovery and confirmed-order status comments are enabled."
+                              : selectedWrikeConnectionStatus?.capabilities.polling
+                                ? "Scheduled order discovery is enabled; Wrike writeback is off."
+                                : "Connection access is available; automated operations remain independently configured."}
+                          </small>
                         </div>
                       </div>
 
@@ -16107,7 +16116,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <div>
                                 <span>Submit Profiles</span>
                                 <div className="output-route-profile-list">
-                                  {route.submit_profiles.map((profile) => (
+                                  {route.submit_profiles.filter((profile) => profile.enabled).map((profile) => (
                                     <span
                                       className={
                                         profile.mode === "sandbox_customer"
@@ -16288,7 +16297,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <span>Submit Behavior</span>
                         <strong>
                           {selectedTarget.target_type === "ERP"
-                            ? `${selectedTargetTestEnvironment?.name ?? selectedTarget.lift.active_environment} submit gated`
+                            ? `${selectedTargetTestEnvironment?.name ?? selectedTarget.lift.active_environment} · ${
+                                selectedTargetTestRoute?.submit_profiles
+                                  .filter((profile) => profile.enabled)
+                                  .map((profile) => profile.name)
+                                  .join(", ") || "No submit profile"
+                              }`
                             : "Local test gated"}
                         </strong>
                       </div>
@@ -16309,7 +16323,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       }, null, 2)}</pre>
                     </div>
                     <div className="panel-action-footer">
-                      <span>Route diagnostics are passing. Use Customer Manual Import to generate a preview and perform the gated Lift submit test.</span>
+                      <span>Route diagnostics are passing. Certified preview jobs use the enabled route submit profile.</span>
                       <button
                         className="secondary-button"
                         disabled

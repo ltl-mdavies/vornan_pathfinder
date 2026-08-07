@@ -129,6 +129,7 @@ jobs:
               WrikeScheduledIntakeImportMethodId="${{ vars.PATHFINDER_WRIKE_SCHEDULED_IMPORT_METHOD_ID || '' }}" \
               WrikeScheduledIntakeMaxCandidates="${{ vars.PATHFINDER_WRIKE_SCHEDULED_MAX_CANDIDATES || '25' }}" \
               WrikeScheduledStatusWritebackEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_SCHEDULED_STATUS_WRITEBACK || 'false' }}" \
+              WrikeScheduledLiftSubmitEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_SCHEDULED_LIFT_SUBMIT || 'false' }}" \
               WrikeStatusWritebackEnabled="${{ vars.PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK || 'false' }}" \
               WrikeStatusWritebackTaskId="${{ vars.PATHFINDER_WRIKE_STATUS_WRITEBACK_TASK_ID || '' }}" \
               WrikeStatusWritebackExpiresAt="${{ vars.PATHFINDER_WRIKE_STATUS_WRITEBACK_EXPIRES_AT || '' }}" \
@@ -160,7 +161,7 @@ jobs:
               LiftProductCatalogBaseUrl="${{ vars.LIFT_PRODUCT_CATALOG_BASE_URL || 'https://ltlco.lifterp.com/ords/api/lift/erp' }}" \
               ExternalLiftSubmitEnabled="${{ inputs.enable_lift_submit }}" \
               LiftTransportMode="${{ inputs.lift_transport_mode }}" \
-              AllowLiveCustomerSubmit="${{ inputs.allow_live_customer_submit }}" \
+              AllowLiveCustomerSubmit="${{ vars.PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT || inputs.allow_live_customer_submit }}" \
               ApiDomainName="${{ inputs.api_domain_name }}" \
               ApiCertificateArn="${{ secrets.PATHFINDER_API_CERTIFICATE_ARN }}" \
               DataTablePrefix="${{ vars.PATHFINDER_DATA_TABLE_PREFIX || 'Pathfinder' }}" \

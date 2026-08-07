@@ -98,7 +98,7 @@ Parameters:
     AllowedValues:
       - "true"
       - "false"
-    Description: Default-disabled 15-minute scheduler that prepares separate preview jobs without submitting to Lift.
+    Description: Default-disabled 15-minute scheduler that discovers and prepares separate Wrike jobs.
   WrikeScheduledIntakeCustomerId:
     Type: String
     Default: ""
@@ -119,6 +119,13 @@ Parameters:
       - "true"
       - "false"
     Description: Posts one replay-safe status-link comment after a scheduled Wrike job has a confirmed Lift order.
+  WrikeScheduledLiftSubmitEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: Allows the scheduled Wrike intake to submit each certified live-customer job exactly once with no automatic retry.
   WrikeStatusWritebackEnabled:
     Type: String
     Default: "false"
@@ -406,6 +413,17 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
         AssertDescription: Automatic Wrike status writeback requires scheduled intake.
+  WrikeScheduledLiftSubmitRequiresLiveBoundary:
+    RuleCondition: !Equals [!Ref WrikeScheduledLiftSubmitEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
+        AssertDescription: Automatic Lift submit requires scheduled Wrike intake.
+      - Assert: !Equals [!Ref ExternalLiftSubmitEnabled, "true"]
+        AssertDescription: Automatic Lift submit requires the external submit transport gate.
+      - Assert: !Equals [!Ref LiftTransportMode, "live"]
+        AssertDescription: Automatic Lift submit requires live transport mode.
+      - Assert: !Equals [!Ref AllowLiveCustomerSubmit, "true"]
+        AssertDescription: Automatic Lift submit requires explicit live-customer submit approval.
   WrikeStatusWritebackRequiresBoundedTask:
     RuleCondition: !Equals [!Ref WrikeStatusWritebackEnabled, "true"]
     Assertions:
@@ -947,6 +965,7 @@ Resources:
               - !Ref WrikeScheduledIntakeImportMethodId
               - !Ref WrikeScheduledIntakeMaxCandidates
               - !Ref WrikeScheduledStatusWritebackEnabled
+              - !Ref WrikeScheduledLiftSubmitEnabled
           PATHFINDER_WRIKE_WB: !Join
             - "|"
             - - !Ref WrikeStatusWritebackEnabled
@@ -1039,7 +1058,7 @@ Resources:
       Targets:
         - Arn: !GetAtt PathfinderApiFunction.Arn
           Id: PathfinderWrikeScheduledIntake
-          Input: '{"source":"pathfinder.wrike","detail-type":"Wrike Scheduled Intake","detail":{"prepare_only":true}}'
+          Input: '{"source":"pathfinder.wrike","detail-type":"Wrike Scheduled Intake","detail":{"automation":"discover_prepare_submit_writeback"}}'
           RetryPolicy:
             MaximumEventAgeInSeconds: 300
             MaximumRetryAttempts: 0

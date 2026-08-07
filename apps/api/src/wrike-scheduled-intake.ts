@@ -1,10 +1,10 @@
 export interface WrikeScheduledIntakeConfig {
   enabled: boolean;
+  lift_submit_enabled: boolean;
   status_writeback_enabled: boolean;
   customer_id: string;
   import_method_id: string;
   max_candidates: number;
-  prepare_only: true;
 }
 
 export interface WrikeScheduledOrderCandidate {
@@ -33,6 +33,7 @@ export interface WrikeScheduledIntakeRunResult {
     contract_number: string;
     outcome: "created" | "replayed" | "failed";
     job_count: number;
+    job_ids: string[];
     failure_category: string | null;
   }>;
   capabilities: {
@@ -41,7 +42,7 @@ export interface WrikeScheduledIntakeRunResult {
     document_publication: boolean;
     preview_job_creation: boolean;
     wrike_writes: false;
-    lift_actions: false;
+    lift_actions: boolean;
   };
 }
 
@@ -58,7 +59,8 @@ export function getWrikeScheduledIntakeConfig(
     packedCustomerId,
     packedImportMethodId,
     packedMaxCandidates,
-    packedStatusWriteback
+    packedStatusWriteback,
+    packedLiftSubmit
   ] =
     (environment.PATHFINDER_WRIKE_SCHEDULED_INTAKE ?? "").split("|");
   const configuredMax = Number(
@@ -72,6 +74,10 @@ export function getWrikeScheduledIntakeConfig(
       packedStatusWriteback === "true" ||
       (!packedStatusWriteback &&
         environment.PATHFINDER_ENABLE_WRIKE_SCHEDULED_STATUS_WRITEBACK === "true"),
+    lift_submit_enabled:
+      packedLiftSubmit === "true" ||
+      (!packedLiftSubmit &&
+        environment.PATHFINDER_ENABLE_WRIKE_SCHEDULED_LIFT_SUBMIT === "true"),
     customer_id: cleanIdentifier(
       packedCustomerId || environment.PATHFINDER_WRIKE_SCHEDULED_CUSTOMER_ID
     ),
@@ -80,8 +86,52 @@ export function getWrikeScheduledIntakeConfig(
     ),
     max_candidates: Number.isInteger(configuredMax)
       ? Math.max(1, Math.min(configuredMax, 25))
-      : 25,
-    prepare_only: true
+      : 25
+  };
+}
+
+export interface WrikeScheduledSubmitResult {
+  eligible_count: number;
+  submitted_count: number;
+  replayed_count: number;
+  failed_count: number;
+  outcomes: Array<{
+    job_id: string;
+    outcome: "submitted" | "replayed" | "failed";
+    failure_category: string | null;
+  }>;
+}
+
+export async function runWrikeScheduledSubmits(args: {
+  candidates: Array<{ job_id: string }>;
+  submit: (candidate: { job_id: string }) => Promise<{ reused: boolean }>;
+}): Promise<WrikeScheduledSubmitResult> {
+  const candidates = [...args.candidates].sort((left, right) =>
+    left.job_id.localeCompare(right.job_id)
+  );
+  const outcomes: WrikeScheduledSubmitResult["outcomes"] = [];
+  for (const candidate of candidates) {
+    try {
+      const result = await args.submit(candidate);
+      outcomes.push({
+        job_id: candidate.job_id,
+        outcome: result.reused ? "replayed" : "submitted",
+        failure_category: null
+      });
+    } catch (error) {
+      outcomes.push({
+        job_id: candidate.job_id,
+        outcome: "failed",
+        failure_category: failureCategory(error)
+      });
+    }
+  }
+  return {
+    eligible_count: candidates.length,
+    submitted_count: outcomes.filter((entry) => entry.outcome === "submitted").length,
+    replayed_count: outcomes.filter((entry) => entry.outcome === "replayed").length,
+    failed_count: outcomes.filter((entry) => entry.outcome === "failed").length,
+    outcomes
   };
 }
 
@@ -158,7 +208,7 @@ export async function runWrikeScheduledIntake(args: {
       document_publication: false,
       preview_job_creation: false,
       wrike_writes: false as const,
-      lift_actions: false as const
+      lift_actions: false
     }
   };
   if (!args.config.enabled) {
@@ -194,6 +244,7 @@ export async function runWrikeScheduledIntake(args: {
         contract_number: candidate.contract_number,
         outcome: prepared.status === "Replayed" ? "replayed" : "created",
         job_count: prepared.job_ids.length,
+        job_ids: prepared.job_ids,
         failure_category: null
       });
     } catch (error) {
@@ -202,6 +253,7 @@ export async function runWrikeScheduledIntake(args: {
         contract_number: candidate.contract_number,
         outcome: "failed",
         job_count: 0,
+        job_ids: [],
         failure_category: failureCategory(error)
       });
     }
@@ -220,7 +272,7 @@ export async function runWrikeScheduledIntake(args: {
       document_publication: true,
       preview_job_creation: true,
       wrike_writes: false,
-      lift_actions: false
+      lift_actions: args.config.lift_submit_enabled
     }
   };
 }

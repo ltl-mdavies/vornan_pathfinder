@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [template, workflow, deployScript, deployPolicy] = await Promise.all([
+const [template, workflow, deployScript, deployPolicy, server] = await Promise.all([
   readFile(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8"),
   readFile(new URL("../../.github/workflows/deploy-api.yml", import.meta.url), "utf8"),
   readFile(new URL("../deploy-api-lambda.sh", import.meta.url), "utf8"),
-  readFile(new URL("../../infra/aws/github-actions-api-deploy-policy.json", import.meta.url), "utf8")
+  readFile(new URL("../../infra/aws/github-actions-api-deploy-policy.json", import.meta.url), "utf8"),
+  readFile(new URL("../../apps/api/src/server.ts", import.meta.url), "utf8")
 ]);
 
 test("API stack persists every Lift submit runtime boundary", () => {
@@ -18,13 +19,13 @@ test("API stack persists every Lift submit runtime boundary", () => {
   assert.match(template, /PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT: !Ref AllowLiveCustomerSubmit/);
 });
 
-test("production workflow enables only the certified sandbox-profile Lift lane by default", () => {
+test("production workflow keeps live-customer submission explicit and persistent", () => {
   assert.match(workflow, /enable_lift_submit:[\s\S]*?default: "true"/);
   assert.match(workflow, /lift_transport_mode:[\s\S]*?default: live/);
   assert.match(workflow, /allow_live_customer_submit:[\s\S]*?default: "false"/);
   assert.match(workflow, /ExternalLiftSubmitEnabled="\$\{\{ inputs\.enable_lift_submit \}\}"/);
   assert.match(workflow, /LiftTransportMode="\$\{\{ inputs\.lift_transport_mode \}\}"/);
-  assert.match(workflow, /AllowLiveCustomerSubmit="\$\{\{ inputs\.allow_live_customer_submit \}\}"/);
+  assert.match(workflow, /AllowLiveCustomerSubmit="\$\{\{ vars\.PATHFINDER_ALLOW_LIVE_CUSTOMER_SUBMIT \|\| inputs\.allow_live_customer_submit \}\}"/);
 });
 
 test("API deployment packages oversized CloudFormation templates through the retained artifact bucket", () => {
@@ -92,19 +93,20 @@ test("Wrike status writeback requires one exact task and bounded expiry", () => 
   );
 });
 
-test("scheduled Wrike intake is default-off, prepare-only, and exactly scoped", () => {
+test("scheduled Wrike automation is default-off, independently gated, and exactly scoped", () => {
   assert.match(template, /WrikeScheduledIntakeEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /WrikeScheduledIntakeCustomerId:[\s\S]*?Default: ""[\s\S]*?AllowedPattern:/);
   assert.match(template, /WrikeScheduledIntakeImportMethodId:[\s\S]*?Default: ""[\s\S]*?AllowedPattern:/);
   assert.match(template, /WrikeScheduledIntakeMaxCandidates:[\s\S]*?Default: 25[\s\S]*?MaxValue: 25/);
   assert.match(template, /WrikeScheduledStatusWritebackEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /WrikeScheduledLiftSubmitEnabled:[\s\S]*?Default: "false"/);
   assert.match(
     template,
     /WrikeScheduledIntakeRequiresPreparedEvidence:[\s\S]*?WrikeScheduledIntakeCustomerId[\s\S]*?WrikeScheduledIntakeImportMethodId[\s\S]*?WrikeWorkbookEvidenceEnabled[\s\S]*?WrikeEvidencePreviewEnabled[\s\S]*?WrikeLiftDocumentPublicationEnabled/
   );
   assert.match(
     template,
-    /WrikeScheduledIntakeRule:[\s\S]*?Condition: WrikeScheduledIntakeActive[\s\S]*?Name: !Sub "\$\{LambdaFunctionName\}-\$\{EnvironmentName\}-wrike-scheduled-intake"[\s\S]*?ScheduleExpression: rate\(15 minutes\)[\s\S]*?"prepare_only":true[\s\S]*?MaximumEventAgeInSeconds: 300[\s\S]*?MaximumRetryAttempts: 0/
+    /WrikeScheduledIntakeRule:[\s\S]*?Condition: WrikeScheduledIntakeActive[\s\S]*?Name: !Sub "\$\{LambdaFunctionName\}-\$\{EnvironmentName\}-wrike-scheduled-intake"[\s\S]*?ScheduleExpression: rate\(15 minutes\)[\s\S]*?discover_prepare_submit_writeback[\s\S]*?MaximumEventAgeInSeconds: 300[\s\S]*?MaximumRetryAttempts: 0/
   );
   assert.match(
     template,
@@ -123,6 +125,10 @@ test("scheduled Wrike intake is default-off, prepare-only, and exactly scoped", 
     /WrikeScheduledStatusWritebackRequiresScheduler:[\s\S]*?WrikeScheduledStatusWritebackEnabled[\s\S]*?WrikeScheduledIntakeEnabled/
   );
   assert.match(
+    template,
+    /WrikeScheduledLiftSubmitRequiresLiveBoundary:[\s\S]*?WrikeScheduledLiftSubmitEnabled[\s\S]*?WrikeScheduledIntakeEnabled[\s\S]*?ExternalLiftSubmitEnabled[\s\S]*?LiftTransportMode[\s\S]*?AllowLiveCustomerSubmit/
+  );
+  assert.match(
     workflow,
     /WrikeScheduledIntakeEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_SCHEDULED_INTAKE \|\| 'false' \}\}"/
   );
@@ -137,6 +143,18 @@ test("scheduled Wrike intake is default-off, prepare-only, and exactly scoped", 
   assert.match(
     deployScript,
     /WrikeScheduledStatusWritebackEnabled="\$\{PATHFINDER_ENABLE_WRIKE_SCHEDULED_STATUS_WRITEBACK:-false\}"/
+  );
+  assert.match(
+    workflow,
+    /WrikeScheduledLiftSubmitEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_SCHEDULED_LIFT_SUBMIT \|\| 'false' \}\}"/
+  );
+  assert.match(
+    deployScript,
+    /WrikeScheduledLiftSubmitEnabled="\$\{PATHFINDER_ENABLE_WRIKE_SCHEDULED_LIFT_SUBMIT:-false\}"/
+  );
+  assert.match(
+    server,
+    /source task can acquire a newer preview job[\s\S]*?candidate\.source_evidence\?\.task_id === marker\.task_id[\s\S]*?listSubmitAttemptsForJob\(customer, sibling\.job_id\)[\s\S]*?!\["Blocked", "Gate Locked"\]\.includes\(attempt\.state\)/
   );
   const parsedPolicy = JSON.parse(deployPolicy);
   const scheduleStatement = parsedPolicy.Statement.find(
