@@ -49,6 +49,6 @@ export function proofAsset(version: ProofVersion | null, origin?: string | null)
     open: download ?? candidatePreview,
     display,
     kind,
-    display_kind: proofAssetKindForUrl(display, contentKind, resolvedOrigin)
+    display_kind: kind === "download" ? "download" : proofAssetKindForUrl(display, contentKind, resolvedOrigin)
   };
 }

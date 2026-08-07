@@ -227,29 +227,33 @@ export function demoOrderForHash(hash: string): ProofOrder {
           return { ...task, current_version: pdfVersion, versions: [pdfVersion, ...task.versions.slice(1)] };
         }
         if (index === 1 && task.current_version) {
+          const downloadVersion = {
+            ...task.current_version,
+            filename: "north-wall-layered-production-artwork-with-linked-assets.psd",
+            content_type: "image/vnd.adobe.photoshop",
+            preview_kind: "download" as const,
+            preview_url: null,
+            download_url: "/brand/proof-placeholder.svg"
+          };
           return {
             ...task,
-            current_version: {
-              ...task.current_version,
-              filename: "north-wall-layered-production-artwork-with-linked-assets.psd",
-              content_type: "image/vnd.adobe.photoshop",
-              preview_kind: "download" as const,
-              preview_url: null,
-              download_url: "/brand/proof-placeholder.svg"
-            }
+            current_version: downloadVersion,
+            versions: [downloadVersion, ...task.versions.slice(1)]
           };
         }
         if (index === 2 && task.current_version) {
+          const unavailableVersion = {
+            ...task.current_version,
+            filename: "north-wall-preview-processing-pending.tiff",
+            content_type: "image/tiff",
+            preview_kind: "unavailable" as const,
+            preview_url: null,
+            download_url: null
+          };
           return {
             ...task,
-            current_version: {
-              ...task.current_version,
-              filename: "north-wall-preview-processing-pending.tiff",
-              content_type: "image/tiff",
-              preview_kind: "unavailable" as const,
-              preview_url: null,
-              download_url: null
-            }
+            current_version: unavailableVersion,
+            versions: [unavailableVersion, ...task.versions.slice(1)]
           };
         }
         return task;

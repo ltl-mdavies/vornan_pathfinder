@@ -41,4 +41,7 @@ test("keeps the low-resolution preview while selecting the high-resolution displ
 
   const prepress = proofAsset(version({ preview_kind: "download", filename: "artwork.psd", content_type: "image/vnd.adobe.photoshop", preview_url: null, download_url: "/artwork.psd" }), "https://proof.vornan.co");
   assert.deepEqual(prepress, { preview: null, download: "/artwork.psd", open: "/artwork.psd", display: "/artwork.psd", kind: "download", display_kind: "download" });
+
+  const explicitDownloadWithImageLocator = proofAsset(version({ preview_kind: "download", filename: "artwork.psd", content_type: "image/vnd.adobe.photoshop", preview_url: null, download_url: "/brand/proof-placeholder.svg" }), "https://proof.vornan.co");
+  assert.equal(explicitDownloadWithImageLocator.display_kind, "download");
 });
