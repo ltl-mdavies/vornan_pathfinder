@@ -23,6 +23,7 @@ export interface ProofVersion {
 export interface ProofTask {
   task_id: string;
   line_number: string | null;
+  shared_line_numbers?: string[];
   product_name: string | null;
   quantity: number | null;
   state: ProofState;

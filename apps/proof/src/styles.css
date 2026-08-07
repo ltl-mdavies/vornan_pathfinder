@@ -109,6 +109,8 @@ h1, h2, h3, p { margin-top: 0; }
 .line-group-copy { min-width: 0; display: grid; gap: 4px; }
 .line-group-summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .line-group-summary small { overflow: hidden; color: var(--muted); font-size: 9px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.shared-proof-queue { display: inline-flex; align-items: center; gap: 4px; color: var(--forest); font-size: 8px; font-weight: 800; }
+.shared-proof-queue svg { width: 11px; height: 11px; }
 .line-group-count { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--forest); font-size: 9px; font-weight: 800; white-space: nowrap; }
 .line-group-summary svg { width: 14px; }
 .status-dot { width: 9px; height: 9px; border-radius: 50%; background: #c4912f; }
@@ -148,6 +150,10 @@ h1, h2, h3, p { margin-top: 0; }
 .task-state-copy { max-width: 650px; margin: 5px 0 0; color: var(--muted); font-size: 9px; line-height: 1.4; }
 .task-state-copy.revised { color: #5d4c83; }
 .task-state-copy.error, .task-state-copy.missing, .task-state-copy.cancelled { color: #8a3d36; }
+.shared-proof-scope { max-width: 680px; margin-top: 7px; padding: 6px 8px; border-radius: 7px; background: #eef2e6; color: #52614d; display: inline-flex; align-items: flex-start; gap: 6px; font-size: 9px; line-height: 1.4; }
+.shared-proof-scope > svg { width: 13px; height: 13px; flex: none; color: var(--forest); }
+.shared-proof-scope strong { color: var(--forest); }
+.shared-proof-scope.compact { margin-top: 8px; }
 .detail-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
 .button { min-height: 42px; padding: 9px 12px; border: 0; border-radius: 9px; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-size: 11px; font-weight: 800; cursor: pointer; }
 .button.secondary { border: 1px solid var(--line); color: var(--forest); background: white; }
@@ -176,9 +182,30 @@ h1, h2, h3, p { margin-top: 0; }
 .proof-image-link:hover .proof-image { filter: brightness(.97); transform: scale(1.002); }
 .proof-image-link:focus-visible { outline-offset: -4px; }
 .proof-image { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; min-width: 0; min-height: 0; object-fit: contain; object-position: center; }
+.proof-resolution-viewer { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; display: grid; place-items: center; }
+.proof-image-viewport { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: auto; display: grid; place-items: center; touch-action: pan-x pan-y; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.proof-image-viewport.fit .proof-image-primary { width: auto; height: auto; max-width: 100%; max-height: 100%; }
+.proof-image-viewport.zoomed { place-items: start center; }
+.proof-image-viewport.zoomed .proof-image-primary { width: calc(var(--proof-zoom) * 100%); height: auto; max-width: none; max-height: none; }
+.proof-image-primary { position: relative; z-index: 1; transition: opacity .18s ease; }
+.proof-image-primary.loading { opacity: 0; }
+.proof-image-primary.loaded { opacity: 1; }
+.proof-image-placeholder { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; opacity: .62; filter: saturate(.82); }
+.proof-resolution-status { position: absolute; z-index: 3; left: 50%; bottom: 18px; translate: -50% 0; min-height: 38px; max-width: calc(100% - 32px); padding: 8px 12px; border: 1px solid rgba(43,77,48,.14); border-radius: 999px; background: rgba(255,255,252,.94); box-shadow: 0 8px 22px rgba(38,62,42,.12); color: var(--forest); display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 9px; white-space: nowrap; }
+.proof-resolution-status .spinner { width: 16px; height: 16px; border-width: 2px; }
+.proof-resolution-notice { position: absolute; z-index: 3; left: 50%; bottom: 18px; translate: -50% 0; max-width: calc(100% - 32px); padding: 8px 12px; border: 1px solid rgba(43,77,48,.14); border-radius: 999px; background: rgba(255,255,252,.94); box-shadow: 0 8px 22px rgba(38,62,42,.12); color: var(--forest); font-size: 9px; font-weight: 800; text-align: center; }
+.proof-zoom-controls { position: absolute; z-index: 4; top: 12px; right: 12px; min-height: 38px; padding: 3px; border: 1px solid rgba(43,77,48,.14); border-radius: 10px; background: rgba(255,255,252,.94); box-shadow: 0 8px 22px rgba(38,62,42,.12); display: grid; grid-template-columns: 34px minmax(44px,auto) 34px; align-items: center; }
+.proof-zoom-controls button { min-width: 34px; height: 32px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--forest); display: grid; place-items: center; font: inherit; font-size: 9px; font-weight: 800; cursor: pointer; }
+.proof-zoom-controls button:hover:not(:disabled) { background: var(--soft); }
+.proof-zoom-controls button:disabled { opacity: .36; cursor: default; }
+.proof-zoom-controls svg { width: 14px; height: 14px; }
 .proof-frame { width: 100%; height: 100%; border: 0; background: white; }
-.preview-document { width: 100%; height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; background: white; }
-.preview-document p { margin: 0; padding: 8px 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; line-height: 1.4; text-align: center; }
+.proof-frame.loading { opacity: 0; }
+.proof-frame.loaded { opacity: 1; }
+.preview-document { position: relative; width: 100%; height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; background: white; }
+.proof-document-help { min-height: 42px; padding: 7px 10px; border-top: 1px solid var(--line); color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 10px; line-height: 1.4; text-align: center; }
+.proof-document-help button { flex: none; min-height: 28px; padding: 4px 9px; border: 1px solid rgba(43,77,48,.2); border-radius: 999px; background: white; color: var(--forest); font: inherit; font-weight: 800; cursor: pointer; }
+.proof-document-help button:hover { background: var(--soft); }
 .preview-empty { min-height: 190px; padding: 24px; display: grid; place-items: center; align-content: center; gap: 9px; color: var(--muted); text-align: center; }
 .preview-empty svg { width: 32px; height: 32px; color: #94a286; }
 .preview-empty strong { color: var(--ink); }
