@@ -1,10 +1,12 @@
-import { ExternalLink, FileText } from "lucide-react";
+import { useState } from "react";
+import { ExternalLink, FileText, RefreshCw } from "lucide-react";
 import { proofAsset } from "./asset-state";
 import type { ProofVersion } from "./types";
 
 export function ProofPreview({ version }: { version: ProofVersion | null }) {
   const asset = proofAsset(version);
   const preview = asset.preview;
+  const [failedPreview, setFailedPreview] = useState<string | null>(null);
   const helpId = `pdf-preview-help-${version?.version_id.replace(/[^a-z0-9_-]/gi, "-") ?? "unknown"}`;
   if (asset.kind === "download" && asset.open) {
     return (
@@ -25,8 +27,17 @@ export function ProofPreview({ version }: { version: ProofVersion | null }) {
       </div>
     );
   }
+  if (failedPreview === preview) {
+    return (
+      <div className="preview-empty" role="status">
+        <RefreshCw aria-hidden="true" />
+        <strong>Refreshing artwork</strong>
+        <span>Vornan is requesting a current proof link from Lift. The preview will update automatically.</span>
+      </div>
+    );
+  }
   if (asset.kind === "image") {
-    const image = <img className="proof-image" src={preview} referrerPolicy="no-referrer" alt={`Proof preview for ${version?.filename ?? "selected artwork"}`} />;
+    const image = <img className="proof-image" src={preview} referrerPolicy="no-referrer" alt={`Proof preview for ${version?.filename ?? "selected artwork"}`} onError={() => setFailedPreview(preview)} />;
     return asset.open ? (
       <a
         className="proof-image-link"
