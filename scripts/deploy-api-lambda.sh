@@ -40,6 +40,7 @@ aws cloudformation deploy \
     WrikeScheduledIntakeImportMethodId="${PATHFINDER_WRIKE_SCHEDULED_IMPORT_METHOD_ID:-}" \
     WrikeScheduledIntakeMaxCandidates="${PATHFINDER_WRIKE_SCHEDULED_MAX_CANDIDATES:-25}" \
     WrikeScheduledStatusWritebackEnabled="${PATHFINDER_ENABLE_WRIKE_SCHEDULED_STATUS_WRITEBACK:-false}" \
+    WrikeScheduledLiftSubmitEnabled="${PATHFINDER_ENABLE_WRIKE_SCHEDULED_LIFT_SUBMIT:-false}" \
     WrikeStatusWritebackEnabled="${PATHFINDER_ENABLE_WRIKE_STATUS_WRITEBACK:-false}" \
     WrikeStatusWritebackTaskId="${PATHFINDER_WRIKE_STATUS_WRITEBACK_TASK_ID:-}" \
     WrikeStatusWritebackExpiresAt="${PATHFINDER_WRIKE_STATUS_WRITEBACK_EXPIRES_AT:-}" \

@@ -3,17 +3,18 @@ import test from "node:test";
 import {
   getWrikeScheduledIntakeConfig,
   runWrikeScheduledIntake,
+  runWrikeScheduledSubmits,
   runWrikeScheduledStatusWritebacks
 } from "../src/wrike-scheduled-intake.js";
 
-test("scheduled intake is default-disabled and prepare-only", () => {
+test("scheduled intake and each mutating capability are default-disabled", () => {
   assert.deepEqual(getWrikeScheduledIntakeConfig({}), {
     enabled: false,
+    lift_submit_enabled: false,
     status_writeback_enabled: false,
     customer_id: "",
     import_method_id: "",
-    max_candidates: 25,
-    prepare_only: true
+    max_candidates: 25
   });
 });
 
@@ -21,15 +22,15 @@ test("scheduled intake accepts the bounded packed deployment configuration", () 
   assert.deepEqual(
     getWrikeScheduledIntakeConfig({
       PATHFINDER_WRIKE_SCHEDULED_INTAKE:
-        "true|284619|method-1784901795973|4|true"
+        "true|284619|method-1784901795973|4|true|true"
     }),
     {
       enabled: true,
+      lift_submit_enabled: true,
       status_writeback_enabled: true,
       customer_id: "284619",
       import_method_id: "method-1784901795973",
-      max_candidates: 4,
-      prepare_only: true
+      max_candidates: 4
     }
   );
 });
@@ -39,11 +40,11 @@ test("scheduled intake prepares every candidate independently in deterministic o
   const result = await runWrikeScheduledIntake({
     config: {
       enabled: true,
+      lift_submit_enabled: false,
       status_writeback_enabled: false,
       customer_id: "284619",
       import_method_id: "method-1784901795973",
-      max_candidates: 4,
-      prepare_only: true
+      max_candidates: 4
     },
     discover: async () => [
       { task_id: "TASK-B", contract_number: "C2", trigger_status_id: "STATUS-B" },
@@ -71,11 +72,11 @@ test("one candidate failure does not block another order", async () => {
   const result = await runWrikeScheduledIntake({
     config: {
       enabled: true,
+      lift_submit_enabled: false,
       status_writeback_enabled: false,
       customer_id: "284619",
       import_method_id: "method-1784901795973",
-      max_candidates: 4,
-      prepare_only: true
+      max_candidates: 4
     },
     discover: async () => [
       { task_id: "TASK-A", contract_number: "C1", trigger_status_id: "STATUS-A" },
@@ -94,6 +95,7 @@ test("one candidate failure does not block another order", async () => {
     contract_number: "C1",
     outcome: "failed",
     job_count: 0,
+    job_ids: [],
     failure_category: "TypeError"
   });
 });
@@ -104,11 +106,11 @@ test("bounded discovery stops before preparing an oversized batch", async () => 
     runWrikeScheduledIntake({
       config: {
         enabled: true,
+        lift_submit_enabled: false,
         status_writeback_enabled: false,
         customer_id: "284619",
         import_method_id: "method-1784901795973",
-        max_candidates: 1,
-        prepare_only: true
+        max_candidates: 1
       },
       discover: async () => [
         { task_id: "TASK-A", contract_number: "C1", trigger_status_id: "STATUS-A" },
@@ -122,6 +124,25 @@ test("bounded discovery stops before preparing an oversized batch", async () => 
     /bounded candidate limit/
   );
   assert.equal(prepares, 0);
+});
+
+test("scheduled submit processes each certified job independently with replay safety", async () => {
+  const calls: string[] = [];
+  const result = await runWrikeScheduledSubmits({
+    candidates: [{ job_id: "JOB-B" }, { job_id: "JOB-A" }, { job_id: "JOB-C" }],
+    submit: async ({ job_id }) => {
+      calls.push(job_id);
+      if (job_id === "JOB-B") return { reused: true };
+      if (job_id === "JOB-C") throw new TypeError("private transport detail");
+      return { reused: false };
+    }
+  });
+
+  assert.deepEqual(calls, ["JOB-A", "JOB-B", "JOB-C"]);
+  assert.equal(result.submitted_count, 1);
+  assert.equal(result.replayed_count, 1);
+  assert.equal(result.failed_count, 1);
+  assert.equal(result.outcomes[2]?.failure_category, "TypeError");
 });
 
 test("scheduled status writeback posts each confirmed job independently and replays safely", async () => {

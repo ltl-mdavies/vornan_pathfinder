@@ -120,6 +120,7 @@ import {
 import {
   getWrikeScheduledIntakeConfig,
   runWrikeScheduledIntake,
+  runWrikeScheduledSubmits,
   runWrikeScheduledStatusWritebacks,
   type WrikeScheduledOrderCandidate
 } from "./wrike-scheduled-intake.js";
@@ -4273,7 +4274,8 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
     workbook_evidence_enabled: wrikeWorkbookEvidenceEnabled,
     evidence_preview_enabled: wrikeEvidencePreviewEnabled,
     manual_intake_enabled: wrikeManualIntakeEnabled,
-    status_writeback_enabled: wrikeStatusWritebackEnabled,
+    status_writeback_enabled:
+      wrikeStatusWritebackEnabled || wrikeScheduledIntakeConfig.status_writeback_enabled,
     host,
     credentials: {
       client_id_configured: clientIdConfigured,
@@ -4303,8 +4305,10 @@ function wrikeConnectionStatus(secrets: WrikeConnectorSecrets) {
       manual_intake: wrikeManualIntakeEnabled,
       webhook: false,
       polling: wrikeScheduledIntakeConfig.enabled,
-      wrike_writes: wrikeStatusWritebackEnabled && oauth.scope === "wsReadWrite",
-      lift_actions: false
+      wrike_writes:
+        (wrikeStatusWritebackEnabled || wrikeScheduledIntakeConfig.status_writeback_enabled) &&
+        oauth.scope === "wsReadWrite",
+      lift_actions: wrikeScheduledIntakeConfig.lift_submit_enabled
     }
   };
 }
@@ -5270,6 +5274,124 @@ async function prepareWrikeOrderForTask(args: {
   });
 }
 
+async function submitScheduledWrikeJobOnce(jobId: string) {
+  const customer = await findLiftCustomer(wrikeScheduledIntakeConfig.customer_id);
+  const existingJob = await getJob(customer, jobId);
+  if (!existingJob) throw new Error("WrikeScheduledSubmitJobMissing");
+  const marker = existingJob.scheduled_wrike_intake;
+  if (
+    existingJob.customer_id !== wrikeScheduledIntakeConfig.customer_id ||
+    existingJob.import_method_id !== wrikeScheduledIntakeConfig.import_method_id ||
+    marker?.source !== "scheduled_polling" ||
+    marker.import_method_id !== wrikeScheduledIntakeConfig.import_method_id ||
+    marker.task_id !== existingJob.source_evidence?.task_id
+  ) {
+    throw new Error("WrikeScheduledSubmitBoundaryMismatch");
+  }
+  if (valueAsString(existingJob.target_order_number).trim()) {
+    return { reused: true };
+  }
+
+  // A source task can acquire a newer preview job when its workbook or Import Method
+  // fingerprint changes. Never treat that new preview identity as permission to submit
+  // the same Wrike task again after any sibling job has reached transport.
+  const siblingJobs = (await listJobs()).filter(
+    (candidate) =>
+      candidate.customer_id === existingJob.customer_id &&
+      candidate.job_id !== existingJob.job_id &&
+      candidate.scheduled_wrike_intake?.source === "scheduled_polling" &&
+      candidate.source_evidence?.task_id === marker.task_id
+  );
+  for (const sibling of siblingJobs) {
+    if (valueAsString(sibling.target_order_number).trim()) {
+      return { reused: true };
+    }
+    const siblingAttempts = await listSubmitAttemptsForJob(customer, sibling.job_id);
+    if (siblingAttempts.some((attempt) => !["Blocked", "Gate Locked"].includes(attempt.state))) {
+      return { reused: true };
+    }
+  }
+
+  const job = await refreshJobSubmitCertification(customer, existingJob);
+  const workspace = await getOrCreateWorkspace(customer);
+  const outputRoute = workspace.output_routes.find(
+    (route) => route.output_route_id === job.output_route_id
+  );
+  if (!outputRoute) throw new Error("WrikeScheduledSubmitRouteMissing");
+  const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
+  if (!target) throw new Error("WrikeScheduledSubmitTargetMissing");
+  const submitProfile = submitProfileFromJob(outputRoute, job);
+  if (submitProfile.mode !== "live_customer" || job.sandbox) {
+    throw new Error("WrikeScheduledSubmitRequiresLiveCustomerProfile");
+  }
+  if (!job.submit_certification?.can_submit || !job.submit_integrity?.fingerprint) {
+    throw new Error("WrikeScheduledSubmitNotCertified");
+  }
+
+  const unmaskedSubmitRequest = buildLiftSubmitRequest(
+    job.lift_payload,
+    liftConfigForRoute(target, outputRoute)
+  );
+  const submitRequestMasked = maskLiftSubmitRequest(unmaskedSubmitRequest);
+  const submitIntegrity = assertReviewedSubmitIntegrity({
+    job,
+    reviewed_fingerprint: job.submit_integrity.fingerprint,
+    current_submit_request_masked: submitRequestMasked
+  });
+  const idempotencyKey = buildSubmitIdempotencyKey(job, submitIntegrity.fingerprint);
+  const existingAttempt = await getSubmitAttemptByIdempotencyKey(customer, idempotencyKey);
+  if (existingAttempt && !["Blocked", "Gate Locked"].includes(existingAttempt.state)) {
+    if (existingAttempt.state === "Submitted" && existingAttempt.response.lift_order_id) {
+      return { reused: true };
+    }
+    throw new Error("WrikeScheduledSubmitAlreadyAttempted");
+  }
+
+  const documentPreflight = await preflightWrikeSubmitDocuments({
+    job,
+    publication_enabled: wrikeLiftDocumentPublicationConfig.enabled,
+    delivery_bucket_name: wrikeLiftDocumentPublicationConfig.bucket_name
+  });
+  const reservedAttempt = createSubmitAttempt({
+    job,
+    idempotencyKey,
+    attemptId: submitAttemptId(job.customer_id, idempotencyKey),
+    requestFingerprint: submitIntegrity.fingerprint,
+    documentPreflight,
+    state: "Submission Uncertain",
+    blockingItems: [],
+    certification: job.submit_certification,
+    submitRequestMasked,
+    message: "Scheduled submit intent reserved before the external Lift request."
+  });
+  const reservation = await reserveSubmitAttempt(customer, reservedAttempt);
+  if (!reservation.created) {
+    if (
+      reservation.attempt.state === "Submitted" &&
+      reservation.attempt.response.lift_order_id
+    ) {
+      return { reused: true };
+    }
+    throw new Error("WrikeScheduledSubmitReservationExists");
+  }
+
+  const transportResult = await submitLiftOrder(unmaskedSubmitRequest, {
+    mode: liftSubmitTransportMode,
+    mockScenario: liftMockScenario
+  });
+  const attemptState = classifySubmitAttemptState(transportResult);
+  await finalizeReservedSubmitAttempt(customer, {
+    ...reservation.attempt,
+    state: attemptState,
+    response: transportResult,
+    updated_at: new Date().toISOString()
+  });
+  if (attemptState !== "Submitted" || !transportResult.lift_order_id) {
+    throw new Error("WrikeScheduledSubmitNeedsReconciliation");
+  }
+  return { reused: false };
+}
+
 export async function runConfiguredWrikeScheduledIntake() {
   if (
     wrikeScheduledIntakeConfig.enabled &&
@@ -5415,6 +5537,21 @@ export async function runConfiguredWrikeScheduledIntake() {
     throw error;
   });
 
+  const scheduledSubmit = wrikeScheduledIntakeConfig.lift_submit_enabled
+    ? await runWrikeScheduledSubmits({
+        candidates: Array.from(
+          new Set(intakeResult.results.flatMap((result) => result.job_ids))
+        ).map((job_id) => ({ job_id })),
+        submit: ({ job_id }) => submitScheduledWrikeJobOnce(job_id)
+      })
+    : {
+        eligible_count: 0,
+        submitted_count: 0,
+        replayed_count: 0,
+        failed_count: 0,
+        outcomes: []
+      };
+
   const statusWriteback = wrikeScheduledIntakeConfig.status_writeback_enabled
     ? await runWrikeScheduledStatusWritebacks({
         candidates: (await listJobs())
@@ -5466,10 +5603,12 @@ export async function runConfiguredWrikeScheduledIntake() {
   return {
     ...intakeResult,
     discovery_summary: discoverySummary,
+    scheduled_submit: scheduledSubmit,
     status_writeback: statusWriteback,
     capabilities: {
       ...intakeResult.capabilities,
-      wrike_writes: wrikeScheduledIntakeConfig.status_writeback_enabled
+      wrike_writes: wrikeScheduledIntakeConfig.status_writeback_enabled,
+      lift_actions: wrikeScheduledIntakeConfig.lift_submit_enabled
     }
   };
 }
