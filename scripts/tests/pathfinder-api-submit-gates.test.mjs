@@ -2,12 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const [template, workflow, deployScript, deployPolicy, server] = await Promise.all([
+const [template, workflow, deployScript, deployPolicy, server, scheduledIntake] = await Promise.all([
   readFile(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8"),
   readFile(new URL("../../.github/workflows/deploy-api.yml", import.meta.url), "utf8"),
   readFile(new URL("../deploy-api-lambda.sh", import.meta.url), "utf8"),
   readFile(new URL("../../infra/aws/github-actions-api-deploy-policy.json", import.meta.url), "utf8"),
-  readFile(new URL("../../apps/api/src/server.ts", import.meta.url), "utf8")
+  readFile(new URL("../../apps/api/src/server.ts", import.meta.url), "utf8"),
+  readFile(new URL("../../apps/api/src/wrike-scheduled-intake.ts", import.meta.url), "utf8")
 ]);
 
 test("API stack persists every Lift submit runtime boundary", () => {
@@ -154,7 +155,11 @@ test("scheduled Wrike automation is default-off, independently gated, and exactl
   );
   assert.match(
     server,
-    /source task can acquire a newer preview job[\s\S]*?candidate\.source_evidence\?\.task_id === marker\.task_id[\s\S]*?listSubmitAttemptsForJob\(customer, sibling\.job_id\)[\s\S]*?!\["Blocked", "Gate Locked"\]\.includes\(attempt\.state\)/
+    /source task can acquire a newer preview job[\s\S]*?findWrikeSourceTaskSiblingJobs\([\s\S]*?listSubmitAttemptsForJob\(customer, sibling\.job_id\)[\s\S]*?!\["Blocked", "Gate Locked"\]\.includes\(attempt\.state\)/
+  );
+  assert.match(
+    scheduledIntake,
+    /findWrikeSourceTaskSiblingJobs[\s\S]*?candidate\.customer_id === args\.current\.customer_id[\s\S]*?candidate\.import_method_id === args\.current\.import_method_id[\s\S]*?candidate\.source_evidence\?\.provider === "wrike"[\s\S]*?candidate\.source_evidence\.task_id\?\.trim\(\) === taskId/
   );
   const parsedPolicy = JSON.parse(deployPolicy);
   const scheduleStatement = parsedPolicy.Statement.find(
