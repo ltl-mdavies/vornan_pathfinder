@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   BatchWriteItemCommand,
+  DeleteItemCommand,
   DynamoDBClient,
   GetItemCommand,
   PutItemCommand,
@@ -1051,7 +1052,7 @@ function createSeedEnvironments(lift = cloneDefaultLiftConfig()): TargetEnvironm
 function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
   return {
     output_template_id: "template-lift-standard-graphics",
-    name: "Lift Standard Graphics Order",
+    name: "Lift High End Work",
     destination_method: "HTTP POST",
     output_format: "JSON",
     body_template: JSON.stringify(
@@ -1286,7 +1287,7 @@ function createSeedTarget(): TargetConfig {
     target_type: "ERP",
     adapter: "lift-standard-graphics",
     format: "JSON",
-    template: "Lift Standard Graphics Order",
+    template: "Lift High End Work",
     status: "Ready",
     health_status: "Untested",
     environments: createSeedEnvironments(lift),
@@ -1550,7 +1551,7 @@ function createSeedOutputRoute(timestamp = now()): OutputRoute {
   const lift = cloneDefaultLiftConfig();
   return {
     output_route_id: outputRouteId,
-    name: "Larger Than Life · Lift / 91 · Standard Graphics",
+    name: "Larger Than Life · Lift / 91 · High End Work",
     target_id: targetId,
     environment_id: "env-lift-qa1",
     output_template_id: "template-lift-standard-graphics",
@@ -1558,9 +1559,9 @@ function createSeedOutputRoute(timestamp = now()): OutputRoute {
     destination_account_name: "Larger Than Life",
     destination_account_id: lift.headers.Company,
     company_id: lift.headers.Company,
-    output_template: "Lift Standard Graphics Order",
-    product_identifier_type: "lift_unit_number",
-    product_identifier_label: "Lift unit_number",
+    output_template: "Lift High End Work",
+    product_identifier_type: "lift_product_id",
+    product_identifier_label: "Lift product_id",
     submit_profiles: createDefaultSubmitProfiles(),
     value_normalization_rules: createDefaultValueNormalizationRules(),
     order_lookup_url: defaultLiftOrderLookupUrl,
@@ -2195,6 +2196,54 @@ async function upsertDynamoTable(tableName: string, putItems: Array<Record<strin
   await batchWriteDynamo(tableName, putRequests);
 }
 
+function durableRecordUpdatedAt(item: Record<string, AttributeValue>) {
+  const data = parseDynamoData<Record<string, unknown>>(item);
+  const candidate = data?.updated_at ?? data?.created_at;
+  return typeof candidate === "string" && candidate.trim() ? candidate : item.updated_at?.S ?? now();
+}
+
+async function upsertDynamoTableMonotonic(
+  tableName: string,
+  putItems: Array<Record<string, AttributeValue>>
+) {
+  await Promise.all(
+    putItems.map(async (item) => {
+      const recordUpdatedAt = durableRecordUpdatedAt(item);
+      try {
+        await getDynamoClient().send(
+          new PutItemCommand({
+            TableName: tableName,
+            Item: {
+              ...item,
+              record_updated_at: dynamoString(recordUpdatedAt)
+            },
+            // Whole-store persistence may race with a newer focused save. The
+            // semantic record timestamp makes stale snapshots harmless. The
+            // legacy updated_at comparison safely bootstraps records created
+            // before record_updated_at without granting one stale overwrite.
+            ConditionExpression:
+              "(#recordUpdatedAt <= :recordUpdatedAt) OR " +
+              "(attribute_not_exists(#recordUpdatedAt) AND " +
+              "(attribute_not_exists(#writeUpdatedAt) OR #writeUpdatedAt <= :recordUpdatedAt))",
+            ExpressionAttributeNames: {
+              "#recordUpdatedAt": "record_updated_at",
+              "#writeUpdatedAt": "updated_at"
+            },
+            ExpressionAttributeValues: {
+              ":recordUpdatedAt": dynamoString(recordUpdatedAt)
+            }
+          })
+        );
+      } catch (error) {
+        if ((error as { name?: string }).name === "ConditionalCheckFailedException") {
+          return;
+        }
+        throw error;
+      }
+    })
+  );
+}
+
 function workspaceRecord(
   workspace: PathfinderCustomerWorkspace
 ): Omit<PathfinderCustomerWorkspace, "import_methods" | "output_routes" | "jobs" | "submit_attempts" | "product_mappings"> {
@@ -2404,9 +2453,8 @@ async function writeDynamoStore(store: PathfinderStore) {
     ).values()
   );
 
-  await replaceDynamoTable(
+  await upsertDynamoTableMonotonic(
     tables.targets,
-    ["target_id"],
     Object.values(store.targets).map((target) => dynamoItem({ target_id: target.target_id }, target))
   );
   // Customers and customer workspaces are lifecycle records. Upsert them so
@@ -2436,12 +2484,12 @@ async function writeDynamoStore(store: PathfinderStore) {
     }
     return dynamoItem({ customer_id: customerId }, record);
   }));
-  await upsertDynamoTable(tables.workspaces, durableWorkspaceRecords);
+  await upsertDynamoTableMonotonic(tables.workspaces, durableWorkspaceRecords);
   // Import methods are lifecycle records: removal is represented by an
   // Archived status, not by deleting the DynamoDB item. Upsert them so a
   // concurrent writer holding an older workspace snapshot cannot erase a
   // newly saved method during an unrelated whole-store persistence pass.
-  await upsertDynamoTable(
+  await upsertDynamoTableMonotonic(
     tables.import_methods,
     workspaces.flatMap((workspace) =>
       workspace.import_methods.map((method) =>
@@ -2452,7 +2500,7 @@ async function writeDynamoStore(store: PathfinderStore) {
       )
     )
   );
-  await upsertDynamoTable(
+  await upsertDynamoTableMonotonic(
     tables.output_routes,
     workspaces.flatMap((workspace) =>
       workspace.output_routes.map((route) =>
@@ -2483,7 +2531,7 @@ async function writeDynamoStore(store: PathfinderStore) {
     )
   );
   // Jobs are archived in place and must remain durable across unrelated saves.
-  await upsertDynamoTable(
+  await upsertDynamoTableMonotonic(
     tables.jobs,
     store.jobs.map((job) => dynamoItem({ customer_id: job.customer_id, job_id: job.job_id }, job))
   );
@@ -2499,9 +2547,8 @@ async function writeDynamoStore(store: PathfinderStore) {
       )
     )
   );
-  await replaceDynamoTable(
+  await upsertDynamoTableMonotonic(
     tables.canonical_registry,
-    ["registry_id"],
     store.canonical_registry ? [dynamoItem({ registry_id: "default" }, store.canonical_registry)] : []
   );
 }
@@ -3903,8 +3950,6 @@ export async function getOrCreateWorkspace(customer: LiftCustomer) {
     normalized.status_access_policy = normalizeStatusAccessPolicy(normalized.status_access_policy, customer);
     normalized.jobs = store.jobs.filter((job) => job.customer_id === customer.lift_customer_id);
     normalized.submit_attempts = store.submit_attempts.filter((attempt) => attempt.customer_id === customer.lift_customer_id);
-    store.workspaces[customer.lift_customer_id] = normalized;
-    await writeStore(store);
     return normalized;
   }
 
@@ -6351,15 +6396,25 @@ export async function deleteTarget(id: string) {
   }
 
   delete store.targets[id];
-  await writeStore(store);
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    await getDynamoClient().send(
+      new DeleteItemCommand({
+        TableName: tables.targets,
+        Key: { target_id: dynamoString(id) },
+        ConditionExpression: "attribute_exists(target_id)"
+      })
+    );
+  } else {
+    await writeStore(store);
+  }
   return Object.values(store.targets).map(maskTargetConfig);
 }
 
 export async function getTarget(id = targetId, maskCredentials = true) {
   const store = await readStore();
   const target = normalizeTarget(store.targets[id] ?? createSeedTarget());
-  store.targets[id] = target;
-  await writeStore(store);
   return maskCredentials ? maskTargetConfig(target) : target;
 }
 
