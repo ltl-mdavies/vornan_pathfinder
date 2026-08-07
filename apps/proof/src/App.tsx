@@ -152,10 +152,12 @@ function technicalCheckState(status: string | null) {
 
 function TaskThumbnail({ task }: { task: ProofTask }) {
   const asset = proofAsset(task.current_version);
+  const [failedPreview, setFailedPreview] = useState<string | null>(null);
+  const previewAvailable = asset.preview && asset.kind === "image" && failedPreview !== asset.preview;
   return (
     <span className="task-thumbnail" aria-hidden="true">
-      {asset.preview && asset.kind === "image"
-        ? <img src={asset.preview} referrerPolicy="no-referrer" alt="" />
+      {previewAvailable
+        ? <img src={asset.preview!} referrerPolicy="no-referrer" alt="" onError={() => setFailedPreview(asset.preview)} />
         : <FileText />}
     </span>
   );
@@ -587,6 +589,8 @@ export function App() {
   const identityNameInput = useRef<HTMLInputElement>(null);
   const terminalStateElement = useRef<HTMLElement>(null);
   const deferDetailFocusReturn = useRef(false);
+  const refreshPollTimer = useRef<number | null>(null);
+  const refreshPollAttempts = useRef(0);
 
   const endLocalSession = () => {
     bootstrapPromise = null;
@@ -601,6 +605,21 @@ export function App() {
     );
     void sessionTerminator.current();
   };
+
+  function scheduleRefreshReload() {
+    if (refreshPollTimer.current !== null) return;
+    if (refreshPollAttempts.current >= 8) {
+      setRefreshState("error");
+      setRefreshMessage("Fresh proof details are taking longer than expected. Select refresh to check again.");
+      return;
+    }
+    refreshPollAttempts.current += 1;
+    refreshPollTimer.current = window.setTimeout(() => {
+      refreshPollTimer.current = null;
+      bootstrapPromise = null;
+      load(true);
+    }, 3_000);
+  }
 
   const load = (silent = false) => {
     const entry = proofEntryState(window.location.hash);
@@ -619,10 +638,14 @@ export function App() {
         setSelectedTaskId((current) => current ?? order.tasks[0]?.task_id ?? null);
         if (refreshQueued) {
           setRefreshState("queued");
-          setRefreshMessage("A background refresh is already queued. You can keep reviewing this cached proof packet.");
+          setRefreshMessage("Getting fresh artwork links from Lift. This page will update automatically.");
+          scheduleRefreshReload();
         } else if (silent) {
+          refreshPollAttempts.current = 0;
           setRefreshState("idle");
           setRefreshMessage("Proof details checked. The latest available version is shown.");
+        } else {
+          refreshPollAttempts.current = 0;
         }
       },
       (error) => {
@@ -651,12 +674,10 @@ export function App() {
     setRefreshMessage("Requesting the latest proof details…");
     try {
       if (!demoEnabled) await requestProofRefresh();
+      refreshPollAttempts.current = 0;
       setRefreshState("queued");
       setRefreshMessage("Refresh queued. You can keep reviewing while Vornan checks Lift for updates.");
-      window.setTimeout(() => {
-        bootstrapPromise = null;
-        load(true);
-      }, 3000);
+      scheduleRefreshReload();
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
         terminateSession();
@@ -668,6 +689,10 @@ export function App() {
   };
 
   useEffect(load, []);
+
+  useEffect(() => () => {
+    if (refreshPollTimer.current !== null) window.clearTimeout(refreshPollTimer.current);
+  }, []);
 
   useEffect(() => {
     if (loadState.status !== "ready") return;

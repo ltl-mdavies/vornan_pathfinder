@@ -98,8 +98,8 @@ h1, h2, h3, p { margin-top: 0; }
 .queue-search button { width: 44px; height: 44px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--forest); display: grid; place-items: center; cursor: pointer; }
 .queue-search button:hover { background: var(--soft); }
 .queue-search button svg { width: 14px; }
-.task-list { min-height: 0; padding: 0 10px 14px; display: grid; align-content: start; gap: 8px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.line-group-card { overflow: hidden; border: 1px solid transparent; border-radius: 13px; background: transparent; transition: background .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.task-list { min-height: 0; padding: 0 10px 14px; flex: 1 1 auto; display: grid; grid-auto-rows: max-content; align-content: start; gap: 8px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.line-group-card { min-height: 82px; overflow: hidden; border: 1px solid transparent; border-radius: 13px; background: transparent; transition: background .18s ease, border-color .18s ease, box-shadow .18s ease; }
 .line-group-card:hover { background: #f0f3e9; }
 .line-group-card.selected { border-color: #b9ca9f; background: var(--paper); box-shadow: 0 7px 22px rgba(38,62,42,.09); }
 .line-group-summary { width: 100%; min-height: 82px; padding: 11px 12px; border: 0; background: transparent; display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: center; gap: 11px; text-align: left; cursor: pointer; }
