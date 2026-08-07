@@ -21,12 +21,12 @@ test("automatically refreshes only stale active orders with a recent proof chang
   }, now), { stale: false, eligible: false, reason: "fresh" });
 });
 
-test("stops automatic polling for complete, degraded, or long-inactive packets", () => {
+test("refreshes recently completed packets and stops for degraded or long-inactive packets", () => {
   assert.deepEqual(proofAutomaticRefreshState({
     health: "complete",
     updated_at: "2026-07-19T18:00:00.000Z",
     last_synced_at: "2026-07-20T17:00:00.000Z"
-  }, now), { stale: true, eligible: false, reason: "non_interactive" });
+  }, now), { stale: true, eligible: true, reason: "complete_recent" });
 
   assert.deepEqual(proofAutomaticRefreshState({
     health: "error",

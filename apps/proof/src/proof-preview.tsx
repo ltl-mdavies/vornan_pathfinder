@@ -3,7 +3,7 @@ import { ExternalLink, FileText, RefreshCw } from "lucide-react";
 import { proofAsset } from "./asset-state";
 import type { ProofVersion } from "./types";
 
-export function ProofPreview({ version }: { version: ProofVersion | null }) {
+export function ProofPreview({ version, refreshing = false }: { version: ProofVersion | null; refreshing?: boolean }) {
   const asset = proofAsset(version);
   const preview = asset.preview;
   const [failedPreview, setFailedPreview] = useState<string | null>(null);
@@ -19,6 +19,15 @@ export function ProofPreview({ version }: { version: ProofVersion | null }) {
     );
   }
   if (!preview) {
+    if (refreshing) {
+      return (
+        <div className="preview-empty preview-loading" role="status" aria-live="polite">
+          <span className="spinner" aria-hidden="true" />
+          <strong>Loading current artwork…</strong>
+          <span>Vornan is getting the latest proof from Lift. It will appear here automatically.</span>
+        </div>
+      );
+    }
     return (
       <div className="preview-empty">
         <FileText aria-hidden="true" />

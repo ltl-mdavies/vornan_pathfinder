@@ -272,7 +272,7 @@ test("marks an old active packet stale while withholding every cached asset URL"
   assert.equal(history.body.versions[0].comments[0].attachments[0].url, null);
 });
 
-test("bounds automatic refresh to recently changed active orders while preserving manual refresh", async () => {
+test("bounds automatic refresh to recently changed active or complete orders while preserving manual refresh", async () => {
   const now = Date.now();
   const proofOrders: ProofOrder[] = [
     {
@@ -341,8 +341,11 @@ test("bounds automatic refresh to recently changed active orders while preservin
   assert.equal(inactive.body.order.health, "stale");
   assert.equal(inactive.body.refresh_queued, false);
   assert.equal(complete.body.order.health, "complete");
-  assert.equal(complete.body.refresh_queued, false);
-  assert.deepEqual(queued, [{ orderNumber: "A0221134", reason: "stale_public_read" }]);
+  assert.equal(complete.body.refresh_queued, true);
+  assert.deepEqual(queued, [
+    { orderNumber: "A0221134", reason: "stale_public_read" },
+    { orderNumber: "A0221136", reason: "stale_public_read" }
+  ]);
 
   const inactiveCredentials = credentialsByOrder.get("A0221135")!;
   await request(automaticRefreshApp)
