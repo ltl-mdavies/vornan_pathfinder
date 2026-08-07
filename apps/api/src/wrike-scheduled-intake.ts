@@ -7,6 +7,21 @@ export interface WrikeScheduledIntakeConfig {
   max_candidates: number;
 }
 
+export function isWrikeScheduledIntakeEvent(event: unknown) {
+  if (!event || typeof event !== "object" || Array.isArray(event)) return false;
+  const record = event as Record<string, unknown>;
+  const detail = record.detail as Record<string, unknown> | undefined;
+  return (
+    record.source === "pathfinder.wrike" &&
+    record["detail-type"] === "Wrike Scheduled Intake" &&
+    typeof detail === "object" &&
+    detail !== null &&
+    !Array.isArray(detail) &&
+    (detail.prepare_only === true ||
+      detail.automation === "discover_prepare_submit_writeback")
+  );
+}
+
 export interface WrikeScheduledOrderCandidate {
   task_id: string;
   contract_number: string;

@@ -1,22 +1,10 @@
 import serverless from "serverless-http";
 import { app, runConfiguredWrikeScheduledIntake } from "./server.js";
+import { isWrikeScheduledIntakeEvent } from "./wrike-scheduled-intake.js";
 
 const httpHandler = serverless(app, {
   binary: false
 });
-
-function isWrikeScheduledIntakeEvent(event: unknown) {
-  if (!event || typeof event !== "object" || Array.isArray(event)) return false;
-  const record = event as Record<string, unknown>;
-  return (
-    record.source === "pathfinder.wrike" &&
-    record["detail-type"] === "Wrike Scheduled Intake" &&
-    typeof record.detail === "object" &&
-    record.detail !== null &&
-    !Array.isArray(record.detail) &&
-    (record.detail as Record<string, unknown>).prepare_only === true
-  );
-}
 
 export async function handler(event: unknown, context: unknown) {
   if (isWrikeScheduledIntakeEvent(event)) {
