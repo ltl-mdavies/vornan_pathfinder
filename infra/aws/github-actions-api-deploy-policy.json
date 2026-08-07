@@ -99,6 +99,18 @@
       "Resource": "arn:aws:events:us-east-1:744016783602:rule/vornan-pathfinder-api-prod-wrike-scheduled-intake"
     },
     {
+      "Sid": "ManagePathfinderApiAlarms",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:ListTagsForResource",
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:TagResource",
+        "cloudwatch:UntagResource"
+      ],
+      "Resource": "arn:aws:cloudwatch:us-east-1:744016783602:alarm:vornan-pathfinder-api-prod-*"
+    },
+    {
       "Sid": "ManagePathfinderSourceEvidenceBucket",
       "Effect": "Allow",
       "Action": [

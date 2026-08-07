@@ -44,6 +44,9 @@ test("API deploy policy manages only the exact main and Proof scan-worker Lambda
   const roleStatement = parsedPolicy.Statement.find(
     (statement) => statement.Sid === "ManagePathfinderApiRole"
   );
+  const alarmStatement = parsedPolicy.Statement.find(
+    (statement) => statement.Sid === "ManagePathfinderApiAlarms"
+  );
 
   assert.deepEqual(lambdaStatement.Resource, [
     "arn:aws:lambda:us-east-1:744016783602:function:vornan-pathfinder-api-prod",
@@ -57,6 +60,17 @@ test("API deploy policy manages only the exact main and Proof scan-worker Lambda
   assert.equal(roleStatement.Action.includes("iam:PassRole"), true);
   assert.equal(lambdaStatement.Resource.some((resource) => resource.includes("*")), false);
   assert.equal(roleStatement.Resource.some((resource) => resource.includes("*")), false);
+  assert.deepEqual(alarmStatement.Action, [
+    "cloudwatch:DeleteAlarms",
+    "cloudwatch:ListTagsForResource",
+    "cloudwatch:PutMetricAlarm",
+    "cloudwatch:TagResource",
+    "cloudwatch:UntagResource"
+  ]);
+  assert.equal(
+    alarmStatement.Resource,
+    "arn:aws:cloudwatch:us-east-1:744016783602:alarm:vornan-pathfinder-api-prod-*"
+  );
 });
 
 test("Wrike custom-field metadata discovery has an independent fail-closed gate", () => {
@@ -179,6 +193,62 @@ test("scheduled Wrike automation is default-off, independently gated, and exactl
     Resource:
       "arn:aws:events:us-east-1:744016783602:rule/vornan-pathfinder-api-prod-wrike-scheduled-intake"
   });
+});
+
+test("production Pathfinder tables are deletion-protected and retained", () => {
+  const protectedTables = [
+    "PathfinderCustomersTable",
+    "PathfinderCustomerWorkspacesTable",
+    "PathfinderTargetsTable",
+    "PathfinderImportMethodsTable",
+    "PathfinderOutputRoutesTable",
+    "PathfinderProductMappingsTable",
+    "PathfinderJobsTable",
+    "PathfinderOrderIdsTable",
+    "PathfinderSubmitAttemptsTable",
+    "PathfinderLiftProductCacheTable",
+    "PathfinderOrderStatusTokensTable",
+    "PathfinderOrderStatusSnapshotsTable",
+    "PathfinderCanonicalRegistryTable"
+  ];
+
+  for (const logicalId of protectedTables) {
+    assert.match(
+      template,
+      new RegExp(
+        `${logicalId}:\\n    Type: AWS::DynamoDB::Table\\n    DeletionPolicy: Retain\\n    UpdateReplacePolicy: Retain\\n    Properties:\\n      DeletionProtectionEnabled: true`
+      ),
+      `${logicalId} must remain protected from deletion and replacement`
+    );
+  }
+
+  assert.equal(
+    (template.match(/DeletionProtectionEnabled: true/g) ?? []).length,
+    protectedTables.length
+  );
+});
+
+test("operational alarms observe failures without changing submit behavior", () => {
+  assert.match(
+    template,
+    /PathfinderApiErrorsAlarm:[\s\S]*?Type: AWS::CloudWatch::Alarm[\s\S]*?AlarmName: !Sub "\$\{LambdaFunctionName\}-\$\{EnvironmentName\}-errors"[\s\S]*?Namespace: AWS\/Lambda[\s\S]*?MetricName: Errors[\s\S]*?FunctionName[\s\S]*?!Ref PathfinderApiFunction[\s\S]*?Threshold: 0[\s\S]*?ComparisonOperator: GreaterThanThreshold[\s\S]*?TreatMissingData: notBreaching/
+  );
+  assert.match(
+    template,
+    /PathfinderApiThrottlesAlarm:[\s\S]*?Type: AWS::CloudWatch::Alarm[\s\S]*?AlarmName: !Sub "\$\{LambdaFunctionName\}-\$\{EnvironmentName\}-throttles"[\s\S]*?Namespace: AWS\/Lambda[\s\S]*?MetricName: Throttles[\s\S]*?FunctionName[\s\S]*?!Ref PathfinderApiFunction[\s\S]*?Threshold: 0[\s\S]*?ComparisonOperator: GreaterThanThreshold[\s\S]*?TreatMissingData: notBreaching/
+  );
+  assert.match(
+    template,
+    /WrikeScheduledIntakeFailedInvocationsAlarm:[\s\S]*?Condition: WrikeScheduledIntakeActive[\s\S]*?Type: AWS::CloudWatch::Alarm[\s\S]*?AlarmName: !Sub "\$\{LambdaFunctionName\}-\$\{EnvironmentName\}-wrike-scheduled-failed-invocations"[\s\S]*?Namespace: AWS\/Events[\s\S]*?MetricName: FailedInvocations[\s\S]*?RuleName[\s\S]*?!Ref WrikeScheduledIntakeRule[\s\S]*?TreatMissingData: notBreaching/
+  );
+
+  const alarmBlocks = template.match(/\n  (?:PathfinderApiErrorsAlarm|PathfinderApiThrottlesAlarm|WrikeScheduledIntakeFailedInvocationsAlarm):[\s\S]*?(?=\n  [A-Z][A-Za-z0-9]+:|\nOutputs:)/g) ?? [];
+  assert.equal(alarmBlocks.length, 3);
+  assert.equal(alarmBlocks.some((block) => /AlarmActions|OKActions|InsufficientDataActions/.test(block)), false);
+  assert.match(
+    template,
+    /WrikeScheduledIntakeRule:[\s\S]*?ScheduleExpression: rate\(15 minutes\)[\s\S]*?MaximumRetryAttempts: 0/
+  );
 });
 
 test("Wrike workbook evidence remains disabled by default and uses a retained private bucket", () => {
