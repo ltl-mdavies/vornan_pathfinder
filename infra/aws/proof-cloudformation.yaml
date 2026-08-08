@@ -238,10 +238,8 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref PublicReadEnabled, "true"]
         AssertDescription: Customer approval requires public Proof sessions.
-      - Assert: !Equals [!Ref OperatorGrantCreationEnabled, "true"]
-        AssertDescription: Customer approval requires the bounded review-grant window.
       - Assert: !Not [!Equals [!Ref GrantAllowedCustomerIds, ""]]
-        AssertDescription: Customer approval requires an explicit Lift customer cohort.
+        AssertDescription: Customer approval requires an explicit Lift customer cohort for existing valid review grants.
       - Assert: !Not [!Equals [!Ref ReadOnlyActivationExpiresAt, ""]]
         AssertDescription: Customer approval requires a bounded UTC deadline.
       - Assert: !And

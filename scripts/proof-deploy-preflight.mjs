@@ -212,9 +212,14 @@ export function validateProofDeployment(env = process.env) {
     operatorPublicBaseUrl = safePublicBaseUrl(env, "PATHFINDER_PROOF_PUBLIC_BASE_URL");
   }
   if (customerApprovalEnabled) {
-    if (!publicReadEnabled || !operatorGrantCreationEnabled || syntheticQaEnabled) {
+    if (!publicReadEnabled || syntheticQaEnabled) {
       throw new Error(
-        "PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS=true requires the bounded public-read and operator-grant window with synthetic QA disabled."
+        "PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS=true requires the bounded public-read window with synthetic QA disabled."
+      );
+    }
+    if (grantAllowedCustomerIds.length === 0) {
+      throw new Error(
+        "PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS is required for customer approvals through existing valid review grants."
       );
     }
     const tableName = required(env, "PATHFINDER_PROOF_TARGETS_TABLE");
