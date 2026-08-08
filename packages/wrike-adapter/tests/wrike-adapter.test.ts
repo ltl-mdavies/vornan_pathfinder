@@ -813,6 +813,15 @@ test("previews one qualified task and counts every matching workbook without ret
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
+        if (
+          new URL(url).pathname === "/api/v4/tasks/IEAPPROVEDTASK" &&
+          new URL(url).search
+        ) {
+          return new Response(JSON.stringify({ error: "parameterNotAllowed" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
         return new Response(
           JSON.stringify({
             data: [
@@ -854,11 +863,8 @@ test("previews one qualified task and counts every matching workbook without ret
   assert.deepEqual(result.preview.observed.super_parent_ids, ["IEAPPROVEDFOLDER"]);
   assert.equal(result.preview.capabilities.attachment_download, false);
   assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET"]);
-  assert.match(calls[1].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\?fields=/);
-  assert.deepEqual(
-    JSON.parse(new URL(calls[1].url).searchParams.get("fields") ?? "[]"),
-    ["attachmentCount"]
-  );
+  assert.equal(new URL(calls[1].url).pathname, "/api/v4/tasks/IEAPPROVEDTASK");
+  assert.equal(new URL(calls[1].url).search, "");
   assert.match(calls[2].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\/attachments\?versions=false&withUrls=false$/);
   assert.equal(calls.some((call) => /download|preview|webhooks/.test(call.url)), false);
   const publicPayload = JSON.stringify(result.preview);
@@ -959,7 +965,8 @@ test("converts a saved numeric campaign folder and requests exact-task ancestry"
   assert.equal(converterUrl.searchParams.get("type"), "ApiV2Folder");
   assert.deepEqual(JSON.parse(converterUrl.searchParams.get("ids") ?? "[]"), ["34000804"]);
   const taskUrl = new URL(calls[2]);
-  assert.deepEqual(JSON.parse(taskUrl.searchParams.get("fields") ?? "[]"), ["attachmentCount"]);
+  assert.equal(taskUrl.pathname, "/api/v4/tasks/MAAAAAENlV9Z");
+  assert.equal(taskUrl.search, "");
   assert.equal(new URL(calls[3]).pathname, "/api/v4/folders/MQAAAAENlV9D");
   assert.deepEqual(result.preview.approved_scope.folder_id, "IEAALTG3I4BANT5E");
 });
