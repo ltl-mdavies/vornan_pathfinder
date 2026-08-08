@@ -246,7 +246,10 @@ test("keeps authentication signing isolated from every executable runtime entry 
       `Unexpected runtime authentication-envelope import in ${source.path}`
     );
   }
-  assert.match(runtimeConfigSource, /approve: false/);
+  assert.match(
+    runtimeConfigSource,
+    /approve:\s*\n\s*packedCustomerApproval === "true" \|\|\s*\n\s*process\.env\.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS === "true"/
+  );
   assert.match(runtimeConfigSource, /revision: false/);
   assert.match(runtimeConfigSource, /undo: false/);
   assert.match(runtimeConfigSource, /lift_writes_enabled: false/);
