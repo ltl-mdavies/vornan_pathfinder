@@ -2128,11 +2128,13 @@ async function discoverApprovedWrikeTaskWithContext(
     rotatedCredentials
   );
   const taskUrl = new URL(`https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}`);
-  // Wrike returns customFields and parentIds in the default task payload. Its
-  // exact-task endpoint rejects customFields and superParentIds when they are
-  // explicitly requested, so ancestry is verified through exact parent-folder
-  // reads below instead of widening discovery to unrelated tasks.
-  taskUrl.searchParams.set("fields", JSON.stringify(["attachmentCount"]));
+  // Keep the exact-task read on Wrike's default response contract. Production
+  // workspaces can reject optional `fields` selectors on this endpoint even
+  // though the equivalent folder-task discovery accepts them. The default
+  // payload contains the identity, custom fields, and parent IDs required for
+  // qualification; attachment metadata is read separately below. This keeps
+  // the operator fallback exact-task bounded without widening it to a folder
+  // scan or changing the scheduled discovery path.
 
   let taskResponse: Response;
   try {
