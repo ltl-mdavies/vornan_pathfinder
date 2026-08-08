@@ -62,6 +62,71 @@ test("accepts only a bounded IAM operator window on the dark dev stack", () => {
   }
 });
 
+test("requires exact target, transaction, and secret bindings before customer approval", () => {
+  const approvalWindow = {
+    ...qaEnvironment,
+    PATHFINDER_PROOF_ENVIRONMENT_NAME: "dev",
+    PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT: "dev",
+    PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "true",
+    PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: "true",
+    PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED: "true",
+    PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED: "true",
+    PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: "1249",
+    PATHFINDER_PROOF_PUBLIC_BASE_URL: "https://dpib8f02ljvrd.cloudfront.net",
+    PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS: "true",
+    PATHFINDER_PROOF_TARGETS_TABLE: "Pathfinder-Targets-prod",
+    PATHFINDER_PROOF_TARGETS_TABLE_ARN:
+      "arn:aws:dynamodb:us-east-1:744016783602:table/Pathfinder-Targets-prod",
+    PATHFINDER_PROOFING_API_SECRET_ARN:
+      "arn:aws:secretsmanager:us-east-1:744016783602:secret:/vornan/pathfinder/targets/lift-standard-graphics-AbCdEf",
+    PATHFINDER_SECRET_PREFIX: "/vornan/pathfinder/"
+  };
+  assert.equal(validateProofDeployment(approvalWindow).customer_approval_enabled, true);
+  for (const missing of [
+    "PATHFINDER_PROOF_TARGETS_TABLE",
+    "PATHFINDER_PROOF_TARGETS_TABLE_ARN",
+    "PATHFINDER_PROOFING_API_SECRET_ARN",
+    "PATHFINDER_SECRET_PREFIX"
+  ]) {
+    assert.throws(() => validateProofDeployment({ ...approvalWindow, [missing]: "" }), new RegExp(missing));
+  }
+  assert.throws(
+    () => validateProofDeployment({
+      ...approvalWindow,
+      PATHFINDER_PROOF_TARGETS_TABLE_ARN:
+        "arn:aws:dynamodb:us-east-1:744016783602:table/Some-Other-Table"
+    }),
+    /target table exactly/
+  );
+});
+
+test("keeps isolated customer approval default-off and least-privileged", () => {
+  const template = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
+  assert.match(template, /CustomerApprovalEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /CustomerApprovalRequiresExactRuntimeBindings:/);
+  assert.match(
+    template,
+    /CustomerApprovalActive[\s\S]*?Action: dynamodb:GetItem[\s\S]*?Resource: !Ref PathfinderTargetsTableArn/
+  );
+  assert.match(
+    template,
+    /CustomerApprovalActive[\s\S]*?Action: dynamodb:TransactWriteItems[\s\S]*?!GetAtt ProofCoreTable.Arn[\s\S]*?!GetAtt ProofAuditTable.Arn/
+  );
+  assert.match(
+    template,
+    /CustomerApprovalActive[\s\S]*?Action: secretsmanager:GetSecretValue[\s\S]*?Resource: !Ref ProofingApiSecretArn/
+  );
+  const publicRole = template.slice(
+    template.indexOf("  ProofPublicLambdaRole:"),
+    template.indexOf("  ProofSyncLambdaRole:")
+  );
+  assert.doesNotMatch(publicRole, /dynamodb:Scan/);
+  assert.equal((publicRole.match(/PathfinderTargetsTableArn/g) ?? []).length, 1);
+  assert.match(publicRole, /Action: dynamodb:GetItem\n\s+Resource: !Ref PathfinderTargetsTableArn/);
+  assert.match(publicRole, /ignore_checks:\n\s+- W3037/);
+  assert.doesNotMatch(publicRole, /secretsmanager:\*|Resource: "\*"/);
+});
+
 test("allows the synthetic fixture only in a fully dark dev deployment", () => {
   const dev = {
     ...qaEnvironment,

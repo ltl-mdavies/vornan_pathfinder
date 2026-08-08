@@ -9,7 +9,10 @@ import {
   readTargetEnvironmentProofingApiRuntimeCredentials,
   type TargetProofingApiRuntimeCredentials
 } from "../lift-proofing-credentials.js";
-import { listTargets, type TargetConfig } from "../store.js";
+import {
+  readProofActionTargetConfig,
+  type ProofActionTargetConfig
+} from "./action-target-store.js";
 import { prepareProofApprovalDecision } from "./decision-contract.js";
 import { ProofDecisionLedgerError, proofDecisionLedger } from "./decision-ledger.js";
 import { getProofRuntimeConfig, type ProofRuntimeConfig } from "./runtime-config.js";
@@ -53,7 +56,7 @@ export interface ProofCustomerApprovalRequest {
 export interface ProofCustomerApprovalDependencies {
   runtimeConfig?: () => ProofRuntimeConfig;
   syncOrder?: typeof syncProofOrder;
-  listTargetConfigs?: typeof listTargets;
+  readTargetConfig?: typeof readProofActionTargetConfig;
   readCredentials?: typeof readTargetEnvironmentProofingApiRuntimeCredentials;
   reserve?: typeof proofDecisionLedger.reserve;
   transition?: typeof proofDecisionLedger.transition;
@@ -64,10 +67,7 @@ export interface ProofCustomerApprovalDependencies {
   now?: () => Date;
 }
 
-function targetEnvironment(targets: TargetConfig[]) {
-  const target = targets.find(
-    (candidate) => candidate.target_id === TARGET_ID && candidate.adapter === "lift-standard-graphics"
-  );
+function targetEnvironment(target: ProofActionTargetConfig | null) {
   const environment = target?.environments.find(
     (candidate) => candidate.environment_id === ENVIRONMENT_ID && candidate.role === "PROD" && candidate.status === "Active"
   );
@@ -158,7 +158,7 @@ export function createProofCustomerApprovalService(
 ) {
   const runtimeConfig = dependencies.runtimeConfig ?? getProofRuntimeConfig;
   const syncOrder = dependencies.syncOrder ?? syncProofOrder;
-  const listTargetConfigs = dependencies.listTargetConfigs ?? listTargets;
+  const readTargetConfig = dependencies.readTargetConfig ?? readProofActionTargetConfig;
   const readCredentials = dependencies.readCredentials ?? readTargetEnvironmentProofingApiRuntimeCredentials;
   const reserve = dependencies.reserve ?? proofDecisionLedger.reserve;
   const transition = dependencies.transition ?? proofDecisionLedger.transition;
@@ -181,7 +181,7 @@ export function createProofCustomerApprovalService(
       if (input.session.scope !== "review" || !input.session.participant_id) {
         throw new ProofCustomerApprovalError("not_allowed", "Identify the reviewer in a review-enabled session first.");
       }
-      const environment = targetEnvironment(await listTargetConfigs());
+      const environment = targetEnvironment(await readTargetConfig(TARGET_ID));
       const auditContext = {
         actor_type: "customer_session" as const,
         actor_id: input.session.session_id,
