@@ -39,6 +39,11 @@ aws cloudformation deploy \
     ReadOnlyActivationExpiresAt="${PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT:-}" \
     OperatorGrantCreationEnabled="${PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED:-false}" \
     GrantAllowedCustomerIds="${PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS:-}" \
+    CustomerApprovalEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:-false}" \
+    PathfinderTargetsTableName="${PATHFINDER_PROOF_TARGETS_TABLE:-}" \
+    PathfinderTargetsTableArn="${PATHFINDER_PROOF_TARGETS_TABLE_ARN:-}" \
+    ProofingApiSecretArn="${PATHFINDER_PROOFING_API_SECRET_ARN:-}" \
+    PathfinderSecretPrefix="${PATHFINDER_SECRET_PREFIX:-/vornan/pathfinder/}" \
     SyntheticQaEnabled="${synthetic_qa_enabled}" \
     ReadOnlyQaConfirmed="${PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED:-false}" \
     ProductionPublicReadApproved="${PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED:-false}" \

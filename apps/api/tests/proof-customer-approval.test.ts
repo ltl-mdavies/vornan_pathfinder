@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ProofAccessSession, ProofOrder } from "@pathfinder/proof-domain";
-import type { TargetConfig } from "../src/store.ts";
+import type { ProofActionTargetConfig } from "../src/proof/action-target-store.ts";
 import {
   createProofCustomerApprovalService,
   ProofCustomerApprovalError
@@ -80,7 +80,7 @@ const target = [{
   target_id: "lift-standard-graphics",
   adapter: "lift-standard-graphics",
   environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://proofing.example.invalid/order-import" }]
-}] as TargetConfig[];
+}] as ProofActionTargetConfig[];
 
 const request = {
   task_id: "ptask_customer_approval",
@@ -110,7 +110,7 @@ test("denies a dark customer approval gate before Lift reads, persistence, secre
   const service = createProofCustomerApprovalService({
     runtimeConfig: () => runtime(false),
     syncOrder: async () => { calls.push("sync"); throw new Error("must not run"); },
-    listTargetConfigs: async () => { calls.push("targets"); return target; },
+    readTargetConfig: async () => { calls.push("targets"); return target[0]!; },
     readCredentials: async () => { calls.push("credentials"); throw new Error("must not run"); },
     reserve: async () => { calls.push("reserve"); throw new Error("must not run"); },
     send: async () => { calls.push("send"); throw new Error("must not run"); }
@@ -131,7 +131,7 @@ test("persists the no-retry boundary before one quantity-free PUT and immediatel
   const service = createProofCustomerApprovalService({
     runtimeConfig: () => runtime(true),
     now: () => now,
-    listTargetConfigs: async () => target,
+    readTargetConfig: async () => target[0]!,
     syncOrder: async () => {
       syncCount += 1;
       lifecycle.push(syncCount === 1 ? "preflight-get" : "reconcile-get");
@@ -173,7 +173,7 @@ test("rejects multiple or shared proofs before credentials or transport", async 
   let sends = 0;
   const service = createProofCustomerApprovalService({
     runtimeConfig: () => runtime(true),
-    listTargetConfigs: async () => target,
+    readTargetConfig: async () => target[0]!,
     syncOrder: async () => ({ order, diagnostics: null }) as never,
     readCredentials: async () => { credentialReads += 1; throw new Error("must not run"); },
     send: async () => { sends += 1; throw new Error("must not run"); }
@@ -192,7 +192,7 @@ test("never replays transport after the durable no-retry boundary", async () => 
   const service = createProofCustomerApprovalService({
     runtimeConfig: () => runtime(true),
     now: () => now,
-    listTargetConfigs: async () => target,
+    readTargetConfig: async () => target[0]!,
     syncOrder: async () => ({ order: proofOrder(), diagnostics: null }) as never,
     getParticipant: async () => ({ participant_id: session.participant_id!, grant_id: session.grant_id, order_number: session.order_number, display_name: "Reviewer", email: "reviewer@example.invalid", first_seen_at: now.toISOString(), last_seen_at: now.toISOString() }),
     getFeedbackAcknowledgement: async () => ({ acknowledgement_id: "pack_customer_approval", grant_id: session.grant_id, participant_id: session.participant_id!, order_number: session.order_number, task_id: request.task_id, feedback_fingerprint: "feedback-customer-approval-v1", acknowledged_at: now.toISOString() }),

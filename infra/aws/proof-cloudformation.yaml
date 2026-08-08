@@ -52,6 +52,27 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^[0-9]{1,20}(,[0-9]{1,20}){0,19}$"
     Description: Comma-separated Lift customer IDs approved for the temporary read-only operator window.
+  CustomerApprovalEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled single-current-proof customer approval boundary.
+  PathfinderTargetsTableName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9_.-]{3,255}$"
+    Description: Existing Pathfinder target table used only for the exact active Lift target lookup.
+  PathfinderTargetsTableArn:
+    Type: String
+    AllowedPattern: "^$|^arn:(aws[A-Za-z-]*?):dynamodb:[a-z0-9-]+:[0-9]{12}:table/[A-Za-z0-9_.-]{3,255}$"
+  ProofingApiSecretArn:
+    Type: String
+    AllowedPattern: "^$|^arn:(aws[A-Za-z-]*?):secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:/vornan/pathfinder/targets/lift-standard-graphics-[A-Za-z0-9]+$"
+    Description: Exact existing Secrets Manager ARN containing the saved Lift Proofing API configuration.
+  PathfinderSecretPrefix:
+    Type: String
+    Default: "/vornan/pathfinder/"
+    AllowedPattern: "^/[A-Za-z0-9/_-]+/$"
   SyntheticQaEnabled:
     Type: String
     Default: "false"
@@ -124,6 +145,7 @@ Conditions:
     - !Equals [!Ref ManagedWebAclEnabled, "true"]
     - !Not [!Condition HasProvidedWebAcl]
   HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, ""]]
+  CustomerApprovalActive: !Equals [!Ref CustomerApprovalEnabled, "true"]
 
 Rules:
   ProofAliasAndCertificateMustBePaired:
@@ -211,6 +233,24 @@ Rules:
           - !Equals [!Ref ProofDomainName, ""]
           - !Equals [!Ref CertificateArn, ""]
         AssertDescription: The isolated operator window must not configure a customer DNS alias.
+  CustomerApprovalRequiresExactRuntimeBindings:
+    RuleCondition: !Equals [!Ref CustomerApprovalEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref PublicReadEnabled, "true"]
+        AssertDescription: Customer approval requires public Proof sessions.
+      - Assert: !Equals [!Ref OperatorGrantCreationEnabled, "true"]
+        AssertDescription: Customer approval requires the bounded review-grant window.
+      - Assert: !Not [!Equals [!Ref GrantAllowedCustomerIds, ""]]
+        AssertDescription: Customer approval requires an explicit Lift customer cohort.
+      - Assert: !Not [!Equals [!Ref ReadOnlyActivationExpiresAt, ""]]
+        AssertDescription: Customer approval requires a bounded UTC deadline.
+      - Assert: !And
+          - !Not [!Equals [!Ref PathfinderTargetsTableName, ""]]
+          - !Not [!Equals [!Ref PathfinderTargetsTableArn, ""]]
+          - !Not [!Equals [!Ref ProofingApiSecretArn, ""]]
+        AssertDescription: Customer approval requires the exact Pathfinder target table and Proofing API secret bindings.
+      - Assert: !Equals [!Ref SyntheticQaEnabled, "false"]
+        AssertDescription: Customer approval cannot overlap synthetic QA.
 
 Resources:
   ProofWebBucket:
@@ -600,6 +640,11 @@ Resources:
   ProofPublicLambdaRole:
     Type: AWS::IAM::Role
     Condition: HasPublicLambdaCode
+    Metadata:
+      cfn-lint:
+        config:
+          ignore_checks:
+            - W3037
     Properties:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -629,6 +674,26 @@ Resources:
               - Effect: Allow
                 Action: dynamodb:PutItem
                 Resource: !GetAtt ProofAuditTable.Arn
+              - !If
+                - CustomerApprovalActive
+                - Effect: Allow
+                  Action: dynamodb:GetItem
+                  Resource: !Ref PathfinderTargetsTableArn
+                - !Ref "AWS::NoValue"
+              - !If
+                - CustomerApprovalActive
+                - Effect: Allow
+                  Action: dynamodb:TransactWriteItems
+                  Resource:
+                    - !GetAtt ProofCoreTable.Arn
+                    - !GetAtt ProofAuditTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - CustomerApprovalActive
+                - Effect: Allow
+                  Action: secretsmanager:GetSecretValue
+                  Resource: !Ref ProofingApiSecretArn
+                - !Ref "AWS::NoValue"
 
   ProofSyncLambdaRole:
     Type: AWS::IAM::Role
@@ -721,6 +786,11 @@ Resources:
           PATHFINDER_PROOF_CORE_TABLE: !Ref ProofCoreTable
           PATHFINDER_PROOF_AUDIT_TABLE: !Ref ProofAuditTable
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: !Ref PublicReadEnabled
+          PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join
+            - "|"
+            - - !Ref PublicReadEnabled
+              - !Ref CustomerApprovalEnabled
+          PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref GrantAllowedCustomerIds
           PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ReadOnlyActivationExpiresAt
           PATHFINDER_PROOF_ENABLE_GRANT_CREATION: "false"
           PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref PublicBaseUrl
@@ -728,6 +798,9 @@ Resources:
           PATHFINDER_PROOF_STALE_AFTER_MINUTES: "15"
           PATHFINDER_PROOF_AUTO_REFRESH_MAX_INACTIVE_DAYS: !Ref AutomaticRefreshMaxInactiveDays
           PATHFINDER_PROOF_EDGE_SHARED_SECRET: !Ref EdgeSharedSecret
+          PATHFINDER_PROOF_TARGETS_TABLE: !If [CustomerApprovalActive, !Ref PathfinderTargetsTableName, !Ref "AWS::NoValue"]
+          PATHFINDER_SECRETS_DRIVER: !If [CustomerApprovalActive, "secrets-manager", !Ref "AWS::NoValue"]
+          PATHFINDER_SECRET_PREFIX: !If [CustomerApprovalActive, !Ref PathfinderSecretPrefix, !Ref "AWS::NoValue"]
 
   ProofSyncFunction:
     Type: AWS::Lambda::Function
