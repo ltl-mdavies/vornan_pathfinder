@@ -216,6 +216,13 @@ h1, h2, h3, p { margin-top: 0; }
 .action-transport.simple { grid-template-columns: 1fr; grid-template-rows: auto auto; gap: 10px; }
 .action-transport.simple .decision-heading { grid-column: 1; }
 .action-transport.simple .transport-buttons { width: min(660px, 100%); justify-self: center; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.single-decision-controls { width: min(760px, 100%); justify-self: center; display: grid; grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.2fr); gap: 10px 14px; align-items: end; }
+.single-decision-note { min-width: 0; display: grid; gap: 5px; color: var(--forest); font-size: 8px; font-weight: 800; }
+.single-decision-note textarea { min-height: 52px; resize: vertical; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: #fbfcf8; color: var(--ink); font: inherit; font-size: 9px; line-height: 1.4; }
+.single-decision-controls .transport-buttons { width: 100%; }
+.decision-guidance, .decision-result { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 8px; line-height: 1.4; text-align: center; }
+.decision-result.complete { color: #39723f; font-weight: 800; }
+.decision-result.error { color: var(--critical); font-weight: 800; }
 .action-transport.distribution { min-height: 174px; grid-template-columns: minmax(0,1fr); grid-template-rows: auto auto auto; align-items: stretch; gap: 9px; }
 .action-transport.distribution .decision-heading { grid-column: 1 / -1; grid-row: 1; }
 .action-transport.distribution .creative-stage-entry { grid-column: 1 / -1; grid-row: 2; }
@@ -491,6 +498,7 @@ h1, h2, h3, p { margin-top: 0; }
   .action-transport.mobile .quantity-entry small { white-space: normal; }
   .action-transport.mobile .creative-stage-copy em { max-width: 42vw; }
   .action-transport.mobile .transport-buttons { grid-template-columns: 1fr 1fr; }
+  .action-transport.mobile .single-decision-controls { grid-template-columns: 1fr; }
   .action-transport.mobile .transport-buttons button { min-height: 44px; }
   .mobile-empty { min-height: 280px; padding: 30px; display: grid; place-items: center; align-content: center; gap: 9px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); color: var(--muted); text-align: center; }
   .mobile-empty svg { width: 34px; color: var(--forest); }

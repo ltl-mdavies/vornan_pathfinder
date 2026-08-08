@@ -236,7 +236,7 @@ test("rejects non-actionable tasks and invalid idempotency or note inputs", () =
   expectFailure(invalidNote, "note_invalid");
 });
 
-test("keeps decision preparation and the dormant ledger unroutable, untransported, and impossible to enable", async () => {
+test("keeps the decision ledger isolated to the default-dark customer approval service", async () => {
   process.env.PATHFINDER_PROOF_ENABLE_APPROVE = "true";
   process.env.PATHFINDER_PROOF_ENABLE_REVISION = "true";
   process.env.PATHFINDER_PROOF_ENABLE_UNDO = "true";
@@ -275,7 +275,9 @@ test("keeps decision preparation and the dormant ledger unroutable, untransporte
         "proof/decision-atomicity.ts",
         "proof/decision-contract.ts",
         "proof/decision-ledger-store.ts",
-        "proof/decision-ledger.ts"
+        "proof/decision-ledger.ts",
+        "proof/customer-approval-service.ts",
+        "proof/public-router.ts"
       ].includes(path)
     );
   const runtimeSources = await Promise.all(
@@ -284,7 +286,8 @@ test("keeps decision preparation and the dormant ledger unroutable, untransporte
   for (const source of runtimeSources) {
     assert.doesNotMatch(source, /decision-(?:atomicity|contract|ledger)/);
   }
-  assert.doesNotMatch(publicRouterSource, /decision-(?:atomicity|contract|ledger)/);
+  assert.match(publicRouterSource, /customer-approval-service/);
+  assert.match(publicRouterSource, /router\.post\("\/tasks\/:taskId\/decisions\/approve"/);
   assert.doesNotMatch(operatorRouterSource, /decision-(?:atomicity|contract|ledger)/);
   assert.doesNotMatch(storeSource, /decision-(?:atomicity|contract|ledger)|ProofDecisionIntegrityContract|TransactWrite/);
   assert.doesNotMatch(

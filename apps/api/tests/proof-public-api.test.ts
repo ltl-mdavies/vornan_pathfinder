@@ -120,6 +120,13 @@ after(async () => {
   await rm(testDirectory, { recursive: true, force: true });
 });
 
+test("rejects an unknown grant scope before it can be persisted", async () => {
+  await assert.rejects(
+    () => access.createProofGrant({ order_number: order.order_number, scope: "operator" } as never),
+    /scope must be view or review/i
+  );
+});
+
 test("exchanges a fragment token for a narrow hardened cookie and returns only its granted order", async () => {
   const created = await access.createProofGrant({ order_number: order.order_number });
   const rawToken = created.access_url.split("/").at(-1)!;
@@ -356,7 +363,7 @@ test("bounds automatic refresh to recently changed active or complete orders whi
   assert.deepEqual(queued.at(-1), { orderNumber: "A0221135", reason: "public_refresh" });
 });
 
-test("uses one generic denial and exposes no public decision routes", async () => {
+test("uses one generic denial and keeps unsupported public decision routes absent", async () => {
   const denied = await request(app).get("/api/public/proof/order").expect(401);
   assert.equal(denied.body.error, "This proof access link is invalid or has expired.");
   await request(app).post("/api/public/proof/orders/A0221132/approve").send({ approve: true }).expect(404);
@@ -383,6 +390,83 @@ test("uses one generic denial and exposes no public decision routes", async () =
     .post("/api/proof/operator-assets/uploads/finalize")
     .send({})
     .expect(401);
+});
+
+test("exposes the one supported approval route only to a review-scoped session", async () => {
+  process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS = "true";
+  try {
+    const approvalCalls: Array<Record<string, unknown>> = [];
+    const approvalApp = express();
+    approvalApp.use(express.json());
+    approvalApp.use("/api/public/proof", createPublicRouter({
+      approveProof: async (input) => {
+        approvalCalls.push(input as unknown as Record<string, unknown>);
+        return {
+          status: "new",
+          outcome: "confirmed",
+          automatic_retry: false,
+          authoritative_refresh_completed: true
+        };
+      }
+    }));
+    const created = await access.createProofGrant({
+      order_number: order.order_number,
+      scope: "review"
+    });
+    const exchange = await request(approvalApp)
+      .post("/api/public/proof/sessions")
+      .send({ token: created.access_url.split("/").at(-1)! })
+      .expect(201);
+    const { cookie, csrf } = exchangeCredentials(exchange);
+
+    await request(approvalApp)
+      .post("/api/public/proof/participants")
+      .set("Cookie", cookie)
+      .set("X-Vornan-Proof-Csrf", csrf)
+      .send({ display_name: "Approval Reviewer", email: "approval@example.com" })
+      .expect(201);
+
+    const packet = await request(approvalApp)
+      .get("/api/public/proof/order")
+      .set("Cookie", cookie)
+      .expect(200);
+    assert.equal(packet.body.order.access.scope, "review");
+    assert.equal(packet.body.order.access.decisions_enabled, true);
+    assert.equal(packet.body.order.tasks[0].attachment_id, order.tasks[0]!.attachment_id);
+    assert.equal(packet.body.order.tasks[0].version, order.tasks[0]!.version);
+
+    await request(approvalApp)
+      .post(`/api/public/proof/tasks/${order.tasks[0]!.task_id}/decisions/approve`)
+      .set("Cookie", cookie)
+      .set("X-Vornan-Proof-Csrf", csrf)
+      .send({
+        attachment_id: order.tasks[0]!.attachment_id,
+        expected_task_version: order.tasks[0]!.version,
+        expected_version_id: order.tasks[0]!.current_version!.version_id,
+        idempotency_key: "approval-route-qa-0001",
+        note: "Approved after review."
+      })
+      .expect(201)
+      .expect({
+        decision: {
+          status: "new",
+          outcome: "confirmed",
+          automatic_retry: false,
+          authoritative_refresh_completed: true
+        }
+      });
+    assert.equal(approvalCalls.length, 1);
+    const call = approvalCalls[0] as {
+      session: { scope: string; participant_id: string | null };
+      request: { task_id: string; idempotency_key: string };
+    };
+    assert.equal(call.session.scope, "review");
+    assert.ok(call.session.participant_id);
+    assert.equal(call.request.task_id, order.tasks[0]!.task_id);
+    assert.equal(call.request.idempotency_key, "approval-route-qa-0001");
+  } finally {
+    delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
+  }
 });
 
 test("returns only redacted history for a task in the session order", async () => {
@@ -542,7 +626,9 @@ test("binds optional reviewer identity to the session with CSRF and redacted aud
   assert.equal(updated.body.participant.participant_id, identified.body.participant.participant_id);
 
   const audit = await store.listProofAuditEvents(order.order_number, { limit: 100 });
-  const identityEvents = audit.events.filter((event) => event.action.startsWith("proof.participant_"));
+  const identityEvents = audit.events.filter(
+    (event) => event.action.startsWith("proof.participant_") && event.grant_id === created.grant.grant_id
+  );
   assert.deepEqual(identityEvents.map((event) => event.action).sort(), ["proof.participant_identified", "proof.participant_updated"]);
   const serializedAudit = JSON.stringify(identityEvents);
   assert.equal(serializedAudit.includes("Morgan"), false);

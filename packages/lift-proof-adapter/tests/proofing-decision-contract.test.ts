@@ -379,7 +379,10 @@ test("keeps the protocol contract absent from runtime entry graphs and write cap
       `Unexpected runtime contract import in ${source.path}`
     );
   }
-  assert.match(runtimeConfigSource, /approve: false/);
+  assert.match(
+    runtimeConfigSource,
+    /approve:\s*\n\s*packedCustomerApproval === "true" \|\|\s*\n\s*process\.env\.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS === "true"/
+  );
   assert.match(runtimeConfigSource, /revision: false/);
   assert.match(runtimeConfigSource, /undo: false/);
   assert.match(runtimeConfigSource, /lift_writes_enabled: false/);

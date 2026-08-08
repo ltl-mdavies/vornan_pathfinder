@@ -1,5 +1,5 @@
 export interface ProofIntegrationHealth {
-  phase: "tokenized_customer_read_foundation";
+  phase: "tokenized_customer_read_foundation" | "single_proof_customer_approval_foundation";
   storage_driver: "disabled" | "local" | "dynamodb";
   core_table_configured: boolean;
   audit_table_configured: boolean;
@@ -26,7 +26,7 @@ export interface ProofIntegrationHealth {
     grant_creation: boolean;
     proof_link_email: boolean;
     public_read: boolean;
-    approve: false;
+    approve: boolean;
     revision: false;
     undo: false;
   };
@@ -64,15 +64,14 @@ export interface ProofIntegrationHealth {
 }
 
 export interface ProofReadOnlyPosture {
-  level: "deployed_read_only" | "dark_deploy_ready" | "local_qa" | "configuration_required";
+  level: "deployed_customer_approval" | "deployed_read_only" | "dark_deploy_ready" | "local_qa" | "configuration_required";
   label: string;
   detail: string;
   blockers: string[];
 }
 
 export function proofReadOnlyPosture(health: ProofIntegrationHealth): ProofReadOnlyPosture {
-  const decisionsLocked = !health.feature_flags.approve
-    && !health.feature_flags.revision
+  const unsupportedDecisionsLocked = !health.feature_flags.revision
     && !health.feature_flags.undo
     && !health.qa_lifecycle.lift_writes_enabled;
   const deployedPersistence = health.storage_driver === "dynamodb"
@@ -80,13 +79,28 @@ export function proofReadOnlyPosture(health: ProofIntegrationHealth): ProofReadO
     && health.audit_table_configured;
   const deployedBoundary = health.sync.queue_configured && health.access.edge_secret_configured;
   const blockers = [
-    ...(!decisionsLocked ? ["Lift decision capability must remain disabled."] : []),
+    ...(!unsupportedDecisionsLocked ? ["Unsupported Lift decision capability must remain disabled."] : []),
     ...(!deployedPersistence ? ["Dedicated DynamoDB core and audit persistence are not fully configured."] : []),
     ...(!health.sync.queue_configured ? ["The isolated synchronization queue is not configured."] : []),
     ...(!health.access.edge_secret_configured ? ["The CloudFront-to-API edge secret is not configured."] : [])
   ];
 
-  if (health.feature_flags.public_read && deployedPersistence && deployedBoundary && decisionsLocked) {
+  if (
+    health.feature_flags.public_read &&
+    health.feature_flags.approve &&
+    deployedPersistence &&
+    deployedBoundary &&
+    unsupportedDecisionsLocked
+  ) {
+    return {
+      level: "deployed_customer_approval",
+      label: "Single-proof customer approval active",
+      detail: "Review-scoped links can approve one current, unshared proof; revisions, undo, and advanced decisions remain locked.",
+      blockers: []
+    };
+  }
+
+  if (health.feature_flags.public_read && deployedPersistence && deployedBoundary && !health.feature_flags.approve && unsupportedDecisionsLocked) {
     return {
       level: "deployed_read_only",
       label: "Read-only public boundary active",
@@ -94,7 +108,7 @@ export function proofReadOnlyPosture(health: ProofIntegrationHealth): ProofReadO
       blockers: []
     };
   }
-  if (deployedPersistence && deployedBoundary && decisionsLocked) {
+  if (deployedPersistence && deployedBoundary && !health.feature_flags.approve && unsupportedDecisionsLocked) {
     return {
       level: "dark_deploy_ready",
       label: "Dark read-only boundary ready",
@@ -102,7 +116,7 @@ export function proofReadOnlyPosture(health: ProofIntegrationHealth): ProofReadO
       blockers: []
     };
   }
-  if (health.storage_driver === "local" && decisionsLocked) {
+  if (health.storage_driver === "local" && unsupportedDecisionsLocked) {
     return {
       level: "local_qa",
       label: "Local read-only QA",

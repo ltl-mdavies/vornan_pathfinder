@@ -95,3 +95,19 @@ test("labels local QA separately and reports every missing deployment boundary",
     "The CloudFront-to-API edge secret is not configured."
   ]);
 });
+
+test("labels the bounded single-proof customer approval posture without implying advanced actions", () => {
+  const active = proofReadOnlyPosture({
+    ...deployedHealth,
+    phase: "single_proof_customer_approval_foundation",
+    feature_flags: {
+      ...deployedHealth.feature_flags,
+      public_read: true,
+      approve: true
+    }
+  });
+  assert.equal(active.level, "deployed_customer_approval");
+  assert.match(active.label, /single-proof customer approval active/i);
+  assert.match(active.detail, /revisions, undo, and advanced decisions remain locked/i);
+  assert.deepEqual(active.blockers, []);
+});

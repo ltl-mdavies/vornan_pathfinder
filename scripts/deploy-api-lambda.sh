@@ -80,6 +80,8 @@ aws cloudformation deploy \
     ProofAuditTableName="${PATHFINDER_PROOF_AUDIT_TABLE:-}" \
     ProofAuditTableArn="${PATHFINDER_PROOF_AUDIT_TABLE_ARN:-}" \
     ProofGrantCreationEnabled="${PATHFINDER_PROOF_ENABLE_GRANT_CREATION:-false}" \
+    ProofPublicReadEnabled="${PATHFINDER_PROOF_ENABLE_PUBLIC_READ:-false}" \
+    ProofCustomerApprovalEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:-false}" \
     ProofGrantAllowedCustomerIds="${PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS:-}" \
     ProofReadOnlyActivationExpiresAt="${PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT:-}" \
     ProofLinkEmailEnabled="${PATHFINDER_PROOF_ENABLE_LINK_EMAIL:-false}" \
