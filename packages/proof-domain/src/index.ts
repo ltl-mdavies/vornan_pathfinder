@@ -139,7 +139,7 @@ export interface ProofSyncDiagnosticsSummary {
   normalization_warning_count: number;
 }
 
-export type ProofGrantScope = "view";
+export type ProofGrantScope = "view" | "review";
 export type ProofGrantStatus = "active" | "revoked";
 
 export interface ProofAccessGrant {
@@ -319,6 +319,8 @@ export type ProofAuditAction =
   | "proof.session_extended"
   | "proof.session_ended"
   | "proof.decision_prepared"
+  | "proof.decision_submission_started"
+  | "proof.decision_observed"
   | "proof.operator_action_prepared"
   | "proof.operator_action_submission_started"
   | "proof.operator_action_observed"
@@ -351,7 +353,7 @@ export interface ProofAuditMetadata {
   delivery_mode?: "log" | "ses";
   delivery_status?: "logged" | "sent" | "failed";
   decision_kind?: ProofDecisionKind;
-  decision_outcome?: "prepared" | "submission_uncertain" | "reconciling";
+  decision_outcome?: "prepared" | "submission_uncertain" | "reconciling" | "confirmed" | "failed";
   operator_action_kind?:
     | "APPROVE"
     | "REJECT"
@@ -426,6 +428,8 @@ export interface PublicProofVersion {
 
 export interface PublicProofTask {
   task_id: string;
+  attachment_id?: string | null;
+  version?: number;
   line_number: string | null;
   shared_line_numbers: string[];
   product_name: string | null;
@@ -461,7 +465,7 @@ export interface PublicProofOrder {
   tasks: PublicProofTask[];
   counts: PublicProofCounts;
   last_synced_at: string;
-  access: { scope: ProofGrantScope; decisions_enabled: false };
+  access: { scope: ProofGrantScope; decisions_enabled: boolean };
 }
 
 export interface OrderRollupProofRecord extends OrderRollupProof, LiftLineIdentity {}
@@ -1359,8 +1363,9 @@ export function proofReviewLifecycleTransitions(
 export function toPublicProofOrder(
   order: ProofOrder,
   scope: ProofGrantScope = "view",
-  options: { include_asset_urls?: boolean } = {}
+  options: { include_asset_urls?: boolean; decisions_enabled?: boolean } = {}
 ): PublicProofOrder {
+  const decisionsEnabled = scope === "review" && options.decisions_enabled === true;
   const sharedLinesByAttachment = new Map<string, string[]>();
   for (const task of order.tasks) {
     const attachmentId = task.attachment_id;
@@ -1380,6 +1385,9 @@ export function toPublicProofOrder(
     health: order.health,
     tasks: order.tasks.map((task) => ({
       task_id: task.task_id,
+      ...(decisionsEnabled
+        ? { attachment_id: task.attachment_id, version: task.version }
+        : {}),
       line_number: publicProofDisplayText(task.line_number, 32),
       shared_line_numbers: task.attachment_id && (sharedLinesByAttachment.get(task.attachment_id)?.length ?? 0) > 1
         ? sharedLinesByAttachment.get(task.attachment_id) ?? []
@@ -1397,7 +1405,7 @@ export function toPublicProofOrder(
     })),
     counts: publicProofCounts(order.tasks),
     last_synced_at: order.last_synced_at,
-    access: { scope, decisions_enabled: false }
+    access: { scope, decisions_enabled: decisionsEnabled }
   };
 }
 

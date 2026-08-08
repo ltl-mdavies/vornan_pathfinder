@@ -22,6 +22,8 @@ export interface ProofVersion {
 
 export interface ProofTask {
   task_id: string;
+  attachment_id?: string | null;
+  version?: number;
   line_number: string | null;
   shared_line_numbers?: string[];
   product_name: string | null;
@@ -50,7 +52,7 @@ export interface ProofOrder {
     total: number;
   };
   last_synced_at: string;
-  access: { scope: "view"; decisions_enabled: false };
+  access: { scope: "view" | "review"; decisions_enabled: boolean };
 }
 
 export interface ProofParticipant {

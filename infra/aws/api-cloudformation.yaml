@@ -375,6 +375,16 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
+  ProofPublicReadEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled public Proof session read boundary.
+  ProofCustomerApprovalEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled single-current-proof customer approval boundary.
   ProofGrantAllowedCustomerIds:
     Type: String
     Default: ""
@@ -451,6 +461,23 @@ Rules:
           - !Equals [!Ref ProofLinkEmailEnabled, "false"]
           - !Equals [!Ref ProofGrantCreationEnabled, "true"]
         AssertDescription: Proof link email requires authenticated Proof grant creation to be enabled.
+  ProofCustomerApprovalRequiresReviewBoundary:
+    RuleCondition: !Equals [!Ref ProofCustomerApprovalEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref ProofPublicReadEnabled, "true"]
+        AssertDescription: Customer Proof approval requires public Proof sessions.
+      - Assert: !Equals [!Ref ProofGrantCreationEnabled, "true"]
+        AssertDescription: Customer Proof approval requires authenticated review-grant creation.
+      - Assert: !And
+          - !Not [!Equals [!Ref ProofCoreTableName, ""]]
+          - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableName, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
+        AssertDescription: Customer Proof approval requires the dedicated Proof core and audit tables.
+      - Assert: !Not [!Equals [!Ref ProofGrantAllowedCustomerIds, ""]]
+        AssertDescription: Customer Proof approval requires an explicit Lift customer cohort.
+      - Assert: !Not [!Equals [!Ref ProofReadOnlyActivationExpiresAt, ""]]
+        AssertDescription: Customer Proof approval requires a bounded activation deadline.
   ProofOperatorActionRequiresDurableIsolation:
     RuleCondition: !Equals [!Ref ProofOperatorActionQaEnabled, "true"]
     Assertions:
@@ -1026,7 +1053,12 @@ Resources:
           PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref ProofGrantAllowedCustomerIds
           PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ProofReadOnlyActivationExpiresAt
           PATHFINDER_PROOF_ENABLE_LINK_EMAIL: !Ref ProofLinkEmailEnabled
-          PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"
+          # Pack the two customer-review switches into the existing environment
+          # footprint. Lambda limits the complete environment block to 4 KB.
+          PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join
+            - "|"
+            - - !Ref ProofPublicReadEnabled
+              - !Ref ProofCustomerApprovalEnabled
           PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref ProofPublicBaseUrl
           # Keep the bounded operator controls in one environment entry. Lambda
           # limits the complete environment block to 4 KB; the CloudFormation

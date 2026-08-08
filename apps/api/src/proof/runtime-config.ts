@@ -7,7 +7,7 @@ import {
 export type ProofStorageDriver = "disabled" | "local" | "dynamodb";
 
 export interface ProofRuntimeConfig {
-  phase: "tokenized_customer_read_foundation";
+  phase: "single_proof_customer_approval_foundation";
   storage_driver: ProofStorageDriver;
   core_table_name: string | null;
   audit_table_name: string | null;
@@ -16,7 +16,7 @@ export interface ProofRuntimeConfig {
     grant_creation: boolean;
     proof_link_email: boolean;
     public_read: boolean;
-    approve: false;
+    approve: boolean;
     revision: false;
     undo: false;
   };
@@ -69,6 +69,8 @@ function customerIds(value: string | undefined) {
 }
 
 export function getProofRuntimeConfig(): ProofRuntimeConfig {
+  const [packedPublicRead, packedCustomerApproval] =
+    (process.env.PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE ?? "").split("|");
   const requestedStorageDriver = process.env.PATHFINDER_PROOF_STORAGE_DRIVER;
   const storageDriver: ProofStorageDriver =
     requestedStorageDriver === "dynamodb" || requestedStorageDriver === "local"
@@ -78,7 +80,7 @@ export function getProofRuntimeConfig(): ProofRuntimeConfig {
         : "local";
 
   return {
-    phase: "tokenized_customer_read_foundation",
+    phase: "single_proof_customer_approval_foundation",
     storage_driver: storageDriver,
     core_table_name: process.env.PATHFINDER_PROOF_CORE_TABLE?.trim() || null,
     audit_table_name: process.env.PATHFINDER_PROOF_AUDIT_TABLE?.trim() || null,
@@ -93,8 +95,11 @@ export function getProofRuntimeConfig(): ProofRuntimeConfig {
     feature_flags: {
       grant_creation: process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION === "true",
       proof_link_email: process.env.PATHFINDER_PROOF_ENABLE_LINK_EMAIL === "true",
-      public_read: process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ === "true",
-      approve: false,
+      public_read:
+        packedPublicRead === "true" || process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ === "true",
+      approve:
+        packedCustomerApproval === "true" ||
+        process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS === "true",
       revision: false,
       undo: false
     },
@@ -127,7 +132,7 @@ export function getProofRuntimeConfig(): ProofRuntimeConfig {
 
 export function assertLiftProofWritesDisabled() {
   const config = getProofRuntimeConfig();
-  if (config.feature_flags.approve || config.feature_flags.revision || config.feature_flags.undo || config.qa_lifecycle.lift_writes_enabled) {
-    throw new Error("Vornan Proof Lift writes must remain disabled until the isolated QA lifecycle is confirmed.");
+  if (config.feature_flags.revision || config.feature_flags.undo || config.qa_lifecycle.lift_writes_enabled) {
+    throw new Error("Unsupported Vornan Proof Lift writes must remain disabled until the isolated QA lifecycle is confirmed.");
   }
 }

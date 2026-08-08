@@ -162,10 +162,10 @@ test("allows an expired or revoked session to be closed without restoring read a
   );
 });
 
-test("rejects decision scopes while proof access is read-only", async () => {
+test("rejects unknown grant scopes before persistence", async () => {
   await assert.rejects(
     () => access.createProofGrant({ order_number: order.order_number, scope: "review_and_decide" as "view" }),
-    /Only view-scoped/
+    /scope must be view or review/i
   );
 });
 

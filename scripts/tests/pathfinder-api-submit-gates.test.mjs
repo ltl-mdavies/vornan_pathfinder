@@ -436,8 +436,35 @@ test("operator-only Proof action QA remains independently dark and narrowly scop
     template,
     /HasProofAuditTable[\s\S]*?- dynamodb:PutItem[\s\S]*?Resource: !Ref ProofAuditTableArn/
   );
-  assert.match(template, /PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"/);
+  assert.match(template, /ProofPublicReadEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /ProofCustomerApprovalEnabled:[\s\S]*?Default: "false"/);
   assert.doesNotMatch(template, /PATHFINDER_PROOF_ENABLE_(APPROVE|REVISION|UNDO): "true"/);
+});
+
+test("customer Proof approval is default-dark and requires the complete review boundary", () => {
+  assert.match(template, /ProofPublicReadEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /ProofCustomerApprovalEnabled:[\s\S]*?Default: "false"/);
+  assert.match(
+    template,
+    /ProofCustomerApprovalRequiresReviewBoundary:\n\s+RuleCondition: !Equals \[!Ref ProofCustomerApprovalEnabled, "true"\][\s\S]*?!Equals \[!Ref ProofPublicReadEnabled, "true"\][\s\S]*?!Equals \[!Ref ProofGrantCreationEnabled, "true"\][\s\S]*?!Ref ProofCoreTableName[\s\S]*?!Ref ProofCoreTableArn[\s\S]*?!Ref ProofAuditTableName[\s\S]*?!Ref ProofAuditTableArn[\s\S]*?!Ref ProofGrantAllowedCustomerIds[\s\S]*?!Ref ProofReadOnlyActivationExpiresAt/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join[\s\S]*?- "\|"[\s\S]*?!Ref ProofPublicReadEnabled[\s\S]*?!Ref ProofCustomerApprovalEnabled/
+  );
+  assert.doesNotMatch(template, /PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:/);
+  assert.match(
+    workflow,
+    /ProofPublicReadEnabled="\$\{\{ vars\.PATHFINDER_PROOF_ENABLE_PUBLIC_READ \|\| 'false' \}\}"/
+  );
+  assert.match(
+    workflow,
+    /ProofCustomerApprovalEnabled="\$\{\{ vars\.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS \|\| 'false' \}\}"/
+  );
+  assert.match(
+    deployScript,
+    /ProofCustomerApprovalEnabled="\$\{PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:-false\}"/
+  );
 });
 
 test("operator revised-art upload stays independently dark and exact-bucket scoped", () => {
@@ -535,5 +562,6 @@ test("Proof asset scan processing is dark, sanitized, queued, and least-privileg
   );
   assert.match(deployScript, /ProofAssetScanWorkerAllowedObjectKey="\$\{PATHFINDER_PROOF_ASSET_SCAN_WORKER_ALLOWED_OBJECT_KEY:-\}"/);
   assert.match(deployScript, /ProofAssetScanWorkerExpiresAt="\$\{PATHFINDER_PROOF_ASSET_SCAN_WORKER_EXPIRES_AT:-\}"/);
-  assert.match(template, /PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false"/);
+  assert.match(template, /ProofPublicReadEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /ProofCustomerApprovalEnabled:[\s\S]*?Default: "false"/);
 });

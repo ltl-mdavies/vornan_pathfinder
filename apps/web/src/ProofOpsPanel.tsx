@@ -12,7 +12,7 @@ import {
 interface ProofGrant {
   grant_id: string;
   order_number: string;
-  scope: "view";
+  scope: "view" | "review";
   label: string | null;
   status: "active" | "revoked";
   created_at: string;
@@ -521,7 +521,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     }
   }
 
-  async function createGrant() {
+  async function createGrant(scope: "view" | "review") {
     if (!order) return;
     setState("loading");
     setMessage(null);
@@ -530,14 +530,14 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
       const payload = await responseJson<{ grant: ProofGrant; access_url: string }>(
         await request(`/api/proof/orders/${order.order_number}/grants`, {
           method: "POST",
-          body: JSON.stringify({ scope: "view", label: label.trim() || null })
+          body: JSON.stringify({ scope, label: label.trim() || null })
         })
       );
       setOneTimeAccess({ grantId: payload.grant.grant_id, url: payload.access_url });
       setLabel("");
       await loadGrants(order.order_number);
       await loadAudit(order.order_number).catch(() => undefined);
-      setMessage("View-only link created. Copy it now; the raw token will not be shown again.");
+      setMessage(`${scope === "review" ? "Review" : "View-only"} link created. Copy it now; the raw token will not be shown again.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Proof link creation failed.");
     } finally {
@@ -937,7 +937,9 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
           <h3 id="proof-ops-title">Sync an order and manage customer access.</h3>
           <span>Direct Lift orders are supported; a Pathfinder job is not required.</span>
         </div>
-        <div className="proof-write-lock"><ShieldCheck size={16} /> Lift decisions locked</div>
+        <div className="proof-write-lock">
+          <ShieldCheck size={16} /> {health?.feature_flags.approve ? "Single-proof approvals active" : "Lift decisions locked"}
+        </div>
       </div>
 
       <div className="proof-ops-form">
@@ -1019,8 +1021,8 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
             <div>
               <ShieldCheck size={16} />
               <span>Customer capability</span>
-              <strong>{health.feature_flags.public_read ? "View-only public read" : "Public read off"}</strong>
-              <small>Approve off · Revision off · Undo off · Lift writes off</small>
+              <strong>{health.feature_flags.approve ? "Single-proof approval active" : health.feature_flags.public_read ? "View-only public read" : "Public read off"}</strong>
+              <small>Approve {health.feature_flags.approve ? "on" : "off"} · Revision off · Undo off · Automatic retry off</small>
             </div>
           </div>
           {readOnlyPosture.blockers.length ? (
@@ -1336,9 +1338,14 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
               Link label
               <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Customer review" />
             </label>
-            <button className="secondary-button" type="button" disabled={!health?.feature_flags.grant_creation || state === "loading"} onClick={() => void createGrant()}>
+            <button className="secondary-button" type="button" disabled={!health?.feature_flags.grant_creation || state === "loading"} onClick={() => void createGrant("view")}>
               <Link2 size={16} /> Create view-only link
             </button>
+            {health?.feature_flags.approve ? (
+              <button className="primary-button" type="button" disabled={!health.feature_flags.grant_creation || state === "loading"} onClick={() => void createGrant("review")}>
+                <ShieldCheck size={16} /> Create approval link
+              </button>
+            ) : null}
             {!health?.feature_flags.grant_creation ? <small>Grant creation is disabled in this environment.</small> : null}
           </div>
 
@@ -1378,7 +1385,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
             {grants.map((grant) => (
               <article key={grant.grant_id} className={grant.status === "revoked" ? "revoked" : ""}>
                 <div>
-                  <strong>{grant.label ?? "View-only access"}</strong>
+                  <strong>{grant.label ?? (grant.scope === "review" ? "Approval access" : "View-only access")}</strong>
                   <span>{grant.status} · expires {dateLabel(grant.expires_at)} · last used {dateLabel(grant.last_used_at)}</span>
                 </div>
                 <div className="proof-grant-actions">

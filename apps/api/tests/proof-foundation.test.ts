@@ -33,9 +33,9 @@ after(async () => {
   await rm(testDirectory, { recursive: true, force: true });
 });
 
-test("keeps every Lift Proof write flag hard-disabled during the read-only phase", () => {
+test("keeps every opt-in Proof capability dark by default", () => {
   const config = getProofRuntimeConfig();
-  assert.equal(config.phase, "tokenized_customer_read_foundation");
+  assert.equal(config.phase, "single_proof_customer_approval_foundation");
   assert.deepEqual(config.feature_flags, {
     grant_creation: false,
     proof_link_email: false,

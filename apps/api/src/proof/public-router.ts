@@ -17,6 +17,12 @@ import { proofAutomaticRefreshState, queueProofSync } from "./sync-queue.js";
 import { identifyProofParticipant, publicProofActivity, publicProofParticipant } from "./participant-service.js";
 import { acknowledgeProofFeedback, proofFeedbackStates as loadProofFeedbackStates } from "./feedback-service.js";
 import { PROOF_EXPECTED_DENIAL_LOCAL } from "./telemetry.js";
+import {
+  ProofCustomerApprovalError,
+  proofCustomerApprovalService
+} from "./customer-approval-service.js";
+import { ProofDecisionIntegrityError } from "./decision-contract.js";
+import { ProofDecisionLedgerError } from "./decision-ledger.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
 export const PROOF_SESSION_COOKIE_PATH = "/api/public/proof";
@@ -70,6 +76,30 @@ function handlePublicError(error: unknown, res: Parameters<Parameters<Router["ge
     res.status(400).json({ error: error.message });
     return;
   }
+  if (error instanceof ProofDecisionIntegrityError) {
+    res.status(error.code.includes("stale") || error.code.includes("mismatch") ? 409 : 400).json({ error: error.message });
+    return;
+  }
+  if (error instanceof ProofDecisionLedgerError) {
+    res.status(error.code === "concurrent_update" ? 409 : 500).json({
+      error: error.code === "concurrent_update"
+        ? "This proof decision is already being processed."
+        : "The proof decision could not be persisted safely."
+    });
+    return;
+  }
+  if (error instanceof ProofCustomerApprovalError) {
+    const status = error.code === "disabled"
+      ? 503
+      : error.code === "conflict" || error.code === "stale" || error.code === "already_attempted"
+        ? 409
+        : error.code === "not_allowed"
+          ? 403
+          : 400;
+    if (status === 503 || status === 403) res.locals[PROOF_EXPECTED_DENIAL_LOCAL] = true;
+    res.status(status).json({ error: error.message });
+    return;
+  }
   if (error instanceof ProofAccessFeatureDisabledError) {
     res.locals[PROOF_EXPECTED_DENIAL_LOCAL] = true;
     res.status(503).json({ error: "Proof access is not available." });
@@ -80,11 +110,13 @@ function handlePublicError(error: unknown, res: Parameters<Parameters<Router["ge
 
 interface ProofPublicRouterDependencies {
   queueSync?: typeof queueProofSync;
+  approveProof?: typeof proofCustomerApprovalService.approve;
 }
 
 export function createProofPublicRouter(dependencies: ProofPublicRouterDependencies = {}) {
   const router = Router();
   const enqueueSync = dependencies.queueSync ?? queueProofSync;
+  const approveProof = dependencies.approveProof ?? proofCustomerApprovalService.approve;
 
   router.use((_req, res, next) => {
     assertLiftProofWritesDisabled();
@@ -137,7 +169,10 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         : null;
       const automaticRefresh = proofAutomaticRefreshState(order);
       const publicOrder = toPublicProofOrder(order, session.scope, {
-        include_asset_urls: !automaticRefresh.stale
+        include_asset_urls: !automaticRefresh.stale,
+        decisions_enabled:
+          getProofRuntimeConfig().feature_flags.approve &&
+          getProofRuntimeConfig().feature_flags.public_read
       });
       const feedbackStates = new Map(
         (await loadProofFeedbackStates(order, session)).map((state) => [state.task_id, state])
@@ -230,6 +265,29 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
     }
   });
 
+  router.post("/tasks/:taskId/decisions/approve", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session } = await validateProofSession(rawSession);
+      requireCsrf(req, session);
+      const result = await approveProof({
+        session,
+        request: {
+          task_id: req.params.taskId,
+          attachment_id: req.body?.attachment_id,
+          expected_task_version: req.body?.expected_task_version,
+          expected_version_id: req.body?.expected_version_id,
+          idempotency_key: req.body?.idempotency_key,
+          note: req.body?.note
+        },
+        correlation_id: req.get("x-request-id") ?? `proof-customer-${session.session_id}`
+      });
+      res.status(result.status === "new" ? 201 : 200).json({ decision: result });
+    } catch (error) {
+      handlePublicError(error, res, "Proof approval could not be completed.");
+    }
+  });
+
   router.post("/order/refresh", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
@@ -302,7 +360,11 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
 
   router.get("/health", (_req, res) => {
     const config = getProofRuntimeConfig();
-    res.json({ phase: config.phase, public_read: config.feature_flags.public_read, decisions_enabled: false });
+    res.json({
+      phase: config.phase,
+      public_read: config.feature_flags.public_read,
+      decisions_enabled: config.feature_flags.public_read && config.feature_flags.approve
+    });
   });
 
   return router;

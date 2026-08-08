@@ -22,7 +22,7 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { acknowledgeFeedback, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofRefresh } from "./api";
+import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofRefresh } from "./api";
 import { proofAsset } from "./asset-state";
 import { demoActivityForHash, demoOrderForHash } from "./demo";
 import { restoreProofDialogFocus } from "./dialog-state";
@@ -404,10 +404,13 @@ type ActionTransportProps = {
   draft: SavedQuantityDraft | null;
   onSaveDraft: (draft: SavedQuantityDraft) => void;
   demoBatchEnabled: boolean;
+  decisionsEnabled: boolean;
+  participantIdentified: boolean;
+  onApproveSingle: (task: ProofTask, note: string) => Promise<void>;
   mobile?: boolean;
 };
 
-function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, mobile = false }: ActionTransportProps) {
+function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, participantIdentified, onApproveSingle, mobile = false }: ActionTransportProps) {
   const multiProof = tasks.length > 1;
   const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
   const selectedCreativeNumber = tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1;
@@ -419,6 +422,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   const [processingIndex, setProcessingIndex] = useState(0);
   const [transformationSummary, setTransformationSummary] = useState<QuantityTransformationSummary | null>(null);
   const [decisionMessage, setDecisionMessage] = useState("");
+  const [singleApprovalState, setSingleApprovalState] = useState<"idle" | "submitting" | "complete" | "error">("idle");
+  const [singleApprovalMessage, setSingleApprovalMessage] = useState<string | null>(null);
   const assignmentOpener = useRef<HTMLButtonElement>(null);
   const summary = summarizeQuantityAssignment(lineQuantity, stagedTasks.map((task) => task.task_id), values);
   const saved = quantityDraftMatches(draft, stagedTasks, values);
@@ -455,11 +460,41 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
     onChange(next);
     onUndoApproval(selectedTask.task_id);
   };
+  const singleApprovalBlocked = !decisionsEnabled
+    ? "Approval access is not enabled for this review link."
+    : !participantIdentified
+      ? "Identify the reviewer before approving this proof."
+      : selectedTask.feedback_required && !selectedTask.feedback_acknowledged
+        ? "Review and acknowledge the prepress team feedback before approving."
+        : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
+          ? "This proof is shared by multiple lines and requires a coordinated approval."
+          : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
+            ? "This proof is not currently available for approval."
+            : null;
+  const submitSingleApproval = async () => {
+    if (singleApprovalBlocked || singleApprovalState === "submitting") return;
+    setSingleApprovalState("submitting");
+    setSingleApprovalMessage(null);
+    try {
+      await onApproveSingle(selectedTask, decisionMessage);
+      setSingleApprovalState("complete");
+      setSingleApprovalMessage("Approval recorded. The latest Lift proof state is now shown.");
+    } catch (error) {
+      setSingleApprovalState("error");
+      setSingleApprovalMessage(error instanceof Error ? error.message : "This proof could not be approved.");
+    }
+  };
   return (
     <section className={`action-transport ${mobile ? "mobile" : ""} ${multiProof ? "distribution" : "simple"}`} aria-label="Proof decision actions" aria-describedby={mobile ? undefined : "action-lock-message"}>
       <div className="decision-heading">
         <strong>{multiProof ? "Creative decision" : "Review decision"}</strong>
-        <small className="decision-lock-status" id={mobile ? undefined : "action-lock-message"}><LockKeyhole aria-hidden="true" /> Actions remain locked during lifecycle QA</small>
+        <small className="decision-lock-status" id={mobile ? undefined : "action-lock-message"}>
+          <LockKeyhole aria-hidden="true" /> {multiProof
+            ? "Advanced approval remains unavailable"
+            : decisionsEnabled
+              ? "One current, unshared proof can be approved"
+              : "Approval is not enabled for this review link"}
+        </small>
       </div>
       {multiProof ? (
         <>
@@ -505,7 +540,27 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
           </div>
         </>
       ) : null}
-      {!multiProof ? <div className="transport-buttons"><button type="button" disabled><ShieldCheck aria-hidden="true" /> Approve</button><button type="button" disabled><Upload aria-hidden="true" /> Request changes</button></div> : null}
+      {!multiProof ? (
+        <div className="single-decision-controls">
+          <label className="single-decision-note">
+            <span>Message with decision (optional)</span>
+            <textarea
+              value={decisionMessage}
+              onChange={(event) => setDecisionMessage(event.target.value)}
+              placeholder="Add context for the production team with your approval"
+              maxLength={2000}
+            />
+          </label>
+          <div className="transport-buttons">
+            <button type="button" disabled={Boolean(singleApprovalBlocked) || singleApprovalState === "submitting" || singleApprovalState === "complete"} onClick={() => void submitSingleApproval()}>
+              <ShieldCheck aria-hidden="true" /> {singleApprovalState === "submitting" ? "Approving…" : singleApprovalState === "complete" ? "Approved" : "Approve"}
+            </button>
+            <button type="button" disabled><Upload aria-hidden="true" /> Request changes</button>
+          </div>
+          {singleApprovalBlocked ? <small className="decision-guidance">{singleApprovalBlocked}</small> : null}
+          {singleApprovalMessage ? <p className={`decision-result ${singleApprovalState}`} role="status">{singleApprovalMessage}</p> : null}
+        </div>
+      ) : null}
       {multiProof ? (
         <QuantityAssignmentDialog
           tasks={stagedTasks}
@@ -608,6 +663,7 @@ export function App() {
   const deferDetailFocusReturn = useRef(false);
   const refreshPollTimer = useRef<number | null>(null);
   const refreshPollAttempts = useRef(0);
+  const approvalIdempotencyKeys = useRef(new Map<string, string>());
 
   const endLocalSession = () => {
     bootstrapPromise = null;
@@ -804,6 +860,42 @@ export function App() {
 
   const saveQuantityReview = (groupId: string, draft: SavedQuantityDraft) => {
     setQuantityDrafts((current) => ({ ...current, [groupId]: draft }));
+  };
+
+  const approveSingleProof = async (task: ProofTask, note: string) => {
+    if (loadState.status !== "ready" || !task.attachment_id || !task.current_version?.version_id) {
+      throw new Error("The selected proof is no longer current.");
+    }
+    const identity = `${task.task_id}:${task.version ?? 0}:${task.current_version.version_id}`;
+    const idempotencyKey = approvalIdempotencyKeys.current.get(identity)
+      ?? `pdec_${crypto.randomUUID().replaceAll("-", "")}`;
+    approvalIdempotencyKeys.current.set(identity, idempotencyKey);
+    try {
+      const result = await approveProof({
+        task_id: task.task_id,
+        attachment_id: task.attachment_id,
+        expected_task_version: task.version ?? 0,
+        expected_version_id: task.current_version.version_id,
+        idempotency_key: idempotencyKey,
+        note: note.trim() || null
+      });
+      if (result.decision.outcome !== "confirmed") {
+        throw new Error("Lift received the approval, but the refreshed proof state still needs review. The action will not be retried automatically.");
+      }
+      approvalIdempotencyKeys.current.delete(identity);
+      bootstrapPromise = null;
+      const refreshed = await bootstrap();
+      setLoadState({
+        status: "ready",
+        order: refreshed.order,
+        participant: refreshed.participant,
+        activity: refreshed.activity,
+        session_expires_at: refreshed.session_expires_at
+      });
+    } catch (error) {
+      if (error instanceof ProofApiError && error.status === 401) terminateSession();
+      throw error;
+    }
   };
 
   const loadHistory = async (taskId: string) => {
@@ -1042,14 +1134,16 @@ export function App() {
             <div><dt>Waiting</dt><dd>{proofCounts.waiting}</dd></div>
             <div><dt>Reviewed</dt><dd>{proofCounts.reviewed}/{proofCounts.total}</dd></div>
           </dl>
-          <div className="view-only-badge"><ShieldCheck aria-hidden="true" /> Secure view-only access</div>
+          <div className="view-only-badge"><ShieldCheck aria-hidden="true" /> {order!.access.decisions_enabled ? "Secure review access" : "Secure view-only access"}</div>
         </div>
       </section>
 
       <div className="notice-stack">
         <div className="read-only-notice" role="status">
           <ShieldCheck aria-hidden="true" />
-          <span><strong>Review mode.</strong> Approvals and revision requests remain disabled while Vornan completes isolated lifecycle QA.</span>
+          <span>{order!.access.decisions_enabled
+            ? <><strong>Review mode.</strong> Single-proof approvals are available. Multi-proof, shared-art, revision, and upload actions remain protected.</>
+            : <><strong>Review mode.</strong> Approvals and revision requests remain disabled while Vornan completes isolated lifecycle QA.</>}</span>
         </div>
         {orderHealthMessage ? (
           <div className={`order-health-notice ${order!.health}`} role="status">
@@ -1181,6 +1275,9 @@ export function App() {
                 draft={quantityDrafts[selectedGroup?.group_id ?? selectedTask.task_id] ?? null}
                 onSaveDraft={(draft) => saveQuantityReview(selectedGroup?.group_id ?? selectedTask.task_id, draft)}
                 demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
+                decisionsEnabled={order!.access.decisions_enabled}
+                participantIdentified={Boolean(participant)}
+                onApproveSingle={approveSingleProof}
               />
             </>
           ) : (
@@ -1259,6 +1356,9 @@ export function App() {
                   draft={quantityDrafts[group.group_id] ?? null}
                   onSaveDraft={(draft) => saveQuantityReview(group.group_id, draft)}
                   demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
+                  decisionsEnabled={order!.access.decisions_enabled}
+                  participantIdentified={Boolean(participant)}
+                  onApproveSingle={approveSingleProof}
                   mobile
                 />
               </article>

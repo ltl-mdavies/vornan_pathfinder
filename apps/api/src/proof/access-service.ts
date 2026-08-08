@@ -166,8 +166,12 @@ export async function createProofGrant(input: {
   if (!order.customer_id || !config.access.grant_allowed_customer_ids.includes(order.customer_id)) {
     throw new ProofGrantCohortDeniedError();
   }
-  if (input.scope && input.scope !== "view") {
-    throw new ProofAccessValidationError("Only view-scoped proof grants are available while Lift writes are disabled.");
+  const requestedScope = input.scope ?? "view";
+  if (requestedScope !== "view" && requestedScope !== "review") {
+    throw new ProofAccessValidationError("Proof access scope must be view or review.");
+  }
+  if (requestedScope === "review" && !config.feature_flags.approve) {
+    throw new ProofAccessValidationError("Review-scoped Proof access is not enabled.");
   }
   const now = input.now ?? new Date();
   const deadline = activationDeadline(now);
@@ -185,7 +189,7 @@ export async function createProofGrant(input: {
   const grant: ProofAccessGrant = {
     grant_id: `pgrant_${randomUUID()}`,
     order_number: orderNumber,
-    scope: "view",
+    scope: requestedScope,
     label: input.label?.trim() || null,
     status: "active",
     token_hash: hashSecret(rawToken),
