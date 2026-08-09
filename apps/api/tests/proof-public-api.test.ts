@@ -150,6 +150,7 @@ test("exchanges a fragment token for a narrow hardened cookie and returns only i
   assert.equal(response.body.order.order_title, "QA proof packet");
   assert.equal(response.body.order.order_status, "Pending Art Approval");
   assert.equal(response.body.order.access.decisions_enabled, false);
+  assert.equal(response.body.order.access.revision_upload_enabled, false);
   assert.equal(response.body.session_expires_at, exchange.body.expires_at);
   assert.equal(response.body.participant, null);
   assert.deepEqual(response.body.activity, {
@@ -467,6 +468,145 @@ test("exposes the one supported approval route only to a review-scoped session",
   } finally {
     delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
   }
+});
+
+test("binds revised-art upload lifecycle calls to one identified review session without publishing or calling Lift", async () => {
+  process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS = "true";
+  process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS = "true";
+  try {
+    const calls: Array<{ operation: string; input: any }> = [];
+    const revisionApp = express();
+    revisionApp.use(express.json());
+    revisionApp.use("/api/public/proof", createPublicRouter({
+      prepareRevisionAsset: async (input) => {
+        calls.push({ operation: "prepare", input });
+        return {
+          status: "new" as const,
+          asset: {
+            asset_id: `passet_${"a".repeat(64)}`,
+            state: "uploading"
+          } as never,
+          upload: {
+            method: "POST" as const,
+            url: "https://proof-upload.example.invalid/",
+            fields: { policy: "opaque" },
+            expires_at: "2026-08-09T13:10:00.000Z"
+          }
+        };
+      },
+      revisionAssetStatus: async (input) => {
+        calls.push({ operation: "status", input });
+        return { asset: { asset_id: input.request.asset_id, state: "uploading" } as never };
+      },
+      finalizeRevisionAsset: async (input) => {
+        calls.push({ operation: "finalize", input });
+        return {
+          status: "completed" as const,
+          asset: { asset_id: input.request.asset_id, state: "uploaded" } as never
+        };
+      }
+    }));
+    const created = await access.createProofGrant({
+      order_number: order.order_number,
+      scope: "review"
+    });
+    delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
+    const exchange = await request(revisionApp)
+      .post("/api/public/proof/sessions")
+      .send({ token: created.access_url.split("/").at(-1)! })
+      .expect(201);
+    const credentials = exchangeCredentials(exchange);
+    await request(revisionApp)
+      .post("/api/public/proof/participants")
+      .set("Cookie", credentials.cookie)
+      .set("X-Vornan-Proof-Csrf", credentials.csrf)
+      .send({ display_name: "Revision Reviewer", email: "revision@example.com" })
+      .expect(201);
+    const revisionOrder = await request(revisionApp)
+      .get("/api/public/proof/order")
+      .set("Cookie", credentials.cookie)
+      .expect(200);
+    assert.equal(revisionOrder.body.order.access.revision_upload_enabled, true);
+
+    const assetId = `passet_${"a".repeat(64)}`;
+    await request(revisionApp)
+      .post(`/api/public/proof/tasks/${order.tasks[0]!.task_id}/revised-assets/uploads/prepare`)
+      .set("Cookie", credentials.cookie)
+      .set("X-Vornan-Proof-Csrf", credentials.csrf)
+      .send({
+        attachment_id: order.tasks[0]!.attachment_id,
+        idempotency_key: "customer-revision-upload-0001",
+        original_filename: "customer revision.pdf",
+        content_type: "application/pdf",
+        content_length: 8192,
+        sha256: "b".repeat(64),
+        order_number: "A0999999"
+      })
+      .expect(201);
+    await request(revisionApp)
+      .get(`/api/public/proof/revised-assets/uploads/${assetId}`)
+      .set("Cookie", credentials.cookie)
+      .expect(200);
+    await request(revisionApp)
+      .post("/api/public/proof/revised-assets/uploads/finalize")
+      .set("Cookie", credentials.cookie)
+      .set("X-Vornan-Proof-Csrf", credentials.csrf)
+      .send({ asset_id: assetId, order_number: "A0999999" })
+      .expect(200);
+
+    assert.deepEqual(calls.map((call) => call.operation), ["prepare", "status", "finalize"]);
+    assert.equal(calls[0]!.input.request.order_number, order.order_number);
+    assert.equal(calls[0]!.input.request.task_id, order.tasks[0]!.task_id);
+    assert.equal(calls[1]!.input.request.order_number, order.order_number);
+    assert.equal(calls[2]!.input.request.order_number, order.order_number);
+    for (const call of [calls[0]!, calls[2]!]) {
+      assert.equal(call.input.actor_context.actor_type, "customer_session");
+      assert.equal(call.input.actor_context.source, "public_api");
+      assert.equal(call.input.actor_context.grant_id, created.grant.grant_id);
+      assert.match(call.input.actor_context.participant_id, /^pparticipant_[A-Za-z0-9-]{8,80}$/);
+    }
+    assert.equal(JSON.stringify(calls).includes("delivery_url"), false);
+    assert.equal(JSON.stringify(calls).includes("REVISED_ART_WILL_BE_SENT"), false);
+  } finally {
+    delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
+    delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS;
+  }
+});
+
+test("keeps customer revised-art upload dark before any upload service call", async () => {
+  process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS = "true";
+  let calls = 0;
+  const darkApp = express();
+  darkApp.use(express.json());
+  darkApp.use("/api/public/proof", createPublicRouter({
+    prepareRevisionAsset: async () => {
+      calls += 1;
+      throw new Error("must not run");
+    }
+  }));
+  const created = await access.createProofGrant({
+    order_number: order.order_number,
+    scope: "review"
+  });
+  delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
+  const exchange = await request(darkApp)
+    .post("/api/public/proof/sessions")
+    .send({ token: created.access_url.split("/").at(-1)! })
+    .expect(201);
+  const credentials = exchangeCredentials(exchange);
+  await request(darkApp)
+    .post("/api/public/proof/participants")
+    .set("Cookie", credentials.cookie)
+    .set("X-Vornan-Proof-Csrf", credentials.csrf)
+    .send({ display_name: "Dark Reviewer", email: "dark@example.com" })
+    .expect(201);
+  await request(darkApp)
+    .post(`/api/public/proof/tasks/${order.tasks[0]!.task_id}/revised-assets/uploads/prepare`)
+    .set("Cookie", credentials.cookie)
+    .set("X-Vornan-Proof-Csrf", credentials.csrf)
+    .send({})
+    .expect(503);
+  assert.equal(calls, 0);
 });
 
 test("returns only redacted history for a task in the session order", async () => {

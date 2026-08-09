@@ -438,6 +438,23 @@ test("operator-only Proof action QA remains independently dark and narrowly scop
   );
   assert.match(template, /ProofPublicReadEnabled:[\s\S]*?Default: "false"/);
   assert.match(template, /ProofCustomerApprovalEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /ProofCustomerRevisionUploadEnabled:[\s\S]*?Default: "false"/);
+  assert.match(
+    template,
+    /ProofCustomerRevisionUploadRequiresReviewBoundary:\n\s+RuleCondition: !Equals \[!Ref ProofCustomerRevisionUploadEnabled, "true"\][\s\S]*?!Equals \[!Ref ProofPublicReadEnabled, "true"\][\s\S]*?!Equals \[!Ref ProofAssetUploadEnabled, "true"\][\s\S]*?!Ref ProofCoreTableName[\s\S]*?!Ref ProofCoreTableArn[\s\S]*?!Ref ProofAuditTableName[\s\S]*?!Ref ProofAuditTableArn[\s\S]*?!Ref ProofGrantAllowedCustomerIds[\s\S]*?!Ref ProofReadOnlyActivationExpiresAt/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join[\s\S]*?- "\|"[\s\S]*?!Ref ProofPublicReadEnabled[\s\S]*?!Ref ProofCustomerApprovalEnabled[\s\S]*?!Ref ProofCustomerRevisionUploadEnabled/
+  );
+  assert.match(
+    workflow,
+    /ProofCustomerRevisionUploadEnabled="\$\{\{ vars\.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS \|\| 'false' \}\}"/
+  );
+  assert.match(
+    deployScript,
+    /ProofCustomerRevisionUploadEnabled="\$\{PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS:-false\}"/
+  );
   assert.doesNotMatch(template, /PATHFINDER_PROOF_ENABLE_(APPROVE|REVISION|UNDO): "true"/);
 });
 

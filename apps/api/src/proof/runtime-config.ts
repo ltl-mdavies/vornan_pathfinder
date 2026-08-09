@@ -17,6 +17,7 @@ export interface ProofRuntimeConfig {
     proof_link_email: boolean;
     public_read: boolean;
     approve: boolean;
+    revision_upload: boolean;
     revision: false;
     undo: false;
   };
@@ -69,7 +70,7 @@ function customerIds(value: string | undefined) {
 }
 
 export function getProofRuntimeConfig(): ProofRuntimeConfig {
-  const [packedPublicRead, packedCustomerApproval] =
+  const [packedPublicRead, packedCustomerApproval, packedCustomerRevision] =
     (process.env.PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE ?? "").split("|");
   const requestedStorageDriver = process.env.PATHFINDER_PROOF_STORAGE_DRIVER;
   const storageDriver: ProofStorageDriver =
@@ -100,6 +101,9 @@ export function getProofRuntimeConfig(): ProofRuntimeConfig {
       approve:
         packedCustomerApproval === "true" ||
         process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS === "true",
+      revision_upload:
+        packedCustomerRevision === "true" ||
+        process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS === "true",
       revision: false,
       undo: false
     },

@@ -82,6 +82,7 @@ aws cloudformation deploy \
     ProofGrantCreationEnabled="${PATHFINDER_PROOF_ENABLE_GRANT_CREATION:-false}" \
     ProofPublicReadEnabled="${PATHFINDER_PROOF_ENABLE_PUBLIC_READ:-false}" \
     ProofCustomerApprovalEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:-false}" \
+    ProofCustomerRevisionUploadEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS:-false}" \
     ProofGrantAllowedCustomerIds="${PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS:-}" \
     ProofReadOnlyActivationExpiresAt="${PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT:-}" \
     ProofLinkEmailEnabled="${PATHFINDER_PROOF_ENABLE_LINK_EMAIL:-false}" \

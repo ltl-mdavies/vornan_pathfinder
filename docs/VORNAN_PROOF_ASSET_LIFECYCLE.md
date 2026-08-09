@@ -1,10 +1,10 @@
 # Vornan Proof asset lifecycle
 
-Status: extensible Phase 4 contract foundation. This document records product and
-architecture decisions; it does not authorize AWS infrastructure, upload APIs,
-deployment, credential use, or a Lift write.
+Status: extensible Proof asset contract and default-dark runtime foundation. This
+document records product and architecture decisions; it does not authorize a
+deployment, capability activation, credential use, customer upload, or Lift write.
 
-Last updated: 2026-07-28.
+Last updated: 2026-08-09.
 
 ## Purpose
 
@@ -71,6 +71,27 @@ MIME type, SHA-256 checksum, order, task, attachment, revision, and upload actor
 The outbound publication binds a new opaque publication ID to the exact verified
 source version and checksum, plus its own immutable object key, version ID, and
 matching checksum.
+
+### Order support asset record
+
+Every revised-art upload remains associated with its exact Lift order, Proof task,
+attachment it replaces, revision, original safe filename, checksum, and versioned
+source object. That retained source record is also the canonical order-support
+asset record. It supports a future internal art-team experience without copying
+creative files into a second repository:
+
+- download one exact retained source version;
+- list customer-supplied revisions by order, line/task, and upload time;
+- generate an authorized ZIP from the order's `internal_source_complete` packet
+  membership;
+- generate a narrower client packet from `client_current` membership; and
+- retain audit-safe evidence after the creative bytes become cleanup-eligible.
+
+The ZIP and download experience are derived views. They do not change the source
+object identity or extend retention on replay. The short-lived outbound Lift copy
+is never the support archive. This foundation does not yet expose an asset-list,
+single-file download, or ZIP-generation route; those remain the packet-and-sharing
+slice below.
 
 Public paths are deliberately different:
 
@@ -203,8 +224,12 @@ the same reviewed checkpoint.
 3. **Private storage foundation** — bucket, encryption/versioning/public block,
    lifecycle rules, multipart controls, scan events, alarms, and least-privilege
    IAM.
-4. **Upload/finalize API and UI** — initialization, browser multipart upload,
-   finalize, progress/recovery, and operator inspection.
+4. **Upload/finalize API and UI** — the authenticated operator upload/finalize
+   pipeline exists. A default-dark customer review-session boundary now exposes
+   only checksum-pinned prepare, sanitized status, and exact-object finalization
+   for an identified participant in the granted order. It does not publish an
+   object, expose a download URL, or call Lift. Customer UI, progress/recovery,
+   and activation remain separate work.
 5. **Verification/publication** — checksum/content validation, malware result,
    immutable outbound copy, direct `go.vornan.co` verification, and durable settle
    barrier.

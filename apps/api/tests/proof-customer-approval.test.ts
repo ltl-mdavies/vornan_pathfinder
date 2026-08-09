@@ -98,7 +98,7 @@ function runtime(enabled: boolean) {
     core_table_name: "ProofCore",
     audit_table_name: "ProofAudit",
     read: { order_read_url: "https://example.invalid/order", proof_report_read_url: "https://example.invalid/proof", timeout_ms: 15_000, concurrency: 5, proof_readable_min_step: null },
-    feature_flags: { grant_creation: enabled, proof_link_email: false, public_read: enabled, approve: enabled, revision: false as const, undo: false as const },
+    feature_flags: { grant_creation: enabled, proof_link_email: false, public_read: enabled, approve: enabled, revision_upload: false, revision: false as const, undo: false as const },
     access: { public_base_url: "https://proof.vornan.co", grant_ttl_days: 14, session_ttl_minutes: 30, edge_shared_secret: "synthetic", grant_allowed_customer_ids: ["1249"], read_only_activation_expires_at: "2026-08-08T18:00:00.000Z" },
     sync: { queue_url: null, stale_after_minutes: 15, automatic_refresh_max_inactive_days: 14 },
     qa_lifecycle: { isolated_endpoint_confirmed: true, dedicated_credentials_confirmed: true, approval_cycle_confirmed: true, revision_cycle_confirmed: false, lift_writes_enabled: false as const }

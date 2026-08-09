@@ -5,7 +5,11 @@ import {
 } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { createHash } from "node:crypto";
-import type { ProofAuditEvent, ProofOrder } from "@pathfinder/proof-domain";
+import type {
+  ProofAuditEvent,
+  ProofAuditActorType,
+  ProofOrder
+} from "@pathfinder/proof-domain";
 import {
   beginProofAssetUpload,
   completeProofAssetUpload,
@@ -80,6 +84,14 @@ export interface ProofAssetUploadServiceDependencies {
   now?: () => Date;
 }
 
+export interface ProofAssetUploadActorContext {
+  actor_type: Extract<ProofAuditActorType, "operator" | "customer_session">;
+  actor_id: string;
+  source: "operator" | "public_api";
+  grant_id: string | null;
+  participant_id: string | null;
+}
+
 let sharedS3: S3Client | null = null;
 
 function defaultS3() {
@@ -101,6 +113,35 @@ function actorId(uid: string) {
     );
   }
   return `operator_${sha256("vornan-proof-asset-operator-v1", uid)}`;
+}
+
+function uploadActor(input: {
+  operator_uid?: string;
+  actor_context?: ProofAssetUploadActorContext;
+}) {
+  if (input.actor_context) {
+    const actor = input.actor_context;
+    if (
+      actor.actor_type !== "customer_session" ||
+      actor.source !== "public_api" ||
+      !/^[A-Za-z0-9_.:-]{1,180}$/.test(actor.actor_id) ||
+      !/^pgrant_[A-Za-z0-9-]{8,80}$/.test(actor.grant_id ?? "") ||
+      !/^pparticipant_[A-Za-z0-9-]{8,80}$/.test(actor.participant_id ?? "")
+    ) {
+      throw new ProofAssetUploadServiceError(
+        "unauthenticated",
+        "An identified Proof review session is required."
+      );
+    }
+    return actor;
+  }
+  return {
+    actor_type: "operator" as const,
+    actor_id: actorId(input.operator_uid ?? ""),
+    source: "operator" as const,
+    grant_id: null,
+    participant_id: null
+  };
 }
 
 function correlationId(value: string) {
@@ -236,7 +277,7 @@ function mapStoreError(error: unknown): never {
 function auditEvent(input: {
   record: ProofAssetUploadRecord;
   action: ProofAuditEvent["action"];
-  actor_id: string;
+  actor: ProofAssetUploadActorContext;
   correlation_id: string;
 }): ProofAuditEvent {
   return {
@@ -252,13 +293,13 @@ function auditEvent(input: {
     task_id: input.record.task_id,
     order_line_id: null,
     attachment_id: input.record.attachment_id,
-    grant_id: null,
-    participant_id: null,
-    actor_type: "operator",
-    actor_id: input.actor_id,
+    grant_id: input.actor.grant_id,
+    participant_id: input.actor.participant_id,
+    actor_type: input.actor.actor_type,
+    actor_id: input.actor.actor_id,
     correlation_id: input.correlation_id,
     metadata: {
-      source: "operator",
+      source: input.actor.source,
       proof_asset_id: input.record.asset_id,
       proof_asset_state: input.record.state as
         | "initialized"
@@ -369,11 +410,12 @@ export function createProofAssetUploadService(
 
     async prepare(input: {
       request: ProofAssetUploadPrepareRequest;
-      operator_uid: string;
+      operator_uid?: string;
+      actor_context?: ProofAssetUploadActorContext;
       correlation_id: string;
     }) {
       const currentTime = now();
-      const actor = actorId(input.operator_uid);
+      const actor = uploadActor(input);
       const correlation = correlationId(input.correlation_id);
       const config = requireGate(currentTime, runtimeConfig());
       const request = normalizedPrepare(input.request, config);
@@ -386,10 +428,10 @@ export function createProofAssetUploadService(
       const { order } = await syncOrder(request.order_number, {
         allowed_customer_ids: [CUSTOMER_ID],
         audit_context: {
-          actor_type: "operator",
-          actor_id: actor,
+          actor_type: actor.actor_type,
+          actor_id: actor.actor_id,
           correlation_id: correlation,
-          source: "operator"
+          source: actor.source
         }
       });
       const task = currentTask(order, request);
@@ -421,7 +463,7 @@ export function createProofAssetUploadService(
           auditEvent({
             record: candidate,
             action: "proof.asset_upload_initialized",
-            actor_id: actor,
+            actor,
             correlation_id: correlation
           })
         );
@@ -442,7 +484,7 @@ export function createProofAssetUploadService(
             auditEvent({
               record: started,
               action: "proof.asset_upload_started",
-              actor_id: actor,
+              actor,
               correlation_id: correlation
             })
           );
@@ -513,11 +555,12 @@ export function createProofAssetUploadService(
 
     async finalize(input: {
       request: ProofAssetUploadFinalizeRequest;
-      operator_uid: string;
+      operator_uid?: string;
+      actor_context?: ProofAssetUploadActorContext;
       correlation_id: string;
     }) {
       const currentTime = now();
-      const actor = actorId(input.operator_uid);
+      const actor = uploadActor(input);
       const correlation = correlationId(input.correlation_id);
       const config = requireGate(currentTime, runtimeConfig());
       const orderNumber = input.request.order_number?.trim().toUpperCase();
@@ -583,7 +626,7 @@ export function createProofAssetUploadService(
           auditEvent({
             record: completed.record,
             action: "proof.asset_upload_completed",
-            actor_id: actor,
+            actor,
             correlation_id: correlation
           })
         );
