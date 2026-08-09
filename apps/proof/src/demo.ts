@@ -9,7 +9,7 @@ export const demoOrder: ProofOrder = {
   health: "active",
   counts: { pending: 4, regenerating: 0, waiting: 0, reviewed: 1, total: 5 },
   last_synced_at: "2026-07-20T16:42:00.000Z",
-  access: { scope: "view", decisions_enabled: false },
+  access: { scope: "view", decisions_enabled: false, revision_upload_enabled: false },
   tasks: [
     {
       task_id: "ptask_a",

@@ -1,5 +1,38 @@
 import type { ProofActivity, ProofOrder, ProofParticipant, ProofVersion } from "./types";
 
+export type ProofRevisionAssetState =
+  | "initialized"
+  | "uploading"
+  | "uploaded"
+  | "verifying"
+  | "scan_pending"
+  | "ready_for_lift";
+
+export interface ProofRevisionAsset {
+  asset_id: string;
+  revision_id: string;
+  order_number: string;
+  task_id: string;
+  attachment_id: string;
+  original_filename: string;
+  content_type: string;
+  content_length: number;
+  sha256: string;
+  state: ProofRevisionAssetState;
+  record_version: number;
+  initialized_at: string;
+  upload_completed_at: string | null;
+  verification_status: "pending" | "quarantined" | "cleared";
+  publication_status: "not_started" | "published" | "delivery_verified";
+}
+
+export interface ProofRevisionUploadTicket {
+  method: "POST";
+  url: string;
+  fields: Record<string, string>;
+  expires_at: string;
+}
+
 export class ProofApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -97,6 +130,61 @@ export async function approveProof(input: {
       note: input.note
     })
   }, true);
+}
+
+export async function prepareRevisionUpload(input: {
+  task_id: string;
+  attachment_id: string;
+  idempotency_key: string;
+  original_filename: string;
+  content_type: string;
+  content_length: number;
+  sha256: string;
+}) {
+  return api<{
+    status: "new" | "replay";
+    asset: ProofRevisionAsset;
+    upload: ProofRevisionUploadTicket;
+  }>(`/api/public/proof/tasks/${encodeURIComponent(input.task_id)}/revised-assets/uploads/prepare`, {
+    method: "POST",
+    body: JSON.stringify({
+      attachment_id: input.attachment_id,
+      idempotency_key: input.idempotency_key,
+      original_filename: input.original_filename,
+      content_type: input.content_type,
+      content_length: input.content_length,
+      sha256: input.sha256
+    })
+  }, true);
+}
+
+export async function uploadRevisionFile(ticket: ProofRevisionUploadTicket, file: File) {
+  const form = new FormData();
+  for (const [name, value] of Object.entries(ticket.fields)) form.append(name, value);
+  form.append("file", file, file.name);
+  const response = await fetch(ticket.url, {
+    method: ticket.method,
+    body: form,
+    credentials: "omit",
+    redirect: "error"
+  });
+  if (!response.ok) {
+    throw new ProofApiError("The revised artwork could not be stored. No production request was sent.", response.status);
+  }
+}
+
+export async function finalizeRevisionUpload(assetId: string) {
+  return api<{ status: "completed" | "replay"; asset: ProofRevisionAsset }>(
+    "/api/public/proof/revised-assets/uploads/finalize",
+    { method: "POST", body: JSON.stringify({ asset_id: assetId }) },
+    true
+  );
+}
+
+export async function loadRevisionUploadStatus(assetId: string) {
+  return api<{ asset: ProofRevisionAsset }>(
+    `/api/public/proof/revised-assets/uploads/${encodeURIComponent(assetId)}`
+  );
 }
 
 export async function endSession() {

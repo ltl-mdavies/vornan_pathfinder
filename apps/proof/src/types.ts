@@ -52,7 +52,11 @@ export interface ProofOrder {
     total: number;
   };
   last_synced_at: string;
-  access: { scope: "view" | "review"; decisions_enabled: boolean };
+  access: {
+    scope: "view" | "review";
+    decisions_enabled: boolean;
+    revision_upload_enabled?: boolean;
+  };
 }
 
 export interface ProofParticipant {

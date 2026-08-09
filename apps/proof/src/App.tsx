@@ -38,6 +38,7 @@ import {
 } from "./queue-state";
 import { proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation } from "./lifecycle-state";
 import { ProofPreview } from "./proof-preview";
+import { RevisionUploadDialog } from "./revision-upload-dialog";
 import {
   quantityDraftMatches,
   buildDemoTransformationSummary,
@@ -405,12 +406,14 @@ type ActionTransportProps = {
   onSaveDraft: (draft: SavedQuantityDraft) => void;
   demoBatchEnabled: boolean;
   decisionsEnabled: boolean;
+  revisionUploadEnabled: boolean;
   participantIdentified: boolean;
   onApproveSingle: (task: ProofTask, note: string) => Promise<void>;
+  onRequestRevision: (task: ProofTask) => void;
   mobile?: boolean;
 };
 
-function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, participantIdentified, onApproveSingle, mobile = false }: ActionTransportProps) {
+function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestRevision, mobile = false }: ActionTransportProps) {
   const multiProof = tasks.length > 1;
   const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
   const selectedCreativeNumber = tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1;
@@ -471,6 +474,15 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
           : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
             ? "This proof is not currently available for approval."
             : null;
+  const revisionUploadBlocked = !revisionUploadEnabled
+    ? "Revised artwork upload is not enabled for this review link."
+    : !participantIdentified
+      ? "Identify the reviewer before providing revised artwork."
+      : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
+        ? "This proof is shared by multiple lines and needs coordinated support before replacement artwork can be accepted."
+        : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
+          ? "This proof is not currently available for replacement artwork."
+          : null;
   const submitSingleApproval = async () => {
     if (singleApprovalBlocked || singleApprovalState === "submitting") return;
     setSingleApprovalState("submitting");
@@ -512,7 +524,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
               {selectedIsStaged
                 ? <button className="button tertiary" type="button" onClick={undoSelectedApproval}>Undo</button>
                 : <button className="button primary" type="button" onClick={() => onStageApproval(selectedTask.task_id)}><ShieldCheck aria-hidden="true" /> Approve this creative</button>}
-              <button className="button secondary request-changes" type="button" disabled><Upload aria-hidden="true" /> Request changes</button>
+              <button className="button secondary request-changes" type="button" disabled title="Multiple-proof revision requests require coordinated support."><Upload aria-hidden="true" /> Request changes</button>
             </span>
           </div>
           <div className="quantity-entry">
@@ -555,9 +567,10 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
             <button type="button" disabled={Boolean(singleApprovalBlocked) || singleApprovalState === "submitting" || singleApprovalState === "complete"} onClick={() => void submitSingleApproval()}>
               <ShieldCheck aria-hidden="true" /> {singleApprovalState === "submitting" ? "Approving…" : singleApprovalState === "complete" ? "Approved" : "Approve"}
             </button>
-            <button type="button" disabled><Upload aria-hidden="true" /> Request changes</button>
+            <button type="button" disabled={Boolean(revisionUploadBlocked)} title={revisionUploadBlocked ?? "Provide revised artwork"} onClick={() => onRequestRevision(selectedTask)}><Upload aria-hidden="true" /> Provide revised artwork</button>
           </div>
           {singleApprovalBlocked ? <small className="decision-guidance">{singleApprovalBlocked}</small> : null}
+          {!singleApprovalBlocked && revisionUploadBlocked ? <small className="decision-guidance revision-guidance">{revisionUploadBlocked}</small> : null}
           {singleApprovalMessage ? <p className={`decision-result ${singleApprovalState}`} role="status">{singleApprovalMessage}</p> : null}
         </div>
       ) : null}
@@ -642,6 +655,7 @@ export function App() {
   const [refreshState, setRefreshState] = useState<RefreshState>("idle");
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [detailDialog, setDetailDialog] = useState<DetailDialog | null>(null);
+  const [revisionUploadTaskId, setRevisionUploadTaskId] = useState<string | null>(null);
   const [identityOpen, setIdentityOpen] = useState(false);
   const [identityName, setIdentityName] = useState("");
   const [identityEmail, setIdentityEmail] = useState("");
@@ -834,6 +848,7 @@ export function App() {
   const sessionRemaining = loadState.status === "ready" ? sessionSecondsRemaining(loadState.session_expires_at, clockMs) : 0;
   const showSessionWarning = loadState.status === "ready" && sessionWarningVisible(loadState.session_expires_at, clockMs);
   const dialogTask = detailDialog ? order?.tasks.find((task) => task.task_id === detailDialog.task_id) ?? null : null;
+  const revisionUploadTask = revisionUploadTaskId ? order?.tasks.find((task) => task.task_id === revisionUploadTaskId) ?? null : null;
   const dialogHistory = dialogTask ? historyByTask[dialogTask.task_id] : undefined;
   const dialogVersions = dialogTask
     ? dialogHistory?.versions ?? (dialogTask.versions.length ? dialogTask.versions : dialogTask.current_version ? [dialogTask.current_version] : [])
@@ -1276,8 +1291,10 @@ export function App() {
                 onSaveDraft={(draft) => saveQuantityReview(selectedGroup?.group_id ?? selectedTask.task_id, draft)}
                 demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
                 decisionsEnabled={order!.access.decisions_enabled}
+                revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                 participantIdentified={Boolean(participant)}
                 onApproveSingle={approveSingleProof}
+                onRequestRevision={(task) => setRevisionUploadTaskId(task.task_id)}
               />
             </>
           ) : (
@@ -1357,8 +1374,10 @@ export function App() {
                   onSaveDraft={(draft) => saveQuantityReview(group.group_id, draft)}
                   demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
                   decisionsEnabled={order!.access.decisions_enabled}
+                  revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                   participantIdentified={Boolean(participant)}
                   onApproveSingle={approveSingleProof}
+                  onRequestRevision={(task) => setRevisionUploadTaskId(task.task_id)}
                   mobile
                 />
               </article>
@@ -1502,6 +1521,15 @@ export function App() {
           )}
         </dialog>
       ) : null}
+
+      <RevisionUploadDialog
+        open={Boolean(revisionUploadTaskId)}
+        task={revisionUploadTask}
+        enabled={Boolean(order?.access.revision_upload_enabled)}
+        participantIdentified={Boolean(participant)}
+        onClose={() => setRevisionUploadTaskId(null)}
+        onSessionExpired={terminateSession}
+      />
 
       {identityOpen ? (
         <dialog

@@ -221,11 +221,12 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         ? participants.find((candidate) => candidate.participant_id === session.participant_id) ?? null
         : null;
       const automaticRefresh = proofAutomaticRefreshState(order);
+      const proofRuntime = getProofRuntimeConfig();
       const publicOrder = toPublicProofOrder(order, session.scope, {
         include_asset_urls: !automaticRefresh.stale,
         decisions_enabled:
-          getProofRuntimeConfig().feature_flags.approve &&
-          getProofRuntimeConfig().feature_flags.public_read
+          proofRuntime.feature_flags.approve &&
+          proofRuntime.feature_flags.public_read
       });
       const feedbackStates = new Map(
         (await loadProofFeedbackStates(order, session)).map((state) => [state.task_id, state])
@@ -236,6 +237,13 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       res.json({
         order: {
           ...publicOrder,
+          access: {
+            ...publicOrder.access,
+            revision_upload_enabled:
+              session.scope === "review" &&
+              proofRuntime.feature_flags.public_read &&
+              proofRuntime.feature_flags.revision_upload
+          },
           health: automaticRefresh.stale && publicOrder.health === "active" ? "stale" : publicOrder.health,
           tasks: publicOrder.tasks.map((task) => ({ ...task, ...feedbackStates.get(task.task_id) }))
         },

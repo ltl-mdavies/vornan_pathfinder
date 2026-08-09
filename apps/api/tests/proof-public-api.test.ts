@@ -150,6 +150,7 @@ test("exchanges a fragment token for a narrow hardened cookie and returns only i
   assert.equal(response.body.order.order_title, "QA proof packet");
   assert.equal(response.body.order.order_status, "Pending Art Approval");
   assert.equal(response.body.order.access.decisions_enabled, false);
+  assert.equal(response.body.order.access.revision_upload_enabled, false);
   assert.equal(response.body.session_expires_at, exchange.body.expires_at);
   assert.equal(response.body.participant, null);
   assert.deepEqual(response.body.activity, {
@@ -521,6 +522,11 @@ test("binds revised-art upload lifecycle calls to one identified review session 
       .set("X-Vornan-Proof-Csrf", credentials.csrf)
       .send({ display_name: "Revision Reviewer", email: "revision@example.com" })
       .expect(201);
+    const revisionOrder = await request(revisionApp)
+      .get("/api/public/proof/order")
+      .set("Cookie", credentials.cookie)
+      .expect(200);
+    assert.equal(revisionOrder.body.order.access.revision_upload_enabled, true);
 
     const assetId = `passet_${"a".repeat(64)}`;
     await request(revisionApp)
