@@ -140,6 +140,15 @@ export function demoActivityForHash(hash: string): ProofActivity {
 }
 
 export function demoOrderForHash(hash: string): ProofOrder {
+  if (hash === "#/proof/revision-upload-qa") {
+    const selectedTask = { ...demoOrder.tasks[0]!, attachment_id: "27085010", sibling_count: 1 };
+    return {
+      ...demoOrder,
+      access: { ...demoOrder.access, revision_upload_enabled: true },
+      tasks: [selectedTask],
+      counts: proofTaskCounts([selectedTask])
+    };
+  }
   if (hash === "#/proof/batch-qa") {
     const singleProofTask = {
       ...demoOrder.tasks[demoOrder.tasks.length - 1]!,
