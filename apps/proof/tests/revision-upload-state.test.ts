@@ -38,25 +38,25 @@ test("accepts only bounded creative file types with safe extension fallback", ()
   assert.match(validateRevisionFile({ name: "too-large.pdf", size: REVISION_UPLOAD_MAXIMUM_BYTES + 1, type: "application/pdf" }) ?? "", /larger than 1 GB/i);
 });
 
-test("presents retained, verifying, cleared, ready, and quarantine states without claiming a Lift action", () => {
+test("presents retained, verifying, cleared, ready, and quarantine states in concise customer language", () => {
   const retained = revisionAssetProgress(asset());
   assert.equal(retained.title, "Upload received");
-  assert.match(retained.detail, /not been sent to production/i);
+  assert.match(retained.detail, /waiting for its file checks/i);
 
   const verifying = revisionAssetProgress(asset({ state: "verifying" }));
   assert.equal(verifying.title, "Checking your file");
-  assert.match(verifying.detail, /not been sent to production/i);
+  assert.match(verifying.detail, /reviewing the revised artwork/i);
 
   const cleared = revisionAssetProgress(asset({ state: "scan_pending", verification_status: "cleared" }));
   assert.equal(cleared.tone, "stored");
   assert.equal(cleared.title, "File check complete");
-  assert.match(cleared.detail, /No production request has been sent/i);
+  assert.match(cleared.detail, /passed the required checks/i);
 
   const ready = revisionAssetProgress(asset({ state: "ready_for_lift", verification_status: "cleared", publication_status: "delivery_verified" }));
   assert.equal(ready.tone, "ready");
-  assert.match(ready.detail, /separately confirmed production request/i);
+  assert.match(ready.detail, /ready for the next step/i);
 
   const quarantined = revisionAssetProgress(asset({ state: "verifying", verification_status: "quarantined" }));
   assert.equal(quarantined.tone, "error");
-  assert.match(quarantined.detail, /not sent to production/i);
+  assert.match(quarantined.detail, /Contact Vornan/i);
 });

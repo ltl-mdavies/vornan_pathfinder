@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { demoActivityForHash } from "../src/demo.ts";
+import { demoActivityForHash, demoOrderForHash } from "../src/demo.ts";
 
 test("keeps reviewer activity aggregate-only in the dedicated visual QA fixture", () => {
   assert.deepEqual(demoActivityForHash("#/proof/activity-qa"), {
@@ -13,4 +13,12 @@ test("keeps reviewer activity aggregate-only in the dedicated visual QA fixture"
     last_activity_at: null,
     reviewer_names_visible: false
   });
+});
+
+test("keeps the revised-art upload visual QA fixture scoped to one current attachment", () => {
+  const order = demoOrderForHash("#/proof/revision-upload-qa");
+  assert.equal(order.access.revision_upload_enabled, true);
+  assert.equal(order.tasks[0]?.attachment_id, "27085010");
+  assert.equal(order.tasks.length, 1);
+  assert.equal(order.tasks[0]?.sibling_count, 1);
 });

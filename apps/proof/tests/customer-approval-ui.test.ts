@@ -16,7 +16,7 @@ test("keeps customer approval inside the current Proof portal and limits it to o
   assert.doesNotMatch(apiSource, /decisions\/revision/);
 });
 
-test("keeps revised artwork as a private upload lifecycle rather than a Lift decision", () => {
+test("keeps revised artwork in its upload lifecycle with an accessible customer file picker", () => {
   assert.match(apiSource, /revised-assets\/uploads\/prepare/);
   assert.match(apiSource, /revised-assets\/uploads\/finalize/);
   assert.match(apiSource, /credentials: "omit"/);
@@ -24,5 +24,11 @@ test("keeps revised artwork as a private upload lifecycle rather than a Lift dec
   assert.doesNotMatch(apiSource, /REVISED_ART_WILL_BE_SENT/);
   assert.match(revisionDialogSource, /idempotencyKeys = useRef\(new Map<string, string>\(\)\)/);
   assert.match(revisionDialogSource, /task\.task_id.*task\.current_version\.version_id.*file\.name.*file\.size.*digest/);
-  assert.match(revisionDialogSource, /This upload does not call Lift or change the current proof/);
+  assert.match(revisionDialogSource, /Upload revised artwork/);
+  assert.match(revisionDialogSource, /Your upload will be used to prepare a new proof for this line/);
+  assert.match(revisionDialogSource, /Drop revised artwork here/);
+  assert.match(revisionDialogSource, /onDrop=\{handleDrop\}/);
+  assert.match(revisionDialogSource, /Choose a different file/);
+  assert.match(revisionDialogSource, /Upload and check file/);
+  assert.doesNotMatch(revisionDialogSource, /Private by default/);
 });

@@ -47,41 +47,41 @@ export function revisionAssetProgress(asset: ProofRevisionAsset) {
   if (asset.verification_status === "quarantined") {
     return {
       tone: "error" as const,
-      title: "This file needs support review",
-      detail: "The file was retained privately and was not sent to production. Contact Vornan for assistance."
+      title: "This file needs attention",
+      detail: "Contact Vornan before continuing with this artwork."
     };
   }
   if (asset.state === "ready_for_lift" && asset.publication_status === "delivery_verified") {
     return {
       tone: "ready" as const,
       title: "Revised artwork is ready",
-      detail: "The file passed verification and is ready for a separately confirmed production request."
+      detail: "Your file passed its checks and is ready for the next step."
     };
   }
   if (asset.publication_status === "published") {
     return {
       tone: "working" as const,
-      title: "Checking secure delivery",
-      detail: "Vornan is confirming that the production team can retrieve the exact verified file."
+      title: "Preparing your file",
+      detail: "The revised artwork is being prepared for the production team."
     };
   }
   if (asset.verification_status === "cleared") {
     return {
       tone: "stored" as const,
       title: "File check complete",
-      detail: "The verified file is stored privately. No production request has been sent."
+      detail: "Your revised artwork passed the required checks."
     };
   }
   if (asset.state === "verifying" || asset.state === "scan_pending") {
     return {
       tone: "working" as const,
       title: "Checking your file",
-      detail: "Vornan is verifying the uploaded artwork. It has not been sent to production."
+      detail: "We’re reviewing the revised artwork now."
     };
   }
   return {
     tone: "working" as const,
     title: "Upload received",
-    detail: "The file is stored privately and waiting for verification. It has not been sent to production."
+    detail: "Your revised artwork is waiting for its file checks."
   };
 }
