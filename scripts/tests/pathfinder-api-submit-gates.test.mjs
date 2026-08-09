@@ -77,12 +77,29 @@ test("Wrike custom-field metadata discovery has an independent fail-closed gate"
   assert.match(template, /WrikeCustomFieldDiscoveryEnabled:[\s\S]*?Default: "false"/);
   assert.match(
     template,
-    /PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY: !Ref WrikeCustomFieldDiscoveryEnabled/
+    /WrikeCustomFieldDiscoveryActive: !Equals \[!Ref WrikeCustomFieldDiscoveryEnabled, "true"\][\s\S]*?PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY: !If \[WrikeCustomFieldDiscoveryActive, "true", !Ref "AWS::NoValue"\]/
   );
   assert.match(
     workflow,
     /WrikeCustomFieldDiscoveryEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY \|\| 'false' \}\}"/
   );
+});
+
+test("inactive optional gates are omitted from the constrained Lambda environment", () => {
+  for (const [condition, parameter, variable] of [
+    ["PublicStatusReturnLinkActive", "PublicStatusReturnLink", "PATHFINDER_PUBLIC_STATUS_RETURN_LINK"],
+    ["PublicStatusDebugReturnLinkActive", "PublicStatusEmailDebugReturnLink", "PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK"],
+    ["PublicIntakeEmailVerificationActive", "PublicIntakeEmailVerificationEnabled", "PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED"],
+    ["WrikeDiscoveryPreviewActive", "WrikeDiscoveryPreviewEnabled", "PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW"],
+    ["WrikeManualIntakeActive", "WrikeManualIntakeEnabled", "PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE"],
+    ["WrikeOrderRehearsalActive", "WrikeOrderRehearsalEnabled", "PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL"]
+  ]) {
+    assert.match(template, new RegExp(`${condition}: !Equals \\[!Ref ${parameter}, "true"\\]`));
+    assert.match(
+      template,
+      new RegExp(`${variable}: !If \\[${condition}, "true", !Ref "AWS::NoValue"\\]`)
+    );
+  }
 });
 
 test("Wrike status writeback requires one exact task and bounded expiry", () => {
@@ -274,11 +291,11 @@ test("Wrike workbook evidence remains disabled by default and uses a retained pr
   );
   assert.match(
     template,
-    /PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !Ref WrikeManualIntakeEnabled/
+    /PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !If \[WrikeManualIntakeActive, "true", !Ref "AWS::NoValue"\]/
   );
   assert.match(
     template,
-    /PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: !Ref WrikeOrderRehearsalEnabled/
+    /PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: !If \[WrikeOrderRehearsalActive, "true", !Ref "AWS::NoValue"\]/
   );
   assert.match(
     template,

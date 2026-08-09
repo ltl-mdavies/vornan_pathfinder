@@ -593,6 +593,13 @@ Rules:
 
 Conditions:
   WrikeScheduledIntakeActive: !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
+  WrikeCustomFieldDiscoveryActive: !Equals [!Ref WrikeCustomFieldDiscoveryEnabled, "true"]
+  WrikeDiscoveryPreviewActive: !Equals [!Ref WrikeDiscoveryPreviewEnabled, "true"]
+  WrikeManualIntakeActive: !Equals [!Ref WrikeManualIntakeEnabled, "true"]
+  WrikeOrderRehearsalActive: !Equals [!Ref WrikeOrderRehearsalEnabled, "true"]
+  PublicStatusReturnLinkActive: !Equals [!Ref PublicStatusReturnLink, "true"]
+  PublicStatusDebugReturnLinkActive: !Equals [!Ref PublicStatusEmailDebugReturnLink, "true"]
+  PublicIntakeEmailVerificationActive: !Equals [!Ref PublicIntakeEmailVerificationEnabled, "true"]
   HasApiCustomDomain: !And
     - !Not [!Equals [!Ref ApiDomainName, ""]]
     - !Not [!Equals [!Ref ApiCertificateArn, ""]]
@@ -997,16 +1004,19 @@ Resources:
           PATHFINDER_ALLOWED_ORIGINS: !Ref AllowedOrigins
           PATHFINDER_PUBLIC_STATUS_BASE_URL: !Ref PublicStatusBaseUrl
           PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS: !Ref PublicStatusTokenDays
-          PATHFINDER_PUBLIC_STATUS_RETURN_LINK: !Ref PublicStatusReturnLink
+          # Omit inactive, default-false feature flags. The runtime already
+          # treats absent values as false, and Lambda limits the complete
+          # environment block to 4 KB.
+          PATHFINDER_PUBLIC_STATUS_RETURN_LINK: !If [PublicStatusReturnLinkActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_STATUS_EMAIL_MODE: !Ref PublicStatusEmailMode
-          PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK: !Ref PublicStatusEmailDebugReturnLink
-          PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED: !Ref PublicIntakeEmailVerificationEnabled
+          PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK: !If [PublicStatusDebugReturnLinkActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_PUBLIC_INTAKE_EMAIL_VERIFICATION_ENABLED: !If [PublicIntakeEmailVerificationActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_WRIKE_CONNECTION_TEST: !Ref WrikeConnectionTestEnabled
-          PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY: !Ref WrikeCustomFieldDiscoveryEnabled
-          PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW: !Ref WrikeDiscoveryPreviewEnabled
+          PATHFINDER_ENABLE_WRIKE_CUSTOM_FIELD_DISCOVERY: !If [WrikeCustomFieldDiscoveryActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_ENABLE_WRIKE_DISCOVERY_PREVIEW: !If [WrikeDiscoveryPreviewActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_WRIKE_WORKBOOK_EVIDENCE: !Ref WrikeWorkbookEvidenceEnabled
           PATHFINDER_ENABLE_WRIKE_EVIDENCE_PREVIEW: !Ref WrikeEvidencePreviewEnabled
-          PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !Ref WrikeManualIntakeEnabled
+          PATHFINDER_ENABLE_WRIKE_MANUAL_INTAKE: !If [WrikeManualIntakeActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_WRIKE_SCHEDULED_INTAKE: !Join
             - "|"
             - - !Ref WrikeScheduledIntakeEnabled
@@ -1020,7 +1030,7 @@ Resources:
             - - !Ref WrikeStatusWritebackEnabled
               - !Ref WrikeStatusWritebackTaskId
               - !Ref WrikeStatusWritebackExpiresAt
-          PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: !Ref WrikeOrderRehearsalEnabled
+          PATHFINDER_ENABLE_WRIKE_ORDER_REHEARSAL: !If [WrikeOrderRehearsalActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_WRIKE_ORDER_REHEARSAL_SCOPE: !Join
             - "|"
             - - !Ref WrikeOrderRehearsalCustomerId
