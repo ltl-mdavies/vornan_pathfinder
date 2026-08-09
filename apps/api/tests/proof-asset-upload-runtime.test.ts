@@ -229,6 +229,51 @@ test("reserves immutable metadata before issuing one exact short-lived S3 POST",
   }
 });
 
+test("attributes customer revision uploads to the identified review grant and participant", async () => {
+  const grantId = "pgrant_12345678-1234-4234-8234-123456789abc";
+  const participantId = "pparticipant_abcdefab-1234-4234-8234-abcdefabcdef";
+  const service = createProofAssetUploadService({
+    runtimeConfig: () => config(),
+    now: () => now,
+    syncOrder: async (_orderNumber, options) => {
+      assert.equal(options.audit_context?.actor_type, "customer_session");
+      assert.equal(options.audit_context?.actor_id, "psession_customer-revision-qa");
+      assert.equal(options.audit_context?.source, "public_api");
+      return { order, diagnostics: null } as never;
+    },
+    reserve: async (record, audit) => {
+      assert.equal(audit.actor_type, "customer_session");
+      assert.equal(audit.actor_id, "psession_customer-revision-qa");
+      assert.equal(audit.grant_id, grantId);
+      assert.equal(audit.participant_id, participantId);
+      assert.equal(audit.metadata.source, "public_api");
+      return { status: "new" as const, record };
+    },
+    transition: async (_current, next, audit) => {
+      assert.equal(audit.actor_type, "customer_session");
+      assert.equal(audit.grant_id, grantId);
+      assert.equal(audit.participant_id, participantId);
+      return next;
+    },
+    createPost: (async () => ({ url: "https://synthetic.invalid", fields: {} })) as never
+  });
+
+  const result = await service.prepare({
+    request,
+    actor_context: {
+      actor_type: "customer_session",
+      actor_id: "psession_customer-revision-qa",
+      source: "public_api",
+      grant_id: grantId,
+      participant_id: participantId
+    },
+    correlation_id: "customer-revision-audit-qa"
+  });
+  assert.equal(result.asset.order_number, request.order_number);
+  assert.equal(JSON.stringify(result).includes(grantId), false);
+  assert.equal(JSON.stringify(result).includes(participantId), false);
+});
+
 test("binds one opaque asset identity to the order and idempotency key", async () => {
   let stored: ProofAssetUploadRecord | null = null;
   let currentOrder = order;

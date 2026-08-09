@@ -41,6 +41,7 @@ test("keeps every opt-in Proof capability dark by default", () => {
     proof_link_email: false,
     public_read: false,
     approve: false,
+    revision_upload: false,
     revision: false,
     undo: false
   });

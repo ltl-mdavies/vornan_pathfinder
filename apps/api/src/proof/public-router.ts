@@ -23,6 +23,13 @@ import {
 } from "./customer-approval-service.js";
 import { ProofDecisionIntegrityError } from "./decision-contract.js";
 import { ProofDecisionLedgerError } from "./decision-ledger.js";
+import {
+  ProofAssetUploadServiceError,
+  createProofAssetUploadService,
+  type ProofAssetUploadFinalizeRequest,
+  type ProofAssetUploadPrepareRequest,
+  type ProofAssetUploadStatusRequest
+} from "./asset-upload-service.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
 export const PROOF_SESSION_COOKIE_PATH = "/api/public/proof";
@@ -100,6 +107,20 @@ function handlePublicError(error: unknown, res: Parameters<Parameters<Router["ge
     res.status(status).json({ error: error.message });
     return;
   }
+  if (error instanceof ProofAssetUploadServiceError) {
+    const status = error.code === "disabled"
+      ? 503
+      : error.code === "unauthenticated" || error.code === "not_allowed"
+        ? 403
+        : error.code === "stale" || error.code === "conflict"
+          ? 409
+          : error.code === "storage_failed"
+            ? 502
+            : 400;
+    if (status === 503 || status === 403) res.locals[PROOF_EXPECTED_DENIAL_LOCAL] = true;
+    res.status(status).json({ error: error.message });
+    return;
+  }
   if (error instanceof ProofAccessFeatureDisabledError) {
     res.locals[PROOF_EXPECTED_DENIAL_LOCAL] = true;
     res.status(503).json({ error: "Proof access is not available." });
@@ -111,12 +132,44 @@ function handlePublicError(error: unknown, res: Parameters<Parameters<Router["ge
 interface ProofPublicRouterDependencies {
   queueSync?: typeof queueProofSync;
   approveProof?: typeof proofCustomerApprovalService.approve;
+  prepareRevisionAsset?: ReturnType<typeof createProofAssetUploadService>["prepare"];
+  revisionAssetStatus?: ReturnType<typeof createProofAssetUploadService>["status"];
+  finalizeRevisionAsset?: ReturnType<typeof createProofAssetUploadService>["finalize"];
 }
 
 export function createProofPublicRouter(dependencies: ProofPublicRouterDependencies = {}) {
   const router = Router();
   const enqueueSync = dependencies.queueSync ?? queueProofSync;
   const approveProof = dependencies.approveProof ?? proofCustomerApprovalService.approve;
+  const revisionAssets = createProofAssetUploadService();
+  const prepareRevisionAsset = dependencies.prepareRevisionAsset ?? revisionAssets.prepare;
+  const revisionAssetStatus = dependencies.revisionAssetStatus ?? revisionAssets.status;
+  const finalizeRevisionAsset = dependencies.finalizeRevisionAsset ?? revisionAssets.finalize;
+
+  function revisionActor(session: Awaited<ReturnType<typeof validateProofSession>>["session"]) {
+    if (
+      !getProofRuntimeConfig().feature_flags.revision_upload ||
+      !getProofRuntimeConfig().feature_flags.public_read
+    ) {
+      throw new ProofAssetUploadServiceError(
+        "disabled",
+        "Customer revised-art uploads are not enabled."
+      );
+    }
+    if (session.scope !== "review" || !session.participant_id) {
+      throw new ProofAssetUploadServiceError(
+        "unauthenticated",
+        "Identify the reviewer in a review-enabled session first."
+      );
+    }
+    return {
+      actor_type: "customer_session" as const,
+      actor_id: session.session_id,
+      source: "public_api" as const,
+      grant_id: session.grant_id,
+      participant_id: session.participant_id
+    };
+  }
 
   router.use((_req, res, next) => {
     assertLiftProofWritesDisabled();
@@ -285,6 +338,67 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       res.status(result.status === "new" ? 201 : 200).json({ decision: result });
     } catch (error) {
       handlePublicError(error, res, "Proof approval could not be completed.");
+    }
+  });
+
+  router.post("/tasks/:taskId/revised-assets/uploads/prepare", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session } = await validateProofSession(rawSession);
+      requireCsrf(req, session);
+      const result = await prepareRevisionAsset({
+        request: {
+          order_number: session.order_number,
+          task_id: req.params.taskId,
+          attachment_id: req.body?.attachment_id,
+          idempotency_key: req.body?.idempotency_key,
+          original_filename: req.body?.original_filename,
+          content_type: req.body?.content_type,
+          content_length: req.body?.content_length,
+          sha256: req.body?.sha256
+        } as ProofAssetUploadPrepareRequest,
+        actor_context: revisionActor(session),
+        correlation_id: req.get("x-request-id") ?? `proof-revision-${session.session_id}`
+      });
+      res.status(result.status === "new" ? 201 : 200).json(result);
+    } catch (error) {
+      handlePublicError(error, res, "Revised artwork upload could not be prepared.");
+    }
+  });
+
+  router.get("/revised-assets/uploads/:assetId", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session } = await validateProofSession(rawSession);
+      revisionActor(session);
+      const result = await revisionAssetStatus({
+        request: {
+          order_number: session.order_number,
+          asset_id: req.params.assetId
+        } as ProofAssetUploadStatusRequest
+      });
+      res.json(result);
+    } catch (error) {
+      handlePublicError(error, res, "Revised artwork status could not be loaded.");
+    }
+  });
+
+  router.post("/revised-assets/uploads/finalize", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session } = await validateProofSession(rawSession);
+      requireCsrf(req, session);
+      const result = await finalizeRevisionAsset({
+        request: {
+          order_number: session.order_number,
+          asset_id: req.body?.asset_id
+        } as ProofAssetUploadFinalizeRequest,
+        actor_context: revisionActor(session),
+        correlation_id: req.get("x-request-id") ?? `proof-revision-${session.session_id}`
+      });
+      res.json(result);
+    } catch (error) {
+      handlePublicError(error, res, "Revised artwork upload could not be finalized.");
     }
   });
 

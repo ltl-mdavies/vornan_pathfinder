@@ -385,6 +385,11 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: Default-disabled single-current-proof customer approval boundary.
+  ProofCustomerRevisionUploadEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled customer revised-art upload and finalization boundary. This does not publish an asset or call Lift.
   ProofGrantAllowedCustomerIds:
     Type: String
     Default: ""
@@ -478,6 +483,23 @@ Rules:
         AssertDescription: Customer Proof approval requires an explicit Lift customer cohort.
       - Assert: !Not [!Equals [!Ref ProofReadOnlyActivationExpiresAt, ""]]
         AssertDescription: Customer Proof approval requires a bounded activation deadline.
+  ProofCustomerRevisionUploadRequiresReviewBoundary:
+    RuleCondition: !Equals [!Ref ProofCustomerRevisionUploadEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref ProofPublicReadEnabled, "true"]
+        AssertDescription: Customer revised-art upload requires public Proof sessions.
+      - Assert: !Equals [!Ref ProofAssetUploadEnabled, "true"]
+        AssertDescription: Customer revised-art upload requires the bounded private asset upload capability.
+      - Assert: !And
+          - !Not [!Equals [!Ref ProofCoreTableName, ""]]
+          - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableName, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
+        AssertDescription: Customer revised-art upload requires the dedicated Proof core and audit tables.
+      - Assert: !Not [!Equals [!Ref ProofGrantAllowedCustomerIds, ""]]
+        AssertDescription: Customer revised-art upload requires an explicit Lift customer cohort.
+      - Assert: !Not [!Equals [!Ref ProofReadOnlyActivationExpiresAt, ""]]
+        AssertDescription: Customer revised-art upload requires a bounded review-session deadline.
   ProofOperatorActionRequiresDurableIsolation:
     RuleCondition: !Equals [!Ref ProofOperatorActionQaEnabled, "true"]
     Assertions:
@@ -1053,12 +1075,13 @@ Resources:
           PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref ProofGrantAllowedCustomerIds
           PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ProofReadOnlyActivationExpiresAt
           PATHFINDER_PROOF_ENABLE_LINK_EMAIL: !Ref ProofLinkEmailEnabled
-          # Pack the two customer-review switches into the existing environment
+          # Pack the customer-review switches into the existing environment
           # footprint. Lambda limits the complete environment block to 4 KB.
           PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join
             - "|"
             - - !Ref ProofPublicReadEnabled
               - !Ref ProofCustomerApprovalEnabled
+              - !Ref ProofCustomerRevisionUploadEnabled
           PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref ProofPublicBaseUrl
           # Keep the bounded operator controls in one environment entry. Lambda
           # limits the complete environment block to 4 KB; the CloudFormation
