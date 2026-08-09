@@ -197,10 +197,27 @@ function validateAudit(
   event: ProofAuditEvent,
   milestone: AssetAuditMilestone
 ) {
-  const expectedSource = milestone.actor === "operator" ? "operator" : "system";
-  const validActor = milestone.actor === "operator"
-    ? event.actor_type === "operator" && /^operator_[a-f0-9]{64}$/.test(event.actor_id)
-    : event.actor_type === "system" && event.actor_id === "system_proof_asset_worker";
+  const validOperator =
+    milestone.actor === "operator" &&
+    event.actor_type === "operator" &&
+    /^operator_[a-f0-9]{64}$/.test(event.actor_id) &&
+    event.grant_id === null &&
+    event.participant_id === null &&
+    event.metadata.source === "operator";
+  const validCustomer =
+    milestone.actor === "operator" &&
+    event.actor_type === "customer_session" &&
+    /^psession_[A-Za-z0-9-]{8,80}$/.test(event.actor_id) &&
+    /^pgrant_[A-Za-z0-9-]{8,80}$/.test(event.grant_id ?? "") &&
+    /^pparticipant_[A-Za-z0-9-]{8,80}$/.test(event.participant_id ?? "") &&
+    event.metadata.source === "public_api";
+  const validSystem =
+    milestone.actor === "system" &&
+    event.actor_type === "system" &&
+    event.actor_id === "system_proof_asset_worker" &&
+    event.grant_id === null &&
+    event.participant_id === null &&
+    event.metadata.source === "system";
   if (
     event.event_id !==
       assetAuditEventId(record.asset_id, milestone.state, milestone.record_version) ||
@@ -210,12 +227,9 @@ function validateAudit(
     event.task_id !== record.task_id ||
     event.order_line_id !== null ||
     event.attachment_id !== record.attachment_id ||
-    event.grant_id !== null ||
-    event.participant_id !== null ||
-    !validActor ||
+    !(validOperator || validCustomer || validSystem) ||
     !/^pcorr_asset_[a-f0-9]{64}$/.test(event.correlation_id ?? "") ||
     event.occurred_at !== milestone.occurred_at ||
-    event.metadata.source !== expectedSource ||
     event.metadata.proof_asset_id !== record.asset_id ||
     event.metadata.proof_asset_state !== milestone.state ||
     Object.keys(event.metadata).sort().join(",") !==

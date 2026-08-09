@@ -120,15 +120,15 @@ test("keeps isolated customer approval default-off and least-privileged", () => 
   );
   assert.match(
     template,
-    /CustomerApprovalActive[\s\S]*?Action: dynamodb:GetItem[\s\S]*?Resource: !Ref PathfinderTargetsTableArn/
+    /CustomerRuntimeActive[\s\S]*?Action: dynamodb:GetItem[\s\S]*?Resource: !Ref PathfinderTargetsTableArn/
   );
   assert.match(
     template,
-    /CustomerApprovalActive[\s\S]*?Action: dynamodb:TransactWriteItems[\s\S]*?!GetAtt ProofCoreTable.Arn[\s\S]*?!GetAtt ProofAuditTable.Arn/
+    /CustomerRuntimeActive[\s\S]*?Action: dynamodb:TransactWriteItems[\s\S]*?!GetAtt ProofCoreTable.Arn[\s\S]*?!GetAtt ProofAuditTable.Arn/
   );
   assert.match(
     template,
-    /CustomerApprovalActive[\s\S]*?Action: secretsmanager:GetSecretValue[\s\S]*?Resource: !Ref ProofingApiSecretArn/
+    /CustomerRuntimeActive[\s\S]*?Action: secretsmanager:GetSecretValue[\s\S]*?Resource: !Ref ProofingApiSecretArn/
   );
   const publicRole = template.slice(
     template.indexOf("  ProofPublicLambdaRole:"),
@@ -139,6 +139,68 @@ test("keeps isolated customer approval default-off and least-privileged", () => 
   assert.match(publicRole, /Action: dynamodb:GetItem\n\s+Resource: !Ref PathfinderTargetsTableArn/);
   assert.match(publicRole, /ignore_checks:\n\s+- W3037/);
   assert.doesNotMatch(publicRole, /secretsmanager:\*|Resource: "\*"/);
+});
+
+test("requires exact private asset bindings before customer revised-art upload", () => {
+  const revisionWindow = {
+    ...qaEnvironment,
+    PATHFINDER_PROOF_ENVIRONMENT_NAME: "dev",
+    PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT: "dev",
+    PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "true",
+    PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: "true",
+    PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED: "true",
+    PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: "1249",
+    PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS: "true",
+    PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: "true",
+    PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: "A0226753",
+    PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: "2099-07-28T21:49:50.000Z",
+    PATHFINDER_PROOF_ASSET_BUCKET: "vornan-pathfinder-proof-assets-dev-744016783602",
+    PATHFINDER_PROOF_ASSET_BUCKET_ARN: "arn:aws:s3:::vornan-pathfinder-proof-assets-dev-744016783602",
+    PATHFINDER_PROOF_TARGETS_TABLE: "Pathfinder-Targets-prod",
+    PATHFINDER_PROOF_TARGETS_TABLE_ARN:
+      "arn:aws:dynamodb:us-east-1:744016783602:table/Pathfinder-Targets-prod",
+    PATHFINDER_PROOFING_API_SECRET_ARN:
+      "arn:aws:secretsmanager:us-east-1:744016783602:secret:/vornan/pathfinder/targets/lift-standard-graphics-AbCdEf",
+    PATHFINDER_SECRET_PREFIX: "/vornan/pathfinder/"
+  };
+  const result = validateProofDeployment(revisionWindow);
+  assert.equal(result.customer_revision_upload_enabled, true);
+  assert.equal(result.proof_asset_upload_enabled, true);
+  assert.equal(result.customer_approval_enabled, false);
+
+  for (const unsafe of [
+    { PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: "false" },
+    { PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS: "false" },
+    { PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false" },
+    { PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: "" },
+    { PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: "" },
+    { PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: "A0226753, A0227641" },
+    { PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: "2099-07-28T21:49:51.000Z" },
+    { PATHFINDER_PROOF_ASSET_BUCKET: "some-other-bucket" },
+    { PATHFINDER_PROOF_ASSET_BUCKET_ARN: "arn:aws:s3:::some-other-bucket" }
+  ]) {
+    assert.throws(() => validateProofDeployment({ ...revisionWindow, ...unsafe }));
+  }
+});
+
+test("keeps customer revised-art upload default-off and exact-bucket scoped", () => {
+  const template = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
+  assert.match(template, /CustomerRevisionUploadEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /ProofAssetUploadEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /CustomerRevisionUploadRequiresExactRuntimeBindings:/);
+  assert.match(
+    template,
+    /PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE:[\s\S]*?!Ref PublicReadEnabled[\s\S]*?!Ref CustomerApprovalEnabled[\s\S]*?!Ref CustomerRevisionUploadEnabled/
+  );
+  const publicRole = template.slice(
+    template.indexOf("  ProofPublicLambdaRole:"),
+    template.indexOf("  ProofSyncLambdaRole:")
+  );
+  assert.match(
+    publicRole,
+    /CustomerRevisionUploadActive[\s\S]*?- s3:GetObject[\s\S]*?- s3:GetObjectTagging[\s\S]*?- s3:PutObject[\s\S]*?- s3:PutObjectTagging[\s\S]*?ProofAssetBucketArn, "\/orders\/\*"/
+  );
+  assert.doesNotMatch(publicRole, /s3:DeleteObject|s3:\*|arn:aws:s3:::\*/);
 });
 
 test("allows the synthetic fixture only in a fully dark dev deployment", () => {

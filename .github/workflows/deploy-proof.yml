@@ -33,6 +33,12 @@ on:
         type: choice
         default: "false"
         options: ["false", "true"]
+      customer_revision_upload_enabled:
+        description: "Enable private revised-art upload for existing review sessions"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
       public_base_url:
         description: "Direct deployed Proof HTTPS origin used in access links; no DNS alias is required"
         required: false
@@ -100,6 +106,12 @@ jobs:
           PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED: ${{ inputs.operator_grant_creation_enabled }}
           PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: ${{ inputs.grant_allowed_customer_ids }}
           PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS: ${{ inputs.customer_approval_enabled }}
+          PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS: ${{ inputs.customer_revision_upload_enabled }}
+          PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: ${{ vars.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD || 'false' }}
+          PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: ${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS || '' }}
+          PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: ${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT || '' }}
+          PATHFINDER_PROOF_ASSET_BUCKET: ${{ vars.PATHFINDER_PROOF_ASSET_BUCKET || '' }}
+          PATHFINDER_PROOF_ASSET_BUCKET_ARN: ${{ vars.PATHFINDER_PROOF_ASSET_BUCKET_ARN || '' }}
           PATHFINDER_PROOF_TARGETS_TABLE: ${{ vars.PATHFINDER_TARGETS_TABLE }}
           PATHFINDER_PROOF_TARGETS_TABLE_ARN: ${{ vars.PATHFINDER_TARGETS_TABLE_ARN }}
           PATHFINDER_PROOFING_API_SECRET_ARN: ${{ secrets.PATHFINDER_PROOFING_API_SECRET_ARN }}
@@ -142,6 +154,12 @@ jobs:
           OPERATOR_GRANT_CREATION_ENABLED: ${{ inputs.operator_grant_creation_enabled }}
           GRANT_ALLOWED_CUSTOMER_IDS: ${{ inputs.grant_allowed_customer_ids }}
           CUSTOMER_APPROVAL_ENABLED: ${{ inputs.customer_approval_enabled }}
+          CUSTOMER_REVISION_UPLOAD_ENABLED: ${{ inputs.customer_revision_upload_enabled }}
+          PROOF_ASSET_UPLOAD_ENABLED: ${{ vars.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD || 'false' }}
+          PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: ${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS || '' }}
+          PROOF_ASSET_UPLOAD_EXPIRES_AT: ${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT || '' }}
+          PROOF_ASSET_BUCKET: ${{ vars.PATHFINDER_PROOF_ASSET_BUCKET || '' }}
+          PROOF_ASSET_BUCKET_ARN: ${{ vars.PATHFINDER_PROOF_ASSET_BUCKET_ARN || '' }}
           PATHFINDER_TARGETS_TABLE: ${{ vars.PATHFINDER_TARGETS_TABLE }}
           PATHFINDER_TARGETS_TABLE_ARN: ${{ vars.PATHFINDER_TARGETS_TABLE_ARN }}
           PROOFING_API_SECRET_ARN: ${{ secrets.PATHFINDER_PROOFING_API_SECRET_ARN }}
@@ -180,6 +198,12 @@ jobs:
               OperatorGrantCreationEnabled="${OPERATOR_GRANT_CREATION_ENABLED}" \
               GrantAllowedCustomerIds="${GRANT_ALLOWED_CUSTOMER_IDS}" \
               CustomerApprovalEnabled="${CUSTOMER_APPROVAL_ENABLED}" \
+              CustomerRevisionUploadEnabled="${CUSTOMER_REVISION_UPLOAD_ENABLED}" \
+              ProofAssetUploadEnabled="${PROOF_ASSET_UPLOAD_ENABLED}" \
+              ProofAssetUploadAllowedOrders="${PROOF_ASSET_UPLOAD_ALLOWED_ORDERS}" \
+              ProofAssetUploadExpiresAt="${PROOF_ASSET_UPLOAD_EXPIRES_AT}" \
+              ProofAssetBucketName="${PROOF_ASSET_BUCKET}" \
+              ProofAssetBucketArn="${PROOF_ASSET_BUCKET_ARN}" \
               PathfinderTargetsTableName="${PATHFINDER_TARGETS_TABLE}" \
               PathfinderTargetsTableArn="${PATHFINDER_TARGETS_TABLE_ARN}" \
               ProofingApiSecretArn="${PROOFING_API_SECRET_ARN}" \
