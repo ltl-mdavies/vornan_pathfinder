@@ -40,6 +40,12 @@ aws cloudformation deploy \
     OperatorGrantCreationEnabled="${PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED:-false}" \
     GrantAllowedCustomerIds="${PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS:-}" \
     CustomerApprovalEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:-false}" \
+    CustomerRevisionUploadEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS:-false}" \
+    ProofAssetUploadEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD:-false}" \
+    ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \
+    ProofAssetUploadExpiresAt="${PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT:-}" \
+    ProofAssetBucketName="${PATHFINDER_PROOF_ASSET_BUCKET:-}" \
+    ProofAssetBucketArn="${PATHFINDER_PROOF_ASSET_BUCKET_ARN:-}" \
     PathfinderTargetsTableName="${PATHFINDER_PROOF_TARGETS_TABLE:-}" \
     PathfinderTargetsTableArn="${PATHFINDER_PROOF_TARGETS_TABLE_ARN:-}" \
     ProofingApiSecretArn="${PATHFINDER_PROOFING_API_SECRET_ARN:-}" \

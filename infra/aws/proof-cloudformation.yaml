@@ -57,6 +57,32 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: Default-disabled single-current-proof customer approval boundary.
+  CustomerRevisionUploadEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled customer revised-art upload boundary for existing review sessions.
+  ProofAssetUploadEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled private Proof asset upload capability.
+  ProofAssetUploadAllowedOrders:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^A[0-9]{7,8}(,A[0-9]{7,8}){0,19}$"
+  ProofAssetUploadExpiresAt:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+  ProofAssetBucketName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+  ProofAssetBucketArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:(aws[A-Za-z-]*?):s3:::[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
   PathfinderTargetsTableName:
     Type: String
     Default: ""
@@ -146,6 +172,12 @@ Conditions:
     - !Not [!Condition HasProvidedWebAcl]
   HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, ""]]
   CustomerApprovalActive: !Equals [!Ref CustomerApprovalEnabled, "true"]
+  CustomerRevisionUploadActive: !And
+    - !Equals [!Ref CustomerRevisionUploadEnabled, "true"]
+    - !Equals [!Ref ProofAssetUploadEnabled, "true"]
+  CustomerRuntimeActive: !Or
+    - !Condition CustomerApprovalActive
+    - !Condition CustomerRevisionUploadActive
 
 Rules:
   ProofAliasAndCertificateMustBePaired:
@@ -249,6 +281,28 @@ Rules:
         AssertDescription: Customer approval requires the exact Pathfinder target table and Proofing API secret bindings.
       - Assert: !Equals [!Ref SyntheticQaEnabled, "false"]
         AssertDescription: Customer approval cannot overlap synthetic QA.
+  CustomerRevisionUploadRequiresExactRuntimeBindings:
+    RuleCondition: !Equals [!Ref CustomerRevisionUploadEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref PublicReadEnabled, "true"]
+        AssertDescription: Customer revised-art upload requires public Proof sessions.
+      - Assert: !Equals [!Ref ProofAssetUploadEnabled, "true"]
+        AssertDescription: Customer revised-art upload requires the private asset upload capability.
+      - Assert: !Not [!Equals [!Ref GrantAllowedCustomerIds, ""]]
+        AssertDescription: Customer revised-art upload requires an explicit Lift customer cohort.
+      - Assert: !Not [!Equals [!Ref ReadOnlyActivationExpiresAt, ""]]
+        AssertDescription: Customer revised-art upload requires a bounded review deadline.
+      - Assert: !And
+          - !Not [!Equals [!Ref PathfinderTargetsTableName, ""]]
+          - !Not [!Equals [!Ref PathfinderTargetsTableArn, ""]]
+          - !Not [!Equals [!Ref ProofingApiSecretArn, ""]]
+          - !Not [!Equals [!Ref ProofAssetBucketName, ""]]
+          - !Not [!Equals [!Ref ProofAssetBucketArn, ""]]
+          - !Not [!Equals [!Ref ProofAssetUploadAllowedOrders, ""]]
+          - !Not [!Equals [!Ref ProofAssetUploadExpiresAt, ""]]
+        AssertDescription: Customer revised-art upload requires exact target, secret, private bucket, order allowlist, and expiry bindings.
+      - Assert: !Equals [!Ref SyntheticQaEnabled, "false"]
+        AssertDescription: Customer revised-art upload cannot overlap synthetic QA.
 
 Resources:
   ProofWebBucket:
@@ -643,6 +697,7 @@ Resources:
         config:
           ignore_checks:
             - W3037
+            - W1032
     Properties:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -673,13 +728,13 @@ Resources:
                 Action: dynamodb:PutItem
                 Resource: !GetAtt ProofAuditTable.Arn
               - !If
-                - CustomerApprovalActive
+                - CustomerRuntimeActive
                 - Effect: Allow
                   Action: dynamodb:GetItem
                   Resource: !Ref PathfinderTargetsTableArn
                 - !Ref "AWS::NoValue"
               - !If
-                - CustomerApprovalActive
+                - CustomerRuntimeActive
                 - Effect: Allow
                   Action: dynamodb:TransactWriteItems
                   Resource:
@@ -687,10 +742,20 @@ Resources:
                     - !GetAtt ProofAuditTable.Arn
                 - !Ref "AWS::NoValue"
               - !If
-                - CustomerApprovalActive
+                - CustomerRuntimeActive
                 - Effect: Allow
                   Action: secretsmanager:GetSecretValue
                   Resource: !Ref ProofingApiSecretArn
+                - !Ref "AWS::NoValue"
+              - !If
+                - CustomerRevisionUploadActive
+                - Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:GetObjectTagging
+                    - s3:PutObject
+                    - s3:PutObjectTagging
+                  Resource: !Join ["", [!Ref ProofAssetBucketArn, "/orders/*"]]
                 - !Ref "AWS::NoValue"
 
   ProofSyncLambdaRole:
@@ -788,6 +853,7 @@ Resources:
             - "|"
             - - !Ref PublicReadEnabled
               - !Ref CustomerApprovalEnabled
+              - !Ref CustomerRevisionUploadEnabled
           PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref GrantAllowedCustomerIds
           PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ReadOnlyActivationExpiresAt
           PATHFINDER_PROOF_ENABLE_GRANT_CREATION: "false"
@@ -796,9 +862,13 @@ Resources:
           PATHFINDER_PROOF_STALE_AFTER_MINUTES: "15"
           PATHFINDER_PROOF_AUTO_REFRESH_MAX_INACTIVE_DAYS: !Ref AutomaticRefreshMaxInactiveDays
           PATHFINDER_PROOF_EDGE_SHARED_SECRET: !Ref EdgeSharedSecret
-          PATHFINDER_PROOF_TARGETS_TABLE: !If [CustomerApprovalActive, !Ref PathfinderTargetsTableName, !Ref "AWS::NoValue"]
-          PATHFINDER_SECRETS_DRIVER: !If [CustomerApprovalActive, "secrets-manager", !Ref "AWS::NoValue"]
-          PATHFINDER_SECRET_PREFIX: !If [CustomerApprovalActive, !Ref PathfinderSecretPrefix, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_TARGETS_TABLE: !If [CustomerRuntimeActive, !Ref PathfinderTargetsTableName, !Ref "AWS::NoValue"]
+          PATHFINDER_SECRETS_DRIVER: !If [CustomerRuntimeActive, "secrets-manager", !Ref "AWS::NoValue"]
+          PATHFINDER_SECRET_PREFIX: !If [CustomerRuntimeActive, !Ref PathfinderSecretPrefix, !Ref "AWS::NoValue"]
+          PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If [CustomerRevisionUploadActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If [CustomerRevisionUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If [CustomerRevisionUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_BUCKET: !If [CustomerRevisionUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"]
 
   ProofSyncFunction:
     Type: AWS::Lambda::Function

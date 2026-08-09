@@ -58,6 +58,37 @@ function customerIdCohort(env, name) {
   return values;
 }
 
+function orderNumberCohort(env, name) {
+  const value = env[name]?.trim() ?? "";
+  if (!value || !/^A\d{7,8}(,A\d{7,8}){0,19}$/.test(value)) {
+    throw new Error(`${name} must contain 1 through 20 comma-separated Lift order numbers without spaces.`);
+  }
+  const values = value.split(",");
+  if (new Set(values).size !== values.length) {
+    throw new Error(`${name} must not contain duplicate order numbers.`);
+  }
+  return values;
+}
+
+function validateCustomerRuntimeBindings(env) {
+  const tableName = required(env, "PATHFINDER_PROOF_TARGETS_TABLE");
+  const tableArn = required(env, "PATHFINDER_PROOF_TARGETS_TABLE_ARN");
+  const secretArn = required(env, "PATHFINDER_PROOFING_API_SECRET_ARN");
+  const secretPrefix = required(env, "PATHFINDER_SECRET_PREFIX");
+  if (!/^[A-Za-z0-9_.-]{3,255}$/.test(tableName)) {
+    throw new Error("PATHFINDER_PROOF_TARGETS_TABLE is invalid.");
+  }
+  if (!new RegExp(`^arn:aws[a-zA-Z-]*:dynamodb:[a-z0-9-]+:[0-9]{12}:table/${tableName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`).test(tableArn)) {
+    throw new Error("PATHFINDER_PROOF_TARGETS_TABLE_ARN must identify the configured target table exactly.");
+  }
+  if (!/^arn:aws[a-zA-Z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:\/vornan\/pathfinder\/targets\/lift-standard-graphics-[A-Za-z0-9]+$/.test(secretArn)) {
+    throw new Error("PATHFINDER_PROOFING_API_SECRET_ARN must identify the exact Lift target secret.");
+  }
+  if (!/^\/[A-Za-z0-9/_-]+\/$/.test(secretPrefix)) {
+    throw new Error("PATHFINDER_SECRET_PREFIX must be an absolute slash-terminated secret prefix.");
+  }
+}
+
 function safePublicBaseUrl(env, name) {
   const value = required(env, name);
   let parsed;
@@ -158,6 +189,8 @@ export function validateProofDeployment(env = process.env) {
   const syntheticQaEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA);
   const operatorGrantCreationEnabled = enabled(env.PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED);
   const customerApprovalEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS);
+  const customerRevisionUploadEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS);
+  const proofAssetUploadEnabled = enabled(env.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD);
   const grantAllowedCustomerIds = customerIdCohort(env, "PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS");
   const managedWafEnabled = enabled(env.PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED);
   const sharedWebAclConfigured = Boolean(env.PATHFINDER_PROOF_WEB_ACL_ARN?.trim());
@@ -222,21 +255,35 @@ export function validateProofDeployment(env = process.env) {
         "PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS is required for customer approvals through existing valid review grants."
       );
     }
-    const tableName = required(env, "PATHFINDER_PROOF_TARGETS_TABLE");
-    const tableArn = required(env, "PATHFINDER_PROOF_TARGETS_TABLE_ARN");
-    const secretArn = required(env, "PATHFINDER_PROOFING_API_SECRET_ARN");
-    const secretPrefix = required(env, "PATHFINDER_SECRET_PREFIX");
-    if (!/^[A-Za-z0-9_.-]{3,255}$/.test(tableName)) {
-      throw new Error("PATHFINDER_PROOF_TARGETS_TABLE is invalid.");
+    validateCustomerRuntimeBindings(env);
+  }
+  if (customerRevisionUploadEnabled || proofAssetUploadEnabled) {
+    if (!customerRevisionUploadEnabled || !proofAssetUploadEnabled) {
+      throw new Error(
+        "PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS and PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD must be enabled together."
+      );
     }
-    if (!new RegExp(`^arn:aws[a-zA-Z-]*:dynamodb:[a-z0-9-]+:[0-9]{12}:table/${tableName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`).test(tableArn)) {
-      throw new Error("PATHFINDER_PROOF_TARGETS_TABLE_ARN must identify the configured target table exactly.");
+    if (!publicReadEnabled || syntheticQaEnabled) {
+      throw new Error(
+        "Customer revised-art upload requires the bounded public-read window with synthetic QA disabled."
+      );
     }
-    if (!/^arn:aws[a-zA-Z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:\/vornan\/pathfinder\/targets\/lift-standard-graphics-[A-Za-z0-9]+$/.test(secretArn)) {
-      throw new Error("PATHFINDER_PROOFING_API_SECRET_ARN must identify the exact Lift target secret.");
+    if (grantAllowedCustomerIds.length === 0) {
+      throw new Error("PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS is required for customer revised-art upload.");
     }
-    if (!/^\/[A-Za-z0-9/_-]+\/$/.test(secretPrefix)) {
-      throw new Error("PATHFINDER_SECRET_PREFIX must be an absolute slash-terminated secret prefix.");
+    validateCustomerRuntimeBindings(env);
+    orderNumberCohort(env, "PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS");
+    const uploadExpiresAt = futureUtcTimestamp(env, "PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT");
+    if (readOnlyActivationExpiresAt && Date.parse(uploadExpiresAt) > Date.parse(readOnlyActivationExpiresAt)) {
+      throw new Error("PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT cannot exceed the public-read deadline.");
+    }
+    const bucketName = required(env, "PATHFINDER_PROOF_ASSET_BUCKET");
+    const bucketArn = required(env, "PATHFINDER_PROOF_ASSET_BUCKET_ARN");
+    if (!/^vornan-pathfinder-proof-assets-(dev|qa|prod)-\d{12}$/.test(bucketName)) {
+      throw new Error("PATHFINDER_PROOF_ASSET_BUCKET must identify the dedicated Proof asset bucket.");
+    }
+    if (bucketArn !== `arn:aws:s3:::${bucketName}`) {
+      throw new Error("PATHFINDER_PROOF_ASSET_BUCKET_ARN must identify the configured Proof asset bucket exactly.");
     }
   }
 
@@ -259,6 +306,8 @@ export function validateProofDeployment(env = process.env) {
     operator_cohort_size: grantAllowedCustomerIds.length,
     operator_public_base_url: operatorPublicBaseUrl,
     customer_approval_enabled: customerApprovalEnabled,
+    customer_revision_upload_enabled: customerRevisionUploadEnabled,
+    proof_asset_upload_enabled: proofAssetUploadEnabled,
     lift_writes_enabled: false
   };
 }

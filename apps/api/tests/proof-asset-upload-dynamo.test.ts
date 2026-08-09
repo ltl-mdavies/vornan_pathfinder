@@ -96,6 +96,22 @@ function audit(value: ProofAssetUploadRecord): ProofAuditEvent {
   };
 }
 
+function customerAudit(value: ProofAssetUploadRecord): ProofAuditEvent {
+  const event = audit(value);
+  assert.ok(value.record_version <= 3);
+  return {
+    ...event,
+    actor_type: "customer_session",
+    actor_id: "psession_customer-qa-0001",
+    grant_id: "pgrant_customer-qa-0001",
+    participant_id: "pparticipant_customer-qa-0001",
+    metadata: {
+      ...event.metadata,
+      source: "public_api"
+    }
+  };
+}
+
 before(async () => {
   process.env.PATHFINDER_RUNTIME = "lambda";
   process.env.PATHFINDER_PROOF_STORAGE_DRIVER = "dynamodb";
@@ -155,6 +171,17 @@ test("atomically reserves exactly one ProofCore asset and one retained audit", a
   assert.equal(auditPut?.TableName, "Pathfinder-ProofAudit-assets");
   assert.equal("ttl_epoch" in (core?.Item ?? {}), false);
   assert.equal("ttl_epoch" in (auditPut?.Item ?? {}), false);
+});
+
+test("accepts a review-scoped customer session audit without weakening durable identity", async () => {
+  await reserve(record, customerAudit(record));
+  const auditPut = (commands[0] as TransactWriteItemsCommand).input.TransactItems?.[1]?.Put;
+  const persisted = JSON.parse(auditPut?.Item?.data?.S ?? "null") as ProofAuditEvent;
+  assert.equal(persisted.actor_type, "customer_session");
+  assert.equal(persisted.actor_id, "psession_customer-qa-0001");
+  assert.equal(persisted.grant_id, "pgrant_customer-qa-0001");
+  assert.equal(persisted.participant_id, "pparticipant_customer-qa-0001");
+  assert.equal(persisted.metadata.source, "public_api");
 });
 
 test("conditionally records upload start before a presigned ticket can be returned", async () => {
