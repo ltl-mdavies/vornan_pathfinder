@@ -1188,6 +1188,21 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
 
+  WrikeScheduledCandidateFailuresAlarm:
+    Condition: WrikeScheduledIntakeActive
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${LambdaFunctionName}-${EnvironmentName}-wrike-scheduled-candidate-failures"
+      AlarmDescription: One or more Wrike preparation, Lift submit, or Wrike status-comment candidates failed inside a completed scheduler cycle.
+      Namespace: Pathfinder/WrikeScheduledIntake
+      MetricName: candidate_failures
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
   PathfinderCustomersTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain
