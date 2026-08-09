@@ -436,7 +436,14 @@ export function createProofAssetUploadService(
       });
       const task = currentTask(order, request);
       const ids = identities(request);
-      const createdAt = currentTime.toISOString();
+      // A fresh Lift sync authors last_synced_at after this request's initial
+      // gate timestamp. Anchor the durable upload record at the later server
+      // timestamp so its retention activity can never appear to be in the
+      // future merely because the preflight read took time to complete.
+      const createdAt = new Date(Math.max(
+        currentTime.getTime(),
+        Date.parse(order.last_synced_at)
+      )).toISOString();
       const candidate = createProofAssetUploadRecord({
         ...ids,
         bucket_name: config.bucket_name!,

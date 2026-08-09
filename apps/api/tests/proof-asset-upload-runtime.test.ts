@@ -229,6 +229,39 @@ test("reserves immutable metadata before issuing one exact short-lived S3 POST",
   }
 });
 
+test("anchors a prepared upload no earlier than its completed fresh Proof sync", async () => {
+  const synchronizedAt = "2026-08-01T12:00:01.250Z";
+  let reserved: ProofAssetUploadRecord | null = null;
+  const service = createProofAssetUploadService({
+    runtimeConfig: () => config(),
+    now: () => now,
+    syncOrder: async () => ({
+      order: { ...order, last_synced_at: synchronizedAt },
+      diagnostics: null
+    }) as never,
+    reserve: async (record) => {
+      reserved = record;
+      return { status: "new" as const, record };
+    },
+    transition: async (_current, next) => next,
+    createPost: (async () => ({
+      url: "https://synthetic.invalid",
+      fields: {}
+    })) as never
+  });
+
+  await service.prepare({
+    request,
+    operator_uid: "operator-synthetic",
+    correlation_id: "correlation-post-sync-anchor"
+  });
+
+  assert.ok(reserved);
+  assert.equal(reserved.initialized_at, synchronizedAt);
+  assert.equal(reserved.last_proof_activity_at, synchronizedAt);
+  assert.equal(reserved.retention_anchor_at, synchronizedAt);
+});
+
 test("attributes customer revision uploads to the identified review grant and participant", async () => {
   const grantId = "pgrant_12345678-1234-4234-8234-123456789abc";
   const participantId = "pparticipant_abcdefab-1234-4234-8234-abcdefabcdef";
