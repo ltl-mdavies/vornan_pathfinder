@@ -192,7 +192,7 @@ test("provisions a retained private encrypted versioned object-lock bucket", () 
   }
   assert.match(
     template,
-    /CorsConfiguration:[\s\S]*?AllowedMethods:\n\s+- POST[\s\S]*?https:\/\/pathfinder\.vornan\.co[\s\S]*?x-amz-version-id[\s\S]*?x-amz-checksum-sha256[\s\S]*?MaxAge: 600/
+    /CorsConfiguration:[\s\S]*?AllowedMethods:\n\s+- POST[\s\S]*?https:\/\/pathfinder\.vornan\.co[\s\S]*?https:\/\/proof\.vornan\.co[\s\S]*?x-amz-version-id[\s\S]*?x-amz-checksum-sha256[\s\S]*?MaxAge: 600/
   );
   assert.doesNotMatch(template, /AllowedMethods:[\s\S]{0,100}- (PUT|DELETE)/);
 });

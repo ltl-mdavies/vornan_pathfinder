@@ -184,6 +184,7 @@ Resources:
               - POST
             AllowedOrigins:
               - https://pathfinder.vornan.co
+              - https://proof.vornan.co
               - http://127.0.0.1:5183
               - http://localhost:5183
             ExposedHeaders:
