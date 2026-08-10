@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { isWrikeScheduledIntakeEvent } from "../src/wrike-scheduled-intake.js";
@@ -38,5 +39,13 @@ test("retains the legacy prepare-only event and rejects unrelated events", () =>
       detail: { automation: "discover_prepare_submit_writeback" }
     }),
     false
+  );
+});
+
+test("scheduled Lambda coalesces full-store reads within one invocation", async () => {
+  const source = await readFile(new URL("../src/lambda.ts", import.meta.url), "utf8");
+  assert.match(
+    source,
+    /withPathfinderStoreReadScope\(\(\) => runConfiguredWrikeScheduledIntake\(\)\)/
   );
 });

@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+function exportedFunctionSource(source: string, name: string) {
+  const start = source.indexOf(`export async function ${name}`);
+  assert.notEqual(start, -1, `Expected exported function ${name}.`);
+  const next = source.indexOf("\nexport ", start + 1);
+  return source.slice(start, next === -1 ? source.length : next);
+}
+
 test("Dynamo persistence never deletes core lifecycle records during a whole-store save", async () => {
   const source = await readFile(new URL("../src/store.ts", import.meta.url), "utf8");
   for (const table of ["customers", "workspaces", "import_methods", "output_routes", "product_mappings", "jobs"]) {
@@ -46,10 +53,12 @@ test("Dynamo configuration persistence rejects stale whole-store snapshots", asy
   );
 });
 
-test("read-only target and existing workspace access never persists the whole store", async () => {
+test("read-only configuration access never persists the whole store", async () => {
   const source = await readFile(new URL("../src/store.ts", import.meta.url), "utf8");
   const getTarget = source.match(/export async function getTarget[\s\S]*?\n}\n\nfunction preserveSecret/);
   const getWorkspace = source.match(/export async function getOrCreateWorkspace[\s\S]*?\n}\n\nexport class SourceConnectionNotFoundError/);
+  const listProductMappings = exportedFunctionSource(source, "listProductMappings");
+  const listCatalogPresets = exportedFunctionSource(source, "listCatalogPresets");
 
   assert.ok(getTarget);
   assert.ok(getWorkspace);
@@ -58,6 +67,24 @@ test("read-only target and existing workspace access never persists the whole st
   const existingBranch = getWorkspace[0].match(/if \(existing\) \{[\s\S]*?return normalized;\n  }/);
   assert.ok(existingBranch);
   assert.doesNotMatch(existingBranch[0], /writeStore\(/);
+  assert.doesNotMatch(listProductMappings, /writeStore\(/);
+  assert.doesNotMatch(listCatalogPresets, /writeStore\(/);
+});
+
+test("scheduled preview hot paths persist only affected Dynamo records", async () => {
+  const source = await readFile(new URL("../src/store.ts", import.meta.url), "utf8");
+  const persistJob = exportedFunctionSource(source, "persistJobSnapshot");
+  const bulkMappings = exportedFunctionSource(source, "bulkUpsertProductMappings");
+  const persistPreview = exportedFunctionSource(source, "persistPreviewJob");
+
+  assert.match(persistJob, /upsertDynamoTableMonotonic\(tables\.jobs/);
+  assert.match(bulkMappings, /upsertDynamoTableMonotonic\(\s*tables\.product_mappings/);
+  assert.match(persistPreview, /upsertDynamoTableMonotonic\(tables\.jobs/);
+  assert.match(persistPreview, /upsertDynamoTableMonotonic\(tables\.import_methods/);
+  for (const functionSource of [persistJob, bulkMappings, persistPreview]) {
+    assert.match(functionSource, /if \(config\.storage_driver === "dynamodb"\)/);
+    assert.match(functionSource, /else \{\s*await writeStore\(store\);\s*}/);
+  }
 });
 
 test("seeded Lift configuration uses the current High End Work naming and product identifier", async () => {

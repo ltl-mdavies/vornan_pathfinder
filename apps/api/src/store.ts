@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -3580,6 +3581,61 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
   };
 }
 
+interface PathfinderStoreReadScope {
+  pending?: Promise<PathfinderStore>;
+  store?: PathfinderStore;
+}
+
+const pathfinderStoreReadScope = new AsyncLocalStorage<PathfinderStoreReadScope>();
+
+/**
+ * Coalesces full Pathfinder store reads inside one bounded execution (for
+ * example, a single scheduled Wrike cycle). It never shares data between
+ * Lambda invocations or HTTP requests.
+ */
+export function withPathfinderStoreReadScope<T>(operation: () => Promise<T>): Promise<T> {
+  return pathfinderStoreReadScope.run({}, operation);
+}
+
+function setScopedStore(store: PathfinderStore) {
+  const scope = pathfinderStoreReadScope.getStore();
+  if (!scope) return;
+  scope.store = store;
+  scope.pending = Promise.resolve(store);
+}
+
+function replaceScopedJob(job: ProcessingJobPreview) {
+  const scope = pathfinderStoreReadScope.getStore();
+  if (!scope?.store) return;
+  scope.store.jobs = [
+    job,
+    ...scope.store.jobs.filter(
+      (candidate) => candidate.customer_id !== job.customer_id || candidate.job_id !== job.job_id
+    )
+  ];
+  const workspace = scope.store.workspaces[job.customer_id];
+  if (workspace) {
+    workspace.jobs = scope.store.jobs.filter((candidate) => candidate.customer_id === job.customer_id);
+    workspace.updated_at = job.updated_at;
+  }
+}
+
+function replaceScopedSubmitAttempt(attempt: SubmitAttempt) {
+  const scope = pathfinderStoreReadScope.getStore();
+  if (!scope?.store) return;
+  scope.store.submit_attempts = [
+    attempt,
+    ...scope.store.submit_attempts.filter((candidate) => candidate.attempt_id !== attempt.attempt_id)
+  ];
+  const workspace = scope.store.workspaces[attempt.customer_id];
+  if (workspace) {
+    workspace.submit_attempts = scope.store.submit_attempts.filter(
+      (candidate) => candidate.customer_id === attempt.customer_id
+    );
+    workspace.updated_at = attempt.updated_at;
+  }
+}
+
 async function writeStore(store: PathfinderStore) {
   const sanitizedStore: PathfinderStore = {
     ...store,
@@ -3591,6 +3647,7 @@ async function writeStore(store: PathfinderStore) {
 
   if (config.storage_driver === "dynamodb") {
     await writeDynamoStore(sanitizedStore);
+    setScopedStore(store);
     return;
   }
 
@@ -3599,6 +3656,7 @@ async function writeStore(store: PathfinderStore) {
   const temporaryStorePath = `${storePath}.${randomBytes(6).toString("hex")}.tmp`;
   await writeFile(temporaryStorePath, `${JSON.stringify(sanitizedStore, null, 2)}\n`, "utf8");
   await rename(temporaryStorePath, storePath);
+  setScopedStore(store);
 }
 
 export async function persistPublicOrderStatusSnapshot(snapshot: PublicOrderStatusSnapshot) {
@@ -3939,7 +3997,7 @@ async function persistTargetSecrets(target: TargetConfig) {
   });
 }
 
-export async function readStore(): Promise<PathfinderStore> {
+async function readStoreUncached(): Promise<PathfinderStore> {
   const config = getPathfinderPersistenceRuntimeConfig();
   try {
     let parsed: PathfinderStore | null = null;
@@ -4003,6 +4061,32 @@ export async function readStore(): Promise<PathfinderStore> {
     seed.targets = await hydrateTargetsWithSecrets(seed.targets);
     await writeStore(seed);
     return seed;
+  }
+}
+
+export async function readStore(): Promise<PathfinderStore> {
+  const scope = pathfinderStoreReadScope.getStore();
+  if (!scope) {
+    return readStoreUncached();
+  }
+  if (scope.store) {
+    return scope.store;
+  }
+  if (scope.pending) {
+    return scope.pending;
+  }
+
+  const pending = readStoreUncached();
+  scope.pending = pending;
+  try {
+    const store = await pending;
+    scope.store = store;
+    return store;
+  } catch (error) {
+    if (scope.pending === pending) {
+      delete scope.pending;
+    }
+    throw error;
   }
 }
 
@@ -4963,7 +5047,18 @@ export async function persistJobSnapshot(customer: LiftCustomer, job: Processing
   workspace.jobs = store.jobs.filter((candidate) => candidate.customer_id === customer.lift_customer_id);
   workspace.updated_at = nextJob.updated_at;
   store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    await upsertDynamoTableMonotonic(tables.jobs, [
+      dynamoItem(
+        { customer_id: nextJob.customer_id, job_id: nextJob.job_id },
+        compactProcessingJobForDynamo(nextJob)
+      )
+    ]);
+  } else {
+    await writeStore(store);
+  }
 
   return nextJob;
 }
@@ -5429,6 +5524,7 @@ export async function reserveSubmitAttempt(customer: LiftCustomer, attempt: Subm
         },
         ConditionExpression: "attribute_not_exists(customer_id) AND attribute_not_exists(attempt_id)"
       }));
+      replaceScopedSubmitAttempt(attempt);
       return { attempt, created: true as const };
     } catch (error) {
       if (!isConditionalCheckFailure(error)) {
@@ -5448,7 +5544,9 @@ export async function reserveSubmitAttempt(customer: LiftCustomer, attempt: Subm
       if (!existing || existing.idempotency_key !== attempt.idempotency_key) {
         throw new Error("The reserved submit attempt could not be reconciled safely.");
       }
-      return { attempt: normalizeSubmitAttempt(existing), created: false as const };
+      const normalizedExisting = normalizeSubmitAttempt(existing);
+      replaceScopedSubmitAttempt(normalizedExisting);
+      return { attempt: normalizedExisting, created: false as const };
     }
   }
 
@@ -5553,13 +5651,13 @@ async function persistDynamoSubmitJobState(
   submitJobState: ProcessingState | null,
   targetOrderNumber: string | null
 ) {
-  if (!submitJobState) return;
+  if (!submitJobState) return null;
   const tables = getDynamoTableConfig();
   const submittedJob = await getDynamoData<ProcessingJobPreview>(tables.jobs, {
     customer_id: customer.lift_customer_id,
     job_id: attempt.job_id
   }, true);
-  if (!submittedJob) return;
+  if (!submittedJob) return null;
   const submittedRoute = await getDynamoData<OutputRoute>(tables.output_routes, {
     customer_id: customer.lift_customer_id,
     output_route_id: submittedJob.output_route_id
@@ -5577,6 +5675,8 @@ async function persistDynamoSubmitJobState(
     { customer_id: updatedJob.customer_id, job_id: updatedJob.job_id },
     compactProcessingJobForDynamo(updatedJob)
   );
+  replaceScopedJob(updatedJob);
+  return updatedJob;
 }
 
 async function putDynamoSubmitAttempt(attempt: SubmitAttempt, complete: boolean, requireReservation = false) {
@@ -5633,9 +5733,12 @@ export async function finalizeReservedSubmitAttempt(customer: LiftCustomer, atte
     ) {
       throw new Error("The finalized submit attempt could not be reconciled safely.");
     }
-    return normalizeSubmitAttempt(existing);
+    const normalizedExisting = normalizeSubmitAttempt(existing);
+    replaceScopedSubmitAttempt(normalizedExisting);
+    return normalizedExisting;
   }
   await persistDynamoSubmitJobState(customer, normalizedAttempt, submitJobState, targetOrderNumber);
+  replaceScopedSubmitAttempt(normalizedAttempt);
   return normalizedAttempt;
 }
 
@@ -5645,6 +5748,7 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
   if (config.storage_driver === "dynamodb") {
     await putDynamoSubmitAttempt(normalizedAttempt, true);
     await persistDynamoSubmitJobState(customer, normalizedAttempt, submitJobState, targetOrderNumber);
+    replaceScopedSubmitAttempt(normalizedAttempt);
     return normalizedAttempt;
   }
   const store = await readStore();
@@ -5687,16 +5791,12 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
 export async function listProductMappings(customer: LiftCustomer) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
-  store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
   return workspace.product_mappings;
 }
 
 export async function listCatalogPresets(customer: LiftCustomer) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
-  store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
   return workspace.catalog_presets;
 }
 
@@ -5918,6 +6018,7 @@ export async function bulkUpsertProductMappings(customer: LiftCustomer, mappings
     workspace.output_routes.find((route) => route.output_route_id === workspace.primary_output_route_id) ??
     createSeedOutputRoute(timestamp);
 
+  const updatedMappings: CustomerProductMapping[] = [];
   mappings.forEach((mapping) => {
     const route =
       workspace.output_routes.find((candidate) => candidate.output_route_id === mapping.output_route_id) ??
@@ -5934,17 +6035,40 @@ export async function bulkUpsertProductMappings(customer: LiftCustomer, mappings
         mapping.replacement_version_id ??
         activeProductMappingVersion(workspace, mapping.output_route_id ?? route.output_route_id)
     });
-    nextById.set(mapping.mapping_id, {
+    const nextMapping = {
       ...(nextById.get(mapping.mapping_id) ?? normalizedMapping),
       ...normalizedMapping,
       updated_at: timestamp
-    });
+    };
+    nextById.set(mapping.mapping_id, nextMapping);
+    updatedMappings.push(nextMapping);
   });
 
   workspace.product_mappings = Array.from(nextById.values());
   workspace.updated_at = timestamp;
   store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    await upsertDynamoTableMonotonic(
+      tables.product_mappings,
+      updatedMappings.map((mapping) =>
+        dynamoItem(
+          {
+            customer_route_id: customerRouteKey(
+              customer.lift_customer_id,
+              mapping.output_route_id,
+              mapping.replacement_version_id
+            ),
+            mapping_id: mapping.mapping_id
+          },
+          { ...mapping, customer_id: customer.lift_customer_id }
+        )
+      )
+    );
+  } else {
+    await writeStore(store);
+  }
   return workspace.product_mappings;
 }
 
@@ -6597,7 +6721,28 @@ export async function persistPreviewJob(
   }
   workspace.updated_at = timestamp;
   store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    await Promise.all([
+      upsertDynamoTableMonotonic(tables.jobs, [
+        dynamoItem(
+          { customer_id: job.customer_id, job_id: job.job_id },
+          compactProcessingJobForDynamo(job)
+        )
+      ]),
+      options.persistMethod === false
+        ? Promise.resolve()
+        : upsertDynamoTableMonotonic(tables.import_methods, [
+            dynamoItem(
+              { customer_id: customer.lift_customer_id, import_method_id: nextMethod.import_method_id },
+              { ...nextMethod, customer_id: customer.lift_customer_id }
+            )
+          ])
+    ]);
+  } else {
+    await writeStore(store);
+  }
 
   return workspace;
 }
