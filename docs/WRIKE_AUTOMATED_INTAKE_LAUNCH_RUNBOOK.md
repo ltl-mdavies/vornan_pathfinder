@@ -1,5 +1,7 @@
 # Wrike automated intake launch runbook
 
+> **Historical launch runbook.** Production now performs scheduled live submission and status writeback. Use [`PATHFINDER_LIVE_OPERATIONS_HANDOFF_2026-08-10.md`](./PATHFINDER_LIVE_OPERATIONS_HANDOFF_2026-08-10.md) for current behavior.
+
 This runbook covers the production launch boundary for Momentara Placard Orders. It is intentionally separate from shipping-file intake, Proof actions, and public customer actions.
 
 ## Production behavior

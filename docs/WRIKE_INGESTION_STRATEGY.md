@@ -1,5 +1,7 @@
 # Pathfinder Wrike Ingestion Strategy
 
+> **Historical strategy record.** Some launch assumptions in this document have been superseded by the live scheduled-submit path. Start with [`CURRENT_STATE.md`](./CURRENT_STATE.md).
+
 ## Outcome
 
 Wrike is a customer-owned Source Connection that can be bound to one or more saved Pathfinder Import Methods for that same customer. It retrieves an approved workbook from a scoped Wrike task, runs the same parser, field mappings, product resolution, order-name resolution, Ext_ID strategy, output route, and submit profile already configured on the bound Import Method, then creates an operator-reviewed Pathfinder preview job.
