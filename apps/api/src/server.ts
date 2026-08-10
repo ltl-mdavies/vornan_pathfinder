@@ -2216,7 +2216,28 @@ function stableJsonValue(value: unknown): unknown {
   return value;
 }
 
-function importMethodFingerprint(method: ImportMethod, route: OutputRoute) {
+function importMethodFingerprint(
+  method: ImportMethod,
+  route: OutputRoute,
+  productMappings: CustomerProductMapping[] = []
+) {
+  const routeProductMappings = productMappings
+    .filter(
+      (mapping) =>
+        mapping.output_route_id === route.output_route_id && mapping.status === "Mapped"
+    )
+    .map((mapping) => ({
+      mapping_id: mapping.mapping_id,
+      source_scope_id: mapping.source_scope_id ?? null,
+      customer_product_key: mapping.customer_product_key,
+      product_identifier_type: mapping.product_identifier_type,
+      product_identifier_value: mapping.product_identifier_value,
+      lift_unit_number: mapping.lift_unit_number,
+      lift_product_id: mapping.lift_product_id ?? null,
+      product_name: mapping.product_name,
+      status: mapping.status
+    }))
+    .sort((left, right) => left.mapping_id.localeCompare(right.mapping_id));
   const contract = {
     import_method: {
       import_method_id: method.import_method_id,
@@ -2262,7 +2283,8 @@ function importMethodFingerprint(method: ImportMethod, route: OutputRoute) {
       submit_profiles: route.submit_profiles,
       value_normalization_rules: route.value_normalization_rules,
       status: route.status
-    }
+    },
+    product_mappings: routeProductMappings
   };
   return createHash("sha256").update(JSON.stringify(stableJsonValue(contract))).digest("hex");
 }
@@ -4900,7 +4922,8 @@ async function createWrikeEvidencePreviewForMethod(args: {
       "The stored evidence is outside the approved Wrike rehearsal task."
     );
   }
-  const baseFingerprint = importMethodFingerprint(method, outputRoute);
+  const productMappings = await listProductMappings(customer);
+  const baseFingerprint = importMethodFingerprint(method, outputRoute, productMappings);
   const fingerprint = args.orderContext
     ? createHash("sha256")
         .update(
