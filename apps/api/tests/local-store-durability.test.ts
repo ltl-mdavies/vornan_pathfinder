@@ -40,3 +40,34 @@ test("a malformed local store fails closed without replacing operator data", asy
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("a bounded store-read scope coalesces reads without leaking across executions", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "pathfinder-store-scope-"));
+  const storePath = join(directory, "pathfinder.json");
+
+  try {
+    const storeModuleUrl = new URL("../src/store.ts", import.meta.url).href;
+    const script = `
+      const { readStore, withPathfinderStoreReadScope } = await import(${JSON.stringify(storeModuleUrl)});
+      const [first, second] = await withPathfinderStoreReadScope(async () => {
+        return Promise.all([readStore(), readStore()]);
+      });
+      if (first !== second) process.exitCode = 2;
+      const outside = await readStore();
+      if (outside === first) process.exitCode = 3;
+    `;
+    const result = spawnSync(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", script], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        PATHFINDER_LOCAL_STORE_PATH: storePath,
+        PATHFINDER_STORAGE_DRIVER: "local"
+      },
+      encoding: "utf8"
+    });
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
