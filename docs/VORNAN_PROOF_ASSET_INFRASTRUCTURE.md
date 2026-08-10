@@ -1,5 +1,7 @@
 # Vornan Proof Asset Infrastructure
 
+> **Foundation history plus later amendments.** The opening dark-foundation description is no longer the complete live state. Use [`VORNAN_PROOF_GO_LIVE_HANDOFF_2026-08-10.md`](./VORNAN_PROOF_GO_LIVE_HANDOFF_2026-08-10.md) for current capability outputs and deployment status.
+
 ## Purpose
 
 This foundation provides private AWS storage and a future delivery boundary for

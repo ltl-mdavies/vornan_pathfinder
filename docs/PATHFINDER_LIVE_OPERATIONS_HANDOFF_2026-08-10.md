@@ -1,0 +1,142 @@
+# Pathfinder live operations handoff — 2026-08-10
+
+## Mission
+
+This document is the current operational handoff for the live Momentara-to-Lift path. It replaces launch-era assumptions that scheduled intake only created previews or required a human to submit every discovered order.
+
+## Verified production state
+
+Read-only AWS inspection on 2026-08-10 confirmed:
+
+- API stack `vornan-pathfinder-api-prod`: `UPDATE_COMPLETE`.
+- EventBridge rule `vornan-pathfinder-api-prod-wrike-scheduled-intake`: `ENABLED`, `rate(15 minutes)`.
+- scheduled customer: `284619`;
+- scheduled Import Method: `method-1784901795973`;
+- maximum candidates per cycle: `25`;
+- scheduled intake: enabled;
+- scheduled Lift submission: enabled;
+- scheduled Wrike status writeback: enabled;
+- external Lift submit: enabled;
+- live Lift transport: enabled;
+- live-customer submit: enabled;
+- workbook evidence and qualified reference-document evidence: enabled;
+- direct document publication base: `https://go.vornan.co`;
+- Wrike connection test: enabled;
+- manual intake, discovery preview, and rehearsal gates: disabled.
+
+The API errors, throttles, scheduled-candidate-failure, and scheduled-invocation alarms were all `OK` at reconciliation time. Alarm state is evidence at a moment in time, not a perpetual health guarantee.
+
+## Production flow
+
+1. EventBridge invokes the scheduled intake every 15 minutes.
+2. Pathfinder scans the configured GPA Campaigns boundary for eligible Placard Order tasks.
+3. Up to 25 candidates are processed independently. A failure in one candidate must not prevent the others from progressing.
+4. A qualified workbook and at most one qualified reference PDF are captured, version-bound, and published as immutable direct HTTP 200 documents through `go.vornan.co`.
+5. Each candidate produces or replays its own preview job. Exact evidence and idempotency identities prevent blind duplicate submission.
+6. A Ready live-customer job may submit to Lift through the live transport.
+7. Pathfinder reconciles the Lift order number and creates the tokenized status page.
+8. The scheduled path posts the success comment to the exact Wrike Placard Order task.
+
+Lift submission must never be retried blindly after a network timeout or ambiguous response. Reconcile by Ext_ID and authoritative Lift state first.
+
+## Current recovery behavior
+
+Product mapping changes now invalidate and reprocess affected Wrike previews, allowing a previously `Needs Mapping` order to become Ready without editing the source workbook.
+
+The current implementation invalidates against a route-wide mapping fingerprint. One mapping change can therefore produce replacement previews for more than the intended source order. Cross-job submission deduplication prevents previously submitted source evidence from being submitted again, but the extra Ready jobs are noisy and confusing.
+
+Known hardening debt:
+
+- replace route-wide invalidation with dependency-aware invalidation based on the product keys actually used by each job;
+- explicitly link replacement jobs to the superseded preview and hide or label superseded rows;
+- auto-refresh active Jobs lists;
+- add an operator-visible intake monitor and bounded “Run discovery now” control at the Import Method/customer scope;
+- retain discovered-but-ineligible candidates with actionable reasons;
+- provide a guided heal-and-resubmit workflow for recoverable failures;
+- add success/failure notifications that do not require daily babysitting.
+
+## Newly confirmed Momentara requirements — 2026-08-10
+
+These requirements were confirmed after the production-state reconciliation. They are not implemented by this documentation checkpoint and must be delivered through the Pathfinder development task without interrupting the current live scheduler.
+
+### Multiple campaign roots
+
+Momentara may place otherwise identical Placard Order campaigns beneath more than one Wrike parent folder. The confirmed roots include GPA Campaigns and IBA Campaigns.
+
+Recommended implementation:
+
+- replace the Import Method's single campaign-folder setting with an ordered, user-configurable set of Wrike folder IDs;
+- migrate the existing GPA folder into that set without changing its identity;
+- add the confirmed IBA folder through the authenticated folder picker rather than hard-coding a display name;
+- run the same discovery, qualification, workbook, mapping, submit, and writeback contract for every configured root;
+- deduplicate by exact Wrike task/evidence identity if roots overlap or a task is visible through more than one Wrike hierarchy;
+- report candidate and failure counts by root so one inaccessible folder does not silently hide orders or stop the other roots.
+
+The first rollout should add IBA alongside GPA while preserving the currently working GPA production path.
+
+### `TBD` hardware quantities
+
+Momentara may enter `tbd` or `TBD` in a hardware quantity cell when the final quantity is not yet known. For Lift order creation, this value must become numeric quantity `0.5`.
+
+This should be an Import Method normalization rule, scoped to the configured workbook section and quantity column, rather than a global hard-coded workbook exception. The initial rule is:
+
+- trim whitespace and compare case-insensitively;
+- `tbd` → canonical quantity `0.5`;
+- positive numeric values → preserve the numeric value;
+- blank or numeric zero → exclude the row under the existing order-line eligibility rule;
+- any other nonnumeric token → block that candidate with an actionable validation message.
+
+The canonical order, validation, preview, and Lift payload layers must preserve `0.5` without integer coercion or rounding. UI preview and certification must make the transformation visible so an operator can distinguish an intentional TBD placeholder from a real half-unit order.
+
+Required regressions include hardware and non-hardware sections, whitespace/case variants, blank/zero exclusion, unsupported text, fractional payload preservation, replay stability, and simultaneous discovery from GPA and IBA roots.
+
+## Manual recovery rules
+
+### Mapping failure
+
+1. Preserve the Wrike task ID, workbook evidence identity, job ID, Ext_ID, and unresolved product key.
+2. Map the exact customer key to the correct stable Lift `product_id`.
+3. Reprocess from the original immutable evidence. Do not edit a stored payload by hand.
+4. Confirm the replacement job is Ready and contains the expected line/product resolution.
+5. Before submitting, search all jobs and Lift for the same source evidence and Ext_ID.
+6. Submit once. Reconcile the Lift order, status link, and Wrike comment.
+
+### Ambiguous Lift submit
+
+1. Do not retry.
+2. Search Lift using the exact Ext_ID and any returned order number.
+3. If the order exists, manually associate the Pathfinder job using the audited Lift-order override flow.
+4. If no order is found after the bounded reconciliation period, escalate with the request correlation and evidence digest before deciding whether a new submission identity is required.
+
+### Wrike writeback failure
+
+1. Confirm the Lift order and status link are valid before any comment action.
+2. Confirm the exact Wrike Placard Order task and current integration identity.
+3. Use the durable writeback state. Never post a second comment merely because the first response was ambiguous.
+
+## Data durability
+
+Production configuration and job state must be treated as irreplaceable operational data. Do not seed, overwrite, or replace production tables during deployment. Deployment verification must confirm existing customer, target, route, template, Import Method, product mapping, and job counts remain present.
+
+Before material migrations:
+
+- capture a named point-in-time or export appropriate to each backing store;
+- record the deployed commit and stack parameters;
+- test restoration into an isolated environment;
+- preserve audit history and stable identifiers.
+
+Product mapping identity is the Lift `product_id`; Lift product-name changes should refresh the display name without changing the mapping identity.
+
+## Deployment guardrails
+
+Any API deployment must preserve the live Wrike and Lift parameters above unless the change explicitly intends to alter production intake. Immediately after deployment:
+
+1. verify the EventBridge rule is enabled at 15 minutes;
+2. verify scheduled intake, submit, and writeback remain true;
+3. verify live transport and live-customer submit remain true;
+4. verify document publication and the `go.vornan.co` base remain configured;
+5. verify the Wrike OAuth connection and a read-only identity check;
+6. verify alarms and the most recent scheduler cycle;
+7. verify no configuration or product-map data was replaced.
+
+Proof work must not change these production capabilities unless the same checkpoint explicitly includes and verifies the Pathfinder deployment impact.

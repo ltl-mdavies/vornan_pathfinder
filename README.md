@@ -1,5 +1,7 @@
 # Vornan Pathfinder
 
+> **Start here for current operations:** [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md). The MVP summary below preserves early repository context and is not a complete description of the live Wrike, Lift, Status, or Proof services.
+
 Pathfinder is a Vornan-aligned order translation and routing platform. The MVP focuses on taking customer order input from XLSX/grid sources, translating it into a Canonical Order, validating it, and generating a Lift Standard Graphics payload and submit-request preview.
 
 ## Current MVP State

@@ -1,5 +1,7 @@
 # Wrike to Lift production launch checklist
 
+> **Historical launch checklist.** The production integration is now active. Use [`PATHFINDER_LIVE_OPERATIONS_HANDOFF_2026-08-10.md`](./PATHFINDER_LIVE_OPERATIONS_HANDOFF_2026-08-10.md) for current configuration and recovery procedures.
+
 This runbook covers the first supervised production submissions from a Wrike Placard Order through Pathfinder to Lift. It is intentionally reusable across orders and does not contain customer files, URLs, credentials, or payload values.
 
 ## 1. Prepare the route

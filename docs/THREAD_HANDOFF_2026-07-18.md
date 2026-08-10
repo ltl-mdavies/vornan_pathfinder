@@ -1,5 +1,7 @@
 # Pathfinder Thread Handoff - 2026-07-18
 
+> **Historical handoff.** This file preserves July implementation context and is not current production truth. Start with [`CURRENT_STATE.md`](./CURRENT_STATE.md) and the handoffs linked there.
+
 This document is the working handoff for continuing Pathfinder development in a fresh Codex thread. It summarizes the current repo state, major milestones, live infrastructure, useful docs, and the next slices of work.
 
 ## One-Minute Context

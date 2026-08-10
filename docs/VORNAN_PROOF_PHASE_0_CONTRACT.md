@@ -1,5 +1,7 @@
 # Vornan Proof Phase 0 contract and write gate
 
+> **Historical phase contract.** The repository and deployed system have advanced beyond Phase 0. Use [`VORNAN_PROOF_GO_LIVE_HANDOFF_2026-08-10.md`](./VORNAN_PROOF_GO_LIVE_HANDOFF_2026-08-10.md) for current source-ready and live capability state.
+
 Authoritative architecture: `docs/VORNAN_PROOF_PATHFINDER_ARCHITECTURE_HANDOFF_2026-07-19.docx`.
 
 Implementation branch: `codex/vornan-proof-foundation`.
