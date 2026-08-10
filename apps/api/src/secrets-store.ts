@@ -10,6 +10,7 @@ import type { WrikeOAuthCredentials } from "@pathfinder/wrike-adapter";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ExpiringPromiseCache } from "./expiring-promise-cache.js";
 import { getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 import type { TargetEnvironment } from "./store.js";
 
@@ -81,6 +82,7 @@ const secretsPath =
     ? "/tmp/pathfinder-secrets.local.json"
     : fileURLToPath(new URL("../../../data/pathfinder-secrets.local.json", import.meta.url)));
 let secretsManagerClient: SecretsManagerClient | null = null;
+const secretsManagerReadCache = new ExpiringPromiseCache(60_000);
 
 function getSecretsManagerClient() {
   secretsManagerClient ??= new SecretsManagerClient({});
@@ -172,19 +174,20 @@ function normalizeCustomerSourceConnectionSecrets(value: unknown): CustomerSourc
 
 async function readSecretsManagerTargetSecrets(targetId: string): Promise<TargetSecrets> {
   const secretName = targetSecretName(targetId);
-
-  try {
-    const response = await getSecretsManagerClient().send(new GetSecretValueCommand({ SecretId: secretName }));
-    if (!response.SecretString) {
-      return {};
+  return secretsManagerReadCache.read(`target:${secretName}`, async () => {
+    try {
+      const response = await getSecretsManagerClient().send(new GetSecretValueCommand({ SecretId: secretName }));
+      if (!response.SecretString) {
+        return {};
+      }
+      return normalizeTargetSecrets(JSON.parse(response.SecretString));
+    } catch (error) {
+      if (error instanceof ResourceNotFoundException) {
+        return {};
+      }
+      throw error;
     }
-    return normalizeTargetSecrets(JSON.parse(response.SecretString));
-  } catch (error) {
-    if (error instanceof ResourceNotFoundException) {
-      return {};
-    }
-    throw error;
-  }
+  });
 }
 
 async function writeSecretsManagerTargetSecrets(targetId: string, targetSecrets: TargetSecrets) {
@@ -198,6 +201,7 @@ async function writeSecretsManagerTargetSecrets(targetId: string, targetSecrets:
         SecretString: secretString
       })
     );
+    secretsManagerReadCache.set(`target:${secretName}`, normalizeTargetSecrets(targetSecrets));
   } catch (error) {
     if (!(error instanceof ResourceNotFoundException)) {
       throw error;
@@ -209,23 +213,26 @@ async function writeSecretsManagerTargetSecrets(targetId: string, targetSecrets:
         Description: `Pathfinder target credentials for ${targetId}`
       })
     );
+    secretsManagerReadCache.set(`target:${secretName}`, normalizeTargetSecrets(targetSecrets));
   }
 }
 
 async function readSecretsManagerWrikeConnectorSecrets(): Promise<WrikeConnectorSecrets> {
   const secretName = wrikeConnectorSecretName();
-  try {
-    const response = await getSecretsManagerClient().send(new GetSecretValueCommand({ SecretId: secretName }));
-    if (!response.SecretString) {
-      return {};
+  return secretsManagerReadCache.read(`wrike:${secretName}`, async () => {
+    try {
+      const response = await getSecretsManagerClient().send(new GetSecretValueCommand({ SecretId: secretName }));
+      if (!response.SecretString) {
+        return {};
+      }
+      return normalizeWrikeConnectorSecrets(JSON.parse(response.SecretString));
+    } catch (error) {
+      if (error instanceof ResourceNotFoundException) {
+        return {};
+      }
+      throw error;
     }
-    return normalizeWrikeConnectorSecrets(JSON.parse(response.SecretString));
-  } catch (error) {
-    if (error instanceof ResourceNotFoundException) {
-      return {};
-    }
-    throw error;
-  }
+  });
 }
 
 async function writeSecretsManagerWrikeConnectorSecrets(connectorSecrets: WrikeConnectorSecrets) {
@@ -233,6 +240,7 @@ async function writeSecretsManagerWrikeConnectorSecrets(connectorSecrets: WrikeC
   const secretString = JSON.stringify(normalizeWrikeConnectorSecrets(connectorSecrets));
   try {
     await getSecretsManagerClient().send(new PutSecretValueCommand({ SecretId: secretName, SecretString: secretString }));
+    secretsManagerReadCache.set(`wrike:${secretName}`, normalizeWrikeConnectorSecrets(connectorSecrets));
   } catch (error) {
     if (!(error instanceof ResourceNotFoundException)) {
       throw error;
@@ -244,23 +252,26 @@ async function writeSecretsManagerWrikeConnectorSecrets(connectorSecrets: WrikeC
         Description: "Pathfinder Wrike OAuth connector credentials"
       })
     );
+    secretsManagerReadCache.set(`wrike:${secretName}`, normalizeWrikeConnectorSecrets(connectorSecrets));
   }
 }
 
 async function readSecretsManagerCustomerSourceConnectionSecrets(customerId: string, connectionId: string) {
   const secretName = customerSourceConnectionSecretName(customerId, connectionId);
-  try {
-    const response = await getSecretsManagerClient().send(new GetSecretValueCommand({ SecretId: secretName }));
-    if (!response.SecretString) {
-      return normalizeCustomerSourceConnectionSecrets(undefined);
+  return secretsManagerReadCache.read(`customer-connection:${secretName}`, async () => {
+    try {
+      const response = await getSecretsManagerClient().send(new GetSecretValueCommand({ SecretId: secretName }));
+      if (!response.SecretString) {
+        return normalizeCustomerSourceConnectionSecrets(undefined);
+      }
+      return normalizeCustomerSourceConnectionSecrets(JSON.parse(response.SecretString));
+    } catch (error) {
+      if (error instanceof ResourceNotFoundException) {
+        return normalizeCustomerSourceConnectionSecrets(undefined);
+      }
+      throw error;
     }
-    return normalizeCustomerSourceConnectionSecrets(JSON.parse(response.SecretString));
-  } catch (error) {
-    if (error instanceof ResourceNotFoundException) {
-      return normalizeCustomerSourceConnectionSecrets(undefined);
-    }
-    throw error;
-  }
+  });
 }
 
 async function writeSecretsManagerCustomerSourceConnectionSecrets(
@@ -269,9 +280,11 @@ async function writeSecretsManagerCustomerSourceConnectionSecrets(
   connectionSecrets: CustomerSourceConnectionSecrets
 ) {
   const secretName = customerSourceConnectionSecretName(customerId, connectionId);
-  const secretString = JSON.stringify(normalizeCustomerSourceConnectionSecrets(connectionSecrets));
+  const normalized = normalizeCustomerSourceConnectionSecrets(connectionSecrets);
+  const secretString = JSON.stringify(normalized);
   try {
     await getSecretsManagerClient().send(new PutSecretValueCommand({ SecretId: secretName, SecretString: secretString }));
+    secretsManagerReadCache.set(`customer-connection:${secretName}`, normalized);
   } catch (error) {
     if (!(error instanceof ResourceNotFoundException)) {
       throw error;
@@ -283,6 +296,7 @@ async function writeSecretsManagerCustomerSourceConnectionSecrets(
         Description: `Pathfinder source connection ${connectionId} for customer ${customerId}`
       })
     );
+    secretsManagerReadCache.set(`customer-connection:${secretName}`, normalized);
   }
 }
 
