@@ -125,7 +125,7 @@ test("applies independent header row and span overrides to exact workbook sheets
   assert.equal(catalog.order_row_count, 1);
 });
 
-test("detects a second hardware section and blocks a populated line without quantity", async () => {
+test("detects a second hardware section and excludes a populated catalog row without quantity", async () => {
   const parsed = await parseWorkbookArrayBuffer(
     workbookBuffer({
       "Order Form": [
@@ -145,10 +145,11 @@ test("detects a second hardware section and blocks a populated line without quan
   assert.equal(sheet.sections[1].line_kind, "hardware");
   assert.equal(sheet.sections[1].quantity_column, "Qty. Needed");
   assert.equal(sheet.sections[1].order_row_count, 1);
-  assert.equal(sheet.sections[1].incomplete_row_count, 1);
+  assert.equal(sheet.sections[1].reference_row_count, 1);
+  assert.equal(sheet.sections[1].incomplete_row_count, 0);
   assert.equal(parsed.parsed_order_rows.length, 2);
-  assert.equal(parsed.incomplete_rows.length, 1);
-  assert.equal(parsed.incomplete_rows[0].values.Description, "20x12 / Clip Frames");
+  assert.equal(parsed.incomplete_rows.length, 0);
+  assert.equal(parsed.reference_rows[0].values.Description, "20x12 / Clip Frames");
 });
 
 test("includes only AMZ Locker rows with a whole quantity of one or greater", async () => {
@@ -194,6 +195,100 @@ test("includes only AMZ Locker rows with a whole quantity of one or greater", as
   assert.deepEqual(
     parsed.parsed_order_rows.map((row) => row.values.Description),
     ["Locker E", "Locker F"]
+  );
+});
+
+test("applies a section-scoped TBD quantity rule without changing blank or zero rows", async () => {
+  const parsed = await parseWorkbookArrayBuffer(
+    workbookBuffer({
+      "Order Form": [
+        ["Hardware", "PS SKU", "Description", "Qty. Needed"],
+        ["Frame", "AOM397", "Clip frame", null],
+        ["Frame", "AOM398", "Large frame", 0],
+        ["Frame", "AOM399", "Pending frame", " tBd "],
+        ["Frame", "AOM400", "Second pending frame", "TBD"],
+        ["Frame", "AOM402", "Unsupported frame", "later"],
+        ["Frame", "AOM401", "Known frame", 2]
+      ]
+    }),
+    {
+      sheetConfigs: {
+        "Order Form": {
+          role: "order_lines",
+          enabled: true,
+          sections: [
+            {
+              sectionId: "hardware-products",
+              label: "Hardware products",
+              lineKind: "hardware",
+              headerRow: 1,
+              headerRowCount: 1,
+              headerSignature: ["Hardware", "PS SKU", "Description", "Qty. Needed"],
+              quantityColumn: "Qty. Needed",
+              quantityValueRules: [{ sourceValue: "TBD", outputQuantity: 0.5 }],
+              missingQuantityBehavior: "block",
+              required: true
+            }
+          ]
+        }
+      }
+    }
+  );
+
+  assert.equal(parsed.source_sheets[0].order_row_count, 3);
+  assert.equal(parsed.source_sheets[0].reference_row_count, 2);
+  assert.equal(parsed.source_sheets[0].incomplete_row_count, 1);
+  assert.deepEqual(
+    parsed.parsed_order_rows.map((row) => [row.values["PS SKU"], row.values["Qty. Needed"]]),
+    [
+      ["AOM399", 0.5],
+      ["AOM400", 0.5],
+      ["AOM401", 2]
+    ]
+  );
+  assert.deepEqual(parsed.source_sheets[0].sections[0].quantity_value_rules, [
+    { source_value: "TBD", output_quantity: 0.5 }
+  ]);
+  assert.deepEqual(parsed.parsed_order_rows[0].quantity_resolution, {
+    source_value: "tBd",
+    resolved_quantity: 0.5,
+    rule_source_value: "TBD"
+  });
+
+  const order = mapSourceRowsToCanonicalOrder(
+    parsed.parsed_order_rows.map((row) => ({
+      ...row.values,
+      __pathfinder_scope_id: row.scope_id
+    })),
+    [
+      {
+        sourceColumn: "PS SKU",
+        targetField: "lines[].customer_sku",
+        scopeId: "Order Form::hardware-products"
+      },
+      {
+        sourceColumn: "Description",
+        targetField: "lines[].product_name",
+        scopeId: "Order Form::hardware-products"
+      },
+      {
+        sourceColumn: "Qty. Needed",
+        targetField: "lines[].quantity",
+        scopeId: "Order Form::hardware-products"
+      }
+    ],
+    {
+      customerId: "lift:284619",
+      customerName: "Momentara",
+      sourceSystem: "Wrike",
+      sourceCustomer: "Momentara",
+      targetSystem: "Lift"
+    }
+  );
+  assert.deepEqual(order.lines.map((line) => line.quantity), [0.5, 0.5, 2]);
+  assert.equal(
+    validateCanonicalOrder(order).some((message) => message.code === "VAL-QTY"),
+    false
   );
 });
 

@@ -2690,6 +2690,7 @@ function sourceSheetsFromGrid(sourceGrid: SourceGrid): ParsedWorkbookSheet[] {
           header_row: 1,
           header_row_count: 1,
           quantity_column: null,
+          quantity_value_rules: [],
           missing_quantity_behavior: "reference",
           order_row_count: sourceGrid.rows.length,
           reference_row_count: 0,

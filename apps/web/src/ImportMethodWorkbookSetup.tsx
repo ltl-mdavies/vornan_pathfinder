@@ -11,6 +11,7 @@ export interface WorkbookSetupSection {
   header_row: number;
   header_row_count: 1 | 2;
   quantity_column: string | null;
+  quantity_value_rules?: Array<{ source_value: string; output_quantity: number }>;
   missing_quantity_behavior: "reference" | "block";
   order_row_count: number;
   reference_row_count: number;
@@ -35,6 +36,7 @@ export interface WorkbookSetupSectionConfig {
   header_row_count: 1 | 2;
   header_signature: string[];
   quantity_column: string | null;
+  quantity_value_rules?: Array<{ source_value: string; output_quantity: number }>;
   missing_quantity_behavior: "reference" | "block";
   required: boolean;
 }
@@ -78,6 +80,7 @@ function configForSheet(
       header_row_count: section.header_row_count,
       header_signature: section.columns,
       quantity_column: section.quantity_column,
+      quantity_value_rules: section.quantity_value_rules ?? [],
       missing_quantity_behavior: section.missing_quantity_behavior,
       required: index === 0
     }))
@@ -126,6 +129,7 @@ export function ImportMethodWorkbookSetup({
           header_row_count: 1,
           header_signature: selectedSheet.columns,
           quantity_column: null,
+          quantity_value_rules: [],
           missing_quantity_behavior: "block",
           required: false
         }
@@ -325,7 +329,7 @@ export function ImportMethodWorkbookSetup({
                         </select>
                       </label>
                       <label className="setup-control">
-                        <span>Quantity Below 1</span>
+                        <span>Unrecognized Quantity Text</span>
                         <select
                           value={section.missing_quantity_behavior}
                           onChange={(event) =>
@@ -338,6 +342,75 @@ export function ImportMethodWorkbookSetup({
                           <option value="block">Block preview until corrected</option>
                         </select>
                       </label>
+                      <div className="setup-control setup-control-wide">
+                        <span>Text Quantity Rules</span>
+                        {(section.quantity_value_rules ?? []).map((rule, ruleIndex) => (
+                          <div className="workbook-quantity-rule" key={`${rule.source_value}-${ruleIndex}`}>
+                            <input
+                              aria-label={`Text quantity ${ruleIndex + 1}`}
+                              value={rule.source_value}
+                              placeholder="TBD"
+                              onChange={(event) =>
+                                updateSection(section.section_id, {
+                                  quantity_value_rules: (section.quantity_value_rules ?? []).map((candidate, index) =>
+                                    index === ruleIndex
+                                      ? { ...candidate, source_value: event.target.value }
+                                      : candidate
+                                  )
+                                })
+                              }
+                            />
+                            <span>becomes</span>
+                            <input
+                              aria-label={`Output quantity ${ruleIndex + 1}`}
+                              type="number"
+                              min="0.0001"
+                              step="any"
+                              value={rule.output_quantity}
+                              onChange={(event) =>
+                                updateSection(section.section_id, {
+                                  quantity_value_rules: (section.quantity_value_rules ?? []).map((candidate, index) =>
+                                    index === ruleIndex
+                                      ? { ...candidate, output_quantity: Number(event.target.value) }
+                                      : candidate
+                                  )
+                                })
+                              }
+                            />
+                            <button
+                              className="secondary-button table-inline-button"
+                              type="button"
+                              onClick={() =>
+                                updateSection(section.section_id, {
+                                  quantity_value_rules: (section.quantity_value_rules ?? []).filter(
+                                    (_, index) => index !== ruleIndex
+                                  )
+                                })
+                              }
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          className="secondary-button table-inline-button"
+                          type="button"
+                          onClick={() =>
+                            updateSection(section.section_id, {
+                              quantity_value_rules: [
+                                ...(section.quantity_value_rules ?? []),
+                                { source_value: "TBD", output_quantity: 0.5 }
+                              ]
+                            })
+                          }
+                        >
+                          Add text quantity rule
+                        </button>
+                        <small>
+                          Applies only to this section and its selected quantity column. Blank and zero
+                          quantities remain excluded from the order.
+                        </small>
+                      </div>
                     </div>
                     <div className="workbook-column-signature">
                       <span>Detected columns</span>

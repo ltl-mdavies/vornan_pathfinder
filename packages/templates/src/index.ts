@@ -23,11 +23,21 @@ export interface ParsedSourceRow {
   section_label: string;
   line_kind: WorkbookLineKind;
   values: Record<string, string | number | boolean | null>;
+  quantity_resolution?: {
+    source_value: string;
+    resolved_quantity: number;
+    rule_source_value: string;
+  };
 }
 
 export type WorkbookSheetRole = "order_lines" | "shipping_attachment" | "reference_catalog" | "ignore";
 export type WorkbookLineKind = "print" | "hardware" | "custom";
 export type WorkbookMissingQuantityBehavior = "reference" | "block";
+
+export interface WorkbookQuantityValueRule {
+  sourceValue: string;
+  outputQuantity: number;
+}
 
 export interface WorkbookSectionConfig {
   sectionId: string;
@@ -37,6 +47,7 @@ export interface WorkbookSectionConfig {
   headerRowCount: 1 | 2;
   headerSignature?: string[];
   quantityColumn?: string | null;
+  quantityValueRules?: WorkbookQuantityValueRule[];
   missingQuantityBehavior?: WorkbookMissingQuantityBehavior;
   required?: boolean;
 }
@@ -56,6 +67,7 @@ export interface ParsedWorkbookSection {
   header_row: number;
   header_row_count: 1 | 2;
   quantity_column: string | null;
+  quantity_value_rules: Array<{ source_value: string; output_quantity: number }>;
   missing_quantity_behavior: WorkbookMissingQuantityBehavior;
   order_row_count: number;
   reference_row_count: number;
@@ -843,21 +855,42 @@ function isLikelyRepeatedHeader(row: Record<string, string | number | boolean | 
   return exactColumnMatches >= 2 || headerLikeMatches >= 3 || (headerLikeMatches >= 2 && headerLikeMatches === populatedValues);
 }
 
-function isValidQuantity(value: unknown) {
+function resolvedQuantity(value: unknown, rules: WorkbookQuantityValueRule[]) {
+  const comparable = valueAsString(value).trim().toLocaleLowerCase("en-US");
+  const configured = rules.find(
+    (rule) => rule.sourceValue.trim().toLocaleLowerCase("en-US") === comparable
+  );
+  if (configured && Number.isFinite(configured.outputQuantity) && configured.outputQuantity > 0) {
+    return {
+      state: "valid" as const,
+      quantity: configured.outputQuantity,
+      matchedRule: configured
+    };
+  }
   if (typeof value === "number") {
-    return Number.isFinite(value) && Number.isInteger(value) && value >= 1;
+    if (value === 0) {
+      return { state: "empty" as const, quantity: null, matchedRule: null };
+    }
+    return Number.isFinite(value) && Number.isInteger(value) && value >= 1
+      ? { state: "valid" as const, quantity: value, matchedRule: null }
+      : { state: "unsupported" as const, quantity: null, matchedRule: null };
   }
 
   if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed || trimmed.toLowerCase().includes("qty")) {
-      return false;
+      return { state: "empty" as const, quantity: null, matchedRule: null };
     }
     const parsed = Number.parseFloat(trimmed.replace(/[^0-9.-]/g, ""));
-    return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed >= 1;
+    if (parsed === 0) {
+      return { state: "empty" as const, quantity: null, matchedRule: null };
+    }
+    return Number.isFinite(parsed) && Number.isInteger(parsed) && parsed >= 1
+      ? { state: "valid" as const, quantity: parsed, matchedRule: null }
+      : { state: "unsupported" as const, quantity: null, matchedRule: null };
   }
 
-  return false;
+  return { state: "empty" as const, quantity: null, matchedRule: null };
 }
 
 function findQuantityColumn(columns: string[]) {
@@ -959,6 +992,7 @@ interface ResolvedWorkbookSection {
   headerRowCount: 1 | 2;
   columns: string[];
   quantityColumn: string | null;
+  quantityValueRules: WorkbookQuantityValueRule[];
   missingQuantityBehavior: WorkbookMissingQuantityBehavior;
   required: boolean;
 }
@@ -1014,6 +1048,7 @@ function resolveWorkbookSections(
             section.quantityColumn && columns.includes(section.quantityColumn)
               ? section.quantityColumn
               : findQuantityColumn(columns),
+          quantityValueRules: section.quantityValueRules ?? [],
           missingQuantityBehavior: section.missingQuantityBehavior ?? "reference",
           required: section.required === true
         }
@@ -1080,6 +1115,7 @@ function resolveWorkbookSections(
       headerRowCount: candidate.headerRowCount,
       columns,
       quantityColumn,
+      quantityValueRules: [],
       missingQuantityBehavior: index > 0 && lineKind === "hardware" ? "block" : "reference",
       required: index === 0
     };
@@ -1152,13 +1188,20 @@ function parseWorksheetRows(
           {}
         );
         const rowNumber = section.headerIndex + section.headerRowCount + index + 1;
-        const hasQuantity = section.quantityColumn ? isValidQuantity(values[section.quantityColumn]) : false;
+        const quantitySourceValue = section.quantityColumn ? values[section.quantityColumn] : null;
+        const quantityResolution = section.quantityColumn
+          ? resolvedQuantity(values[section.quantityColumn], section.quantityValueRules)
+          : { state: "empty" as const, quantity: null, matchedRule: null };
+        if (section.quantityColumn && quantityResolution.quantity !== null) {
+          values[section.quantityColumn] = quantityResolution.quantity;
+        }
+        const hasQuantity = quantityResolution.state === "valid";
         const rowType =
           role === "reference_catalog"
             ? "reference"
             : hasQuantity
               ? "order"
-              : section.quantityColumn && section.missingQuantityBehavior === "block"
+              : quantityResolution.state === "unsupported" && section.missingQuantityBehavior === "block"
                 ? "incomplete"
                 : "reference";
 
@@ -1170,7 +1213,16 @@ function parseWorksheetRows(
           section_id: section.sectionId,
           section_label: section.label,
           line_kind: section.lineKind,
-          values
+          values,
+          ...(quantityResolution.matchedRule && quantityResolution.quantity !== null
+            ? {
+                quantity_resolution: {
+                  source_value: valueAsString(quantitySourceValue).trim(),
+                  resolved_quantity: quantityResolution.quantity,
+                  rule_source_value: quantityResolution.matchedRule.sourceValue
+                }
+              }
+            : {})
         } satisfies ParsedSourceRow;
       })
       .filter((row) => hasAnyValue(row.values))
@@ -1192,6 +1244,10 @@ function parseWorksheetRows(
       header_row: section.headerIndex + 1,
       header_row_count: section.headerRowCount,
       quantity_column: section.quantityColumn,
+      quantity_value_rules: section.quantityValueRules.map((rule) => ({
+        source_value: rule.sourceValue,
+        output_quantity: rule.outputQuantity
+      })),
       missing_quantity_behavior: section.missingQuantityBehavior,
       order_row_count: rows.filter((row) => row.row_type === "order").length,
       reference_row_count: rows.filter((row) => row.row_type === "reference").length,
@@ -1568,7 +1624,10 @@ function buildLine(
     description: description || null,
     product_id: valueAsString(getMappedValue(row, mappings, "lines[].product_id")) || null,
     product_name: productName || description || null,
-    quantity: Math.max(1, Math.round(valueAsNumber(getMappedValue(row, mappings, "lines[].quantity"), 1))),
+    quantity: (() => {
+      const quantity = valueAsNumber(getMappedValue(row, mappings, "lines[].quantity"), 1);
+      return Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+    })(),
     artwork: {
       file_name: valueAsString(getMappedValue(row, mappings, "lines[].artwork.file_name")) || null,
       file_url: valueAsString(getMappedValue(row, mappings, "lines[].artwork.file_url")) || null,

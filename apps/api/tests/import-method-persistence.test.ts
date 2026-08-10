@@ -84,6 +84,7 @@ test("persists a Wrike source contract without retaining credentials or weakenin
       ...basis.source_config,
       wrike: {
         enabled: false,
+        folder_ids: [" IEABFOLDER ", " IEIBAFOLDER ", "IEABFOLDER"],
         folder_id: " IEABFOLDER ",
         approved_discovery_task_id: " IEABAPPROVEDTASK ",
         trigger_mode: "webhook_with_reconciliation",
@@ -121,6 +122,7 @@ test("persists a Wrike source contract without retaining credentials or weakenin
 
   assert.equal(saved.source, "Wrike");
   assert.equal(saved.source_config.wrike.folder_id, "IEABFOLDER");
+  assert.deepEqual(saved.source_config.wrike.folder_ids, ["IEABFOLDER", "IEIBAFOLDER"]);
   assert.equal(saved.source_config.wrike.approved_discovery_task_id, "IEABAPPROVEDTASK");
   assert.equal(saved.source_config.wrike.trigger_status_id, "IEABSENTTOPRINTLTL");
   assert.equal(saved.source_config.wrike.trigger_status_label, "Sent to Print - LTL");
@@ -202,6 +204,7 @@ test("persists detected schemas and mappings without retaining workbook rows", a
           header_row_count: 1,
           header_signature: ["Order Number", "SKU", "Qty"],
           quantity_column: "Qty",
+          quantity_value_rules: [{ source_value: "TBD", output_quantity: 0.5 }],
           missing_quantity_behavior: "block",
           required: true
         }
@@ -272,6 +275,7 @@ test("persists detected schemas and mappings without retaining workbook rows", a
                   header_row: 3,
                   header_row_count: 1,
                   quantity_column: "Qty",
+                  quantity_value_rules: [{ source_value: "TBD", output_quantity: 0.5 }],
                   missing_quantity_behavior: "block",
                   order_row_count: 2,
                   reference_row_count: 0,

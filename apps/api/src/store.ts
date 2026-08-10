@@ -414,6 +414,7 @@ export interface DetectedSourceSchemaSection {
   header_row: number;
   header_row_count: 1 | 2;
   quantity_column: string | null;
+  quantity_value_rules?: Array<{ source_value: string; output_quantity: number }>;
   missing_quantity_behavior: "reference" | "block";
   order_row_count: number;
   reference_row_count: number;
@@ -433,6 +434,7 @@ export interface SourceWorkbookSectionConfig {
   header_row_count: 1 | 2;
   header_signature: string[];
   quantity_column: string | null;
+  quantity_value_rules?: Array<{ source_value: string; output_quantity: number }>;
   missing_quantity_behavior: "reference" | "block";
   required: boolean;
 }
@@ -2728,10 +2730,28 @@ function normalizeSourceWorkbookStructure(value: unknown): Record<string, Source
                 typeof section.quantity_column === "string" && section.quantity_column.trim()
                   ? section.quantity_column.trim().slice(0, 120)
                   : null,
+              quantity_value_rules: Array.isArray(section.quantity_value_rules)
+                ? section.quantity_value_rules
+                    .map((rawRule) => {
+                      const rule = asRecord(rawRule);
+                      const sourceValue =
+                        typeof rule.source_value === "string"
+                          ? rule.source_value.trim().replace(/\s+/g, " ").slice(0, 40)
+                          : "";
+                      const outputQuantity = Number(rule.output_quantity);
+                      return sourceValue && Number.isFinite(outputQuantity) && outputQuantity > 0
+                        ? { source_value: sourceValue, output_quantity: outputQuantity }
+                        : null;
+                    })
+                    .filter(
+                      (rule): rule is { source_value: string; output_quantity: number } => rule !== null
+                    )
+                    .slice(0, 10)
+                : [],
               missing_quantity_behavior:
                 section.missing_quantity_behavior === "block" ? ("block" as const) : ("reference" as const),
               required: section.required === true
-            };
+            } as SourceWorkbookSectionConfig;
           })
           .filter((section): section is SourceWorkbookSectionConfig => section !== null)
           .sort((left, right) => (left.header_row ?? Number.MAX_SAFE_INTEGER) - (right.header_row ?? Number.MAX_SAFE_INTEGER));
@@ -2824,6 +2844,22 @@ function normalizeDetectedSourceSchema(value: unknown): DetectedSourceSchema | n
                     header_row_count: section.header_row_count === 2 ? (2 as const) : (1 as const),
                     quantity_column:
                       typeof section.quantity_column === "string" ? section.quantity_column : null,
+                    quantity_value_rules: Array.isArray(section.quantity_value_rules)
+                      ? section.quantity_value_rules
+                          .map((rawRule) => {
+                            const rule = asRecord(rawRule);
+                            const sourceValue =
+                              typeof rule.source_value === "string" ? rule.source_value.trim().slice(0, 40) : "";
+                            const outputQuantity = Number(rule.output_quantity);
+                            return sourceValue && Number.isFinite(outputQuantity) && outputQuantity > 0
+                              ? { source_value: sourceValue, output_quantity: outputQuantity }
+                              : null;
+                          })
+                          .filter(
+                            (rule): rule is { source_value: string; output_quantity: number } => rule !== null
+                          )
+                          .slice(0, 10)
+                      : [],
                     missing_quantity_behavior:
                       section.missing_quantity_behavior === "block" ? ("block" as const) : ("reference" as const),
                     order_row_count:
@@ -2838,7 +2874,7 @@ function normalizeDetectedSourceSchema(value: unknown): DetectedSourceSchema | n
                       typeof section.incomplete_row_count === "number"
                         ? Math.max(0, Math.floor(section.incomplete_row_count))
                         : 0
-                  } satisfies DetectedSourceSchemaSection;
+                  } as DetectedSourceSchemaSection;
                 })
                 .filter((section): section is DetectedSourceSchemaSection => section !== null)
             : [],
