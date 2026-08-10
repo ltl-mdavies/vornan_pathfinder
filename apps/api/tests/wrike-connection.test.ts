@@ -625,6 +625,37 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
   assert.equal(previewReplay.body.workspace.jobs.length, preview.body.workspace.jobs.length);
   assert.equal(calls.length, wrikeCallsBeforePreview);
 
+  const unresolvedMapping = preview.body.job.unresolved_products[0];
+  assert.ok(unresolvedMapping?.mapping_id);
+  await request(app)
+    .put(`/api/customers/${customerId}/product-mappings/${unresolvedMapping.mapping_id}`)
+    .send({
+      status: "Mapped",
+      lift_product_id: "358208",
+      product_identifier_value: "358208",
+      product_name: "One Sheet Poster"
+    })
+    .expect(200);
+  const mappingReprocessedPreview = await request(app)
+    .post(
+      `/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence/${evidence.evidence_id}/preview`
+    )
+    .send(rehearsalRequest(evidence.extension))
+    .expect(201);
+  assert.equal(mappingReprocessedPreview.body.preview_status, "Created");
+  assert.notEqual(mappingReprocessedPreview.body.job.job_id, preview.body.job.job_id);
+  assert.notEqual(
+    mappingReprocessedPreview.body.job.source_evidence.import_method_fingerprint,
+    preview.body.job.source_evidence.import_method_fingerprint
+  );
+  assert.equal(mappingReprocessedPreview.body.job.unresolved_products.length, 0);
+  assert.equal(mappingReprocessedPreview.body.job.product_resolution_results[0].status, "Mapped");
+  assert.equal(
+    mappingReprocessedPreview.body.job.product_resolution_results[0].resolved_product_identifier,
+    "358208"
+  );
+  assert.equal(calls.length, wrikeCallsBeforePreview);
+
   const prepared = await request(app)
     .post(`/api/customers/${customerId}/import-methods/manual-xlsx/wrike/prepare-order`)
     .send(rehearsalRequest())
