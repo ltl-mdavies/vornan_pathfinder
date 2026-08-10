@@ -230,7 +230,7 @@ export const canonicalFieldRegistry = [
   canonicalField("lines[].customer_sku", "lines", "Customer SKU", "string", { repeatable: true }),
   canonicalField("lines[].description", "lines", "Line Description", "string", { repeatable: true }),
   canonicalField("lines[].product_name", "lines", "Product Name", "string", { repeatable: true }),
-  canonicalField("lines[].quantity", "lines", "Quantity", "integer", { required: true, repeatable: true }),
+  canonicalField("lines[].quantity", "lines", "Quantity", "number", { required: true, repeatable: true }),
   canonicalField("lines[].artwork.file_name", "lines", "Artwork File Name", "string", { repeatable: true }),
   canonicalField("lines[].artwork.file_url", "lines", "Artwork File URL", "url", { repeatable: true }),
   canonicalField("lines[].artwork.checksum", "lines", "Artwork Checksum", "string", { repeatable: true }),
@@ -373,13 +373,13 @@ export function validateCanonicalOrder(order: CanonicalOrder, options: Canonical
       requireString(line.unit_number, `${prefix}.unit_number`, "line");
     }
 
-    if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
+    if (!Number.isFinite(line.quantity) || line.quantity <= 0) {
       messages.push({
         severity: "FAIL",
         code: "VAL-QTY",
         object: "line",
         field: `${prefix}.quantity`,
-        message: "Line quantity must be a positive integer.",
+        message: "Line quantity must be a positive number.",
         suggested_action: "Map a numeric quantity column or correct the source value."
       });
     }

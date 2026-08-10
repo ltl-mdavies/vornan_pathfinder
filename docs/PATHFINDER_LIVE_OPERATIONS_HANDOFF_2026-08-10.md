@@ -57,20 +57,22 @@ Known hardening debt:
 
 ## Newly confirmed Momentara requirements — 2026-08-10
 
-These requirements were confirmed after the production-state reconciliation. They are not implemented by this documentation checkpoint and must be delivered through the Pathfinder development task without interrupting the current live scheduler.
+These requirements were confirmed after the production-state reconciliation and are implemented by the additive multi-root/text-quantity checkpoint. Production activation remains a separate, recoverable configuration change after the compatible API/Admin deployment.
 
 ### Multiple campaign roots
 
-Momentara may place otherwise identical Placard Order campaigns beneath more than one Wrike parent folder. The confirmed roots include GPA Campaigns and IBA Campaigns.
+Momentara may place otherwise identical Placard Order campaigns beneath more than one Wrike parent folder. The confirmed roots include GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`).
 
-Recommended implementation:
+Implemented contract:
 
-- replace the Import Method's single campaign-folder setting with an ordered, user-configurable set of Wrike folder IDs;
+- replace the Import Method's single campaign-folder setting with an ordered, user-configurable set of up to ten Wrike folder IDs;
 - migrate the existing GPA folder into that set without changing its identity;
 - add the confirmed IBA folder through the authenticated folder picker rather than hard-coding a display name;
 - run the same discovery, qualification, workbook, mapping, submit, and writeback contract for every configured root;
 - deduplicate by exact Wrike task/evidence identity if roots overlap or a task is visible through more than one Wrike hierarchy;
 - report candidate and failure counts by root so one inaccessible folder does not silently hide orders or stop the other roots.
+
+The saved legacy `folder_id` remains the first configured root for backward compatibility. Deploying this code does not itself add IBA or alter the live GPA scope.
 
 The first rollout should add IBA alongside GPA while preserving the currently working GPA production path.
 
@@ -88,7 +90,18 @@ This should be an Import Method normalization rule, scoped to the configured wor
 
 The canonical order, validation, preview, and Lift payload layers must preserve `0.5` without integer coercion or rounding. UI preview and certification must make the transformation visible so an operator can distinguish an intentional TBD placeholder from a real half-unit order.
 
+The workbook setup now exposes **Text Quantity Rules** per detected section. The persisted parsed row records the original matched text, configured rule, and resolved numeric quantity. This provides replay/audit evidence without changing other sections or accepting arbitrary fractional source quantities.
+
 Required regressions include hardware and non-hardware sections, whitespace/case variants, blank/zero exclusion, unsupported text, fractional payload preservation, replay stability, and simultaneous discovery from GPA and IBA roots.
+
+### Safe production activation sequence
+
+1. Capture named backups of every production Pathfinder DynamoDB table and record the deployed commit and stack parameters.
+2. Deploy the backward-compatible API/Admin artifact while preserving all current scheduler, submit, writeback, publication, and data-store parameters.
+3. Verify the existing GPA-only method still normalizes to one root and the scheduler completes normally.
+4. Add IBA folder `49405755` beside GPA `34000804`, then run a bounded read-only discovery preview before the next scheduled cycle. Confirm per-root counts and task deduplication.
+5. Add `TBD → 0.5` only to the actual hardware section/quantity column. Re-detect the saved source workbook and verify blank/zero rows are excluded, `TBD` rows show the transformation evidence, and unsupported text blocks with an actionable reason.
+6. Save once, verify the stored Import Method can be read back exactly, then monitor the next scheduler cycle, alarms, created/replayed jobs, Lift submits, and Wrike writebacks.
 
 ## Manual recovery rules
 

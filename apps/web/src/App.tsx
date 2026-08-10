@@ -559,6 +559,7 @@ interface DetectedSourceSchemaSection {
   header_row: number;
   header_row_count: 1 | 2;
   quantity_column: string | null;
+  quantity_value_rules?: Array<{ source_value: string; output_quantity: number }>;
   missing_quantity_behavior: "reference" | "block";
   order_row_count: number;
   reference_row_count: number;
@@ -578,6 +579,7 @@ interface SourceWorkbookSectionConfig {
   header_row_count: 1 | 2;
   header_signature: string[];
   quantity_column: string | null;
+  quantity_value_rules?: Array<{ source_value: string; output_quantity: number }>;
   missing_quantity_behavior: "reference" | "block";
   required: boolean;
 }
@@ -3422,6 +3424,7 @@ function sampleSourceSheets(sourceGrid: SourceGrid): ParsedWorkbookSheet[] {
           header_row: 1,
           header_row_count: 1,
           quantity_column: null,
+          quantity_value_rules: [],
           missing_quantity_behavior: "reference",
           order_row_count: sourceGrid.rows.length,
           reference_row_count: 0,
@@ -3505,6 +3508,10 @@ function workbookSheetConfigs(parserConfig: DetectedSourceParserConfig): Record<
           headerRowCount: section.header_row_count,
           headerSignature: section.header_signature,
           quantityColumn: section.quantity_column,
+          quantityValueRules: (section.quantity_value_rules ?? []).map((rule) => ({
+            sourceValue: rule.source_value,
+            outputQuantity: rule.output_quantity
+          })),
           missingQuantityBehavior: section.missing_quantity_behavior,
           required: section.required
         }))
@@ -3528,6 +3535,7 @@ function workbookStructureFromParsed(parsed: ParsedWorkbook): Record<string, Sou
           header_row_count: section.header_row_count,
           header_signature: section.columns,
           quantity_column: section.quantity_column,
+          quantity_value_rules: section.quantity_value_rules ?? [],
           missing_quantity_behavior: section.missing_quantity_behavior,
           required: index === 0 && sheet.role === "order_lines"
         }))
@@ -3581,6 +3589,7 @@ function detectedSourceSchemaFromWorkbook(
         header_row: section.header_row,
         header_row_count: section.header_row_count,
         quantity_column: section.quantity_column,
+        quantity_value_rules: section.quantity_value_rules ?? [],
         missing_quantity_behavior: section.missing_quantity_behavior,
         order_row_count: section.order_row_count,
         reference_row_count: section.reference_row_count,
@@ -7443,6 +7452,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           incomplete_row_count: sheet.incomplete_row_count ?? 0,
           sections: (sheet.sections ?? []).map((section) => ({
             ...section,
+            quantity_value_rules: section.quantity_value_rules ?? [],
             parsed_rows: []
           })),
           parsed_rows: []
@@ -10391,19 +10401,34 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               <span className="section-eyebrow">Step 2 · Eligible orders</span>
                               <strong>Choose which Wrike tasks become order candidates</strong>
                               <small>
-                                Pathfinder looks inside GPA Campaigns for Placard Order tasks that match
-                                the saved status and vendor rules.
+                                Pathfinder looks inside each saved campaign folder for Placard Order tasks
+                                that match the same status and vendor rules.
                               </small>
                             </div>
                             <label className="setup-control">
-                              <span>GPA Campaigns folder</span>
-                              <input
-                                value={activeWrikeConfig.folder_id}
-                                placeholder="Paste the Wrike folder ID"
-                                onChange={(event) => updateActiveWrikeConfig({ folder_id: event.target.value })}
+                              <span>Campaign folders</span>
+                              <textarea
+                                key={`${activeImportMethod?.import_method_id ?? "wrike"}:${activeWrikeConfig.folder_ids.join("|")}`}
+                                defaultValue={activeWrikeConfig.folder_ids.join("\n")}
+                                placeholder={"34000804\n49405755"}
+                                rows={3}
+                                onBlur={(event) => {
+                                  const folderIds = Array.from(
+                                    new Set(
+                                      event.target.value
+                                        .split(/[\n,]+/)
+                                        .map((value) => value.trim())
+                                        .filter(Boolean)
+                                    )
+                                  );
+                                  updateActiveWrikeConfig({
+                                    folder_ids: folderIds,
+                                    folder_id: folderIds[0] ?? ""
+                                  });
+                                }}
                               />
                               <small>
-                                Pathfinder checks campaign projects inside this Wrike folder.
+                                One Wrike folder ID per line. GPA and IBA campaigns use the same intake rules.
                               </small>
                             </label>
                             <label className="setup-control">

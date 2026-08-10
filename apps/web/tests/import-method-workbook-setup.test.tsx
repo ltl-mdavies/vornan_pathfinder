@@ -38,6 +38,7 @@ test("renders configurable sheet roles and independent print and hardware sectio
               header_row: 39,
               header_row_count: 1,
               quantity_column: "Qty. Needed",
+              quantity_value_rules: [{ source_value: "TBD", output_quantity: 0.5 }],
               missing_quantity_behavior: "block",
               order_row_count: 1,
               reference_row_count: 0,
@@ -78,6 +79,7 @@ test("renders configurable sheet roles and independent print and hardware sectio
               header_row_count: 1,
               header_signature: ["Item SKU", "Description", "Qty. Needed"],
               quantity_column: "Qty. Needed",
+              quantity_value_rules: [{ source_value: "TBD", output_quantity: 0.5 }],
               missing_quantity_behavior: "block",
               required: false
             }
@@ -103,7 +105,10 @@ test("renders configurable sheet roles and independent print and hardware sectio
   assert.match(markup, /Hardware/);
   assert.match(markup, /Qty\. Needed/);
   assert.match(markup, /1 quantity issue/);
-  assert.match(markup, /Quantity Below 1/);
+  assert.match(markup, /Unrecognized Quantity Text/);
+  assert.match(markup, /Text Quantity Rules/);
+  assert.match(markup, /TBD/);
+  assert.match(markup, /0.5/);
   assert.match(markup, /Exclude from order; keep as reference/);
   assert.match(markup, /Block preview until corrected/);
   assert.match(markup, /Add another section/);

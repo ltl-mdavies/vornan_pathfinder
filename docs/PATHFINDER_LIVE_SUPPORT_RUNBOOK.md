@@ -71,6 +71,8 @@ Do not place secrets, OAuth tokens, signed URLs, raw customer files, or unrestri
 
 Report the candidate and every failed eligibility condition: task title/type, campaign scope, ready status, Print Vendor, contract identity, workbook presence/version, workbook structure, and qualified rows. Do not silently discard it.
 
+For Momentara, inspect every configured campaign root independently. Current roots are GPA `34000804` and IBA `49405755`; overlapping task visibility must deduplicate to one evidence identity. For workbook quantity failures, distinguish blank/zero rows (intentionally excluded), configured text placeholders such as hardware `TBD → 0.5`, and unsupported text (action required).
+
 ### Needs Mapping after a mapping was saved
 
 Confirm the exact normalized customer key and route. Reprocess the original evidence. If replacement jobs appear, identify the one tied to the intended task and mark the older preview as superseded. Verify cross-job dedupe before any submit.

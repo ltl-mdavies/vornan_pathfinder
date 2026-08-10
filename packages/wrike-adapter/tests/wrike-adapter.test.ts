@@ -27,6 +27,7 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
   const normalized = normalizeWrikeSourceConfig({
     enabled: true,
     connection_id: " source_wrike_momentara ",
+    folder_ids: ["  IEABFOLDER  ", " IEIBAFOLDER ", "IEABFOLDER"],
     folder_id: "  IEABFOLDER  ",
     approved_discovery_task_id: " IETESTTASK ",
     trigger_mode: "webhook_with_reconciliation",
@@ -67,6 +68,7 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
   assert.equal(normalized.enabled, false);
   assert.equal(normalized.connection_id, "source_wrike_momentara");
   assert.equal(normalized.folder_id, "IEABFOLDER");
+  assert.deepEqual(normalized.folder_ids, ["IEABFOLDER", "IEIBAFOLDER"]);
   assert.equal(normalized.approved_discovery_task_id, "IETESTTASK");
   assert.equal(normalized.trigger_status_id, "IEABORDERED");
   assert.equal(normalized.trigger_status_label, "Sent to Print - LTL");
@@ -1500,6 +1502,96 @@ test("discovers eligible Placard Orders across configured campaign descendants a
   ]);
   assert.equal(folderUrl.searchParams.get("pageSize"), "1000");
   assert.equal(folderUrl.searchParams.has("customStatuses"), false);
+});
+
+test("discovers and deduplicates eligible orders across multiple configured campaign roots", async () => {
+  const taskRequests: string[] = [];
+  const config = normalizeWrikeSourceConfig({
+    folder_ids: ["IEGPACAMPAIGNS", "IEIBACAMPAIGNS"],
+    trigger_status_id: "IESENTTOPRINT",
+    contract_number_custom_field_id: "IECONTRACT",
+    print_vendor_custom_field_id: "IEVENDOR",
+    order_task_title: "Placard Order",
+    required_print_vendor_value: "Larger Than Life"
+  });
+  const task = (id: string, contract: string, root: string) => ({
+    id,
+    accountId: "IEACCOUNT",
+    parentIds: [`${root}-CAMPAIGN`],
+    superParentIds: [root],
+    customStatusId: "IESENTTOPRINT",
+    attachmentCount: 1,
+    title: "Placard Order",
+    customFields: [
+      { id: "IECONTRACT", value: contract },
+      { id: "IEVENDOR", value: "Larger Than Life" }
+    ]
+  });
+
+  const result = await discoverScopedWrikeIntakeTasks(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    config,
+    {
+      fetch_impl: async (input) => {
+        const url = String(input);
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({ access_token: "access-token", host: "app-us2.wrike.com" }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.includes("/folders/IEGPACAMPAIGNS/tasks")) {
+          taskRequests.push(url);
+          return new Response(
+            JSON.stringify({
+              data: [
+                task("IEGPAORDER", "C316870", "IEGPACAMPAIGNS"),
+                task("IESHAREDORDER", "C316871", "IEGPACAMPAIGNS")
+              ]
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.includes("/folders/IEIBACAMPAIGNS/tasks")) {
+          taskRequests.push(url);
+          return new Response(
+            JSON.stringify({
+              data: [
+                task("IEIBAORDER", "C316872", "IEIBACAMPAIGNS"),
+                task("IESHAREDORDER", "C316871", "IEIBACAMPAIGNS")
+              ]
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+  );
+
+  assert.deepEqual(result.folder_ids, ["IEGPACAMPAIGNS", "IEIBACAMPAIGNS"]);
+  assert.equal(result.folder_id, "IEGPACAMPAIGNS");
+  assert.deepEqual(
+    result.root_scopes.map((scope) => [scope.configured_folder_id, scope.task_count]),
+    [
+      ["IEGPACAMPAIGNS", 2],
+      ["IEIBACAMPAIGNS", 2]
+    ]
+  );
+  assert.equal(result.summary.task_count, 3);
+  assert.deepEqual(
+    result.order_candidates.map((candidate) => candidate.task_id).sort(),
+    ["IEGPAORDER", "IEIBAORDER", "IESHAREDORDER"]
+  );
+  assert.equal(taskRequests.length, 2);
 });
 
 test("resolves a required print vendor from a Wrike dropdown option ID", async () => {

@@ -104,6 +104,8 @@ export class WrikeConnectionError extends Error {
 export interface WrikeSourceConfig {
   enabled: boolean;
   connection_id: string;
+  /** Ordered discovery roots. `folder_id` remains the legacy primary root. */
+  folder_ids: string[];
   folder_id: string;
   approved_discovery_task_id: string;
   trigger_mode: WrikeTriggerMode;
@@ -335,7 +337,13 @@ export interface WrikeEligibleShippingTask {
 export interface WrikeScopedIntakeDiscoveryResult {
   credentials: WrikeOAuthCredentials;
   checked_at: string;
+  folder_ids: string[];
   folder_id: string;
+  root_scopes: Array<{
+    configured_folder_id: string;
+    resolved_folder_id: string;
+    task_count: number;
+  }>;
   order_candidates: WrikeEligibleOrderTask[];
   shipping: {
     status: "Inactive" | "Discovered";
@@ -409,6 +417,7 @@ export function createDefaultWrikeSourceConfig(): WrikeSourceConfig {
   return {
     enabled: false,
     connection_id: "",
+    folder_ids: [],
     folder_id: "",
     approved_discovery_task_id: "",
     trigger_mode: "scheduled_polling",
@@ -647,6 +656,16 @@ function taskIdentityMatches(
 export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
   const source = asRecord(value);
   const fallback = createDefaultWrikeSourceConfig();
+  const folderIds = Array.from(
+    new Set(
+      [
+        ...(Array.isArray(source.folder_ids) ? source.folder_ids : []),
+        source.folder_id
+      ]
+        .map(cleanIdentifier)
+        .filter(Boolean)
+    )
+  ).slice(0, 10);
   const extensions = Array.from(
     new Set(
       (Array.isArray(source.attachment_extensions) ? source.attachment_extensions : fallback.attachment_extensions)
@@ -680,7 +699,8 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
   return {
     enabled: false,
     connection_id: cleanIdentifier(source.connection_id),
-    folder_id: cleanIdentifier(source.folder_id),
+    folder_ids: folderIds,
+    folder_id: folderIds[0] ?? "",
     approved_discovery_task_id: cleanIdentifier(source.approved_discovery_task_id),
     trigger_mode:
       source.trigger_mode === "webhook_with_reconciliation"
@@ -766,7 +786,7 @@ export function getWrikeContractReadiness(config: WrikeSourceConfig): WrikeContr
   if (!config.connection_id) {
     missing.push("connection_id");
   }
-  if (!config.folder_id) {
+  if (!config.folder_ids.length && !config.folder_id) {
     missing.push("folder_id");
   }
   if (!config.trigger_status_id) {
@@ -1733,14 +1753,20 @@ export async function discoverScopedWrikeIntakeTasks(
 ): Promise<WrikeScopedIntakeDiscoveryResult> {
   const fetchImpl = options.fetch_impl ?? fetch;
   const now = options.now ?? (() => new Date());
-  const configuredFolderId = providerIdentifier(config.folder_id);
+  const configuredFolderIds = Array.from(
+    new Set(
+      [...config.folder_ids, config.folder_id]
+        .map(providerIdentifier)
+        .filter(Boolean)
+    )
+  );
   const triggerStatusId = providerIdentifier(config.trigger_status_id);
   const vendorFieldId = providerIdentifier(config.print_vendor_custom_field_id);
   const orderTaskTitle = config.order_task_title.trim();
   const orderTaskTypeId = providerIdentifier(config.order_task_custom_item_type_id);
   const vendorValue = config.required_print_vendor_value.trim();
   if (
-    !configuredFolderId ||
+    !configuredFolderIds.length ||
     !triggerStatusId ||
     !vendorFieldId ||
     !vendorValue ||
@@ -1770,80 +1796,91 @@ export async function discoverScopedWrikeIntakeTasks(
   const rotatedCredentials = refreshed.credentials;
   const host = rotatedCredentials.host;
   const accessToken = rotatedCredentials.access_token ?? "";
-  const folderId = await resolveWrikeFolderId(
-    configuredFolderId,
-    host,
-    accessToken,
-    fetchImpl,
-    rotatedCredentials
-  );
   const maxPages = Math.max(1, Math.min(options.max_pages ?? 10, 10));
   const maxTasks = Math.max(1, Math.min(options.max_tasks ?? 10_000, 10_000));
-  const taskRecords: Record<string, unknown>[] = [];
-  let nextPageToken = "";
-
-  for (let page = 0; page < maxPages; page += 1) {
-    const taskUrl = new URL(
-      `https://${host}/api/v4/folders/${encodeURIComponent(folderId)}/tasks`
+  const taskRecordsById = new Map<string, Record<string, unknown>>();
+  const rootScopes: WrikeScopedIntakeDiscoveryResult["root_scopes"] = [];
+  for (const configuredFolderId of configuredFolderIds) {
+    const folderId = await resolveWrikeFolderId(
+      configuredFolderId,
+      host,
+      accessToken,
+      fetchImpl,
+      rotatedCredentials
     );
-    taskUrl.searchParams.set("descendants", "true");
-    taskUrl.searchParams.set(
-      "fields",
-      JSON.stringify([
-        "attachmentCount",
-        "customFields",
-        "customItemTypeId",
-        "parentIds",
-        "superParentIds"
-      ])
-    );
-    // Scan the configured campaign boundary without relying on Wrike's
-    // provider-side status filter. Accounts can contain distinct workflow
-    // status IDs with the same visible label, so eligibility remains an exact
-    // client-side contract over the returned task metadata.
-    taskUrl.searchParams.set("pageSize", "1000");
-    if (nextPageToken) {
-      taskUrl.searchParams.set("nextPageToken", nextPageToken);
-    }
-    let response: Response;
-    try {
-      response = await fetchImpl(taskUrl, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+    let nextPageToken = "";
+    let rootTaskCount = 0;
+    for (let page = 0; page < maxPages; page += 1) {
+      const taskUrl = new URL(
+        `https://${host}/api/v4/folders/${encodeURIComponent(folderId)}/tasks`
+      );
+      taskUrl.searchParams.set("descendants", "true");
+      taskUrl.searchParams.set(
+        "fields",
+        JSON.stringify([
+          "attachmentCount",
+          "customFields",
+          "customItemTypeId",
+          "parentIds",
+          "superParentIds"
+        ])
+      );
+      taskUrl.searchParams.set("pageSize", "1000");
+      if (nextPageToken) {
+        taskUrl.searchParams.set("nextPageToken", nextPageToken);
+      }
+      let response: Response;
+      try {
+        response = await fetchImpl(taskUrl, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+        });
+      } catch {
+        throw new WrikeConnectionError(
+          "task_discovery_failed",
+          "Pathfinder could not reach a configured Wrike campaign scope.",
+          rotatedCredentials
+        );
+      }
+      const payload = await readWrikeApiJson(response, "task_discovery_failed", rotatedCredentials);
+      const pageTasks = (Array.isArray(payload.data) ? payload.data : []).map(asRecord);
+      rootTaskCount += pageTasks.length;
+      pageTasks.forEach((task) => {
+        const taskId = providerIdentifier(task.id);
+        if (taskId && !taskRecordsById.has(taskId)) {
+          taskRecordsById.set(taskId, task);
+        }
       });
-    } catch {
-      throw new WrikeConnectionError(
-        "task_discovery_failed",
-        "Pathfinder could not reach the configured Wrike campaign scope.",
-        rotatedCredentials
-      );
+      if (taskRecordsById.size > maxTasks || rootTaskCount > maxTasks) {
+        throw new WrikeConnectionError(
+          "invalid_response",
+          "The configured Wrike campaign scopes exceed the bounded discovery limit.",
+          rotatedCredentials
+        );
+      }
+      nextPageToken =
+        typeof payload.nextPageToken === "string"
+          ? payload.nextPageToken.trim().slice(0, 2048)
+          : "";
+      if (!nextPageToken) {
+        break;
+      }
+      if (page === maxPages - 1) {
+        throw new WrikeConnectionError(
+          "invalid_response",
+          "A Wrike discovery root exceeded the bounded page limit.",
+          rotatedCredentials
+        );
+      }
     }
-    const payload = await readWrikeApiJson(response, "task_discovery_failed", rotatedCredentials);
-    taskRecords.push(
-      ...(Array.isArray(payload.data) ? payload.data : []).map(asRecord)
-    );
-    if (taskRecords.length > maxTasks) {
-      throw new WrikeConnectionError(
-        "invalid_response",
-        "The configured Wrike campaign scope exceeds the bounded discovery limit.",
-        rotatedCredentials
-      );
-    }
-    nextPageToken =
-      typeof payload.nextPageToken === "string"
-        ? payload.nextPageToken.trim().slice(0, 2048)
-        : "";
-    if (!nextPageToken) {
-      break;
-    }
-    if (page === maxPages - 1) {
-      throw new WrikeConnectionError(
-        "invalid_response",
-        "Wrike discovery exceeded the bounded page limit.",
-        rotatedCredentials
-      );
-    }
+    rootScopes.push({
+      configured_folder_id: configuredFolderId,
+      resolved_folder_id: folderId,
+      task_count: rootTaskCount
+    });
   }
+  const taskRecords = Array.from(taskRecordsById.values());
+  const folderIds = rootScopes.map((scope) => scope.resolved_folder_id);
 
   const workflowStatuses = await discoverWrikeStatusIdsByLabel({
     host,
@@ -2059,7 +2096,9 @@ export async function discoverScopedWrikeIntakeTasks(
   return {
     credentials: rotatedCredentials,
     checked_at: now().toISOString(),
-    folder_id: folderId,
+    folder_ids: folderIds,
+    folder_id: folderIds[0] ?? "",
+    root_scopes: rootScopes,
     order_candidates: orderCandidates,
     shipping: {
       status: config.shipping_intake.enabled ? "Discovered" : "Inactive",
@@ -2106,10 +2145,16 @@ async function discoverApprovedWrikeTaskWithContext(
   order_context: WrikeQualifiedWorkbookSourceResult["order_context"];
 }> {
   const fetchImpl = options.fetch_impl ?? fetch;
-  const configuredFolderId = providerIdentifier(config.folder_id);
+  const configuredFolderIds = Array.from(
+    new Set(
+      [...config.folder_ids, config.folder_id]
+        .map(providerIdentifier)
+        .filter(Boolean)
+    )
+  );
   const taskId = providerIdentifier(config.approved_discovery_task_id);
   const triggerStatusId = providerIdentifier(config.trigger_status_id);
-  if (!configuredFolderId || !taskId || !triggerStatusId) {
+  if (!configuredFolderIds.length || !taskId || !triggerStatusId) {
     throw new WrikeConnectionError(
       "invalid_configuration",
       "Save the Wrike folder, intake-ready status, and approved discovery task IDs before running discovery."
@@ -2120,13 +2165,18 @@ async function discoverApprovedWrikeTaskWithContext(
   const rotatedCredentials = refreshed.credentials;
   const host = rotatedCredentials.host;
   const accessToken = rotatedCredentials.access_token ?? "";
-  const folderId = await resolveWrikeFolderId(
-    configuredFolderId,
-    host,
-    accessToken,
-    fetchImpl,
-    rotatedCredentials
-  );
+  const folderIds: string[] = [];
+  for (const configuredFolderId of configuredFolderIds) {
+    folderIds.push(
+      await resolveWrikeFolderId(
+        configuredFolderId,
+        host,
+        accessToken,
+        fetchImpl,
+        rotatedCredentials
+      )
+    );
+  }
   const taskUrl = new URL(`https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}`);
   // Keep the exact-task read on Wrike's default response contract. Production
   // workspaces can reject optional `fields` selectors on this endpoint even
@@ -2167,14 +2217,23 @@ async function discoverApprovedWrikeTaskWithContext(
   const taskAttachmentCount = providerCount(task.attachmentCount);
   const contractNumber = resolveWrikeContractNumber(task, config.contract_number_custom_field_id);
   const artworkFolder = resolveWrikeArtworkFolderUrl(task, config.artwork_folder_custom_field_id);
-  const folderMatches = await taskBelongsToWrikeFolderScope(
-    task,
-    folderId,
-    host,
-    accessToken,
-    fetchImpl,
-    rotatedCredentials
-  );
+  let matchedFolderId = "";
+  for (const folderId of folderIds) {
+    if (
+      await taskBelongsToWrikeFolderScope(
+        task,
+        folderId,
+        host,
+        accessToken,
+        fetchImpl,
+        rotatedCredentials
+      )
+    ) {
+      matchedFolderId = folderId;
+      break;
+    }
+  }
+  const folderMatches = Boolean(matchedFolderId);
   const taskIdentityMatch = taskIdentityMatches(
     task,
     config.order_task_identity_mode,
@@ -2342,7 +2401,11 @@ async function discoverApprovedWrikeTaskWithContext(
       preview: {
         status: checks.every((check) => check.status === "Passed") ? "Confirmed" : "Needs review",
         checked_at: refreshed.refreshed_at,
-        approved_scope: { task_id: taskId, folder_id: folderId, trigger_status_id: triggerStatusId },
+        approved_scope: {
+          task_id: taskId,
+          folder_id: matchedFolderId || folderIds[0] || "",
+          trigger_status_id: triggerStatusId
+        },
         observed: {
           task_id: taskId,
           account_id: accountId,
