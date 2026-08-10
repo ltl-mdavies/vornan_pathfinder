@@ -684,6 +684,31 @@ export interface ProcessingJobPreview {
   }>;
 }
 
+/**
+ * Keep DynamoDB job records below the item-size boundary without losing the
+ * submitted order or workbook diagnostics. The immutable source workbook is
+ * retained separately as source evidence; zero/blank-quantity catalog rows
+ * are therefore redundant in the operational job record.
+ */
+export function compactProcessingJobForDynamo(job: ProcessingJobPreview): ProcessingJobPreview {
+  const orderRowsOnly = (rows: ParsedSourceRow[] | undefined) =>
+    (rows ?? []).filter((row) => row.row_type === "order");
+
+  return {
+    ...job,
+    parsed_order_rows: orderRowsOnly(job.parsed_order_rows),
+    reference_rows: [],
+    source_sheets: (job.source_sheets ?? []).map((sheet) => ({
+      ...sheet,
+      parsed_rows: orderRowsOnly(sheet.parsed_rows),
+      sections: (sheet.sections ?? []).map((section) => ({
+        ...section,
+        parsed_rows: orderRowsOnly(section.parsed_rows)
+      }))
+    }))
+  };
+}
+
 export interface WrikeStatusWritebackRecord {
   writeback_id: string;
   task_id: string;
@@ -2533,7 +2558,12 @@ async function writeDynamoStore(store: PathfinderStore) {
   // Jobs are archived in place and must remain durable across unrelated saves.
   await upsertDynamoTableMonotonic(
     tables.jobs,
-    store.jobs.map((job) => dynamoItem({ customer_id: job.customer_id, job_id: job.job_id }, job))
+    store.jobs.map((job) =>
+      dynamoItem(
+        { customer_id: job.customer_id, job_id: job.job_id },
+        compactProcessingJobForDynamo(job)
+      )
+    )
   );
   // Submit attempts are an append/update-only durability boundary. They are
   // written individually and must not be replaced by an unrelated workspace save.
@@ -5039,7 +5069,10 @@ export async function associateJobWithLiftOrder(
       await getDynamoClient().send(new PutItemCommand({
         TableName: tables.jobs,
         Item: {
-          ...dynamoItem({ customer_id: next.job.customer_id, job_id: next.job.job_id }, next.job),
+          ...dynamoItem(
+            { customer_id: next.job.customer_id, job_id: next.job.job_id },
+            compactProcessingJobForDynamo(next.job)
+          ),
           updated_at: dynamoString(linkedAt),
           target_order_number: dynamoString(orderNumber)
         },
@@ -5150,7 +5183,10 @@ async function mutateJobForWrikeStatusWriteback(
       await getDynamoClient().send(new PutItemCommand({
         TableName: tables.jobs,
         Item: {
-          ...dynamoItem({ customer_id: next.job.customer_id, job_id: next.job.job_id }, next.job),
+          ...dynamoItem(
+            { customer_id: next.job.customer_id, job_id: next.job.job_id },
+            compactProcessingJobForDynamo(next.job)
+          ),
           updated_at: dynamoString(next.job.updated_at)
         },
         ConditionExpression: "updated_at = :expected_updated_at",
@@ -5503,7 +5539,7 @@ async function persistDynamoSubmitJobState(
   await putDynamoData(
     tables.jobs,
     { customer_id: updatedJob.customer_id, job_id: updatedJob.job_id },
-    updatedJob
+    compactProcessingJobForDynamo(updatedJob)
   );
 }
 
