@@ -4,6 +4,13 @@ import test from "node:test";
 
 const source = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
 
+test("Lift target settings expose four-digit order date formats", () => {
+  assert.match(source, /Order Date Format/);
+  assert.match(source, /order_date_format: event\.target\.value/);
+  assert.match(source, /<option value="MM\/DD\/YYYY">MM\/DD\/YYYY<\/option>/);
+  assert.match(source, /prepareLiftOrderDateFormat/);
+});
+
 test("Jobs refreshes only while a Jobs view and the browser tab are visible", () => {
   assert.match(source, /const isJobViewVisible/);
   assert.match(source, /document\.visibilityState !== "visible"/);

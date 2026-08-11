@@ -3,6 +3,17 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("../src/server.ts", import.meta.url), "utf8");
+const storeSource = await readFile(new URL("../src/store.ts", import.meta.url), "utf8");
+
+test("Lift dates use the configured target formatter after output mappings", () => {
+  const mappingIndex = source.indexOf("const rawLiftPayload = applyLiftOrderOutputMappings");
+  const dateIndex = source.indexOf("const datedLift = prepareLiftOrderDateFormat", mappingIndex);
+  const normalizationIndex = source.indexOf("const normalizedLift = applyValueNormalizationToLiftPayload", dateIndex);
+
+  assert.ok(mappingIndex > 0 && dateIndex > mappingIndex && normalizationIndex > dateIndex);
+  assert.match(source.slice(dateIndex, normalizationIndex), /target\.lift\.order_date_format \?\? "MM\/DD\/YYYY"/);
+  assert.match(storeSource, /order_date_format:[\s\S]*?"MM\/DD\/YYYY"/);
+});
 
 test("operator discovery reuses the scheduled discovery and preparation path without external writes", () => {
   const start = source.indexOf(

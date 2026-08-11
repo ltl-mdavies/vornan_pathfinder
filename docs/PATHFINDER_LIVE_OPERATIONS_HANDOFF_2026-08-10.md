@@ -56,6 +56,20 @@ The same checkpoint also adds:
 
 The repository checkpoint is not merged or deployed as of 2026-08-11. The verified production parameters and behavior above remain unchanged. A later deployment must preserve every scheduler, Lift, publication, writeback, and persistence parameter and must complete the deployment guardrails below.
 
+### Lift order-date output correction
+
+The same draft checkpoint now corrects the Lift order-date boundary after production evidence showed a two-digit source year such as `26` could be interpreted by Lift as year `0026`.
+
+- Lift targets expose an **Order Date Format** setting with `MM/DD/YYYY` and `YYYY-MM-DD` choices.
+- Existing Lift targets without the new setting normalize compatibly to the required `MM/DD/YYYY` production default; deploying code does not rewrite the stored target record.
+- `order.requested_ship_date` and `order.due_date` are formatted after output-template mappings and before value normalization, so the stored preview shows the exact value intended for Lift.
+- The HTTP request builder applies the same formatter again as a defensive boundary for previously prepared jobs.
+- `M/D/YY`, `MM/DD/YYYY`, and ISO `YYYY-MM-DD` inputs are accepted; a two-digit year is expanded into the 2000s and month/day are zero-padded.
+- Impossible or unrecognized dates fail closed before Lift transport with a field-specific operator message.
+- A changed request still passes through the existing reviewed-payload fingerprint and submit-idempotency controls. No uncertain Lift write is automatically retried.
+
+This correction is repository-only and is not active in production. Before deployment, inspect one non-transport preview containing both date fields and confirm `MM/DD/YYYY`; do not submit a customer order solely as a smoke test.
+
 The discovery fingerprint still includes the route-wide mapped-product set. A mapping change can therefore invalidate more previews than the exact product dependency requires. The explicit recovery control updates one intended blocked job in place, but dependency-aware discovery invalidation remains hardening debt.
 
 Known hardening debt:

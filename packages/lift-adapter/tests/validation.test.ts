@@ -3,14 +3,89 @@ import test from "node:test";
 
 import { sampleCanonicalOrder } from "@pathfinder/canonical";
 import {
+  applyLiftOrderDateFormat,
   applyLiftOrderOutputMappings,
   buildLiftSubmitRequest,
   buildLiftProofReportUrl,
   buildLiftShippingReportUrl,
   generateLiftPayload,
+  prepareLiftOrderDateFormat,
   validateLiftPayload,
   type LiftOrderPayload
 } from "../src/index.ts";
+
+test("formats Lift order dates with four-digit years at the output boundary", () => {
+  const source = generateLiftPayload({
+    ...sampleCanonicalOrder,
+    order: {
+      ...sampleCanonicalOrder.order,
+      ship_date: "7/3/26",
+      due_date: "2026-11-09"
+    }
+  });
+
+  const formatted = applyLiftOrderDateFormat(source, "MM/DD/YYYY");
+
+  assert.equal(formatted.order.requested_ship_date, "07/03/2026");
+  assert.equal(formatted.order.due_date, "11/09/2026");
+});
+
+test("supports an explicit ISO Lift target date format", () => {
+  const source = generateLiftPayload({
+    ...sampleCanonicalOrder,
+    order: {
+      ...sampleCanonicalOrder.order,
+      ship_date: "07/03/2026",
+      due_date: "11/9/26"
+    }
+  });
+
+  const formatted = applyLiftOrderDateFormat(source, "YYYY-MM-DD");
+
+  assert.equal(formatted.order.requested_ship_date, "2026-07-03");
+  assert.equal(formatted.order.due_date, "2026-11-09");
+});
+
+test("the Lift transport boundary formats legacy prepared payloads and rejects invalid dates", () => {
+  const legacy = generateLiftPayload({
+    ...sampleCanonicalOrder,
+    order: {
+      ...sampleCanonicalOrder.order,
+      ship_date: "7/3/26",
+      due_date: "11/9/26"
+    }
+  });
+  const request = buildLiftSubmitRequest(legacy);
+
+  assert.equal(request.body.order.requested_ship_date, "07/03/2026");
+  assert.equal(request.body.order.due_date, "11/09/2026");
+  assert.equal(legacy.order.requested_ship_date, "7/3/26");
+  assert.throws(
+    () =>
+      buildLiftSubmitRequest({
+        ...legacy,
+        order: { ...legacy.order, requested_ship_date: "02/30/2026" }
+      }),
+    /Requested ship date must be a real date/
+  );
+});
+
+test("preview formatting blocks an invalid date without retaining it in Lift output", () => {
+  const source = generateLiftPayload({
+    ...sampleCanonicalOrder,
+    order: {
+      ...sampleCanonicalOrder.order,
+      ship_date: "02/30/2026",
+      due_date: "11/09/2026"
+    }
+  });
+
+  const result = prepareLiftOrderDateFormat(source);
+
+  assert.equal("requested_ship_date" in result.payload.order, false);
+  assert.equal(result.payload.order.due_date, "11/09/2026");
+  assert.deepEqual(result.validation.map((message) => message.code), ["LIFT-ORDER-DATE-FORMAT"]);
+});
 
 test("always scopes ProofReport reads to one exact order and optional line", () => {
   const base = "https://lift.example.invalid/ords/lifterp/lift/erp/flush/ondemand/91/AS360ProofReport/N?offset=0";

@@ -48,6 +48,7 @@ import {
   buildLiftSubmitRequest,
   generateLiftPayload,
   maskLiftSubmitRequest,
+  prepareLiftOrderDateFormat,
   validateLiftPayload,
   type LiftOrderPayload,
   type LiftSubmitErrorTranslation,
@@ -7005,16 +7006,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     pathfinderOrderId: pendingPathfinderOrderNumber,
     extIdStrategy: workflowImportMethod?.ext_id_strategy ?? "pathfinder_generated"
   });
-  const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, activeOutputRoute.value_normalization_rules ?? []);
+  const datedLift = prepareLiftOrderDateFormat(
+    rawLiftPayload,
+    activeRouteTarget?.lift.order_date_format ?? "MM/DD/YYYY"
+  );
+  const normalizedLift = applyValueNormalizationToLiftPayload(
+    datedLift.payload,
+    activeOutputRoute.value_normalization_rules ?? []
+  );
   const liftPayload = normalizedLift.payload;
   const baseLiftMessages = validateLiftPayload(liftPayload, {
     product_identifier_type: activeOutputRoute.product_identifier_type,
     product_identifier_label: activeOutputRoute.product_identifier_label
   });
   const liftMessages = [
-    ...(normalizedLift.validation.length
+    ...(datedLift.validation.length || normalizedLift.validation.length
       ? baseLiftMessages.filter((message) => message.severity !== "PASS")
       : baseLiftMessages),
+    ...datedLift.validation,
     ...normalizedLift.validation
   ];
   const submitRequest = maskLiftSubmitRequest(buildLiftSubmitRequest(liftPayload, liftConfigForRoute(activeRouteTarget, activeOutputRoute)));
@@ -9495,6 +9504,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       lift: {
         destination_adapter: "lift-standard-graphics",
         active_environment: "QA1",
+        order_date_format: "MM/DD/YYYY",
         environments: {
           QA1: { endpoint_url: "" },
           PROD: { endpoint_url: "" }
@@ -15655,6 +15665,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             {targetEnvironments.map((environment) => (
                               <option key={environment.environment_id}>{environment.name}</option>
                             ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Order Date Format</span>
+                          <select
+                            value={selectedTarget.lift.order_date_format ?? "MM/DD/YYYY"}
+                            onChange={(event) =>
+                              updateTargetDraft(selectedTarget.target_id, (target) => ({
+                                ...target,
+                                lift: {
+                                  ...target.lift,
+                                  order_date_format: event.target.value as NonNullable<LiftTargetConfig["order_date_format"]>
+                                }
+                              }))
+                            }
+                          >
+                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
                           </select>
                         </label>
                         <label className="setup-control">

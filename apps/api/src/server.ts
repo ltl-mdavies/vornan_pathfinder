@@ -32,6 +32,7 @@ import {
   buildLiftSubmitRequest,
   generateLiftPayload,
   maskLiftSubmitRequest,
+  prepareLiftOrderDateFormat,
   submitLiftOrder,
   validateLiftPayload,
   type LiftOrderDocumentOutputFields,
@@ -7013,7 +7014,14 @@ async function createPreviewJobForRequest(
       canonicalOrder,
       outputTemplate?.canonical_mappings ?? []
     );
-    const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, outputRoute.value_normalization_rules);
+    const datedLift = prepareLiftOrderDateFormat(
+      rawLiftPayload,
+      target.lift.order_date_format ?? "MM/DD/YYYY"
+    );
+    const normalizedLift = applyValueNormalizationToLiftPayload(
+      datedLift.payload,
+      outputRoute.value_normalization_rules
+    );
     const liftPayload = normalizedLift.payload;
     if (options?.existingJob) {
       liftPayload.order.ext_id = options.existingJob.lift_payload.order.ext_id;
@@ -7026,9 +7034,10 @@ async function createPreviewJobForRequest(
       product_identifier_label: outputRoute.product_identifier_label
     });
     const liftValidation = [
-      ...(normalizedLift.validation.length
+      ...(datedLift.validation.length || normalizedLift.validation.length
         ? baseLiftValidation.filter((message) => message.severity !== "PASS")
         : baseLiftValidation),
+      ...datedLift.validation,
       ...normalizedLift.validation
     ];
     const routeLiftConfig = liftConfigForRoute(target, outputRoute);

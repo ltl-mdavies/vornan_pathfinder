@@ -1139,8 +1139,8 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
           contract_number: "1122334455",
           order_title: "Campaign",
           order_note: "Optional order-level production note.",
-          requested_ship_date: "2026-06-23",
-          due_date: "2026-06-24",
+          requested_ship_date: "06/23/2026",
+          due_date: "06/24/2026",
           order_attachment: "https://example.com/imports/momentara-order.xlsx",
           artwork_folder_url: "https://example.com/artwork/momentara-order",
           reference_proof_url: "https://go.vornan.co/d/example/reference-proof.pdf",
@@ -2632,7 +2632,7 @@ export function maskTargetConfig(target: TargetConfig): TargetConfig {
 
 function normalizeTarget(target: TargetConfig): TargetConfig {
   const seed = createSeedTarget();
-  const lift = {
+  const lift: LiftTargetConfig = {
     ...seed.lift,
     ...(target.lift ?? {}),
     environments: {
@@ -2650,7 +2650,9 @@ function normalizeTarget(target: TargetConfig): TargetConfig {
     credentials: {
       ...seed.lift.credentials,
       ...(target.lift?.credentials ?? {})
-    }
+    },
+    order_date_format:
+      target.lift?.order_date_format === "YYYY-MM-DD" ? "YYYY-MM-DD" : "MM/DD/YYYY"
   };
 
   return {
