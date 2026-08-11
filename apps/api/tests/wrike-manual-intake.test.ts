@@ -138,6 +138,7 @@ test("contains per-workbook failures and never returns provider error details", 
   assert.equal(result.workbooks[1]?.preview_status, "Blocked");
   assert.equal(result.workbooks[1]?.failure_stage, "document_publication");
   assert.equal(result.workbooks[1]?.failure_code, "object_write_failed");
+  assert.equal(result.workbooks[1]?.reason_code, "object_write_failed");
   assert.match(result.workbooks[1]?.message ?? "", /Review its source evidence/);
   assert.doesNotMatch(JSON.stringify(result), /provider-token|private-url/);
 });

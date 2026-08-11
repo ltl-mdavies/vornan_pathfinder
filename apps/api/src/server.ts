@@ -120,6 +120,7 @@ import {
   WrikeOrderRehearsalError
 } from "./wrike-order-rehearsal.js";
 import {
+  buildWrikeScheduledCandidatePreparationError,
   findWrikeSourceTaskSiblingJobs,
   getWrikeScheduledIntakeConfig,
   runWrikeScheduledIntake,
@@ -4853,13 +4854,15 @@ function classifyWrikeManualIntakePreviewError(error: unknown): WrikeManualIntak
       failure_code: failureCode[error.code]
     };
   }
+  const diagnostic = wrikeManualIntakePreviewDiagnostic(error);
   console.warn(JSON.stringify({
     event: "wrike_manual_intake_preview_blocked",
-    ...wrikeManualIntakePreviewDiagnostic(error)
+    ...diagnostic
   }));
   return {
     failure_stage: "preview_creation",
-    failure_code: "preview_failed"
+    failure_code: "preview_failed",
+    reason_code: diagnostic.error_code ?? diagnostic.error_name
   };
 }
 
@@ -5528,7 +5531,7 @@ async function runConfiguredWrikeIntakeCore(args: {
         triggerStatusId: candidate.trigger_status_id
       });
       if (result.summary.blocked_count > 0) {
-        throw new Error("WrikeScheduledPreviewBlocked");
+        throw buildWrikeScheduledCandidatePreparationError(result.workbooks);
       }
       for (const workbook of result.workbooks) {
         if (!args.markScheduled) continue;

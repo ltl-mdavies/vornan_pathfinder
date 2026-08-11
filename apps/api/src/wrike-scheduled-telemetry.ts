@@ -14,6 +14,11 @@ interface ScheduledSubmitSummary {
   submitted_count: number;
   replayed_count: number;
   failed_count: number;
+  outcomes?: Array<{
+    job_id: string;
+    outcome: "submitted" | "replayed" | "failed";
+    failure_category: string | null;
+  }>;
 }
 
 interface ScheduledWritebackSummary {
@@ -21,6 +26,11 @@ interface ScheduledWritebackSummary {
   posted_count: number;
   replayed_count: number;
   failed_count: number;
+  outcomes?: Array<{
+    job_id: string;
+    outcome: "posted" | "replayed" | "failed";
+    failure_category: string | null;
+  }>;
 }
 
 export interface WrikeScheduledIntakeCompletionResult {
@@ -30,9 +40,82 @@ export interface WrikeScheduledIntakeCompletionResult {
   prepared_count: number;
   replayed_count: number;
   failed_count: number;
+  results?: Array<{
+    task_id: string;
+    outcome: "created" | "replayed" | "failed";
+    failure_category: string | null;
+    failure_details?: Array<{
+      failure_stage: string;
+      reason_code: string;
+      evidence_ids: string[];
+      job_ids: string[];
+    }>;
+  }>;
   discovery_summary: ScheduledDiscoverySummary;
   scheduled_submit: ScheduledSubmitSummary;
   status_writeback: ScheduledWritebackSummary;
+}
+
+function safeTelemetryToken(value: unknown, fallback: string) {
+  return typeof value === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value)
+    ? value
+    : fallback;
+}
+
+function safeTelemetryIdentifier(value: unknown) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9:_-]{0,255}$/.test(value)
+    ? value
+    : null;
+}
+
+function safeTelemetryIdentifiers(values: unknown) {
+  return Array.isArray(values)
+    ? values
+      .map(safeTelemetryIdentifier)
+      .filter((value): value is string => Boolean(value))
+      .slice(0, 25)
+    : [];
+}
+
+function buildCandidateFailureDetails(result: WrikeScheduledIntakeCompletionResult) {
+  const preparationFailures = (result.results ?? [])
+    .filter((entry) => entry.outcome === "failed")
+    .flatMap((entry) => {
+      const details = entry.failure_details?.length
+        ? entry.failure_details
+        : [{
+            failure_stage: "prepare",
+            reason_code: entry.failure_category ?? "unknown",
+            evidence_ids: [],
+            job_ids: []
+          }];
+      return details.map((detail) => ({
+        stage: safeTelemetryToken(detail.failure_stage, "prepare"),
+        reason_code: safeTelemetryToken(detail.reason_code, "unknown"),
+        task_id: safeTelemetryIdentifier(entry.task_id),
+        evidence_ids: safeTelemetryIdentifiers(detail.evidence_ids),
+        job_ids: safeTelemetryIdentifiers(detail.job_ids)
+      }));
+    });
+  const submitFailures = (result.scheduled_submit.outcomes ?? [])
+    .filter((entry) => entry.outcome === "failed")
+    .map((entry) => ({
+      stage: "submit",
+      reason_code: safeTelemetryToken(entry.failure_category, "unknown"),
+      task_id: null,
+      evidence_ids: [],
+      job_ids: safeTelemetryIdentifiers([entry.job_id])
+    }));
+  const writebackFailures = (result.status_writeback.outcomes ?? [])
+    .filter((entry) => entry.outcome === "failed")
+    .map((entry) => ({
+      stage: "writeback",
+      reason_code: safeTelemetryToken(entry.failure_category, "unknown"),
+      task_id: null,
+      evidence_ids: [],
+      job_ids: safeTelemetryIdentifiers([entry.job_id])
+    }));
+  return [...preparationFailures, ...submitFailures, ...writebackFailures].slice(0, 75);
 }
 
 export function buildWrikeScheduledIntakeCompletionLog(
@@ -43,6 +126,7 @@ export function buildWrikeScheduledIntakeCompletionLog(
     result.failed_count +
     result.scheduled_submit.failed_count +
     result.status_writeback.failed_count;
+  const candidateFailureDetails = buildCandidateFailureDetails(result);
 
   return {
     _aws: {
@@ -85,6 +169,8 @@ export function buildWrikeScheduledIntakeCompletionLog(
     status_comments_posted: result.status_writeback.posted_count,
     status_comments_replayed: result.status_writeback.replayed_count,
     status_comments_failed: result.status_writeback.failed_count,
-    candidate_failures: candidateFailures
+    candidate_failures: candidateFailures,
+    candidate_failure_detail_count: candidateFailureDetails.length,
+    candidate_failure_details: candidateFailureDetails
   };
 }
