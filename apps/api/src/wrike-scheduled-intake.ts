@@ -304,6 +304,10 @@ export async function runWrikeScheduledStatusWritebacks(args: {
 }
 
 function failureCategory(error: unknown) {
+  const code = error && typeof error === "object"
+    ? safeFailureToken((error as { code?: unknown }).code, "")
+    : "";
+  if (code) return code;
   const name = error instanceof Error ? error.name : "unknown";
   return /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(name) ? name : "unknown";
 }
