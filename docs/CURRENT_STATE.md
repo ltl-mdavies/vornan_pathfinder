@@ -35,7 +35,7 @@ The production path is active; it is not a rehearsal or sandbox path. Manual reh
 
 The operations control-plane release at `677005c5bf8910a931eeadfa878ba6f80204b97c` is deployed to the API and Admin. It adds visible-only Jobs refresh, shared-path operator discovery, pending-intake reasons, safe pre-transport mapping recovery, and a Lift target date-format boundary whose production default is `MM/DD/YYYY`. API workflow run `31505325973` and Admin workflow run `31506038490` completed successfully with production counts and live gates preserved.
 
-The saved production Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). The runtime supports the scoped hardware quantity rule `TBD` → `0.5`, but that rule is not configured in production and requires a separate, recoverable configuration activation.
+The saved production Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). Its `Order Form` hardware section stores the scoped quantity rule `TBD` → `0.5`; the 2026-08-11 deployment preserved that configuration unchanged.
 
 ### Vornan Proof
 
@@ -47,7 +47,7 @@ The private Proof asset stack exists, `go.vornan.co` is configured, and GuardDut
 
 ### Pending Proof QA profile
 
-Draft PR #179 (`codex/proof-revised-art-completion`) contains the proposed Proof go-live/default-dark profile at source commit `af2d34301b580a0a32a985e919f24c9f241ea8f8`. It is **not merged and not deployed** as of this reconciliation. It must be refreshed against current main, reviewed, revalidated, merged, and separately deployed before it can be relied upon.
+Draft PR #179 (`codex/proof-revised-art-completion`) contains the proposed Proof go-live/default-dark profile at refreshed head `621d7bc8c7df5a6bcbacda03805153e86547b719`, rebased patch-identically onto `677005c5bf8910a931eeadfa878ba6f80204b97c`. Focused and full check/test/build, 118 deployment-contract tests, 13 Playwright tests, and GitHub validation run `31507337575` pass. It is **not merged and not deployed** as of this reconciliation; merge and deployment remain separate later gates.
 
 ## Historical documents
 

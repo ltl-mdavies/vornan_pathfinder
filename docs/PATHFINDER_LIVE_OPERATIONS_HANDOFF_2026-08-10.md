@@ -24,7 +24,7 @@ Read-only AWS inspection after the 2026-08-11 operations release confirmed:
 - Wrike connection test: enabled;
 - manual intake, discovery preview, and rehearsal gates: disabled.
 
-The saved production Wrike Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). The scoped `TBD` → `0.5` text-quantity rule is supported by the deployed runtime but is not configured in the production Import Method.
+The saved production Wrike Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). Its `Order Form` hardware section (`order-form-hardware-13`, quantity column `Qty. Needed`) stores the scoped text-quantity rule `TBD` → `0.5`.
 
 ### 2026-08-11 operations release record
 
@@ -36,7 +36,7 @@ The saved production Wrike Import Method contains both GPA Campaigns (`34000804`
 - Admin `index.html` S3 version: `HmG2E7dyVFYN74vFFJz.Cn5cp4V8a7Iv`, ETag `c9046fbed0bd4348a14862ab03b955f2`;
 - CloudFront invalidation: `I36RPR33DG8DCG2NNCQ2ZUSZIV` (`Completed`).
 
-The API stack returned to `UPDATE_COMPLETE`, health returned HTTP 200, all thirteen predeployment object counts were unchanged, and the first observed new-code scheduler cycle completed with six candidates replayed, zero submissions, zero writebacks, and zero failures. All live scheduler, Lift, publication, writeback, authentication, and persistence parameters were preserved. The disabled Proof asset-scan worker remained disabled and uninvokable.
+The API stack returned to `UPDATE_COMPLETE`, health returned HTTP 200, and all thirteen predeployment object counts were unchanged. The first observed new-code scheduler cycle completed with six candidates replayed, zero submissions, zero writebacks, and zero failures. The first cycle after Admin deployment completed at `2026-08-11T15:28:10.203Z` with the same six replays and no submissions, writebacks, or failures. All live scheduler, Lift, publication, writeback, authentication, and persistence parameters were preserved. The disabled Proof asset-scan worker remained disabled and uninvokable.
 
 The API errors, throttles, scheduled-candidate-failure, and scheduled-invocation alarms were all `OK` at reconciliation time. Alarm state is evidence at a moment in time, not a perpetual health guarantee.
 
@@ -96,7 +96,7 @@ Known hardening debt:
 
 ## Newly confirmed Momentara requirements — 2026-08-10
 
-These requirements are implemented in the deployed runtime. Multi-root discovery is configured in production; the text-quantity capability remains inactive until its narrowly scoped rule is deliberately saved.
+These requirements are implemented in the deployed runtime and configured in production. Multi-root discovery contains the GPA and IBA roots, and the text-quantity rule is scoped to the hardware section described below.
 
 ### Multiple campaign roots
 
@@ -131,12 +131,15 @@ The workbook setup now exposes **Text Quantity Rules** per detected section. The
 
 Required regressions include hardware and non-hardware sections, whitespace/case variants, blank/zero exclusion, unsupported text, fractional payload preservation, replay stability, and simultaneous discovery from GPA and IBA roots.
 
-### Remaining safe text-quantity activation sequence
+### Current text-quantity configuration
 
-1. Capture a named backup or equivalent recoverable snapshot of the production Import Method table and record the deployed commit and current stack parameters.
-2. Confirm both existing campaign roots and the current source workbook before changing the method.
-3. Add `TBD → 0.5` only to the actual hardware section/quantity column. Re-detect the saved source workbook and verify blank/zero rows are excluded, `TBD` rows show the transformation evidence, and unsupported text blocks with an actionable reason.
-4. Save once, verify the stored Import Method can be read back exactly, then monitor the next scheduler cycle, alarms, created/replayed jobs, Lift submits, and Wrike writebacks.
+A strongly consistent production read on 2026-08-11 confirmed the rule at:
+
+`source_config.workbook_structure["Order Form"].sections[1].quantity_value_rules[0]`
+
+with `source_value: "TBD"` and `output_quantity: 0.5`. The section is `order-form-hardware-13`, `line_kind: "hardware"`, quantity column `Qty. Needed`. The detected-schema copies contain the same rule; all current print sections have empty `quantity_value_rules` arrays. The Import Method item timestamp `2026-08-11T14:58:03.543Z` predates both deployments, so neither deployment wrote this configuration.
+
+Any future change must first capture a recoverable snapshot, preserve both campaign roots, remain scoped to the intended section and quantity column, verify the stored method can be read back exactly, and monitor the next scheduler cycle and external side effects.
 
 ## Manual recovery rules
 
