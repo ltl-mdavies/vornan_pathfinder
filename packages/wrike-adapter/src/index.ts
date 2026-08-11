@@ -2,6 +2,9 @@ export type WrikeTriggerMode = "scheduled_polling" | "webhook_with_reconciliatio
 export * from "./lift-source-document-contract.js";
 export type WrikeWorkbookExtension = "xlsx" | "xls" | "csv";
 export type WrikeReferenceProofExtension = "pdf";
+export type WrikeReferenceProofSelectionPolicy =
+  | "single_current_attachment"
+  | "all_matching_current_attachments";
 export type WrikeTaskTitleRule = "contract_order_ooh";
 export type WrikeWorkbookNameRule = "contract_order_ooh";
 export type WrikeAttachmentSelectionPolicy = "all_matching_current_workbooks";
@@ -24,7 +27,8 @@ export interface WrikeReferenceProofIntakeConfig {
   enabled: boolean;
   filename_contains: string;
   attachment_extensions: WrikeReferenceProofExtension[];
-  attachment_selection: "single_current_attachment";
+  attachment_selection: WrikeReferenceProofSelectionPolicy;
+  archive_file_name_template: string;
 }
 
 export interface WrikeOAuthCredentials {
@@ -252,6 +256,8 @@ export interface WrikeQualifiedWorkbookSourceResult {
     artwork_folder_url: string | null;
   };
   workbooks: WrikeQualifiedWorkbookSource[];
+  reference_proofs: WrikeQualifiedReferenceProofSource[];
+  /** Backward-compatible singular view; populated only when exactly one proof matched. */
   reference_proof: WrikeQualifiedReferenceProofSource | null;
 }
 
@@ -271,6 +277,7 @@ export interface WrikeQualifiedReferenceProofSource {
 export interface WrikeReferenceProofSelectionResult {
   status: "matched" | "missing" | "ambiguous";
   attachment: WrikeAttachmentCandidate | null;
+  attachments: WrikeAttachmentCandidate[];
   matches: WrikeAttachmentCandidate[];
   message: string;
 }
@@ -465,7 +472,8 @@ export function createDefaultWrikeSourceConfig(): WrikeSourceConfig {
       enabled: false,
       filename_contains: "proof",
       attachment_extensions: ["pdf"],
-      attachment_selection: "single_current_attachment"
+      attachment_selection: "single_current_attachment",
+      archive_file_name_template: "<contract_number>_referenceProofs.zip"
     },
     shipping_intake: {
       enabled: false,
@@ -770,7 +778,18 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
           ? referenceProofSource.filename_contains.trim().slice(0, 160)
           : fallback.reference_proof_intake.filename_contains,
       attachment_extensions: ["pdf"],
-      attachment_selection: "single_current_attachment"
+      attachment_selection:
+        referenceProofSource.attachment_selection === "all_matching_current_attachments"
+          ? "all_matching_current_attachments"
+          : "single_current_attachment",
+      archive_file_name_template:
+        typeof referenceProofSource.archive_file_name_template === "string" &&
+        referenceProofSource.archive_file_name_template.trim().length <= 180 &&
+        referenceProofSource.archive_file_name_template.toLocaleLowerCase("en-US").endsWith(".zip") &&
+        referenceProofSource.archive_file_name_template.split("<contract_number>").length === 2 &&
+        !/[\\/\u0000-\u001f\u007f]/.test(referenceProofSource.archive_file_name_template)
+          ? referenceProofSource.archive_file_name_template.trim()
+          : fallback.reference_proof_intake.archive_file_name_template
     },
     shipping_intake: {
       // Shipping activation remains a separately reviewed runtime capability.
@@ -2507,6 +2526,7 @@ const WRIKE_DEFAULT_MAX_WORKBOOK_BYTES = 15 * 1024 * 1024;
 const WRIKE_DEFAULT_MAX_REFERENCE_PROOF_BYTES = 25 * 1024 * 1024;
 const WRIKE_DEFAULT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const WRIKE_MAX_WORKBOOKS = 10;
+const WRIKE_MAX_REFERENCE_PROOFS = 10;
 
 function safeWrikeAttachmentDownloadUrl(value: unknown) {
   if (typeof value !== "string" || !value.trim() || value.length > 4096) {
@@ -2769,9 +2789,15 @@ export async function fetchQualifiedWrikeWorkbookSources(
     });
   }
 
-  let referenceProof: WrikeQualifiedReferenceProofSource | null = null;
-  if (referenceProofSelection.attachment) {
-    const candidate = referenceProofSelection.attachment;
+  if (referenceProofSelection.attachments.length > WRIKE_MAX_REFERENCE_PROOFS) {
+    throw new WrikeConnectionError(
+      "attachment_validation_failed",
+      `The approved Wrike task has more than ${WRIKE_MAX_REFERENCE_PROOFS} matching reference proofs; operator review is required.`,
+      rotatedCredentials
+    );
+  }
+  const referenceProofs: WrikeQualifiedReferenceProofSource[] = [];
+  for (const candidate of referenceProofSelection.attachments) {
     const downloadUrl = safeWrikeAttachmentDownloadUrl(candidate.download_url);
     if (!downloadUrl) {
       throw new WrikeConnectionError(
@@ -2829,7 +2855,7 @@ export async function fetchQualifiedWrikeWorkbookSources(
         rotatedCredentials
       );
     }
-    referenceProof = {
+    referenceProofs.push({
       account_id: qualification.account_id,
       task_id: qualification.task_id,
       attachment_id: candidate.attachment_id,
@@ -2840,7 +2866,7 @@ export async function fetchQualifiedWrikeWorkbookSources(
       content_type: "application/pdf",
       byte_size: bytes.byteLength,
       bytes
-    };
+    });
   }
 
   return {
@@ -2849,7 +2875,8 @@ export async function fetchQualifiedWrikeWorkbookSources(
     task_id: qualification.task_id,
     order_context: internalDiscovery.order_context,
     workbooks,
-    reference_proof: referenceProof
+    reference_proofs: referenceProofs,
+    reference_proof: referenceProofs.length === 1 ? referenceProofs[0] ?? null : null
   };
 }
 
@@ -2936,6 +2963,7 @@ export function selectWrikeReferenceProofAttachment(
     return {
       status: "missing",
       attachment: null,
+      attachments: [],
       matches: [],
       message: "Reference-proof intake is inactive."
     };
@@ -2960,22 +2988,31 @@ export function selectWrikeReferenceProofAttachment(
     return {
       status: "missing",
       attachment: null,
+      attachments: [],
       matches,
       message: "No current Wrike PDF matches the optional reference-proof filename rule."
     };
   }
-  if (matches.length > 1) {
+  if (matches.length > 1 && config.attachment_selection === "single_current_attachment") {
     return {
       status: "ambiguous",
       attachment: null,
+      attachments: [],
       matches,
       message: "More than one current Wrike PDF matches the reference-proof rule; operator review is required."
     };
   }
+  const attachments = config.attachment_selection === "all_matching_current_attachments"
+    ? matches
+    : matches.slice(0, 1);
   return {
     status: "matched",
-    attachment: matches[0] ?? null,
+    attachment: attachments.length === 1 ? attachments[0] ?? null : null,
+    attachments,
     matches,
-    message: "Selected one current Wrike PDF as the optional order reference proof."
+    message:
+      attachments.length === 1
+        ? "Selected one current Wrike PDF as the optional order reference proof."
+        : `Selected ${attachments.length} current Wrike PDFs for one reference-proof ZIP package.`
   };
 }

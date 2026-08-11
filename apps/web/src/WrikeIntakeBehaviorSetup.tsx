@@ -24,8 +24,7 @@ export function WrikeIntakeBehaviorSetup({
       reference_proof_intake: {
         ...referenceProof,
         ...patch,
-        attachment_extensions: ["pdf"],
-        attachment_selection: "single_current_attachment"
+        attachment_extensions: ["pdf"]
       }
     });
   };
@@ -115,10 +114,10 @@ export function WrikeIntakeBehaviorSetup({
         <div className="wrike-contract-heading">
           <div>
             <span className="section-eyebrow">Optional order document</span>
-            <strong>Keep one Wrike proof PDF with the order</strong>
+            <strong>Keep Wrike reference proofs with the order</strong>
             <small>
-              When active, Pathfinder accepts zero or one current PDF matching this rule.
-              More than one match stops for review instead of guessing.
+              Keep the current single-PDF behavior, or package every matching PDF into
+              one downloadable ZIP for Lift.
             </small>
           </div>
           <span className={referenceProof.enabled ? "mini-pill mini-pill-success" : "mini-pill mini-pill-warning"}>
@@ -133,8 +132,8 @@ export function WrikeIntakeBehaviorSetup({
           />
           <span className="switch-field-track" aria-hidden="true" />
           <span>
-            <strong>Include the reference proof PDF</strong>
-            <small>The file is retained as immutable source evidence; it is not a Pathfinder approval proof.</small>
+            <strong>Include reference proof files</strong>
+            <small>Every PDF is retained as immutable source evidence; these are not Pathfinder approval proofs.</small>
           </span>
         </label>
         <div className="setup-grid">
@@ -146,10 +145,39 @@ export function WrikeIntakeBehaviorSetup({
               disabled={!referenceProof.enabled}
               onChange={(event) => updateReferenceProof({ filename_contains: event.target.value })}
             />
-            <small>Use a stable word that distinguishes the single reference PDF from other attachments.</small>
+            <small>Use a stable word that distinguishes reference proofs from other attachments.</small>
           </label>
+          <label className="setup-control">
+            <span>When multiple PDFs match</span>
+            <select
+              value={referenceProof.attachment_selection}
+              disabled={!referenceProof.enabled}
+              onChange={(event) =>
+                updateReferenceProof({
+                  attachment_selection: event.target.value as typeof referenceProof.attachment_selection
+                })
+              }
+            >
+              <option value="single_current_attachment">Stop for operator review</option>
+              <option value="all_matching_current_attachments">Send one ZIP containing all proofs</option>
+            </select>
+          </label>
+          {referenceProof.attachment_selection === "all_matching_current_attachments" ? (
+            <label className="setup-control">
+              <span>ZIP naming convention</span>
+              <input
+                value={referenceProof.archive_file_name_template}
+                placeholder="<contract_number>_referenceProofs.zip"
+                disabled={!referenceProof.enabled}
+                onChange={(event) =>
+                  updateReferenceProof({ archive_file_name_template: event.target.value })
+                }
+              />
+              <small>Use &lt;contract_number&gt; once and end the name with .zip.</small>
+            </label>
+          ) : null}
           <div className="source-setup-callout source-setup-callout-muted">
-            Accepted type: PDF. Direct Lift delivery remains a separate, gated publication step.
+            One match is delivered as the original PDF. Two to ten matches are retained individually and delivered as one ZIP.
           </div>
         </div>
       </fieldset>

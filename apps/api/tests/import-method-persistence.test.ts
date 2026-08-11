@@ -98,6 +98,12 @@ test("persists a Wrike source contract without retaining credentials or weakenin
         order_task_title: " Placard Order ",
         order_task_custom_item_type_id: " IETYPEPLACARD ",
         required_print_vendor_value: " Larger Than Life ",
+        reference_proof_intake: {
+          enabled: true,
+          filename_contains: " Proof ",
+          attachment_selection: "all_matching_current_attachments",
+          archive_file_name_template: "<contract_number>_referenceProofs.zip"
+        },
         shipping_intake: {
           enabled: true,
           task_identity_mode: "custom_item_type",
@@ -134,6 +140,13 @@ test("persists a Wrike source contract without retaining credentials or weakenin
   assert.equal(saved.source_config.wrike.order_task_title, "Placard Order");
   assert.equal(saved.source_config.wrike.order_task_custom_item_type_id, "IETYPEPLACARD");
   assert.equal(saved.source_config.wrike.required_print_vendor_value, "Larger Than Life");
+  assert.deepEqual(saved.source_config.wrike.reference_proof_intake, {
+    enabled: true,
+    filename_contains: "Proof",
+    attachment_extensions: ["pdf"],
+    attachment_selection: "all_matching_current_attachments",
+    archive_file_name_template: "<contract_number>_referenceProofs.zip"
+  });
   assert.deepEqual(saved.source_config.wrike.shipping_intake, {
     enabled: false,
     task_identity_mode: "custom_item_type",

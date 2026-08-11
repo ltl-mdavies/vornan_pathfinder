@@ -685,6 +685,8 @@ export interface ProcessingJobPreview {
     object_version_id: string;
     published_at: string;
     expires_at: string;
+    /** Immutable source PDFs represented by this delivery object. */
+    source_evidence_ids?: string[];
   }>;
 }
 
