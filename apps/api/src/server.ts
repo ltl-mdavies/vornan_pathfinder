@@ -104,6 +104,7 @@ import {
   WrikeSourceEvidenceError,
   type WrikeWorkbookEvidenceRecord
 } from "./wrike-source-evidence.js";
+import { createWrikeReferenceProofZip } from "./wrike-reference-proof-zip.js";
 import {
   getWrikeLiftDocumentPublicationConfig,
   publishWrikeLiftSourceDocument,
@@ -4763,17 +4764,23 @@ async function captureWrikeWorkbookEvidenceForMethod(
         })
       );
     }
-    const referenceProofEvidence = result.reference_proof
-      ? await persistWrikeReferenceProofEvidence({
+    const referenceProofEvidenceSet = [];
+    for (const referenceProof of result.reference_proofs) {
+      referenceProofEvidenceSet.push(
+        await persistWrikeReferenceProofEvidence({
           customer_id: customerId,
           import_method_id: method.import_method_id,
           connection_id: connectionId,
-          reference_proof: result.reference_proof
+          reference_proof: referenceProof
         })
+      );
+    }
+    const referenceProofEvidence = referenceProofEvidenceSet.length === 1
+      ? referenceProofEvidenceSet[0] ?? null
       : null;
     return {
       status: evidence.every((record) => record.storage_status === "Replayed") &&
-        (!referenceProofEvidence || referenceProofEvidence.storage_status === "Replayed")
+        referenceProofEvidenceSet.every((record) => record.storage_status === "Replayed")
         ? "Replayed" as const
         : "Stored" as const,
       captured_at: new Date().toISOString(),
@@ -4781,6 +4788,9 @@ async function captureWrikeWorkbookEvidenceForMethod(
       order_context: result.order_context,
       evidence,
       reference_proof_evidence: referenceProofEvidence,
+      reference_proof_evidence_set: referenceProofEvidenceSet,
+      reference_proof_archive_file_name_template:
+        config.reference_proof_intake.archive_file_name_template,
       capabilities: {
         source_evidence_persistence: true,
         preview_job_creation: wrikeEvidencePreviewEnabled,
@@ -4882,7 +4892,10 @@ function wrikeLiftSourceEvidenceBinding(
   };
 }
 
-function wrikeSourcePublicationSummary(publication: WrikeLiftDocumentPublication) {
+function wrikeSourcePublicationSummary(
+  publication: WrikeLiftDocumentPublication,
+  sourceEvidenceIds?: string[]
+) {
   return {
     document_role: publication.document_role,
     evidence_id: publication.evidence_id,
@@ -4890,7 +4903,8 @@ function wrikeSourcePublicationSummary(publication: WrikeLiftDocumentPublication
     sha256: publication.source_sha256,
     object_version_id: publication.object_version_id,
     published_at: publication.published_at,
-    expires_at: publication.expires_at
+    expires_at: publication.expires_at,
+    ...(sourceEvidenceIds?.length ? { source_evidence_ids: [...sourceEvidenceIds] } : {})
   };
 }
 
@@ -5230,7 +5244,8 @@ async function prepareWrikeOrderForTask(args: {
         reference_proof_url?: string | null;
       }
     | undefined;
-  let referenceProofEvidence: WrikeWorkbookEvidenceRecord | null = null;
+  let referenceProofEvidenceSet: WrikeWorkbookEvidenceRecord[] = [];
+  let referenceProofArchiveFileNameTemplate = "<contract_number>_referenceProofs.zip";
   return prepareWrikeManualIntake({
     classifyPreviewError: classifyWrikeManualIntakePreviewError,
     captureEvidence: async () => {
@@ -5245,7 +5260,8 @@ async function prepareWrikeOrderForTask(args: {
         }
       );
       orderContext = captured.order_context;
-      referenceProofEvidence = captured.reference_proof_evidence;
+      referenceProofEvidenceSet = captured.reference_proof_evidence_set;
+      referenceProofArchiveFileNameTemplate = captured.reference_proof_archive_file_name_template;
       return {
         task_id: captured.task_id,
         evidence: captured.evidence
@@ -5273,17 +5289,43 @@ async function prepareWrikeOrderForTask(args: {
         });
         let referenceProofBinding: WrikeLiftSourceEvidenceBinding | null = null;
         let referenceProofPublication: WrikeLiftDocumentPublication | null = null;
-        if (referenceProofEvidence) {
+        let referenceProofSourceEvidenceIds: string[] = [];
+        if (referenceProofEvidenceSet.length === 1) {
+          const evidence = referenceProofEvidenceSet[0]!;
           const loadedReferenceProof = await loadWrikeReferenceProofEvidence({
             customer_id: args.liftCustomerId,
             import_method_id: args.methodId,
-            connection_id: referenceProofEvidence.connection_id,
-            evidence_id: referenceProofEvidence.evidence_id
+            connection_id: evidence.connection_id,
+            evidence_id: evidence.evidence_id
           });
           referenceProofBinding = wrikeLiftSourceEvidenceBinding(loadedReferenceProof.record);
+          referenceProofSourceEvidenceIds = [loadedReferenceProof.record.evidence_id];
           referenceProofPublication = await publishWrikeLiftSourceDocument({
             evidence: referenceProofBinding,
             bytes: loadedReferenceProof.bytes,
+            config: wrikeLiftDocumentPublicationConfig
+          });
+        } else if (referenceProofEvidenceSet.length > 1) {
+          const loadedReferenceProofs = await Promise.all(
+            referenceProofEvidenceSet.map((evidence) =>
+              loadWrikeReferenceProofEvidence({
+                customer_id: args.liftCustomerId,
+                import_method_id: args.methodId,
+                connection_id: evidence.connection_id,
+                evidence_id: evidence.evidence_id
+              })
+            )
+          );
+          const archive = createWrikeReferenceProofZip({
+            contract_number: orderContext.contract_number,
+            archive_file_name_template: referenceProofArchiveFileNameTemplate,
+            proofs: loadedReferenceProofs
+          });
+          referenceProofBinding = archive.evidence;
+          referenceProofSourceEvidenceIds = archive.source_evidence_ids;
+          referenceProofPublication = await publishWrikeLiftSourceDocument({
+            evidence: referenceProofBinding,
+            bytes: archive.bytes,
             config: wrikeLiftDocumentPublicationConfig
           });
         }
@@ -5303,7 +5345,7 @@ async function prepareWrikeOrderForTask(args: {
         sourceDocumentPublications = [
           wrikeSourcePublicationSummary(orderGridPublication),
           ...(referenceProofPublication
-            ? [wrikeSourcePublicationSummary(referenceProofPublication)]
+            ? [wrikeSourcePublicationSummary(referenceProofPublication, referenceProofSourceEvidenceIds)]
             : [])
         ];
       }

@@ -66,6 +66,29 @@ test("prepares three distinct canonical URLs only from exact direct-200 publicat
   assert.match(result.order_attachment, /C316870_AZ_Lottery_1\.xlsx$/);
 });
 
+test("delivers a multi-proof ZIP through the existing reference-proof URL field", () => {
+  const grid = evidence("order_grid");
+  const proofZip = {
+    ...evidence("reference_proof"),
+    evidence_id: `wrike_reference_proof_bundle_${"b".repeat(64)}`,
+    attachment_id: `proof_bundle_${"b".repeat(64)}`,
+    version_id: `proof_set_${"b".repeat(64)}`,
+    file_name: "C316969_referenceProofs.zip",
+    content_type: "application/zip",
+    byte_size: 8192
+  };
+  const result = prepareWrikeLiftOrderDocumentPatch({
+    task_id: "IEQUALIFIEDTASK",
+    order_grid: grid,
+    order_grid_publication: publication(grid),
+    reference_proof: proofZip,
+    reference_proof_publication: publication(proofZip),
+    artwork_folder_url: null
+  });
+  assert.match(result.reference_proof_url ?? "", /C316969_referenceProofs\.zip$/);
+  assert.equal(result.publications[1]?.evidence_id, proofZip.evidence_id);
+});
+
 test("replaces illegal delivery filename characters with underscores and preserves the extension", () => {
   assert.equal(
     sanitizeWrikeLiftDeliveryFileName("  Campaign: East / West? #1.xlsx  "),

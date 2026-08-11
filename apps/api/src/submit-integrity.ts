@@ -61,7 +61,8 @@ function publicationIdentity(publications: ProcessingJobPreview["source_document
       sha256: publication.sha256,
       object_version_id: publication.object_version_id,
       published_at: publication.published_at,
-      expires_at: publication.expires_at
+      expires_at: publication.expires_at,
+      source_evidence_ids: [...(publication.source_evidence_ids ?? [])].sort()
     }))
     .sort((left, right) =>
       left.document_role.localeCompare(right.document_role) || left.publication_id.localeCompare(right.publication_id)
@@ -208,7 +209,10 @@ export function buildWrikeSubmitDocumentExpectations(job: ProcessingJobPreview):
       !/^[A-Za-z0-9_:.=-]{1,256}$/.test(publication.publication_id) ||
       !/^[a-f0-9]{64}$/.test(publication.sha256) ||
       !/^[A-Za-z0-9.+/=_-]{1,1024}$/.test(publication.object_version_id) ||
-      !Number.isFinite(new Date(publication.expires_at).getTime())
+      !Number.isFinite(new Date(publication.expires_at).getTime()) ||
+      (publication.source_evidence_ids ?? []).some(
+        (evidenceId) => !/^[A-Za-z0-9_:.=-]{1,256}$/.test(evidenceId)
+      )
     ) {
       throw new SubmitIntegrityError(
         "document_binding_invalid",

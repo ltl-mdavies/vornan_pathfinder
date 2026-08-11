@@ -89,7 +89,8 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
     enabled: true,
     filename_contains: "Campaign Proof",
     attachment_extensions: ["pdf"],
-    attachment_selection: "single_current_attachment"
+    attachment_selection: "single_current_attachment",
+    archive_file_name_template: "<contract_number>_referenceProofs.zip"
   });
   assert.deepEqual(normalized.shipping_intake, {
     enabled: false,
@@ -109,6 +110,33 @@ test("normalizes a fail-closed Wrike intake contract without retaining secrets",
 test("snaps reconciliation intervals to the operator-visible presets", () => {
   assert.equal(normalizeWrikeSourceConfig({ poll_interval_minutes: 17 }).poll_interval_minutes, 15);
   assert.equal(normalizeWrikeSourceConfig({ poll_interval_minutes: 58 }).poll_interval_minutes, 60);
+});
+
+test("normalizes only an explicit, safe multi-proof ZIP naming contract", () => {
+  const configured = normalizeWrikeSourceConfig({
+    reference_proof_intake: {
+      enabled: true,
+      attachment_selection: "all_matching_current_attachments",
+      archive_file_name_template: "Momentara_<contract_number>_proofs.zip"
+    }
+  });
+  assert.equal(configured.reference_proof_intake.attachment_selection, "all_matching_current_attachments");
+  assert.equal(
+    configured.reference_proof_intake.archive_file_name_template,
+    "Momentara_<contract_number>_proofs.zip"
+  );
+
+  const unsafe = normalizeWrikeSourceConfig({
+    reference_proof_intake: {
+      enabled: true,
+      attachment_selection: "all_matching_current_attachments",
+      archive_file_name_template: "../proofs.zip"
+    }
+  });
+  assert.equal(
+    unsafe.reference_proof_intake.archive_file_name_template,
+    "<contract_number>_referenceProofs.zip"
+  );
 });
 
 test("selects at most one optional reference-proof PDF and fails closed on ambiguity", () => {
@@ -144,6 +172,39 @@ test("selects at most one optional reference-proof PDF and fails closed on ambig
     { ...first, file_name: "C316870 - Order.xlsx" }
   ], config);
   assert.equal(missing.status, "missing");
+});
+
+test("selects every matching current proof only when ZIP delivery is explicit", () => {
+  const first = {
+    attachment_id: "IEPROOF1",
+    version_id: "IEPROOFVERSION1",
+    file_name: "C316870 - Indoor Proof.pdf",
+    updated_at: "2026-07-31T12:00:00.000Z",
+    download_url: "https://files.example.test/proof-one"
+  };
+  const second = {
+    ...first,
+    attachment_id: "IEPROOF2",
+    version_id: "IEPROOFVERSION2",
+    file_name: "C316870 - GPA Proof.pdf",
+    updated_at: "2026-07-31T12:05:00.000Z"
+  };
+  const selected = selectWrikeReferenceProofAttachment(
+    [first, second],
+    {
+      ...createDefaultWrikeSourceConfig().reference_proof_intake,
+      enabled: true,
+      filename_contains: "proof",
+      attachment_selection: "all_matching_current_attachments"
+    }
+  );
+  assert.equal(selected.status, "matched");
+  assert.equal(selected.attachment, null);
+  assert.deepEqual(
+    selected.attachments.map((attachment) => attachment.attachment_id),
+    ["IEPROOF2", "IEPROOF1"]
+  );
+  assert.match(selected.message, /2 current Wrike PDFs/i);
 });
 
 test("reports the durable identifiers still needed before connection", () => {
@@ -1100,6 +1161,7 @@ test("requalifies and downloads only current matching workbooks without forwardi
   );
 
   assert.equal(result.workbooks.length, 1);
+  assert.equal(result.reference_proofs.length, 1);
   assert.ok(result.reference_proof);
   assert.equal(result.reference_proof.attachment_id, "IEPROOF");
   assert.equal(result.reference_proof.version_id, "IEPROOFVERSION1");

@@ -7,7 +7,15 @@ import { createDefaultWrikeSourceConfig } from "@pathfinder/wrike-adapter";
 import { WrikeIntakeBehaviorSetup } from "../src/WrikeIntakeBehaviorSetup";
 
 test("renders separate configurable order discovery and inactive shipping behaviors", () => {
-  const config = createDefaultWrikeSourceConfig();
+  const defaults = createDefaultWrikeSourceConfig();
+  const config = {
+    ...defaults,
+    reference_proof_intake: {
+      ...defaults.reference_proof_intake,
+      enabled: true,
+      attachment_selection: "all_matching_current_attachments" as const
+    }
+  };
   const markup = renderToStaticMarkup(
     <WrikeIntakeBehaviorSetup config={config} onChange={() => undefined} />
   );
@@ -19,9 +27,11 @@ test("renders separate configurable order discovery and inactive shipping behavi
   assert.match(markup, /Larger Than Life/);
   assert.match(markup, /QA task ID.*safe verification tools/i);
   assert.match(markup, /Reference proof/);
-  assert.match(markup, /Include the reference proof PDF/);
-  assert.match(markup, /zero or one current PDF/i);
-  assert.match(markup, /not a Pathfinder approval proof/i);
+  assert.match(markup, /Include reference proof files/);
+  assert.match(markup, /Send one ZIP containing all proofs/i);
+  assert.match(markup, /ZIP naming convention/i);
+  assert.match(markup, /&lt;contract_number&gt;_referenceProofs.zip/i);
+  assert.match(markup, /not Pathfinder approval proofs/i);
   assert.match(markup, /Shipping Information intake/);
   assert.match(markup, /Planned future step/);
   assert.match(markup, /Not active yet.*planned task and workbook rules/i);
@@ -43,6 +53,11 @@ test("normalization preserves configurable shipping metadata rules while keeping
   assert.equal(config.reference_proof_intake.enabled, false);
   assert.equal(config.reference_proof_intake.filename_contains, "proof");
   assert.deepEqual(config.reference_proof_intake.attachment_extensions, ["pdf"]);
+  assert.equal(config.reference_proof_intake.attachment_selection, "single_current_attachment");
+  assert.equal(
+    config.reference_proof_intake.archive_file_name_template,
+    "<contract_number>_referenceProofs.zip"
+  );
   assert.equal(config.shipping_intake.task_title, "Shipping Information");
   assert.equal(config.shipping_intake.trigger_status_label, "Have Address - LTL");
   assert.deepEqual(config.shipping_intake.attachment_extensions, ["xlsx"]);

@@ -53,7 +53,11 @@ Pre-telemetry read-only reconciliation confirmed:
 
 PR #181 deployed the sanitized `candidate_failure_details` contract at merge `cb237d379210c826cfdd16431482821488c343e4`. PR #182 corrected the fallback to prefer a validated structured error code and deployed at merge `4acbc0eea1366376cee740a3ba0c9072025974b0`. The final API artifact is `api/pathfinder-api-lambda-4acbc0eea1366376cee740a3ba0c9072025974b0.zip`, S3 version `xrT0h1dVCwoK99PHYIGq4r61p5Y9UE0y`, ETag `dbf9e332dea36f5c04348b483c8ce3ce`, and Lambda code SHA-256 `6iWcDDOsLk7rCMx5TOUdxOsSXQ/QbSEYq3ahxs4LEgE=`.
 
-The first authoritative post-fix cycle checked at `2026-08-11T17:12:53.209Z` (`a15a93c9-64f4-4d5b-8ee5-f2544d955418`) identified task `MAAAAAEN2Ujj`, stage `prepare`, reason `attachment_validation_failed`, with no job/evidence IDs. This bounds the incident to the task's attachment set or attachment bytes failing the saved intake contract before persistence: current `.xlsx` workbooks selected under `contract_order_ooh` and an optional single current `.pdf` reference whose name contains `proof`, with fail-closed URL, content-type, size, ambiguity, and PDF-signature checks. It excludes attachment-metadata retrieval, HTTP-download failure, product mapping, payload certification, Lift transport, and Wrike writeback, but deliberately does not disclose which leaf validation failed. Six known jobs replayed; no new job, order identity, submit attempt, source-evidence object, published document, status record, Lift submission, or Wrike writeback appeared. The candidate-failure alarm remains `ALARM`. Do not run recovery until an exact attachment diagnosis and action are separately approved.
+The first authoritative post-fix cycle checked at `2026-08-11T17:12:53.209Z` (`a15a93c9-64f4-4d5b-8ee5-f2544d955418`) identified task `MAAAAAEN2Ujj`, stage `prepare`, reason `attachment_validation_failed`, with no job/evidence IDs. Operator inspection then established the leaf cause: two legitimate PDFs matched the saved optional-single-proof rule. Momentara temporarily deleted both and uploaded one combined proof. The next natural path qualified the task and created `JOB-280569` from workbook attachment `IEAALTG3IYWVIVQG`.
+
+Lift accepted Ext_ID `PFMSOZTWDUAF53` as order `A0228322`, but Pathfinder timed out and retained the attempt as `Submission Uncertain`. Live Support used Lift's import log plus the supported verified-association flow to link the existing order at `2026-08-11T18:54:43.225Z` (association `loa_d71971ce58efdd98d9371434c0aa43398eb88d17698f75913ca0074049752f1d`). No create-order retry or direct DynamoDB edit occurred. Scheduler correlation `02f1a162-2534-4d91-b072-3eec0a4a5fd2` completed at `2026-08-11T18:58:23.836Z` with zero Lift submits, five replays, one eligible/posted Wrike comment, and zero candidate failures. Writeback `wsw_97e0c0e3fcd24b7b31f93d55670dcc59dd8ae515cda11a11f4ca52cbb7a7093e` posted comment `IEAALTG3IM5L66U4`; Wrike remained `Sent to Print - LTL`. The original uncertain attempt remains immutable history.
+
+One later Ready sibling, `job_20260811184302_9b59b9`, has the same source-evidence identity, no association, and no submit attempts. The scheduler duplicate guard replayed it without submitting. It is not an immediate duplicate-order risk, but normalizing or removing it requires separate explicit authorization.
 
 The deployed telemetry records only failure stage, stable reason code, validated task ID, and validated existing job/evidence identifiers. Identifier arrays and total details are capped; exception messages, contract/customer values, filenames, URLs, payloads, credentials, and attachment contents are never emitted. Submit and writeback failures retain the same safe job-level boundary.
 
@@ -69,6 +73,24 @@ The deployed telemetry records only failure stage, stable reason code, validated
 8. The scheduled path posts the success comment to the exact Wrike Placard Order task.
 
 Lift submission must never be retried blindly after a network timeout or ambiguous response. Reconcile by Ext_ID and authoritative Lift state first.
+
+### Repository-only multi-reference-proof ZIP capability
+
+Momentara confirmed that a Placard Order commonly and legitimately contains two or more reference-proof PDFs. An authenticated Lift test on 2026-08-11 confirmed that the existing reference-proof URL field accepts a downloadable ZIP URL.
+
+This repository checkpoint adds an explicit Wrike Import Method selection without changing the deployed default:
+
+- `single_current_attachment` retains the current production behavior and blocks when more than one PDF matches;
+- `all_matching_current_attachments` accepts two to ten current matching PDFs;
+- every PDF is validated and stored separately under its Wrike attachment/version evidence identity;
+- one matching PDF remains an unchanged direct PDF publication;
+- two or more matching PDFs are ordered deterministically, stored without lossy transformation in one ZIP, and published through the existing immutable `go.vornan.co` path;
+- the configurable archive convention must contain `<contract_number>` exactly once and end in `.zip`; the default is `<contract_number>_referenceProofs.zip`;
+- the ZIP publication records the complete source-evidence ID set, which is included in submit-integrity review;
+- workbook/task identity remains the order identity, so proof count does not create a second order;
+- the same scheduled/manual preparation service path is used, and uncertain Lift writes remain non-retryable.
+
+This option is not deployed or enabled in production at this checkpoint. Activation requires a parameter-preserving deployment followed by an explicit, recoverable Momentara Import Method update and a controlled natural-cycle observation. Existing single-proof customers and saved methods normalize to the fail-closed single-proof policy.
 
 ## Current recovery behavior
 

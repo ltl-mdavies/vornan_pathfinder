@@ -89,7 +89,8 @@ function job(): ProcessingJobPreview {
         sha256: "c".repeat(64),
         object_version_id: "proof.version+001=",
         published_at: "2026-08-01T12:00:00.000Z",
-        expires_at: "2026-08-15T12:00:00.000Z"
+        expires_at: "2026-08-15T12:00:00.000Z",
+        source_evidence_ids: ["evidence-proof-source-001", "evidence-proof-source-002"]
       }
     ]
   } as unknown as ProcessingJobPreview;
@@ -120,6 +121,20 @@ test("pins the reviewed payload, masked request, and document set deterministica
     source_document_publications: changed.source_document_publications
   });
   assert.notEqual(first.fingerprint, changedSnapshot.fingerprint);
+
+  const changedProofSet = job();
+  changedProofSet.source_document_publications![1]!.source_evidence_ids = [
+    "evidence-proof-source-001",
+    "evidence-proof-source-003"
+  ];
+  assert.notEqual(
+    first.document_set_sha256,
+    buildSubmitIntegritySnapshot({
+      payload: changedProofSet.lift_payload,
+      submit_request_masked: changedProofSet.submit_request_masked,
+      source_document_publications: changedProofSet.source_document_publications
+    }).document_set_sha256
+  );
 
   firstJob.submit_integrity = first;
   assert.equal(assertReviewedSubmitIntegrity({
