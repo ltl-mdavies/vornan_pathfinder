@@ -308,12 +308,32 @@ export interface WrikeContractReadiness {
 export interface WrikeEligibleOrderTask {
   task_id: string;
   account_id: string;
+  root_folder_ids: string[];
   parent_ids: string[];
   super_parent_ids: string[];
   custom_status_id: string;
   contract_number: string;
   attachment_count: number | null;
   artwork_folder_status: WrikeArtworkFolderStatus;
+}
+
+export type WrikePendingOrderReasonCode =
+  | "task_identity"
+  | "trigger_status"
+  | "print_vendor"
+  | "contract_number";
+
+export interface WrikePendingOrderTask {
+  task_id: string;
+  task_title: string;
+  account_id: string;
+  root_folder_ids: string[];
+  custom_status_id: string;
+  contract_number: string | null;
+  reasons: Array<{
+    code: WrikePendingOrderReasonCode;
+    message: string;
+  }>;
 }
 
 export interface WrikeShippingAttachmentMetadata {
@@ -345,6 +365,7 @@ export interface WrikeScopedIntakeDiscoveryResult {
     task_count: number;
   }>;
   order_candidates: WrikeEligibleOrderTask[];
+  pending_order_candidates: WrikePendingOrderTask[];
   shipping: {
     status: "Inactive" | "Discovered";
     candidates: WrikeEligibleShippingTask[];
@@ -358,6 +379,7 @@ export interface WrikeScopedIntakeDiscoveryResult {
     order_vendor_match_count: number;
     order_contract_ready_count: number;
     eligible_order_count: number;
+    pending_order_count: number;
     eligible_shipping_task_count: number;
     order_status_id_count: number;
     order_identity_status_ids: string[];
@@ -1799,6 +1821,7 @@ export async function discoverScopedWrikeIntakeTasks(
   const maxPages = Math.max(1, Math.min(options.max_pages ?? 10, 10));
   const maxTasks = Math.max(1, Math.min(options.max_tasks ?? 10_000, 10_000));
   const taskRecordsById = new Map<string, Record<string, unknown>>();
+  const taskRootFolderIds = new Map<string, Set<string>>();
   const rootScopes: WrikeScopedIntakeDiscoveryResult["root_scopes"] = [];
   for (const configuredFolderId of configuredFolderIds) {
     const folderId = await resolveWrikeFolderId(
@@ -1847,8 +1870,13 @@ export async function discoverScopedWrikeIntakeTasks(
       rootTaskCount += pageTasks.length;
       pageTasks.forEach((task) => {
         const taskId = providerIdentifier(task.id);
-        if (taskId && !taskRecordsById.has(taskId)) {
-          taskRecordsById.set(taskId, task);
+        if (taskId) {
+          if (!taskRecordsById.has(taskId)) {
+            taskRecordsById.set(taskId, task);
+          }
+          const roots = taskRootFolderIds.get(taskId) ?? new Set<string>();
+          roots.add(configuredFolderId);
+          taskRootFolderIds.set(taskId, roots);
         }
       });
       if (taskRecordsById.size > maxTasks || rootTaskCount > maxTasks) {
@@ -1924,41 +1952,28 @@ export async function discoverScopedWrikeIntakeTasks(
         scoped: NonNullable<ReturnType<typeof scopedTaskRecord>>;
       } => candidate.scoped !== null
     );
-  const orderIdentityMatchCount = scopedOrderTasks.filter(({ task }) =>
-    taskIdentityMatches(
+  const evaluatedOrderTasks = scopedOrderTasks.map(({ task, scoped }) => {
+    const identityMatches = taskIdentityMatches(
       task,
       config.order_task_identity_mode,
       orderTaskTitle,
       orderTaskTypeId
-    )
-  ).length;
+    );
+    const statusMatches = orderStatusIds.has(scoped.custom_status_id);
+    return { task, scoped, identityMatches, statusMatches };
+  });
+  const orderIdentityMatchCount = evaluatedOrderTasks.filter(({ identityMatches }) => identityMatches).length;
   const orderIdentityStatusIds = Array.from(
     new Set(
-      scopedOrderTasks
-        .filter(({ task }) =>
-          taskIdentityMatches(
-            task,
-            config.order_task_identity_mode,
-            orderTaskTitle,
-            orderTaskTypeId
-          )
-        )
+      evaluatedOrderTasks
+        .filter(({ identityMatches }) => identityMatches)
         .map(({ scoped }) => scoped.custom_status_id)
         .filter(Boolean)
     )
   ).sort();
-  const orderStatusMatchCount = scopedOrderTasks.filter(({ scoped }) =>
-    orderStatusIds.has(scoped.custom_status_id)
-  ).length;
-  const orderStatusAndIdentityTasks = scopedOrderTasks.filter(
-    ({ task, scoped }) =>
-      orderStatusIds.has(scoped.custom_status_id) &&
-      taskIdentityMatches(
-        task,
-        config.order_task_identity_mode,
-        orderTaskTitle,
-        orderTaskTypeId
-      )
+  const orderStatusMatchCount = evaluatedOrderTasks.filter(({ statusMatches }) => statusMatches).length;
+  const orderStatusAndIdentityTasks = evaluatedOrderTasks.filter(
+    ({ identityMatches, statusMatches }) => identityMatches && statusMatches
   );
   const vendorDropdownLabels = await readWrikeDropdownOptionLabels({
     host,
@@ -1979,42 +1994,77 @@ export async function discoverScopedWrikeIntakeTasks(
       "ready"
   ).length;
 
-  const orderCandidates = taskRecords
-    .map((task): WrikeEligibleOrderTask | null => {
-      const scoped = scopedTaskRecord(task);
-      if (
-        !scoped ||
-        !orderStatusIds.has(scoped.custom_status_id) ||
-        !taskIdentityMatches(
-          task,
-          config.order_task_identity_mode,
-          orderTaskTitle,
-          orderTaskTypeId
-        )
-      ) {
-        return null;
-      }
+  const evaluatedCandidates = evaluatedOrderTasks
+    .filter(({ identityMatches, statusMatches }) => identityMatches || statusMatches)
+    .map(({ task, scoped, identityMatches, statusMatches }) => {
       const vendor = resolvedWrikeComparableCustomField(
         task,
         vendorFieldId,
         vendorDropdownLabels
       );
       const contract = resolveWrikeContractNumber(task, config.contract_number_custom_field_id);
-      if (
-        normalizedComparableText(vendor) !== normalizedComparableText(vendorValue) ||
-        contract.status !== "ready"
-      ) {
-        return null;
+      const vendorMatches = normalizedComparableText(vendor) === normalizedComparableText(vendorValue);
+      const contractMatches = contract.status === "ready";
+      const reasons: WrikePendingOrderTask["reasons"] = [];
+      if (!identityMatches) {
+        reasons.push({
+          code: "task_identity",
+          message: "Use the configured Placard Order task type or title."
+        });
       }
+      if (!statusMatches) {
+        reasons.push({
+          code: "trigger_status",
+          message: `Move this order to ${config.trigger_status_label || "the configured intake-ready status"}.`
+        });
+      }
+      if (!vendorMatches) {
+        reasons.push({
+          code: "print_vendor",
+          message: `Set Print Vendor to ${vendorValue}.`
+        });
+      }
+      if (!contractMatches) {
+        reasons.push({
+          code: "contract_number",
+          message:
+            contract.status === "missing"
+              ? "Add the Contract Number in Wrike."
+              : contract.status === "invalid"
+                ? "Correct the Contract Number to C followed by 6–10 digits."
+                : "Configure the Contract Number field for this Import Method."
+        });
+      }
+      const rootFolderIds = Array.from(taskRootFolderIds.get(scoped.task_id) ?? []).sort();
       const artwork = resolveWrikeArtworkFolderUrl(task, config.artwork_folder_custom_field_id);
       return {
-        ...scoped,
-        contract_number: contract.contract_number ?? "",
-        artwork_folder_status: artwork.status
+        eligible: reasons.length === 0,
+        order: {
+          ...scoped,
+          root_folder_ids: rootFolderIds,
+          contract_number: contract.contract_number ?? "",
+          artwork_folder_status: artwork.status
+        } satisfies WrikeEligibleOrderTask,
+        pending: {
+          task_id: scoped.task_id,
+          task_title: typeof task.title === "string" ? task.title.trim().slice(0, 160) : "",
+          account_id: scoped.account_id,
+          root_folder_ids: rootFolderIds,
+          custom_status_id: scoped.custom_status_id,
+          contract_number: contract.contract_number,
+          reasons
+        } satisfies WrikePendingOrderTask
       };
-    })
-    .filter((task): task is WrikeEligibleOrderTask => task !== null)
+    });
+  const orderCandidates = evaluatedCandidates
+    .filter(({ eligible }) => eligible)
+    .map(({ order }) => order)
     .sort((left, right) => left.task_id.localeCompare(right.task_id));
+  const pendingOrderCandidates = evaluatedCandidates
+    .filter(({ eligible }) => !eligible)
+    .map(({ pending }) => pending)
+    .sort((left, right) => left.task_id.localeCompare(right.task_id))
+    .slice(0, 100);
 
   const shippingCandidates: WrikeEligibleShippingTask[] = [];
   if (config.shipping_intake.enabled) {
@@ -2100,6 +2150,7 @@ export async function discoverScopedWrikeIntakeTasks(
     folder_id: folderIds[0] ?? "",
     root_scopes: rootScopes,
     order_candidates: orderCandidates,
+    pending_order_candidates: pendingOrderCandidates,
     shipping: {
       status: config.shipping_intake.enabled ? "Discovered" : "Inactive",
       candidates: shippingCandidates
@@ -2113,6 +2164,7 @@ export async function discoverScopedWrikeIntakeTasks(
       order_vendor_match_count: orderVendorMatchTasks.length,
       order_contract_ready_count: orderContractReadyCount,
       eligible_order_count: orderCandidates.length,
+      pending_order_count: pendingOrderCandidates.length,
       eligible_shipping_task_count: shippingCandidates.length,
       order_status_id_count: orderStatusIds.size,
       order_identity_status_ids: orderIdentityStatusIds,

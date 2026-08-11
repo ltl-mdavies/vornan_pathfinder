@@ -92,6 +92,7 @@ import {
   type WrikeLiftDocumentPublication,
   type WrikeLiftSourceEvidenceBinding,
   type WrikeOAuthCredentials,
+  type WrikeScopedIntakeDiscoveryResult,
   type WrikeWorkbookExtension
 } from "@pathfinder/wrike-adapter";
 import {
@@ -123,6 +124,7 @@ import {
   runWrikeScheduledIntake,
   runWrikeScheduledSubmits,
   runWrikeScheduledStatusWritebacks,
+  wrikeMappingReevaluationBlockReason,
   type WrikeScheduledOrderCandidate
 } from "./wrike-scheduled-intake.js";
 import {
@@ -201,6 +203,7 @@ import {
   type CanonicalFieldOverride,
   type CanonicalFieldUsageSummary,
   type ImportMethod,
+  type JobRecoveryAuditEntry,
   type LiftUnitCatalogItem,
   type LiftOrderAssociationVerification,
   type OutputRoute,
@@ -2287,6 +2290,33 @@ function importMethodFingerprint(
     product_mappings: routeProductMappings
   };
   return createHash("sha256").update(JSON.stringify(stableJsonValue(contract))).digest("hex");
+}
+
+function wrikeEvidenceFingerprint(
+  method: ImportMethod,
+  route: OutputRoute,
+  productMappings: CustomerProductMapping[],
+  orderContext?: {
+    contract_number: string;
+    artwork_folder_url: string | null;
+    order_attachment_url?: string | null;
+    reference_proof_url?: string | null;
+  }
+) {
+  const baseFingerprint = importMethodFingerprint(method, route, productMappings);
+  return orderContext
+    ? createHash("sha256")
+        .update(
+          JSON.stringify(
+            stableJsonValue({
+              schema_version: "wrike-qualified-order-context-v1",
+              import_method_fingerprint: baseFingerprint,
+              order_context: orderContext
+            })
+          )
+        )
+        .digest("hex")
+    : baseFingerprint;
 }
 
 async function parsePublicIntakeSource(body: Record<string, unknown>, method: ImportMethod) {
@@ -4924,20 +4954,12 @@ async function createWrikeEvidencePreviewForMethod(args: {
     );
   }
   const productMappings = await listProductMappings(customer);
-  const baseFingerprint = importMethodFingerprint(method, outputRoute, productMappings);
-  const fingerprint = args.orderContext
-    ? createHash("sha256")
-        .update(
-          JSON.stringify(
-            stableJsonValue({
-              schema_version: "wrike-qualified-order-context-v1",
-              import_method_fingerprint: baseFingerprint,
-              order_context: args.orderContext
-            })
-          )
-        )
-        .digest("hex")
-    : baseFingerprint;
+  const fingerprint = wrikeEvidenceFingerprint(
+    method,
+    outputRoute,
+    productMappings,
+    args.orderContext
+  );
   const priorJob = workspace.jobs.find(
     (job) =>
       job.source_evidence?.provider === "wrike" &&
@@ -5414,47 +5436,38 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
   return { reused: false };
 }
 
-export async function runConfiguredWrikeScheduledIntake() {
+async function runConfiguredWrikeIntakeCore(args: {
+  config: ReturnType<typeof getWrikeScheduledIntakeConfig>;
+  markScheduled: boolean;
+}) {
   if (
-    wrikeScheduledIntakeConfig.enabled &&
+    args.config.enabled &&
     (!wrikeWorkbookEvidenceEnabled ||
       !wrikeEvidencePreviewEnabled ||
       !wrikeLiftDocumentPublicationConfig.enabled)
   ) {
     throw new Error(
-      "Scheduled Wrike intake requires evidence capture, preview creation, and Lift document publication."
+      "Wrike intake requires evidence capture, preview creation, and Lift document publication."
     );
   }
 
   let customer: LiftCustomer | null = null;
   let connection: CustomerSourceConnection | null = null;
   let existingSecrets: WrikeConnectorSecrets | null = null;
-  let discoverySummary = {
-    task_count: 0,
-    scoped_task_count: 0,
-    order_identity_match_count: 0,
-    order_status_match_count: 0,
-    order_status_and_identity_match_count: 0,
-    order_vendor_match_count: 0,
-    order_contract_ready_count: 0,
-    eligible_order_count: 0,
-    eligible_shipping_task_count: 0,
-    order_status_id_count: 0,
-    order_identity_status_ids: [] as string[],
-    resolved_order_status_ids: [] as string[],
-    shipping_status_id_count: 0
-  };
+  let discovery: WrikeScopedIntakeDiscoveryResult | null = null;
   const intakeResult = await runWrikeScheduledIntake({
-    config: wrikeScheduledIntakeConfig,
+    config: args.config,
     discover: async () => {
-      customer = await findLiftCustomer(wrikeScheduledIntakeConfig.customer_id);
+      customer = await findLiftCustomer(args.config.customer_id);
       const workspace = await getOrCreateWorkspace(customer);
       const method = workspace.import_methods.find(
-        (candidate) =>
-          candidate.import_method_id === wrikeScheduledIntakeConfig.import_method_id
+        (candidate) => candidate.import_method_id === args.config.import_method_id
       );
       if (!method || method.source !== "Wrike" || method.status !== "Active") {
-        throw new Error("Scheduled Wrike intake requires the exact active Wrike Import Method.");
+        throw new WrikeIntakeRequestError(
+          400,
+          "Choose the exact active Wrike Import Method before running discovery."
+        );
       }
       const config = normalizeWrikeSourceConfig(method.source_config.wrike);
       // The production scheduler gate is the activation boundary. Wrike source
@@ -5463,11 +5476,17 @@ export async function runConfiguredWrikeScheduledIntake() {
       // impossible to activate. The exact active Import Method and saved active
       // connection remain mandatory below.
       if (!config.connection_id) {
-        throw new Error("Scheduled Wrike intake requires an active saved source contract.");
+        throw new WrikeIntakeRequestError(
+          400,
+          "Save an active Wrike connection on this Import Method before running discovery."
+        );
       }
       connection = await findCustomerSourceConnection(customer, config.connection_id);
       if (!connection || connection.provider !== "wrike" || connection.status !== "Active") {
-        throw new Error("Scheduled Wrike intake requires the active customer Wrike connection.");
+        throw new WrikeIntakeRequestError(
+          400,
+          "Reconnect the customer Wrike connection before running discovery."
+        );
       }
       const connectionSecrets = await readCustomerSourceConnectionSecrets(
         customer.lift_customer_id,
@@ -5481,11 +5500,10 @@ export async function runConfiguredWrikeScheduledIntake() {
           "Wrike OAuth credentials are not configured."
         );
       }
-      const discovery = await discoverScopedWrikeIntakeTasks(oauth, config, {
+      discovery = await discoverScopedWrikeIntakeTasks(oauth, config, {
         max_pages: 10,
         max_tasks: 10_000
       });
-      discoverySummary = discovery.summary;
       await writeCustomerSourceConnectionSecrets(
         customer.lift_customer_id,
         connection.connection_id,
@@ -5503,8 +5521,8 @@ export async function runConfiguredWrikeScheduledIntake() {
     },
     prepare: async (candidate: WrikeScheduledOrderCandidate) => {
       const result = await prepareWrikeOrderForTask({
-        liftCustomerId: wrikeScheduledIntakeConfig.customer_id,
-        methodId: wrikeScheduledIntakeConfig.import_method_id,
+        liftCustomerId: args.config.customer_id,
+        methodId: args.config.import_method_id,
         taskId: candidate.task_id,
         triggerStatusId: candidate.trigger_status_id
       });
@@ -5512,20 +5530,21 @@ export async function runConfiguredWrikeScheduledIntake() {
         throw new Error("WrikeScheduledPreviewBlocked");
       }
       for (const workbook of result.workbooks) {
-        if (workbook.preview_status !== "Created" || !workbook.job_id) continue;
+        if (!args.markScheduled) continue;
+        if (!workbook.job_id) continue;
         const createdJob = await getJob(
-          customer ?? (await findLiftCustomer(wrikeScheduledIntakeConfig.customer_id)),
+          customer ?? (await findLiftCustomer(args.config.customer_id)),
           workbook.job_id
         );
         if (!createdJob) throw new Error("WrikeScheduledPreviewMissing");
         await persistJobSnapshot(
-          customer ?? (await findLiftCustomer(wrikeScheduledIntakeConfig.customer_id)),
+          customer ?? (await findLiftCustomer(args.config.customer_id)),
           {
             ...createdJob,
             scheduled_wrike_intake: {
               source: "scheduled_polling",
               task_id: candidate.task_id,
-              import_method_id: wrikeScheduledIntakeConfig.import_method_id,
+              import_method_id: args.config.import_method_id,
               discovered_at: result.prepared_at
             }
           }
@@ -5558,6 +5577,20 @@ export async function runConfiguredWrikeScheduledIntake() {
     }
     throw error;
   });
+
+  return {
+    customer,
+    discovery: discovery as WrikeScopedIntakeDiscoveryResult | null,
+    intakeResult
+  };
+}
+
+export async function runConfiguredWrikeScheduledIntake() {
+  const core = await runConfiguredWrikeIntakeCore({
+    config: wrikeScheduledIntakeConfig,
+    markScheduled: true
+  });
+  const { customer, intakeResult } = core;
 
   const scheduledSubmit = wrikeScheduledIntakeConfig.lift_submit_enabled
     ? await runWrikeScheduledSubmits({
@@ -5624,7 +5657,22 @@ export async function runConfiguredWrikeScheduledIntake() {
 
   return {
     ...intakeResult,
-    discovery_summary: discoverySummary,
+    discovery_summary: core.discovery?.summary ?? {
+      task_count: 0,
+      scoped_task_count: 0,
+      order_identity_match_count: 0,
+      order_status_match_count: 0,
+      order_status_and_identity_match_count: 0,
+      order_vendor_match_count: 0,
+      order_contract_ready_count: 0,
+      eligible_order_count: 0,
+      pending_order_count: 0,
+      eligible_shipping_task_count: 0,
+      order_status_id_count: 0,
+      order_identity_status_ids: [],
+      resolved_order_status_ids: [],
+      shipping_status_id_count: 0
+    },
     scheduled_submit: scheduledSubmit,
     status_writeback: statusWriteback,
     capabilities: {
@@ -5634,6 +5682,113 @@ export async function runConfiguredWrikeScheduledIntake() {
     }
   };
 }
+
+app.post(
+  "/api/customers/:liftCustomerId/import-methods/:methodId/wrike/discovery-runs",
+  async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    const runId = `wrike_discovery_${new Date().toISOString().replace(/[-:.TZ]/g, "")}_${randomBytes(3).toString("hex")}`;
+    const actorId =
+      typeof res.locals.authUser?.email === "string" && res.locals.authUser.email.trim()
+        ? res.locals.authUser.email.trim().toLowerCase()
+        : "authenticated-operator";
+    try {
+      const core = await runConfiguredWrikeIntakeCore({
+        config: {
+          enabled: true,
+          lift_submit_enabled: false,
+          status_writeback_enabled: false,
+          customer_id: req.params.liftCustomerId,
+          import_method_id: req.params.methodId,
+          max_candidates: 25
+        },
+        markScheduled: false
+      });
+      if (!core.discovery) {
+        throw new Error("Wrike discovery did not return a result.");
+      }
+      const auditEntry = {
+        audit_id: runId,
+        action: "wrike_discovery_run",
+        source: "operator",
+        actor_id: actorId,
+        created_at: core.intakeResult.checked_at,
+        message:
+          core.intakeResult.failed_count > 0
+            ? "Discovery finished. Some ready orders need attention before they can continue. No Lift order was submitted and no Wrike status was changed."
+            : "Discovery finished safely. No Lift order was submitted and no Wrike status was changed."
+      } as const;
+      console.info(
+        JSON.stringify({
+          event: "wrike_discovery_run_completed",
+          run_id: runId,
+          actor_id: actorId,
+          customer_id: req.params.liftCustomerId,
+          import_method_id: req.params.methodId,
+          checked_at: core.intakeResult.checked_at,
+          eligible_count: core.discovery.summary.eligible_order_count,
+          pending_count: core.discovery.summary.pending_order_count,
+          prepared_count: core.intakeResult.prepared_count,
+          replayed_count: core.intakeResult.replayed_count,
+          failed_count: core.intakeResult.failed_count,
+          lift_actions: false,
+          wrike_writes: false
+        })
+      );
+      res.json({
+        run_id: runId,
+        ...core.intakeResult,
+        discovery_summary: core.discovery.summary,
+        root_scopes: core.discovery.root_scopes,
+        pending_intake: core.discovery.pending_order_candidates,
+        audit_entries: [auditEntry],
+        safety: {
+          lift_order_submitted: false,
+          wrike_status_changed: false,
+          uncertain_lift_retry_allowed: false
+        },
+        capabilities: {
+          ...core.intakeResult.capabilities,
+          lift_actions: false,
+          wrike_writes: false
+        }
+      });
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          event: "wrike_discovery_run_failed",
+          run_id: runId,
+          actor_id: actorId,
+          customer_id: req.params.liftCustomerId,
+          import_method_id: req.params.methodId,
+          failure_category: error instanceof Error ? error.name : "unknown",
+          lift_actions: false,
+          wrike_writes: false
+        })
+      );
+      const status =
+        error instanceof WrikeIntakeRequestError
+          ? error.statusCode
+          : error instanceof WrikeConnectionError && error.code === "invalid_configuration"
+            ? 400
+            : error instanceof WrikeConnectionError
+              ? 502
+              : 500;
+      res.status(status).json({
+        error:
+          error instanceof WrikeIntakeRequestError || error instanceof WrikeConnectionError
+            ? error.message
+            : "Discovery could not finish. No Lift order was submitted and no Wrike status was changed.",
+        run_id: runId,
+        safety: {
+          lift_order_submitted: false,
+          wrike_status_changed: false,
+          uncertain_lift_retry_allowed: false
+        }
+      });
+    }
+  }
+);
 
 app.post(
   "/api/customers/:liftCustomerId/import-methods/:methodId/wrike/prepare-order",
@@ -6575,6 +6730,12 @@ async function createPreviewJobForRequest(
   options?: {
     sourceEvidence?: ProcessingJobPreview["source_evidence"];
     sourceDocumentPublications?: ProcessingJobPreview["source_document_publications"];
+    existingJob?: ProcessingJobPreview;
+    recovery?: {
+      actor_id: string;
+      previous_mapping_fingerprint: string;
+      next_mapping_fingerprint: string;
+    };
     wrikeOrderContext?: {
       contract_number: string;
       artwork_folder_url: string | null;
@@ -6690,8 +6851,10 @@ async function createPreviewJobForRequest(
     );
     const compactTimestamp = timestamp.replace(/[-:.TZ]/g, "").slice(0, 14);
     const idEntropy = randomBytes(3).toString("hex");
-    const jobId = `job_${compactTimestamp}_${idEntropy}`;
-    const canonicalOrderId = `co_${compactTimestamp}_${idEntropy}`;
+    const jobId = options?.existingJob?.job_id ?? `job_${compactTimestamp}_${idEntropy}`;
+    const canonicalOrderId =
+      options?.existingJob?.lift_payload.source.pathfinder_canonical_order_id ??
+      `co_${compactTimestamp}_${idEntropy}`;
     const seenMappings = productResolutionResults.map((result, index) => {
       const row = orderRows[index];
       const exactExisting = existingProductMappings.find(
@@ -6834,7 +6997,8 @@ async function createPreviewJobForRequest(
       }),
       ...validateOrderNameResolution(orderNameResolution.result, method.order_name_resolution_config)
     ];
-    const pathfinderOrderId = await reservePathfinderOrderNumber();
+    const pathfinderOrderId =
+      options?.existingJob?.pathfinder_order_id ?? (await reservePathfinderOrderNumber());
     const generatedLiftPayload = generateLiftPayload(canonicalOrder, {
       jobId,
       canonicalOrderId,
@@ -6851,6 +7015,12 @@ async function createPreviewJobForRequest(
     );
     const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, outputRoute.value_normalization_rules);
     const liftPayload = normalizedLift.payload;
+    if (options?.existingJob) {
+      liftPayload.order.ext_id = options.existingJob.lift_payload.order.ext_id;
+      liftPayload.source.pathfinder_job_id = options.existingJob.job_id;
+      liftPayload.source.pathfinder_canonical_order_id =
+        options.existingJob.lift_payload.source.pathfinder_canonical_order_id;
+    }
     const baseLiftValidation = validateLiftPayload(liftPayload, {
       product_identifier_type: outputRoute.product_identifier_type,
       product_identifier_label: outputRoute.product_identifier_label
@@ -6890,6 +7060,31 @@ async function createPreviewJobForRequest(
       route: outputRoute,
       environment: routeEnvironment
     });
+    let recoveryAuditEntry: JobRecoveryAuditEntry | null = null;
+    if (options?.existingJob && options.recovery && options.sourceEvidence) {
+      const message =
+        jobState === "Ready"
+          ? "Product mappings were checked again. This job is ready for review; no Lift order was created or retried."
+          : jobState === "Needs Mapping"
+            ? `Product mappings were checked again. ${unresolvedProducts.length} product mapping${unresolvedProducts.length === 1 ? " is" : "s are"} still needed; no Lift order was created or retried.`
+            : "Product mappings were checked again. This job still needs review; no Lift order was created or retried.";
+      recoveryAuditEntry = {
+        recovery_id: `recovery_${timestamp.replace(/[-:.TZ]/g, "")}_${randomBytes(3).toString("hex")}`,
+        action: "product_mappings_re_evaluated",
+        source: "operator",
+        actor_id: options.recovery.actor_id,
+        created_at: timestamp,
+        previous_state: options.existingJob.state,
+        next_state: jobState,
+        previous_unresolved_count: options.existingJob.unresolved_products.length,
+        next_unresolved_count: unresolvedProducts.length,
+        source_evidence_id: options.sourceEvidence.evidence_id,
+        source_task_id: options.sourceEvidence.task_id,
+        previous_mapping_fingerprint: options.recovery.previous_mapping_fingerprint,
+        next_mapping_fingerprint: options.recovery.next_mapping_fingerprint,
+        message
+      };
+    }
     const job: ProcessingJobPreview = {
       job_id: jobId,
       pathfinder_order_id: pathfinderOrderId,
@@ -6907,8 +7102,12 @@ async function createPreviewJobForRequest(
       import_method_name: method.name,
       output_route_id: outputRoute.output_route_id,
       output_route_name: outputRoute.name,
-      target_order_number: null,
-      target_order_lookup_url: null,
+      target_order_number: options?.existingJob?.target_order_number ?? null,
+      target_order_lookup_url: options?.existingJob?.target_order_lookup_url ?? null,
+      target_order_association_history:
+        options?.existingJob?.target_order_association_history ?? [],
+      wrike_status_writebacks: options?.existingJob?.wrike_status_writebacks ?? [],
+      scheduled_wrike_intake: options?.existingJob?.scheduled_wrike_intake ?? null,
       state: jobState,
       source_file_name: sourceFileName,
       sheet_name: sheetName,
@@ -6927,14 +7126,22 @@ async function createPreviewJobForRequest(
       submit_certification: submitCertification,
       submit_integrity: submitIntegrity,
       submit_request_masked: submitRequest,
-      created_at: timestamp,
+      created_at: options?.existingJob?.created_at ?? timestamp,
       updated_at: timestamp,
-      public_intake: publicIntake ?? null,
-      source_evidence: options?.sourceEvidence ?? null,
-      source_document_publications: options?.sourceDocumentPublications ?? []
+      archived_at: options?.existingJob?.archived_at ?? null,
+      archived_by_email: options?.existingJob?.archived_by_email ?? null,
+      public_intake: publicIntake ?? options?.existingJob?.public_intake ?? null,
+      source_evidence: options?.sourceEvidence ?? options?.existingJob?.source_evidence ?? null,
+      source_document_publications:
+        options?.sourceDocumentPublications ??
+        options?.existingJob?.source_document_publications ??
+        [],
+      recovery_audit: recoveryAuditEntry
+        ? [recoveryAuditEntry, ...(options?.existingJob?.recovery_audit ?? [])].slice(0, 50)
+        : options?.existingJob?.recovery_audit ?? []
     };
     const nextWorkspace = await persistPreviewJob(customer, job, method, {
-      persistMethod: !isAdHocManualImport
+      persistMethod: !isAdHocManualImport && !options?.existingJob
     });
 
     return {
@@ -6986,6 +7193,186 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId", async (req, res) => {
     });
   }
 });
+
+app.post(
+  "/api/customers/:liftCustomerId/jobs/:jobId/re-evaluate-mappings",
+  async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const customer = await findLiftCustomer(req.params.liftCustomerId);
+      const existingJob = await getJob(customer, req.params.jobId);
+      if (!existingJob) {
+        res.status(404).json({ error: "Preview job not found." });
+        return;
+      }
+      if (existingJob.source_evidence?.provider !== "wrike") {
+        res.status(400).json({
+          error: "Only a job created from Wrike intake can be checked this way."
+        });
+        return;
+      }
+
+      const siblingJobs = findWrikeSourceTaskSiblingJobs({
+        current: existingJob,
+        jobs: await listJobs()
+      });
+      const attemptsByJobId = new Map<string, SubmitAttempt[]>();
+      for (const job of [existingJob, ...siblingJobs]) {
+        attemptsByJobId.set(job.job_id, await listSubmitAttemptsForJob(customer, job.job_id));
+      }
+      const blockReason = wrikeMappingReevaluationBlockReason({
+        current: existingJob,
+        siblings: siblingJobs,
+        attemptsByJobId
+      });
+      if (blockReason) {
+        res.status(409).json({
+          error: blockReason,
+          reconciliation_required: true,
+          lift_order_created: false,
+          uncertain_lift_retry_allowed: false
+        });
+        return;
+      }
+
+      const workspace = await getOrCreateWorkspace(customer);
+      const method = workspace.import_methods.find(
+        (candidate) => candidate.import_method_id === existingJob.import_method_id
+      );
+      const outputRoute = workspace.output_routes.find(
+        (candidate) => candidate.output_route_id === existingJob.output_route_id
+      );
+      if (!method || method.source !== "Wrike" || method.status !== "Active") {
+        res.status(409).json({
+          error: "Reactivate the original Wrike Import Method before checking this job again."
+        });
+        return;
+      }
+      if (!outputRoute || outputRoute.status !== "Active") {
+        res.status(409).json({
+          error: "Reactivate the original Output Route before checking this job again."
+        });
+        return;
+      }
+      const contractNumber = valueAsString(existingJob.canonical_order.order.contract_number).trim();
+      if (!contractNumber) {
+        res.status(409).json({
+          error: "The original Wrike Contract Number is missing. Review the source evidence before continuing."
+        });
+        return;
+      }
+      const optionalUrl = (value: unknown) => valueAsString(value).trim() || null;
+      const wrikeOrderContext = {
+        contract_number: contractNumber,
+        artwork_folder_url: optionalUrl(existingJob.canonical_order.order.artwork_folder_url),
+        order_attachment_url: optionalUrl(existingJob.lift_payload.order.order_attachment),
+        reference_proof_url: optionalUrl(existingJob.lift_payload.order.reference_proof_url)
+      };
+      const currentProductMappings = await listProductMappings(customer);
+      const previousFingerprint = existingJob.source_evidence.import_method_fingerprint;
+      const nextFingerprint = wrikeEvidenceFingerprint(
+        method,
+        outputRoute,
+        currentProductMappings,
+        wrikeOrderContext
+      );
+      if (previousFingerprint === nextFingerprint) {
+        res.json({
+          job: existingJob,
+          changed: false,
+          message: "This job already reflects the current product mappings. No Lift order was created or retried.",
+          lift_order_created: false,
+          uncertain_lift_retry_allowed: false
+        });
+        return;
+      }
+
+      const actorId =
+        typeof res.locals.authUser?.email === "string" && res.locals.authUser.email.trim()
+          ? res.locals.authUser.email.trim().toLowerCase()
+          : "authenticated-operator";
+      const sourceEvidence = {
+        ...existingJob.source_evidence,
+        import_method_fingerprint: nextFingerprint
+      };
+      const result = await createPreviewJobForRequest(
+        customer.lift_customer_id,
+        {
+          source_grid: existingJob.source_grid,
+          source_sheets: existingJob.source_sheets,
+          parsed_order_rows: existingJob.parsed_order_rows,
+          reference_rows: existingJob.reference_rows,
+          incomplete_rows: [],
+          source_file_name: existingJob.source_file_name,
+          sheet_name: existingJob.sheet_name,
+          import_method_id: method.import_method_id
+        },
+        existingJob.public_intake,
+        {
+          sourceEvidence,
+          sourceDocumentPublications: existingJob.source_document_publications,
+          wrikeOrderContext,
+          existingJob,
+          recovery: {
+            actor_id: actorId,
+            previous_mapping_fingerprint: previousFingerprint,
+            next_mapping_fingerprint: nextFingerprint
+          }
+        }
+      );
+      if (
+        result.job.job_id !== existingJob.job_id ||
+        result.job.pathfinder_order_id !== existingJob.pathfinder_order_id ||
+        result.job.lift_payload.source.pathfinder_canonical_order_id !==
+          existingJob.lift_payload.source.pathfinder_canonical_order_id ||
+        result.job.lift_payload.order.ext_id !== existingJob.lift_payload.order.ext_id ||
+        result.job.source_evidence?.task_id !== existingJob.source_evidence.task_id
+      ) {
+        throw new Error("Wrike mapping recovery identity invariant failed.");
+      }
+      const auditEntry = result.job.recovery_audit?.[0];
+      console.info(
+        JSON.stringify({
+          event: "wrike_product_mappings_re_evaluated",
+          recovery_id: auditEntry?.recovery_id ?? null,
+          actor_id: actorId,
+          customer_id: customer.lift_customer_id,
+          job_id: result.job.job_id,
+          source_task_id: result.job.source_evidence?.task_id ?? null,
+          previous_state: existingJob.state,
+          next_state: result.job.state,
+          previous_unresolved_count: existingJob.unresolved_products.length,
+          next_unresolved_count: result.job.unresolved_products.length,
+          lift_order_created: false,
+          uncertain_lift_retry_allowed: false
+        })
+      );
+      res.json({
+        job: result.job,
+        changed: true,
+        audit_entry: auditEntry,
+        message:
+          auditEntry?.message ??
+          "Product mappings were checked again. No Lift order was created or retried.",
+        lift_order_created: false,
+        uncertain_lift_retry_allowed: false
+      });
+    } catch (error) {
+      const statusCode =
+        error && typeof error === "object" && "statusCode" in error && error.statusCode === 400
+          ? 400
+          : 500;
+      res.status(statusCode).json({
+        error:
+          statusCode === 400 && error instanceof Error
+            ? error.message
+            : "The job could not be checked again. No Lift order was created or retried.",
+        lift_order_created: false,
+        uncertain_lift_retry_allowed: false
+      });
+    }
+  }
+);
 
 app.patch("/api/customers/:liftCustomerId/jobs/:jobId/archive", async (req, res) => {
   try {

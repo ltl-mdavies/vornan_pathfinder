@@ -629,6 +629,7 @@ export interface ProcessingJobPreview {
   target_order_lookup_url?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   wrike_status_writebacks?: WrikeStatusWritebackRecord[];
+  recovery_audit?: JobRecoveryAuditEntry[];
   scheduled_wrike_intake?: {
     source: "scheduled_polling";
     task_id: string;
@@ -685,6 +686,23 @@ export interface ProcessingJobPreview {
     published_at: string;
     expires_at: string;
   }>;
+}
+
+export interface JobRecoveryAuditEntry {
+  recovery_id: string;
+  action: "product_mappings_re_evaluated";
+  source: "operator";
+  actor_id: string;
+  created_at: string;
+  previous_state: ProcessingState;
+  next_state: ProcessingState;
+  previous_unresolved_count: number;
+  next_unresolved_count: number;
+  source_evidence_id: string;
+  source_task_id: string;
+  previous_mapping_fingerprint: string;
+  next_mapping_fingerprint: string;
+  message: string;
 }
 
 /**

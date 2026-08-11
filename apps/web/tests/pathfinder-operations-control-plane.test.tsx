@@ -1,0 +1,29 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const source = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+
+test("Jobs refreshes only while a Jobs view and the browser tab are visible", () => {
+  assert.match(source, /const isJobViewVisible/);
+  assert.match(source, /document\.visibilityState !== "visible"/);
+  assert.match(source, /window\.setInterval\(\(\) => void refresh\(\), 15_000\)/);
+  assert.match(source, /document\.addEventListener\("visibilitychange"/);
+  assert.match(source, /Auto-refreshing while visible/);
+});
+
+test("Wrike Import Method exposes safe discovery and actionable pending intake", () => {
+  assert.match(source, /Run discovery now/);
+  assert.match(source, /\/wrike\/discovery-runs/);
+  assert.match(source, /same saved folders, qualification rules, evidence capture, document publication/);
+  assert.match(source, /Pending intake/);
+  assert.match(source, /candidate\.reasons\.map/);
+  assert.match(source, /No Lift order was submitted and no Wrike status was changed/);
+});
+
+test("blocked Wrike jobs expose in-place mapping recovery and audit history", () => {
+  assert.match(source, /Check current mappings/);
+  assert.match(source, /\/re-evaluate-mappings/);
+  assert.match(source, /Recovery history/);
+  assert.match(source, /No Lift order was created or retried/);
+});

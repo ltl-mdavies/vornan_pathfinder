@@ -1475,12 +1475,30 @@ test("discovers eligible Placard Orders across configured campaign descendants a
   assert.equal(result.summary.order_vendor_match_count, 1);
   assert.equal(result.summary.order_contract_ready_count, 1);
   assert.equal(result.summary.eligible_order_count, 1);
+  assert.equal(result.summary.pending_order_count, 1);
   assert.equal(result.summary.order_status_id_count, 1);
   assert.deepEqual(result.summary.order_identity_status_ids, ["IESENTTOPRINT"]);
   assert.deepEqual(result.summary.resolved_order_status_ids, ["IESENTTOPRINT"]);
   assert.equal(result.order_candidates[0].task_id, "IEPLACARD1");
+  assert.deepEqual(result.order_candidates[0].root_folder_ids, ["IEGPACAMPAIGNS"]);
   assert.equal(result.order_candidates[0].contract_number, "C3168700");
   assert.equal(result.order_candidates[0].artwork_folder_status, "ready");
+  assert.deepEqual(result.pending_order_candidates, [
+    {
+      task_id: "IEPLACARDOTHER",
+      task_title: "Placard Order",
+      account_id: "IEACCOUNT",
+      root_folder_ids: ["IEGPACAMPAIGNS"],
+      custom_status_id: "IESENTTOPRINT",
+      contract_number: "C3168701",
+      reasons: [
+        {
+          code: "print_vendor",
+          message: "Set Print Vendor to Larger Than Life."
+        }
+      ]
+    }
+  ]);
   assert.equal(result.shipping.status, "Inactive");
   assert.deepEqual(result.shipping.candidates, []);
   assert.equal(result.capabilities.shipping_attachment_metadata_read, false);
@@ -1590,6 +1608,11 @@ test("discovers and deduplicates eligible orders across multiple configured camp
   assert.deepEqual(
     result.order_candidates.map((candidate) => candidate.task_id).sort(),
     ["IEGPAORDER", "IEIBAORDER", "IESHAREDORDER"]
+  );
+  assert.deepEqual(
+    result.order_candidates.find((candidate) => candidate.task_id === "IESHAREDORDER")
+      ?.root_folder_ids,
+    ["IEGPACAMPAIGNS", "IEIBACAMPAIGNS"]
   );
   assert.equal(taskRequests.length, 2);
 });

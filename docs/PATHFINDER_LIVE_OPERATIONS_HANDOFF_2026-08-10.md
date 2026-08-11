@@ -41,18 +41,29 @@ Lift submission must never be retried blindly after a network timeout or ambiguo
 
 ## Current recovery behavior
 
-Product mapping changes now invalidate and reprocess affected Wrike previews, allowing a previously `Needs Mapping` order to become Ready without editing the source workbook.
+The `codex/pathfinder-operations-control-plane` repository checkpoint adds an explicit operator recovery path for a Wrike `Needs Mapping` or blocked `Failed` job. It recomputes the existing job from its original source rows and current product mappings while retaining the job ID, Pathfinder Order Number, canonical order ID, Lift Ext_ID, Wrike task/evidence identity, publications, and scheduler marker. The job receives a nontechnical recovery audit entry.
 
-The current implementation invalidates against a route-wide mapping fingerprint. One mapping change can therefore produce replacement previews for more than the intended source order. Cross-job submission deduplication prevents previously submitted source evidence from being submitted again, but the extra Ready jobs are noisy and confusing.
+This recovery refuses to run if the job or any sibling for the same Wrike source task has an associated Lift order or any submit attempt beyond the known pre-transport `Blocked` / `Gate Locked` states. A `Submission Uncertain` or other possible transport attempt always requires reconciliation and is never retried automatically.
+
+The same checkpoint also adds:
+
+- Jobs-list refresh every 15 seconds only while a Jobs view and browser tab are visible;
+- a bounded **Run discovery now** control inside the saved active Wrike Import Method;
+- reuse of the scheduled discovery, qualification, evidence, `go.vornan.co` publication, and preview-preparation service path for operator discovery;
+- an explicit guarantee that operator discovery does not submit to Lift, post a Wrike status, or mark jobs for immediate scheduled submit;
+- a pending-intake view for order-like tasks found in configured roots but blocked by task identity, ready status, Print Vendor, or Contract Number, with actionable operator messages;
+- sanitized discovery and mapping-recovery audit events.
+
+The repository checkpoint is not merged or deployed as of 2026-08-11. The verified production parameters and behavior above remain unchanged. A later deployment must preserve every scheduler, Lift, publication, writeback, and persistence parameter and must complete the deployment guardrails below.
+
+The discovery fingerprint still includes the route-wide mapped-product set. A mapping change can therefore invalidate more previews than the exact product dependency requires. The explicit recovery control updates one intended blocked job in place, but dependency-aware discovery invalidation remains hardening debt.
 
 Known hardening debt:
 
 - replace route-wide invalidation with dependency-aware invalidation based on the product keys actually used by each job;
-- explicitly link replacement jobs to the superseded preview and hide or label superseded rows;
-- auto-refresh active Jobs lists;
-- add an operator-visible intake monitor and bounded “Run discovery now” control at the Import Method/customer scope;
-- retain discovered-but-ineligible candidates with actionable reasons;
-- provide a guided heal-and-resubmit workflow for recoverable failures;
+- persist discovery-run history beyond structured runtime audit logs so earlier pending-intake snapshots can be compared in the UI;
+- add dependency-aware supersession labels for any replacement jobs created outside the explicit in-place recovery control;
+- extend guided recovery beyond product mappings to other known-safe pre-transport validation failures;
 - add success/failure notifications that do not require daily babysitting.
 
 ## Newly confirmed Momentara requirements — 2026-08-10

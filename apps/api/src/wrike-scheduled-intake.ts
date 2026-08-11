@@ -54,6 +54,41 @@ export function findWrikeSourceTaskSiblingJobs<T extends WrikeSourceTaskJob>(arg
   );
 }
 
+export interface WrikeMappingReevaluationJob extends WrikeSourceTaskJob {
+  state?: string | null;
+  target_order_number?: string | null;
+}
+
+export interface WrikeMappingReevaluationAttempt {
+  state: string;
+}
+
+export function wrikeMappingReevaluationBlockReason(args: {
+  current: WrikeMappingReevaluationJob;
+  siblings: WrikeMappingReevaluationJob[];
+  attemptsByJobId: ReadonlyMap<string, WrikeMappingReevaluationAttempt[]>;
+}): string | null {
+  if (!args.current.source_evidence?.task_id?.trim()) {
+    return "This job no longer has a complete Wrike source identity. Review the original intake before continuing.";
+  }
+  if (!new Set(["Needs Mapping", "Failed"]).has(args.current.state ?? "")) {
+    return "Only a blocked or Needs Mapping job can be checked against current product mappings.";
+  }
+  for (const job of [args.current, ...args.siblings]) {
+    if (job.target_order_number?.trim()) {
+      return "A Lift order is already associated with this Wrike task. Reconcile that order instead of creating or rebuilding another one.";
+    }
+    const attempts = args.attemptsByJobId.get(job.job_id) ?? [];
+    if (attempts.some((attempt) => !["Blocked", "Gate Locked"].includes(attempt.state))) {
+      return "A Lift submission may already have reached the external service. Reconcile that attempt before taking another action; Pathfinder will not retry it automatically.";
+    }
+  }
+  if (args.siblings.length > 0) {
+    return "Another Pathfinder job already represents this Wrike task. Open that job and reconcile the two previews before changing either one.";
+  }
+  return null;
+}
+
 export interface WrikeScheduledPreparedOrder {
   task_id: string;
   status: "Created" | "Replayed";
