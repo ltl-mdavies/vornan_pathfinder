@@ -40,6 +40,19 @@ The API stack returned to `UPDATE_COMPLETE`, health returned HTTP 200, and all t
 
 The API errors, throttles, scheduled-candidate-failure, and scheduled-invocation alarms were all `OK` at reconciliation time. Alarm state is evidence at a moment in time, not a perpetual health guarantee.
 
+### Persistent scheduler preparation incident — 2026-08-11
+
+The cycles checked at `2026-08-11T15:42:53.213Z` (`a58db8a6-51fc-414d-a2f0-d33dabfcab96`) and `15:57:54.333Z` (`af8bbf31-b534-423c-8f77-a0c156cc47e3`) each reported seven contract-ready candidates, six replays, and one preparation failure. The candidate-failure alarm entered `ALARM`.
+
+Read-only reconciliation confirmed:
+
+- no new job, order identity, submit attempt, status record, source-evidence version, Lift submission, or Wrike writeback;
+- only the six known replayed jobs had their scheduled discovery timestamps refreshed;
+- the failed task is not provable from deployed aggregate logs; two older blocked task identities remain plausible, but a new pre-evidence failure cannot be excluded;
+- no recovery or replay is authorized while the task identity and failure reason remain unknown.
+
+The bounded scheduler-telemetry checkpoint adds a sanitized `candidate_failure_details` collection to the existing completion event. It records only the failure stage, stable reason code, validated Wrike task ID, and validated existing job/evidence identifiers. Identifier arrays and total details are capped; exception messages, contract/customer values, filenames, URLs, payloads, credentials, and attachment contents are never emitted. Submit and writeback failures retain the same safe job-level boundary. This capability is repository-only until the shared API is deliberately deployed with all live Pathfinder parameters preserved.
+
 ## Production flow
 
 1. EventBridge invokes the scheduled intake every 15 minutes.
@@ -93,6 +106,7 @@ Known hardening debt:
 - add dependency-aware supersession labels for any replacement jobs created outside the explicit in-place recovery control;
 - extend guided recovery beyond product mappings to other known-safe pre-transport validation failures;
 - add success/failure notifications that do not require daily babysitting.
+- persist scheduler candidate failures in durable audit history after the sanitized log contract is proven in production.
 
 ## Newly confirmed Momentara requirements — 2026-08-10
 

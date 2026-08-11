@@ -73,6 +73,8 @@ Report the candidate and every failed eligibility condition: task title/type, ca
 
 For Momentara, inspect every configured campaign root independently. Current roots are GPA `34000804` and IBA `49405755`; overlapping task visibility must deduplicate to one evidence identity. For workbook quantity failures, distinguish blank/zero rows (intentionally excluded), configured text placeholders such as hardware `TBD → 0.5`, and unsupported text (action required).
 
+For a scheduled aggregate candidate failure, inspect `candidate_failure_details` only after confirming the deployed API artifact includes that contract. Correlate its validated `task_id`, `stage`, `reason_code`, `job_ids`, and `evidence_ids`; never infer identity from aggregate counts. The event deliberately omits messages and customer content. If the deployed artifact predates this telemetry or the identity is null, report the observability gap and do not run discovery or recovery merely to manufacture a diagnostic record.
+
 ### Needs Mapping after a mapping was saved
 
 Confirm the exact normalized customer key and route. Reprocess the original evidence. If replacement jobs appear, identify the one tied to the intended task and mark the older preview as superseded. Verify cross-job dedupe before any submit.

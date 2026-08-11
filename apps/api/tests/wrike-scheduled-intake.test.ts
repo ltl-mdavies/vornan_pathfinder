@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildWrikeScheduledCandidatePreparationError,
   findWrikeSourceTaskSiblingJobs,
   getWrikeScheduledIntakeConfig,
   runWrikeScheduledIntake,
   runWrikeScheduledSubmits,
   runWrikeScheduledStatusWritebacks,
+  WrikeScheduledCandidatePreparationError,
   wrikeMappingReevaluationBlockReason
 } from "../src/wrike-scheduled-intake.js";
 
@@ -195,8 +197,70 @@ test("one candidate failure does not block another order", async () => {
     outcome: "failed",
     job_count: 0,
     job_ids: [],
-    failure_category: "TypeError"
+    failure_category: "TypeError",
+    failure_details: [{
+      failure_stage: "prepare",
+      reason_code: "TypeError",
+      evidence_ids: [],
+      job_ids: []
+    }]
   });
+});
+
+test("scheduled intake keeps only sanitized preparation failure identities and reason codes", async () => {
+  const result = await runWrikeScheduledIntake({
+    config: {
+      enabled: true,
+      lift_submit_enabled: false,
+      status_writeback_enabled: false,
+      customer_id: "284619",
+      import_method_id: "method-1784901795973",
+      max_candidates: 1
+    },
+    discover: async () => [
+      { task_id: "TASK-A", contract_number: "C1", trigger_status_id: "STATUS-A" }
+    ],
+    prepare: async () => {
+      throw new WrikeScheduledCandidatePreparationError([{
+        failure_stage: "preview_creation",
+        reason_code: "preview_failed",
+        evidence_ids: ["evidence-safe", "unsafe evidence value"],
+        job_ids: ["job-safe", "unsafe job value"]
+      }]);
+    }
+  });
+
+  assert.equal(result.results[0]?.failure_category, "preview_failed");
+  assert.deepEqual(result.results[0]?.failure_details, [{
+    failure_stage: "preview_creation",
+    reason_code: "preview_failed",
+    evidence_ids: ["evidence-safe"],
+    job_ids: ["job-safe"]
+  }]);
+});
+
+test("blocked workbook telemetry retains only its evidence and existing candidate jobs", () => {
+  const error = buildWrikeScheduledCandidatePreparationError([
+    {
+      evidence_id: "evidence-blocked",
+      preview_status: "Blocked",
+      failure_stage: "preview_creation",
+      failure_code: "preview_failed",
+      reason_code: "ValidationError"
+    },
+    {
+      evidence_id: "evidence-ready",
+      preview_status: "Created",
+      job_id: "job-ready"
+    }
+  ]);
+
+  assert.deepEqual(error.failure_details, [{
+    failure_stage: "preview_creation",
+    reason_code: "ValidationError",
+    evidence_ids: ["evidence-blocked"],
+    job_ids: ["job-ready"]
+  }]);
 });
 
 test("bounded discovery stops before preparing an oversized batch", async () => {

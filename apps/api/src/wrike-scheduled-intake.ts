@@ -95,6 +95,46 @@ export interface WrikeScheduledPreparedOrder {
   job_ids: string[];
 }
 
+export interface WrikeScheduledCandidateFailureDetail {
+  failure_stage: string;
+  reason_code: string;
+  evidence_ids: string[];
+  job_ids: string[];
+}
+
+export class WrikeScheduledCandidatePreparationError extends Error {
+  readonly failure_details: WrikeScheduledCandidateFailureDetail[];
+
+  constructor(failureDetails: WrikeScheduledCandidateFailureDetail[]) {
+    super("Scheduled Wrike candidate preparation failed.");
+    this.name = "WrikeScheduledCandidatePreparationError";
+    this.failure_details = failureDetails;
+  }
+}
+
+export function buildWrikeScheduledCandidatePreparationError(workbooks: Array<{
+  evidence_id: string;
+  preview_status: string;
+  failure_stage?: string;
+  failure_code?: string;
+  reason_code?: string;
+  job_id?: string;
+}>) {
+  const existingJobIds = workbooks
+    .map((workbook) => workbook.job_id)
+    .filter((jobId): jobId is string => Boolean(jobId));
+  return new WrikeScheduledCandidatePreparationError(
+    workbooks
+      .filter((workbook) => workbook.preview_status === "Blocked")
+      .map((workbook) => ({
+        failure_stage: workbook.failure_stage ?? "prepare",
+        reason_code: workbook.reason_code ?? workbook.failure_code ?? "unknown",
+        evidence_ids: [workbook.evidence_id],
+        job_ids: existingJobIds
+      }))
+  );
+}
+
 export interface WrikeScheduledIntakeRunResult {
   status: "disabled" | "completed";
   checked_at: string;
@@ -111,6 +151,7 @@ export interface WrikeScheduledIntakeRunResult {
     job_count: number;
     job_ids: string[];
     failure_category: string | null;
+    failure_details: WrikeScheduledCandidateFailureDetail[];
   }>;
   capabilities: {
     wrike_reads: boolean;
@@ -267,6 +308,42 @@ function failureCategory(error: unknown) {
   return /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(name) ? name : "unknown";
 }
 
+function safeFailureToken(value: unknown, fallback: string) {
+  return typeof value === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value)
+    ? value
+    : fallback;
+}
+
+function safeFailureIdentifier(value: unknown) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9:_-]{0,255}$/.test(value)
+    ? value
+    : null;
+}
+
+function candidateFailureDetails(error: unknown): WrikeScheduledCandidateFailureDetail[] {
+  if (error instanceof WrikeScheduledCandidatePreparationError) {
+    const details = error.failure_details.slice(0, 25).map((detail) => ({
+      failure_stage: safeFailureToken(detail.failure_stage, "prepare"),
+      reason_code: safeFailureToken(detail.reason_code, "unknown"),
+      evidence_ids: detail.evidence_ids
+        .map(safeFailureIdentifier)
+        .filter((value): value is string => Boolean(value))
+        .slice(0, 25),
+      job_ids: detail.job_ids
+        .map(safeFailureIdentifier)
+        .filter((value): value is string => Boolean(value))
+        .slice(0, 25)
+    }));
+    if (details.length > 0) return details;
+  }
+  return [{
+    failure_stage: "prepare",
+    reason_code: failureCategory(error),
+    evidence_ids: [],
+    job_ids: []
+  }];
+}
+
 export async function runWrikeScheduledIntake(args: {
   config: WrikeScheduledIntakeConfig;
   discover: () => Promise<WrikeScheduledOrderCandidate[]>;
@@ -321,16 +398,19 @@ export async function runWrikeScheduledIntake(args: {
         outcome: prepared.status === "Replayed" ? "replayed" : "created",
         job_count: prepared.job_ids.length,
         job_ids: prepared.job_ids,
-        failure_category: null
+        failure_category: null,
+        failure_details: []
       });
     } catch (error) {
+      const failureDetails = candidateFailureDetails(error);
       results.push({
         task_id: candidate.task_id,
         contract_number: candidate.contract_number,
         outcome: "failed",
         job_count: 0,
         job_ids: [],
-        failure_category: failureCategory(error)
+        failure_category: failureDetails[0]?.reason_code ?? "unknown",
+        failure_details: failureDetails
       });
     }
   }

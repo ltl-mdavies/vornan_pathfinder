@@ -36,6 +36,7 @@ export type WrikeManualIntakeFailureCode =
 export interface WrikeManualIntakeFailure {
   failure_stage: WrikeManualIntakeFailureStage;
   failure_code: WrikeManualIntakeFailureCode;
+  reason_code?: string;
 }
 
 function safePreviewDiagnosticToken(value: unknown) {
@@ -71,6 +72,7 @@ export interface WrikeManualIntakeWorkbookResult {
   message?: string;
   failure_stage?: WrikeManualIntakeFailureStage;
   failure_code?: WrikeManualIntakeFailureCode;
+  reason_code?: string;
 }
 
 export interface WrikeManualIntakeResult {
@@ -132,7 +134,8 @@ export async function prepareWrikeManualIntake<TRecord extends WrikeManualIntake
         preview_status: "Blocked",
         message: blockedPreviewMessage,
         failure_stage: failure.failure_stage,
-        failure_code: failure.failure_code
+        failure_code: failure.failure_code,
+        reason_code: failure.reason_code ?? failure.failure_code
       });
     }
   }

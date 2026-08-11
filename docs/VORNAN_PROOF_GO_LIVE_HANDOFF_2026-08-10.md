@@ -6,16 +6,18 @@ This document distinguishes the Proof experience visible today from source-ready
 
 ## Live customer boundary
 
-Read-only inspection of `vornan-proof-dev` on 2026-08-10 confirmed:
+Read-only inspection of `vornan-proof-dev` on 2026-08-11 confirmed:
 
-- protected public read is enabled and production-public-read approval is true;
+- public read and production-public-read approval are configured true, but the read deadline expired at `2026-08-10T00:00:00Z`;
 - the current customer cohort is LTL Demo customer `1249`;
 - customer approval is disabled;
 - customer revised-art upload is disabled;
 - operator grant creation is disabled;
 - Proof asset upload is disabled.
 
-The public Proof portal can display synchronized reviewed/reference proofs through valid grants and sessions. Customer decisions and uploads must not be represented as live while the deployed flags remain false.
+The static Proof portal returns HTTP 200, but the expired deadline makes the public API return HTTP 403. Customer decisions and uploads must not be represented as live while the deployed flags remain false.
+
+The owner approved a renewed protected-read deadline of `2026-08-25T23:59:59Z`. This is an approved deployment input, not current live state. Renewal must preserve every customer-write, upload, scan, publication, operator-action, and Lift gate as false.
 
 The separate public Proof Lambda is deployed from artifact `proof/dev/vornan-proof-lambdas-13a072f.zip`. Current `origin/main` contains newer merged customer revision runtime and UX. A controlled Proof-stack deployment is therefore required before that merged runtime can be tested or activated in the public application.
 
@@ -55,15 +57,15 @@ Current main includes:
 
 These capabilities remain subject to deployment, configuration, and controlled evidence. Revised artwork must not reach Lift until scan clearance, publication/readiness, exact current-proof reconciliation, and the revised-art action runtime are all demonstrated together.
 
-## Pending unified LTL Demo QA profile
+## Merged unified LTL Demo QA profile
 
-Branch `codex/proof-revised-art-completion` reconciles the earlier profile proposal against `origin/main` `564194e1654dd2ba74822937d278063449077a6b`. This remains unmerged, undeployed, and inactive.
+PR #179 merged the reconciled profile at `cd7e00e48d37abcc6ed41423f8731ff2c2e806de`. It remains undeployed and inactive.
 
 The reconciled profile is fixed to customer `1249`, requires explicitly allowlisted demo orders, caps activation at 24 hours and sessions at 12 hours, and preserves the existing grant/session/CSRF/participant/current-proof checks and durable audit. It deliberately splits responsibility: the shared API may create review grants without exposing public reads, while the isolated Proof stack may serve valid review sessions and private upload without creating grants. Email, scan processing, publication, direct asset delivery, operator action QA, and Lift submission remain independent and false.
 
 The exact configuration, activation, shutdown, and diagnostic contract is in `docs/VORNAN_PROOF_LTL_DEMO_QA_PROFILE.md`.
 
-## Revised-art completion in the current sprint branch
+## Revised-art completion in merged main
 
 The same branch adds repository-side, default-dark completion beyond private finalization:
 
@@ -80,16 +82,16 @@ No upload, scan, publication, `/a/*` delivery, credential read, Lift call, deplo
 
 ## Remaining checkpoints after merge
 
-1. Review and merge the draft PR; do not infer activation.
-2. Coordinate shared API deployment ownership and complete the Pathfinder/Wrike before-check.
-3. Deploy the API, Proof, and asset-stack artifacts with every new gate false.
-4. Complete the Pathfinder/Wrike after-check and record commits, artifacts, parameters, alarms, recent cycles, rollback, and data continuity.
-5. Activate the LTL Demo profile separately for one exact allowlist/expiry and test valid review sessions/current proofs.
-6. Activate upload separately and finalize one bounded file.
-7. Activate the exact-object scan worker and require `NO_THREATS_FOUND`; stop on every other result.
-8. Activate `/a/*` delivery and publication separately, publish one cleared version, and record direct HTTP `200`, content type, length, checksum, version, and settle barrier evidence.
-9. Activate operator action QA last, prepare and confirm exactly one `REVISED_ART_WILL_BE_SENT`, then reconcile authoritatively with zero retry.
-10. Disable every temporary gate, revoke/end access, retain the support asset record, and update this handoff with observed truth.
+1. Deploy the authorized sanitized Pathfinder candidate-failure telemetry while preserving every existing Wrike/Lift parameter and keeping new Proof gates false.
+2. Use the next natural scheduler cycle to identify the persistent failed candidate read-only; do not recover it until the exact identity and action are approved.
+3. Inspect the Proof API, isolated Proof, and asset-stack change sets with protected read expiring `2026-08-25T23:59:59Z` and every write/upload/scan/publication/operator/Lift gate false.
+4. Deploy one production surface at a time and complete Pathfinder/Wrike after-checks before advancing.
+5. Record commits, artifacts, parameters, alarms, recent cycles, rollback, data continuity, and effective public-read behavior.
+6. Activate the LTL Demo profile separately for one exact allowlist/expiry and test valid review sessions/current proofs.
+7. Activate upload separately and finalize one bounded file.
+8. Activate the exact-object scan worker and require `NO_THREATS_FOUND`; stop on every other result.
+9. Activate `/a/*` delivery and publication separately, publish one cleared version, and record direct HTTP `200`, content type, length, checksum, version, and settle barrier evidence.
+10. Activate operator action QA last, prepare and confirm exactly one `REVISED_ART_WILL_BE_SENT`, then reconcile authoritatively with zero retry and close all temporary gates.
 
 ## Recommended QA sequence
 

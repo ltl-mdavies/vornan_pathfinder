@@ -12,6 +12,17 @@ test("emits complete scheduler counters and one aggregate failure metric", () =>
       prepared_count: 2,
       replayed_count: 1,
       failed_count: 1,
+      results: [{
+        task_id: "TASK-A",
+        outcome: "failed",
+        failure_category: "preview_failed",
+        failure_details: [{
+          failure_stage: "preview_creation",
+          reason_code: "preview_failed",
+          evidence_ids: ["evidence-safe", "unsafe evidence value"],
+          job_ids: ["job-safe"]
+        }]
+      }],
       discovery_summary: {
         task_count: 40,
         scoped_task_count: 30,
@@ -26,13 +37,23 @@ test("emits complete scheduler counters and one aggregate failure metric", () =>
         eligible_count: 3,
         submitted_count: 1,
         replayed_count: 1,
-        failed_count: 1
+        failed_count: 1,
+        outcomes: [{
+          job_id: "job-submit",
+          outcome: "failed",
+          failure_category: "TypeError"
+        }]
       },
       status_writeback: {
         eligible_count: 2,
         posted_count: 1,
         replayed_count: 0,
-        failed_count: 1
+        failed_count: 1,
+        outcomes: [{
+          job_id: "job-writeback",
+          outcome: "failed",
+          failure_category: "WrikeWritebackBlocked"
+        }]
       }
     },
     1_786_296_774_000
@@ -63,6 +84,30 @@ test("emits complete scheduler counters and one aggregate failure metric", () =>
   assert.equal(event.status_comments_replayed, 0);
   assert.equal(event.status_comments_failed, 1);
   assert.equal(event.candidate_failures, 3);
+  assert.equal(event.candidate_failure_detail_count, 3);
+  assert.deepEqual(event.candidate_failure_details, [
+    {
+      stage: "preview_creation",
+      reason_code: "preview_failed",
+      task_id: "TASK-A",
+      evidence_ids: ["evidence-safe"],
+      job_ids: ["job-safe"]
+    },
+    {
+      stage: "submit",
+      reason_code: "TypeError",
+      task_id: null,
+      evidence_ids: [],
+      job_ids: ["job-submit"]
+    },
+    {
+      stage: "writeback",
+      reason_code: "WrikeWritebackBlocked",
+      task_id: null,
+      evidence_ids: [],
+      job_ids: ["job-writeback"]
+    }
+  ]);
 });
 
 test("reports a healthy replay-only cycle without false failures", () => {
@@ -98,6 +143,7 @@ test("reports a healthy replay-only cycle without false failures", () => {
   });
 
   assert.equal(event.candidate_failures, 0);
+  assert.deepEqual(event.candidate_failure_details, []);
   assert.equal(event.scheduled_submits_replayed, 2);
   assert.equal(event.status_comments_failed, 0);
 });
