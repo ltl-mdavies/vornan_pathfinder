@@ -33,6 +33,11 @@ Parameters:
       an immutable URL has been issued, keep this enabled until every issued
       document has expired or been explicitly retired. This is independent of
       the API gate that permits creation of new publications.
+  ProofAssetDeliveryEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-dark direct /a/* delivery for already published opaque Proof locators.
   AssetDomainName:
     Type: String
     Default: ""
@@ -134,6 +139,13 @@ Rules:
                 - Ref: CertificateArn
                 - ""
         AssertDescription: Wrike document delivery requires the reviewed us-east-1 certificate.
+  ProofDeliveryRequiresAlias:
+    RuleCondition: !Equals [!Ref ProofAssetDeliveryEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref AssetDomainName, go.vornan.co]
+        AssertDescription: Proof asset delivery requires the exact go.vornan.co alias.
+      - Assert: !Not [!Equals [!Ref CertificateArn, ""]]
+        AssertDescription: Proof asset delivery requires the reviewed us-east-1 certificate.
   MalwareProtectionDevOnly:
     RuleCondition:
       Fn::Equals:
@@ -151,6 +163,7 @@ Conditions:
   HasExplicitWrikeDeliveryBucketName: !Not [!Equals [!Ref WrikeDeliveryBucketName, ""]]
   HasAssetAlias: !Not [!Equals [!Ref AssetDomainName, ""]]
   WrikeDocumentDeliveryActive: !Equals [!Ref WrikeDocumentDeliveryEnabled, "true"]
+  ProofAssetDeliveryActive: !Equals [!Ref ProofAssetDeliveryEnabled, "true"]
   GuardDutyMalwareProtectionActive: !Equals [!Ref ProofAssetMalwareProtectionEnabled, "true"]
 
 Resources:
@@ -392,24 +405,43 @@ Resources:
       Name: !Sub vornan-proof-assets-dark-${EnvironmentName}
       AutoPublish: true
       FunctionConfig:
-        Comment: Fail closed until the Proof asset resolver and signer are separately approved
+        Comment: Default-dark gate for immutable opaque Proof asset locators
         Runtime: cloudfront-js-2.0
-      FunctionCode: |
-        function handler(event) {
-          return {
-            statusCode: 404,
-            statusDescription: "Not Found",
-            headers: {
-              "cache-control": { value: "no-store, max-age=0" },
-              "content-type": { value: "text/plain; charset=utf-8" },
-              "x-content-type-options": { value: "nosniff" }
-            },
-            body: {
-              encoding: "text",
-              data: "Not Found"
+      FunctionCode: !If
+        - ProofAssetDeliveryActive
+        - |
+          function handler(event) {
+            var uri = event.request.uri || "";
+            if (!/^\/a\/plocator_[a-f0-9]{64}$/.test(uri)) {
+              return {
+                statusCode: 404,
+                statusDescription: "Not Found",
+                headers: {
+                  "cache-control": { value: "no-store, max-age=0" },
+                  "content-type": { value: "text/plain; charset=utf-8" },
+                  "x-content-type-options": { value: "nosniff" }
+                },
+                body: { encoding: "text", data: "Not Found" }
+              };
             }
-          };
-        }
+            return event.request;
+          }
+        - |
+          function handler(event) {
+            return {
+              statusCode: 404,
+              statusDescription: "Not Found",
+              headers: {
+                "cache-control": { value: "no-store, max-age=0" },
+                "content-type": { value: "text/plain; charset=utf-8" },
+                "x-content-type-options": { value: "nosniff" }
+              },
+              body: {
+                encoding: "text",
+                data: "Not Found"
+              }
+            };
+          }
 
   WrikeDocumentDeliveryFunction:
     Type: AWS::CloudFront::Function
@@ -622,7 +654,7 @@ Outputs:
   ProofAssetUploadCapabilityEnabled:
     Value: "false"
   ProofAssetDeliveryCapabilityEnabled:
-    Value: "false"
+    Value: !Ref ProofAssetDeliveryEnabled
   ProofAssetLiftPublicationEnabled:
     Value: "false"
   ProofAssetMalwareProtectionEnabled:

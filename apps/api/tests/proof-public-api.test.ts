@@ -374,6 +374,7 @@ test("uses one generic denial and keeps unsupported public decision routes absen
   await request(app).post("/api/public/proof/operator-actions/execute").send({ action: "APPROVE" }).expect(404);
   await request(app).post("/api/public/proof/operator-assets/uploads/prepare").send({}).expect(404);
   await request(app).post("/api/public/proof/operator-assets/uploads/finalize").send({}).expect(404);
+  await request(app).post("/api/public/proof/operator-assets/publications").send({}).expect(404);
 
   const adminApp = express();
   adminApp.use(express.json());
@@ -389,6 +390,10 @@ test("uses one generic denial and keeps unsupported public decision routes absen
     .expect(401);
   await request(adminApp)
     .post("/api/proof/operator-assets/uploads/finalize")
+    .send({})
+    .expect(401);
+  await request(adminApp)
+    .post("/api/proof/operator-assets/publications")
     .send({})
     .expect(401);
 });

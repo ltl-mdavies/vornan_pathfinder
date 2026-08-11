@@ -40,6 +40,7 @@ import {
   transitionProofOperatorAction,
   type ProofOperatorActionRecord
 } from "./operator-action-store.js";
+import { resolveProofRevisionAssetReadiness } from "./revision-asset-resolver.js";
 
 const TARGET_ID = "lift-standard-graphics";
 const ENVIRONMENT_ID = "env-lift-prod";
@@ -95,7 +96,8 @@ export interface ProofOperatorActionDependencies {
   persistOrder?: typeof persistProofOrder;
   send?: typeof sendLiftProofingRuntimeAction;
   resolveRevisionAsset?: (
-    assetId: string
+    assetId: string,
+    orderNumber?: string
   ) => Promise<ProofRevisionAssetReadiness | null>;
   resolveCustomerCapability?: (
     orderNumber: string
@@ -551,13 +553,16 @@ async function readyRevisionAsset(input: {
   request: ReturnType<typeof normalizedRequest>;
   task: ProofTask;
   now: Date;
-  resolve: (assetId: string) => Promise<ProofRevisionAssetReadiness | null>;
+  resolve: (
+    assetId: string,
+    orderNumber?: string
+  ) => Promise<ProofRevisionAssetReadiness | null>;
 }) {
   if (input.request.action !== "REVISED_ART_WILL_BE_SENT") {
     return null;
   }
   const assetId = input.request.revision_asset_id!;
-  const asset = await input.resolve(assetId);
+  const asset = await input.resolve(assetId, input.request.order_number);
   if (!asset) {
     throw new ProofOperatorActionError(
       "not_allowed",
@@ -688,7 +693,11 @@ export function createProofOperatorActionService(
   const persistOrder = dependencies.persistOrder ?? persistProofOrder;
   const send = dependencies.send ?? sendLiftProofingRuntimeAction;
   const resolveRevisionAsset =
-    dependencies.resolveRevisionAsset ?? (async () => null);
+    dependencies.resolveRevisionAsset ??
+    ((assetId: string, orderNumber?: string) =>
+      orderNumber
+        ? resolveProofRevisionAssetReadiness(orderNumber, assetId)
+        : Promise.resolve(null));
   const resolveCustomerCapability =
     dependencies.resolveCustomerCapability ?? resolveCustomerProofCapabilityForOrder;
   const runtimeConfig =

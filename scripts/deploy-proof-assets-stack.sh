@@ -20,7 +20,7 @@ export PATHFINDER_PROOF_ASSET_MALWARE_PROTECTION_ENABLED="false"
 stack_lookup_result=""
 if ! stack_lookup_result="$(aws cloudformation describe-stacks \
   --stack-name "vornan-proof-assets-${PATHFINDER_PROOF_ASSET_ENVIRONMENT_NAME}" \
-  --query "Stacks[0].Outputs[?((OutputKey=='WrikeDocumentDeliveryEnabled' || OutputKey=='ProofAssetAliasConfigured' || OutputKey=='ProofAssetMalwareProtectionEnabled') && OutputValue=='true')].OutputKey" \
+  --query "Stacks[0].Outputs[?((OutputKey=='WrikeDocumentDeliveryEnabled' || OutputKey=='ProofAssetDeliveryCapabilityEnabled' || OutputKey=='ProofAssetAliasConfigured' || OutputKey=='ProofAssetMalwareProtectionEnabled') && OutputValue=='true')].OutputKey" \
   --output text 2>&1)"; then
   if [[ "${stack_lookup_result}" == *"does not exist"* ]]; then
     stack_lookup_result=""
@@ -50,6 +50,7 @@ aws cloudformation deploy \
     AssetBucketName="${PATHFINDER_PROOF_ASSET_BUCKET}" \
     WrikeDeliveryBucketName="${PATHFINDER_WRIKE_LIFT_DOCUMENT_DELIVERY_BUCKET}" \
     WrikeDocumentDeliveryEnabled="false" \
+    ProofAssetDeliveryEnabled="false" \
     AssetDomainName="" \
     CertificateArn="" \
     RetainedSourceDays="${PATHFINDER_PROOF_ASSET_RETAINED_SOURCE_DAYS}" \

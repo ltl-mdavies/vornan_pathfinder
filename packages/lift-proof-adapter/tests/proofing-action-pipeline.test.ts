@@ -637,7 +637,7 @@ test("keeps the generalized action pipeline package-local and capability-dark", 
   }
   assert.match(
     runtimeConfigSource,
-    /approve:\s*\n\s*packedCustomerApproval === "true" \|\|\s*\n\s*process\.env\.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS === "true"/
+    /approve:\s*\n\s*packedCustomerApproval === "true" \|\|\s*\n\s*env\.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS === "true" \|\|\s*\n\s*ltlDemoQa\.customer_approval_enabled/
   );
   assert.match(runtimeConfigSource, /revision: false/);
   assert.match(runtimeConfigSource, /undo: false/);

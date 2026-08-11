@@ -30,6 +30,9 @@ import {
   type ProofAssetUploadStatusRequest
 } from "./asset-upload-service.js";
 import { getProofAssetUploadRuntimeConfig } from "./asset-upload-config.js";
+import { getProofAssetPublicationRuntimeConfig } from "./asset-publication-config.js";
+import { createProofAssetPublicationService } from "./asset-publication-service.js";
+import { ProofAssetVerificationPublicationError } from "./asset-verification-publication.js";
 import {
   resolveCustomerProofCapabilityForOrder,
   type ResolvedCustomerProofCapability
@@ -87,6 +90,12 @@ function errorStatus(error: unknown) {
     if (error.code === "storage_failed") return 502;
     return 400;
   }
+  if (error instanceof ProofAssetVerificationPublicationError) {
+    if (error.code === "not_found") return 404;
+    if (error.code === "cross_bound" || error.code === "conflict") return 409;
+    if (error.code === "publication_failed" || error.code === "delivery_failed") return 503;
+    return 400;
+  }
   if (error instanceof Error && error.message === "Proof audit cursor is invalid.") {
     return 400;
   }
@@ -100,6 +109,7 @@ export interface ProofAdminRouterDependencies {
   orderIsStale?: typeof proofOrderIsStale;
   operatorActionService?: ReturnType<typeof createProofOperatorActionService>;
   assetUploadService?: ReturnType<typeof createProofAssetUploadService>;
+  assetPublicationService?: ReturnType<typeof createProofAssetPublicationService>;
   resolveCustomerCapability?: (
     orderNumber: string
   ) => Promise<ResolvedCustomerProofCapability>;
@@ -115,6 +125,8 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
     dependencies.operatorActionService ?? createProofOperatorActionService();
   const assetUploadService =
     dependencies.assetUploadService ?? createProofAssetUploadService();
+  const assetPublicationService =
+    dependencies.assetPublicationService ?? createProofAssetPublicationService();
   const resolveCustomerCapability =
     dependencies.resolveCustomerCapability ?? resolveCustomerProofCapabilityForOrder;
 
@@ -123,6 +135,7 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
     const config = getProofRuntimeConfig();
     const operatorActionQa = getProofOperatorActionQaConfig();
     const assetUpload = getProofAssetUploadRuntimeConfig();
+    const assetPublication = getProofAssetPublicationRuntimeConfig();
     res.json({
       phase: config.phase,
       storage_driver: config.storage_driver,
@@ -151,6 +164,7 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
       },
       feature_flags: config.feature_flags,
       qa_lifecycle: config.qa_lifecycle,
+      ltl_demo_qa: config.ltl_demo_qa,
       operator_action_qa: {
         enabled: operatorActionQa.enabled,
         allowed_customer_id: operatorActionQa.allowed_customer_id,
@@ -173,8 +187,16 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         allowed_content_types: assetUpload.allowed_content_types,
         upload_ticket_seconds: assetUpload.upload_ticket_seconds,
         scan_enabled: false,
-        publication_enabled: false,
-        lift_resolution_enabled: false
+        publication_enabled: assetPublication.enabled,
+        publication_allowed_order_numbers:
+          assetPublication.allowed_order_numbers,
+        publication_activation_expires_at:
+          assetPublication.activation_expires_at,
+        delivery_origin_configured:
+          assetPublication.delivery_base_url === "https://go.vornan.co",
+        revision_asset_resolver_ready: true,
+        lift_resolution_enabled:
+          operatorActionQa.enabled && assetPublication.enabled
       }
     });
   });
@@ -182,6 +204,17 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
   const operatorUid = (res: Response) => {
     const authUser = res.locals.authUser as { uid?: unknown } | undefined;
     return typeof authUser?.uid === "string" ? authUser.uid : "";
+  };
+
+  const requireOperatorUid = (res: Response) => {
+    const uid = operatorUid(res);
+    if (!uid) {
+      throw new ProofOperatorActionError(
+        "unauthenticated",
+        "Authenticated operator identity is required."
+      );
+    }
+    return uid;
   };
 
   router.post("/operator-actions/prepare", async (req, res) => {
@@ -279,6 +312,32 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
           error instanceof Error
             ? error.message
             : "Proof revised-art upload could not be finalized."
+      });
+    }
+  });
+
+  router.post("/operator-assets/publications", async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    try {
+      assertLiftProofWritesDisabled();
+      requireOperatorUid(res);
+      const result = await assetPublicationService.publishCleared({
+        order_number:
+          typeof req.body?.order_number === "string"
+            ? req.body.order_number.trim().toUpperCase()
+            : "",
+        asset_id:
+          typeof req.body?.asset_id === "string" ? req.body.asset_id.trim() : "",
+        correlation_id:
+          req.header("x-request-id") ?? `asset-publication-${Date.now()}`
+      });
+      res.status(result.status === "ready" ? 201 : 200).json(result);
+    } catch (error) {
+      res.status(errorStatus(error)).json({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Proof revised-art publication could not be completed."
       });
     }
   });

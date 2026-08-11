@@ -3,11 +3,12 @@ import {
   DEFAULT_LIFT_PROOF_REPORT_READ_URL,
   type LiftProofReadConfig
 } from "@pathfinder/lift-proof-adapter";
+import { getProofLtlDemoQaProfile } from "./ltl-demo-qa-profile.js";
 
 export type ProofStorageDriver = "disabled" | "local" | "dynamodb";
 
 export interface ProofRuntimeConfig {
-  phase: "single_proof_customer_approval_foundation";
+  phase: "single_proof_customer_approval_foundation" | "ltl_demo_customer_qa";
   storage_driver: ProofStorageDriver;
   core_table_name: string | null;
   audit_table_name: string | null;
@@ -41,6 +42,7 @@ export interface ProofRuntimeConfig {
     revision_cycle_confirmed: boolean;
     lift_writes_enabled: false;
   };
+  ltl_demo_qa: ReturnType<typeof getProofLtlDemoQaProfile>;
 }
 
 function positiveNumber(value: string | undefined, fallback: number) {
@@ -69,68 +71,86 @@ function customerIds(value: string | undefined) {
     .slice(0, 20);
 }
 
-export function getProofRuntimeConfig(): ProofRuntimeConfig {
+export function getProofRuntimeConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  now: Date = new Date()
+): ProofRuntimeConfig {
+  const ltlDemoQa = getProofLtlDemoQaProfile(env, now);
   const [packedPublicRead, packedCustomerApproval, packedCustomerRevision] =
-    (process.env.PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE ?? "").split("|");
-  const requestedStorageDriver = process.env.PATHFINDER_PROOF_STORAGE_DRIVER;
+    (env.PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE ?? "").split("|");
+  const requestedStorageDriver = env.PATHFINDER_PROOF_STORAGE_DRIVER;
   const storageDriver: ProofStorageDriver =
     requestedStorageDriver === "dynamodb" || requestedStorageDriver === "local"
       ? requestedStorageDriver
-      : process.env.PATHFINDER_RUNTIME === "lambda"
+      : env.PATHFINDER_RUNTIME === "lambda"
         ? "disabled"
         : "local";
 
   return {
-    phase: "single_proof_customer_approval_foundation",
+    phase: ltlDemoQa.active
+      ? "ltl_demo_customer_qa"
+      : "single_proof_customer_approval_foundation",
     storage_driver: storageDriver,
-    core_table_name: process.env.PATHFINDER_PROOF_CORE_TABLE?.trim() || null,
-    audit_table_name: process.env.PATHFINDER_PROOF_AUDIT_TABLE?.trim() || null,
+    core_table_name: env.PATHFINDER_PROOF_CORE_TABLE?.trim() || null,
+    audit_table_name: env.PATHFINDER_PROOF_AUDIT_TABLE?.trim() || null,
     read: {
-      order_read_url: process.env.PATHFINDER_PROOF_LIFT_ORDER_READ_URL ?? DEFAULT_LIFT_PROOF_ORDER_READ_URL,
+      order_read_url: env.PATHFINDER_PROOF_LIFT_ORDER_READ_URL ?? DEFAULT_LIFT_PROOF_ORDER_READ_URL,
       proof_report_read_url:
-        process.env.PATHFINDER_PROOF_LIFT_REPORT_READ_URL ?? DEFAULT_LIFT_PROOF_REPORT_READ_URL,
-      timeout_ms: positiveNumber(process.env.PATHFINDER_PROOF_LIFT_READ_TIMEOUT_MS, 15_000),
-      concurrency: Math.min(5, positiveNumber(process.env.PATHFINDER_PROOF_LIFT_READ_CONCURRENCY, 5)),
-      proof_readable_min_step: optionalNumber(process.env.PATHFINDER_PROOF_READABLE_MIN_STEP)
+        env.PATHFINDER_PROOF_LIFT_REPORT_READ_URL ?? DEFAULT_LIFT_PROOF_REPORT_READ_URL,
+      timeout_ms: positiveNumber(env.PATHFINDER_PROOF_LIFT_READ_TIMEOUT_MS, 15_000),
+      concurrency: Math.min(5, positiveNumber(env.PATHFINDER_PROOF_LIFT_READ_CONCURRENCY, 5)),
+      proof_readable_min_step: optionalNumber(env.PATHFINDER_PROOF_READABLE_MIN_STEP)
     },
     feature_flags: {
-      grant_creation: process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION === "true",
-      proof_link_email: process.env.PATHFINDER_PROOF_ENABLE_LINK_EMAIL === "true",
+      grant_creation:
+        env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION === "true" ||
+        ltlDemoQa.grant_creation_enabled,
+      proof_link_email: env.PATHFINDER_PROOF_ENABLE_LINK_EMAIL === "true",
       public_read:
-        packedPublicRead === "true" || process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ === "true",
+        packedPublicRead === "true" ||
+        env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ === "true" ||
+        ltlDemoQa.public_read_enabled,
       approve:
         packedCustomerApproval === "true" ||
-        process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS === "true",
+        env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS === "true" ||
+        ltlDemoQa.customer_approval_enabled,
       revision_upload:
         packedCustomerRevision === "true" ||
-        process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS === "true",
+        env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS === "true" ||
+        ltlDemoQa.asset_upload_enabled,
       revision: false,
       undo: false
     },
     access: {
-      public_base_url: (process.env.PATHFINDER_PROOF_PUBLIC_BASE_URL ?? "https://proof.vornan.co").replace(/\/$/, ""),
-      grant_ttl_days: positiveNumber(process.env.PATHFINDER_PROOF_GRANT_TTL_DAYS, 14),
-      session_ttl_minutes: Math.min(24 * 60, positiveNumber(process.env.PATHFINDER_PROOF_SESSION_TTL_MINUTES, 30)),
-      edge_shared_secret: process.env.PATHFINDER_PROOF_EDGE_SHARED_SECRET?.trim() || null,
-      grant_allowed_customer_ids: customerIds(process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS),
-      read_only_activation_expires_at:
-        process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT?.trim() || null
+      public_base_url: (env.PATHFINDER_PROOF_PUBLIC_BASE_URL ?? "https://proof.vornan.co").replace(/\/$/, ""),
+      grant_ttl_days: positiveNumber(env.PATHFINDER_PROOF_GRANT_TTL_DAYS, 14),
+      session_ttl_minutes: ltlDemoQa.active
+        ? ltlDemoQa.session_ttl_minutes
+        : Math.min(24 * 60, positiveNumber(env.PATHFINDER_PROOF_SESSION_TTL_MINUTES, 30)),
+      edge_shared_secret: env.PATHFINDER_PROOF_EDGE_SHARED_SECRET?.trim() || null,
+      grant_allowed_customer_ids: ltlDemoQa.active
+        ? [ltlDemoQa.allowed_customer_id]
+        : customerIds(env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS),
+      read_only_activation_expires_at: ltlDemoQa.active
+        ? ltlDemoQa.activation_expires_at
+        : env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT?.trim() || null
     },
     sync: {
-      queue_url: process.env.PATHFINDER_PROOF_SYNC_QUEUE_URL?.trim() || null,
-      stale_after_minutes: positiveNumber(process.env.PATHFINDER_PROOF_STALE_AFTER_MINUTES, 15),
+      queue_url: env.PATHFINDER_PROOF_SYNC_QUEUE_URL?.trim() || null,
+      stale_after_minutes: positiveNumber(env.PATHFINDER_PROOF_STALE_AFTER_MINUTES, 15),
       automatic_refresh_max_inactive_days: Math.min(
         365,
-        positiveInteger(process.env.PATHFINDER_PROOF_AUTO_REFRESH_MAX_INACTIVE_DAYS, 14)
+        positiveInteger(env.PATHFINDER_PROOF_AUTO_REFRESH_MAX_INACTIVE_DAYS, 14)
       )
     },
     qa_lifecycle: {
-      isolated_endpoint_confirmed: process.env.PATHFINDER_PROOF_QA_ISOLATED_ENDPOINT_CONFIRMED === "true",
-      dedicated_credentials_confirmed: process.env.PATHFINDER_PROOF_QA_DEDICATED_CREDENTIALS_CONFIRMED === "true",
-      approval_cycle_confirmed: process.env.PATHFINDER_PROOF_QA_APPROVAL_CYCLE_CONFIRMED === "true",
-      revision_cycle_confirmed: process.env.PATHFINDER_PROOF_QA_REVISION_CYCLE_CONFIRMED === "true",
+      isolated_endpoint_confirmed: env.PATHFINDER_PROOF_QA_ISOLATED_ENDPOINT_CONFIRMED === "true",
+      dedicated_credentials_confirmed: env.PATHFINDER_PROOF_QA_DEDICATED_CREDENTIALS_CONFIRMED === "true",
+      approval_cycle_confirmed: env.PATHFINDER_PROOF_QA_APPROVAL_CYCLE_CONFIRMED === "true",
+      revision_cycle_confirmed: env.PATHFINDER_PROOF_QA_REVISION_CYCLE_CONFIRMED === "true",
       lift_writes_enabled: false
-    }
+    },
+    ltl_demo_qa: ltlDemoQa
   };
 }
 

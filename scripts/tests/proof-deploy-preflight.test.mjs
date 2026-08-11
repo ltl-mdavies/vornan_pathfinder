@@ -203,6 +203,52 @@ test("keeps customer revised-art upload default-off and exact-bucket scoped", ()
   assert.doesNotMatch(publicRole, /s3:DeleteObject|s3:\*|arn:aws:s3:::\*/);
 });
 
+test("accepts only the bounded allowlisted LTL Demo QA profile", () => {
+  const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  const profile = {
+    ...qaEnvironment,
+    PATHFINDER_PROOF_ENVIRONMENT_NAME: "dev",
+    PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT: "dev",
+    PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED: "true",
+    PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS: "A0226753,A0227641",
+    PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT: expiresAt,
+    PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: "true",
+    PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED: "true",
+    PATHFINDER_PROOF_TARGETS_TABLE: "Pathfinder-Targets-prod",
+    PATHFINDER_PROOF_TARGETS_TABLE_ARN:
+      "arn:aws:dynamodb:us-east-1:744016783602:table/Pathfinder-Targets-prod",
+    PATHFINDER_PROOFING_API_SECRET_ARN:
+      "arn:aws:secretsmanager:us-east-1:744016783602:secret:/vornan/pathfinder/targets/lift-standard-graphics-AbCdEf",
+    PATHFINDER_SECRET_PREFIX: "/vornan/pathfinder/",
+    PATHFINDER_PROOF_ASSET_BUCKET:
+      "vornan-pathfinder-proof-assets-dev-744016783602",
+    PATHFINDER_PROOF_ASSET_BUCKET_ARN:
+      "arn:aws:s3:::vornan-pathfinder-proof-assets-dev-744016783602"
+  };
+  const result = validateProofDeployment(profile);
+  assert.equal(result.ltl_demo_qa_enabled, true);
+  assert.equal(result.ltl_demo_qa_customer_id, "1249");
+  assert.deepEqual(result.ltl_demo_qa_allowed_orders, ["A0226753", "A0227641"]);
+  assert.equal(result.ltl_demo_qa_session_ttl_minutes, 720);
+  assert.equal(result.customer_approval_enabled, true);
+  assert.equal(result.customer_revision_upload_enabled, true);
+  assert.equal(result.proof_asset_upload_enabled, true);
+  assert.equal(result.lift_writes_enabled, false);
+
+  for (const unsafe of [
+    { PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS: "" },
+    { PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT: new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString() },
+    { PATHFINDER_PROOF_ENVIRONMENT_NAME: "qa", PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT: "qa" },
+    { PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "true" },
+    { PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS: "true" },
+    { PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: "true" },
+    { PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED: "true" },
+    { PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED: "true" }
+  ]) {
+    assert.throws(() => validateProofDeployment({ ...profile, ...unsafe }));
+  }
+});
+
 test("allows the synthetic fixture only in a fully dark dev deployment", () => {
   const dev = {
     ...qaEnvironment,
