@@ -4,7 +4,7 @@ This is the entry point for all new Pathfinder, Vornan Proof, and live-support t
 
 Last reconciled: **2026-08-11**
 
-Repository baseline before the scheduler-telemetry checkpoint: `origin/main` at `cd7e00e48d37abcc6ed41423f8731ff2c2e806de`
+Deployed application baseline before this release-record checkpoint: `origin/main` at `4acbc0eea1366376cee740a3ba0c9072025974b0`
 
 Live evidence: read-only AWS inspection and authenticated Admin smoke on 2026-08-11 in account `744016783602`, region `us-east-1`
 
@@ -37,19 +37,19 @@ The operations control-plane release at `677005c5bf8910a931eeadfa878ba6f80204b97
 
 The saved production Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). Its `Order Form` hardware section stores the scoped quantity rule `TBD` → `0.5`; the 2026-08-11 deployment preserved that configuration unchanged.
 
-The scheduler cycles beginning at `2026-08-11T15:42:53.213Z` repeatedly discovered seven contract-ready candidates, replayed six, and failed one during preparation. No job, order identity, submit attempt, Lift write, status token, or Wrike writeback was created. The deployed aggregate telemetry cannot identify the failed task or retain its stable reason code, so the candidate-failure alarm remains a shared-API deployment blocker. The bounded telemetry checkpoint records sanitized task, stage/reason code, and existing job/evidence identifiers without logging exception messages, customer values, or payloads.
+The scheduler cycles beginning at `2026-08-11T15:42:53.213Z` repeatedly discovered seven contract-ready candidates, replayed six, and failed one during preparation. PRs #181 and #182 deployed bounded candidate telemetry at commits `cb237d379210c826cfdd16431482821488c343e4` and `4acbc0eea1366376cee740a3ba0c9072025974b0`. The first authoritative post-fix cycle (`a15a93c9-64f4-4d5b-8ee5-f2544d955418`) identified task `MAAAAAEN2Ujj`, stage `prepare`, reason `attachment_validation_failed`, with no job/evidence IDs. No job, order identity, submit attempt, source-evidence object, Lift write, status token, document publication, or Wrike writeback was created. The candidate-failure alarm remains `ALARM`; recovery is not authorized until the task's attachment-set/bytes failure is diagnosed and an exact action is approved.
 
 ### Vornan Proof
 
-The isolated Proof stack has public read configured for customer `1249`, but its deadline expired at `2026-08-10T00:00:00Z`; the static portal returns HTTP 200 while the public API currently returns HTTP 403. Customer approval, revised-art upload, operator grant creation, and Proof asset upload are disabled in the deployed stacks.
+The isolated Proof stack has protected public read active for customer `1249` through `2026-08-25T23:59:59Z`. The canonical portal returns HTTP 200; the repository smoke confirms public read, rejects direct API bypass, and confirms decisions remain disabled. Customer approval, revised-art upload, operator grant creation, LTL Demo QA, Proof asset upload/scan/publication, and Lift action gates are disabled in the deployed stacks.
 
-The repository contains merged Proof revised-art completion and default-dark QA infrastructure at merge commit `cd7e00e48d37abcc6ed41423f8731ff2c2e806de`; the separate Proof public Lambda remains deployed from `13a072fab68a1ed6890c19b4e27fb55631b1f420`. Treat deployment and activation as distinct steps.
+The isolated Proof Lambdas are deployed from `proof/dev/vornan-proof-lambdas-4acbc0eea1366376cee740a3ba0c9072025974b0.zip`. The existing versioned SPA was deliberately not republished during the bounded read renewal. Treat deployed default-dark code, protected read, SPA publication, and later capability activation as distinct steps.
 
 The private Proof asset stack exists, `go.vornan.co` is configured, and GuardDuty Malware Protection is active for the asset boundary. Proof upload, asset delivery, and Lift publication capability outputs remain false.
 
 ### Merged Proof QA profile
 
-PR #179 merged the proposed Proof go-live/default-dark profile at `cd7e00e48d37abcc6ed41423f8731ff2c2e806de`. Focused and full check/test/build, 118 deployment-contract tests, 13 Playwright tests, and GitHub validation run `31508437012` passed. It is **not deployed**. The owner approved renewing protected read through `2026-08-25T23:59:59Z`; that deadline is not live until a separately inspected deployment succeeds. Every customer-write, upload, scan, publication, operator-action, and Lift gate must remain false.
+PR #179 merged the Proof go-live/default-dark profile at `cd7e00e48d37abcc6ed41423f8731ff2c2e806de`; the shared API and isolated Proof Lambda artifacts now include it with every profile/mutation capability false. The owner-approved protected-read deadline `2026-08-25T23:59:59Z` is live. Any LTL Demo QA, customer-write, upload, scan, publication, operator-action, or Lift activation remains a separate future gate.
 
 ## Historical documents
 

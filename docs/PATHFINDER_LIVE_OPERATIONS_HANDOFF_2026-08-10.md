@@ -44,14 +44,18 @@ The API errors, throttles, scheduled-candidate-failure, and scheduled-invocation
 
 The cycles checked at `2026-08-11T15:42:53.213Z` (`a58db8a6-51fc-414d-a2f0-d33dabfcab96`) and `15:57:54.333Z` (`af8bbf31-b534-423c-8f77-a0c156cc47e3`) each reported seven contract-ready candidates, six replays, and one preparation failure. The candidate-failure alarm entered `ALARM`.
 
-Read-only reconciliation confirmed:
+Pre-telemetry read-only reconciliation confirmed:
 
 - no new job, order identity, submit attempt, status record, source-evidence version, Lift submission, or Wrike writeback;
 - only the six known replayed jobs had their scheduled discovery timestamps refreshed;
-- the failed task is not provable from deployed aggregate logs; two older blocked task identities remain plausible, but a new pre-evidence failure cannot be excluded;
-- no recovery or replay is authorized while the task identity and failure reason remain unknown.
+- the failed task was not provable from the then-deployed aggregate logs;
+- no recovery or replay was authorized while the task identity and failure reason remained unknown.
 
-The bounded scheduler-telemetry checkpoint adds a sanitized `candidate_failure_details` collection to the existing completion event. It records only the failure stage, stable reason code, validated Wrike task ID, and validated existing job/evidence identifiers. Identifier arrays and total details are capped; exception messages, contract/customer values, filenames, URLs, payloads, credentials, and attachment contents are never emitted. Submit and writeback failures retain the same safe job-level boundary. This capability is repository-only until the shared API is deliberately deployed with all live Pathfinder parameters preserved.
+PR #181 deployed the sanitized `candidate_failure_details` contract at merge `cb237d379210c826cfdd16431482821488c343e4`. PR #182 corrected the fallback to prefer a validated structured error code and deployed at merge `4acbc0eea1366376cee740a3ba0c9072025974b0`. The final API artifact is `api/pathfinder-api-lambda-4acbc0eea1366376cee740a3ba0c9072025974b0.zip`, S3 version `xrT0h1dVCwoK99PHYIGq4r61p5Y9UE0y`, ETag `dbf9e332dea36f5c04348b483c8ce3ce`, and Lambda code SHA-256 `6iWcDDOsLk7rCMx5TOUdxOsSXQ/QbSEYq3ahxs4LEgE=`.
+
+The first authoritative post-fix cycle checked at `2026-08-11T17:12:53.209Z` (`a15a93c9-64f4-4d5b-8ee5-f2544d955418`) identified task `MAAAAAEN2Ujj`, stage `prepare`, reason `attachment_validation_failed`, with no job/evidence IDs. This bounds the incident to the task's attachment set or attachment bytes failing the saved intake contract before persistence: current `.xlsx` workbooks selected under `contract_order_ooh` and an optional single current `.pdf` reference whose name contains `proof`, with fail-closed URL, content-type, size, ambiguity, and PDF-signature checks. It excludes attachment-metadata retrieval, HTTP-download failure, product mapping, payload certification, Lift transport, and Wrike writeback, but deliberately does not disclose which leaf validation failed. Six known jobs replayed; no new job, order identity, submit attempt, source-evidence object, published document, status record, Lift submission, or Wrike writeback appeared. The candidate-failure alarm remains `ALARM`. Do not run recovery until an exact attachment diagnosis and action are separately approved.
+
+The deployed telemetry records only failure stage, stable reason code, validated task ID, and validated existing job/evidence identifiers. Identifier arrays and total details are capped; exception messages, contract/customer values, filenames, URLs, payloads, credentials, and attachment contents are never emitted. Submit and writeback failures retain the same safe job-level boundary.
 
 ## Production flow
 
