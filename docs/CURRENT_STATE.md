@@ -2,11 +2,11 @@
 
 This is the entry point for all new Pathfinder, Vornan Proof, and live-support tasks. Read this file before using older design notes, launch checklists, or thread handoffs.
 
-Last reconciled: **2026-08-10**
+Last reconciled: **2026-08-11**
 
-Repository baseline: `origin/main` at `fcc23bb476a39a948f0e724a63878bf2b9f2cb60`
+Repository baseline: `origin/main` at `677005c5bf8910a931eeadfa878ba6f80204b97c`
 
-Live evidence: read-only AWS inspection on 2026-08-10 in account `744016783602`, region `us-east-1`
+Live evidence: read-only AWS inspection and authenticated Admin smoke on 2026-08-11 in account `744016783602`, region `us-east-1`
 
 ## Authority order
 
@@ -33,7 +33,9 @@ The production API stack is live. Scheduled Momentara intake is enabled every 15
 
 The production path is active; it is not a rehearsal or sandbox path. Manual rehearsal and legacy bounded discovery/writeback gates are disabled.
 
-Two confirmed enhancements are pending and recorded in the live operations handoff: discovery across both GPA Campaigns and IBA Campaigns, and an Import Method quantity-normalization rule that translates a hardware quantity of `TBD` to numeric Lift quantity `0.5`.
+The operations control-plane release at `677005c5bf8910a931eeadfa878ba6f80204b97c` is deployed to the API and Admin. It adds visible-only Jobs refresh, shared-path operator discovery, pending-intake reasons, safe pre-transport mapping recovery, and a Lift target date-format boundary whose production default is `MM/DD/YYYY`. API workflow run `31505325973` and Admin workflow run `31506038490` completed successfully with production counts and live gates preserved.
+
+The saved production Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). The runtime supports the scoped hardware quantity rule `TBD` → `0.5`, but that rule is not configured in production and requires a separate, recoverable configuration activation.
 
 ### Vornan Proof
 
@@ -45,7 +47,7 @@ The private Proof asset stack exists, `go.vornan.co` is configured, and GuardDut
 
 ### Pending Proof QA profile
 
-Branch `codex/proof-demo-qa-profile` contains a proposed unified LTL Demo QA profile at commit `02357b3`. It is **not merged and not deployed** as of this reconciliation. It must be rebased/reconciled against current main, reviewed, merged, and separately deployed before it can be relied upon.
+Draft PR #179 (`codex/proof-revised-art-completion`) contains the proposed Proof go-live/default-dark profile at source commit `af2d34301b580a0a32a985e919f24c9f241ea8f8`. It is **not merged and not deployed** as of this reconciliation. It must be refreshed against current main, reviewed, revalidated, merged, and separately deployed before it can be relied upon.
 
 ## Historical documents
 

@@ -6,7 +6,7 @@ This document is the current operational handoff for the live Momentara-to-Lift 
 
 ## Verified production state
 
-Read-only AWS inspection on 2026-08-10 confirmed:
+Read-only AWS inspection after the 2026-08-11 operations release confirmed:
 
 - API stack `vornan-pathfinder-api-prod`: `UPDATE_COMPLETE`.
 - EventBridge rule `vornan-pathfinder-api-prod-wrike-scheduled-intake`: `ENABLED`, `rate(15 minutes)`.
@@ -24,12 +24,26 @@ Read-only AWS inspection on 2026-08-10 confirmed:
 - Wrike connection test: enabled;
 - manual intake, discovery preview, and rehearsal gates: disabled.
 
+The saved production Wrike Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). The scoped `TBD` → `0.5` text-quantity rule is supported by the deployed runtime but is not configured in the production Import Method.
+
+### 2026-08-11 operations release record
+
+- merged repository commit: `677005c5bf8910a931eeadfa878ba6f80204b97c` (PR #178);
+- API deployment workflow run: `31505325973`;
+- API artifact: `api/pathfinder-api-lambda-677005c5bf8910a931eeadfa878ba6f80204b97c.zip`, S3 version `hzZsaTyRWf.Y2DZFEHUzhQtuvkCeKiq_`, ETag `1f44f3c2af80d24ac9dd0eaa73b835d7`;
+- deployed Lambda code SHA-256: `el2NRy2kCqo8wfRyVRLwnYIlkWoYoQ/X6GNoaFfGqGk=`;
+- Admin deployment workflow run: `31506038490`;
+- Admin `index.html` S3 version: `HmG2E7dyVFYN74vFFJz.Cn5cp4V8a7Iv`, ETag `c9046fbed0bd4348a14862ab03b955f2`;
+- CloudFront invalidation: `I36RPR33DG8DCG2NNCQ2ZUSZIV` (`Completed`).
+
+The API stack returned to `UPDATE_COMPLETE`, health returned HTTP 200, all thirteen predeployment object counts were unchanged, and the first observed new-code scheduler cycle completed with six candidates replayed, zero submissions, zero writebacks, and zero failures. All live scheduler, Lift, publication, writeback, authentication, and persistence parameters were preserved. The disabled Proof asset-scan worker remained disabled and uninvokable.
+
 The API errors, throttles, scheduled-candidate-failure, and scheduled-invocation alarms were all `OK` at reconciliation time. Alarm state is evidence at a moment in time, not a perpetual health guarantee.
 
 ## Production flow
 
 1. EventBridge invokes the scheduled intake every 15 minutes.
-2. Pathfinder scans the configured GPA Campaigns boundary for eligible Placard Order tasks.
+2. Pathfinder scans every configured campaign root for eligible Placard Order tasks. Production currently includes the GPA and IBA roots above.
 3. Up to 25 candidates are processed independently. A failure in one candidate must not prevent the others from progressing.
 4. A qualified workbook and at most one qualified reference PDF are captured, version-bound, and published as immutable direct HTTP 200 documents through `go.vornan.co`.
 5. Each candidate produces or replays its own preview job. Exact evidence and idempotency identities prevent blind duplicate submission.
@@ -41,11 +55,11 @@ Lift submission must never be retried blindly after a network timeout or ambiguo
 
 ## Current recovery behavior
 
-The `codex/pathfinder-operations-control-plane` repository checkpoint adds an explicit operator recovery path for a Wrike `Needs Mapping` or blocked `Failed` job. It recomputes the existing job from its original source rows and current product mappings while retaining the job ID, Pathfinder Order Number, canonical order ID, Lift Ext_ID, Wrike task/evidence identity, publications, and scheduler marker. The job receives a nontechnical recovery audit entry.
+The deployed operations control plane adds an explicit operator recovery path for a Wrike `Needs Mapping` or blocked `Failed` job. It recomputes the existing job from its original source rows and current product mappings while retaining the job ID, Pathfinder Order Number, canonical order ID, Lift Ext_ID, Wrike task/evidence identity, publications, and scheduler marker. The job receives a nontechnical recovery audit entry.
 
 This recovery refuses to run if the job or any sibling for the same Wrike source task has an associated Lift order or any submit attempt beyond the known pre-transport `Blocked` / `Gate Locked` states. A `Submission Uncertain` or other possible transport attempt always requires reconciliation and is never retried automatically.
 
-The same checkpoint also adds:
+The deployed release also adds:
 
 - Jobs-list refresh every 15 seconds only while a Jobs view and browser tab are visible;
 - a bounded **Run discovery now** control inside the saved active Wrike Import Method;
@@ -54,11 +68,11 @@ The same checkpoint also adds:
 - a pending-intake view for order-like tasks found in configured roots but blocked by task identity, ready status, Print Vendor, or Contract Number, with actionable operator messages;
 - sanitized discovery and mapping-recovery audit events.
 
-The repository checkpoint is not merged or deployed as of 2026-08-11. The verified production parameters and behavior above remain unchanged. A later deployment must preserve every scheduler, Lift, publication, writeback, and persistence parameter and must complete the deployment guardrails below.
+These controls are live as of 2026-08-11. The authenticated production Admin smoke confirmed the visible Jobs refresh indicator, the **Run discovery now** control, and the Lift target's effective `MM/DD/YYYY` date format without saving configuration or running discovery.
 
 ### Lift order-date output correction
 
-The same draft checkpoint now corrects the Lift order-date boundary after production evidence showed a two-digit source year such as `26` could be interpreted by Lift as year `0026`.
+The deployed release corrects the Lift order-date boundary after production evidence showed a two-digit source year such as `26` could be interpreted by Lift as year `0026`.
 
 - Lift targets expose an **Order Date Format** setting with `MM/DD/YYYY` and `YYYY-MM-DD` choices.
 - Existing Lift targets without the new setting normalize compatibly to the required `MM/DD/YYYY` production default; deploying code does not rewrite the stored target record.
@@ -68,7 +82,7 @@ The same draft checkpoint now corrects the Lift order-date boundary after produc
 - Impossible or unrecognized dates fail closed before Lift transport with a field-specific operator message.
 - A changed request still passes through the existing reviewed-payload fingerprint and submit-idempotency controls. No uncertain Lift write is automatically retried.
 
-This correction is repository-only and is not active in production. Before deployment, inspect one non-transport preview containing both date fields and confirm `MM/DD/YYYY`; do not submit a customer order solely as a smoke test.
+This correction is active in production. Existing targets without a stored `order_date_format` use the runtime default `MM/DD/YYYY`; deployment did not rewrite the production target record. The authenticated Admin smoke confirmed that effective selection. Confirm the formatted fields on the next naturally occurring prepared order; do not submit a customer order solely as a smoke test.
 
 The discovery fingerprint still includes the route-wide mapped-product set. A mapping change can therefore invalidate more previews than the exact product dependency requires. The explicit recovery control updates one intended blocked job in place, but dependency-aware discovery invalidation remains hardening debt.
 
@@ -82,7 +96,7 @@ Known hardening debt:
 
 ## Newly confirmed Momentara requirements — 2026-08-10
 
-These requirements were confirmed after the production-state reconciliation and are implemented by the additive multi-root/text-quantity checkpoint. Production activation remains a separate, recoverable configuration change after the compatible API/Admin deployment.
+These requirements are implemented in the deployed runtime. Multi-root discovery is configured in production; the text-quantity capability remains inactive until its narrowly scoped rule is deliberately saved.
 
 ### Multiple campaign roots
 
@@ -97,9 +111,7 @@ Implemented contract:
 - deduplicate by exact Wrike task/evidence identity if roots overlap or a task is visible through more than one Wrike hierarchy;
 - report candidate and failure counts by root so one inaccessible folder does not silently hide orders or stop the other roots.
 
-The saved legacy `folder_id` remains the first configured root for backward compatibility. Deploying this code does not itself add IBA or alter the live GPA scope.
-
-The first rollout should add IBA alongside GPA while preserving the currently working GPA production path.
+The saved legacy `folder_id` remains the first configured root for backward compatibility. Production already contained IBA alongside GPA at the predeployment baseline, and both roots remained unchanged after deployment.
 
 ### `TBD` hardware quantities
 
@@ -119,14 +131,12 @@ The workbook setup now exposes **Text Quantity Rules** per detected section. The
 
 Required regressions include hardware and non-hardware sections, whitespace/case variants, blank/zero exclusion, unsupported text, fractional payload preservation, replay stability, and simultaneous discovery from GPA and IBA roots.
 
-### Safe production activation sequence
+### Remaining safe text-quantity activation sequence
 
-1. Capture named backups of every production Pathfinder DynamoDB table and record the deployed commit and stack parameters.
-2. Deploy the backward-compatible API/Admin artifact while preserving all current scheduler, submit, writeback, publication, and data-store parameters.
-3. Verify the existing GPA-only method still normalizes to one root and the scheduler completes normally.
-4. Add IBA folder `49405755` beside GPA `34000804`, then run a bounded read-only discovery preview before the next scheduled cycle. Confirm per-root counts and task deduplication.
-5. Add `TBD → 0.5` only to the actual hardware section/quantity column. Re-detect the saved source workbook and verify blank/zero rows are excluded, `TBD` rows show the transformation evidence, and unsupported text blocks with an actionable reason.
-6. Save once, verify the stored Import Method can be read back exactly, then monitor the next scheduler cycle, alarms, created/replayed jobs, Lift submits, and Wrike writebacks.
+1. Capture a named backup or equivalent recoverable snapshot of the production Import Method table and record the deployed commit and current stack parameters.
+2. Confirm both existing campaign roots and the current source workbook before changing the method.
+3. Add `TBD → 0.5` only to the actual hardware section/quantity column. Re-detect the saved source workbook and verify blank/zero rows are excluded, `TBD` rows show the transformation evidence, and unsupported text blocks with an actionable reason.
+4. Save once, verify the stored Import Method can be read back exactly, then monitor the next scheduler cycle, alarms, created/replayed jobs, Lift submits, and Wrike writebacks.
 
 ## Manual recovery rules
 
