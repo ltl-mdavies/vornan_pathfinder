@@ -75,6 +75,8 @@ For Momentara, inspect every configured campaign root independently. Current roo
 
 For a scheduled aggregate candidate failure, inspect `candidate_failure_details` only after confirming the deployed API artifact includes that contract. Correlate its validated `task_id`, `stage`, `reason_code`, `job_ids`, and `evidence_ids`; never infer identity from aggregate counts. The event deliberately omits messages and customer content. If the deployed artifact predates this telemetry or the identity is null, report the observability gap and do not run discovery or recovery merely to manufacture a diagnostic record.
 
+The current open incident is task `MAAAAAEN2Ujj`, stage `prepare`, reason `attachment_validation_failed`, before any job/evidence persistence. Treat that code as an attachment-set/bytes contract failure, not as proof of one specific leaf check. Do not fetch provider content, refresh OAuth, rerun discovery, or recover the task without approval that names the exact read/mutation boundary.
+
 ### Needs Mapping after a mapping was saved
 
 Confirm the exact normalized customer key and route. Reprocess the original evidence. If replacement jobs appear, identify the one tied to the intended task and mark the older preview as superseded. Verify cross-job dedupe before any submit.
