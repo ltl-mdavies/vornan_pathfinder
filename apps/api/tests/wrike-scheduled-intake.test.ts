@@ -239,6 +239,32 @@ test("scheduled intake keeps only sanitized preparation failure identities and r
   }]);
 });
 
+test("scheduled intake prefers a bounded provider error code without retaining its message", async () => {
+  const providerError = new Error("private provider detail") as Error & { code: string };
+  providerError.name = "WrikeConnectionError";
+  providerError.code = "attachment_validation_failed";
+  const result = await runWrikeScheduledIntake({
+    config: {
+      enabled: true,
+      lift_submit_enabled: false,
+      status_writeback_enabled: false,
+      customer_id: "284619",
+      import_method_id: "method-1784901795973",
+      max_candidates: 1
+    },
+    discover: async () => [
+      { task_id: "TASK-A", contract_number: "C1", trigger_status_id: "STATUS-A" }
+    ],
+    prepare: async () => {
+      throw providerError;
+    }
+  });
+
+  assert.equal(result.results[0]?.failure_category, "attachment_validation_failed");
+  assert.equal(result.results[0]?.failure_details[0]?.reason_code, "attachment_validation_failed");
+  assert.doesNotMatch(JSON.stringify(result.results[0]), /private provider detail/);
+});
+
 test("blocked workbook telemetry retains only its evidence and existing candidate jobs", () => {
   const error = buildWrikeScheduledCandidatePreparationError([
     {
