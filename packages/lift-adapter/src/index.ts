@@ -1,8 +1,11 @@
 import type { CanonicalOrder, Contact, ShippingAddress, ValidationMessage } from "@pathfinder/canonical";
 
+export type LiftOrderDateFormat = "MM/DD/YYYY" | "YYYY-MM-DD";
+
 export interface LiftTargetConfig {
   destination_adapter: "lift-standard-graphics";
   active_environment: "QA1" | "PROD";
+  order_date_format?: LiftOrderDateFormat;
   environments: {
     QA1: { endpoint_url: string };
     PROD: { endpoint_url: string };
@@ -288,6 +291,7 @@ export interface LiftSubmitErrorTranslation {
 export const defaultLiftTargetConfig: LiftTargetConfig = {
   destination_adapter: "lift-standard-graphics",
   active_environment: "QA1",
+  order_date_format: "MM/DD/YYYY",
   environments: {
     PROD: {
       endpoint_url: "http://prod-lifterp/lifterp/ords/lifterp/lift/erp/api/create_order"
@@ -327,6 +331,108 @@ function resolveExtId(
     order.order.po_number ||
     order.source.source_record_id
   );
+}
+
+export class LiftOrderDateFormatError extends Error {
+  readonly code = "LIFT_ORDER_DATE_FORMAT";
+
+  constructor(
+    readonly field: "requested_ship_date" | "due_date",
+    readonly value: unknown
+  ) {
+    super(
+      `${field === "requested_ship_date" ? "Requested ship date" : "Due date"} must be a real date in MM/DD/YYYY, MM/DD/YY, or YYYY-MM-DD format.`
+    );
+    this.name = "LiftOrderDateFormatError";
+  }
+}
+
+function parsedLiftOrderDate(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  const isoMatch = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ][\s\S]*)?$/.exec(trimmed);
+  const usMatch = /^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/.exec(trimmed);
+  const year = isoMatch ? Number(isoMatch[1]) : usMatch ? Number(usMatch[3]) : NaN;
+  const month = isoMatch ? Number(isoMatch[2]) : usMatch ? Number(usMatch[1]) : NaN;
+  const day = isoMatch ? Number(isoMatch[3]) : usMatch ? Number(usMatch[2]) : NaN;
+  const normalizedYear = usMatch?.[3].length === 2 ? 2000 + year : year;
+  const valid =
+    Number.isInteger(normalizedYear) &&
+    normalizedYear >= 2000 &&
+    normalizedYear <= 9999 &&
+    Number.isInteger(month) &&
+    month >= 1 &&
+    month <= 12 &&
+    Number.isInteger(day) &&
+    day >= 1 &&
+    day <= new Date(Date.UTC(normalizedYear, month, 0)).getUTCDate();
+
+  return valid ? { year: normalizedYear, month, day } : null;
+}
+
+function formattedLiftOrderDate(value: unknown, format: LiftOrderDateFormat) {
+  const parsed = parsedLiftOrderDate(value);
+  if (!parsed) {
+    return null;
+  }
+  const month = String(parsed.month).padStart(2, "0");
+  const day = String(parsed.day).padStart(2, "0");
+  const year = String(parsed.year).padStart(4, "0");
+  return format === "YYYY-MM-DD" ? `${year}-${month}-${day}` : `${month}/${day}/${year}`;
+}
+
+export function applyLiftOrderDateFormat(
+  payload: LiftOrderPayload,
+  format: LiftOrderDateFormat = "MM/DD/YYYY"
+): LiftOrderPayload {
+  const order = { ...payload.order };
+  for (const field of ["requested_ship_date", "due_date"] as const) {
+    const value = order[field];
+    if (value === null || value === undefined || value === "") {
+      continue;
+    }
+    const formatted = formattedLiftOrderDate(value, format);
+    if (!formatted) {
+      throw new LiftOrderDateFormatError(field, value);
+    }
+    order[field] = formatted;
+  }
+  return withoutNullishLiftFields({ ...payload, order });
+}
+
+export function prepareLiftOrderDateFormat(
+  payload: LiftOrderPayload,
+  format: LiftOrderDateFormat = "MM/DD/YYYY"
+): { payload: LiftOrderPayload; validation: ValidationMessage[] } {
+  const order = { ...payload.order };
+  const validation: ValidationMessage[] = [];
+  for (const field of ["requested_ship_date", "due_date"] as const) {
+    const value = order[field];
+    if (value === null || value === undefined || value === "") {
+      continue;
+    }
+    const formatted = formattedLiftOrderDate(value, format);
+    if (formatted) {
+      order[field] = formatted;
+      continue;
+    }
+    delete order[field];
+    validation.push({
+      severity: "FAIL",
+      code: "LIFT-ORDER-DATE-FORMAT",
+      object: "lift.order",
+      field: `order.${field}`,
+      message: `${field === "requested_ship_date" ? "Requested ship date" : "Due date"} is not a real date that Pathfinder can format for Lift.`,
+      suggested_action: "Correct the source date using MM/DD/YYYY, MM/DD/YY, or YYYY-MM-DD, then regenerate the preview."
+    });
+  }
+  return {
+    payload: withoutNullishLiftFields({ ...payload, order }),
+    validation
+  };
 }
 
 export function generateLiftPayload(
@@ -687,7 +793,7 @@ export function buildLiftSubmitRequest(
       Password: config.credentials.Password,
       Company: config.headers.Company
     },
-    body: withoutNullishLiftFields(payload)
+    body: applyLiftOrderDateFormat(payload, config.order_date_format ?? "MM/DD/YYYY")
   };
 }
 

@@ -48,6 +48,7 @@ import {
   buildLiftSubmitRequest,
   generateLiftPayload,
   maskLiftSubmitRequest,
+  prepareLiftOrderDateFormat,
   validateLiftPayload,
   type LiftOrderPayload,
   type LiftSubmitErrorTranslation,
@@ -359,6 +360,54 @@ type WrikeManualIntakePayload = {
     failure_stage?: "source_evidence" | "document_publication" | "preview_creation" | "unknown";
     failure_code?: string;
   }>;
+};
+
+type WrikePendingIntakeCandidate = {
+  task_id: string;
+  task_title: string;
+  account_id: string;
+  root_folder_ids: string[];
+  custom_status_id: string;
+  contract_number: string | null;
+  reasons: Array<{
+    code: "task_identity" | "trigger_status" | "print_vendor" | "contract_number";
+    message: string;
+  }>;
+};
+
+type WrikeDiscoveryRunPayload = {
+  run_id: string;
+  checked_at: string;
+  discovered_count: number;
+  prepared_count: number;
+  replayed_count: number;
+  failed_count: number;
+  results: Array<{
+    task_id: string;
+    contract_number: string;
+    outcome: "created" | "replayed" | "failed";
+    job_count: number;
+    job_ids: string[];
+    failure_category: string | null;
+  }>;
+  discovery_summary: {
+    task_count: number;
+    scoped_task_count: number;
+    eligible_order_count: number;
+    pending_order_count: number;
+  };
+  root_scopes: Array<{
+    configured_folder_id: string;
+    resolved_folder_id: string;
+    task_count: number;
+  }>;
+  pending_intake: WrikePendingIntakeCandidate[];
+  audit_entries: Array<{ audit_id: string; message: string; created_at: string }>;
+  safety: {
+    lift_order_submitted: false;
+    wrike_status_changed: false;
+    uncertain_lift_retry_allowed: false;
+  };
 };
 
 type SubmitRuntimeStatus = {
@@ -799,6 +848,7 @@ interface ProcessingJobPreview {
   target_order_lookup_url?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   wrike_status_writebacks?: WrikeStatusWritebackRecord[];
+  recovery_audit?: JobRecoveryAuditEntry[];
   state: ProcessingState;
   source_file_name: string;
   sheet_name?: string | null;
@@ -847,6 +897,23 @@ interface ProcessingJobPreview {
     version_id: string;
     captured_at: string;
   } | null;
+}
+
+interface JobRecoveryAuditEntry {
+  recovery_id: string;
+  action: "product_mappings_re_evaluated";
+  source: "operator";
+  actor_id: string;
+  created_at: string;
+  previous_state: ProcessingState;
+  next_state: ProcessingState;
+  previous_unresolved_count: number;
+  next_unresolved_count: number;
+  source_evidence_id: string;
+  source_task_id: string;
+  previous_mapping_fingerprint: string;
+  next_mapping_fingerprint: string;
+  message: string;
 }
 
 interface WrikeStatusWritebackRecord {
@@ -3898,6 +3965,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [wrikeDiscoveryState, setWrikeDiscoveryState] = useState<"idle" | "loading" | "error">("idle");
   const [wrikeDiscoveryMessage, setWrikeDiscoveryMessage] = useState<string | null>(null);
   const [wrikeDiscoveryPreview, setWrikeDiscoveryPreview] = useState<WrikeTaskDiscoveryPreview | null>(null);
+  const [wrikeDiscoveryRunState, setWrikeDiscoveryRunState] =
+    useState<"idle" | "loading" | "error">("idle");
+  const [wrikeDiscoveryRunMessage, setWrikeDiscoveryRunMessage] = useState<string | null>(null);
+  const [wrikeDiscoveryRun, setWrikeDiscoveryRun] = useState<WrikeDiscoveryRunPayload | null>(null);
   const [wrikeCustomFieldState, setWrikeCustomFieldState] =
     useState<"idle" | "loading" | "error">("idle");
   const [wrikeCustomFieldMessage, setWrikeCustomFieldMessage] = useState<string | null>(null);
@@ -3926,6 +3997,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [activeTargetsView, setActiveTargetsView] = useState<TargetDetailView>("Environments");
   const [activeOutputTemplateId, setActiveOutputTemplateId] = useState<string | null>(null);
   const [globalJobs, setGlobalJobs] = useState<ProcessingJobPreview[]>([]);
+  const [jobsLastRefreshedAt, setJobsLastRefreshedAt] = useState<string | null>(null);
   const [activeMethodId, setActiveMethodId] = useState("manual-xlsx");
   const [manualImportMethodId, setManualImportMethodId] = useState("manual-xlsx");
   const [isImportMethodDetailOpen, setIsImportMethodDetailOpen] = useState(false);
@@ -3993,6 +4065,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [selectedJobDetail, setSelectedJobDetail] = useState<ProcessingJobPreview | null>(null);
   const [selectedJobAttempts, setSelectedJobAttempts] = useState<SubmitAttempt[]>([]);
   const [jobDetailState, setJobDetailState] = useState<"idle" | "loading" | "error">("idle");
+  const [jobMappingReevaluationState, setJobMappingReevaluationState] =
+    useState<"idle" | "loading" | "error">("idle");
   const [orderLookupState, setOrderLookupState] = useState<"idle" | "loading" | "error">("idle");
   const [orderLookupResult, setOrderLookupResult] = useState<LiftOrderLookupResult | null>(null);
   const [proofReportState, setProofReportState] = useState<"idle" | "loading" | "error">("idle");
@@ -4335,11 +4409,34 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setTargets(targetsPayload.targets);
       setLocalDraftTargetIds([]);
       setGlobalJobs(jobsPayload.jobs);
+      setJobsLastRefreshedAt(new Date().toISOString());
       setTargetsAndJobsState("idle");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Target/job load failed.");
       setTargetsAndJobsState("error");
     }
+  }
+
+  async function refreshVisibleJobs() {
+    const response = await fetch(`${apiBaseUrl}/api/jobs`, { cache: "no-store" });
+    const payload = await readJsonResponse<{ jobs: ProcessingJobPreview[] }>(response);
+    setGlobalJobs(payload.jobs);
+    setWorkspace((current) =>
+      current
+        ? {
+            ...current,
+            jobs: payload.jobs.filter((job) => job.customer_id === current.customer.lift_customer_id)
+          }
+        : current
+    );
+    setSelectedJobDetail((current) =>
+      current
+        ? payload.jobs.find(
+            (job) => job.customer_id === current.customer_id && job.job_id === current.job_id
+          ) ?? current
+        : current
+    );
+    setJobsLastRefreshedAt(new Date().toISOString());
   }
 
   async function loadCanonicalRegistry() {
@@ -4603,6 +4700,34 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       "The four Wrike field IDs are applied to this draft. Save the Import Method to persist them."
     );
     setWrikeCustomFieldState("idle");
+  }
+
+  async function runWrikeDiscoveryNow() {
+    if (!selectedCustomerId || !activeImportMethod) return;
+    setWrikeDiscoveryRunState("loading");
+    setWrikeDiscoveryRunMessage(null);
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(selectedCustomerId)}/import-methods/${encodeURIComponent(activeImportMethod.import_method_id)}/wrike/discovery-runs`,
+        { method: "POST" }
+      );
+      const payload = await readJsonResponse<WrikeDiscoveryRunPayload>(response);
+      setWrikeDiscoveryRun(payload);
+      setWrikeDiscoveryRunMessage(
+        payload.failed_count
+          ? `Discovery finished. ${payload.failed_count} ready order${payload.failed_count === 1 ? " needs" : "s need"} attention. No Lift order was submitted and no Wrike status was changed.`
+          : `Discovery finished with ${payload.discovered_count} ready order${payload.discovered_count === 1 ? "" : "s"} and ${payload.pending_intake.length} pending candidate${payload.pending_intake.length === 1 ? "" : "s"}. No Lift order was submitted and no Wrike status was changed.`
+      );
+      await refreshVisibleJobs();
+      setWrikeDiscoveryRunState("idle");
+    } catch (error) {
+      setWrikeDiscoveryRunMessage(
+        error instanceof Error
+          ? error.message
+          : "Discovery could not finish. No Lift order was submitted and no Wrike status was changed."
+      );
+      setWrikeDiscoveryRunState("error");
+    }
   }
 
   async function previewWrikeDiscovery() {
@@ -4935,6 +5060,39 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWrikeWritebackOpen(false);
     setWrikeWritebackConfirmation("");
     setWrikeWritebackState("idle");
+    setJobMappingReevaluationState("idle");
+  }
+
+  async function reevaluateJobProductMappings(job: ProcessingJobPreview) {
+    setJobActionMenuOpen(false);
+    setJobMappingReevaluationState("loading");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(job.customer_id)}/jobs/${encodeURIComponent(job.job_id)}/re-evaluate-mappings`,
+        { method: "POST" }
+      );
+      const payload = await readJsonResponse<{
+        job: ProcessingJobPreview;
+        changed: boolean;
+        message: string;
+        lift_order_created: false;
+        uncertain_lift_retry_allowed: false;
+      }>(response);
+      setSelectedJobDetail(payload.job);
+      setGlobalJobs((current) => upsertJob(current, payload.job));
+      setWorkspace((current) =>
+        current ? { ...current, jobs: upsertJob(current.jobs, payload.job) } : current
+      );
+      setWorkspaceMessage(payload.message);
+      setJobMappingReevaluationState("idle");
+    } catch (error) {
+      setWorkspaceMessage(
+        error instanceof Error
+          ? error.message
+          : "The job could not be checked again. No Lift order was created or retried."
+      );
+      setJobMappingReevaluationState("error");
+    }
   }
 
   function openWrikeStatusWriteback() {
@@ -5773,6 +5931,34 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }, [activeGlobalView, activeCustomerView, selectedCustomerId]);
 
   useEffect(() => {
+    const isJobViewVisible =
+      activeGlobalView === "Jobs" ||
+      (activeGlobalView === "Customers" && activeCustomerView === "Jobs");
+    if (!isJobViewVisible) return;
+
+    let disposed = false;
+    const refresh = async () => {
+      if (disposed || document.visibilityState !== "visible") return;
+      try {
+        await refreshVisibleJobs();
+      } catch {
+        // The next bounded poll retries automatically; keep the current list visible.
+      }
+    };
+    void refresh();
+    const intervalId = window.setInterval(() => void refresh(), 15_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [activeGlobalView, activeCustomerView, selectedCustomerId]);
+
+  useEffect(() => {
     const currentUrl = new URL(window.location.href);
     const oauthResult = currentUrl.searchParams.get("wrike_oauth");
     if (oauthResult !== "connected" && oauthResult !== "error") {
@@ -5930,6 +6116,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWrikeDiscoveryPreview(null);
     setWrikeDiscoveryMessage(null);
     setWrikeDiscoveryState("idle");
+    setWrikeDiscoveryRun(null);
+    setWrikeDiscoveryRunMessage(null);
+    setWrikeDiscoveryRunState("idle");
     setWrikeCustomFieldDiscovery(null);
     setWrikeCustomFieldMessage(null);
     setWrikeCustomFieldState("idle");
@@ -6103,6 +6292,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const latestJobAttempt = visibleJobDetailAttempts[0] ?? null;
   const canRetrySelectedJob =
     selectedJobDetail?.state === "Ready" || selectedJobDetail?.state === "Submit Failed";
+  const canReevaluateSelectedJob = Boolean(
+    selectedJobDetail?.source_evidence?.provider === "wrike" &&
+      ["Needs Mapping", "Failed"].includes(selectedJobDetail.state) &&
+      !selectedJobDetail.target_order_number
+  );
   const selectedJobMissingOrderTitle = Boolean(
     canRetrySelectedJob && !selectedJobDetail?.lift_payload.order.order_title?.trim()
   );
@@ -6812,16 +7006,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     pathfinderOrderId: pendingPathfinderOrderNumber,
     extIdStrategy: workflowImportMethod?.ext_id_strategy ?? "pathfinder_generated"
   });
-  const normalizedLift = applyValueNormalizationToLiftPayload(rawLiftPayload, activeOutputRoute.value_normalization_rules ?? []);
+  const datedLift = prepareLiftOrderDateFormat(
+    rawLiftPayload,
+    activeRouteTarget?.lift.order_date_format ?? "MM/DD/YYYY"
+  );
+  const normalizedLift = applyValueNormalizationToLiftPayload(
+    datedLift.payload,
+    activeOutputRoute.value_normalization_rules ?? []
+  );
   const liftPayload = normalizedLift.payload;
   const baseLiftMessages = validateLiftPayload(liftPayload, {
     product_identifier_type: activeOutputRoute.product_identifier_type,
     product_identifier_label: activeOutputRoute.product_identifier_label
   });
   const liftMessages = [
-    ...(normalizedLift.validation.length
+    ...(datedLift.validation.length || normalizedLift.validation.length
       ? baseLiftMessages.filter((message) => message.severity !== "PASS")
       : baseLiftMessages),
+    ...datedLift.validation,
     ...normalizedLift.validation
   ];
   const submitRequest = maskLiftSubmitRequest(buildLiftSubmitRequest(liftPayload, liftConfigForRoute(activeRouteTarget, activeOutputRoute)));
@@ -9302,6 +9504,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       lift: {
         destination_adapter: "lift-standard-graphics",
         active_environment: "QA1",
+        order_date_format: "MM/DD/YYYY",
         environments: {
           QA1: { endpoint_url: "" },
           PROD: { endpoint_url: "" }
@@ -10288,6 +10491,116 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                               </div>
                             </li>
                           </ol>
+
+                          <section className="wrike-operations-control" aria-labelledby="wrike-run-discovery-title">
+                            <div className="wrike-discovery-heading">
+                              <div>
+                                <span className="section-eyebrow">Live intake control</span>
+                                <strong id="wrike-run-discovery-title">Check Wrike for orders now</strong>
+                                <small>
+                                  Uses the same saved folders, qualification rules, evidence capture, document publication,
+                                  and preview preparation as scheduled intake. This control never submits to Lift or changes a Wrike status.
+                                </small>
+                              </div>
+                              <button
+                                type="button"
+                                className="primary-button table-inline-button"
+                                onClick={() => void runWrikeDiscoveryNow()}
+                                disabled={
+                                  wrikeDiscoveryRunState === "loading" ||
+                                  activeImportMethod.status !== "Active" ||
+                                  activeImportMethodHasUnsavedChanges ||
+                                  activeWrikeReadiness.status !== "Configured" ||
+                                  !activeWrikeConnectionStatus?.configured
+                                }
+                                title={
+                                  activeImportMethodHasUnsavedChanges
+                                    ? "Save this Import Method before running discovery."
+                                    : activeImportMethod.status !== "Active"
+                                      ? "Activate this Import Method before running discovery."
+                                      : activeWrikeReadiness.status !== "Configured"
+                                        ? "Finish the Wrike Import Method setup first."
+                                        : !activeWrikeConnectionStatus?.configured
+                                          ? "Reconnect this customer's Wrike connection first."
+                                          : undefined
+                                }
+                              >
+                                <RefreshCw
+                                  size={15}
+                                  className={wrikeDiscoveryRunState === "loading" ? "spin" : undefined}
+                                />
+                                {wrikeDiscoveryRunState === "loading" ? "Running discovery…" : "Run discovery now"}
+                              </button>
+                            </div>
+                            {wrikeDiscoveryRun ? (
+                              <>
+                                <div className="wrike-operations-summary">
+                                  <div>
+                                    <span>Ready orders</span>
+                                    <strong>{wrikeDiscoveryRun.discovered_count}</strong>
+                                  </div>
+                                  <div>
+                                    <span>New previews</span>
+                                    <strong>{wrikeDiscoveryRun.prepared_count}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Reused previews</span>
+                                    <strong>{wrikeDiscoveryRun.replayed_count}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Pending intake</span>
+                                    <strong>{wrikeDiscoveryRun.pending_intake.length}</strong>
+                                  </div>
+                                </div>
+                                <div className="wrike-pending-intake">
+                                  <div>
+                                    <strong>Pending intake</strong>
+                                    <small>
+                                      Wrike tasks found in the saved campaign folders that are not ready to become Pathfinder jobs.
+                                    </small>
+                                  </div>
+                                  {wrikeDiscoveryRun.pending_intake.length ? (
+                                    <div className="wrike-pending-intake-list">
+                                      {wrikeDiscoveryRun.pending_intake.map((candidate) => (
+                                        <article key={candidate.task_id}>
+                                          <div>
+                                            <strong>{candidate.task_title || `Wrike task ${candidate.task_id}`}</strong>
+                                            <small>
+                                              Task {candidate.task_id} · {candidate.root_folder_ids.length} matched campaign folder{candidate.root_folder_ids.length === 1 ? "" : "s"}
+                                            </small>
+                                          </div>
+                                          <ul>
+                                            {candidate.reasons.map((reason) => (
+                                              <li key={reason.code}>{reason.message}</li>
+                                            ))}
+                                          </ul>
+                                        </article>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="empty-state">No unqualified Wrike candidates were found in this run.</p>
+                                  )}
+                                </div>
+                              </>
+                            ) : null}
+                            {wrikeDiscoveryRunMessage ? (
+                              <div
+                                className={
+                                  wrikeDiscoveryRunState === "error"
+                                    ? "email-health-error"
+                                    : "wrike-discovery-message"
+                                }
+                                role={wrikeDiscoveryRunState === "error" ? "alert" : "status"}
+                              >
+                                {wrikeDiscoveryRunState === "error" ? (
+                                  <AlertTriangle size={16} />
+                                ) : (
+                                  <ShieldCheck size={16} />
+                                )}
+                                <span>{wrikeDiscoveryRunMessage}</span>
+                              </div>
+                            ) : null}
+                          </section>
 
                           <div className="wrike-contract-grid">
                             <div className="wrike-contract-section-heading">
@@ -14396,6 +14709,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             {activeCustomerView === "Jobs" && !selectedJobDetail ? (
               <section className="panel jobs-panel">
                 <PanelHeader icon={Archive} title="Customer Jobs" detail={selectedCustomer.customer_name} />
+                <div className="jobs-live-status" role="status">
+                  <RefreshCw size={13} />
+                  Auto-refreshing while visible
+                  {jobsLastRefreshedAt ? ` · Updated ${displayTimestamp(jobsLastRefreshedAt)}` : ""}
+                </div>
                 <JobListControls
                   archiveFilter={jobArchiveFilter}
                   intakeFilter={jobIntakeFilter}
@@ -15347,6 +15665,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             {targetEnvironments.map((environment) => (
                               <option key={environment.environment_id}>{environment.name}</option>
                             ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Order Date Format</span>
+                          <select
+                            value={selectedTarget.lift.order_date_format ?? "MM/DD/YYYY"}
+                            onChange={(event) =>
+                              updateTargetDraft(selectedTarget.target_id, (target) => ({
+                                ...target,
+                                lift: {
+                                  ...target.lift,
+                                  order_date_format: event.target.value as NonNullable<LiftTargetConfig["order_date_format"]>
+                                }
+                              }))
+                            }
+                          >
+                            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+                            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
                           </select>
                         </label>
                         <label className="setup-control">
@@ -16367,6 +16703,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         {activeGlobalView === "Jobs" && !selectedJobDetail ? (
           <section className="panel jobs-panel">
             <PanelHeader icon={Archive} title="Processing Jobs" detail="Order history and internal status lookup" />
+            <div className="jobs-live-status" role="status">
+              <RefreshCw size={13} />
+              Auto-refreshing while visible
+              {jobsLastRefreshedAt ? ` · Updated ${displayTimestamp(jobsLastRefreshedAt)}` : ""}
+            </div>
             <ProofOpsPanel apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} />
             <div className="internal-order-lookup">
               <div>
@@ -16552,6 +16893,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
                 <div className="job-detail-actions">
                   <StatePill state={selectedJobDetail.state} />
+                  {canReevaluateSelectedJob ? (
+                    <button
+                      className="primary-button job-detail-submit-action"
+                      onClick={() => void reevaluateJobProductMappings(selectedJobDetail)}
+                      disabled={jobMappingReevaluationState === "loading"}
+                    >
+                      <RefreshCw
+                        size={16}
+                        className={jobMappingReevaluationState === "loading" ? "spin" : undefined}
+                      />
+                      {jobMappingReevaluationState === "loading"
+                        ? "Checking mappings…"
+                        : "Check current mappings"}
+                    </button>
+                  ) : null}
                   {canRetrySelectedJob ? (
                     <>
                       {prodSandboxConfirmationRequired && !selectedJobMissingOrderTitle ? (
@@ -16588,7 +16944,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           : "Submit to Lift"}
                       </button>
                     </>
-                  ) : (
+                  ) : canReevaluateSelectedJob ? null : (
                     <button
                       className="primary-button job-detail-view-order"
                       onClick={() => void loadOrderSnapshot(selectedJobDetail)}
@@ -16809,6 +17165,35 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <small>
                             Verified {association.verification.customer_name ?? association.verification.customer_id} · {association.verification.line_count} line{association.verification.line_count === 1 ? "" : "s"} · {displayTimestamp(association.linked_at)}
                             {association.linked_by_email ? ` · ${association.linked_by_email}` : ""}
+                          </small>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+              {selectedJobDetail.recovery_audit?.length ? (
+                <details className="job-recovery-history" open>
+                  <summary>
+                    <History size={16} />
+                    Recovery history ({selectedJobDetail.recovery_audit.length})
+                  </summary>
+                  <div>
+                    {selectedJobDetail.recovery_audit.map((entry) => (
+                      <article key={entry.recovery_id}>
+                        <span
+                          className={
+                            entry.next_state === "Ready"
+                              ? "mini-pill mini-pill-success"
+                              : "mini-pill mini-pill-warning"
+                          }
+                        >
+                          {entry.next_state}
+                        </span>
+                        <div>
+                          <strong>{entry.message}</strong>
+                          <small>
+                            {entry.previous_unresolved_count} → {entry.next_unresolved_count} unresolved products · {displayTimestamp(entry.created_at)} · {entry.actor_id}
                           </small>
                         </div>
                       </article>

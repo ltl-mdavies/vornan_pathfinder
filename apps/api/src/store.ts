@@ -629,6 +629,7 @@ export interface ProcessingJobPreview {
   target_order_lookup_url?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   wrike_status_writebacks?: WrikeStatusWritebackRecord[];
+  recovery_audit?: JobRecoveryAuditEntry[];
   scheduled_wrike_intake?: {
     source: "scheduled_polling";
     task_id: string;
@@ -685,6 +686,23 @@ export interface ProcessingJobPreview {
     published_at: string;
     expires_at: string;
   }>;
+}
+
+export interface JobRecoveryAuditEntry {
+  recovery_id: string;
+  action: "product_mappings_re_evaluated";
+  source: "operator";
+  actor_id: string;
+  created_at: string;
+  previous_state: ProcessingState;
+  next_state: ProcessingState;
+  previous_unresolved_count: number;
+  next_unresolved_count: number;
+  source_evidence_id: string;
+  source_task_id: string;
+  previous_mapping_fingerprint: string;
+  next_mapping_fingerprint: string;
+  message: string;
 }
 
 /**
@@ -1121,8 +1139,8 @@ function createSeedOutputTemplate(timestamp = now()): OutputTemplate {
           contract_number: "1122334455",
           order_title: "Campaign",
           order_note: "Optional order-level production note.",
-          requested_ship_date: "2026-06-23",
-          due_date: "2026-06-24",
+          requested_ship_date: "06/23/2026",
+          due_date: "06/24/2026",
           order_attachment: "https://example.com/imports/momentara-order.xlsx",
           artwork_folder_url: "https://example.com/artwork/momentara-order",
           reference_proof_url: "https://go.vornan.co/d/example/reference-proof.pdf",
@@ -2614,7 +2632,7 @@ export function maskTargetConfig(target: TargetConfig): TargetConfig {
 
 function normalizeTarget(target: TargetConfig): TargetConfig {
   const seed = createSeedTarget();
-  const lift = {
+  const lift: LiftTargetConfig = {
     ...seed.lift,
     ...(target.lift ?? {}),
     environments: {
@@ -2632,7 +2650,9 @@ function normalizeTarget(target: TargetConfig): TargetConfig {
     credentials: {
       ...seed.lift.credentials,
       ...(target.lift?.credentials ?? {})
-    }
+    },
+    order_date_format:
+      target.lift?.order_date_format === "YYYY-MM-DD" ? "YYYY-MM-DD" : "MM/DD/YYYY"
   };
 
   return {

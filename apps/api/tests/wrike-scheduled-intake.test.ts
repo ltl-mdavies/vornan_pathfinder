@@ -5,7 +5,8 @@ import {
   getWrikeScheduledIntakeConfig,
   runWrikeScheduledIntake,
   runWrikeScheduledSubmits,
-  runWrikeScheduledStatusWritebacks
+  runWrikeScheduledStatusWritebacks,
+  wrikeMappingReevaluationBlockReason
 } from "../src/wrike-scheduled-intake.js";
 
 test("scheduled submit finds an earlier manual job for the same Wrike task", () => {
@@ -53,6 +54,56 @@ test("Wrike source-task siblings stay isolated by customer, method, and provider
   ];
 
   assert.deepEqual(findWrikeSourceTaskSiblingJobs({ current, jobs: candidates }), []);
+});
+
+test("mapping re-evaluation is safe only before any possible Lift transport", () => {
+  const current = {
+    customer_id: "284619",
+    job_id: "current",
+    import_method_id: "method-1",
+    state: "Needs Mapping",
+    target_order_number: null,
+    source_evidence: { provider: "wrike", task_id: "TASK-1" }
+  };
+  assert.equal(
+    wrikeMappingReevaluationBlockReason({
+      current,
+      siblings: [],
+      attemptsByJobId: new Map([[current.job_id, [{ state: "Blocked" }, { state: "Gate Locked" }]]])
+    }),
+    null
+  );
+
+  const uncertainReason = wrikeMappingReevaluationBlockReason({
+    current,
+    siblings: [],
+    attemptsByJobId: new Map([[current.job_id, [{ state: "Submission Uncertain" }]]])
+  });
+  assert.match(uncertainReason ?? "", /will not retry it automatically/);
+});
+
+test("mapping re-evaluation refuses a sibling order for the same Wrike source task", () => {
+  const current = {
+    customer_id: "284619",
+    job_id: "current",
+    import_method_id: "method-1",
+    state: "Failed",
+    target_order_number: null,
+    source_evidence: { provider: "wrike", task_id: "TASK-1" }
+  };
+  const sibling = {
+    ...current,
+    job_id: "earlier",
+    target_order_number: "A0219609"
+  };
+  assert.match(
+    wrikeMappingReevaluationBlockReason({
+      current,
+      siblings: [sibling],
+      attemptsByJobId: new Map()
+    }) ?? "",
+    /already associated/
+  );
 });
 
 test("scheduled intake and each mutating capability are default-disabled", () => {
