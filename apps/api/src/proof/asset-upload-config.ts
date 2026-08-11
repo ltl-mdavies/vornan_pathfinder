@@ -1,3 +1,5 @@
+import { getProofLtlDemoQaProfile } from "./ltl-demo-qa-profile.js";
+
 const BUCKET = /^vornan-pathfinder-proof-assets-[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 
 export interface ProofAssetUploadRuntimeConfig {
@@ -26,22 +28,26 @@ function optionalTimestamp(value: string | undefined) {
 }
 
 export function getProofAssetUploadRuntimeConfig(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  now: Date = new Date()
 ): ProofAssetUploadRuntimeConfig {
+  const ltlDemoQa = getProofLtlDemoQaProfile(env, now);
   const bucket = env.PATHFINDER_PROOF_ASSET_BUCKET?.trim() || null;
   if (bucket && !BUCKET.test(bucket)) {
     throw new Error("The Proof asset bucket configuration is invalid.");
   }
   return {
-    enabled: env.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD === "true",
+    enabled:
+      env.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD === "true" ||
+      ltlDemoQa.asset_upload_enabled,
     bucket_name: bucket,
     allowed_customer_id: "1249",
-    allowed_order_numbers: orderNumbers(
-      env.PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS
-    ),
-    activation_expires_at: optionalTimestamp(
-      env.PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT
-    ),
+    allowed_order_numbers: ltlDemoQa.asset_upload_enabled
+      ? ltlDemoQa.allowed_order_numbers
+      : orderNumbers(env.PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS),
+    activation_expires_at: ltlDemoQa.asset_upload_enabled
+      ? ltlDemoQa.activation_expires_at
+      : optionalTimestamp(env.PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT),
     maximum_bytes: 1024 * 1024 * 1024,
     upload_ticket_seconds: 600,
     allowed_content_types: Object.freeze([

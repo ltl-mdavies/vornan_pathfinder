@@ -72,6 +72,16 @@ function hashSecret(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function ltlDemoOrderAllowed(
+  config: ReturnType<typeof getProofRuntimeConfig>,
+  orderNumber: string
+) {
+  return (
+    !config.ltl_demo_qa.active ||
+    config.ltl_demo_qa.allowed_order_numbers.includes(orderNumber)
+  );
+}
+
 export function validateProofCsrf(session: ProofAccessSession, rawCsrf: string) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(rawCsrf) || !/^[a-f0-9]{64}$/.test(session.csrf_hash ?? "")) {
     return false;
@@ -159,6 +169,9 @@ export async function createProofGrant(input: {
     throw new ProofAccessFeatureDisabledError("grant creation");
   }
   const orderNumber = normalizeLiftOrderNumber(input.order_number);
+  if (!ltlDemoOrderAllowed(config, orderNumber)) {
+    throw new ProofGrantCohortDeniedError();
+  }
   const order = await getProofOrder(orderNumber);
   if (!order) {
     throw new ProofOrderNotSynchronizedError(orderNumber);
@@ -330,7 +343,12 @@ export async function exchangeProofToken(rawToken: string, now = new Date()) {
     throw new ProofAccessDeniedError();
   }
   const grant = await getProofGrantByTokenHash(hashSecret(rawToken));
-  if (!grant || !activeGrant(grant, now) || grant.exchanged_at) {
+  if (
+    !grant ||
+    !activeGrant(grant, now) ||
+    grant.exchanged_at ||
+    !ltlDemoOrderAllowed(config, grant.order_number)
+  ) {
     throw new ProofAccessDeniedError();
   }
   const claimed = await claimProofGrant(grant, now.toISOString());
@@ -383,7 +401,12 @@ export async function validateProofSession(rawSession: string, now = new Date())
   }
   activationDeadline(now, true);
   const session = await getProofSessionByHash(hashSecret(rawSession));
-  if (!session || session.ended_at || Date.parse(session.expires_at) <= now.getTime()) {
+  if (
+    !session ||
+    session.ended_at ||
+    Date.parse(session.expires_at) <= now.getTime() ||
+    !ltlDemoOrderAllowed(config, session.order_number)
+  ) {
     throw new ProofAccessDeniedError();
   }
   const grant = await getProofGrantById(session.grant_id);

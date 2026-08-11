@@ -57,17 +57,39 @@ These capabilities remain subject to deployment, configuration, and controlled e
 
 ## Pending unified LTL Demo QA profile
 
-Branch `codex/proof-demo-qa-profile`, commit `02357b3`, proposes one coherent default-off QA profile for customer `1249`. It combines a shared bounded expiry, longer review sessions, customer approval, and private revised-file intake while keeping email, operator actions, scan-worker activation, publication, and revised-art Lift submission off.
+Branch `codex/proof-revised-art-completion` reconciles the earlier profile proposal against `origin/main` `564194e1654dd2ba74822937d278063449077a6b`. This remains unmerged, undeployed, and inactive.
 
-That branch is one commit ahead and four commits behind current main as of 2026-08-10. It is not merged or deployed. The next Proof development task should:
+The reconciled profile is fixed to customer `1249`, requires explicitly allowlisted demo orders, caps activation at 24 hours and sessions at 12 hours, and preserves the existing grant/session/CSRF/participant/current-proof checks and durable audit. It deliberately splits responsibility: the shared API may create review grants without exposing public reads, while the isolated Proof stack may serve valid review sessions and private upload without creating grants. Email, scan processing, publication, direct asset delivery, operator action QA, and Lift submission remain independent and false.
 
-1. rebase/reconcile the profile against current main;
-2. verify it does not alter any live Wrike/Lift production parameter;
-3. rerun the complete Proof and deployment-safety suites;
-4. merge it as a default-off capability only;
-5. deploy both API and Proof stacks with the profile still false;
-6. verify production Wrike before and after the shared API deployment;
-7. separately activate the profile for an explicit LTL Demo window.
+The exact configuration, activation, shutdown, and diagnostic contract is in `docs/VORNAN_PROOF_LTL_DEMO_QA_PROFILE.md`.
+
+## Revised-art completion in the current sprint branch
+
+The same branch adds repository-side, default-dark completion beyond private finalization:
+
+- exact GuardDuty clean-result classification remains fail-closed for threat, unsupported, access-denied, and failed outcomes;
+- supervised publication copies the exact versioned source to a checksum-verified versioned outbound object;
+- an opaque `a/plocator_*` copy is verified through a direct, non-redirecting HTTP `200` response at `go.vornan.co`;
+- the durable asset record retains order, task, attachment, replaced Proof version, revision, source version, publication, outbound version, checksums, delivery hash, audit, retention, and packet membership;
+- the direct URL is reassembled transiently and accepted only when its hash matches the durable locator record;
+- `lift_not_before_epoch` is server-authored at verified delivery plus two seconds;
+- `REVISED_ART_WILL_BE_SENT` remains one supervised prepared action, crosses `submission_uncertain` before one PUT, performs immediate authoritative reconciliation, and never retries automatically;
+- the retained source record remains the order-support source for later individual or ZIP delivery views.
+
+No upload, scan, publication, `/a/*` delivery, credential read, Lift call, deployment, grant, or production mutation was performed while preparing this repository checkpoint.
+
+## Remaining checkpoints after merge
+
+1. Review and merge the draft PR; do not infer activation.
+2. Coordinate shared API deployment ownership and complete the Pathfinder/Wrike before-check.
+3. Deploy the API, Proof, and asset-stack artifacts with every new gate false.
+4. Complete the Pathfinder/Wrike after-check and record commits, artifacts, parameters, alarms, recent cycles, rollback, and data continuity.
+5. Activate the LTL Demo profile separately for one exact allowlist/expiry and test valid review sessions/current proofs.
+6. Activate upload separately and finalize one bounded file.
+7. Activate the exact-object scan worker and require `NO_THREATS_FOUND`; stop on every other result.
+8. Activate `/a/*` delivery and publication separately, publish one cleared version, and record direct HTTP `200`, content type, length, checksum, version, and settle barrier evidence.
+9. Activate operator action QA last, prepare and confirm exactly one `REVISED_ART_WILL_BE_SENT`, then reconcile authoritatively with zero retry.
+10. Disable every temporary gate, revoke/end access, retain the support asset record, and update this handoff with observed truth.
 
 ## Recommended QA sequence
 

@@ -44,6 +44,9 @@ aws cloudformation deploy \
     ProofAssetUploadEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD:-false}" \
     ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \
     ProofAssetUploadExpiresAt="${PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT:-}" \
+    LtlDemoQaEnabled="${PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED:-false}" \
+    LtlDemoQaAllowedOrders="${PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS:-}" \
+    LtlDemoQaExpiresAt="${PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT:-}" \
     ProofAssetBucketName="${PATHFINDER_PROOF_ASSET_BUCKET:-}" \
     ProofAssetBucketArn="${PATHFINDER_PROOF_ASSET_BUCKET_ARN:-}" \
     PathfinderTargetsTableName="${PATHFINDER_PROOF_TARGETS_TABLE:-}" \

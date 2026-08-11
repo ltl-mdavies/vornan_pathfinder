@@ -345,6 +345,26 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
     Description: Required bounded UTC expiry for revised-art upload QA.
+  ProofAssetPublicationEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled supervised publication of one cleared Proof asset.
+  ProofAssetPublicationAllowedOrders:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^A[0-9]{7,8}(,A[0-9]{7,8}){0,24}$"
+    Description: Exact comma-separated orders approved for supervised Proof publication.
+  ProofAssetPublicationExpiresAt:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+    Description: Required bounded UTC expiry for supervised Proof publication.
+  ProofAssetDeliveryBaseUrl:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^https://go\\.vornan\\.co$"
+    Description: Exact direct-200 Proof asset delivery origin; keep empty while publication is dark.
   ProofAssetBucketName:
     Type: String
     Default: ""
@@ -375,6 +395,21 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
+  ProofLtlDemoQaEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled isolated LTL Demo Proof QA profile.
+  ProofLtlDemoQaAllowedOrders:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^A[0-9]{7,8}(,A[0-9]{7,8}){0,24}$"
+    Description: Exact demo orders available to the unified customer Proof QA profile.
+  ProofLtlDemoQaExpiresAt:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+    Description: Shared bounded UTC expiry for the LTL Demo QA profile.
   ProofPublicReadEnabled:
     Type: String
     Default: "false"
@@ -500,6 +535,37 @@ Rules:
         AssertDescription: Customer revised-art upload requires an explicit Lift customer cohort.
       - Assert: !Not [!Equals [!Ref ProofReadOnlyActivationExpiresAt, ""]]
         AssertDescription: Customer revised-art upload requires a bounded review-session deadline.
+  ProofLtlDemoQaRequiresIsolatedBoundary:
+    RuleCondition: !Equals [!Ref ProofLtlDemoQaEnabled, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref ProofLtlDemoQaAllowedOrders, ""]]
+        AssertDescription: LTL Demo Proof QA requires exact allowlisted demo orders.
+      - Assert: !Not [!Equals [!Ref ProofLtlDemoQaExpiresAt, ""]]
+        AssertDescription: LTL Demo Proof QA requires one bounded UTC expiry.
+      - Assert: !And
+          - !Not [!Equals [!Ref ProofCoreTableName, ""]]
+          - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableName, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
+        AssertDescription: LTL Demo Proof QA requires dedicated Proof core and audit tables.
+      - Assert: !Equals [!Ref ProofGrantCreationEnabled, "false"]
+        AssertDescription: The profile cannot overlap legacy grant creation.
+      - Assert: !Equals [!Ref ProofPublicReadEnabled, "false"]
+        AssertDescription: The API-side profile does not expose public Proof reads.
+      - Assert: !Equals [!Ref ProofCustomerApprovalEnabled, "false"]
+        AssertDescription: The profile cannot overlap legacy customer approval.
+      - Assert: !Equals [!Ref ProofCustomerRevisionUploadEnabled, "false"]
+        AssertDescription: The API-side profile does not accept customer uploads.
+      - Assert: !Equals [!Ref ProofAssetUploadEnabled, "false"]
+        AssertDescription: The API-side profile does not activate asset upload.
+      - Assert: !Equals [!Ref ProofAssetPublicationEnabled, "false"]
+        AssertDescription: The profile never activates asset publication.
+      - Assert: !Equals [!Ref ProofAssetScanWorkerEnabled, "false"]
+        AssertDescription: The profile never activates scan processing.
+      - Assert: !Equals [!Ref ProofOperatorActionQaEnabled, "false"]
+        AssertDescription: The profile never activates Lift actions.
+      - Assert: !Equals [!Ref ProofLinkEmailEnabled, "false"]
+        AssertDescription: The profile never sends Proof email.
   ProofOperatorActionRequiresDurableIsolation:
     RuleCondition: !Equals [!Ref ProofOperatorActionQaEnabled, "true"]
     Assertions:
@@ -543,6 +609,27 @@ Rules:
         AssertDescription: Operator asset upload cannot be combined with customer grant creation.
       - Assert: !Equals [!Ref ProofLinkEmailEnabled, "false"]
         AssertDescription: Operator asset upload cannot be combined with Proof link email delivery.
+  ProofAssetPublicationRequiresDurableIsolation:
+    RuleCondition: !Equals [!Ref ProofAssetPublicationEnabled, "true"]
+    Assertions:
+      - Assert: !And
+          - !Not [!Equals [!Ref ProofCoreTableName, ""]]
+          - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableName, ""]]
+          - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
+          - !Not [!Equals [!Ref ProofAssetBucketName, ""]]
+          - !Not [!Equals [!Ref ProofAssetBucketArn, ""]]
+        AssertDescription: Proof publication requires exact durable table and private bucket bindings.
+      - Assert: !Not [!Equals [!Ref ProofAssetPublicationAllowedOrders, ""]]
+        AssertDescription: Proof publication requires an exact nonempty order allowlist.
+      - Assert: !Not [!Equals [!Ref ProofAssetPublicationExpiresAt, ""]]
+        AssertDescription: Proof publication requires a bounded UTC expiry.
+      - Assert: !Equals [!Ref ProofAssetDeliveryBaseUrl, "https://go.vornan.co"]
+        AssertDescription: Proof publication requires the direct go.vornan.co delivery origin.
+      - Assert: !Equals [!Ref ProofGrantCreationEnabled, "false"]
+        AssertDescription: Proof publication cannot overlap grant creation.
+      - Assert: !Equals [!Ref ProofLinkEmailEnabled, "false"]
+        AssertDescription: Proof publication cannot overlap Proof email.
   ProofAssetScanWorkerRequiresDurableIsolation:
     RuleCondition: !Equals [!Ref ProofAssetScanWorkerEnabled, "true"]
     Assertions:
@@ -621,6 +708,10 @@ Conditions:
   ProofAssetUploadActive: !And
     - !Condition HasProofAssetBucket
     - !Equals [!Ref ProofAssetUploadEnabled, "true"]
+  ProofAssetPublicationActive: !And
+    - !Condition HasProofAssetBucket
+    - !Condition HasProofTables
+    - !Equals [!Ref ProofAssetPublicationEnabled, "true"]
   ProofAssetScanWorkerActive: !And
     - !Condition HasProofAssetScanWorkerBoundary
     - !Equals [!Ref ProofAssetScanWorkerEnabled, "true"]
@@ -948,6 +1039,18 @@ Resources:
                     - s3:PutObjectTagging
                   Resource: !Sub "${ProofAssetBucketArn}/orders/*"
                 - !Ref "AWS::NoValue"
+              - !If
+                - ProofAssetPublicationActive
+                - Effect: Allow
+                  Action:
+                    - s3:GetObject
+                    - s3:GetObjectVersion
+                    - s3:PutObject
+                    - s3:PutObjectTagging
+                  Resource:
+                    - !Sub "${ProofAssetBucketArn}/orders/*"
+                    - !Sub "${ProofAssetBucketArn}/a/*"
+                - !Ref "AWS::NoValue"
               - Effect: Allow
                 Action:
                   - dynamodb:TransactWriteItems
@@ -1085,6 +1188,15 @@ Resources:
           PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref ProofGrantAllowedCustomerIds
           PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ProofReadOnlyActivationExpiresAt
           PATHFINDER_PROOF_ENABLE_LINK_EMAIL: !Ref ProofLinkEmailEnabled
+          PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: !Join
+            - "|"
+            - - !Ref ProofLtlDemoQaEnabled
+              - !Ref ProofLtlDemoQaExpiresAt
+              - !Ref ProofLtlDemoQaAllowedOrders
+              - "true"
+              - "false"
+              - "false"
+              - "false"
           # Pack the customer-review switches into the existing environment
           # footprint. Lambda limits the complete environment block to 4 KB.
           PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join
@@ -1110,7 +1222,14 @@ Resources:
           PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If [ProofAssetUploadActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If [ProofAssetUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If [ProofAssetUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"]
-          PATHFINDER_PROOF_ASSET_BUCKET: !If [ProofAssetUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"]
+          PATHFINDER_ENABLE_PROOF_ASSET_PUBLICATION: !If [ProofAssetPublicationActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_PUBLICATION_ALLOWED_ORDERS: !If [ProofAssetPublicationActive, !Ref ProofAssetPublicationAllowedOrders, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_PUBLICATION_EXPIRES_AT: !If [ProofAssetPublicationActive, !Ref ProofAssetPublicationExpiresAt, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_DELIVERY_BASE_URL: !If [ProofAssetPublicationActive, !Ref ProofAssetDeliveryBaseUrl, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_BUCKET: !If
+            - ProofAssetPublicationActive
+            - !Ref ProofAssetBucketName
+            - !If [ProofAssetUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"]
 
   WrikeScheduledIntakeRule:
     Condition: WrikeScheduledIntakeActive

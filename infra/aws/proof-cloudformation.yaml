@@ -75,6 +75,21 @@ Parameters:
     Type: String
     Default: ""
     AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+  LtlDemoQaEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled isolated customer Proof QA profile for LTL Demo 1249.
+  LtlDemoQaAllowedOrders:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^A[0-9]{7,8}(,A[0-9]{7,8}){0,19}$"
+    Description: Exact LTL Demo orders available to the unified QA profile.
+  LtlDemoQaExpiresAt:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
+    Description: Shared bounded UTC expiry for the unified QA profile.
   ProofAssetBucketName:
     Type: String
     Default: ""
@@ -171,10 +186,15 @@ Conditions:
     - !Equals [!Ref ManagedWebAclEnabled, "true"]
     - !Not [!Condition HasProvidedWebAcl]
   HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, ""]]
-  CustomerApprovalActive: !Equals [!Ref CustomerApprovalEnabled, "true"]
-  CustomerRevisionUploadActive: !And
-    - !Equals [!Ref CustomerRevisionUploadEnabled, "true"]
-    - !Equals [!Ref ProofAssetUploadEnabled, "true"]
+  LtlDemoQaActive: !Equals [!Ref LtlDemoQaEnabled, "true"]
+  CustomerApprovalActive: !Or
+    - !Equals [!Ref CustomerApprovalEnabled, "true"]
+    - !Condition LtlDemoQaActive
+  CustomerRevisionUploadActive: !Or
+    - !And
+      - !Equals [!Ref CustomerRevisionUploadEnabled, "true"]
+      - !Equals [!Ref ProofAssetUploadEnabled, "true"]
+    - !Condition LtlDemoQaActive
   CustomerRuntimeActive: !Or
     - !Condition CustomerApprovalActive
     - !Condition CustomerRevisionUploadActive
@@ -303,6 +323,44 @@ Rules:
         AssertDescription: Customer revised-art upload requires exact target, secret, private bucket, order allowlist, and expiry bindings.
       - Assert: !Equals [!Ref SyntheticQaEnabled, "false"]
         AssertDescription: Customer revised-art upload cannot overlap synthetic QA.
+  LtlDemoQaRequiresIsolatedBoundary:
+    RuleCondition: !Equals [!Ref LtlDemoQaEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref EnvironmentName, dev]
+        AssertDescription: The unified LTL Demo QA profile is restricted to the isolated dev stack.
+      - Assert: !Not [!Equals [!Ref LtlDemoQaAllowedOrders, ""]]
+        AssertDescription: LTL Demo Proof QA requires exact allowlisted demo orders.
+      - Assert: !Not [!Equals [!Ref LtlDemoQaExpiresAt, ""]]
+        AssertDescription: LTL Demo Proof QA requires one bounded UTC expiry.
+      - Assert: !Equals [!Ref ReadOnlyQaConfirmed, "true"]
+        AssertDescription: LTL Demo Proof QA requires the reviewed read-only boundary.
+      - Assert: !Not [!Equals [!Ref EdgeSharedSecret, ""]]
+        AssertDescription: LTL Demo Proof QA requires the private edge-to-origin binding.
+      - Assert: !Or
+          - !Not [!Equals [!Ref ProofWebAclArn, ""]]
+          - !Equals [!Ref ManagedWebAclEnabled, "true"]
+        AssertDescription: LTL Demo Proof QA requires managed or shared WAF protection.
+      - Assert: !And
+          - !Not [!Equals [!Ref PathfinderTargetsTableName, ""]]
+          - !Not [!Equals [!Ref PathfinderTargetsTableArn, ""]]
+          - !Not [!Equals [!Ref ProofingApiSecretArn, ""]]
+          - !Not [!Equals [!Ref ProofAssetBucketName, ""]]
+          - !Not [!Equals [!Ref ProofAssetBucketArn, ""]]
+        AssertDescription: LTL Demo Proof QA requires exact customer-action and private upload bindings.
+      - Assert: !Equals [!Ref PublicReadEnabled, "false"]
+        AssertDescription: The profile cannot overlap legacy public read.
+      - Assert: !Equals [!Ref CustomerApprovalEnabled, "false"]
+        AssertDescription: The profile cannot overlap legacy customer approval.
+      - Assert: !Equals [!Ref CustomerRevisionUploadEnabled, "false"]
+        AssertDescription: The profile cannot overlap legacy customer revised-art upload.
+      - Assert: !Equals [!Ref ProofAssetUploadEnabled, "false"]
+        AssertDescription: The profile cannot overlap legacy asset upload.
+      - Assert: !Equals [!Ref OperatorGrantCreationEnabled, "false"]
+        AssertDescription: The public profile stack does not create grants.
+      - Assert: !Equals [!Ref SyntheticQaEnabled, "false"]
+        AssertDescription: The profile cannot overlap synthetic QA.
+      - Assert: !Equals [!Ref ProductionPublicReadApproved, "false"]
+        AssertDescription: The dev-only profile cannot assert production public-read approval.
 
 Resources:
   ProofWebBucket:
@@ -849,13 +907,22 @@ Resources:
           PATHFINDER_PROOF_CORE_TABLE: !Ref ProofCoreTable
           PATHFINDER_PROOF_AUDIT_TABLE: !Ref ProofAuditTable
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: !Ref PublicReadEnabled
+          PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: !Join
+            - "|"
+            - - !Ref LtlDemoQaEnabled
+              - !Ref LtlDemoQaExpiresAt
+              - !Ref LtlDemoQaAllowedOrders
+              - "false"
+              - "true"
+              - "true"
+              - "true"
           PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join
             - "|"
             - - !Ref PublicReadEnabled
               - !Ref CustomerApprovalEnabled
               - !Ref CustomerRevisionUploadEnabled
-          PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref GrantAllowedCustomerIds
-          PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ReadOnlyActivationExpiresAt
+          PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !If [LtlDemoQaActive, "1249", !Ref GrantAllowedCustomerIds]
+          PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !If [LtlDemoQaActive, !Ref LtlDemoQaExpiresAt, !Ref ReadOnlyActivationExpiresAt]
           PATHFINDER_PROOF_ENABLE_GRANT_CREATION: "false"
           PATHFINDER_PROOF_PUBLIC_BASE_URL: !Ref PublicBaseUrl
           PATHFINDER_PROOF_SYNC_QUEUE_URL: !Ref ProofSyncQueue
@@ -866,8 +933,8 @@ Resources:
           PATHFINDER_SECRETS_DRIVER: !If [CustomerRuntimeActive, "secrets-manager", !Ref "AWS::NoValue"]
           PATHFINDER_SECRET_PREFIX: !If [CustomerRuntimeActive, !Ref PathfinderSecretPrefix, !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If [CustomerRevisionUploadActive, "true", !Ref "AWS::NoValue"]
-          PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If [CustomerRevisionUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"]
-          PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If [CustomerRevisionUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If [LtlDemoQaActive, !Ref LtlDemoQaAllowedOrders, !If [CustomerRevisionUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"]]
+          PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If [LtlDemoQaActive, !Ref LtlDemoQaExpiresAt, !If [CustomerRevisionUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"]]
           PATHFINDER_PROOF_ASSET_BUCKET: !If [CustomerRevisionUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"]
 
   ProofSyncFunction:

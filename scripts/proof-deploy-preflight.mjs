@@ -185,16 +185,55 @@ export function validateProofDeployment(env = process.env) {
     throw new Error(`${requestedWriteFlag} cannot be enabled in the read-only Vornan Proof deployment.`);
   }
 
-  const publicReadEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ);
+  const legacyPublicReadEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ);
   const syntheticQaEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA);
   const operatorGrantCreationEnabled = enabled(env.PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED);
-  const customerApprovalEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS);
-  const customerRevisionUploadEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS);
-  const proofAssetUploadEnabled = enabled(env.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD);
-  const grantAllowedCustomerIds = customerIdCohort(env, "PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS");
+  const legacyCustomerApprovalEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS);
+  const legacyCustomerRevisionUploadEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS);
+  const legacyProofAssetUploadEnabled = enabled(env.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD);
+  const ltlDemoQaEnabled = enabled(env.PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED);
+  const ltlDemoQaAllowedOrders = ltlDemoQaEnabled
+    ? orderNumberCohort(env, "PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS")
+    : [];
+  const publicReadEnabled = legacyPublicReadEnabled || ltlDemoQaEnabled;
+  const customerApprovalEnabled = legacyCustomerApprovalEnabled || ltlDemoQaEnabled;
+  const customerRevisionUploadEnabled = legacyCustomerRevisionUploadEnabled || ltlDemoQaEnabled;
+  const proofAssetUploadEnabled = legacyProofAssetUploadEnabled || ltlDemoQaEnabled;
+  const configuredGrantAllowedCustomerIds = customerIdCohort(env, "PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS");
+  const grantAllowedCustomerIds = ltlDemoQaEnabled ? ["1249"] : configuredGrantAllowedCustomerIds;
   const managedWafEnabled = enabled(env.PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED);
   const sharedWebAclConfigured = Boolean(env.PATHFINDER_PROOF_WEB_ACL_ARN?.trim());
   let readOnlyActivationExpiresAt = null;
+  if (ltlDemoQaEnabled) {
+    if (
+      environmentName !== "dev"
+      || legacyPublicReadEnabled
+      || legacyCustomerApprovalEnabled
+      || legacyCustomerRevisionUploadEnabled
+      || legacyProofAssetUploadEnabled
+      || operatorGrantCreationEnabled
+      || syntheticQaEnabled
+      || enabled(env.PATHFINDER_PROOF_ENABLE_LINK_EMAIL)
+      || enabled(env.PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED)
+    ) {
+      throw new Error(
+        "The LTL Demo QA profile requires the isolated dev stack with legacy Proof gates, operator grants, synthetic QA, email, and production approval disabled."
+      );
+    }
+    readOnlyActivationExpiresAt = futureUtcTimestamp(
+      env,
+      "PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT"
+    );
+    if (Date.parse(readOnlyActivationExpiresAt) > Date.now() + 24 * 60 * 60 * 1000) {
+      throw new Error("PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT must be within 24 hours.");
+    }
+    if (!enabled(env.PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED)) {
+      throw new Error("PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED=true is required for the LTL Demo QA profile.");
+    }
+    if (!managedWafEnabled && !sharedWebAclConfigured) {
+      throw new Error("A managed or shared WAF is required for the LTL Demo QA profile.");
+    }
+  }
   if (
     syntheticQaEnabled
     && (
@@ -211,7 +250,7 @@ export function validateProofDeployment(env = process.env) {
       "PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA=true is allowed only in the fully dark dev stack."
     );
   }
-  if (publicReadEnabled) {
+  if (publicReadEnabled && !ltlDemoQaEnabled) {
     readOnlyActivationExpiresAt = futureUtcTimestamp(env, "PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT");
     if (!enabled(env.PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED)) {
       throw new Error("PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED=true is required before public read can be enabled.");
@@ -272,8 +311,12 @@ export function validateProofDeployment(env = process.env) {
       throw new Error("PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS is required for customer revised-art upload.");
     }
     validateCustomerRuntimeBindings(env);
-    orderNumberCohort(env, "PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS");
-    const uploadExpiresAt = futureUtcTimestamp(env, "PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT");
+    if (!ltlDemoQaEnabled) {
+      orderNumberCohort(env, "PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS");
+    }
+    const uploadExpiresAt = ltlDemoQaEnabled
+      ? readOnlyActivationExpiresAt
+      : futureUtcTimestamp(env, "PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT");
     if (readOnlyActivationExpiresAt && Date.parse(uploadExpiresAt) > Date.parse(readOnlyActivationExpiresAt)) {
       throw new Error("PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT cannot exceed the public-read deadline.");
     }
@@ -305,6 +348,10 @@ export function validateProofDeployment(env = process.env) {
     operator_grant_creation_enabled: operatorGrantCreationEnabled,
     operator_cohort_size: grantAllowedCustomerIds.length,
     operator_public_base_url: operatorPublicBaseUrl,
+    ltl_demo_qa_enabled: ltlDemoQaEnabled,
+    ltl_demo_qa_customer_id: ltlDemoQaEnabled ? "1249" : null,
+    ltl_demo_qa_allowed_orders: ltlDemoQaAllowedOrders,
+    ltl_demo_qa_session_ttl_minutes: ltlDemoQaEnabled ? 720 : null,
     customer_approval_enabled: customerApprovalEnabled,
     customer_revision_upload_enabled: customerRevisionUploadEnabled,
     proof_asset_upload_enabled: proofAssetUploadEnabled,

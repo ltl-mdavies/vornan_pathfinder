@@ -80,6 +80,9 @@ aws cloudformation deploy \
     ProofAuditTableName="${PATHFINDER_PROOF_AUDIT_TABLE:-}" \
     ProofAuditTableArn="${PATHFINDER_PROOF_AUDIT_TABLE_ARN:-}" \
     ProofGrantCreationEnabled="${PATHFINDER_PROOF_ENABLE_GRANT_CREATION:-false}" \
+    ProofLtlDemoQaEnabled="${PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED:-false}" \
+    ProofLtlDemoQaAllowedOrders="${PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS:-}" \
+    ProofLtlDemoQaExpiresAt="${PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT:-}" \
     ProofPublicReadEnabled="${PATHFINDER_PROOF_ENABLE_PUBLIC_READ:-false}" \
     ProofCustomerApprovalEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:-false}" \
     ProofCustomerRevisionUploadEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS:-false}" \
@@ -94,6 +97,10 @@ aws cloudformation deploy \
     ProofAssetUploadEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD:-false}" \
     ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \
     ProofAssetUploadExpiresAt="${PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT:-}" \
+    ProofAssetPublicationEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_PUBLICATION:-false}" \
+    ProofAssetPublicationAllowedOrders="${PATHFINDER_PROOF_ASSET_PUBLICATION_ALLOWED_ORDERS:-}" \
+    ProofAssetPublicationExpiresAt="${PATHFINDER_PROOF_ASSET_PUBLICATION_EXPIRES_AT:-}" \
+    ProofAssetDeliveryBaseUrl="${PATHFINDER_PROOF_ASSET_DELIVERY_BASE_URL:-}" \
     ProofAssetBucketName="${PATHFINDER_PROOF_ASSET_BUCKET:-}" \
     ProofAssetBucketArn="${PATHFINDER_PROOF_ASSET_BUCKET_ARN:-}" \
     ProofAssetScanWorkerEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_SCAN_WORKER:-false}" \

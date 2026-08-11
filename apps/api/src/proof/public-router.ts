@@ -485,7 +485,15 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
     res.json({
       phase: config.phase,
       public_read: config.feature_flags.public_read,
-      decisions_enabled: config.feature_flags.public_read && config.feature_flags.approve
+      decisions_enabled: config.feature_flags.public_read && config.feature_flags.approve,
+      ltl_demo_qa: {
+        active: config.ltl_demo_qa.active,
+        allowed_customer_id: config.ltl_demo_qa.allowed_customer_id,
+        allowed_order_count: config.ltl_demo_qa.allowed_order_numbers.length,
+        activation_expires_at: config.ltl_demo_qa.activation_expires_at,
+        session_ttl_minutes: config.ltl_demo_qa.session_ttl_minutes,
+        automatic_retry: false
+      }
     });
   });
 

@@ -229,12 +229,13 @@ test("the deployment script forces DNS and certificate parameters empty and veri
   assert.match(deployScript, /existing_live_boundary="\$\{stack_lookup_result\}"/);
   assert.match(
     deployScript,
-    /OutputKey=='WrikeDocumentDeliveryEnabled' \|\| OutputKey=='ProofAssetAliasConfigured' \|\| OutputKey=='ProofAssetMalwareProtectionEnabled'/
+    /OutputKey=='WrikeDocumentDeliveryEnabled' \|\| OutputKey=='ProofAssetDeliveryCapabilityEnabled' \|\| OutputKey=='ProofAssetAliasConfigured' \|\| OutputKey=='ProofAssetMalwareProtectionEnabled'/
   );
   assert.match(deployScript, /Refusing to apply the dark-foundation deploy over active asset-stack capabilities/);
   assert.match(deployScript, /AssetDomainName=""/);
   assert.match(deployScript, /CertificateArn=""/);
   assert.match(deployScript, /WrikeDocumentDeliveryEnabled="false"/);
+  assert.match(deployScript, /ProofAssetDeliveryEnabled="false"/);
   assert.match(deployScript, /PATHFINDER_PROOF_ASSET_MALWARE_PROTECTION_ENABLED="false"/);
   assert.match(deployScript, /ProofAssetMalwareProtectionEnabled="false"/);
   assert.match(deployScript, /--capabilities CAPABILITY_IAM/);

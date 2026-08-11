@@ -518,7 +518,7 @@ test("operator revised-art upload stays independently dark and exact-bucket scop
   );
   assert.match(
     template,
-    /PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If \[ProofAssetUploadActive, "true", !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If \[ProofAssetUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If \[ProofAssetUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_BUCKET: !If \[ProofAssetUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"\]/
+    /PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If \[ProofAssetUploadActive, "true", !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If \[ProofAssetUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If \[ProofAssetUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_BUCKET: !If[\s\S]*?ProofAssetPublicationActive[\s\S]*?!Ref ProofAssetBucketName[\s\S]*?!If \[ProofAssetUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"\]/
   );
   assert.match(
     template,
@@ -531,6 +531,39 @@ test("operator revised-art upload stays independently dark and exact-bucket scop
   assert.match(
     workflow,
     /ProofAssetUploadEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD \|\| 'false' \}\}"/
+  );
+});
+
+test("Proof publication stays independently dark and direct-delivery scoped", () => {
+  assert.match(template, /ProofAssetPublicationEnabled:[\s\S]*?Default: "false"/);
+  assert.match(
+    template,
+    /ProofAssetPublicationRequiresDurableIsolation:[\s\S]*?!Ref ProofAssetPublicationAllowedOrders[\s\S]*?!Ref ProofAssetPublicationExpiresAt[\s\S]*?https:\/\/go\.vornan\.co/
+  );
+  assert.match(
+    template,
+    /ProofAssetPublicationActive:[\s\S]*?!Condition HasProofAssetBucket[\s\S]*?!Condition HasProofTables[\s\S]*?!Ref ProofAssetPublicationEnabled, "true"/
+  );
+  assert.match(
+    template,
+    /ProofAssetPublicationActive[\s\S]*?s3:GetObjectVersion[\s\S]*?s3:PutObject[\s\S]*?s3:PutObjectTagging[\s\S]*?ProofAssetBucketArn\}\/a\/\*/
+  );
+  assert.match(
+    workflow,
+    /ProofAssetPublicationEnabled="\$\{\{ vars\.PATHFINDER_ENABLE_PROOF_ASSET_PUBLICATION \|\| 'false' \}\}"/
+  );
+});
+
+test("the unified LTL Demo QA profile is allowlisted and does not compose with mutation gates", () => {
+  assert.match(template, /ProofLtlDemoQaEnabled:[\s\S]*?Default: "false"/);
+  assert.match(template, /ProofLtlDemoQaAllowedOrders:[\s\S]*?AllowedPattern:/);
+  assert.match(
+    template,
+    /ProofLtlDemoQaRequiresIsolatedBoundary:[\s\S]*?!Ref ProofLtlDemoQaAllowedOrders[\s\S]*?!Ref ProofLtlDemoQaExpiresAt[\s\S]*?!Ref ProofAssetPublicationEnabled, "false"[\s\S]*?!Ref ProofAssetScanWorkerEnabled, "false"[\s\S]*?!Ref ProofOperatorActionQaEnabled, "false"/
+  );
+  assert.match(
+    template,
+    /PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: !Join[\s\S]*?!Ref ProofLtlDemoQaEnabled[\s\S]*?!Ref ProofLtlDemoQaAllowedOrders/
   );
 });
 
