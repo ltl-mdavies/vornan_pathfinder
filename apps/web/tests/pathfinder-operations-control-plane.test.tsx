@@ -25,7 +25,23 @@ test("Wrike Import Method exposes safe discovery and actionable pending intake",
   assert.match(source, /same saved folders, qualification rules, evidence capture, document publication/);
   assert.match(source, /Pending intake/);
   assert.match(source, /candidate\.reasons\.map/);
+  assert.match(source, /Likely candidates/);
+  assert.match(source, /All Placard Orders/);
+  assert.match(source, /candidate\.readiness_score/);
+  assert.match(source, /wrikePendingPageSize = 25/);
   assert.match(source, /No Lift order was submitted and no Wrike status was changed/);
+});
+
+test("Jobs presents one source-order identity with nontechnical state filters", () => {
+  assert.match(source, /Current orders/);
+  assert.match(source, /Ready to submit/);
+  assert.match(source, /Confirmation needed/);
+  assert.match(source, /Order confirmed/);
+  assert.match(source, /Wrike Order/);
+  assert.match(source, /jobContractNumber/);
+  assert.match(source, /jobCampaignName/);
+  assert.match(source, /Source order activity/);
+  assert.match(source, /Historical record/);
 });
 
 test("blocked Wrike jobs expose in-place mapping recovery and audit history", () => {

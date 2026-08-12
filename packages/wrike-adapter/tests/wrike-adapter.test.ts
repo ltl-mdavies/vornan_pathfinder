@@ -876,6 +876,18 @@ test("previews one qualified task and counts every matching workbook without ret
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
+        if (new URL(url).pathname === "/api/v4/folders/IEOTHERFOLDER") {
+          return new Response(
+            JSON.stringify({
+              data: [{
+                id: "IEOTHERFOLDER",
+                title: "Private Airport Placards - C3168700",
+                parentIds: ["IEAPPROVEDFOLDER"]
+              }]
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
         if (
           new URL(url).pathname === "/api/v4/tasks/IEAPPROVEDTASK" &&
           new URL(url).search
@@ -925,10 +937,11 @@ test("previews one qualified task and counts every matching workbook without ret
   assert.equal(result.preview.capabilities.artwork_folder_value_read, true);
   assert.deepEqual(result.preview.observed.super_parent_ids, ["IEAPPROVEDFOLDER"]);
   assert.equal(result.preview.capabilities.attachment_download, false);
-  assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET"]);
+  assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET", "GET"]);
   assert.equal(new URL(calls[1].url).pathname, "/api/v4/tasks/IEAPPROVEDTASK");
   assert.equal(new URL(calls[1].url).search, "");
-  assert.match(calls[2].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\/attachments\?versions=false&withUrls=false$/);
+  assert.equal(new URL(calls[2].url).pathname, "/api/v4/folders/IEOTHERFOLDER");
+  assert.match(calls[3].url, /\/api\/v4\/tasks\/IEAPPROVEDTASK\/attachments\?versions=false&withUrls=false$/);
   assert.equal(calls.some((call) => /download|preview|webhooks/.test(call.url)), false);
   const publicPayload = JSON.stringify(result.preview);
   assert.equal(publicPayload.includes("Private customer"), false);
@@ -1113,6 +1126,12 @@ test("requalifies and downloads only current matching workbooks without forwardi
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
+        if (url.endsWith("/folders/IEAPPROVEDFOLDER")) {
+          return new Response(
+            JSON.stringify({ data: [{ id: "IEAPPROVEDFOLDER", title: "Synthetic Campaign" }] }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
         if (url === "https://files.example.test/signed/current") {
           assert.deepEqual(init?.headers, { Accept: "*/*" });
           assert.equal(init?.redirect, "error");
@@ -1175,9 +1194,13 @@ test("requalifies and downloads only current matching workbooks without forwardi
   assert.equal(new TextDecoder().decode(result.workbooks[0].bytes), "bounded-workbook");
   assert.deepEqual(result.order_context, {
     contract_number: "C3168700",
-    artwork_folder_url: "https://momentara.sharepoint.com/sites/art/Private-Momentara"
+    artwork_folder_url: "https://momentara.sharepoint.com/sites/art/Private-Momentara",
+    task_title: "Placard Order",
+    root_folder_id: "IEAPPROVEDFOLDER",
+    campaign_folder_id: "IEAPPROVEDFOLDER",
+    campaign_name: "Synthetic Campaign"
   });
-  assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET", "GET", "GET", "GET"]);
+  assert.deepEqual(calls.map((call) => call.init?.method), ["POST", "GET", "GET", "GET", "GET", "GET", "GET"]);
   assert.equal(
     calls
       .filter((call) => call.url.startsWith("https://files.example.test/signed/"))
@@ -1538,6 +1561,8 @@ test("discovers eligible Placard Orders across configured campaign descendants a
   assert.equal(result.summary.order_contract_ready_count, 1);
   assert.equal(result.summary.eligible_order_count, 1);
   assert.equal(result.summary.pending_order_count, 1);
+  assert.equal(result.summary.placard_order_pending_count, 1);
+  assert.equal(result.summary.likely_pending_order_count, 1);
   assert.equal(result.summary.order_status_id_count, 1);
   assert.deepEqual(result.summary.order_identity_status_ids, ["IESENTTOPRINT"]);
   assert.deepEqual(result.summary.resolved_order_status_ids, ["IESENTTOPRINT"]);
@@ -1549,10 +1574,13 @@ test("discovers eligible Placard Orders across configured campaign descendants a
     {
       task_id: "IEPLACARDOTHER",
       task_title: "Placard Order",
+      updated_at: null,
       account_id: "IEACCOUNT",
       root_folder_ids: ["IEGPACAMPAIGNS"],
       custom_status_id: "IESENTTOPRINT",
       contract_number: "C3168701",
+      identity_matches: true,
+      readiness_score: 2,
       reasons: [
         {
           code: "print_vendor",
@@ -1582,6 +1610,77 @@ test("discovers eligible Placard Orders across configured campaign descendants a
   ]);
   assert.equal(folderUrl.searchParams.get("pageSize"), "1000");
   assert.equal(folderUrl.searchParams.has("customStatuses"), false);
+});
+
+test("returns the true pending count and prioritizes likely Placard Order candidates beyond 100 tasks", async () => {
+  const placardTasks = Array.from({ length: 120 }, (_, index) => ({
+    id: `IEPLACARD${String(index).padStart(3, "0")}`,
+    accountId: "IEACCOUNT",
+    parentIds: ["IECAMPAIGN"],
+    superParentIds: ["IEROOT"],
+    customStatusId: "IEREADY",
+    updatedDate: new Date(Date.UTC(2026, 7, 12, 12, index % 60)).toISOString(),
+    title: "Placard Order",
+    customFields: [{ id: "IECONTRACT", value: `C${String(3100000 + index)}` }]
+  }));
+  const statusNoise = Array.from({ length: 5 }, (_, index) => ({
+    id: `IENOISE${index}`,
+    accountId: "IEACCOUNT",
+    parentIds: ["IECAMPAIGN"],
+    superParentIds: ["IEROOT"],
+    customStatusId: "IEREADY",
+    title: "Unrelated task",
+    customFields: []
+  }));
+  const result = await discoverScopedWrikeIntakeTasks(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    normalizeWrikeSourceConfig({
+      folder_id: "IEROOT",
+      trigger_status_id: "IEREADY",
+      contract_number_custom_field_id: "IECONTRACT",
+      print_vendor_custom_field_id: "IEVENDOR",
+      order_task_title: "Placard Order",
+      required_print_vendor_value: "Larger Than Life"
+    }),
+    {
+      fetch_impl: async (input) => {
+        const url = String(input);
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-token",
+              refresh_token: "rotated-refresh-token",
+              host: "app-us2.wrike.com"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.includes("/folders/IEROOT/tasks")) {
+          return new Response(JSON.stringify({ data: [...placardTasks, ...statusNoise] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        return new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+    }
+  );
+
+  assert.equal(result.pending_order_candidates.length, 120);
+  assert.equal(result.summary.pending_order_count, 120);
+  assert.equal(result.summary.placard_order_pending_count, 120);
+  assert.equal(result.summary.likely_pending_order_count, 120);
+  assert.equal(result.pending_order_candidates[0]?.identity_matches, true);
+  assert.equal(result.pending_order_candidates[0]?.readiness_score, 2);
+  assert.equal(result.pending_order_candidates.at(-1)?.identity_matches, true);
 });
 
 test("discovers and deduplicates eligible orders across multiple configured campaign roots", async () => {

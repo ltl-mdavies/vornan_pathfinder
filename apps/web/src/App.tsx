@@ -129,6 +129,13 @@ type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Se
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
 type JobArchiveFilter = "Active" | "Archived" | "All";
 type JobIntakeFilter = "All" | "Customer Dropbox" | "Operator";
+type JobStateFilter =
+  | "Current Orders"
+  | "Needs Attention"
+  | "Ready to Submit"
+  | "Confirmation Needed"
+  | "Order Confirmed"
+  | "All States";
 type JobSortField = "state" | "updated_at" | "created_at";
 type JobSortDirection = "asc" | "desc";
 
@@ -365,10 +372,13 @@ type WrikeManualIntakePayload = {
 type WrikePendingIntakeCandidate = {
   task_id: string;
   task_title: string;
+  updated_at: string | null;
   account_id: string;
   root_folder_ids: string[];
   custom_status_id: string;
   contract_number: string | null;
+  identity_matches: boolean;
+  readiness_score: number;
   reasons: Array<{
     code: "task_identity" | "trigger_status" | "print_vendor" | "contract_number";
     message: string;
@@ -395,6 +405,8 @@ type WrikeDiscoveryRunPayload = {
     scoped_task_count: number;
     eligible_order_count: number;
     pending_order_count: number;
+    placard_order_pending_count: number;
+    likely_pending_order_count: number;
   };
   root_scopes: Array<{
     configured_folder_id: string;
@@ -893,10 +905,41 @@ interface ProcessingJobPreview {
     connection_id: string;
     account_id: string;
     task_id: string;
+    task_title?: string | null;
+    root_folder_id?: string | null;
+    campaign_folder_id?: string | null;
+    campaign_name?: string | null;
     attachment_id: string;
     version_id: string;
     captured_at: string;
   } | null;
+  source_order_last_seen_at?: string | null;
+  source_order_history?: Array<{
+    event_id: string;
+    action:
+      | "source_order_created"
+      | "source_version_prepared"
+      | "source_change_observed_after_transport"
+      | "campaign_identity_captured";
+    created_at: string;
+    source_evidence_id: string;
+    import_method_fingerprint: string;
+    reference_proof_evidence_ids: string[];
+    message: string;
+  }>;
+  source_order_summary?: {
+    source_order_key: string;
+    related_record_count: number;
+    related_records: Array<{
+      job_id: string;
+      pathfinder_order_id: string;
+      state: ProcessingState;
+      target_order_number: string | null;
+      source_evidence_id: string | null;
+      created_at: string;
+      updated_at: string;
+    }>;
+  };
 }
 
 interface JobRecoveryAuditEntry {
@@ -2388,15 +2431,21 @@ function displayCurrency(value?: number | null) {
 }
 
 function StatePill({ state }: { state: ProcessingState }) {
+  const label =
+    state === "Ready"
+      ? "Ready to Submit"
+      : state === "Submitted"
+        ? "Confirmation Needed"
+        : state;
   const className =
     state === "Failed" || state === "Submit Failed"
       ? "pill pill-danger"
-      : state === "Needs Mapping"
+      : state === "Needs Mapping" || state === "Submitted"
         ? "pill pill-warning"
       : state === "Ready" || state === "Order Confirmed" || state === "Completed"
         ? "pill pill-success"
         : "pill pill-neutral";
-  return <span className={className}>{state}</span>;
+  return <span className={className}>{label}</span>;
 }
 
 function MethodStatusPill({ status }: { status: ImportMethodStatus }) {
@@ -2552,8 +2601,30 @@ function isFailureState(state: ProcessingState) {
   return state === "Failed" || state === "Submit Failed" || state === "Cancelled";
 }
 
+function jobOperationalState(job: ProcessingJobPreview): Exclude<JobStateFilter, "Current Orders" | "All States"> | "Other" {
+  if (job.target_order_number || job.state === "Order Confirmed" || job.state === "Completed") {
+    return "Order Confirmed";
+  }
+  if (job.state === "Submitted") return "Confirmation Needed";
+  if (job.state === "Ready") return "Ready to Submit";
+  if (job.state === "Needs Mapping" || isFailureState(job.state)) return "Needs Attention";
+  return "Other";
+}
+
 function jobExtId(job: ProcessingJobPreview) {
   return job.lift_payload.order.ext_id;
+}
+
+function jobContractNumber(job: ProcessingJobPreview) {
+  return job.canonical_order.order.contract_number?.trim() || "Contract pending";
+}
+
+function jobCampaignName(job: ProcessingJobPreview) {
+  return (
+    job.source_evidence?.campaign_name?.trim() ||
+    job.lift_payload.order.order_title?.trim() ||
+    job.source_file_name
+  );
 }
 
 function jobOrderCount(job: ProcessingJobPreview) {
@@ -2568,6 +2639,7 @@ function sortAndFilterJobs(
   jobs: ProcessingJobPreview[],
   archiveFilter: JobArchiveFilter,
   intakeFilter: JobIntakeFilter,
+  stateFilter: JobStateFilter,
   sortField: JobSortField,
   sortDirection: JobSortDirection
 ) {
@@ -2578,7 +2650,12 @@ function sortAndFilterJobs(
     const intakeMatches =
       intakeFilter === "All" ||
       (intakeFilter === "Customer Dropbox" ? isCustomerDropbox : !isCustomerDropbox);
-    return archiveMatches && intakeMatches;
+    const operationalState = jobOperationalState(job);
+    const stateMatches =
+      stateFilter === "All States" ||
+      stateFilter === "Current Orders" ||
+      operationalState === stateFilter;
+    return archiveMatches && intakeMatches && stateMatches;
   });
   const direction = sortDirection === "asc" ? 1 : -1;
 
@@ -2596,22 +2673,26 @@ function sortAndFilterJobs(
 function JobListControls({
   archiveFilter,
   intakeFilter,
+  stateFilter,
   sortField,
   sortDirection,
   selectedCount,
   onArchiveFilterChange,
   onIntakeFilterChange,
+  onStateFilterChange,
   onSortFieldChange,
   onSortDirectionChange,
   onBulkAction
 }: {
   archiveFilter: JobArchiveFilter;
   intakeFilter: JobIntakeFilter;
+  stateFilter: JobStateFilter;
   sortField: JobSortField;
   sortDirection: JobSortDirection;
   selectedCount: number;
   onArchiveFilterChange: (filter: JobArchiveFilter) => void;
   onIntakeFilterChange: (filter: JobIntakeFilter) => void;
+  onStateFilterChange: (filter: JobStateFilter) => void;
   onSortFieldChange: (field: JobSortField) => void;
   onSortDirectionChange: (direction: JobSortDirection) => void;
   onBulkAction: () => void;
@@ -2634,6 +2715,17 @@ function JobListControls({
             <option value="All">All intake</option>
             <option value="Customer Dropbox">Customer dropbox</option>
             <option value="Operator">Operator workspace</option>
+          </select>
+        </label>
+        <label>
+          <span>State</span>
+          <select value={stateFilter} onChange={(event) => onStateFilterChange(event.target.value as JobStateFilter)}>
+            <option value="Current Orders">Current orders</option>
+            <option value="Needs Attention">Needs attention</option>
+            <option value="Ready to Submit">Ready to submit</option>
+            <option value="Confirmation Needed">Confirmation needed</option>
+            <option value="Order Confirmed">Order confirmed</option>
+            <option value="All States">All states</option>
           </select>
         </label>
         <label>
@@ -2696,9 +2788,8 @@ function JobListTable({
             </th>
             <th>Job</th>
             {includeCustomer ? <th>Customer</th> : null}
-            <th>Source</th>
+            <th>Wrike Order</th>
             <th>Intake</th>
-            <th>Ext ID</th>
             <th>Lift Order</th>
             <th>State</th>
             <th>Created</th>
@@ -2718,12 +2809,24 @@ function JobListTable({
                 />
               </td>
               <td>
-                <button className="link-button" onClick={() => onOpenJob(job)}>
-                  {displayJobId(job.job_id)}
-                </button>
+                <span className="job-identity-cell">
+                  <button className="link-button" onClick={() => onOpenJob(job)}>
+                    {displayJobId(job.job_id)}
+                  </button>
+                  <small>{jobExtId(job)}</small>
+                  {job.source_order_summary?.related_record_count ? (
+                    <small>{job.source_order_summary.related_record_count} historical record{job.source_order_summary.related_record_count === 1 ? "" : "s"}</small>
+                  ) : null}
+                </span>
               </td>
               {includeCustomer ? <td>{job.customer_name}</td> : null}
-              <td>{job.import_method_name}</td>
+              <td>
+                <span className="job-identity-cell">
+                  <strong>{jobContractNumber(job)}</strong>
+                  <small>{jobCampaignName(job)}</small>
+                  <small>{job.import_method_name}</small>
+                </span>
+              </td>
               <td>
                 {job.public_intake?.channel === "customer_dropbox" ? (
                   <span className="job-intake-cell">
@@ -2734,8 +2837,12 @@ function JobListTable({
                   <span className="job-intake-pill job-intake-pill-operator">Operator</span>
                 )}
               </td>
-              <td>{jobExtId(job)}</td>
-              <td>{job.target_order_number ?? "—"}</td>
+              <td>
+                <span className="job-identity-cell">
+                  <strong>{job.target_order_number ?? "Pending"}</strong>
+                  <small>{job.lift_payload.order.order_title || "Lift order name pending"}</small>
+                </span>
+              </td>
               <td>
                 <StatePill state={job.state} />
               </td>
@@ -3969,6 +4076,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     useState<"idle" | "loading" | "error">("idle");
   const [wrikeDiscoveryRunMessage, setWrikeDiscoveryRunMessage] = useState<string | null>(null);
   const [wrikeDiscoveryRun, setWrikeDiscoveryRun] = useState<WrikeDiscoveryRunPayload | null>(null);
+  const [wrikePendingView, setWrikePendingView] = useState<"likely" | "all">("likely");
+  const [wrikePendingPage, setWrikePendingPage] = useState(0);
   const [wrikeCustomFieldState, setWrikeCustomFieldState] =
     useState<"idle" | "loading" | "error">("idle");
   const [wrikeCustomFieldMessage, setWrikeCustomFieldMessage] = useState<string | null>(null);
@@ -4139,6 +4248,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [wrikeWritebackState, setWrikeWritebackState] = useState<"idle" | "posting" | "error">("idle");
   const [jobArchiveFilter, setJobArchiveFilter] = useState<JobArchiveFilter>("Active");
   const [jobIntakeFilter, setJobIntakeFilter] = useState<JobIntakeFilter>("All");
+  const [jobStateFilter, setJobStateFilter] = useState<JobStateFilter>("Current Orders");
   const [jobSortField, setJobSortField] = useState<JobSortField>("updated_at");
   const [jobSortDirection, setJobSortDirection] = useState<JobSortDirection>("desc");
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
@@ -4713,10 +4823,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       );
       const payload = await readJsonResponse<WrikeDiscoveryRunPayload>(response);
       setWrikeDiscoveryRun(payload);
+      setWrikePendingView("likely");
+      setWrikePendingPage(0);
       setWrikeDiscoveryRunMessage(
         payload.failed_count
           ? `Discovery finished. ${payload.failed_count} ready order${payload.failed_count === 1 ? " needs" : "s need"} attention. No Lift order was submitted and no Wrike status was changed.`
-          : `Discovery finished with ${payload.discovered_count} ready order${payload.discovered_count === 1 ? "" : "s"} and ${payload.pending_intake.length} pending candidate${payload.pending_intake.length === 1 ? "" : "s"}. No Lift order was submitted and no Wrike status was changed.`
+          : `Discovery finished with ${payload.discovered_count} ready order${payload.discovered_count === 1 ? "" : "s"} and ${payload.discovery_summary.placard_order_pending_count} Placard Order candidate${payload.discovery_summary.placard_order_pending_count === 1 ? "" : "s"}. No Lift order was submitted and no Wrike status was changed.`
       );
       await refreshVisibleJobs();
       setWrikeDiscoveryRunState("idle");
@@ -6112,11 +6224,28 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       !wrikeDiscoveryPreview.checks.some((check) => check.status === "Blocked") &&
       (wrikeDiscoveryPreview.observed.workbook_candidate_count ?? 0) >= 1
   );
+  const wrikePlacardOrderCandidates = (wrikeDiscoveryRun?.pending_intake ?? []).filter(
+    (candidate) => candidate.identity_matches
+  );
+  const visibleWrikePendingCandidates = wrikePlacardOrderCandidates.filter(
+    (candidate) => wrikePendingView === "all" || candidate.readiness_score >= 2
+  );
+  const wrikePendingPageSize = 25;
+  const wrikePendingPageCount = Math.max(
+    1,
+    Math.ceil(visibleWrikePendingCandidates.length / wrikePendingPageSize)
+  );
+  const pagedWrikePendingCandidates = visibleWrikePendingCandidates.slice(
+    wrikePendingPage * wrikePendingPageSize,
+    (wrikePendingPage + 1) * wrikePendingPageSize
+  );
   useEffect(() => {
     setWrikeDiscoveryPreview(null);
     setWrikeDiscoveryMessage(null);
     setWrikeDiscoveryState("idle");
     setWrikeDiscoveryRun(null);
+    setWrikePendingView("likely");
+    setWrikePendingPage(0);
     setWrikeDiscoveryRunMessage(null);
     setWrikeDiscoveryRunState("idle");
     setWrikeCustomFieldDiscovery(null);
@@ -6267,11 +6396,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const addableCompositeColumns = availableInputColumns.filter(
     (column) => !activeProductConfig.composite_columns.includes(column)
   );
-  const customerJobsUnfiltered = workspace?.jobs ?? [];
+  const customerJobsUnfiltered = globalJobs.length
+    ? globalJobs.filter((job) => job.customer_id === selectedCustomer.lift_customer_id)
+    : workspace?.jobs ?? [];
   const customerJobs = sortAndFilterJobs(
     customerJobsUnfiltered,
     jobArchiveFilter,
     jobIntakeFilter,
+    jobStateFilter,
     jobSortField,
     jobSortDirection
   );
@@ -6281,6 +6413,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     allJobsUnfiltered,
     jobArchiveFilter,
     jobIntakeFilter,
+    jobStateFilter,
     jobSortField,
     jobSortDirection
   );
@@ -10548,26 +10681,54 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                     <strong>{wrikeDiscoveryRun.replayed_count}</strong>
                                   </div>
                                   <div>
-                                    <span>Pending intake</span>
-                                    <strong>{wrikeDiscoveryRun.pending_intake.length}</strong>
+                                    <span>Likely candidates</span>
+                                    <strong>{wrikeDiscoveryRun.discovery_summary.likely_pending_order_count}</strong>
                                   </div>
                                 </div>
                                 <div className="wrike-pending-intake">
                                   <div>
-                                    <strong>Pending intake</strong>
+                                    <strong>Pending intake candidates</strong>
                                     <small>
-                                      Wrike tasks found in the saved campaign folders that are not ready to become Pathfinder jobs.
+                                      Placard Order tasks stay separate from Jobs until every intake requirement is satisfied.
                                     </small>
                                   </div>
-                                  {wrikeDiscoveryRun.pending_intake.length ? (
+                                  <div className="wrike-pending-intake-controls">
+                                    <div role="group" aria-label="Candidate readiness view">
+                                      <button
+                                        type="button"
+                                        className={wrikePendingView === "likely" ? "secondary-button is-active" : "secondary-button"}
+                                        onClick={() => {
+                                          setWrikePendingView("likely");
+                                          setWrikePendingPage(0);
+                                        }}
+                                      >
+                                        Likely candidates ({wrikeDiscoveryRun.discovery_summary.likely_pending_order_count})
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className={wrikePendingView === "all" ? "secondary-button is-active" : "secondary-button"}
+                                        onClick={() => {
+                                          setWrikePendingView("all");
+                                          setWrikePendingPage(0);
+                                        }}
+                                      >
+                                        All Placard Orders ({wrikeDiscoveryRun.discovery_summary.placard_order_pending_count})
+                                      </button>
+                                    </div>
+                                    <small>
+                                      Likely candidates have at least two of three signals: ready status, Print Vendor, and Contract Number.
+                                    </small>
+                                  </div>
+                                  {visibleWrikePendingCandidates.length ? (
                                     <div className="wrike-pending-intake-list">
-                                      {wrikeDiscoveryRun.pending_intake.map((candidate) => (
+                                      {pagedWrikePendingCandidates.map((candidate) => (
                                         <article key={candidate.task_id}>
                                           <div>
                                             <strong>{candidate.task_title || `Wrike task ${candidate.task_id}`}</strong>
                                             <small>
-                                              Task {candidate.task_id} · {candidate.root_folder_ids.length} matched campaign folder{candidate.root_folder_ids.length === 1 ? "" : "s"}
+                                              {candidate.contract_number ?? "Contract pending"} · {candidate.readiness_score}/3 readiness · Updated {displayTimestamp(candidate.updated_at)}
                                             </small>
+                                            <small>Task {candidate.task_id} · {candidate.root_folder_ids.length} matched campaign folder{candidate.root_folder_ids.length === 1 ? "" : "s"}</small>
                                           </div>
                                           <ul>
                                             {candidate.reasons.map((reason) => (
@@ -10576,9 +10737,34 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                           </ul>
                                         </article>
                                       ))}
+                                      {wrikePendingPageCount > 1 ? (
+                                        <div className="wrike-pending-pagination">
+                                          <button
+                                            type="button"
+                                            className="secondary-button"
+                                            disabled={wrikePendingPage === 0}
+                                            onClick={() => setWrikePendingPage((current) => Math.max(0, current - 1))}
+                                          >
+                                            Previous
+                                          </button>
+                                          <span>Page {wrikePendingPage + 1} of {wrikePendingPageCount}</span>
+                                          <button
+                                            type="button"
+                                            className="secondary-button"
+                                            disabled={wrikePendingPage + 1 >= wrikePendingPageCount}
+                                            onClick={() => setWrikePendingPage((current) => Math.min(wrikePendingPageCount - 1, current + 1))}
+                                          >
+                                            Next
+                                          </button>
+                                        </div>
+                                      ) : null}
                                     </div>
                                   ) : (
-                                    <p className="empty-state">No unqualified Wrike candidates were found in this run.</p>
+                                    <p className="empty-state">
+                                      {wrikePendingView === "likely"
+                                        ? "No likely candidates need attention. Choose All Placard Orders to review earlier-stage tasks."
+                                        : "No unqualified Placard Order tasks were found in this run."}
+                                    </p>
                                   )}
                                 </div>
                               </>
@@ -14717,11 +14903,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <JobListControls
                   archiveFilter={jobArchiveFilter}
                   intakeFilter={jobIntakeFilter}
+                  stateFilter={jobStateFilter}
                   sortField={jobSortField}
                   sortDirection={jobSortDirection}
                   selectedCount={selectedJobs.length}
                   onArchiveFilterChange={setJobArchiveFilter}
                   onIntakeFilterChange={setJobIntakeFilter}
+                  onStateFilterChange={setJobStateFilter}
                   onSortFieldChange={setJobSortField}
                   onSortDirectionChange={setJobSortDirection}
                   onBulkAction={() => requestJobsArchive(selectedJobs, jobArchiveFilter !== "Archived")}
@@ -16819,11 +17007,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             <JobListControls
               archiveFilter={jobArchiveFilter}
               intakeFilter={jobIntakeFilter}
+              stateFilter={jobStateFilter}
               sortField={jobSortField}
               sortDirection={jobSortDirection}
               selectedCount={selectedJobs.length}
               onArchiveFilterChange={setJobArchiveFilter}
               onIntakeFilterChange={setJobIntakeFilter}
+              onStateFilterChange={setJobStateFilter}
               onSortFieldChange={setJobSortField}
               onSortDirectionChange={setJobSortDirection}
               onBulkAction={() => requestJobsArchive(selectedJobs, jobArchiveFilter !== "Archived")}
@@ -17165,6 +17355,49 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <small>
                             Verified {association.verification.customer_name ?? association.verification.customer_id} · {association.verification.line_count} line{association.verification.line_count === 1 ? "" : "s"} · {displayTimestamp(association.linked_at)}
                             {association.linked_by_email ? ` · ${association.linked_by_email}` : ""}
+                          </small>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+              {selectedJobDetail.source_order_history?.length || selectedJobDetail.source_order_summary?.related_record_count ? (
+                <details className="job-recovery-history" open>
+                  <summary>
+                    <History size={16} />
+                    Source order activity
+                  </summary>
+                  <div>
+                    {(selectedJobDetail.source_order_history ?? []).map((entry) => (
+                      <article key={entry.event_id}>
+                        <span className={entry.action === "source_change_observed_after_transport" ? "mini-pill mini-pill-warning" : "mini-pill mini-pill-neutral"}>
+                          {entry.action === "source_order_created"
+                            ? "Order created"
+                            : entry.action === "source_version_prepared"
+                              ? "Source updated"
+                              : entry.action === "campaign_identity_captured"
+                                ? "Campaign matched"
+                                : "Review needed"}
+                        </span>
+                        <div>
+                          <strong>{entry.message}</strong>
+                          <small>
+                            {displayTimestamp(entry.created_at)} · Evidence {entry.source_evidence_id}
+                            {entry.reference_proof_evidence_ids.length
+                              ? ` · ${entry.reference_proof_evidence_ids.length} reference proof${entry.reference_proof_evidence_ids.length === 1 ? "" : "s"}`
+                              : ""}
+                          </small>
+                        </div>
+                      </article>
+                    ))}
+                    {selectedJobDetail.source_order_summary?.related_records.map((record) => (
+                      <article key={record.job_id}>
+                        <span className="mini-pill mini-pill-neutral">Historical record</span>
+                        <div>
+                          <strong>{displayJobId(record.job_id)} · {record.state}</strong>
+                          <small>
+                            Retained for audit · {record.target_order_number ?? "No Lift order"} · {displayTimestamp(record.created_at)}
                           </small>
                         </div>
                       </article>

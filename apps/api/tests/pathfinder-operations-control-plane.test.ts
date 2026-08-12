@@ -72,3 +72,23 @@ test("in-place preview regeneration reuses all idempotency identities", () => {
     /liftPayload\.order\.ext_id = options\.existingJob\.lift_payload\.order\.ext_id/
   );
 });
+
+test("scheduled Wrike preparation keeps one record per source task", () => {
+  assert.match(source, /wrikeSourceOrderAnchorDisposition/);
+  assert.match(source, /existingJob: sourceOrder\.anchor \?\? undefined/);
+  assert.match(source, /source_change_observed_after_transport/);
+  assert.match(source, /Reconcile the existing submission before taking any action/);
+  assert.match(source, /sourceOrderJobProjection/);
+  assert.match(source, /related_record_count/);
+});
+
+test("confirmed or uncertain source changes stop before document publication", () => {
+  const prepareStart = source.indexOf("async function prepareWrikeOrderForTask");
+  const transportGuard = source.indexOf("existingSourceOrder.possibleTransport", prepareStart);
+  const publication = source.indexOf("publishWrikeLiftSourceDocument", prepareStart);
+  assert.ok(prepareStart > 0 && transportGuard > prepareStart && publication > transportGuard);
+  const protectedBranch = source.slice(transportGuard, publication);
+  assert.match(protectedBranch, /createWrikeEvidencePreviewForMethod/);
+  assert.match(protectedBranch, /return/);
+  assert.doesNotMatch(protectedBranch, /submitLiftOrder/);
+});

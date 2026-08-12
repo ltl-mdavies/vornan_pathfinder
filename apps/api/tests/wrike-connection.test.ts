@@ -393,6 +393,18 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
     }
+    if (url === "https://www.wrike.com/api/v4/folders/IEAPPROVEDFOLDER") {
+      return new Response(
+        JSON.stringify({
+          data: [{
+            id: "IEAPPROVEDFOLDER",
+            title: "MDHHS - Eat Safe Fish FY 26 - GPA - C316969",
+            parentIds: []
+          }]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
     return new Response(
       JSON.stringify({
         data: [{
@@ -430,6 +442,7 @@ test("runs a bounded saved-scope discovery preview through the Import Method's c
   assert.deepEqual(calls, [
     "https://www.wrike.com/oauth2/token",
     "https://www.wrike.com/api/v4/tasks/IEAPPROVEDTASK",
+    "https://www.wrike.com/api/v4/folders/IEAPPROVEDFOLDER",
     "https://www.wrike.com/api/v4/tasks/IEAPPROVEDTASK/attachments?versions=false&withUrls=false"
   ]);
   const publicPayload = JSON.stringify(response.body);
@@ -537,6 +550,18 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
         }
       });
     }
+    if (url === "https://www.wrike.com/api/v4/folders/IEAPPROVEDFOLDER") {
+      return new Response(
+        JSON.stringify({
+          data: [{
+            id: "IEAPPROVEDFOLDER",
+            title: "MDHHS - Eat Safe Fish FY 26 - GPA - C316969",
+            parentIds: []
+          }]
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
     return new Response(
       JSON.stringify({
         data: [{
@@ -641,9 +666,9 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
       `/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence/${evidence.evidence_id}/preview`
     )
     .send(rehearsalRequest(evidence.extension))
-    .expect(201);
-  assert.equal(mappingReprocessedPreview.body.preview_status, "Created");
-  assert.notEqual(mappingReprocessedPreview.body.job.job_id, preview.body.job.job_id);
+    .expect(200);
+  assert.equal(mappingReprocessedPreview.body.preview_status, "Replayed");
+  assert.equal(mappingReprocessedPreview.body.job.job_id, preview.body.job.job_id);
   assert.notEqual(
     mappingReprocessedPreview.body.job.source_evidence.import_method_fingerprint,
     preview.body.job.source_evidence.import_method_fingerprint
@@ -664,13 +689,13 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
   assert.equal(prepared.body.task_id, "IEAPPROVEDTASK");
   assert.deepEqual(prepared.body.summary, {
     workbook_count: 1,
-    created_count: 1,
-    replayed_count: 0,
+    created_count: 0,
+    replayed_count: 1,
     blocked_count: 0
   });
   assert.equal(prepared.body.workbooks[0].evidence_id, evidence.evidence_id);
-  assert.equal(prepared.body.workbooks[0].preview_status, "Created");
-  assert.notEqual(prepared.body.workbooks[0].job_id, preview.body.job.job_id);
+  assert.equal(prepared.body.workbooks[0].preview_status, "Replayed");
+  assert.equal(prepared.body.workbooks[0].job_id, preview.body.job.job_id);
   assert.equal(prepared.body.capabilities.operator_controlled, true);
   assert.equal(prepared.body.capabilities.polling, false);
   assert.equal(prepared.body.capabilities.webhook, false);
@@ -703,9 +728,9 @@ test("stores qualified evidence, then creates a context-bound Wrike preview with
       `/api/customers/${customerId}/import-methods/manual-xlsx/wrike/workbook-evidence/${evidence.evidence_id}/preview`
     )
     .send(rehearsalRequest(evidence.extension))
-    .expect(201);
-  assert.equal(revisedPreview.body.preview_status, "Created");
-  assert.notEqual(revisedPreview.body.job.job_id, preview.body.job.job_id);
+    .expect(200);
+  assert.equal(revisedPreview.body.preview_status, "Replayed");
+  assert.equal(revisedPreview.body.job.job_id, preview.body.job.job_id);
   assert.notEqual(
     revisedPreview.body.job.source_evidence.import_method_fingerprint,
     preview.body.job.source_evidence.import_method_fingerprint

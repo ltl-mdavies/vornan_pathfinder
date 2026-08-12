@@ -123,6 +123,33 @@ This option is deployed and explicitly enabled for Momentara as recorded above. 
 
 ## Current recovery behavior
 
+### Repository-ready source-order clarity and candidate visibility (not deployed)
+
+The `codex/pathfinder-source-order-clarity` slice is based on merged documentation baseline `78e51f36dd08afe8b3a84951cefc635cfebe9301`. Production remains on `b6794380e44d3ca1ab22add3151525589ba6770c`; none of the behavior in this subsection is live until a separately approved deployment succeeds.
+
+Repository-ready behavior:
+
+- one stable source-order key uses customer, Import Method, Wrike account, and exact Placard Order task ID; workbook evidence and Import Method fingerprints are version history, not new operator-facing orders;
+- safe pre-transport evidence/mapping changes recompute the existing job in place while preserving job ID, Pathfinder Order Number, canonical order ID, Lift Ext_ID, publications, scheduler marker, and bounded source-order history;
+- a confirmed Lift order or any possible submit transport makes that source-order record authoritative; later Wrike versions are logged for operator review and stop before new document publication or Lift transport;
+- the Jobs API projects one authoritative row per source order and nests retained technical siblings in job detail rather than presenting them as new Jobs;
+- Admin state labels become **Ready to Submit**, **Confirmation Needed**, and **Order Confirmed**, with state filtering and compact Wrike Contract/campaign plus Lift order number/name identity;
+- exact qualified task evidence retains bounded task title and best-effort immediate campaign-folder ID/name for reconciliation display, while exact task/folder IDs remain authoritative;
+- pending intake contains only exact Placard Order tasks, exposes the full bounded discovery result rather than a 100-item task-ID slice, and sorts a visibility-only **Likely candidates** subset first when at least two of ready status, Print Vendor, and Contract Number are present;
+- likely-candidate scoring never qualifies, prepares, publishes, submits, or writes back an order; all existing qualification requirements remain mandatory;
+- multiple proof delivery remains the same already deployed shared scheduled/manual service path; sanitized telemetry adds only task ID, `pdf`/`zip` delivery kind, proof count, publication ID, and evidence count.
+
+Required deployment acceptance:
+
+1. preserve scheduled discovery, scheduled submit, status writeback, live transport/customer profile, `go.vornan.co`, both campaign roots, all mappings, and the scoped `TBD` → `0.5` rule;
+2. verify a read-only Jobs response projects one row for the confirmed MDHHS source order while retaining its historical records in detail;
+3. run bounded operator discovery and confirm the candidate total is not truncated, with no Lift submission or Wrike write;
+4. verify no existing job, order identity, submit attempt, publication, mapping, configuration, or audit history is deleted;
+5. wait for a natural two-or-more-proof order and confirm the telemetry reports `zip` and the expected proof count without filenames, URLs, customer content, or a second Lift order;
+6. after any ambiguous submit response, confirm the UI says **Confirmation Needed** and offers reconciliation rather than retry.
+
+Rollback is application-code rollback to the recorded prior artifacts. Do not restore or replace production tables to roll back these presentation/projection changes. Because the data model is additive and retained raw records remain stored, rollback must preserve the source-order history fields and all existing records.
+
 The deployed operations control plane adds an explicit operator recovery path for a Wrike `Needs Mapping` or blocked `Failed` job. It recomputes the existing job from its original source rows and current product mappings while retaining the job ID, Pathfinder Order Number, canonical order ID, Lift Ext_ID, Wrike task/evidence identity, publications, and scheduler marker. The job receives a nontechnical recovery audit entry.
 
 This recovery refuses to run if the job or any sibling for the same Wrike source task has an associated Lift order or any submit attempt beyond the known pre-transport `Blocked` / `Gate Locked` states. A `Submission Uncertain` or other possible transport attempt always requires reconciliation and is never retried automatically.
@@ -157,11 +184,10 @@ The discovery fingerprint still includes the route-wide mapped-product set. A ma
 Known hardening debt:
 
 - replace route-wide invalidation with dependency-aware invalidation based on the product keys actually used by each job;
-- persist the Wrike campaign/folder name with every job, audit event, and reconciliation surface while retaining the exact task/folder IDs as authoritative identity;
-- make pending intake complete or explicitly paginated, prioritize recent/order-like candidates instead of taking the first 100 task IDs, and expose the true pre-cap count;
+- deploy and validate the repository-ready Wrike campaign/source-order identity and pending-candidate improvements above before treating them as production behavior;
 - update the Import Method **Last Run** surface on healthy replay-only scheduled cycles so it does not imply that polling stopped;
 - persist discovery-run history beyond structured runtime audit logs so earlier pending-intake snapshots can be compared in the UI;
-- add dependency-aware supersession labels for any replacement jobs created outside the explicit in-place recovery control;
+- plan a bounded historical normalization only after the source-order projection has been deployed and verified; do not delete retained sibling records merely to clean the Jobs display;
 - extend guided recovery beyond product mappings to other known-safe pre-transport validation failures;
 - add success/failure notifications that do not require daily babysitting.
 - persist scheduler candidate failures in durable audit history after the sanitized log contract is proven in production.

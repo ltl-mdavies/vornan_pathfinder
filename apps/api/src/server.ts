@@ -131,6 +131,12 @@ import {
   type WrikeScheduledOrderCandidate
 } from "./wrike-scheduled-intake.js";
 import {
+  groupWrikeSourceOrders,
+  selectWrikeSourceOrderAnchor,
+  wrikeSourceOrderHasPossibleTransport,
+  wrikeSourceOrderKey
+} from "./wrike-source-orders.js";
+import {
   archiveImportMethod,
   associateJobWithLiftOrder,
   prepareWrikeStatusWriteback,
@@ -2302,6 +2308,10 @@ function wrikeEvidenceFingerprint(
   orderContext?: {
     contract_number: string;
     artwork_folder_url: string | null;
+    task_title?: string;
+    root_folder_id?: string;
+    campaign_folder_id?: string;
+    campaign_name?: string;
     order_attachment_url?: string | null;
     reference_proof_url?: string | null;
   }
@@ -2314,7 +2324,12 @@ function wrikeEvidenceFingerprint(
             stableJsonValue({
               schema_version: "wrike-qualified-order-context-v1",
               import_method_fingerprint: baseFingerprint,
-              order_context: orderContext
+              order_context: {
+                contract_number: orderContext.contract_number,
+                artwork_folder_url: orderContext.artwork_folder_url,
+                order_attachment_url: orderContext.order_attachment_url,
+                reference_proof_url: orderContext.reference_proof_url
+              }
             })
           )
         )
@@ -4908,6 +4923,102 @@ function wrikeSourcePublicationSummary(
   };
 }
 
+function appendWrikeSourceOrderHistory(
+  job: ProcessingJobPreview,
+  args: {
+    action: NonNullable<ProcessingJobPreview["source_order_history"]>[number]["action"];
+    sourceEvidence: NonNullable<ProcessingJobPreview["source_evidence"]>;
+    referenceProofEvidenceIds?: string[];
+    message: string;
+    createdAt?: string;
+  }
+) {
+  const proofIds = [...(args.referenceProofEvidenceIds ?? [])].sort();
+  const eventId = `wsoh_${createHash("sha256")
+    .update("pathfinder-wrike-source-order-history-v1\0")
+    .update(job.customer_id)
+    .update("\0")
+    .update(job.import_method_id)
+    .update("\0")
+    .update(args.sourceEvidence.task_id)
+    .update("\0")
+    .update(args.action)
+    .update("\0")
+    .update(args.sourceEvidence.evidence_id)
+    .update("\0")
+    .update(args.sourceEvidence.import_method_fingerprint)
+    .update("\0")
+    .update(proofIds.join("\0"))
+    .digest("hex")}`;
+  const existing = job.source_order_history ?? [];
+  if (existing.some((entry) => entry.event_id === eventId)) {
+    return job;
+  }
+  return {
+    ...job,
+    source_order_history: [
+      {
+        event_id: eventId,
+        action: args.action,
+        created_at: args.createdAt ?? new Date().toISOString(),
+        source_evidence_id: args.sourceEvidence.evidence_id,
+        import_method_fingerprint: args.sourceEvidence.import_method_fingerprint,
+        reference_proof_evidence_ids: proofIds,
+        message: args.message
+      },
+      ...existing
+    ].slice(0, 100)
+  };
+}
+
+async function wrikeSourceOrderAnchorDisposition(
+  customer: LiftCustomer,
+  sourceJobs: ProcessingJobPreview[]
+) {
+  const anchor = selectWrikeSourceOrderAnchor(sourceJobs);
+  const attemptsByJobId = new Map<string, Awaited<ReturnType<typeof listSubmitAttemptsForJob>>>();
+  for (const job of sourceJobs) {
+    attemptsByJobId.set(job.job_id, await listSubmitAttemptsForJob(customer, job.job_id));
+  }
+  return {
+    anchor,
+    possibleTransport: wrikeSourceOrderHasPossibleTransport(sourceJobs, attemptsByJobId)
+  };
+}
+
+function sourceOrderJobProjection(jobs: ProcessingJobPreview[]) {
+  return groupWrikeSourceOrders(jobs).map(({ source_order_key, anchor, related }) => {
+    if (!wrikeSourceOrderKey(anchor)) return anchor;
+    return {
+      ...anchor,
+      source_order_summary: {
+        source_order_key,
+        related_record_count: related.length,
+        related_records: related.map((job) => ({
+          job_id: job.job_id,
+          pathfinder_order_id: job.pathfinder_order_id,
+          state: job.state,
+          target_order_number: job.target_order_number ?? null,
+          source_evidence_id: job.source_evidence?.evidence_id ?? null,
+          created_at: job.created_at,
+          updated_at: job.updated_at
+        }))
+      }
+    } satisfies ProcessingJobPreview;
+  });
+}
+
+function sourceOrderJobDetail(job: ProcessingJobPreview, jobs: ProcessingJobPreview[]) {
+  return sourceOrderJobProjection(
+    jobs.filter((candidate) => {
+      const jobKey = wrikeSourceOrderKey(job);
+      return jobKey
+        ? wrikeSourceOrderKey(candidate) === jobKey
+        : candidate.customer_id === job.customer_id && candidate.job_id === job.job_id;
+    })
+  ).find((candidate) => candidate.job_id === job.job_id) ?? job;
+}
+
 async function createWrikeEvidencePreviewForMethod(args: {
   liftCustomerId: string;
   methodId: string;
@@ -4916,10 +5027,15 @@ async function createWrikeEvidencePreviewForMethod(args: {
   orderContext?: {
     contract_number: string;
     artwork_folder_url: string | null;
+    task_title?: string;
+    root_folder_id?: string;
+    campaign_folder_id?: string;
+    campaign_name?: string;
     order_attachment_url?: string | null;
     reference_proof_url?: string | null;
   };
   sourceDocumentPublications?: ProcessingJobPreview["source_document_publications"];
+  referenceProofEvidenceIds?: string[];
   expectedTaskId?: string;
 }) {
   const customer = await findLiftCustomer(args.liftCustomerId);
@@ -4978,19 +5094,101 @@ async function createWrikeEvidencePreviewForMethod(args: {
     productMappings,
     args.orderContext
   );
-  const priorJob = workspace.jobs.find(
+  const sourceEvidence: NonNullable<ProcessingJobPreview["source_evidence"]> = {
+    provider: "wrike",
+    evidence_id: loaded.record.evidence_id,
+    evidence_sha256: loaded.record.sha256,
+    import_method_fingerprint: fingerprint,
+    connection_id: loaded.record.connection_id,
+    account_id: loaded.record.account_id,
+    task_id: loaded.record.task_id,
+    task_title: args.orderContext?.task_title ?? null,
+    root_folder_id: args.orderContext?.root_folder_id ?? null,
+    campaign_folder_id: args.orderContext?.campaign_folder_id ?? null,
+    campaign_name: args.orderContext?.campaign_name ?? null,
+    attachment_id: loaded.record.attachment_id,
+    version_id: loaded.record.version_id,
+    captured_at: loaded.record.stored_at
+  };
+  const sourceJobs = workspace.jobs.filter(
     (job) =>
+      job.customer_id === customer.lift_customer_id &&
+      job.import_method_id === method.import_method_id &&
       job.source_evidence?.provider === "wrike" &&
-      job.source_evidence.evidence_id === loaded.record.evidence_id &&
-      job.source_evidence.evidence_sha256 === loaded.record.sha256 &&
-      job.source_evidence.import_method_fingerprint === fingerprint
+      job.source_evidence.account_id === loaded.record.account_id &&
+      job.source_evidence.task_id === loaded.record.task_id
+  );
+  const priorJob = sourceJobs.find(
+    (job) =>
+      job.source_evidence!.evidence_id === loaded.record.evidence_id &&
+      job.source_evidence!.evidence_sha256 === loaded.record.sha256 &&
+      job.source_evidence!.import_method_fingerprint === fingerprint
   );
   if (priorJob) {
+    const campaignChanged =
+      Boolean(sourceEvidence.campaign_name) &&
+      (priorJob.source_evidence?.campaign_folder_id !== sourceEvidence.campaign_folder_id ||
+        priorJob.source_evidence?.campaign_name !== sourceEvidence.campaign_name);
+    let replayedJob: ProcessingJobPreview = {
+      ...priorJob,
+      source_evidence: {
+        ...priorJob.source_evidence!,
+        task_title: sourceEvidence.task_title,
+        root_folder_id: sourceEvidence.root_folder_id,
+        campaign_folder_id: sourceEvidence.campaign_folder_id,
+        campaign_name: sourceEvidence.campaign_name
+      },
+      source_order_last_seen_at: new Date().toISOString()
+    };
+    if (campaignChanged) {
+      replayedJob = appendWrikeSourceOrderHistory(replayedJob, {
+        action: "campaign_identity_captured",
+        sourceEvidence,
+        referenceProofEvidenceIds: args.referenceProofEvidenceIds,
+        message: "Pathfinder matched this order to its Wrike campaign. No new job or Lift order was created."
+      });
+      replayedJob = await persistJobSnapshot(customer, replayedJob);
+    }
     const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
     return {
       preview_status: "Replayed" as const,
-      job: priorJob,
-      source_evidence: priorJob.source_evidence,
+      job: replayedJob,
+      source_evidence: replayedJob.source_evidence,
+      workspace: {
+        ...workspace,
+        primary_target: target ? maskTargetConfig(target) : null
+      }
+    };
+  }
+
+  const sourceOrder = await wrikeSourceOrderAnchorDisposition(customer, sourceJobs);
+  if (sourceOrder.anchor && sourceOrder.possibleTransport) {
+    const transportMessage = valueAsString(sourceOrder.anchor.target_order_number).trim()
+      ? `Pathfinder found updated source information after Lift order ${sourceOrder.anchor.target_order_number} was confirmed. Review the change before deciding whether Lift needs an update.`
+      : "Pathfinder found updated source information after a Lift submission may have occurred. Reconcile the existing submission before taking any action.";
+    let protectedJob: ProcessingJobPreview = {
+      ...sourceOrder.anchor,
+      source_evidence: {
+        ...sourceOrder.anchor.source_evidence!,
+        task_title: sourceEvidence.task_title,
+        root_folder_id: sourceEvidence.root_folder_id,
+        campaign_folder_id: sourceEvidence.campaign_folder_id,
+        campaign_name: sourceEvidence.campaign_name
+      },
+      source_order_last_seen_at: new Date().toISOString()
+    };
+    protectedJob = appendWrikeSourceOrderHistory(protectedJob, {
+      action: "source_change_observed_after_transport",
+      sourceEvidence,
+      referenceProofEvidenceIds: args.referenceProofEvidenceIds,
+      message: transportMessage
+    });
+    protectedJob = await persistJobSnapshot(customer, protectedJob);
+    const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
+    return {
+      preview_status: "Replayed" as const,
+      job: protectedJob,
+      source_evidence: protectedJob.source_evidence,
       workspace: {
         ...workspace,
         primary_target: target ? maskTargetConfig(target) : null
@@ -5010,18 +5208,6 @@ async function createWrikeEvidencePreviewForMethod(args: {
       "The stored workbook has no order rows under this Import Method's saved parser settings."
     );
   }
-  const sourceEvidence: NonNullable<ProcessingJobPreview["source_evidence"]> = {
-    provider: "wrike",
-    evidence_id: loaded.record.evidence_id,
-    evidence_sha256: loaded.record.sha256,
-    import_method_fingerprint: fingerprint,
-    connection_id: loaded.record.connection_id,
-    account_id: loaded.record.account_id,
-    task_id: loaded.record.task_id,
-    attachment_id: loaded.record.attachment_id,
-    version_id: loaded.record.version_id,
-    captured_at: loaded.record.stored_at
-  };
   const result = await createPreviewJobForRequest(
     customer.lift_customer_id,
     {
@@ -5041,12 +5227,13 @@ async function createWrikeEvidencePreviewForMethod(args: {
     {
       sourceEvidence,
       wrikeOrderContext: args.orderContext,
-      sourceDocumentPublications: args.sourceDocumentPublications
+      sourceDocumentPublications: args.sourceDocumentPublications,
+      existingJob: sourceOrder.anchor ?? undefined
     }
   );
   return {
     ...result,
-    preview_status: "Created" as const,
+    preview_status: sourceOrder.anchor ? "Replayed" as const : "Created" as const,
     source_evidence: sourceEvidence
   };
 }
@@ -5240,6 +5427,10 @@ async function prepareWrikeOrderForTask(args: {
     | {
         contract_number: string;
         artwork_folder_url: string | null;
+        task_title?: string;
+        root_folder_id?: string;
+        campaign_folder_id?: string;
+        campaign_name?: string;
         order_attachment_url?: string | null;
         reference_proof_url?: string | null;
       }
@@ -5270,6 +5461,34 @@ async function prepareWrikeOrderForTask(args: {
     createPreview: async (record) => {
       if (!orderContext) {
         throw new WrikeIntakeRequestError(409, "The qualified Wrike order context is unavailable.");
+      }
+      const sourceCustomer = await findLiftCustomer(args.liftCustomerId);
+      const existingSourceJobs = (await listJobs()).filter(
+        (job) =>
+          job.customer_id === sourceCustomer.lift_customer_id &&
+          job.import_method_id === args.methodId &&
+          job.source_evidence?.provider === "wrike" &&
+          job.source_evidence.task_id === record.task_id
+      );
+      const existingSourceOrder = await wrikeSourceOrderAnchorDisposition(
+        sourceCustomer,
+        existingSourceJobs
+      );
+      if (existingSourceOrder.anchor && existingSourceOrder.possibleTransport) {
+        const replay = await createWrikeEvidencePreviewForMethod({
+          liftCustomerId: args.liftCustomerId,
+          methodId: args.methodId,
+          evidenceId: record.evidence_id,
+          extension: record.extension as WrikeWorkbookExtension,
+          orderContext,
+          referenceProofEvidenceIds: referenceProofEvidenceSet.map((evidence) => evidence.evidence_id),
+          expectedTaskId: args.taskId
+        });
+        return {
+          preview_status: replay.preview_status,
+          job_id: replay.job.job_id,
+          job_state: replay.job.state
+        };
       }
       let previewOrderContext = orderContext;
       let sourceDocumentPublications: ProcessingJobPreview["source_document_publications"] = [];
@@ -5348,6 +5567,16 @@ async function prepareWrikeOrderForTask(args: {
             ? [wrikeSourcePublicationSummary(referenceProofPublication, referenceProofSourceEvidenceIds)]
             : [])
         ];
+        if (referenceProofPublication) {
+          console.info(JSON.stringify({
+            event: "wrike_reference_proof_delivery_prepared",
+            task_id: record.task_id,
+            delivery_kind: referenceProofEvidenceSet.length > 1 ? "zip" : "pdf",
+            reference_proof_count: referenceProofEvidenceSet.length,
+            publication_id: referenceProofPublication.publication_id,
+            source_evidence_count: referenceProofSourceEvidenceIds.length
+          }));
+        }
       }
       const preview = await createWrikeEvidencePreviewForMethod({
         liftCustomerId: args.liftCustomerId,
@@ -5356,6 +5585,7 @@ async function prepareWrikeOrderForTask(args: {
         extension: record.extension as WrikeWorkbookExtension,
         orderContext: previewOrderContext,
         sourceDocumentPublications,
+        referenceProofEvidenceIds: referenceProofEvidenceSet.map((evidence) => evidence.evidence_id),
         expectedTaskId: args.taskId
       });
       return {
@@ -5713,6 +5943,8 @@ export async function runConfiguredWrikeScheduledIntake() {
       order_contract_ready_count: 0,
       eligible_order_count: 0,
       pending_order_count: 0,
+      placard_order_pending_count: 0,
+      likely_pending_order_count: 0,
       eligible_shipping_task_count: 0,
       order_status_id_count: 0,
       order_identity_status_ids: [],
@@ -6785,6 +7017,10 @@ async function createPreviewJobForRequest(
     wrikeOrderContext?: {
       contract_number: string;
       artwork_folder_url: string | null;
+      task_title?: string;
+      root_folder_id?: string;
+      campaign_folder_id?: string;
+      campaign_name?: string;
       order_attachment_url?: string | null;
       reference_proof_url?: string | null;
     };
@@ -7139,7 +7375,7 @@ async function createPreviewJobForRequest(
         message
       };
     }
-    const job: ProcessingJobPreview = {
+    let job: ProcessingJobPreview = {
       job_id: jobId,
       pathfinder_order_id: pathfinderOrderId,
       customer_id: customer.lift_customer_id,
@@ -7186,6 +7422,8 @@ async function createPreviewJobForRequest(
       archived_by_email: options?.existingJob?.archived_by_email ?? null,
       public_intake: publicIntake ?? options?.existingJob?.public_intake ?? null,
       source_evidence: options?.sourceEvidence ?? options?.existingJob?.source_evidence ?? null,
+      source_order_last_seen_at: options?.existingJob?.source_order_last_seen_at ?? null,
+      source_order_history: options?.existingJob?.source_order_history ?? [],
       source_document_publications:
         options?.sourceDocumentPublications ??
         options?.existingJob?.source_document_publications ??
@@ -7194,6 +7432,23 @@ async function createPreviewJobForRequest(
         ? [recoveryAuditEntry, ...(options?.existingJob?.recovery_audit ?? [])].slice(0, 50)
         : options?.existingJob?.recovery_audit ?? []
     };
+    if (options?.sourceEvidence) {
+      const referenceProofEvidenceIds = (options.sourceDocumentPublications ?? [])
+        .filter((publication) => publication.document_role === "reference_proof")
+        .flatMap((publication) => publication.source_evidence_ids ?? [publication.evidence_id]);
+      job = {
+        ...job,
+        source_order_last_seen_at: timestamp
+      };
+      job = appendWrikeSourceOrderHistory(job, {
+        action: options.existingJob ? "source_version_prepared" : "source_order_created",
+        sourceEvidence: options.sourceEvidence,
+        referenceProofEvidenceIds,
+        message: options.existingJob
+          ? "Pathfinder prepared an updated source version inside this order record. No additional Pathfinder job was created."
+          : "Pathfinder created this order record from the qualified Wrike Placard Order."
+      });
+    }
     const nextWorkspace = await persistPreviewJob(customer, job, method, {
       persistMethod: !isAdHocManualImport && !options?.existingJob
     });
@@ -7220,8 +7475,9 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
 });
 
 app.get("/api/jobs", async (_req, res) => {
+  const jobs = await listJobs();
   res.json({
-    jobs: await listJobs()
+    jobs: sourceOrderJobProjection(jobs)
   });
 });
 
@@ -7237,8 +7493,9 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId", async (req, res) => {
       return;
     }
 
+    const jobs = await listJobs();
     res.json({
-      job,
+      job: sourceOrderJobDetail(job, jobs),
       submit_attempts: await listSubmitAttemptsForJob(customer, req.params.jobId)
     });
   } catch (error) {
