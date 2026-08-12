@@ -8082,7 +8082,19 @@ h1 {
 }
 
 .order-line-comparison table {
+  width: 100%;
   min-width: 860px;
+  table-layout: fixed;
+}
+
+.order-line-comparison th:first-child,
+.order-line-comparison td:first-child {
+  width: 6%;
+}
+
+.order-line-comparison th:last-child,
+.order-line-comparison td:last-child {
+  width: 18%;
 }
 
 .order-line-comparison td strong,
@@ -8150,7 +8162,13 @@ h1 {
 }
 
 .job-list-table {
-  min-width: 1120px;
+  min-width: 1240px;
+}
+
+.job-order-status {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .job-list-table .selection-cell {

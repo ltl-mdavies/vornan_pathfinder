@@ -81,3 +81,12 @@ test("confirmed jobs compare source, prepared, and current Lift lines without re
   assert.match(source, /No retry is required/);
   assert.match(source, /Historical timeout retained for audit/);
 });
+
+test("Jobs shows durable Lift order-header status and the line comparison uses the full width", async () => {
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(source, /<th>Order Status<\/th>/);
+  assert.match(source, /job\.target_order_status\.label/);
+  assert.match(source, /Lift order header last checked/);
+  assert.match(source, /job\.target_order_number \? "Not checked" : "Not in Lift"/);
+  assert.match(styles, /\.order-line-comparison table \{[\s\S]*?width: 100%;[\s\S]*?table-layout: fixed;/);
+});

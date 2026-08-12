@@ -929,6 +929,8 @@ interface ProcessingJobPreview {
   output_route_name: string;
   target_order_number?: string | null;
   target_order_lookup_url?: string | null;
+  target_order_status?: NormalizedLiftOrder["status"] | null;
+  target_order_status_checked_at?: string | null;
   order_confirmed_at?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   wrike_status_writebacks?: WrikeStatusWritebackRecord[];
@@ -3039,6 +3041,7 @@ function JobListTable({
             <th>Wrike Order</th>
             <th>Intake</th>
             <th>Lift Order</th>
+            <th>Order Status</th>
             <th>State</th>
             <th title="When Pathfinder first created the job record">Pathfinder Intake</th>
             <th>Last Activity</th>
@@ -3090,6 +3093,22 @@ function JobListTable({
                   <strong>{job.target_order_number ?? "Pending"}</strong>
                   <small>{job.lift_payload.order.order_title || "Lift order name pending"}</small>
                 </span>
+              </td>
+              <td>
+                {job.target_order_status ? (
+                  <span
+                    className="mini-pill mini-pill-neutral job-order-status"
+                    title={job.target_order_status_checked_at
+                      ? `Lift order header last checked ${displayTimestamp(job.target_order_status_checked_at)}`
+                      : "Lift order header status"}
+                  >
+                    {job.target_order_status.label}
+                  </span>
+                ) : (
+                  <span className="cell-meta">
+                    {job.target_order_number ? "Not checked" : "Not in Lift"}
+                  </span>
+                )}
               </td>
               <td>
                 <StatePill state={job.state} />

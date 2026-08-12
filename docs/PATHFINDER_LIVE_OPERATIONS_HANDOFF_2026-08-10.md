@@ -214,7 +214,8 @@ The current Pathfinder development slice prepares the next bounded operations im
 - scheduled and operator discovery reuse the existing shared service path and persist only one bounded latest operations snapshot on the Import Method for cross-session candidate review;
 - the snapshot write is optimistic and conditional, does not update the saved method configuration timestamp, is excluded from the Import Method fingerprint, and fails non-blockingly so discovery/submit/writeback continuity is preserved;
 - an older Admin form submission cannot overwrite the latest runtime snapshot;
-- confirmed job detail adds a collapsed read-only comparison of canonical input lines, the reviewed Lift payload, and the current Lift order by stable line number;
+- confirmed job detail adds a collapsed, full-width read-only comparison of canonical input lines, the reviewed Lift payload, and the current Lift order by stable line number;
+- Jobs shows Lift header **Order Status** separately from Pathfinder processing **State**, using only the latest durable status snapshot or verified-association evidence; the list performs no live Lift fan-out, shows **Not in Lift** before submission, and shows **Not checked** when a confirmed order has no durable header status yet;
 - reconciled `Submission Uncertain` history remains immutable but displays recovery-complete language and explicitly says no retry is required;
 - new confirmed associations capture additive `order_confirmed_at`; no existing job, order, attempt, mapping, publication, or audit record is rewritten or deleted.
 

@@ -175,6 +175,7 @@ import {
   getPublicIntakeEmailVerification,
   getPublicIntakeMethodByKey,
   getPublicOrderStatusSnapshot,
+  getPublicOrderStatusSnapshots,
   getSubmitAttemptByIdempotencyKey,
   maskTargetConfig,
   persistOrderStatusToken,
@@ -5015,15 +5016,60 @@ function sourceOrderJobProjection(jobs: ProcessingJobPreview[]) {
   });
 }
 
-function sourceOrderJobDetail(job: ProcessingJobPreview, jobs: ProcessingJobPreview[]) {
-  return sourceOrderJobProjection(
+function jobOrderStatusKey(job: ProcessingJobPreview) {
+  return job.target_order_number
+    ? `${job.submit_customer_name}:${job.target_order_number}:${job.job_id}`
+    : null;
+}
+
+function verifiedAssociationOrderStatus(job: ProcessingJobPreview) {
+  const association = [...(job.target_order_association_history ?? [])]
+    .filter((entry) => entry.order_number === job.target_order_number && entry.verification.order_status)
+    .sort((first, second) => Date.parse(second.verification.fetched_at) - Date.parse(first.verification.fetched_at))[0];
+  if (!association?.verification.order_status) return null;
+  return {
+    status: {
+      label: association.verification.order_status,
+      code: null,
+      color: null,
+      step: null
+    } satisfies NonNullable<ProcessingJobPreview["target_order_status"]>,
+    checked_at: association.verification.fetched_at
+  };
+}
+
+async function sourceOrderJobProjectionWithStatus(jobs: ProcessingJobPreview[]) {
+  const projected = sourceOrderJobProjection(jobs);
+  const snapshots = await getPublicOrderStatusSnapshots(
+    projected.flatMap((job) => {
+      const orderKey = jobOrderStatusKey(job);
+      return orderKey ? [orderKey] : [];
+    })
+  );
+  const snapshotsByKey = new Map(snapshots.map((snapshot) => [snapshot.order_key, snapshot]));
+
+  return projected.map((job) => {
+    const orderKey = jobOrderStatusKey(job);
+    const snapshot = orderKey ? snapshotsByKey.get(orderKey) : null;
+    const verified = verifiedAssociationOrderStatus(job);
+    return {
+      ...job,
+      target_order_status: snapshot?.order_status ?? verified?.status ?? null,
+      target_order_status_checked_at:
+        snapshot?.lookups.order?.fetched_at ?? snapshot?.refreshed_at ?? verified?.checked_at ?? null
+    } satisfies ProcessingJobPreview;
+  });
+}
+
+async function sourceOrderJobDetail(job: ProcessingJobPreview, jobs: ProcessingJobPreview[]) {
+  return (await sourceOrderJobProjectionWithStatus(
     jobs.filter((candidate) => {
       const jobKey = wrikeSourceOrderKey(job);
       return jobKey
         ? wrikeSourceOrderKey(candidate) === jobKey
         : candidate.customer_id === job.customer_id && candidate.job_id === job.job_id;
     })
-  ).find((candidate) => candidate.job_id === job.job_id) ?? job;
+  )).find((candidate) => candidate.job_id === job.job_id) ?? job;
 }
 
 async function createWrikeEvidencePreviewForMethod(args: {
@@ -7605,7 +7651,7 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
 app.get("/api/jobs", async (_req, res) => {
   const jobs = await listJobs();
   res.json({
-    jobs: sourceOrderJobProjection(jobs),
+    jobs: await sourceOrderJobProjectionWithStatus(jobs),
     wrike_operations_snapshots: await listWrikeOperationsSnapshots()
   });
 });
@@ -7624,7 +7670,7 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId", async (req, res) => {
 
     const jobs = await listJobs();
     res.json({
-      job: sourceOrderJobDetail(job, jobs),
+      job: await sourceOrderJobDetail(job, jobs),
       submit_attempts: await listSubmitAttemptsForJob(customer, req.params.jobId)
     });
   } catch (error) {

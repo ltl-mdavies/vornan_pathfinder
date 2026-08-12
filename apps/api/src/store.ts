@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  BatchGetItemCommand,
   BatchWriteItemCommand,
   DeleteItemCommand,
   DynamoDBClient,
@@ -711,6 +712,9 @@ export interface ProcessingJobPreview {
   output_route_id: string;
   output_route_name: string;
   target_order_number?: string | null;
+  /** Runtime list projection from the latest durable Lift order-header evidence. */
+  target_order_status?: NormalizedLiftOrder["status"] | null;
+  target_order_status_checked_at?: string | null;
   order_confirmed_at?: string | null;
   target_order_lookup_url?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
@@ -3873,6 +3877,47 @@ export async function getPublicOrderStatusSnapshot(orderKey: string) {
 
   const store = await readStore();
   return (store.order_status_snapshots ?? []).find((snapshot) => snapshot.order_key === orderKey) ?? null;
+}
+
+export async function getPublicOrderStatusSnapshots(orderKeys: string[]) {
+  const uniqueKeys = Array.from(new Set(orderKeys.filter((orderKey) => orderKey.trim())));
+  if (!uniqueKeys.length) return [];
+
+  const config = getPathfinderPersistenceRuntimeConfig();
+
+  if (config.storage_driver === "dynamodb") {
+    const tableName = getDynamoTableConfig().order_status_snapshots;
+    const snapshots: PublicOrderStatusSnapshot[] = [];
+
+    for (let index = 0; index < uniqueKeys.length; index += 100) {
+      let keys: Record<string, AttributeValue>[] = uniqueKeys
+        .slice(index, index + 100)
+        .map((orderKey) => ({ order_key: dynamoString(orderKey) }));
+
+      do {
+        const response = await getDynamoClient().send(new BatchGetItemCommand({
+          RequestItems: {
+            [tableName]: {
+              Keys: keys,
+              ConsistentRead: false
+            }
+          }
+        }));
+        snapshots.push(
+          ...((response.Responses?.[tableName] ?? []) as Record<string, AttributeValue>[])
+            .map((item) => parseDynamoData<PublicOrderStatusSnapshot>(item))
+            .filter((snapshot): snapshot is PublicOrderStatusSnapshot => snapshot != null)
+        );
+        keys = (response.UnprocessedKeys?.[tableName]?.Keys ?? []) as Record<string, AttributeValue>[];
+      } while (keys.length);
+    }
+
+    return snapshots;
+  }
+
+  const requested = new Set(uniqueKeys);
+  const store = await readStore();
+  return (store.order_status_snapshots ?? []).filter((snapshot) => requested.has(snapshot.order_key));
 }
 
 export async function persistOrderStatusToken(tokenRecord: OrderStatusTokenRecord) {
