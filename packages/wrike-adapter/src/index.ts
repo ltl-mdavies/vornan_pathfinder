@@ -254,6 +254,10 @@ export interface WrikeQualifiedWorkbookSourceResult {
   order_context: {
     contract_number: string;
     artwork_folder_url: string | null;
+    task_title: string;
+    root_folder_id: string;
+    campaign_folder_id: string;
+    campaign_name: string;
   };
   workbooks: WrikeQualifiedWorkbookSource[];
   reference_proofs: WrikeQualifiedReferenceProofSource[];
@@ -314,6 +318,8 @@ export interface WrikeContractReadiness {
 
 export interface WrikeEligibleOrderTask {
   task_id: string;
+  task_title: string;
+  updated_at: string | null;
   account_id: string;
   root_folder_ids: string[];
   parent_ids: string[];
@@ -333,10 +339,13 @@ export type WrikePendingOrderReasonCode =
 export interface WrikePendingOrderTask {
   task_id: string;
   task_title: string;
+  updated_at: string | null;
   account_id: string;
   root_folder_ids: string[];
   custom_status_id: string;
   contract_number: string | null;
+  identity_matches: boolean;
+  readiness_score: number;
   reasons: Array<{
     code: WrikePendingOrderReasonCode;
     message: string;
@@ -387,6 +396,8 @@ export interface WrikeScopedIntakeDiscoveryResult {
     order_contract_ready_count: number;
     eligible_order_count: number;
     pending_order_count: number;
+    placard_order_pending_count: number;
+    likely_pending_order_count: number;
     eligible_shipping_task_count: number;
     order_status_id_count: number;
     order_identity_status_ids: string[];
@@ -1615,6 +1626,39 @@ async function taskBelongsToWrikeFolderScope(
   return false;
 }
 
+async function readWrikeFolderDisplayIdentity(
+  folderId: string,
+  host: string,
+  accessToken: string,
+  fetchImpl: typeof fetch
+) {
+  if (!folderId) return { folder_id: "", folder_name: "" };
+  try {
+    const response = await fetchImpl(
+      `https://${host}/api/v4/folders/${encodeURIComponent(folderId)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+      }
+    );
+    if (!response.ok) return { folder_id: folderId, folder_name: "" };
+    const payload = await responseJson(response);
+    const records = (Array.isArray(payload.data) ? payload.data : []).map(asRecord);
+    const folder = records.find((record) => providerIdentifier(record.id) === folderId);
+    return {
+      folder_id: folderId,
+      folder_name:
+        typeof folder?.title === "string"
+          ? folder.title.trim().replace(/\s+/g, " ").slice(0, 160)
+          : ""
+    };
+  } catch {
+    // Campaign identity is display metadata. A failed display-name read must
+    // not turn an otherwise qualified customer order into an intake failure.
+    return { folder_id: folderId, folder_name: "" };
+  }
+}
+
 function normalizeWrikeFieldTitle(value: unknown) {
   return typeof value === "string"
     ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")
@@ -1717,6 +1761,11 @@ function scopedTaskRecord(task: Record<string, unknown>) {
   }
   return {
     task_id: taskId,
+    task_title: typeof task.title === "string" ? task.title.trim().slice(0, 160) : "",
+    updated_at:
+      typeof task.updatedDate === "string" && Number.isFinite(Date.parse(task.updatedDate))
+        ? new Date(task.updatedDate).toISOString()
+        : null,
     account_id: providerIdentifier(task.accountId),
     parent_ids: parentIds,
     super_parent_ids: superParentIds,
@@ -1733,6 +1782,11 @@ function safeAttachmentUpdatedAt(attachment: Record<string, unknown>) {
         ? attachment.createdDate
         : "";
   return Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
+}
+
+function sortableTimestamp(value: string | null) {
+  const parsed = Date.parse(value ?? "");
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function effectiveAttachmentVersionId(attachment: Record<string, unknown>) {
@@ -2014,7 +2068,9 @@ export async function discoverScopedWrikeIntakeTasks(
   ).length;
 
   const evaluatedCandidates = evaluatedOrderTasks
-    .filter(({ identityMatches, statusMatches }) => identityMatches || statusMatches)
+    // A task using the ready status is not necessarily an order. Only exact
+    // Placard Order identities belong in operator-facing candidate intake.
+    .filter(({ identityMatches }) => identityMatches)
     .map(({ task, scoped, identityMatches, statusMatches }) => {
       const vendor = resolvedWrikeComparableCustomField(
         task,
@@ -2024,6 +2080,7 @@ export async function discoverScopedWrikeIntakeTasks(
       const contract = resolveWrikeContractNumber(task, config.contract_number_custom_field_id);
       const vendorMatches = normalizedComparableText(vendor) === normalizedComparableText(vendorValue);
       const contractMatches = contract.status === "ready";
+      const readinessScore = [statusMatches, vendorMatches, contractMatches].filter(Boolean).length;
       const reasons: WrikePendingOrderTask["reasons"] = [];
       if (!identityMatches) {
         reasons.push({
@@ -2066,11 +2123,14 @@ export async function discoverScopedWrikeIntakeTasks(
         } satisfies WrikeEligibleOrderTask,
         pending: {
           task_id: scoped.task_id,
-          task_title: typeof task.title === "string" ? task.title.trim().slice(0, 160) : "",
+          task_title: scoped.task_title,
+          updated_at: scoped.updated_at,
           account_id: scoped.account_id,
           root_folder_ids: rootFolderIds,
           custom_status_id: scoped.custom_status_id,
           contract_number: contract.contract_number,
+          identity_matches: identityMatches,
+          readiness_score: readinessScore,
           reasons
         } satisfies WrikePendingOrderTask
       };
@@ -2082,8 +2142,13 @@ export async function discoverScopedWrikeIntakeTasks(
   const pendingOrderCandidates = evaluatedCandidates
     .filter(({ eligible }) => !eligible)
     .map(({ pending }) => pending)
-    .sort((left, right) => left.task_id.localeCompare(right.task_id))
-    .slice(0, 100);
+    .sort(
+      (left, right) =>
+        Number(right.identity_matches) - Number(left.identity_matches) ||
+        right.readiness_score - left.readiness_score ||
+        sortableTimestamp(right.updated_at) - sortableTimestamp(left.updated_at) ||
+        left.task_id.localeCompare(right.task_id)
+    );
 
   const shippingCandidates: WrikeEligibleShippingTask[] = [];
   if (config.shipping_intake.enabled) {
@@ -2184,6 +2249,12 @@ export async function discoverScopedWrikeIntakeTasks(
       order_contract_ready_count: orderContractReadyCount,
       eligible_order_count: orderCandidates.length,
       pending_order_count: pendingOrderCandidates.length,
+      placard_order_pending_count: pendingOrderCandidates.filter(
+        (candidate) => candidate.identity_matches
+      ).length,
+      likely_pending_order_count: pendingOrderCandidates.filter(
+        (candidate) => candidate.identity_matches && candidate.readiness_score >= 2
+      ).length,
       eligible_shipping_task_count: shippingCandidates.length,
       order_status_id_count: orderStatusIds.size,
       order_identity_status_ids: orderIdentityStatusIds,
@@ -2324,6 +2395,18 @@ async function discoverApprovedWrikeTaskWithContext(
     statusMatches &&
     printVendorMatches &&
     contractNumberMatches;
+  const campaignFolderId =
+    parentIds.find((parentId) => parentId !== matchedFolderId) ??
+    parentIds[0] ??
+    matchedFolderId;
+  const campaignIdentity = taskQualifies
+    ? await readWrikeFolderDisplayIdentity(
+        campaignFolderId,
+        host,
+        accessToken,
+        fetchImpl
+      )
+    : { folder_id: campaignFolderId, folder_name: "" };
   const checks: WrikeDiscoveryCheck[] = [
     { check_id: "task", status: "Passed", message: "Wrike returned the exact approved task ID." },
     {
@@ -2506,7 +2589,11 @@ async function discoverApprovedWrikeTaskWithContext(
     },
     order_context: {
       contract_number: contractNumber.contract_number ?? "",
-      artwork_folder_url: taskQualifies ? artworkFolder.url : null
+      artwork_folder_url: taskQualifies ? artworkFolder.url : null,
+      task_title: typeof task.title === "string" ? task.title.trim().slice(0, 160) : "",
+      root_folder_id: matchedFolderId,
+      campaign_folder_id: campaignIdentity.folder_id,
+      campaign_name: campaignIdentity.folder_name
     }
   };
 }

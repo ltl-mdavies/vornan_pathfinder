@@ -608,6 +608,36 @@ export interface SubmitCertification {
   items: SubmitCertificationItem[];
 }
 
+export interface WrikeSourceOrderHistoryEntry {
+  event_id: string;
+  action:
+    | "source_order_created"
+    | "source_version_prepared"
+    | "source_change_observed_after_transport"
+    | "campaign_identity_captured";
+  created_at: string;
+  source_evidence_id: string;
+  import_method_fingerprint: string;
+  reference_proof_evidence_ids: string[];
+  message: string;
+}
+
+export interface WrikeRelatedSourceJobSummary {
+  job_id: string;
+  pathfinder_order_id: string;
+  state: ProcessingState;
+  target_order_number: string | null;
+  source_evidence_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WrikeSourceOrderSummary {
+  source_order_key: string;
+  related_record_count: number;
+  related_records: WrikeRelatedSourceJobSummary[];
+}
+
 export interface ProcessingJobPreview {
   job_id: string;
   pathfinder_order_id: string;
@@ -673,10 +703,18 @@ export interface ProcessingJobPreview {
     connection_id: string;
     account_id: string;
     task_id: string;
+    task_title?: string | null;
+    root_folder_id?: string | null;
+    campaign_folder_id?: string | null;
+    campaign_name?: string | null;
     attachment_id: string;
     version_id: string;
     captured_at: string;
   } | null;
+  source_order_last_seen_at?: string | null;
+  source_order_history?: WrikeSourceOrderHistoryEntry[];
+  /** Read-only list projection. Related records remain independently stored for audit. */
+  source_order_summary?: WrikeSourceOrderSummary;
   source_document_publications?: Array<{
     document_role: "order_grid" | "reference_proof";
     evidence_id: string;

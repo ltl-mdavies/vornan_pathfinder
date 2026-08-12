@@ -47,6 +47,18 @@ The first natural cycle after activation prepared five replacement previews beca
 
 Current visibility debt: the Import Method's displayed **Last Run** does not reflect later replay-only scheduled cycles; pending intake is capped at 100 items sorted by task ID rather than recency; and Pathfinder job records do not yet retain/display the Wrike campaign name as a first-class identity. Use exact Wrike task/evidence IDs for authoritative reconciliation until those surfaces are hardened.
 
+### Repository-ready Pathfinder source-order clarity slice (not deployed)
+
+The `codex/pathfinder-source-order-clarity` development slice starts from merged documentation baseline `78e51f36dd08afe8b3a84951cefc635cfebe9301` and is intentionally separate from the deployed `b6794380e44d3ca1ab22add3151525589ba6770c` runtime. It does not change production gates, configuration, data, or infrastructure.
+
+The slice makes one Wrike Placard Order task the stable Pathfinder source-order identity across workbook versions and Import Method fingerprints. Safe pre-transport changes update the existing job and append source-order history. Once any sibling has a confirmed Lift order or a possibly transported submit attempt, later source changes are recorded for review without creating, publishing, or submitting a replacement order. `Submission Uncertain` remains a mandatory reconciliation state and is never automatically retried.
+
+The Admin Jobs surface displays one current row per source order, nests prior technical records in the detail history, adds nontechnical state filters, and shows the Wrike Contract Number/campaign beside the Lift order number/name. Exact task/folder IDs remain authoritative. Discovery now returns the full Placard Order candidate set for the bounded Wrike result, identifies a visibility-only **Likely candidates** subset using at least two of ready status, Print Vendor, and Contract Number, and paginates it in the Admin. This heuristic does not weaken qualification or submit gates.
+
+Qualified Wrike evidence now captures the task title and best-effort immediate campaign-folder display name. Display-name lookup failure cannot block intake. Multiple matching PDFs continue through the already deployed single-PDF/direct or multi-PDF/deterministic-ZIP service path; the slice adds sanitized delivery telemetry containing only task ID, delivery kind/count, publication ID, and evidence count.
+
+Deployment and production validation require a separate approval and must preserve all live Pathfinder/Proof parameters. Until that occurs, the deployed visibility debt and raw sibling records described above remain production truth.
+
 ### Vornan Proof
 
 The isolated Proof stack has protected public read active for customer `1249` through `2026-08-25T23:59:59Z`. The canonical portal returns HTTP 200; the repository smoke confirms public read, rejects direct API bypass, and confirms decisions remain disabled. Customer approval, revised-art upload, operator grant creation, LTL Demo QA, Proof asset upload/scan/publication, and Lift action gates are disabled in the deployed stacks.
