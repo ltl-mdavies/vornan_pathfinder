@@ -69,6 +69,44 @@ Authenticated bounded discovery `wrike_discovery_20260812153516359_aa7ed6` at `2
 
 There is no production evidence of a missed qualified order at this checkpoint. A task can still be visible in a campaign root but remain pending until its title/type, ready status, Print Vendor, and Contract Number satisfy the saved contract.
 
+### 2026-08-12 source-order clarity release record
+
+- merged repository commit: `fa1ed4389720bb4f2d1119794845e72af21de1ca` (PR #186);
+- merged-main validation: workflow `31620622455`, job `94194268574` (`success`);
+- API deployment: workflow `31621165048`, job `94196081887`;
+- API artifact: `api/pathfinder-api-lambda-fa1ed4389720bb4f2d1119794845e72af21de1ca.zip`, S3 version `YktOP79tJebDf66slbHcxGJXmU_EfRRF`, ETag `f7961f07addeaad403df3ae96e69bebf`;
+- deployed Lambda SHA-256: `yPi7qpFVJKOVWbiCTnp4SIbfCmdLSHcz/+DoRG6dAM0=`; revision `50b09b20-b613-482b-b45e-0045d6a42c76`;
+- Admin deployment: workflow `31621719707`, job `94197937128`;
+- Admin `index.html`: S3 version `gX5XENbtIDp2q6xPiiadjyLqFNraPn62`, ETag `83e2cb9f3fec88f500aa0e1604750131`;
+- Admin entrypoint/app bundles: `assets/index-Cd9-qcYZ.js` / `assets/App-BFf2_1FJ.js`;
+- CloudFront invalidation: `ICVLUE4O4PXS3JV36XUO7SC6I3` (`Completed`).
+
+The API stack returned to `UPDATE_COMPLETE`; only `LambdaCodeS3Key` changed among parameters. The executed change set modified Lambda code plus dependent API/EventBridge bindings and did not replace or change a data resource. HTTP health returned 200. Scheduled intake/submit/writeback, live Lift transport and live-customer submission, workbook evidence, `go.vornan.co` publication, authentication, both campaign roots, multi-proof selection/template, and scoped `TBD` → `0.5` remained unchanged. Every shared-API Proof gate remained false, while dedicated Proof public read remained active through `2026-08-25T23:59:59Z` with its mutation gates dark.
+
+All protected counts were identical before and after deployment: Customers 1, CustomerWorkspaces 1, Targets 2, ImportMethods 2, OutputRoutes 1, ProductMappings 278, Jobs 55, OrderIds 58, SubmitAttempts 18, LiftProductCache 337, OrderStatusTokens 19, OrderStatusSnapshots 11, CanonicalRegistry 1, ProofCore-dev 142, and ProofAudit-dev 147.
+
+Authenticated production Admin verification confirmed:
+
+- visible-only Jobs auto-refresh and six nontechnical state choices;
+- exactly one visible MDHHS source-order row, `JOB-280569` / Ext_ID `PFMSOZTWDUAF53` / Lift `A0228322`;
+- campaign `MDHHS - Eat Safe Fish FY 26 - GPA - C316969` and Lift name `C316969 - Momentara Web Order - 20260811`;
+- three retained Ready siblings nested under **Source order activity**, not listed as new Jobs;
+- preserved original uncertain attempt, verified Lift association, nine lines, and confirmed identity;
+- safe **Run discovery now** control, both roots, multi-proof ZIP selection/template, and visible scoped `TBD` → `0.5` rule.
+
+No discovery control or job action was invoked during deployment verification. The pending-candidate tabs, pagination, and two-of-three explanation are present in the deployed bundle but render only after a discovery result exists in that browser session.
+
+The first two natural post-API scheduler cycles completed cleanly:
+
+| Correlation | Checked | Discovered / replayed | New jobs | Lift submits | Wrike writes | Failures |
+|---|---|---:|---:|---:|---:|---:|
+| `52038d33-c022-4c18-bf99-88fd1b97a537` | `2026-08-12T17:12:53.127Z` | 5 / 5 | 0 | 0 | 0 | 0 |
+| `82c86045-ca75-4b61-ad0d-7a69bf155bcc` | `2026-08-12T17:27:53.124Z` | 5 / 5 | 0 | 0 | 0 | 0 |
+
+API errors, throttles, scheduled-candidate-failure, and scheduled-failed-invocation alarms were `OK` at release closure. The first natural two-or-more-proof order still needs the existing read-only ZIP identity/publication/Lift/writeback validation packet; do not create a customer smoke order to force it.
+
+Rollback is application-only: restore the previous API artifact at `b6794380e44d3ca1ab22add3151525589ba6770c` (S3 version `Y8Y8NBj6x7qBumiV64guoBCWt3QAJjgc`, Lambda SHA `rifTSMHHDrWBHXPIZWJCCgt7oXU/xlRVYZxGZ+qwjpE=`) and previous Admin `index.html` version `TkcP9i3Lpo0G9E4dDJxjXK3MhFitAagi`, then invalidate CloudFront. Do not restore or replace production tables, and do not change the active multi-proof Import Method setting as part of this code rollback.
+
 ### Persistent scheduler preparation incident — 2026-08-11
 
 The cycles checked at `2026-08-11T15:42:53.213Z` (`a58db8a6-51fc-414d-a2f0-d33dabfcab96`) and `15:57:54.333Z` (`af8bbf31-b534-423c-8f77-a0c156cc47e3`) each reported seven contract-ready candidates, six replays, and one preparation failure. The candidate-failure alarm entered `ALARM`.
@@ -123,11 +161,11 @@ This option is deployed and explicitly enabled for Momentara as recorded above. 
 
 ## Current recovery behavior
 
-### Repository-ready source-order clarity and candidate visibility (not deployed)
+### Active source-order clarity and candidate visibility
 
-The `codex/pathfinder-source-order-clarity` slice is based on merged documentation baseline `78e51f36dd08afe8b3a84951cefc635cfebe9301`. Production remains on `b6794380e44d3ca1ab22add3151525589ba6770c`; none of the behavior in this subsection is live until a separately approved deployment succeeds.
+This behavior is active in production at `fa1ed4389720bb4f2d1119794845e72af21de1ca` and was validated as recorded above.
 
-Repository-ready behavior:
+Active behavior:
 
 - one stable source-order key uses customer, Import Method, Wrike account, and exact Placard Order task ID; workbook evidence and Import Method fingerprints are version history, not new operator-facing orders;
 - safe pre-transport evidence/mapping changes recompute the existing job in place while preserving job ID, Pathfinder Order Number, canonical order ID, Lift Ext_ID, publications, scheduler marker, and bounded source-order history;
@@ -139,11 +177,11 @@ Repository-ready behavior:
 - likely-candidate scoring never qualifies, prepares, publishes, submits, or writes back an order; all existing qualification requirements remain mandatory;
 - multiple proof delivery remains the same already deployed shared scheduled/manual service path; sanitized telemetry adds only task ID, `pdf`/`zip` delivery kind, proof count, publication ID, and evidence count.
 
-Required deployment acceptance:
+Continuing production acceptance:
 
 1. preserve scheduled discovery, scheduled submit, status writeback, live transport/customer profile, `go.vornan.co`, both campaign roots, all mappings, and the scoped `TBD` → `0.5` rule;
 2. verify a read-only Jobs response projects one row for the confirmed MDHHS source order while retaining its historical records in detail;
-3. run bounded operator discovery and confirm the candidate total is not truncated, with no Lift submission or Wrike write;
+3. on the next explicitly authorized operator discovery or natural new candidate, confirm the candidate total is not truncated and that visibility-only scoring does not weaken qualification;
 4. verify no existing job, order identity, submit attempt, publication, mapping, configuration, or audit history is deleted;
 5. wait for a natural two-or-more-proof order and confirm the telemetry reports `zip` and the expected proof count without filenames, URLs, customer content, or a second Lift order;
 6. after any ambiguous submit response, confirm the UI says **Confirmation Needed** and offers reconciliation rather than retry.
@@ -160,7 +198,7 @@ The deployed release also adds:
 - a bounded **Run discovery now** control inside the saved active Wrike Import Method;
 - reuse of the scheduled discovery, qualification, evidence, `go.vornan.co` publication, and preview-preparation service path for operator discovery;
 - an explicit guarantee that operator discovery does not submit to Lift, post a Wrike status, or mark jobs for immediate scheduled submit;
-- a pending-intake view for order-like tasks found in configured roots but blocked by task identity, ready status, Print Vendor, or Contract Number, with actionable operator messages;
+- a pending-intake view for exact Placard Order tasks found in configured roots but blocked by ready status, Print Vendor, or Contract Number, with actionable operator messages;
 - sanitized discovery and mapping-recovery audit events.
 
 These controls are live as of 2026-08-11. The authenticated production Admin smoke confirmed the visible Jobs refresh indicator, the **Run discovery now** control, and the Lift target's effective `MM/DD/YYYY` date format without saving configuration or running discovery.
@@ -184,12 +222,13 @@ The discovery fingerprint still includes the route-wide mapped-product set. A ma
 Known hardening debt:
 
 - replace route-wide invalidation with dependency-aware invalidation based on the product keys actually used by each job;
-- deploy and validate the repository-ready Wrike campaign/source-order identity and pending-candidate improvements above before treating them as production behavior;
 - update the Import Method **Last Run** surface on healthy replay-only scheduled cycles so it does not imply that polling stopped;
+- show the pending-candidate controls and latest safe snapshot before a new in-session discovery run, while preserving the current no-write boundary;
+- specialize historical submit guidance after a `Submission Uncertain` attempt has been reconciled to an **Order Confirmed** Lift association;
 - persist discovery-run history beyond structured runtime audit logs so earlier pending-intake snapshots can be compared in the UI;
-- plan a bounded historical normalization only after the source-order projection has been deployed and verified; do not delete retained sibling records merely to clean the Jobs display;
+- keep retained sibling records as immutable history; do not delete them merely to clean the Jobs display;
 - extend guided recovery beyond product mappings to other known-safe pre-transport validation failures;
-- add success/failure notifications that do not require daily babysitting.
+- add success/failure notifications that do not require daily babysitting;
 - persist scheduler candidate failures in durable audit history after the sanitized log contract is proven in production.
 
 ## Newly confirmed Momentara requirements — 2026-08-10

@@ -4,7 +4,7 @@ This is the entry point for all new Pathfinder, Vornan Proof, and live-support t
 
 Last reconciled: **2026-08-12**
 
-Deployed application baseline: `origin/main` at `b6794380e44d3ca1ab22add3151525589ba6770c`
+Deployed application baseline: `origin/main` at `fa1ed4389720bb4f2d1119794845e72af21de1ca`
 
 Live evidence: read-only AWS inspection, authenticated Admin smoke, and a bounded shared-path discovery run through 2026-08-12 in account `744016783602`, region `us-east-1`
 
@@ -45,19 +45,21 @@ PR #184 merged the multi-reference-proof ZIP capability at `b6794380e44d3ca1ab22
 
 The first natural cycle after activation prepared five replacement previews because the normalized Import Method fingerprint changed. Cross-job idempotency replayed every submit and produced no Lift order or Wrike write. Through `2026-08-12T15:35:43Z`, all 80 post-activation natural cycles completed at the 15-minute cadence with zero candidate failures, zero Lift submissions, and zero Wrike writebacks. A bounded operator discovery then returned five ready/reused orders, zero new previews, and 100 pending candidates, again with no Lift or Wrike action. The five currently qualified Wrike tasks already reconcile to confirmed Lift orders for Visit Montana (`A0228214`), MDHHS (`A0228322`), Fair Housing Commission (`A0228278`), Comcast Big South (`A0228190`), and ALDI HIN Store (`A0228162`). There is no evidence of a missed qualified order.
 
-Current visibility debt: the Import Method's displayed **Last Run** does not reflect later replay-only scheduled cycles; pending intake is capped at 100 items sorted by task ID rather than recency; and Pathfinder job records do not yet retain/display the Wrike campaign name as a first-class identity. Use exact Wrike task/evidence IDs for authoritative reconciliation until those surfaces are hardened.
+Current visibility debt: the Import Method's displayed **Last Run** does not reflect later replay-only scheduled cycles. Pending-candidate controls appear only after a discovery result exists in the current browser session, and the preserved historical `Submission Uncertain` attempt still contains generic retry-oriented guidance even after its order has been reconciled. Use exact Wrike task/evidence IDs as authoritative identity even when campaign names are displayed.
 
-### Repository-ready Pathfinder source-order clarity slice (not deployed)
+### Deployed Pathfinder source-order clarity release
 
-The `codex/pathfinder-source-order-clarity` development slice starts from merged documentation baseline `78e51f36dd08afe8b3a84951cefc635cfebe9301` and is intentionally separate from the deployed `b6794380e44d3ca1ab22add3151525589ba6770c` runtime. It does not change production gates, configuration, data, or infrastructure.
+PR #186 merged and deployed as `fa1ed4389720bb4f2d1119794845e72af21de1ca` on 2026-08-12. API workflow `31621165048` / job `94196081887` and Admin workflow `31621719707` / job `94197937128` completed successfully. The API stack changed only the Lambda artifact and dependent API/EventBridge bindings; every existing parameter, protected data count, Import Method value, and Proof gate was preserved.
 
-The slice makes one Wrike Placard Order task the stable Pathfinder source-order identity across workbook versions and Import Method fingerprints. Safe pre-transport changes update the existing job and append source-order history. Once any sibling has a confirmed Lift order or a possibly transported submit attempt, later source changes are recorded for review without creating, publishing, or submitting a replacement order. `Submission Uncertain` remains a mandatory reconciliation state and is never automatically retried.
+The release makes one Wrike Placard Order task the stable Pathfinder source-order identity across workbook versions and Import Method fingerprints. Safe pre-transport changes update the existing job and append source-order history. Once any sibling has a confirmed Lift order or a possibly transported submit attempt, later source changes are recorded for review without creating, publishing, or submitting a replacement order. `Submission Uncertain` remains a mandatory reconciliation state and is never automatically retried.
 
 The Admin Jobs surface displays one current row per source order, nests prior technical records in the detail history, adds nontechnical state filters, and shows the Wrike Contract Number/campaign beside the Lift order number/name. Exact task/folder IDs remain authoritative. Discovery now returns the full Placard Order candidate set for the bounded Wrike result, identifies a visibility-only **Likely candidates** subset using at least two of ready status, Print Vendor, and Contract Number, and paginates it in the Admin. This heuristic does not weaken qualification or submit gates.
 
 Qualified Wrike evidence now captures the task title and best-effort immediate campaign-folder display name. Display-name lookup failure cannot block intake. Multiple matching PDFs continue through the already deployed single-PDF/direct or multi-PDF/deterministic-ZIP service path; the slice adds sanitized delivery telemetry containing only task ID, delivery kind/count, publication ID, and evidence count.
 
-Deployment and production validation require a separate approval and must preserve all live Pathfinder/Proof parameters. Until that occurs, the deployed visibility debt and raw sibling records described above remain production truth.
+Authenticated Admin verification confirmed that MDHHS order `JOB-280569` / `A0228322` is one visible **Order Confirmed** row with three retained Ready records nested under **Source order activity**, rather than four Jobs rows. Campaign `MDHHS - Eat Safe Fish FY 26 - GPA - C316969`, Contract Number, Lift order number/name, visible-only refresh, and all six state choices rendered correctly. The raw historical records and original uncertain submit attempt remain immutable data.
+
+The first two natural scheduler cycles on the deployed API, correlations `52038d33-c022-4c18-bf99-88fd1b97a537` and `82c86045-ca75-4b61-ad0d-7a69bf155bcc`, each discovered and replayed five known orders with zero preparations, new jobs, Lift submissions, Wrike writes, candidate failures, or protected-count changes. All Pathfinder alarms were `OK` at release closure. No operator discovery or synthetic customer order was used for deployment validation.
 
 ### Vornan Proof
 
