@@ -203,6 +203,24 @@ The deployed release also adds:
 
 These controls are live as of 2026-08-11. The authenticated production Admin smoke confirmed the visible Jobs refresh indicator, the **Run discovery now** control, and the Lift target's effective `MM/DD/YYYY` date format without saving configuration or running discovery.
 
+### Repository-ready Jobs triage continuation (not deployed)
+
+The current Pathfinder development slice prepares the next bounded operations improvement without changing production gates, configuration, or external systems:
+
+- global and customer Jobs views retain separate browser-local filter/sort choices and expose **Reset view**;
+- the default useful view is Active / All intake / Current orders / Pathfinder intake / Descending;
+- `created_at` is labeled **Pathfinder Intake** and `updated_at` is labeled **Last Activity**; Lift creation time is shown only after the existing read-only Lift order snapshot is loaded;
+- a five-card triage strip distinguishes confirmed orders, likely Wrike intake review, Ready jobs waiting over 30 minutes, confirmation-needed submits, and failed/blocked jobs;
+- scheduled and operator discovery reuse the existing shared service path and persist only one bounded latest operations snapshot on the Import Method for cross-session candidate review;
+- the snapshot write is optimistic and conditional, does not update the saved method configuration timestamp, is excluded from the Import Method fingerprint, and fails non-blockingly so discovery/submit/writeback continuity is preserved;
+- an older Admin form submission cannot overwrite the latest runtime snapshot;
+- confirmed job detail adds a collapsed, full-width read-only comparison of canonical input lines, the reviewed Lift payload, and the current Lift order by stable line number;
+- Jobs shows Lift header **Order Status** separately from Pathfinder processing **State**, using only the latest durable status snapshot or verified-association evidence; the list performs no live Lift fan-out, shows **Not in Lift** before submission, and shows **Not checked** when a confirmed order has no durable header status yet;
+- reconciled `Submission Uncertain` history remains immutable but displays recovery-complete language and explicitly says no retry is required;
+- new confirmed associations capture additive `order_confirmed_at`; no existing job, order, attempt, mapping, publication, or audit record is rewritten or deleted.
+
+This continuation is repository-ready only. Do not treat it as live until its merged commit, API-first/Admin-second deployment identifiers, parameter-preservation evidence, protected table counts, scheduler continuity, and authenticated read-only Admin smoke are appended here.
+
 ### Lift order-date output correction
 
 The deployed release corrects the Lift order-date boundary after production evidence showed a two-digit source year such as `26` could be interpreted by Lift as year `0026`.
@@ -223,8 +241,8 @@ Known hardening debt:
 
 - replace route-wide invalidation with dependency-aware invalidation based on the product keys actually used by each job;
 - update the Import Method **Last Run** surface on healthy replay-only scheduled cycles so it does not imply that polling stopped;
-- show the pending-candidate controls and latest safe snapshot before a new in-session discovery run, while preserving the current no-write boundary;
-- specialize historical submit guidance after a `Submission Uncertain` attempt has been reconciled to an **Order Confirmed** Lift association;
+- show the latest safe pending-candidate snapshot before a new in-session discovery run; addressed in the repository-ready slice above but still live debt until deployed;
+- specialize historical submit guidance after a `Submission Uncertain` attempt is reconciled to **Order Confirmed**; addressed in the repository-ready slice above but still live debt until deployed;
 - persist discovery-run history beyond structured runtime audit logs so earlier pending-intake snapshots can be compared in the UI;
 - keep retained sibling records as immutable history; do not delete them merely to clean the Jobs display;
 - extend guided recovery beyond product mappings to other known-safe pre-transport validation failures;

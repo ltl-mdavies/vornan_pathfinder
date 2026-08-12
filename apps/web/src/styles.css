@@ -7919,6 +7919,189 @@ h1 {
   background: rgba(247, 249, 245, 0.7);
 }
 
+.job-list-control-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quiet-button {
+  min-height: 36px;
+  padding: 0 8px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 0;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.quiet-button:hover {
+  color: var(--vornan-forest);
+}
+
+.operations-triage-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.operations-triage-strip button {
+  display: grid;
+  min-width: 0;
+  min-height: 94px;
+  align-content: center;
+  gap: 3px;
+  padding: 13px 16px;
+  text-align: left;
+  color: var(--text-primary);
+  background: #fff;
+  border: 0;
+  cursor: pointer;
+}
+
+.operations-triage-strip button:hover,
+.operations-triage-strip button.is-active {
+  background: rgba(174, 202, 80, 0.1);
+  box-shadow: inset 0 -3px 0 var(--vornan-green);
+}
+
+.operations-triage-strip button.needs-attention strong {
+  color: #9a5714;
+}
+
+.operations-triage-strip span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.operations-triage-strip strong {
+  color: var(--vornan-forest);
+  font-size: 23px;
+  line-height: 1;
+}
+
+.operations-triage-strip small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wrike-intake-review {
+  background: #fff;
+}
+
+.wrike-intake-review-heading,
+.wrike-intake-review-list article {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.wrike-intake-review-heading > div,
+.wrike-intake-review-list article > div {
+  display: grid;
+  gap: 4px;
+}
+
+.wrike-intake-review-heading span,
+.wrike-intake-review-heading small,
+.wrike-intake-review-list small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.wrike-intake-review-list article > div:first-child {
+  min-width: 280px;
+  max-width: 42%;
+}
+
+.wrike-intake-review-list article > div:last-child {
+  justify-items: start;
+  flex: 1;
+}
+
+.order-line-comparison {
+  margin: 16px 18px 0;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.order-line-comparison summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+
+.order-line-comparison summary > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--vornan-forest);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.order-line-comparison summary small,
+.order-line-comparison-intro > span,
+.order-line-comparison-intro > small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.order-line-comparison[open] summary {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.order-line-comparison-body {
+  min-width: 0;
+}
+
+.order-line-comparison-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--surface-1);
+}
+
+.order-line-comparison table {
+  width: 100%;
+  min-width: 860px;
+  table-layout: fixed;
+}
+
+.order-line-comparison th:first-child,
+.order-line-comparison td:first-child {
+  width: 6%;
+}
+
+.order-line-comparison th:last-child,
+.order-line-comparison td:last-child {
+  width: 18%;
+}
+
+.order-line-comparison td strong,
+.order-line-comparison td .cell-meta {
+  display: block;
+}
+
 .job-list-filters {
   display: flex;
   flex-wrap: wrap;
@@ -7979,7 +8162,13 @@ h1 {
 }
 
 .job-list-table {
-  min-width: 1120px;
+  min-width: 1240px;
+}
+
+.job-order-status {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .job-list-table .selection-cell {
@@ -12472,6 +12661,10 @@ td {
       "target";
   }
 
+  .operations-triage-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .panel-footer-row {
     align-items: stretch;
     flex-direction: column;
@@ -12493,6 +12686,23 @@ td {
 }
 
 @media (max-width: 600px) {
+  .operations-triage-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .wrike-intake-review-heading,
+  .wrike-intake-review-list article,
+  .order-line-comparison summary,
+  .order-line-comparison-intro {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .wrike-intake-review-list article > div:first-child {
+    min-width: 0;
+    max-width: none;
+  }
+
   .target-detail-header {
     grid-template-columns: 1fr;
     align-items: stretch;

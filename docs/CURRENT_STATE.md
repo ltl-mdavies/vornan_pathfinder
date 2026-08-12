@@ -47,6 +47,16 @@ The first natural cycle after activation prepared five replacement previews beca
 
 Current visibility debt: the Import Method's displayed **Last Run** does not reflect later replay-only scheduled cycles. Pending-candidate controls appear only after a discovery result exists in the current browser session, and the preserved historical `Submission Uncertain` attempt still contains generic retry-oriented guidance even after its order has been reconciled. Use exact Wrike task/evidence IDs as authoritative identity even when campaign names are displayed.
 
+### Repository-ready Pathfinder Jobs triage slice (not deployed)
+
+The `codex/pathfinder-jobs-triage` repository slice is additive and remains pre-merge/pre-deployment at this checkpoint. It persists each Jobs scope's last filter/sort selection in that browser, labels `created_at` as **Pathfinder Intake** rather than implying a Lift creation time, and adds a compact triage strip for confirmed orders, likely intake candidates, Ready jobs waiting more than 30 minutes, confirmation-needed submits, and failed/blocked jobs.
+
+The same scheduled/operator discovery result now stores one bounded latest Wrike operations snapshot on the existing Import Method item. That runtime evidence has an optimistic conditional-write boundary, does not change the Import Method configuration timestamp or fingerprint, and cannot be overwritten by an older Admin form save. Jobs reads this snapshot without invoking discovery, so candidate review can survive browser sessions. This is a latest-state snapshot, not discovery-run history.
+
+Confirmed job detail adds a full-width, read-only line comparison across canonical input, the reviewed Lift payload, and a freshly loaded current Lift order. Lift creation time appears only from the live Lift snapshot. The Jobs table separately shows the latest durable Lift header **Order Status** from an existing order-status snapshot or verified association; unsubmitted jobs show **Not in Lift**, and confirmed jobs without durable header evidence show **Not checked**. Jobs status projection performs no live Lift lookup. A historical `Submission Uncertain` attempt associated with a confirmed Lift order remains immutable but displays **no retry required** guidance. New confirmations record an additive `order_confirmed_at`; existing confirmed jobs use their last known confirmed activity for KPI continuity.
+
+This section describes repository-ready behavior only. Until a later approved merge/deployment and read-only production validation are recorded, the deployed behavior remains the source-order clarity release above.
+
 ### Deployed Pathfinder source-order clarity release
 
 PR #186 merged and deployed as `fa1ed4389720bb4f2d1119794845e72af21de1ca` on 2026-08-12. API workflow `31621165048` / job `94196081887` and Admin workflow `31621719707` / job `94197937128` completed successfully. The API stack changed only the Lambda artifact and dependent API/EventBridge bindings; every existing parameter, protected data count, Import Method value, and Proof gate was preserved.

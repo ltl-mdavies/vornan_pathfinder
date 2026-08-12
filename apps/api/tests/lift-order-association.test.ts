@@ -63,6 +63,7 @@ test("verified Lift order associations are replay-safe, replaceable, audited, an
       assert.equal(linked.reused, false);
       assert.equal(linked.job.state, "Order Confirmed");
       assert.equal(linked.job.target_order_number, "A0227641");
+      assert.equal(linked.job.order_confirmed_at, linked.association.linked_at);
       assert.equal(linked.job.target_order_association_history.length, 1);
       assert.equal(linked.association.action, "linked");
       assert.equal(linked.association.previous_order_number, null);
@@ -103,6 +104,7 @@ test("verified Lift order associations are replay-safe, replaceable, audited, an
       assert.equal(replaced.association.action, "replaced");
       assert.equal(replaced.association.previous_order_number, "A0227641");
       assert.equal(replaced.job.target_order_association_history.length, 2);
+      assert.equal(replaced.job.order_confirmed_at, linked.job.order_confirmed_at);
 
       const reboundCount = await rebindActiveOrderStatusTokensForJob({
         customer_id: "284619",
@@ -138,6 +140,7 @@ test("verified Lift order associations are replay-safe, replaceable, audited, an
 
       const finalJob = await getJob(customer, "job-timeout-recovery");
       assert.equal(finalJob.target_order_number, "A0228000");
+      assert.equal(finalJob.order_confirmed_at, linked.job.order_confirmed_at);
       assert.equal(finalJob.target_order_association_history.length, 2);
       assert.ok(finalJob.target_order_association_history.every((entry) => !JSON.stringify(entry).includes("status-token-hash")));
     `;

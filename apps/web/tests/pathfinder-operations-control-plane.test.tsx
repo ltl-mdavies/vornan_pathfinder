@@ -50,3 +50,43 @@ test("blocked Wrike jobs expose in-place mapping recovery and audit history", ()
   assert.match(source, /Recovery history/);
   assert.match(source, /No Lift order was created or retried/);
 });
+
+test("Jobs remembers separate views and explains operational timestamps", () => {
+  assert.match(source, /pathfinder\.jobs\.view\.global\.v1/);
+  assert.match(source, /pathfinder\.jobs\.view\.customer\.v1/);
+  assert.match(source, /window\.localStorage\.setItem/);
+  assert.match(source, /Reset view/);
+  assert.match(source, /Pathfinder Intake/);
+  assert.match(source, /Last Activity/);
+  assert.match(source, /Lift created/);
+});
+
+test("Jobs exposes compact triage signals and durable Wrike candidate review", () => {
+  assert.match(source, /OperationsTriageStrip/);
+  assert.match(source, /Orders confirmed/);
+  assert.match(source, /Intake review/);
+  assert.match(source, /Waiting to submit/);
+  assert.match(source, /Confirmation needed/);
+  assert.match(source, /Failed or blocked/);
+  assert.match(source, /Latest durable discovery evidence/);
+  assert.match(source, /wrike_operations_snapshots/);
+});
+
+test("confirmed jobs compare source, prepared, and current Lift lines without retrying", () => {
+  assert.match(source, /Compare order lines/);
+  assert.match(source, /Input order/);
+  assert.match(source, /Prepared for Lift/);
+  assert.match(source, /Current in Lift/);
+  assert.match(source, /This read-only view aligns product and quantity by line number/);
+  assert.match(source, /No retry is required/);
+  assert.match(source, /Historical timeout retained for audit/);
+});
+
+test("Jobs shows durable Lift order-header status and the line comparison uses the full width", async () => {
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(source, /<th>Order Status<\/th>/);
+  assert.match(source, /job\.target_order_status\.label/);
+  assert.match(source, /Lift order header last checked/);
+  assert.match(source, /job\.target_order_number \? "Not checked" : "Not in Lift"/);
+  assert.match(styles, /\.order-line-comparison table \{[\s\S]*?width: 100%;[\s\S]*?table-layout: fixed;/);
+});

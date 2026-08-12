@@ -33,6 +33,31 @@ test("operator discovery reuses the scheduled discovery and preparation path wit
   assert.match(route, /pending_order_candidates/);
   assert.doesNotMatch(route, /submitLiftOrder/);
   assert.doesNotMatch(route, /postWrikeTaskComment/);
+  assert.match(route, /buildWrikeOperationsSnapshot/);
+  assert.match(route, /persistWrikeOperationsSnapshot/);
+  assert.match(route, /operations_snapshot_persisted/);
+});
+
+test("Jobs reads durable Wrike operations evidence without adding a second discovery path", () => {
+  const jobsRouteStart = source.indexOf('app.get("/api/jobs"');
+  const jobsRouteEnd = source.indexOf('app.get("/api/customers/:liftCustomerId/jobs/:jobId"', jobsRouteStart);
+  assert.ok(jobsRouteStart > 0 && jobsRouteEnd > jobsRouteStart);
+  const jobsRoute = source.slice(jobsRouteStart, jobsRouteEnd);
+  assert.match(jobsRoute, /listWrikeOperationsSnapshots/);
+  assert.match(jobsRoute, /wrike_operations_snapshots/);
+  assert.doesNotMatch(jobsRoute, /runConfiguredWrikeIntakeCore/);
+});
+
+test("Jobs projects cached Lift header status without issuing live Lift requests", () => {
+  const jobsRouteStart = source.indexOf('app.get("/api/jobs"');
+  const jobsRouteEnd = source.indexOf('app.get("/api/customers/:liftCustomerId/jobs/:jobId"', jobsRouteStart);
+  assert.ok(jobsRouteStart > 0 && jobsRouteEnd > jobsRouteStart);
+  const jobsRoute = source.slice(jobsRouteStart, jobsRouteEnd);
+  assert.match(jobsRoute, /sourceOrderJobProjectionWithStatus/);
+  assert.match(source, /getPublicOrderStatusSnapshots/);
+  assert.match(source, /target_order_status/);
+  assert.doesNotMatch(jobsRoute, /fetchLiftOrderLookup/);
+  assert.doesNotMatch(jobsRoute, /buildInternalOrderSnapshotForJob/);
 });
 
 test("mapping recovery preserves order identity and never invokes Lift transport", () => {
