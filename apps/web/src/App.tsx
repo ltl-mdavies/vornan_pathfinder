@@ -14,6 +14,7 @@ import {
   Copy,
   Database,
   Edit3,
+  ExternalLink,
   FileSpreadsheet,
   FileText,
   Gauge,
@@ -3147,6 +3148,22 @@ function OrderLineComparison({
   const lineNumbers = Array.from(
     new Set([...sourceByLine.keys(), ...preparedByLine.keys(), ...liveByLine.keys()])
   ).sort((first, second) => first - second);
+  const matchingLineCount = snapshot?.live_order
+    ? lineNumbers.filter((lineNumber) => {
+        const prepared = preparedByLine.get(lineNumber);
+        const live = liveByLine.get(lineNumber);
+        return Boolean(
+          live && prepared &&
+          Number(live.quantity) === Number(prepared.quantity) &&
+          (live.unit_number
+            ? live.unit_number === prepared.unit_number
+            : live.product_name?.trim().toLowerCase() === prepared.product_name?.trim().toLowerCase())
+        );
+      }).length
+    : 0;
+  const comparisonSummary = snapshot?.live_order
+    ? `${matchingLineCount} of ${lineNumbers.length} lines match`
+    : `${lineNumbers.length} prepared line${lineNumbers.length === 1 ? "" : "s"}`;
 
   return (
     <details className="order-line-comparison">
@@ -3155,7 +3172,7 @@ function OrderLineComparison({
           <ClipboardList size={16} />
           Compare order lines
         </span>
-        <small>Input → prepared payload → current Lift order</small>
+        <small>{comparisonSummary} · Input → prepared → current Lift</small>
       </summary>
       <div className="order-line-comparison-body">
         <div className="order-line-comparison-intro">
@@ -3189,7 +3206,8 @@ function OrderLineComparison({
                 const sourceRow = job.parsed_order_rows.find(
                   (row) => row.row_number === resolution?.source_row_number && row.sheet_name === resolution.source_sheet_name
                 );
-                const preparedIdentity = prepared?.unit_number || prepared?.product_id || prepared?.product_name || "Product unavailable";
+                const preparedIdentity = resolution?.product_name || prepared?.product_name || prepared?.product_id || prepared?.unit_number || "Product unavailable";
+                const preparedIdentifier = resolution?.resolved_product_identifier ?? resolution?.resolved_product_id ?? prepared?.product_id ?? prepared?.unit_number;
                 const liveIdentity = live?.unit_number || live?.product_name || "Product unavailable";
                 const matches = Boolean(
                   live && prepared &&
@@ -3220,6 +3238,9 @@ function OrderLineComparison({
                     <td>
                       <strong>{preparedIdentity}</strong>
                       <span className="cell-meta">Qty {prepared?.quantity ?? "—"}</span>
+                      {preparedIdentifier && String(preparedIdentifier) !== preparedIdentity ? (
+                        <span className="cell-meta">Lift ID {preparedIdentifier}</span>
+                      ) : null}
                     </td>
                     <td>
                       <strong>{live ? liveIdentity : "Not loaded"}</strong>
@@ -6836,6 +6857,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const selectedJobMissingOrderTitle = Boolean(
     canRetrySelectedJob && !selectedJobDetail?.lift_payload.order.order_title?.trim()
   );
+  const selectedJobSourceAttention = selectedJobDetail?.source_order_history?.filter(
+    (entry) => entry.action === "source_change_observed_after_transport"
+  ) ?? [];
+  const selectedJobContractNumber = selectedJobDetail ? jobContractNumber(selectedJobDetail) : "Contract pending";
+  const selectedJobCampaignName = selectedJobDetail ? jobCampaignName(selectedJobDetail) : "Campaign pending";
+  const selectedJobLiftOrderNumber = selectedJobDetail?.target_order_number ?? latestJobAttempt?.response.lift_order_id ?? null;
+  const selectedJobLiftStatus = orderSnapshotResult?.order_status?.label ?? selectedJobDetail?.target_order_status?.label ?? null;
+  const selectedJobLiftStep = orderSnapshotResult?.order_status?.step
+    ? `${orderSnapshotResult.order_status.step.step_number}: ${orderSnapshotResult.order_status.step.step_name}`
+    : null;
   const primaryTarget = workspace?.primary_target ?? targets[0];
   const targetRows = targets.length ? targets : primaryTarget ? [primaryTarget] : [];
   const outputRoutes = workspace?.output_routes?.length ? workspace.output_routes : [defaultOutputRoute];
@@ -17473,18 +17504,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <span>{selectedJobDetail.archived_at ? `Archived ${displayTimestamp(selectedJobDetail.archived_at)}` : "Active job"}</span>
             </div>
             <div className="panel job-detail-panel">
-              <PanelHeader
-                icon={ClipboardList}
-                title={`${displayJobId(selectedJobDetail.job_id)} Detail`}
-                detail={jobDetailState === "loading" ? "Loading attempts" : selectedJobDetail.output_route_name}
-              />
               <div className="job-detail-header">
                 <div>
-                  <p className="eyebrow">Job Detail</p>
-                  <h2>{selectedJobDetail.customer_name}</h2>
-                  <span>
-                    {selectedJobDetail.import_method_name} · {selectedJobDetail.source_file_name} · Pathfinder {selectedJobDetail.pathfinder_order_id}
-                  </span>
+                  <p className="eyebrow">Wrike order · {displayJobId(selectedJobDetail.job_id)}</p>
+                  <h2>{selectedJobContractNumber} · {selectedJobCampaignName}</h2>
+                  <span>{selectedJobDetail.customer_name} · {selectedJobDetail.source_file_name}</span>
+                  <small className="job-detail-system-identity">
+                    Pathfinder {selectedJobDetail.pathfinder_order_id}
+                    {selectedJobLiftOrderNumber ? ` · Lift ${selectedJobLiftOrderNumber}` : " · Lift order pending"}
+                  </small>
                   <div className="job-detail-intake-context">
                     <span
                       className={`job-intake-pill ${
@@ -17504,6 +17532,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
                 <div className="job-detail-actions">
                   <StatePill state={selectedJobDetail.state} />
+                  {selectedJobLiftStatus ? (
+                    <span className="mini-pill mini-pill-neutral" title="Current Lift order status">
+                      {selectedJobLiftStatus}
+                    </span>
+                  ) : null}
+                  {selectedJobSourceAttention.length ? (
+                    <span className="mini-pill mini-pill-warning">Review needed</span>
+                  ) : null}
                   {canReevaluateSelectedJob ? (
                     <button
                       className="primary-button job-detail-submit-action"
@@ -17566,19 +17602,31 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     >
                       <ClipboardList size={16} />
                       {orderSnapshotState === "loading"
-                        ? "Refreshing order…"
+                        ? "Refreshing Lift status…"
                         : orderSnapshotResult
-                          ? "Refresh Order"
-                          : "View Order"}
+                          ? "Refresh Lift status"
+                          : "Load Lift status"}
                     </button>
                   )}
+                  {selectedJobDetail.target_order_lookup_url ? (
+                    <a
+                      className="secondary-button job-detail-open-lift"
+                      href={selectedJobDetail.target_order_lookup_url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ExternalLink size={16} />
+                      Open in Lift
+                    </a>
+                  ) : null}
                   <div className="job-detail-action-menu" data-button-menu-root>
                     <button
                       className="secondary-button"
                       onClick={() => setJobActionMenuOpen((current) => !current)}
                       aria-expanded={jobActionMenuOpen}
+                      aria-label="Job actions"
                     >
-                      Actions
+                      Job actions
                       <ChevronDown size={16} />
                     </button>
                     {jobActionMenuOpen ? <div className="job-detail-action-popover">
@@ -17725,43 +17773,45 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </span>
                 </div>
               ) : null}
-              <dl className="customer-details job-detail-summary">
-                <DetailItem label="Pathfinder Order Number" value={selectedJobDetail.pathfinder_order_id} />
-                <DetailItem label="Lift Ext_ID" value={jobExtId(selectedJobDetail)} />
-                <DetailItem label="Submit profile" value={selectedJobDetail.submit_profile_name} />
-                <DetailItem label="Submit customer" value={`${selectedJobDetail.submit_customer_name} / ${selectedJobDetail.submit_customer_id}`} />
-                <DetailItem label="Output route" value={selectedJobDetail.output_route_name} />
-                <DetailItem label="Lift order number" value={selectedJobDetail.target_order_number ?? latestJobAttempt?.response.lift_order_id ?? "Pending"} />
-                <DetailItem label="Lines" value={`${selectedJobDetail.lift_payload.lines.length}`} />
-                <DetailItem
-                  label="Reviewed payload"
-                  value={
-                    selectedJobDetail.submit_integrity
-                      ? `${selectedJobDetail.submit_integrity.fingerprint.slice(0, 12)}…`
-                      : "Refresh certification required"
-                  }
-                />
-                <DetailItem label="Pathfinder intake" value={displayTimestamp(selectedJobDetail.created_at)} />
-                <DetailItem label="Last activity" value={displayTimestamp(selectedJobDetail.updated_at)} />
-                <DetailItem label="Order confirmed" value={selectedJobDetail.order_confirmed_at ? displayTimestamp(selectedJobDetail.order_confirmed_at) : "Not confirmed"} />
-                <DetailItem label="Lift created" value={orderSnapshotResult?.live_order?.creation_date ? displayTimestamp(orderSnapshotResult.live_order.creation_date) : "Load current Lift order"} />
-              </dl>
+              {selectedJobSourceAttention.length ? (
+                <section className="job-detail-attention" role="status" aria-label="Order needs review">
+                  <AlertTriangle size={19} />
+                  <div>
+                    <span>Review needed</span>
+                    <strong>{selectedJobSourceAttention[0]?.message}</strong>
+                    <small>
+                      Lift order {selectedJobLiftOrderNumber ?? "pending"} is preserved. Review the source change before deciding whether the confirmed order needs an update.
+                    </small>
+                  </div>
+                </section>
+              ) : null}
+              <section className="job-detail-overview" aria-labelledby="job-detail-overview-title">
+                <div className="job-detail-section-heading">
+                  <div>
+                    <p className="eyebrow">Overview</p>
+                    <h3 id="job-detail-overview-title">Order at a glance</h3>
+                  </div>
+                  <small>{selectedJobDetail.lift_payload.lines.length} line{selectedJobDetail.lift_payload.lines.length === 1 ? "" : "s"}</small>
+                </div>
+                <dl className="customer-details job-detail-summary job-detail-primary-summary">
+                  <DetailItem label="Wrike contract" value={selectedJobContractNumber} />
+                  <DetailItem label="Wrike campaign" value={selectedJobCampaignName} />
+                  <DetailItem label="Lift order" value={selectedJobLiftOrderNumber ?? "Pending"} />
+                  <DetailItem label="Lift order name" value={selectedJobDetail.lift_payload.order.order_title || "Pending"} />
+                  <DetailItem label="Current status" value={selectedJobLiftStatus ?? (selectedJobLiftOrderNumber ? "Not checked" : "Not in Lift")} />
+                  <DetailItem label="Current step" value={selectedJobLiftStep ?? "Load current Lift order"} />
+                  <DetailItem label="Pathfinder intake" value={displayTimestamp(selectedJobDetail.created_at)} />
+                  <DetailItem label="Order confirmed" value={selectedJobDetail.order_confirmed_at ? displayTimestamp(selectedJobDetail.order_confirmed_at) : "Not confirmed"} />
+                  <DetailItem label="Last activity" value={displayTimestamp(selectedJobDetail.updated_at)} />
+                  <DetailItem label="Lift created" value={orderSnapshotResult?.live_order?.creation_date ? displayTimestamp(orderSnapshotResult.live_order.creation_date) : "Load current Lift order"} />
+                </dl>
+              </section>
               <OrderLineComparison
                 job={selectedJobDetail}
                 snapshot={orderSnapshotResult}
                 loading={orderSnapshotState === "loading"}
                 onRefresh={() => void loadOrderSnapshot(selectedJobDetail)}
               />
-              {selectedJobDetail.target_order_lookup_url ? (
-                <a
-                  className="detail-link"
-                  href={selectedJobDetail.target_order_lookup_url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open Lift order lookup
-                </a>
-              ) : null}
               {selectedJobDetail.target_order_association_history?.length ? (
                 <details className="lift-order-association-history">
                   <summary>
@@ -17792,10 +17842,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </details>
               ) : null}
               {selectedJobDetail.source_order_history?.length || selectedJobDetail.source_order_summary?.related_record_count ? (
-                <details className="job-recovery-history" open>
+                <details className="job-recovery-history job-source-activity">
                   <summary>
                     <History size={16} />
-                    Source order activity
+                    <span>Source order activity</span>
+                    <small>
+                      {selectedJobDetail.source_order_history?.length ?? 0} change{(selectedJobDetail.source_order_history?.length ?? 0) === 1 ? "" : "s"} · {selectedJobDetail.source_order_summary?.related_record_count ?? 0} historical record{(selectedJobDetail.source_order_summary?.related_record_count ?? 0) === 1 ? "" : "s"}
+                    </small>
                   </summary>
                   <div>
                     {(selectedJobDetail.source_order_history ?? []).map((entry) => (
@@ -17835,7 +17888,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </details>
               ) : null}
               {selectedJobDetail.recovery_audit?.length ? (
-                <details className="job-recovery-history" open>
+                <details className="job-recovery-history">
                   <summary>
                     <History size={16} />
                     Recovery history ({selectedJobDetail.recovery_audit.length})
@@ -17876,24 +17929,30 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
               ) : null}
               {orderSnapshotResult ? (
-                <div className="code-panel order-lookup-panel order-snapshot-panel">
-                  <PanelHeader
-                    icon={ClipboardList}
-                    title="Pathfinder Order Snapshot"
-                    detail={`${orderSnapshotResult.order_number} · ${orderSnapshotResult.lines.length} line${orderSnapshotResult.lines.length === 1 ? "" : "s"} · ${orderSnapshotResult.packages.length} package${orderSnapshotResult.packages.length === 1 ? "" : "s"}`}
-                  />
-                  <OrderRollup snapshot={orderSnapshotResult} audience="internal" displayDate={displayTimestamp} />
-                  <details className="order-snapshot-developer-details">
-                    <summary>Developer details</summary>
-                    <div className="customer-details job-detail-summary">
-                      <DetailItem label="Source Order" value={orderSnapshotResult.source_order_id} />
-                      <DetailItem label="Submit Customer" value={`${orderSnapshotResult.customer.submit_customer_name} / ${orderSnapshotResult.customer.submit_customer_id}`} />
-                      <DetailItem label="Route" value={orderSnapshotResult.route.name} />
-                      <DetailItem label="Redacted" value={orderSnapshotResult.visibility_policy.redacted_fields.join(", ") || "None"} />
-                    </div>
-                    <pre>{formatJson(orderSnapshotResult)}</pre>
-                  </details>
-                </div>
+                <details className="job-detail-section job-detail-lift-order">
+                  <summary>
+                    <span>
+                      <ClipboardList size={17} />
+                      Current Lift order
+                    </span>
+                    <small>
+                      {selectedJobLiftStatus ?? "Status pending"}{selectedJobLiftStep ? ` · ${selectedJobLiftStep}` : ""} · checked {displayTimestamp(orderSnapshotResult.refreshed_at)}
+                    </small>
+                  </summary>
+                  <div className="code-panel order-lookup-panel order-snapshot-panel">
+                    <OrderRollup snapshot={orderSnapshotResult} audience="internal" displayDate={displayTimestamp} />
+                    <details className="order-snapshot-developer-details">
+                      <summary>Snapshot diagnostics</summary>
+                      <div className="customer-details job-detail-summary">
+                        <DetailItem label="Source Order" value={orderSnapshotResult.source_order_id} />
+                        <DetailItem label="Submit Customer" value={`${orderSnapshotResult.customer.submit_customer_name} / ${orderSnapshotResult.customer.submit_customer_id}`} />
+                        <DetailItem label="Route" value={orderSnapshotResult.route.name} />
+                        <DetailItem label="Redacted" value={orderSnapshotResult.visibility_policy.redacted_fields.join(", ") || "None"} />
+                      </div>
+                      <pre>{formatJson(orderSnapshotResult)}</pre>
+                    </details>
+                  </div>
+                </details>
               ) : null}
               {orderLookupResult ? (
                 <div className="code-panel order-lookup-panel">
@@ -18030,6 +18089,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               )}
             </div>
 
+            <details className="job-detail-technical-evidence">
+              <summary>
+                <span>
+                  <ShieldCheck size={17} />
+                  Technical evidence
+                </span>
+                <small>
+                  {visibleJobDetailAttempts.length} submit attempt{visibleJobDetailAttempts.length === 1 ? "" : "s"} · {selectedJobDetail.unresolved_products.length} unresolved product{selectedJobDetail.unresolved_products.length === 1 ? "" : "s"}
+                </small>
+              </summary>
+              <div className="job-detail-technical-evidence-body">
             <section className="panel jobs-panel">
               <PanelHeader icon={History} title="Submit Attempt History" detail={`${visibleJobDetailAttempts.length} attempt${visibleJobDetailAttempts.length === 1 ? "" : "s"}`} />
               <table>
@@ -18154,6 +18224,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 })}</pre>
               </div>
             </section>
+              </div>
+            </details>
           </section>
         ) : null}
 

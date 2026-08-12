@@ -7518,8 +7518,8 @@ h1 {
 .job-detail-header h2 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 28px;
-  line-height: 1;
+  font-size: clamp(24px, 2.1vw, 34px);
+  line-height: 1.08;
 }
 
 .job-detail-header > div:first-child > span {
@@ -7530,12 +7530,29 @@ h1 {
   font-weight: 700;
 }
 
+.job-detail-system-identity {
+  display: block;
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
 .job-detail-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.job-detail-open-lift {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  color: var(--vornan-forest);
+  text-decoration: none;
 }
 
 .job-detail-view-order {
@@ -7691,6 +7708,10 @@ h1 {
     flex-direction: column;
   }
 
+  .job-detail-primary-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .job-detail-actions {
     width: 100%;
     justify-content: flex-start;
@@ -7708,6 +7729,86 @@ h1 {
 
 .job-detail-summary {
   padding: 16px 18px 18px;
+}
+
+.job-detail-attention {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  margin: 16px 18px 0;
+  padding: 14px 15px;
+  border: 1px solid rgba(168, 121, 33, 0.32);
+  border-left: 4px solid #a87921;
+  border-radius: 8px;
+  color: #55451f;
+  background: #fff9ed;
+}
+
+.job-detail-attention > svg {
+  margin-top: 2px;
+  color: #8a6117;
+}
+
+.job-detail-attention > div {
+  display: grid;
+  gap: 3px;
+}
+
+.job-detail-attention span {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.job-detail-attention strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.job-detail-attention small {
+  color: #6f5d3d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.job-detail-overview {
+  margin-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(247, 249, 245, 0.55);
+}
+
+.job-detail-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px 0;
+}
+
+.job-detail-section-heading h3 {
+  margin: 3px 0 0;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.job-detail-section-heading > small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.job-detail-primary-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.job-detail-primary-summary div {
+  background: #fff;
+}
+
+.job-detail-primary-summary dd {
+  font-size: 13px;
 }
 
 .detail-link {
@@ -9569,6 +9670,17 @@ td {
   cursor: pointer;
 }
 
+.job-source-activity summary > span {
+  color: var(--text-primary);
+}
+
+.job-source-activity summary > small {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
 .lift-order-association-history > div,
 .job-recovery-history > div {
   border-top: 1px solid var(--border-subtle);
@@ -9593,6 +9705,80 @@ td {
   display: grid;
   gap: 3px;
   min-width: 0;
+}
+
+.job-detail-section,
+.job-detail-technical-evidence {
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.job-detail-section {
+  margin: 16px 18px 18px;
+}
+
+.job-detail-technical-evidence {
+  margin: 0;
+}
+
+.job-detail-section > summary,
+.job-detail-technical-evidence > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 54px;
+  padding: 14px 16px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.job-detail-section > summary > span,
+.job-detail-technical-evidence > summary > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--vornan-forest);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.job-detail-section > summary > small,
+.job-detail-technical-evidence > summary > small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 750;
+  text-align: right;
+}
+
+.job-detail-section[open] > summary,
+.job-detail-technical-evidence[open] > summary {
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(247, 249, 245, 0.66);
+}
+
+.job-detail-lift-order .order-snapshot-panel {
+  border: 0;
+  border-radius: 0;
+}
+
+.job-detail-lift-order .order-snapshot-panel > .order-rollup {
+  margin-top: 0;
+}
+
+.job-detail-technical-evidence-body {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  background: rgba(247, 249, 245, 0.42);
+}
+
+.job-detail-technical-evidence-body > .panel,
+.job-detail-technical-evidence-body .job-detail-grid,
+.job-detail-technical-evidence-body .job-detail-code-grid {
+  margin: 0;
 }
 
 @media (max-width: 760px) {
@@ -12693,9 +12879,22 @@ td {
   .wrike-intake-review-heading,
   .wrike-intake-review-list article,
   .order-line-comparison summary,
-  .order-line-comparison-intro {
+  .order-line-comparison-intro,
+  .job-detail-section > summary,
+  .job-detail-technical-evidence > summary {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .job-detail-primary-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .job-detail-section > summary > small,
+  .job-detail-technical-evidence > summary > small,
+  .job-source-activity summary > small {
+    margin-left: 0;
+    text-align: left;
   }
 
   .wrike-intake-review-list article > div:first-child {
