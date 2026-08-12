@@ -11,6 +11,7 @@ import {
   type OrderRollupPackage,
   type OrderRollupProof,
   type OrderRollupProofSummary,
+  type OrderRollupSourceStatus,
   type OrderRollupShipmentSummary,
   type OrderRollupSnapshot
 } from "@pathfinder/order-rollup";
@@ -470,6 +471,26 @@ function ShipmentSummary({ summary }: { summary: OrderRollupShipmentSummary }) {
   );
 }
 
+function sourceUnavailable(status: OrderRollupSourceStatus | undefined) {
+  return Boolean(status && status.availability !== "available");
+}
+
+function SectionAvailabilityNote({
+  heading,
+  message
+}: {
+  heading: string;
+  message: string;
+}) {
+  const headingId = useId();
+  return (
+    <aside className="order-rollup__section-availability" aria-labelledby={headingId}>
+      <strong id={headingId}>{heading}</strong>
+      <span>{message}</span>
+    </aside>
+  );
+}
+
 function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAssetsLoading }: { line: OrderRollupLine; displayDate: (value?: string | null) => string; showProofs: boolean; allowProofAssetLinks: boolean; proofAssetsLoading: boolean }) {
   const lineTitle = line.product_name ?? line.description ?? `Order line ${line.line_number}`;
   return (
@@ -538,6 +559,11 @@ export function OrderRollup({
         : "Not provided";
   const title = liveOrder?.order_title ?? snapshot.header.order_title ?? snapshot.order_number;
   const fieldSources = snapshot.header.field_sources;
+  const proofStatusUnavailable = sourceUnavailable(snapshot.source_status?.proofs);
+  const shippingStatusUnavailable = sourceUnavailable(snapshot.source_status?.packages) || sourceUnavailable(snapshot.source_status?.shipping);
+  const displayedIssues = audience === "internal"
+    ? snapshot.issues
+    : snapshot.issues.filter((issue) => issue.source === "order" && issue.impact === "core_unavailable");
 
   return (
     <section className={`order-rollup order-rollup--${audience}`}>
@@ -571,14 +597,30 @@ export function OrderRollup({
 
       <ShipmentSummary summary={shipmentSummary} />
 
+      {audience === "public" && shippingStatusUnavailable ? (
+        <SectionAvailabilityNote
+          heading="Shipping update"
+          message="Some shipment details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
+        />
+      ) : null}
+
       {showProofs && snapshot.proof_summary ? (
         <ProofSummary summary={snapshot.proof_summary} audience={audience} displayDate={displayDate} allowAssetLinks={allowProofAssetLinks} />
       ) : null}
 
-      {snapshot.issues.length ? (
-        <div className="order-rollup__issues" role="status">
-          <strong>{snapshot.issues.length} data note{snapshot.issues.length === 1 ? "" : "s"}</strong>
-          <span>{snapshot.issues.map((issue) => issue.message).join(" ")}</span>
+      {audience === "public" && showProofs && proofStatusUnavailable ? (
+        <SectionAvailabilityNote
+          heading="Proof update"
+          message="Some proof details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
+        />
+      ) : null}
+
+      {displayedIssues.length ? (
+        <div className="order-rollup__issues" role={audience === "internal" ? "status" : undefined}>
+          <strong>{audience === "public" ? "Order update" : `${displayedIssues.length} data note${displayedIssues.length === 1 ? "" : "s"}`}</strong>
+          <span>{audience === "public"
+            ? "Current order status is temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
+            : displayedIssues.map((issue) => issue.message).join(" ")}</span>
         </div>
       ) : null}
 

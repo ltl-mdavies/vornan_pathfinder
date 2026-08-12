@@ -39,9 +39,11 @@ import type {
   LiftStepDefinition,
   NormalizedLiftOrder,
   OrderRollupHeaderFieldSource,
+  OrderRollupIssue,
   OrderRollupPackage,
   OrderRollupProof,
   OrderRollupProofSummary,
+  OrderRollupSourceStatus,
   OrderRollupShipmentSummary
 } from "@pathfinder/order-rollup";
 import {
@@ -1029,8 +1031,10 @@ export interface PublicOrderStatusSnapshot {
     order: { ok: boolean; http_status: number; fetched_at: string } | null;
     proofs: { ok: boolean; http_status: number; fetched_at: string } | null;
     packages: { ok: boolean; http_status: number; fetched_at: string; redacted_fields: string[] } | null;
+    shipping?: { ok: boolean; http_status: number; fetched_at: string } | null;
   };
-  issues: Array<{ source: string; severity: "warning" | "error"; message: string }>;
+  source_status?: Partial<Record<OrderRollupSourceStatus["source"], OrderRollupSourceStatus>>;
+  issues: OrderRollupIssue[];
   visibility_policy: {
     audience: "public_status";
     redacted_fields: string[];

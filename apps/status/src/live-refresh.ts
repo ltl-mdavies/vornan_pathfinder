@@ -1,11 +1,30 @@
 export const DEFAULT_PUBLIC_STATUS_POLL_MS = 30_000;
+export const MAX_PUBLIC_STATUS_BACKOFF_MS = 300_000;
 
-export function publicStatusPollDelay(seconds: unknown) {
+export function publicStatusPollDelay(
+  seconds: unknown,
+  options: {
+    degradedAttempts?: number;
+    jitterRatio?: number;
+    random?: () => number;
+  } = {}
+) {
   const parsed = typeof seconds === "number" ? seconds : Number(seconds);
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_PUBLIC_STATUS_POLL_MS;
-  }
-  return Math.min(60_000, Math.max(15_000, Math.round(parsed * 1_000)));
+  const base = Number.isFinite(parsed)
+    ? Math.min(60_000, Math.max(15_000, Math.round(parsed * 1_000)))
+    : DEFAULT_PUBLIC_STATUS_POLL_MS;
+  const degradedAttempts = Math.max(0, Math.min(4, Math.floor(options.degradedAttempts ?? 0)));
+  const backedOff = Math.min(MAX_PUBLIC_STATUS_BACKOFF_MS, base * (2 ** degradedAttempts));
+  const jitterRatio = Math.max(0, Math.min(0.2, options.jitterRatio ?? 0.1));
+  const random = options.random ?? Math.random;
+  const jitter = backedOff * ((random() * 2) - 1) * jitterRatio;
+  return Math.min(MAX_PUBLIC_STATUS_BACKOFF_MS, Math.max(15_000, Math.round(backedOff + jitter)));
+}
+
+export function publicStatusOpenErrorMessage(httpStatus: number) {
+  if (httpStatus === 410) return "This private status link has expired. Request a new secure link to continue.";
+  if (httpStatus === 404) return "This private status link is unavailable. Request a new secure link to continue.";
+  return "This status link could not be opened right now. Please try again shortly.";
 }
 
 export function shouldPollPublicStatus(visibilityState: DocumentVisibilityState) {

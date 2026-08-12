@@ -7,12 +7,19 @@ import type {
   OrderRollupHeaderFieldSource,
   OrderRollupProofSummary,
   OrderRollupProofVisibility,
+  OrderRollupSourceStatus,
   OrderRollupShipmentSummary
 } from "@pathfinder/order-rollup";
 import { OrderRollup } from "@pathfinder/order-rollup-ui";
 import { proofReviewProgress } from "./proof-state";
 import { CustomerIntake } from "./intake";
-import { proxyHighResolutionProofAssets, publicStatusPollDelay, retainTransientProofAssets, shouldPollPublicStatus } from "./live-refresh";
+import {
+  proxyHighResolutionProofAssets,
+  publicStatusOpenErrorMessage,
+  publicStatusPollDelay,
+  retainTransientProofAssets,
+  shouldPollPublicStatus
+} from "./live-refresh";
 import "./styles.css";
 import "@pathfinder/order-rollup-ui/styles.css";
 
@@ -31,6 +38,10 @@ type StatusIssue = {
   source: string;
   severity: "warning" | "error";
   message: string;
+  reason_code?: OrderRollupSourceStatus["reason_code"];
+  impact?: OrderRollupSourceStatus["impact"];
+  checked_at?: string;
+  last_success_at?: string | null;
 };
 
 type StatusProof = {
@@ -121,7 +132,9 @@ type PublicOrderStatusSnapshot = {
     order: LookupStatus | null;
     proofs: LookupStatus | null;
     packages: (LookupStatus & { redacted_fields?: string[] }) | null;
+    shipping?: LookupStatus | null;
   };
+  source_status?: Partial<Record<OrderRollupSourceStatus["source"], OrderRollupSourceStatus>>;
   issues: StatusIssue[];
   visibility_policy: {
     audience: string;
@@ -509,7 +522,7 @@ function StatusView({
           <span>Current status</span>
           <strong>{currentStatus}</strong>
           <small>Updated {displayDate(snapshot.refreshed_at)}</small>
-          <small className={`live-refresh ${refreshState}`} aria-live="polite">
+          <small className={`live-refresh ${refreshState}`}>
             {refreshState === "checking"
               ? "Checking for updates…"
               : refreshState === "degraded"
@@ -558,6 +571,7 @@ function App() {
     let requestActive = false;
     let latestPayload: PublicStatusResponse | null = null;
     let pollTimer: number | null = null;
+    let consecutiveDegraded = 0;
 
     function clearPollTimer() {
       if (pollTimer != null) {
@@ -573,7 +587,7 @@ function App() {
       }
       pollTimer = window.setTimeout(() => {
         void loadStatus(false);
-      }, publicStatusPollDelay(seconds));
+      }, publicStatusPollDelay(seconds, { degradedAttempts: consecutiveDegraded }));
     }
 
     async function loadStatus(initial: boolean) {
@@ -582,6 +596,7 @@ function App() {
       }
       requestActive = true;
       let refreshAfterCachedLoad = false;
+      let responseStatus = 0;
       if (initial) {
         setState("loading");
       } else {
@@ -593,9 +608,10 @@ function App() {
           method: initial ? "GET" : "POST",
           cache: "no-store"
         });
-        const rawData = await response.json();
+        responseStatus = response.status;
+        const rawData = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(rawData.error ?? "This status link could not be opened.");
+          throw new Error("public_status_request_failed");
         }
         if (!ignore) {
           const incoming = rawData as PublicStatusResponse;
@@ -615,7 +631,9 @@ function App() {
           latestPayload = data;
           setPayload(data);
           setState("idle");
-          setRefreshState(initial ? "checking" : data.refresh?.status === "degraded" ? "degraded" : "live");
+          const degraded = !initial && data.refresh?.status === "degraded";
+          consecutiveDegraded = degraded ? Math.min(4, consecutiveDegraded + 1) : 0;
+          setRefreshState(initial ? "checking" : degraded ? "degraded" : "live");
           setMessage("");
           loaded = true;
           if (initial) {
@@ -624,13 +642,14 @@ function App() {
             schedulePoll(data.refresh?.poll_after_seconds);
           }
         }
-      } catch (error) {
+      } catch {
         if (!ignore) {
           if (loaded) {
+            consecutiveDegraded = Math.min(4, consecutiveDegraded + 1);
             setRefreshState("degraded");
             schedulePoll();
           } else {
-            setMessage(error instanceof Error ? error.message : "This status link could not be opened.");
+            setMessage(publicStatusOpenErrorMessage(responseStatus));
             setState("error");
           }
         }

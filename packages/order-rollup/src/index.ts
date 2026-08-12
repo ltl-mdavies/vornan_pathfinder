@@ -631,6 +631,36 @@ export interface OrderRollupLine {
   packages: OrderRollupPackage[];
 }
 
+export type OrderRollupDataSource = "order" | "proofs" | "packages" | "shipping";
+export type OrderRollupSourceAvailability = "available" | "stale" | "unavailable" | "not_configured";
+export type OrderRollupSourceReason =
+  | "available"
+  | "timeout"
+  | "upstream_non_2xx"
+  | "request_failed"
+  | "not_configured";
+export type OrderRollupSourceImpact = "none" | "section_stale" | "core_unavailable";
+
+export interface OrderRollupSourceStatus {
+  source: OrderRollupDataSource;
+  availability: OrderRollupSourceAvailability;
+  reason_code: OrderRollupSourceReason;
+  severity: "info" | "warning" | "error";
+  impact: OrderRollupSourceImpact;
+  checked_at: string;
+  last_success_at: string | null;
+}
+
+export interface OrderRollupIssue {
+  source: string;
+  severity: "warning" | "error";
+  message: string;
+  reason_code?: OrderRollupSourceReason;
+  impact?: OrderRollupSourceImpact;
+  checked_at?: string;
+  last_success_at?: string | null;
+}
+
 export interface OrderRollupSnapshot {
   order_number: string;
   source_order_id: string;
@@ -663,6 +693,7 @@ export interface OrderRollupSnapshot {
   proof_visibility?: OrderRollupProofVisibility;
   shipment_summary?: OrderRollupShipmentSummary | null;
   lines: OrderRollupLine[];
-  issues: Array<{ source: string; severity: "warning" | "error"; message: string }>;
+  source_status?: Partial<Record<OrderRollupDataSource, OrderRollupSourceStatus>>;
+  issues: OrderRollupIssue[];
   refreshed_at: string;
 }

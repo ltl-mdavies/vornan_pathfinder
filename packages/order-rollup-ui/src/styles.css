@@ -306,6 +306,22 @@
   color: #6f5d3d;
 }
 
+.order-rollup__section-availability {
+  display: grid;
+  gap: 4px;
+  margin: 12px 20px 0;
+  padding: 12px 14px;
+  border-left: 3px solid #d7b56d;
+  border-radius: 0 8px 8px 0;
+  background: #fffaf0;
+  color: #6f5d3d;
+}
+
+.order-rollup__section-availability strong,
+.order-rollup__section-availability span { display: block; }
+
+.order-rollup__section-availability span { line-height: 1.45; }
+
 .order-rollup__lines-heading {
   display: flex;
   justify-content: space-between;

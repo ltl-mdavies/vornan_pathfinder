@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_PUBLIC_STATUS_POLL_MS,
+  MAX_PUBLIC_STATUS_BACKOFF_MS,
   proxyHighResolutionProofAssets,
+  publicStatusOpenErrorMessage,
   publicStatusPollDelay,
   retainTransientProofAssets,
   shouldPollPublicStatus
@@ -47,10 +49,26 @@ test("marks image high-resolution assets for the lightbox renderer", () => {
 });
 
 test("uses a bounded server-directed polling interval", () => {
-  assert.equal(publicStatusPollDelay(undefined), DEFAULT_PUBLIC_STATUS_POLL_MS);
-  assert.equal(publicStatusPollDelay(1), 15_000);
-  assert.equal(publicStatusPollDelay(30), 30_000);
-  assert.equal(publicStatusPollDelay(300), 60_000);
+  const noJitter = { random: () => 0.5 };
+  assert.equal(publicStatusPollDelay(undefined, noJitter), DEFAULT_PUBLIC_STATUS_POLL_MS);
+  assert.equal(publicStatusPollDelay(1, noJitter), 15_000);
+  assert.equal(publicStatusPollDelay(30, noJitter), 30_000);
+  assert.equal(publicStatusPollDelay(300, noJitter), 60_000);
+});
+
+test("backs off repeated degraded refreshes with bounded jitter", () => {
+  assert.equal(publicStatusPollDelay(30, { degradedAttempts: 1, random: () => 0.5 }), 60_000);
+  assert.equal(publicStatusPollDelay(30, { degradedAttempts: 2, random: () => 0.5 }), 120_000);
+  assert.equal(publicStatusPollDelay(30, { degradedAttempts: 4, random: () => 0.5 }), MAX_PUBLIC_STATUS_BACKOFF_MS);
+  assert.equal(publicStatusPollDelay(30, { degradedAttempts: 1, random: () => 0 }), 54_000);
+  assert.equal(publicStatusPollDelay(30, { degradedAttempts: 1, random: () => 1 }), 66_000);
+});
+
+test("maps initial public API failures to fixed customer-safe copy", () => {
+  assert.equal(publicStatusOpenErrorMessage(410), "This private status link has expired. Request a new secure link to continue.");
+  assert.equal(publicStatusOpenErrorMessage(404), "This private status link is unavailable. Request a new secure link to continue.");
+  assert.equal(publicStatusOpenErrorMessage(500), "This status link could not be opened right now. Please try again shortly.");
+  assert.equal(publicStatusOpenErrorMessage(0).includes("provider"), false);
 });
 
 test("polls only while the status page is visible", () => {
