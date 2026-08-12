@@ -40,6 +40,35 @@ The API stack returned to `UPDATE_COMPLETE`, health returned HTTP 200, and all t
 
 The API errors, throttles, scheduled-candidate-failure, and scheduled-invocation alarms were all `OK` at reconciliation time. Alarm state is evidence at a moment in time, not a perpetual health guarantee.
 
+### 2026-08-11 multi-reference-proof release and 2026-08-12 continuity record
+
+- merged repository commit: `b6794380e44d3ca1ab22add3151525589ba6770c` (PR #184);
+- API deployment workflow run: `31527788915`, job `93900238228`;
+- API artifact: `api/pathfinder-api-lambda-b6794380e44d3ca1ab22add3151525589ba6770c.zip`, S3 version `Y8Y8NBj6x7qBumiV64guoBCWt3QAJjgc`, ETag `d5f3ca84965ae06f15deae8efe548bde`;
+- deployed Lambda code SHA-256: `rifTSMHHDrWBHXPIZWJCCgt7oXU/xlRVYZxGZ+qwjpE=`;
+- Admin deployment workflow run: `31528125205`, job `93901347296`;
+- Admin `index.html` S3 version: `TkcP9i3Lpo0G9E4dDJxjXK3MhFitAagi`, ETag `728d4cb30e524289d40fcff890e08ea8`;
+- CloudFront invalidation: `IASV9IHL8TN6MDZCFWDSBWBWQ9` (`Completed`);
+- pre-activation Import Method backup: `Pathfinder-ImportMethods-prod-pre-multi-proof-20260811T1932Z`, ARN `arn:aws:dynamodb:us-east-1:744016783602:table/Pathfinder-ImportMethods-prod/backup/01786476741396-957c1c6b` (`AVAILABLE`, 33,601 bytes).
+
+The API stack returned to `UPDATE_COMPLETE`, API and Admin health returned HTTP 200, and all live scheduler, Lift, publication, writeback, authentication, and persistence gates were preserved. The disabled Proof asset-scan worker remained disabled. The production Momentara Import Method was then updated through authenticated Admin from `single_current_attachment` to `all_matching_current_attachments`, with archive convention `<contract_number>_referenceProofs.zip`. Both campaign roots, Wrike connection, `Sent to Print - LTL` status, `xlsx` workbook rule, `proof` PDF match, output route, mappings, and scoped `TBD` → `0.5` rule were read back unchanged.
+
+Code normalization after API deployment created five Ready replacement previews at `19:28Z`; the explicit configuration change created five more at `19:43Z`. Jobs therefore changed from 45 to 55 and Order IDs from 48 to 58. Customer, workspace, target, Import Method, route, product-mapping, submit-attempt, product-cache, status-token, status-snapshot, and canonical-registry counts remained unchanged. Each replacement retained its source task/evidence identity, and cross-job submit idempotency replayed all five rather than creating a Lift order.
+
+From the first post-activation completion at `2026-08-11T19:43:11Z` through the read-only continuity cutoff `2026-08-12T15:35:43Z`, EventBridge produced 80 invocations and 80 matching completions at an average 899.99-second cadence. All cycles found exactly five qualified candidates. Aggregate results were five prepared previews, 395 discovery replays, 400 Lift-submit replays, zero Lift submissions, zero Wrike writebacks, zero failed invocations, and zero candidate failures. The latest checked cycle was correlation `7e25c973-6d51-413b-948f-be17e065edaf` at `2026-08-12T15:27:54.319Z`. All Pathfinder alarms were `OK` at the cutoff.
+
+Authenticated bounded discovery `wrike_discovery_20260812153516359_aa7ed6` at `2026-08-12T15:35:16.360Z` reused all five qualified previews, created zero new previews, and returned the capped 100 pending candidates. It submitted no Lift order and changed no Wrike status. The five qualified tasks reconcile by campaign name to existing confirmed Lift orders:
+
+| Wrike task | Campaign | Lift order |
+|---|---|---|
+| `MAAAAAEN2RMG` | Visit Montana 2026 | `A0228214` |
+| `MAAAAAEN2Ujj` | MDHHS – Eat Safe Fish FY 26 | `A0228322` |
+| `MAAAAAEN89Aq` | Fair Housing Commission – Indoor | `A0228278` |
+| `MAAAAAENo9lH` | Comcast – Big South Region – Network Expansion | `A0228190` |
+| `MAAAAAENStDv` | ALDI – HIN Store x3763 – Recruitment | `A0228162` |
+
+There is no production evidence of a missed qualified order at this checkpoint. A task can still be visible in a campaign root but remain pending until its title/type, ready status, Print Vendor, and Contract Number satisfy the saved contract.
+
 ### Persistent scheduler preparation incident — 2026-08-11
 
 The cycles checked at `2026-08-11T15:42:53.213Z` (`a58db8a6-51fc-414d-a2f0-d33dabfcab96`) and `15:57:54.333Z` (`af8bbf31-b534-423c-8f77-a0c156cc47e3`) each reported seven contract-ready candidates, six replays, and one preparation failure. The candidate-failure alarm entered `ALARM`.
@@ -57,7 +86,7 @@ The first authoritative post-fix cycle checked at `2026-08-11T17:12:53.209Z` (`a
 
 Lift accepted Ext_ID `PFMSOZTWDUAF53` as order `A0228322`, but Pathfinder timed out and retained the attempt as `Submission Uncertain`. Live Support used Lift's import log plus the supported verified-association flow to link the existing order at `2026-08-11T18:54:43.225Z` (association `loa_d71971ce58efdd98d9371434c0aa43398eb88d17698f75913ca0074049752f1d`). No create-order retry or direct DynamoDB edit occurred. Scheduler correlation `02f1a162-2534-4d91-b072-3eec0a4a5fd2` completed at `2026-08-11T18:58:23.836Z` with zero Lift submits, five replays, one eligible/posted Wrike comment, and zero candidate failures. Writeback `wsw_97e0c0e3fcd24b7b31f93d55670dcc59dd8ae515cda11a11f4ca52cbb7a7093e` posted comment `IEAALTG3IM5L66U4`; Wrike remained `Sent to Print - LTL`. The original uncertain attempt remains immutable history.
 
-One later Ready sibling, `job_20260811184302_9b59b9`, has the same source-evidence identity, no association, and no submit attempts. The scheduler duplicate guard replayed it without submitting. It is not an immediate duplicate-order risk, but normalizing or removing it requires separate explicit authorization.
+Three retained Ready siblings for C316969 have the same source-evidence identity, no association, and no submit attempts: `job_20260811184302_9b59b9`, `job_20260811192804_cc0adc`, and `job_20260811194303_68f7fa`. The scheduler duplicate guard continually replays the newest without submitting. They are not an immediate duplicate-order risk, but normalizing or removing them requires separate explicit authorization.
 
 The deployed telemetry records only failure stage, stable reason code, validated task ID, and validated existing job/evidence identifiers. Identifier arrays and total details are capped; exception messages, contract/customer values, filenames, URLs, payloads, credentials, and attachment contents are never emitted. Submit and writeback failures retain the same safe job-level boundary.
 
@@ -66,7 +95,7 @@ The deployed telemetry records only failure stage, stable reason code, validated
 1. EventBridge invokes the scheduled intake every 15 minutes.
 2. Pathfinder scans every configured campaign root for eligible Placard Order tasks. Production currently includes the GPA and IBA roots above.
 3. Up to 25 candidates are processed independently. A failure in one candidate must not prevent the others from progressing.
-4. A qualified workbook and at most one qualified reference PDF are captured, version-bound, and published as immutable direct HTTP 200 documents through `go.vornan.co`.
+4. A qualified workbook and the configured qualified reference-document set are captured and version-bound. One matching PDF is published unchanged; when the active multi-proof policy finds two to ten PDFs, each source is retained and one deterministic ZIP is published as an immutable direct HTTP 200 document through `go.vornan.co`.
 5. Each candidate produces or replays its own preview job. Exact evidence and idempotency identities prevent blind duplicate submission.
 6. A Ready live-customer job may submit to Lift through the live transport.
 7. Pathfinder reconciles the Lift order number and creates the tokenized status page.
@@ -74,13 +103,13 @@ The deployed telemetry records only failure stage, stable reason code, validated
 
 Lift submission must never be retried blindly after a network timeout or ambiguous response. Reconcile by Ext_ID and authoritative Lift state first.
 
-### Repository-only multi-reference-proof ZIP capability
+### Active multi-reference-proof ZIP capability
 
 Momentara confirmed that a Placard Order commonly and legitimately contains two or more reference-proof PDFs. An authenticated Lift test on 2026-08-11 confirmed that the existing reference-proof URL field accepts a downloadable ZIP URL.
 
-This repository checkpoint adds an explicit Wrike Import Method selection without changing the deployed default:
+The Wrike Import Method exposes an explicit selection:
 
-- `single_current_attachment` retains the current production behavior and blocks when more than one PDF matches;
+- `single_current_attachment` retains the fail-closed single-proof behavior and blocks when more than one PDF matches;
 - `all_matching_current_attachments` accepts two to ten current matching PDFs;
 - every PDF is validated and stored separately under its Wrike attachment/version evidence identity;
 - one matching PDF remains an unchanged direct PDF publication;
@@ -90,7 +119,7 @@ This repository checkpoint adds an explicit Wrike Import Method selection withou
 - workbook/task identity remains the order identity, so proof count does not create a second order;
 - the same scheduled/manual preparation service path is used, and uncertain Lift writes remain non-retryable.
 
-This option is not deployed or enabled in production at this checkpoint. Activation requires a parameter-preserving deployment followed by an explicit, recoverable Momentara Import Method update and a controlled natural-cycle observation. Existing single-proof customers and saved methods normalize to the fail-closed single-proof policy.
+This option is deployed and explicitly enabled for Momentara as recorded above. Existing saved methods without the explicit selection still normalize to the fail-closed single-proof policy. Roll back Momentara by restoring `attachment_selection: single_current_attachment` through authenticated Admin; restore the named DynamoDB backup only as a disaster-recovery operation because it contains the whole Import Methods table.
 
 ## Current recovery behavior
 
@@ -128,6 +157,9 @@ The discovery fingerprint still includes the route-wide mapped-product set. A ma
 Known hardening debt:
 
 - replace route-wide invalidation with dependency-aware invalidation based on the product keys actually used by each job;
+- persist the Wrike campaign/folder name with every job, audit event, and reconciliation surface while retaining the exact task/folder IDs as authoritative identity;
+- make pending intake complete or explicitly paginated, prioritize recent/order-like candidates instead of taking the first 100 task IDs, and expose the true pre-cap count;
+- update the Import Method **Last Run** surface on healthy replay-only scheduled cycles so it does not imply that polling stopped;
 - persist discovery-run history beyond structured runtime audit logs so earlier pending-intake snapshots can be compared in the UI;
 - add dependency-aware supersession labels for any replacement jobs created outside the explicit in-place recovery control;
 - extend guided recovery beyond product mappings to other known-safe pre-transport validation failures;
