@@ -4,7 +4,7 @@ This is the entry point for all new Pathfinder, Vornan Proof, and live-support t
 
 Last reconciled: **2026-08-12**
 
-Deployed application baseline: `origin/main` at `0d17b24696e9fef01e06e83fdbbed0d17825b9cb`
+Deployed application baseline: `origin/main` at `01e82bdfcb518d8758e494f53887852d248d536b`
 
 Live evidence: read-only AWS inspection, authenticated Admin smoke, and natural scheduled-intake continuity through 2026-08-12 in account `744016783602`, region `us-east-1`
 
@@ -46,6 +46,16 @@ PR #184 merged the multi-reference-proof ZIP capability at `b6794380e44d3ca1ab22
 The first natural cycle after activation prepared five replacement previews because the normalized Import Method fingerprint changed. Cross-job idempotency replayed every submit and produced no Lift order or Wrike write. Through `2026-08-12T15:35:43Z`, all 80 post-activation natural cycles completed at the 15-minute cadence with zero candidate failures, zero Lift submissions, and zero Wrike writebacks. A bounded operator discovery then returned five ready/reused orders, zero new previews, and 100 pending candidates, again with no Lift or Wrike action. The five currently qualified Wrike tasks already reconcile to confirmed Lift orders for Visit Montana (`A0228214`), MDHHS (`A0228322`), Fair Housing Commission (`A0228278`), Comcast Big South (`A0228190`), and ALDI HIN Store (`A0228162`). There is no evidence of a missed qualified order.
 
 Current visibility debt: the Import Method's displayed **Last Run** does not reflect later replay-only scheduled cycles. The latest bounded pending-candidate snapshot now survives browser sessions, but Pathfinder does not retain discovery-run history for comparing older snapshots. Use exact Wrike task/evidence IDs as authoritative identity even when campaign names are displayed.
+
+### Deployed public Status resilience and Jobs detail hierarchy release
+
+PRs #191 and #190 merged in that order and are deployed together as `01e82bdfcb518d8758e494f53887852d248d536b` on 2026-08-12. The API-first / Status-second / Admin-third release used API workflow `31642512384` / job `94268234168`, Status workflow `31642951209` / job `94269711658`, and Admin workflow `31643183102` / job `94270482398`. All checks, tests, and builds in each workflow completed successfully.
+
+Public Status now keeps independent last-confirmed order, proof, package, and shipping data; publishes only typed and sanitized availability reasons; localizes transient proof/shipping degradation instead of exposing raw provider/runtime text in a global warning; preserves neutral no-shipment activity; and uses bounded jitter/backoff around the existing coalesced refresh path. The API emits sanitized `order_status_source_read` and `public_status_refresh_complete` telemetry when natural Status traffic performs a refresh. No customer Status link or provider GET was forced for deployment smoke, and no natural public refresh occurred during the release observation window, so production latency/timeout thresholds remain a measured follow-up rather than an activated alarm change.
+
+The Admin Job Detail page now promotes source/Lift identity and actionable state, provides a compact order overview, keeps the full-width line comparison, and collapses technical evidence while preserving every existing datum and action. Authenticated production smoke confirmed the Jobs triage strip, separate Lift **Order Status**, and `JOB-280569` campaign/contract identities, reconciled no-retry guidance, and nine-line comparison without invoking discovery, Lift refresh, retry, archive, submit, writeback, or configuration controls.
+
+The executed API stack update touched only `PathfinderApiFunction` and the code property of the already-disabled `ProofAssetScanWorkerFunction`; no data resource changed. Natural scheduler correlation `ebd5efec-ed23-482b-b70d-015f773d3f0c` replayed five known candidates with zero preparations, new Lift submissions, Wrike writes, or failures. All fifteen protected counts, live Wrike/Lift/publication gates, both campaign roots, the multi-proof ZIP policy, `TBD` → `0.5`, and Proof boundaries remained unchanged. Exact artifact, CloudFront, rollback, and operational details are in the live-operations handoff.
 
 ### Deployed Pathfinder Jobs triage release
 

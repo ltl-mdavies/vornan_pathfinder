@@ -254,9 +254,9 @@ The deployed release corrects the Lift order-date boundary after production evid
 
 This correction is active in production. Existing targets without a stored `order_date_format` use the runtime default `MM/DD/YYYY`; deployment did not rewrite the production target record. The authenticated Admin smoke confirmed that effective selection. Confirm the formatted fields on the next naturally occurring prepared order; do not submit a customer order solely as a smoke test.
 
-### Repository-ready public Status partial-refresh resilience — not deployed
+### 2026-08-12 public Status partial-refresh resilience release record
 
-The `codex/pathfinder-public-status-resilience` repository slice addresses the confirmed public Status partial-refresh failure mode without changing submit, discovery, Wrike writeback, Proof mutation, customer configuration, or production data. It is not production behavior until its API and Status artifacts are merged and separately deployed.
+PR #191 merged as `74506be03e404973b92bddcd541e3c5578a36910` and is deployed in application release `01e82bdfcb518d8758e494f53887852d248d536b`. The release addresses the confirmed public Status partial-refresh failure mode without changing submit, discovery, Wrike writeback, Proof mutation, customer configuration, or production data.
 
 Observed production evidence before this slice:
 
@@ -267,7 +267,7 @@ Observed production evidence before this slice:
 - public rendering combined every raw issue into one global yellow `role=status` block, allowing internal exception text to cross the customer boundary and causing assistive announcements to flap as the warning appeared and cleared;
 - API-wide evidence on 2026-08-12 showed zero 5xx responses but intermittent high integration latency. The latest snapshot is retained, but historical refresh frequency cannot be reconstructed because route access logs, detailed route metrics, and durable refresh history are not enabled.
 
-Repository-ready behavior:
+Deployed behavior:
 
 - order, proofs, packages, and shipping each receive a typed `availability`, `reason_code`, `severity`, `impact`, `checked_at`, and `last_success_at` contract;
 - timeout, rejected request, non-2xx response, and missing configuration outcomes are classified without copying exception messages, provider URLs, configuration details, credentials, or raw payloads into public data;
@@ -289,23 +289,32 @@ Proposed operational objectives and alarms, not activated by this repository sli
 - alarm when `RetainedSourceCount` is nonzero for three consecutive five-minute periods, routed with the affected source/reason from the structured log rather than customer content;
 - dashboard p50/p95/p99 `SourceReadDuration` by source and cache-vs-Lift public-refresh share before changing the 15-second timeout or API Gateway budget.
 
-Required future rollout, only after separate approval:
+Release identifiers and reconciliation:
 
-1. deploy API first with all unrelated parameters preserved and no data-resource replacement;
-2. verify health, tables/counts, production gates, EventBridge cadence, Proof boundaries, and EMF schema without opening a customer Status link or calling Lift solely for smoke;
-3. deploy Status second, then use an already-authorized read-only link/session to verify fixed copy, last-good retention, and no raw diagnostics in network responses or rendered text;
-4. observe natural refresh metrics long enough to set thresholds from measured baseline; create alarms only in a separately reviewed infrastructure change;
-5. preserve the deployed API/Status artifact identifiers and send Live Support the metric names, queries, rollback identifiers, and known limits.
+- combined merged application commit: `01e82bdfcb518d8758e494f53887852d248d536b`;
+- API deployment: workflow `31642512384`, job `94268234168`;
+- API artifact: `api/pathfinder-api-lambda-01e82bdfcb518d8758e494f53887852d248d536b.zip`, S3 version `aP7YChdU8RMTI6sus25zwwvaOs987ARw`, ETag `4817b305566aa95787e4bfe5e16f32d2`;
+- deployed Lambda SHA-256: `lbUyv2XFUnhRbW/ykjPgv6Cq3mFcjG9IkzgZ0XVFAS0=`; revision `3dccbcd9-b5bc-4b4d-a9c6-574f39baf7f4`;
+- Status deployment: workflow `31642951209`, job `94269711658`;
+- Status `index.html`: S3 version `Af0H89UHQqAa.uwezNCA8VnZf7KaTaRI`, ETag `502b52c366a71cdf4607e988aa2b1901`;
+- Status bundles: `assets/index-wIguaTdK.js` and `assets/index-C6dwwrRs.css`;
+- Status CloudFront invalidation: `I2YGUMGYRYSLX80PPH8IVH43RK` (`Completed`).
 
-Rollback is application-only: restore the immediately prior API artifact and Status `index.html`/assets, then invalidate the Status distribution. Do not restore or replace a production table, change a Status token, alter the Momentara Import Method, or change any Lift/Wrike/Proof capability gate.
+The API stack returned to `UPDATE_COMPLETE`. The executed change updated only `PathfinderApiFunction` and the code property of the already-disabled `ProofAssetScanWorkerFunction`; no table, bucket, queue, event-source mapping, or other data resource changed. API health and the Status entrypoint returned HTTP 200; the Status distribution remained enabled and `Deployed`. All fifteen protected counts were identical before and after deployment. Scheduled intake/submit/writeback, live Lift transport and live-customer submit, workbook/reference evidence, `go.vornan.co`, both campaign roots, multi-proof ZIP selection/template, and scoped `TBD` → `0.5` remained unchanged. All shared-API Proof gates remained false, while the isolated Proof read window for customer `1249` remained active through `2026-08-25T23:59:59Z`.
+
+The first authoritative natural post-release scheduler cycle, correlation `ebd5efec-ed23-482b-b70d-015f773d3f0c`, completed at `2026-08-12T21:43:06.057Z`. It discovered and replayed five known candidates, prepared zero jobs, submitted zero Lift orders, wrote zero Wrike comments, and recorded zero failures. Strongly consistent protected counts remained Customers 1, CustomerWorkspaces 1, Targets 2, ImportMethods 2, OutputRoutes 1, ProductMappings 278, Jobs 55, OrderIds 58, SubmitAttempts 18, LiftProductCache 337, OrderStatusTokens 19, OrderStatusSnapshots 11, CanonicalRegistry 1, ProofCore-dev 142, and ProofAudit-dev 147. All four Pathfinder alarms remained `OK`.
+
+No customer Status link, provider GET, or token refresh was forced for smoke. No natural public refresh occurred during the release observation window, so the new `order_status_source_read` and `public_status_refresh_complete` production schema is covered by repository regression tests but did not yet produce a live baseline. Observe natural traffic before selecting thresholds or activating the proposed alarms.
+
+Rollback is application-only: restore API artifact `api/pathfinder-api-lambda-0d17b24696e9fef01e06e83fdbbed0d17825b9cb.zip` (S3 version `WLwmKkKpXMhk5mnMW.9TYrzrNfZFFozw`, Lambda SHA `LJWU23r+coO6OXUyffL+4Er/33mf43xG/JN1I1uYQjM=`) and Status `index.html` version `MeSy6wRR03wjugTZtDOhc36p.ZfxmmYz`, then invalidate the Status distribution. Do not restore or replace a production table, change a Status token, alter the Momentara Import Method, or change any Lift/Wrike/Proof capability gate.
 
 Known staged follow-up: cache expiry can still cause a browser-triggered parallel Lift fan-out. This slice makes that path safe, coalesced, observable, jittered, and backed off on core failure, but it does not move refreshes to a background worker or retain durable refresh history. Design the later stale-while-revalidate/background refresh around measured source latency, API Gateway's request budget, bounded per-order leases, adaptive scheduling, and the same independent last-good merge contract; do not simply raise the 15-second source timeout.
 
-### Repository-ready Jobs detail hierarchy — not deployed
+### 2026-08-12 Jobs detail hierarchy release record
 
-The `codex/pathfinder-job-detail-polish` repository slice reorganizes the existing Admin Jobs detail page without changing an API, store, job state, submit path, recovery guard, or external-system behavior. It is not production behavior until its Admin artifact is merged and deployed.
+PR #190 merged as application release `01e82bdfcb518d8758e494f53887852d248d536b` after a conflict-free code rebase over PR #191. It reorganizes the existing Admin Jobs detail page without changing an API contract, store, job state, submit path, recovery guard, or external-system behavior.
 
-The slice:
+The deployed Admin:
 
 - promotes Wrike Contract/campaign, Pathfinder job identity, Lift order identity, Pathfinder state, current Lift status, and post-confirmation source-change attention into the page header;
 - replaces the flat diagnostic summary with an operator-facing order overview and retains Pathfinder Intake, Last Activity, Order Confirmed, and live-only Lift Created timestamps;
@@ -314,7 +323,11 @@ The slice:
 - distinguishes **Refresh Lift status**, **Open in Lift**, and **Job actions** so their scopes are explicit;
 - does not invoke discovery, Lift reads/writes, Wrike writes, publication, configuration saves, or production mutation during validation.
 
-This is an Admin-only presentation release. Deployment, when separately approved, should not require an API change or CloudFormation change. Rollback is the prior Admin `index.html` version plus CloudFront invalidation; do not restore or replace a production table and do not change the active Momentara Import Method.
+Admin workflow `31643183102` / job `94270482398` deployed `index.html` S3 version `B.stcyJIbzGhY39TAsD2Z60Z_DOa6tG8`, ETag `88290108fde5e873a3c3a80e54685e3c`, with bundles `assets/index-PTKGz1S5.js`, `assets/react-sXpfDjey.js`, `assets/icons-BJATD6jt.js`, and `assets/index-CEb6P0C7.css`. CloudFront invalidation `IBEGAE0N3G3ZPJT8C0SKJTM29E` completed; the distribution remained enabled and `Deployed`, and the production entrypoint returned HTTP 200.
+
+Authenticated production smoke confirmed the Jobs triage summary and separate Lift **Order Status** column. `JOB-280569` displayed Wrike Contract `C316969`, campaign `MDHHS - Eat Safe Fish FY 26 - GPA - C316969`, Lift order `A0228322`, current durable status **To Be Ripped**, preserved source-change review guidance, reconciled **no retry required** history, and the full-width nine-line comparison. No discovery, Lift refresh, retry, archive, submit, writeback, configuration save, or other mutation control was invoked.
+
+Rollback is Admin-only: restore `index.html` version `fc1EXjd9uKPqjuoVw8EWGMLo26FmdEDG` and invalidate CloudFront. Do not restore or replace a production table and do not change the active Momentara Import Method.
 
 The discovery fingerprint still includes the route-wide mapped-product set. A mapping change can therefore invalidate more previews than the exact product dependency requires. The explicit recovery control updates one intended blocked job in place, but dependency-aware discovery invalidation remains hardening debt.
 
