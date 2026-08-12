@@ -6,6 +6,7 @@ process.env.PATHFINDER_RUNTIME = "lambda";
 process.env.PATHFINDER_REQUIRE_AUTH = "false";
 
 const {
+  applyPublicProofVisibility,
   buildOrderSnapshot,
   mergeShippingReportIntoPackages,
   normalizeShippingReportPayload,
@@ -418,6 +419,40 @@ test("preserves customer-safe rollup detail while removing internal submit and r
     "raw Lift lookup payloads",
     "direct Lift proof URLs"
   ]);
+});
+
+test("maps structured source health to fixed public copy and strips legacy raw exception messages", () => {
+  const internal = buildFixtureSnapshot();
+  internal.source_status = {
+    shipping: {
+      source: "shipping",
+      availability: "unavailable",
+      reason_code: "timeout",
+      severity: "warning",
+      impact: "section_stale",
+      checked_at: checkedAt,
+      last_success_at: null
+    }
+  };
+  internal.issues = [{
+    source: "shipping_report",
+    severity: "warning",
+    message: "The operation was aborted due to timeout at https://provider.example.invalid/private"
+  }];
+
+  const projected = publicOrderStatusSnapshotFromInternal(internal);
+  const serialized = JSON.stringify(projected);
+  assert.equal(projected.issues[0]?.message, "Some shipment details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically.");
+  assert.equal(serialized.includes("aborted"), false);
+  assert.equal(serialized.includes("provider.example"), false);
+
+  const legacy = {
+    ...projected,
+    source_status: undefined,
+    issues: internal.issues
+  };
+  const sanitizedLegacy = applyPublicProofVisibility(legacy, "status_only");
+  assert.deepEqual(sanitizedLegacy.issues, []);
 });
 
 test("prefers the normalized cached Proof projection without sharing Proof authorization", () => {

@@ -254,6 +254,53 @@ The deployed release corrects the Lift order-date boundary after production evid
 
 This correction is active in production. Existing targets without a stored `order_date_format` use the runtime default `MM/DD/YYYY`; deployment did not rewrite the production target record. The authenticated Admin smoke confirmed that effective selection. Confirm the formatted fields on the next naturally occurring prepared order; do not submit a customer order solely as a smoke test.
 
+### Repository-ready public Status partial-refresh resilience — not deployed
+
+The `codex/pathfinder-public-status-resilience` repository slice addresses the confirmed public Status partial-refresh failure mode without changing submit, discovery, Wrike writeback, Proof mutation, customer configuration, or production data. It is not production behavior until its API and Status artifacts are merged and separately deployed.
+
+Observed production evidence before this slice:
+
+- public Status loads the durable snapshot, immediately requests a refresh, and polls every 30 seconds while visible;
+- a cache-expired refresh can read Lift order, proof, package, and shipping-report sources in parallel with the existing 15-second per-source timeout;
+- five of eleven strongly consistent production status snapshots contained the exact runtime timeout message `The operation was aborted due to timeout`; all five identified `shipping_report`, while the corresponding order, proof, and package reads succeeded;
+- the existing merge contract had no independent shipping freshness, so a successful package read could erase previously confirmed shipping-report destinations or enrichment;
+- public rendering combined every raw issue into one global yellow `role=status` block, allowing internal exception text to cross the customer boundary and causing assistive announcements to flap as the warning appeared and cleared;
+- API-wide evidence on 2026-08-12 showed zero 5xx responses but intermittent high integration latency. The latest snapshot is retained, but historical refresh frequency cannot be reconstructed because route access logs, detailed route metrics, and durable refresh history are not enabled.
+
+Repository-ready behavior:
+
+- order, proofs, packages, and shipping each receive a typed `availability`, `reason_code`, `severity`, `impact`, `checked_at`, and `last_success_at` contract;
+- timeout, rejected request, non-2xx response, and missing configuration outcomes are classified without copying exception messages, provider URLs, configuration details, credentials, or raw payloads into public data;
+- older stored snapshots are sanitized at the public projection boundary, so a pre-release raw `issues` message is removed even before the first successful new refresh;
+- successful sources advance independently. Shipping now has its own lookup/freshness record; a shipping-report failure retains last-confirmed destination/tracking enrichment and cannot be mistaken for package freshness;
+- the neutral no-activity presentation remains **Shipment updates pending** / **Lift has not posted package or tracking activity yet**;
+- proof degradation appears only under **Proof update** and package/shipping degradation only under **Shipping update**, using fixed customer copy. Transient section degradation does not create the global warning;
+- only unavailable core order status uses the global **Order update** message. Public issue rendering never trusts provider/runtime message text;
+- refresh-state text and section warnings are not live regions, preventing every checking/recovery transition from being repeatedly announced. Each localized notice has a source-specific accessible heading;
+- the existing server coalescing and 15-second recent-snapshot cache remain. Visible-only browser polling adds bounded 10% jitter and exponential backoff for repeated core refresh failures, from the server-directed 15–60 second base up to five minutes; recovery resets the backoff;
+- actual source reads emit sanitized `order_status_source_read` EMF events in `Pathfinder/OrderStatus`, including a per-refresh correlation ID, hashed identities, source, outcome/reason, impact, checked time, duration, HTTP status when available, and `SourceRead`, `SourceReadDuration`, and `SourceReadTimeout` metrics;
+- every public refresh emits a sanitized `public_status_refresh_complete` event with cache/retained source, typed source outcomes, and `RefreshRequest` / `RetainedSourceCount`. This closes the structured log gap but is not a durable application-history table.
+
+Proposed operational objectives and alarms, not activated by this repository slice:
+
+- core order-source refresh availability: at least 99.5% over 30 days, measured from `SourceRead` outcomes for `Source=order` and `Operation=public_status_refresh`;
+- alarm when core order reads produce three or more non-available outcomes in five minutes;
+- alarm when any enrichment source records at least five timeouts in fifteen minutes and the timeout share exceeds 10% of that source's reads;
+- alarm when `RetainedSourceCount` is nonzero for three consecutive five-minute periods, routed with the affected source/reason from the structured log rather than customer content;
+- dashboard p50/p95/p99 `SourceReadDuration` by source and cache-vs-Lift public-refresh share before changing the 15-second timeout or API Gateway budget.
+
+Required future rollout, only after separate approval:
+
+1. deploy API first with all unrelated parameters preserved and no data-resource replacement;
+2. verify health, tables/counts, production gates, EventBridge cadence, Proof boundaries, and EMF schema without opening a customer Status link or calling Lift solely for smoke;
+3. deploy Status second, then use an already-authorized read-only link/session to verify fixed copy, last-good retention, and no raw diagnostics in network responses or rendered text;
+4. observe natural refresh metrics long enough to set thresholds from measured baseline; create alarms only in a separately reviewed infrastructure change;
+5. preserve the deployed API/Status artifact identifiers and send Live Support the metric names, queries, rollback identifiers, and known limits.
+
+Rollback is application-only: restore the immediately prior API artifact and Status `index.html`/assets, then invalidate the Status distribution. Do not restore or replace a production table, change a Status token, alter the Momentara Import Method, or change any Lift/Wrike/Proof capability gate.
+
+Known staged follow-up: cache expiry can still cause a browser-triggered parallel Lift fan-out. This slice makes that path safe, coalesced, observable, jittered, and backed off on core failure, but it does not move refreshes to a background worker or retain durable refresh history. Design the later stale-while-revalidate/background refresh around measured source latency, API Gateway's request budget, bounded per-order leases, adaptive scheduling, and the same independent last-good merge contract; do not simply raise the 15-second source timeout.
+
 The discovery fingerprint still includes the route-wide mapped-product set. A mapping change can therefore invalidate more previews than the exact product dependency requires. The explicit recovery control updates one intended blocked job in place, but dependency-aware discovery invalidation remains hardening debt.
 
 Known hardening debt:

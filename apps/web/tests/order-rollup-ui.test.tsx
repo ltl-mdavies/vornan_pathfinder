@@ -287,3 +287,82 @@ test("rejects unsafe proof assets before they reach an image or link", () => {
     "https://proof.example.invalid/file.jpg"
   );
 });
+
+test("localizes transient shipping and proof failures without a global live warning", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.source_status = {
+    shipping: {
+      source: "shipping",
+      availability: "stale",
+      reason_code: "timeout",
+      severity: "warning",
+      impact: "section_stale",
+      checked_at: "2026-08-12T16:00:00.000Z",
+      last_success_at: "2026-08-12T15:59:00.000Z"
+    },
+    proofs: {
+      source: "proofs",
+      availability: "stale",
+      reason_code: "upstream_non_2xx",
+      severity: "warning",
+      impact: "section_stale",
+      checked_at: "2026-08-12T16:00:00.000Z",
+      last_success_at: "2026-08-12T15:59:00.000Z"
+    }
+  };
+  snapshot.issues = [
+    {
+      source: "shipping",
+      severity: "warning",
+      impact: "section_stale",
+      message: "Some shipment details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
+    },
+    {
+      source: "proofs",
+      severity: "warning",
+      impact: "section_stale",
+      message: "Some proof details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
+    }
+  ];
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" displayDate={(value) => value ?? "Not available"} />
+  );
+
+  assert.match(markup, /Shipping update/);
+  assert.match(markup, /Some shipment details are temporarily unavailable\. We’re showing the last confirmed update and will retry automatically\./);
+  assert.match(markup, /Proof update/);
+  assert.match(markup, /Some proof details are temporarily unavailable\. We’re showing the last confirmed update and will retry automatically\./);
+  assert.doesNotMatch(markup, /data notes?/);
+  assert.doesNotMatch(markup, /role="status"/);
+});
+
+test("reserves the global public warning for unavailable core order status", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.source_status = {
+    order: {
+      source: "order",
+      availability: "stale",
+      reason_code: "request_failed",
+      severity: "error",
+      impact: "core_unavailable",
+      checked_at: "2026-08-12T16:00:00.000Z",
+      last_success_at: "2026-08-12T15:59:00.000Z"
+    }
+  };
+  snapshot.issues = [{
+    source: "order",
+    severity: "error",
+    impact: "core_unavailable",
+    message: "raw provider failure"
+  }];
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" displayDate={(value) => value ?? "Not available"} />
+  );
+
+  assert.match(markup, /Order update/);
+  assert.match(markup, /Current order status is temporarily unavailable\. We’re showing the last confirmed update and will retry automatically\./);
+  assert.doesNotMatch(markup, /raw provider failure/);
+  assert.doesNotMatch(markup, /role="status"/);
+});

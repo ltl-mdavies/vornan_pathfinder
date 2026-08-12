@@ -47,7 +47,10 @@ import {
   matchLiftLineRecord,
   normalizeLiftOrderLookupPayload,
   toCustomerSafeOrderRollupDestination,
-  toCustomerSafeOrderRollupPackage
+  toCustomerSafeOrderRollupPackage,
+  type OrderRollupDataSource,
+  type OrderRollupIssue,
+  type OrderRollupSourceStatus
 } from "@pathfinder/order-rollup";
 import {
   toCustomerSafeOrderRollupProof,
@@ -257,8 +260,11 @@ import {
 } from "./submit-integrity.js";
 import { getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 import {
+  buildPublicStatusSourceStatus,
+  customerSafeIssuesFromSourceStatus,
   mergePublicStatusRefresh,
   summarizePublicStatusRefresh,
+  type PublicStatusSourceOutcome,
   type PublicStatusRefreshState
 } from "./public-status-refresh.js";
 import {
@@ -1332,7 +1338,8 @@ export function buildOrderSnapshot(args: {
   proofOrder?: ProofOrder | null;
   packageDetails: Awaited<ReturnType<typeof fetchLiftPackageDetails>> | null;
   shippingReport?: Awaited<ReturnType<typeof fetchLiftShippingReport>> | null;
-  issues: Array<{ source: string; severity: "warning" | "error"; message: string }>;
+  sourceStatus?: Partial<Record<OrderRollupDataSource, OrderRollupSourceStatus>>;
+  issues: OrderRollupIssue[];
 }) {
   const proofProjection = args.proofOrder ? toOrderRollupProofProjection(args.proofOrder) : null;
   const proofs = proofProjection?.proofs ?? args.proofReport?.proofs ?? [];
@@ -1456,6 +1463,13 @@ export function buildOrderSnapshot(args: {
             fetched_at: args.packageDetails.fetched_at,
             redacted_fields: args.packageDetails.redacted_fields
           }
+        : null,
+      shipping: args.shippingReport
+        ? {
+            ok: args.shippingReport.ok,
+            http_status: args.shippingReport.http_status,
+            fetched_at: args.shippingReport.fetched_at
+          }
         : null
     },
     visibility_policy: {
@@ -1463,6 +1477,7 @@ export function buildOrderSnapshot(args: {
       redacted_fields: ["NEGOTIATED_RATE"],
       public_status_ready: false
     },
+    source_status: args.sourceStatus,
     issues: args.issues,
     refreshed_at: new Date().toISOString()
   };
@@ -1476,10 +1491,123 @@ type InternalOrderSnapshotResult =
   | { snapshot: InternalOrderSnapshot; context: JobLiftContextSuccess }
   | JobLiftContextError;
 
+type ObservedStatusRead<T> = {
+  status: "fulfilled";
+  value: T | null;
+  source_status: OrderRollupSourceStatus;
+  duration_ms: number;
+  http_status: number | null;
+} | {
+  status: "rejected";
+  reason: unknown;
+  source_status: OrderRollupSourceStatus;
+  duration_ms: number;
+  http_status: null;
+};
+
+function statusReadFailureOutcome(reason: unknown): PublicStatusSourceOutcome {
+  if (reason && typeof reason === "object") {
+    const name = "name" in reason ? String(reason.name) : "";
+    if (name === "AbortError" || name === "TimeoutError") return "timeout";
+  }
+  return "rejected";
+}
+
+async function observeStatusRead<T extends { ok: boolean; http_status: number; fetched_at: string }>(args: {
+  source: OrderRollupDataSource;
+  read: (() => Promise<T>) | null;
+  skipped_outcome?: "success" | "not_configured";
+}): Promise<ObservedStatusRead<T>> {
+  const startedAt = Date.now();
+  if (!args.read) {
+    const checkedAt = new Date(startedAt).toISOString();
+    const outcome = args.skipped_outcome ?? "not_configured";
+    return {
+      status: "fulfilled",
+      value: null,
+      source_status: buildPublicStatusSourceStatus({ source: args.source, outcome, checked_at: checkedAt }),
+      duration_ms: 0,
+      http_status: null
+    };
+  }
+  try {
+    const value = await args.read();
+    const checkedAt = value.fetched_at || new Date().toISOString();
+    const outcome = value.ok ? "success" : "non_2xx";
+    return {
+      status: "fulfilled",
+      value,
+      source_status: buildPublicStatusSourceStatus({ source: args.source, outcome, checked_at: checkedAt }),
+      duration_ms: Math.max(0, Date.now() - startedAt),
+      http_status: value.http_status
+    };
+  } catch (reason) {
+    const checkedAt = new Date().toISOString();
+    const outcome = statusReadFailureOutcome(reason);
+    return {
+      status: "rejected",
+      reason,
+      source_status: buildPublicStatusSourceStatus({ source: args.source, outcome, checked_at: checkedAt }),
+      duration_ms: Math.max(0, Date.now() - startedAt),
+      http_status: null
+    };
+  }
+}
+
+function emitStatusReadTelemetry(args: {
+  correlation_id: string;
+  operation: "public_status_refresh" | "internal_order_lookup";
+  customer_id: string;
+  job_id: string;
+  order_number: string;
+  read: {
+    source_status: OrderRollupSourceStatus;
+    duration_ms: number;
+    http_status: number | null;
+  };
+}) {
+  const status = args.read.source_status;
+  console.info(JSON.stringify({
+    _aws: {
+      Timestamp: Date.parse(status.checked_at) || Date.now(),
+      CloudWatchMetrics: [{
+        Namespace: "Pathfinder/OrderStatus",
+        Dimensions: [["Service", "Operation", "Source", "Outcome"]],
+        Metrics: [
+          { Name: "SourceRead", Unit: "Count" },
+          { Name: "SourceReadDuration", Unit: "Milliseconds" },
+          { Name: "SourceReadTimeout", Unit: "Count" }
+        ]
+      }]
+    },
+    event: "order_status_source_read",
+    service: "pathfinder-api",
+    operation: args.operation,
+    correlation_id: args.correlation_id,
+    customer_id_hash: createHash("sha256").update(args.customer_id).digest("hex").slice(0, 16),
+    job_id_hash: createHash("sha256").update(args.job_id).digest("hex").slice(0, 16),
+    order_number_hash: createHash("sha256").update(args.order_number).digest("hex").slice(0, 16),
+    source: status.source,
+    outcome: status.reason_code,
+    reason_code: status.reason_code,
+    severity: status.severity,
+    impact: status.impact,
+    checked_at: status.checked_at,
+    duration_ms: args.read.duration_ms,
+    http_status: args.read.http_status,
+    SourceRead: 1,
+    SourceReadDuration: args.read.duration_ms,
+    SourceReadTimeout: status.reason_code === "timeout" ? 1 : 0
+  }));
+}
+
 async function buildInternalOrderSnapshotForJob(
   customer: LiftCustomer,
   jobId: string,
-  options: { preferFreshProofReport?: boolean } = {}
+  options: {
+    preferFreshProofReport?: boolean;
+    telemetryContext?: "public_status_refresh" | "internal_order_lookup";
+  } = {}
 ): Promise<InternalOrderSnapshotResult> {
   const context = await getJobLiftContext(customer, jobId);
 
@@ -1490,7 +1618,7 @@ async function buildInternalOrderSnapshotForJob(
     };
   }
 
-  const issues: Array<{ source: string; severity: "warning" | "error"; message: string }> = [];
+  const issues: OrderRollupIssue[] = [];
   const proofStorageEnabled = getProofRuntimeConfig().storage_driver !== "disabled";
   let proofOrder: ProofOrder | null = null;
 
@@ -1506,36 +1634,61 @@ async function buildInternalOrderSnapshotForJob(
     }
   }
 
-  const [orderLookupResult, proofReportResult, packageDetailsResult, shippingReportResult] = await Promise.allSettled([
-    context.route.order_lookup_url
-      ? fetchLiftOrderLookup({
+  const [orderLookupResult, proofReportResult, packageDetailsResult, shippingReportResult] = await Promise.all([
+    observeStatusRead({
+      source: "order",
+      read: context.route.order_lookup_url
+        ? () => fetchLiftOrderLookup({
           target: context.target,
           route: context.route,
           orderNumber: context.orderNumber
         })
-      : Promise.resolve(null),
-    (!proofOrder || options.preferFreshProofReport) && context.route.proof_report_url
-      ? fetchLiftProofReport({
+        : null
+    }),
+    observeStatusRead({
+      source: "proofs",
+      read: (!proofOrder || options.preferFreshProofReport) && context.route.proof_report_url
+        ? () => fetchLiftProofReport({
           target: context.target,
           route: context.route,
           orderNumber: context.orderNumber
         })
-      : Promise.resolve(null),
-    context.route.package_details_url
-      ? fetchLiftPackageDetails({
+        : null,
+      skipped_outcome: proofOrder && !options.preferFreshProofReport ? "success" : "not_configured"
+    }),
+    observeStatusRead({
+      source: "packages",
+      read: context.route.package_details_url
+        ? () => fetchLiftPackageDetails({
           target: context.target,
           route: context.route,
           orderNumber: context.orderNumber
         })
-      : Promise.resolve(null),
-    context.route.shipping_report_url
-      ? fetchLiftShippingReport({
+        : null
+    }),
+    observeStatusRead({
+      source: "shipping",
+      read: context.route.shipping_report_url
+        ? () => fetchLiftShippingReport({
           target: context.target,
           route: context.route,
           orderNumber: context.orderNumber
         })
-      : Promise.resolve(null)
+        : null
+    })
   ]);
+
+  const refreshCorrelationId = randomBytes(12).toString("hex");
+  for (const read of [orderLookupResult, proofReportResult, packageDetailsResult, shippingReportResult]) {
+    emitStatusReadTelemetry({
+      correlation_id: refreshCorrelationId,
+      operation: options.telemetryContext ?? "internal_order_lookup",
+      customer_id: customer.lift_customer_id,
+      job_id: jobId,
+      order_number: context.orderNumber,
+      read
+    });
+  }
 
   if (!context.route.order_lookup_url) {
     issues.push({
@@ -1572,7 +1725,7 @@ async function buildInternalOrderSnapshotForJob(
       : (issues.push({
           source: "order_lookup",
           severity: "error",
-          message: orderLookupResult.reason instanceof Error ? orderLookupResult.reason.message : "Lift order lookup failed."
+          message: "The Lift order lookup did not complete. See the structured source-read telemetry for the reason."
         }),
         null);
   const proofReport =
@@ -1581,7 +1734,7 @@ async function buildInternalOrderSnapshotForJob(
       : (issues.push({
           source: "proof_report",
           severity: "error",
-          message: proofReportResult.reason instanceof Error ? proofReportResult.reason.message : "Lift proof report failed."
+          message: "The Lift proof lookup did not complete. See the structured source-read telemetry for the reason."
         }),
         null);
   const proofOrderForSnapshot = options.preferFreshProofReport && proofReport?.ok ? null : proofOrder;
@@ -1591,10 +1744,7 @@ async function buildInternalOrderSnapshotForJob(
       : (issues.push({
           source: "package_details",
           severity: "error",
-          message:
-            packageDetailsResult.reason instanceof Error
-              ? packageDetailsResult.reason.message
-              : "Lift package details failed."
+          message: "The Lift package lookup did not complete. See the structured source-read telemetry for the reason."
         }),
         null);
   const shippingReport =
@@ -1603,10 +1753,7 @@ async function buildInternalOrderSnapshotForJob(
       : (issues.push({
           source: "shipping_report",
           severity: "warning",
-          message:
-            shippingReportResult.reason instanceof Error
-              ? shippingReportResult.reason.message
-              : "Lift shipping report failed."
+          message: "The Lift shipping lookup did not complete. See the structured source-read telemetry for the reason."
         }),
         null);
   if (orderLookup && !orderLookup.ok) {
@@ -1650,6 +1797,12 @@ async function buildInternalOrderSnapshotForJob(
       proofOrder: proofOrderForSnapshot,
       packageDetails,
       shippingReport,
+      sourceStatus: {
+        order: orderLookupResult.source_status,
+        proofs: proofReportResult.source_status,
+        packages: packageDetailsResult.source_status,
+        shipping: shippingReportResult.source_status
+      },
       issues
     }),
     context
@@ -1681,6 +1834,7 @@ export function applyPublicProofVisibility(
 
   return {
     ...snapshot,
+    issues: customerSafeIssuesFromSourceStatus(snapshot.source_status),
     proof_visibility: proofVisibility,
     proof_summary: showProofStatus && snapshot.proof_summary
       ? {
@@ -1756,9 +1910,11 @@ export function publicOrderStatusSnapshotFromInternal(
           }
         : null,
       proofs: snapshot.lookups.proofs,
-      packages: snapshot.lookups.packages
+      packages: snapshot.lookups.packages,
+      shipping: snapshot.lookups.shipping
     },
-    issues: snapshot.issues,
+    source_status: snapshot.source_status,
+    issues: customerSafeIssuesFromSourceStatus(snapshot.source_status),
     visibility_policy: {
       audience: "public_status",
       redacted_fields: [
@@ -1786,7 +1942,10 @@ const orderSnapshotRefreshes = new CoalescedRefreshes<Awaited<ReturnType<typeof 
 async function loadBoundedInternalOrderSnapshot(
   customer: LiftCustomer,
   jobId: string,
-  options: { preferFreshProofReport?: boolean } = {}
+  options: {
+    preferFreshProofReport?: boolean;
+    telemetryContext?: "public_status_refresh" | "internal_order_lookup";
+  } = {}
 ) {
   const cacheKey = `${options.preferFreshProofReport ? "live" : "cached"}:${customer.lift_customer_id}:${jobId}`;
   const cached = orderSnapshotResponseCache.getRecent(cacheKey);
@@ -1824,6 +1983,52 @@ async function loadBoundedInternalOrderSnapshot(
 
 const publicStatusPollAfterSeconds = 30;
 
+function emitPublicStatusRefreshTelemetry(args: {
+  binding: { order_key: string; customer_id: string; job_id: string; order_number: string };
+  snapshot: PublicOrderStatusSnapshot;
+  status: PublicStatusRefreshState;
+  refresh_source: "lift" | "recent_snapshot" | "retained_snapshot";
+  checked_at: string;
+}) {
+  const sourceStatuses = Object.values(args.snapshot.source_status ?? {}).filter(
+    (status): status is OrderRollupSourceStatus => status != null
+  );
+  const staleSources = sourceStatuses.filter((status) => status.availability !== "available");
+  console.info(JSON.stringify({
+    _aws: {
+      Timestamp: Date.parse(args.checked_at) || Date.now(),
+      CloudWatchMetrics: [{
+        Namespace: "Pathfinder/OrderStatus",
+        Dimensions: [["Service", "Operation", "RefreshStatus"]],
+        Metrics: [
+          { Name: "RefreshRequest", Unit: "Count" },
+          { Name: "RetainedSourceCount", Unit: "Count" }
+        ]
+      }]
+    },
+    event: "public_status_refresh_complete",
+    service: "pathfinder-api",
+    operation: "public_status_refresh",
+    refresh_status: args.status,
+    refresh_source: args.refresh_source,
+    correlation_id: randomBytes(12).toString("hex"),
+    order_key_hash: createHash("sha256").update(args.binding.order_key).digest("hex").slice(0, 16),
+    customer_id_hash: createHash("sha256").update(args.binding.customer_id).digest("hex").slice(0, 16),
+    job_id_hash: createHash("sha256").update(args.binding.job_id).digest("hex").slice(0, 16),
+    checked_at: args.checked_at,
+    source_outcomes: sourceStatuses.map((sourceStatus) => ({
+      source: sourceStatus.source,
+      availability: sourceStatus.availability,
+      reason_code: sourceStatus.reason_code,
+      impact: sourceStatus.impact,
+      checked_at: sourceStatus.checked_at,
+      last_success_at: sourceStatus.last_success_at
+    })),
+    RefreshRequest: 1,
+    RetainedSourceCount: staleSources.length
+  }));
+}
+
 async function refreshPublicStatusOrder(binding: {
   order_key: string;
   customer_id: string;
@@ -1836,17 +2041,22 @@ async function refreshPublicStatusOrder(binding: {
     const customer = await findLiftCustomer(binding.customer_id);
     const workspace = await getOrCreateWorkspace(customer);
     const result = await loadBoundedInternalOrderSnapshot(customer, binding.job_id, {
-      preferFreshProofReport: true
+      preferFreshProofReport: true,
+      telemetryContext: "public_status_refresh"
     });
 
     if ("error" in result) {
-      return previous
-        ? {
-            snapshot: applyPublicProofVisibility(previous, workspace.status_access_policy.proof_visibility),
-            status: "degraded" as PublicStatusRefreshState,
-            checked_at: new Date().toISOString()
-          }
-        : null;
+      if (!previous) return null;
+      const checkedAt = new Date().toISOString();
+      const snapshot = applyPublicProofVisibility(previous, workspace.status_access_policy.proof_visibility);
+      emitPublicStatusRefreshTelemetry({
+        binding,
+        snapshot,
+        status: "degraded",
+        refresh_source: "retained_snapshot",
+        checked_at: checkedAt
+      });
+      return { snapshot, status: "degraded" as PublicStatusRefreshState, checked_at: checkedAt };
     }
 
     const projected = publicOrderStatusSnapshotFromInternal(result.snapshot, "status_only", {
@@ -1856,7 +2066,8 @@ async function refreshPublicStatusOrder(binding: {
       mergePublicStatusRefresh(previous, projected, {
         order: result.snapshot.lookups.order?.ok === true,
         proofs: result.snapshot.lookups.proofs?.ok === true,
-        packages: result.snapshot.lookups.packages?.ok === true
+        packages: result.snapshot.lookups.packages?.ok === true,
+        shipping: result.snapshot.lookups.shipping?.ok === true
       }),
       workspace.status_access_policy.proof_visibility,
       { include_transient_proof_assets: true }
@@ -1866,21 +2077,34 @@ async function refreshPublicStatusOrder(binding: {
       await persistPublicOrderStatusSnapshot(durableSnapshot);
     }
 
+    const status = result.snapshot.source_status?.order?.availability !== "available"
+      ? "degraded" as PublicStatusRefreshState
+      : "live" as PublicStatusRefreshState;
+    emitPublicStatusRefreshTelemetry({
+      binding,
+      snapshot: durableSnapshot,
+      status,
+      refresh_source: result.refresh.source,
+      checked_at: result.refresh.checked_at
+    });
+
     return {
       snapshot: merged,
-      status: result.snapshot.issues.some((issue) => issue.severity === "error")
-        ? "degraded" as PublicStatusRefreshState
-        : "live" as PublicStatusRefreshState,
+      status,
       checked_at: result.refresh.checked_at
     };
   } catch {
-    return previous
-      ? {
-          snapshot: applyPublicProofVisibility(previous, "off"),
-          status: "degraded" as PublicStatusRefreshState,
-          checked_at: new Date().toISOString()
-        }
-      : null;
+    if (!previous) return null;
+    const checkedAt = new Date().toISOString();
+    const snapshot = applyPublicProofVisibility(previous, "off");
+    emitPublicStatusRefreshTelemetry({
+      binding,
+      snapshot,
+      status: "degraded",
+      refresh_source: "retained_snapshot",
+      checked_at: checkedAt
+    });
+    return { snapshot, status: "degraded" as PublicStatusRefreshState, checked_at: checkedAt };
   }
 }
 
@@ -3672,9 +3896,9 @@ app.get("/public/status/:token", async (req, res) => {
         order_count: snapshots.length
       }
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({
-      error: error instanceof Error ? error.message : "Order status lookup failed."
+      error: "This status link could not be opened right now. Please try again shortly."
     });
   }
 });
@@ -3709,9 +3933,9 @@ app.post("/public/status/:token/refresh", async (req, res) => {
         order_count: snapshots.length
       }
     });
-  } catch (error) {
+  } catch {
     res.status(500).json({
-      error: error instanceof Error ? error.message : "Order status refresh failed."
+      error: "Current order updates are temporarily unavailable. The last confirmed update remains available."
     });
   }
 });
