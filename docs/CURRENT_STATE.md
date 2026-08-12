@@ -4,9 +4,9 @@ This is the entry point for all new Pathfinder, Vornan Proof, and live-support t
 
 Last reconciled: **2026-08-12**
 
-Deployed application baseline: `origin/main` at `fa1ed4389720bb4f2d1119794845e72af21de1ca`
+Deployed application baseline: `origin/main` at `0d17b24696e9fef01e06e83fdbbed0d17825b9cb`
 
-Live evidence: read-only AWS inspection, authenticated Admin smoke, and a bounded shared-path discovery run through 2026-08-12 in account `744016783602`, region `us-east-1`
+Live evidence: read-only AWS inspection, authenticated Admin smoke, and natural scheduled-intake continuity through 2026-08-12 in account `744016783602`, region `us-east-1`
 
 ## Authority order
 
@@ -45,17 +45,17 @@ PR #184 merged the multi-reference-proof ZIP capability at `b6794380e44d3ca1ab22
 
 The first natural cycle after activation prepared five replacement previews because the normalized Import Method fingerprint changed. Cross-job idempotency replayed every submit and produced no Lift order or Wrike write. Through `2026-08-12T15:35:43Z`, all 80 post-activation natural cycles completed at the 15-minute cadence with zero candidate failures, zero Lift submissions, and zero Wrike writebacks. A bounded operator discovery then returned five ready/reused orders, zero new previews, and 100 pending candidates, again with no Lift or Wrike action. The five currently qualified Wrike tasks already reconcile to confirmed Lift orders for Visit Montana (`A0228214`), MDHHS (`A0228322`), Fair Housing Commission (`A0228278`), Comcast Big South (`A0228190`), and ALDI HIN Store (`A0228162`). There is no evidence of a missed qualified order.
 
-Current visibility debt: the Import Method's displayed **Last Run** does not reflect later replay-only scheduled cycles. Pending-candidate controls appear only after a discovery result exists in the current browser session, and the preserved historical `Submission Uncertain` attempt still contains generic retry-oriented guidance even after its order has been reconciled. Use exact Wrike task/evidence IDs as authoritative identity even when campaign names are displayed.
+Current visibility debt: the Import Method's displayed **Last Run** does not reflect later replay-only scheduled cycles. The latest bounded pending-candidate snapshot now survives browser sessions, but Pathfinder does not retain discovery-run history for comparing older snapshots. Use exact Wrike task/evidence IDs as authoritative identity even when campaign names are displayed.
 
-### Repository-ready Pathfinder Jobs triage slice (not deployed)
+### Deployed Pathfinder Jobs triage release
 
-The `codex/pathfinder-jobs-triage` repository slice is additive and remains pre-merge/pre-deployment at this checkpoint. It persists each Jobs scope's last filter/sort selection in that browser, labels `created_at` as **Pathfinder Intake** rather than implying a Lift creation time, and adds a compact triage strip for confirmed orders, likely intake candidates, Ready jobs waiting more than 30 minutes, confirmation-needed submits, and failed/blocked jobs.
+PR #188 merged and deployed as `0d17b24696e9fef01e06e83fdbbed0d17825b9cb` on 2026-08-12. API workflow `31633124192` / job `94236660746` and Admin workflow `31634117887` / job `94240021112` succeeded after merged-main validation `31632893869` / job `94235882235`. The release persists each Jobs scope's last filter/sort selection in that browser, labels `created_at` as **Pathfinder Intake** rather than implying a Lift creation time, and adds a compact triage strip for confirmed orders, likely intake candidates, Ready jobs waiting more than 30 minutes, confirmation-needed submits, and failed/blocked jobs.
 
 The same scheduled/operator discovery result now stores one bounded latest Wrike operations snapshot on the existing Import Method item. That runtime evidence has an optimistic conditional-write boundary, does not change the Import Method configuration timestamp or fingerprint, and cannot be overwritten by an older Admin form save. Jobs reads this snapshot without invoking discovery, so candidate review can survive browser sessions. This is a latest-state snapshot, not discovery-run history.
 
 Confirmed job detail adds a full-width, read-only line comparison across canonical input, the reviewed Lift payload, and a freshly loaded current Lift order. Lift creation time appears only from the live Lift snapshot. The Jobs table separately shows the latest durable Lift header **Order Status** from an existing order-status snapshot or verified association; unsubmitted jobs show **Not in Lift**, and confirmed jobs without durable header evidence show **Not checked**. Jobs status projection performs no live Lift lookup. A historical `Submission Uncertain` attempt associated with a confirmed Lift order remains immutable but displays **no retry required** guidance. New confirmations record an additive `order_confirmed_at`; existing confirmed jobs use their last known confirmed activity for KPI continuity.
 
-This section describes repository-ready behavior only. Until a later approved merge/deployment and read-only production validation are recorded, the deployed behavior remains the source-order clarity release above.
+The API change updated only the primary Lambda and the code property of the already-disabled Proof scan worker; no data resource changed. All live Pathfinder gates, both campaign roots, the multi-proof ZIP policy, `go.vornan.co`, the scoped `TBD` → `0.5` rule, and every Proof boundary were preserved. All fifteen protected counts were identical before and after deployment. Natural scheduler correlation `b2b0ae3c-c5b9-4098-8c4e-402084d9df1f` replayed five known candidates with zero new jobs, Lift submissions, Wrike writes, or failures. Authenticated Admin smoke confirmed the triage strip, saved default view, Order Status column, full-width nine-line comparison, reconciled no-retry guidance, and prepared `MM/DD/YYYY` dates without invoking discovery, Lift refresh, or any mutation control.
 
 ### Deployed Pathfinder source-order clarity release
 

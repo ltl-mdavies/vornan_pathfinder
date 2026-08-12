@@ -203,9 +203,9 @@ The deployed release also adds:
 
 These controls are live as of 2026-08-11. The authenticated production Admin smoke confirmed the visible Jobs refresh indicator, the **Run discovery now** control, and the Lift target's effective `MM/DD/YYYY` date format without saving configuration or running discovery.
 
-### Repository-ready Jobs triage continuation (not deployed)
+### 2026-08-12 Jobs triage release record
 
-The current Pathfinder development slice prepares the next bounded operations improvement without changing production gates, configuration, or external systems:
+PR #188 merged and deployed as `0d17b24696e9fef01e06e83fdbbed0d17825b9cb` on 2026-08-12 without changing production gates, configuration, or external systems:
 
 - global and customer Jobs views retain separate browser-local filter/sort choices and expose **Reset view**;
 - the default useful view is Active / All intake / Current orders / Pathfinder intake / Descending;
@@ -219,7 +219,26 @@ The current Pathfinder development slice prepares the next bounded operations im
 - reconciled `Submission Uncertain` history remains immutable but displays recovery-complete language and explicitly says no retry is required;
 - new confirmed associations capture additive `order_confirmed_at`; no existing job, order, attempt, mapping, publication, or audit record is rewritten or deleted.
 
-This continuation is repository-ready only. Do not treat it as live until its merged commit, API-first/Admin-second deployment identifiers, parameter-preservation evidence, protected table counts, scheduler continuity, and authenticated read-only Admin smoke are appended here.
+Release identifiers and reconciliation:
+
+- merged-main validation: workflow `31632893869`, job `94235882235`;
+- API deployment: workflow `31633124192`, job `94236660746`;
+- API artifact: `api/pathfinder-api-lambda-0d17b24696e9fef01e06e83fdbbed0d17825b9cb.zip`, S3 version `WLwmKkKpXMhk5mnMW.9TYrzrNfZFFozw`, ETag `ea2378f9388c61e079b962cc2e25baa0`;
+- deployed Lambda SHA-256: `LJWU23r+coO6OXUyffL+4Er/33mf43xG/JN1I1uYQjM=`; revision `8866233d-9635-4992-a628-58bd0be67290`;
+- Admin deployment: workflow `31634117887`, job `94240021112`;
+- Admin `index.html`: S3 version `fc1EXjd9uKPqjuoVw8EWGMLo26FmdEDG`, ETag `55a53e3c4abf744dd3c8b47469613d93`;
+- Admin bundles: `assets/index-lToVvnlZ.js`, `assets/index-bsCUjaT5.css`, `assets/react-sXpfDjey.js`, and `assets/icons-B5i5RwHw.js`;
+- CloudFront invalidation: `I6DLZ8KMUO9HBT8CN4POL2EJOT` (`Completed`).
+
+The API stack returned to `UPDATE_COMPLETE`. The executed update touched only `PathfinderApiFunction` and the code property of the already-disabled `ProofAssetScanWorkerFunction`; no table, bucket, queue, event-source mapping, or other data resource changed. API and Admin health returned HTTP 200. Scheduled intake/submit/writeback, live Lift transport and live-customer submission, workbook/reference evidence, `go.vornan.co` publication, authentication, both campaign roots, multi-proof ZIP selection/template, and scoped `TBD` → `0.5` remained unchanged. All shared-API Proof gates remained false. The isolated Proof stack retained protected public read for customer `1249` through `2026-08-25T23:59:59Z`, zero active grants/sessions, empty queues, and ten `OK` alarms.
+
+All protected counts were identical before and after deployment: Customers 1, CustomerWorkspaces 1, Targets 2, ImportMethods 2, OutputRoutes 1, ProductMappings 278, Jobs 55, OrderIds 58, SubmitAttempts 18, LiftProductCache 337, OrderStatusTokens 19, OrderStatusSnapshots 11, CanonicalRegistry 1, ProofCore-dev 142, and ProofAudit-dev 147.
+
+The first natural new-code scheduler cycle, correlation `b2b0ae3c-c5b9-4098-8c4e-402084d9df1f`, completed at `2026-08-12T19:43:08.043Z`. It discovered and replayed five known candidates, prepared zero new jobs, submitted zero Lift orders, wrote zero Wrike comments, and recorded zero failures. All four Pathfinder alarms remained `OK`.
+
+Authenticated production Admin smoke confirmed the saved Active / All intake / Current orders / Pathfinder intake / Descending view, Reset view, five-card triage strip, clarified timestamps, and separate durable Lift **Order Status** column. MDHHS `JOB-280569` remained one confirmed row with three nested historical records. Its reconciled uncertain attempt displayed **no retry required**, its nine-line comparison expanded full-width, and its prepared dates displayed `08/26/2026`. No discovery, Lift refresh, retry, archive, submit, writeback, configuration save, or other mutation control was invoked.
+
+Rollback is application-only: restore API artifact `api/pathfinder-api-lambda-fa1ed4389720bb4f2d1119794845e72af21de1ca.zip` (S3 version `YktOP79tJebDf66slbHcxGJXmU_EfRRF`, Lambda SHA `yPi7qpFVJKOVWbiCTnp4SIbfCmdLSHcz/+DoRG6dAM0=`) and Admin `index.html` version `gX5XENbtIDp2q6xPiiadjyLqFNraPn62`, then invalidate CloudFront. Do not restore or replace production tables, and do not change the active Momentara Import Method or Proof read boundary as part of this rollback.
 
 ### Lift order-date output correction
 
@@ -241,8 +260,6 @@ Known hardening debt:
 
 - replace route-wide invalidation with dependency-aware invalidation based on the product keys actually used by each job;
 - update the Import Method **Last Run** surface on healthy replay-only scheduled cycles so it does not imply that polling stopped;
-- show the latest safe pending-candidate snapshot before a new in-session discovery run; addressed in the repository-ready slice above but still live debt until deployed;
-- specialize historical submit guidance after a `Submission Uncertain` attempt is reconciled to **Order Confirmed**; addressed in the repository-ready slice above but still live debt until deployed;
 - persist discovery-run history beyond structured runtime audit logs so earlier pending-intake snapshots can be compared in the UI;
 - keep retained sibling records as immutable history; do not delete them merely to clean the Jobs display;
 - extend guided recovery beyond product mappings to other known-safe pre-transport validation failures;
