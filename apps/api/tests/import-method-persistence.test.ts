@@ -9,6 +9,8 @@ let testStorePath = "";
 let getOrCreateWorkspace: typeof import("../src/store.ts")["getOrCreateWorkspace"];
 let updateImportMethod: typeof import("../src/store.ts")["updateImportMethod"];
 let reservePathfinderOrderNumber: typeof import("../src/store.ts")["reservePathfinderOrderNumber"];
+let persistWrikeOperationsSnapshot: typeof import("../src/store.ts")["persistWrikeOperationsSnapshot"];
+let listWrikeOperationsSnapshots: typeof import("../src/store.ts")["listWrikeOperationsSnapshots"];
 
 const testCustomer = {
   lift_customer_id: "regression-import-methods",
@@ -43,6 +45,8 @@ before(async () => {
   getOrCreateWorkspace = store.getOrCreateWorkspace;
   updateImportMethod = store.updateImportMethod;
   reservePathfinderOrderNumber = store.reservePathfinderOrderNumber;
+  persistWrikeOperationsSnapshot = store.persistWrikeOperationsSnapshot;
+  listWrikeOperationsSnapshots = store.listWrikeOperationsSnapshots;
 });
 
 after(async () => {
@@ -164,6 +168,58 @@ test("persists a Wrike source contract without retaining credentials or weakenin
   assert.equal(saved.source_config.wrike.create_preview_only, true);
   assert.equal(saved.source_config.wrike.idempotency_strategy, "task_attachment_version");
   assert.equal("access_token" in saved.source_config.wrike, false);
+});
+
+test("persists bounded Wrike operations evidence without changing or losing customer configuration", async () => {
+  const before = await getOrCreateWorkspace(testCustomer);
+  const methodBefore = importMethod(before, "wrike-momentara");
+  const originalUpdatedAt = methodBefore.updated_at;
+  const originalFolders = methodBefore.source_config.wrike.folder_ids;
+  const snapshot = {
+    version: 1 as const,
+    run_id: "wrike-run-regression",
+    source: "scheduled" as const,
+    customer_id: testCustomer.lift_customer_id,
+    import_method_id: "wrike-momentara",
+    checked_at: "2026-08-12T16:00:00.000Z",
+    discovery_summary: {
+      task_count: 10,
+      scoped_task_count: 8,
+      eligible_order_count: 1,
+      pending_order_count: 2,
+      placard_order_pending_count: 2,
+      likely_pending_order_count: 1
+    },
+    root_scopes: [],
+    pending_intake: [],
+    prepared_count: 0,
+    replayed_count: 0,
+    failed_count: 0,
+    candidate_failures: [],
+    scheduled_submit: { eligible_count: 0, submitted_count: 0, replayed_count: 0, failed_count: 0 },
+    status_writeback: { eligible_count: 0, posted_count: 0, replayed_count: 0, failed_count: 0 },
+    safety: {
+      lift_order_submitted: false,
+      wrike_status_changed: false,
+      uncertain_lift_retry_allowed: false
+    }
+  };
+
+  await persistWrikeOperationsSnapshot(testCustomer, "wrike-momentara", snapshot);
+  const persisted = await getOrCreateWorkspace(testCustomer);
+  const methodAfterSnapshot = importMethod(persisted, "wrike-momentara");
+  assert.equal(methodAfterSnapshot.updated_at, originalUpdatedAt);
+  assert.deepEqual(methodAfterSnapshot.source_config.wrike.folder_ids, originalFolders);
+  assert.equal(methodAfterSnapshot.wrike_operations_snapshot.run_id, snapshot.run_id);
+
+  const staleClientPatch = { ...methodBefore, name: "Wrike - Momentara Saved Again" };
+  const updated = await updateImportMethod(testCustomer, "wrike-momentara", staleClientPatch);
+  assert.equal(importMethod(updated, "wrike-momentara").wrike_operations_snapshot.run_id, snapshot.run_id);
+
+  const listed = await listWrikeOperationsSnapshots();
+  assert.ok(listed.some((entry) =>
+    entry.customer_id === testCustomer.lift_customer_id && entry.snapshot.run_id === snapshot.run_id
+  ));
 });
 
 test("persists detected schemas and mappings without retaining workbook rows", async () => {

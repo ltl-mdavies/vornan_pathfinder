@@ -77,7 +77,7 @@ function safeTelemetryIdentifiers(values: unknown) {
     : [];
 }
 
-function buildCandidateFailureDetails(result: WrikeScheduledIntakeCompletionResult) {
+export function buildCandidateFailureDetails(result: WrikeScheduledIntakeCompletionResult) {
   const preparationFailures = (result.results ?? [])
     .filter((entry) => entry.outcome === "failed")
     .flatMap((entry) => {

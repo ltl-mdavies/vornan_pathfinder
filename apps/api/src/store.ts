@@ -69,6 +69,7 @@ import {
 } from "@pathfinder/templates";
 import {
   normalizeWrikeSourceConfig,
+  type WrikePendingOrderTask,
   type WrikeSourceConfig
 } from "@pathfinder/wrike-adapter";
 import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
@@ -501,10 +502,64 @@ export interface ImportMethod {
   order_name_resolution_config: OrderNameResolutionConfig;
   ext_id_strategy: LiftExtIdStrategy;
   public_intake: PublicIntakeConfig;
+  /** Runtime-only operations evidence. Excluded from the import contract fingerprint. */
+  wrike_operations_snapshot?: WrikeOperationsSnapshot | null;
   last_run_at?: string | null;
   success_rate?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface WrikeOperationsCandidateFailure {
+  stage: string;
+  reason_code: string;
+  task_id: string | null;
+  evidence_ids: string[];
+  job_ids: string[];
+}
+
+export interface WrikeOperationsSnapshot {
+  version: 1;
+  run_id: string;
+  source: "scheduled" | "operator";
+  customer_id: string;
+  import_method_id: string;
+  checked_at: string;
+  discovery_summary: {
+    task_count: number;
+    scoped_task_count: number;
+    eligible_order_count: number;
+    pending_order_count: number;
+    placard_order_pending_count: number;
+    likely_pending_order_count: number;
+  };
+  root_scopes: Array<{
+    configured_folder_id: string;
+    resolved_folder_id: string;
+    task_count: number;
+  }>;
+  pending_intake: WrikePendingOrderTask[];
+  prepared_count: number;
+  replayed_count: number;
+  failed_count: number;
+  candidate_failures: WrikeOperationsCandidateFailure[];
+  scheduled_submit: {
+    eligible_count: number;
+    submitted_count: number;
+    replayed_count: number;
+    failed_count: number;
+  };
+  status_writeback: {
+    eligible_count: number;
+    posted_count: number;
+    replayed_count: number;
+    failed_count: number;
+  };
+  safety: {
+    lift_order_submitted: boolean;
+    wrike_status_changed: boolean;
+    uncertain_lift_retry_allowed: false;
+  };
 }
 
 export interface TargetConfig {
@@ -656,6 +711,7 @@ export interface ProcessingJobPreview {
   output_route_id: string;
   output_route_name: string;
   target_order_number?: string | null;
+  order_confirmed_at?: string | null;
   target_order_lookup_url?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   wrike_status_writebacks?: WrikeStatusWritebackRecord[];
@@ -3127,7 +3183,62 @@ function normalizeImportMethod(method: ImportMethod): ImportMethod {
         : createLegacyOrderNameResolutionConfig()
     ),
     ext_id_strategy: method.ext_id_strategy === "pathfinder_generated" ? "pathfinder_generated" : "customer_order_id",
-    public_intake: normalizePublicIntakeConfig(method.public_intake)
+    public_intake: normalizePublicIntakeConfig(method.public_intake),
+    wrike_operations_snapshot: normalizeWrikeOperationsSnapshot(method.wrike_operations_snapshot)
+  };
+}
+
+function normalizeWrikeOperationsSnapshot(
+  snapshot: WrikeOperationsSnapshot | null | undefined
+): WrikeOperationsSnapshot | null {
+  if (
+    !snapshot ||
+    snapshot.version !== 1 ||
+    !snapshot.run_id?.trim() ||
+    !snapshot.customer_id?.trim() ||
+    !snapshot.import_method_id?.trim() ||
+    Number.isNaN(Date.parse(snapshot.checked_at))
+  ) {
+    return null;
+  }
+  const count = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
+  };
+  return {
+    ...snapshot,
+    source: snapshot.source === "operator" ? "operator" : "scheduled",
+    discovery_summary: {
+      task_count: count(snapshot.discovery_summary?.task_count),
+      scoped_task_count: count(snapshot.discovery_summary?.scoped_task_count),
+      eligible_order_count: count(snapshot.discovery_summary?.eligible_order_count),
+      pending_order_count: count(snapshot.discovery_summary?.pending_order_count),
+      placard_order_pending_count: count(snapshot.discovery_summary?.placard_order_pending_count),
+      likely_pending_order_count: count(snapshot.discovery_summary?.likely_pending_order_count)
+    },
+    root_scopes: (snapshot.root_scopes ?? []).slice(0, 10),
+    pending_intake: (snapshot.pending_intake ?? []).slice(0, 100),
+    prepared_count: count(snapshot.prepared_count),
+    replayed_count: count(snapshot.replayed_count),
+    failed_count: count(snapshot.failed_count),
+    candidate_failures: (snapshot.candidate_failures ?? []).slice(0, 75),
+    scheduled_submit: {
+      eligible_count: count(snapshot.scheduled_submit?.eligible_count),
+      submitted_count: count(snapshot.scheduled_submit?.submitted_count),
+      replayed_count: count(snapshot.scheduled_submit?.replayed_count),
+      failed_count: count(snapshot.scheduled_submit?.failed_count)
+    },
+    status_writeback: {
+      eligible_count: count(snapshot.status_writeback?.eligible_count),
+      posted_count: count(snapshot.status_writeback?.posted_count),
+      replayed_count: count(snapshot.status_writeback?.replayed_count),
+      failed_count: count(snapshot.status_writeback?.failed_count)
+    },
+    safety: {
+      lift_order_submitted: snapshot.safety?.lift_order_submitted === true,
+      wrike_status_changed: snapshot.safety?.wrike_status_changed === true,
+      uncertain_lift_retry_allowed: false
+    }
   };
 }
 
@@ -3694,6 +3805,21 @@ function replaceScopedSubmitAttempt(attempt: SubmitAttempt) {
     );
     workspace.updated_at = attempt.updated_at;
   }
+}
+
+function replaceScopedImportMethod(
+  customerId: string,
+  method: ImportMethod
+) {
+  const scope = pathfinderStoreReadScope.getStore();
+  const workspace = scope?.store?.workspaces[customerId];
+  if (!workspace) return;
+  workspace.import_methods = [
+    method,
+    ...workspace.import_methods.filter(
+      (candidate) => candidate.import_method_id !== method.import_method_id
+    )
+  ];
 }
 
 async function writeStore(store: PathfinderStore) {
@@ -4761,6 +4887,11 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
           : normalizedMethodSource.public_intake.published_at
       };
     })(),
+    // Runtime operations evidence has its own optimistic persistence boundary.
+    // Never let an older Admin form submission overwrite the latest scheduler snapshot.
+    wrike_operations_snapshot: existingMethod
+      ? normalizedMethodSource.wrike_operations_snapshot ?? null
+      : null,
     updated_at: timestamp
   };
 
@@ -4784,6 +4915,99 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
   await writeStore(store);
 
   return workspace;
+}
+
+export async function listWrikeOperationsSnapshots() {
+  const store = await readStore();
+  return Object.values(store.workspaces)
+    .flatMap((workspace) => workspace.import_methods.map((method) => ({
+      customer_id: workspace.customer.lift_customer_id,
+      customer_name: workspace.customer.customer_name,
+      import_method_id: method.import_method_id,
+      import_method_name: method.name,
+      snapshot: normalizeWrikeOperationsSnapshot(method.wrike_operations_snapshot)
+    })))
+    .filter((entry): entry is typeof entry & { snapshot: WrikeOperationsSnapshot } => Boolean(entry.snapshot))
+    .sort((left, right) => Date.parse(right.snapshot.checked_at) - Date.parse(left.snapshot.checked_at));
+}
+
+export async function persistWrikeOperationsSnapshot(
+  customer: LiftCustomer,
+  methodId: string,
+  snapshotValue: WrikeOperationsSnapshot
+) {
+  const snapshot = normalizeWrikeOperationsSnapshot(snapshotValue);
+  if (
+    !snapshot ||
+    snapshot.customer_id !== customer.lift_customer_id ||
+    snapshot.import_method_id !== methodId
+  ) {
+    throw new Error("Wrike operations snapshot identity is invalid.");
+  }
+
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tableName = getDynamoTableConfig().import_methods;
+    const key = {
+      customer_id: dynamoString(customer.lift_customer_id),
+      import_method_id: dynamoString(methodId)
+    };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const response = await getDynamoClient().send(new GetItemCommand({
+        TableName: tableName,
+        Key: key,
+        ConsistentRead: true
+      }));
+      const existingData = response.Item?.data?.S;
+      const existingMethod = response.Item
+        ? parseDynamoData<ImportMethod & { customer_id?: string }>(response.Item as Record<string, AttributeValue>)
+        : null;
+      if (!existingData || !existingMethod) {
+        throw new Error(`Import method ${methodId} does not exist.`);
+      }
+      const nextMethod = normalizeImportMethod({
+        ...existingMethod,
+        wrike_operations_snapshot: snapshot
+      });
+      try {
+        await getDynamoClient().send(new PutItemCommand({
+          TableName: tableName,
+          Item: dynamoItem(
+            { customer_id: customer.lift_customer_id, import_method_id: methodId },
+            { ...nextMethod, customer_id: customer.lift_customer_id }
+          ),
+          ConditionExpression: "#data = :expected_data",
+          ExpressionAttributeNames: { "#data": "data" },
+          ExpressionAttributeValues: { ":expected_data": { S: existingData } }
+        }));
+        replaceScopedImportMethod(customer.lift_customer_id, nextMethod);
+        return snapshot;
+      } catch (error) {
+        if (!isConditionalCheckFailure(error) || attempt === 2) throw error;
+      }
+    }
+    throw new Error("Wrike operations snapshot could not be saved safely.");
+  }
+
+  const store = await readStore();
+  const workspace = normalizeWorkspace(
+    store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer)
+  );
+  const existingMethod = workspace.import_methods.find(
+    (method) => method.import_method_id === methodId
+  );
+  if (!existingMethod) throw new Error(`Import method ${methodId} does not exist.`);
+  const nextMethod = normalizeImportMethod({
+    ...existingMethod,
+    wrike_operations_snapshot: snapshot
+  });
+  workspace.import_methods = [
+    nextMethod,
+    ...workspace.import_methods.filter((method) => method.import_method_id !== methodId)
+  ];
+  store.workspaces[customer.lift_customer_id] = workspace;
+  await writeStore(store);
+  return snapshot;
 }
 
 export async function archiveImportMethod(customer: LiftCustomer, methodId: string) {
@@ -5184,6 +5408,7 @@ function nextLiftOrderAssociatedJob(args: {
     ...args.job,
     state: "Order Confirmed",
     target_order_number: args.order_number,
+    order_confirmed_at: args.job.order_confirmed_at ?? args.linked_at,
     target_order_lookup_url: args.lookup_url,
     target_order_association_history: [
       ...(args.job.target_order_association_history ?? []),
@@ -5669,7 +5894,12 @@ function reconcileConfirmedJob(job: ProcessingJobPreview, attempts: SubmitAttemp
   return {
     ...job,
     state: job.state === "Submitted" ? "Order Confirmed" : job.state,
-    target_order_number: targetOrderNumber
+    target_order_number: targetOrderNumber,
+    order_confirmed_at:
+      job.order_confirmed_at ??
+      job.target_order_association_history?.at(-1)?.linked_at ??
+      confirmedAttempt?.updated_at ??
+      null
   };
 }
 
@@ -5727,6 +5957,10 @@ async function persistDynamoSubmitJobState(
     ...submittedJob,
     state: submitJobState,
     target_order_number: targetOrderNumber ?? submittedJob.target_order_number ?? null,
+    order_confirmed_at:
+      submitJobState === "Order Confirmed"
+        ? submittedJob.order_confirmed_at ?? attempt.updated_at
+        : submittedJob.order_confirmed_at ?? null,
     target_order_lookup_url: targetOrderLookupUrl ?? submittedJob.target_order_lookup_url ?? null,
     updated_at: attempt.updated_at
   };
@@ -5833,6 +6067,10 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
             ...job,
             state: submitJobState,
             target_order_number: targetOrderNumber ?? job.target_order_number ?? null,
+            order_confirmed_at:
+              submitJobState === "Order Confirmed"
+                ? job.order_confirmed_at ?? timestamp
+                : job.order_confirmed_at ?? null,
             target_order_lookup_url: targetOrderLookupUrl ?? job.target_order_lookup_url ?? null,
             updated_at: timestamp
           }

@@ -131,6 +131,10 @@ import {
   type WrikeScheduledOrderCandidate
 } from "./wrike-scheduled-intake.js";
 import {
+  buildCandidateFailureDetails,
+  type WrikeScheduledIntakeCompletionResult
+} from "./wrike-scheduled-telemetry.js";
+import {
   groupWrikeSourceOrders,
   selectWrikeSourceOrderAnchor,
   wrikeSourceOrderHasPossibleTransport,
@@ -162,6 +166,7 @@ import {
   listCatalogPresets,
   listLiftUnitCatalog,
   listJobs,
+  listWrikeOperationsSnapshots,
   listSubmitAttemptsForJob,
   listTargets,
   transitionWrikeStatusWriteback,
@@ -178,6 +183,7 @@ import {
   persistPreviewJob,
   persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
+  persistWrikeOperationsSnapshot,
   reserveSubmitAttempt,
   rebindActiveOrderStatusTokensForJob,
   previewProductMappingReplacement,
@@ -233,6 +239,7 @@ import {
   type SubmitCertification,
   type SubmitCertificationItem,
   type SubmitAttempt,
+  type WrikeOperationsSnapshot,
   type SubmitAttemptStatus,
   type SubmitProfile,
   type TargetConfig,
@@ -5931,7 +5938,7 @@ export async function runConfiguredWrikeScheduledIntake() {
         outcomes: []
       };
 
-  return {
+  const result = {
     ...intakeResult,
     discovery_summary: core.discovery?.summary ?? {
       task_count: 0,
@@ -5957,6 +5964,85 @@ export async function runConfiguredWrikeScheduledIntake() {
       ...intakeResult.capabilities,
       wrike_writes: wrikeScheduledIntakeConfig.status_writeback_enabled,
       lift_actions: wrikeScheduledIntakeConfig.lift_submit_enabled
+    }
+  };
+
+  if (customer && core.discovery) {
+    const snapshot = buildWrikeOperationsSnapshot({
+      runId: `wrike_scheduled_${result.checked_at.replace(/[-:.TZ]/g, "")}`,
+      source: "scheduled",
+      customerId: wrikeScheduledIntakeConfig.customer_id,
+      methodId: wrikeScheduledIntakeConfig.import_method_id,
+      result,
+      rootScopes: core.discovery.root_scopes,
+      pendingIntake: core.discovery.pending_order_candidates
+    });
+    await persistWrikeOperationsSnapshot(
+      customer,
+      wrikeScheduledIntakeConfig.import_method_id,
+      snapshot
+    ).catch((error) => {
+      console.warn(JSON.stringify({
+        event: "wrike_operations_snapshot_failed",
+        run_id: snapshot.run_id,
+        source: snapshot.source,
+        failure_category: error instanceof Error ? error.name : "unknown"
+      }));
+    });
+  }
+
+  return result;
+}
+
+function buildWrikeOperationsSnapshot(args: {
+  runId: string;
+  source: "scheduled" | "operator";
+  customerId: string;
+  methodId: string;
+  result: WrikeScheduledIntakeCompletionResult & {
+    discovery_summary: WrikeScheduledIntakeCompletionResult["discovery_summary"] &
+      WrikeOperationsSnapshot["discovery_summary"];
+  };
+  rootScopes: WrikeOperationsSnapshot["root_scopes"];
+  pendingIntake: WrikeOperationsSnapshot["pending_intake"];
+}): WrikeOperationsSnapshot {
+  return {
+    version: 1,
+    run_id: args.runId,
+    source: args.source,
+    customer_id: args.customerId,
+    import_method_id: args.methodId,
+    checked_at: args.result.checked_at,
+    discovery_summary: {
+      task_count: args.result.discovery_summary.task_count,
+      scoped_task_count: args.result.discovery_summary.scoped_task_count,
+      eligible_order_count: args.result.discovery_summary.eligible_order_count,
+      pending_order_count: args.result.discovery_summary.pending_order_count,
+      placard_order_pending_count: args.result.discovery_summary.placard_order_pending_count,
+      likely_pending_order_count: args.result.discovery_summary.likely_pending_order_count
+    },
+    root_scopes: args.rootScopes,
+    pending_intake: args.pendingIntake.slice(0, 100),
+    prepared_count: args.result.prepared_count,
+    replayed_count: args.result.replayed_count,
+    failed_count: args.result.failed_count,
+    candidate_failures: buildCandidateFailureDetails(args.result),
+    scheduled_submit: {
+      eligible_count: args.result.scheduled_submit.eligible_count,
+      submitted_count: args.result.scheduled_submit.submitted_count,
+      replayed_count: args.result.scheduled_submit.replayed_count,
+      failed_count: args.result.scheduled_submit.failed_count
+    },
+    status_writeback: {
+      eligible_count: args.result.status_writeback.eligible_count,
+      posted_count: args.result.status_writeback.posted_count,
+      replayed_count: args.result.status_writeback.replayed_count,
+      failed_count: args.result.status_writeback.failed_count
+    },
+    safety: {
+      lift_order_submitted: args.result.scheduled_submit.submitted_count > 0,
+      wrike_status_changed: args.result.status_writeback.posted_count > 0,
+      uncertain_lift_retry_allowed: false
     }
   };
 }
@@ -5996,6 +6082,46 @@ app.post(
             ? "Discovery finished. Some ready orders need attention before they can continue. No Lift order was submitted and no Wrike status was changed."
             : "Discovery finished safely. No Lift order was submitted and no Wrike status was changed."
       } as const;
+      const operatorResult = {
+        ...core.intakeResult,
+        discovery_summary: core.discovery.summary,
+        scheduled_submit: {
+          eligible_count: 0,
+          submitted_count: 0,
+          replayed_count: 0,
+          failed_count: 0,
+          outcomes: []
+        },
+        status_writeback: {
+          eligible_count: 0,
+          posted_count: 0,
+          replayed_count: 0,
+          failed_count: 0,
+          outcomes: []
+        }
+      };
+      const operationsSnapshot = buildWrikeOperationsSnapshot({
+        runId,
+        source: "operator",
+        customerId: req.params.liftCustomerId,
+        methodId: req.params.methodId,
+        result: operatorResult,
+        rootScopes: core.discovery.root_scopes,
+        pendingIntake: core.discovery.pending_order_candidates
+      });
+      const operationsSnapshotPersisted = await persistWrikeOperationsSnapshot(
+        core.customer ?? await findLiftCustomer(req.params.liftCustomerId),
+        req.params.methodId,
+        operationsSnapshot
+      ).then(() => true).catch((error) => {
+        console.warn(JSON.stringify({
+          event: "wrike_operations_snapshot_failed",
+          run_id: runId,
+          source: "operator",
+          failure_category: error instanceof Error ? error.name : "unknown"
+        }));
+        return false;
+      });
       console.info(
         JSON.stringify({
           event: "wrike_discovery_run_completed",
@@ -6019,6 +6145,8 @@ app.post(
         discovery_summary: core.discovery.summary,
         root_scopes: core.discovery.root_scopes,
         pending_intake: core.discovery.pending_order_candidates,
+        operations_snapshot: operationsSnapshot,
+        operations_snapshot_persisted: operationsSnapshotPersisted,
         audit_entries: [auditEntry],
         safety: {
           lift_order_submitted: false,
@@ -7477,7 +7605,8 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
 app.get("/api/jobs", async (_req, res) => {
   const jobs = await listJobs();
   res.json({
-    jobs: sourceOrderJobProjection(jobs)
+    jobs: sourceOrderJobProjection(jobs),
+    wrike_operations_snapshots: await listWrikeOperationsSnapshots()
   });
 });
 

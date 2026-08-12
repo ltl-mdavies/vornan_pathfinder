@@ -131,6 +131,7 @@ type JobArchiveFilter = "Active" | "Archived" | "All";
 type JobIntakeFilter = "All" | "Customer Dropbox" | "Operator";
 type JobStateFilter =
   | "Current Orders"
+  | "Intake Review"
   | "Needs Attention"
   | "Ready to Submit"
   | "Confirmation Needed"
@@ -138,6 +139,48 @@ type JobStateFilter =
   | "All States";
 type JobSortField = "state" | "updated_at" | "created_at";
 type JobSortDirection = "asc" | "desc";
+
+type JobViewPreferences = {
+  archiveFilter: JobArchiveFilter;
+  intakeFilter: JobIntakeFilter;
+  stateFilter: JobStateFilter;
+  sortField: JobSortField;
+  sortDirection: JobSortDirection;
+};
+
+const defaultJobViewPreferences: JobViewPreferences = {
+  archiveFilter: "Active",
+  intakeFilter: "All",
+  stateFilter: "Current Orders",
+  sortField: "created_at",
+  sortDirection: "desc"
+};
+
+function loadJobViewPreferences(storageKey: string): JobViewPreferences {
+  if (typeof window === "undefined") return defaultJobViewPreferences;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(storageKey) ?? "{}") as Partial<JobViewPreferences>;
+    return {
+      archiveFilter: ["Active", "Archived", "All"].includes(parsed.archiveFilter ?? "")
+        ? parsed.archiveFilter as JobArchiveFilter
+        : defaultJobViewPreferences.archiveFilter,
+      intakeFilter: ["All", "Customer Dropbox", "Operator"].includes(parsed.intakeFilter ?? "")
+        ? parsed.intakeFilter as JobIntakeFilter
+        : defaultJobViewPreferences.intakeFilter,
+      stateFilter: ["Current Orders", "Intake Review", "Needs Attention", "Ready to Submit", "Confirmation Needed", "Order Confirmed", "All States"].includes(parsed.stateFilter ?? "")
+        ? parsed.stateFilter as JobStateFilter
+        : defaultJobViewPreferences.stateFilter,
+      sortField: ["state", "updated_at", "created_at"].includes(parsed.sortField ?? "")
+        ? parsed.sortField as JobSortField
+        : defaultJobViewPreferences.sortField,
+      sortDirection: ["asc", "desc"].includes(parsed.sortDirection ?? "")
+        ? parsed.sortDirection as JobSortDirection
+        : defaultJobViewPreferences.sortDirection
+    };
+  } catch {
+    return defaultJobViewPreferences;
+  }
+}
 
 type ImportMethodStatus = "Active" | "Inactive" | "Draft" | "Paused" | "Archived";
 type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP" | "Wrike";
@@ -420,6 +463,34 @@ type WrikeDiscoveryRunPayload = {
     wrike_status_changed: false;
     uncertain_lift_retry_allowed: false;
   };
+  operations_snapshot?: WrikeOperationsSnapshot;
+  operations_snapshot_persisted?: boolean;
+};
+
+type WrikeOperationsCandidateFailure = {
+  stage: string;
+  reason_code: string;
+  task_id: string | null;
+  evidence_ids: string[];
+  job_ids: string[];
+};
+
+type WrikeOperationsSnapshot = {
+  version: 1;
+  run_id: string;
+  source: "scheduled" | "operator";
+  checked_at: string;
+  discovery_summary: WrikeDiscoveryRunPayload["discovery_summary"];
+  pending_intake: WrikePendingIntakeCandidate[];
+  candidate_failures: WrikeOperationsCandidateFailure[];
+};
+
+type CustomerWrikeOperationsSnapshot = {
+  customer_id: string;
+  customer_name: string;
+  import_method_id: string;
+  import_method_name: string;
+  snapshot: WrikeOperationsSnapshot;
 };
 
 type SubmitRuntimeStatus = {
@@ -858,6 +929,7 @@ interface ProcessingJobPreview {
   output_route_name: string;
   target_order_number?: string | null;
   target_order_lookup_url?: string | null;
+  order_confirmed_at?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   wrike_status_writebacks?: WrikeStatusWritebackRecord[];
   recovery_audit?: JobRecoveryAuditEntry[];
@@ -2643,6 +2715,7 @@ function sortAndFilterJobs(
   sortField: JobSortField,
   sortDirection: JobSortDirection
 ) {
+  if (stateFilter === "Intake Review") return [];
   const visibleJobs = jobs.filter((job) => {
     const archiveMatches =
       archiveFilter === "All" || (archiveFilter === "Archived" ? Boolean(job.archived_at) : !job.archived_at);
@@ -2670,6 +2743,175 @@ function sortAndFilterJobs(
   });
 }
 
+function buildOperationsSummary(
+  jobs: ProcessingJobPreview[],
+  snapshots: CustomerWrikeOperationsSnapshot[],
+  now = new Date()
+) {
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const sevenDaysAgo = now.getTime() - 7 * 24 * 60 * 60 * 1000;
+  const confirmedTimestamps = jobs
+    .filter((job) => jobOperationalState(job) === "Order Confirmed")
+    .map((job) => Date.parse(job.order_confirmed_at ?? ""))
+    .filter(Number.isFinite);
+  const intakeTaskIds = new Set<string>();
+  for (const { snapshot } of snapshots) {
+    for (const candidate of snapshot.pending_intake) {
+      if (candidate.readiness_score >= 2) intakeTaskIds.add(candidate.task_id);
+    }
+    for (const failure of snapshot.candidate_failures) {
+      if (failure.task_id) intakeTaskIds.add(failure.task_id);
+    }
+  }
+  const waiting = jobs.filter(
+    (job) =>
+      jobOperationalState(job) === "Ready to Submit" &&
+      now.getTime() - Date.parse(job.created_at) >= 30 * 60 * 1000
+  ).length;
+  const confirmationNeeded = jobs.filter((job) => jobOperationalState(job) === "Confirmation Needed").length;
+  const blocked = jobs.filter((job) => jobOperationalState(job) === "Needs Attention").length;
+  return {
+    confirmedToday: confirmedTimestamps.filter((timestamp) => timestamp >= startOfToday).length,
+    confirmedSevenDays: confirmedTimestamps.filter((timestamp) => timestamp >= sevenDaysAgo).length,
+    intakeReview: intakeTaskIds.size,
+    waiting,
+    confirmationNeeded,
+    blocked,
+    needsTriage: intakeTaskIds.size + waiting + confirmationNeeded + blocked
+  };
+}
+
+function OperationsTriageStrip({
+  jobs,
+  snapshots,
+  activeFilter,
+  onSelectFilter
+}: {
+  jobs: ProcessingJobPreview[];
+  snapshots: CustomerWrikeOperationsSnapshot[];
+  activeFilter: JobStateFilter;
+  onSelectFilter: (filter: JobStateFilter) => void;
+}) {
+  const summary = buildOperationsSummary(jobs, snapshots);
+  const cards: Array<{
+    filter: JobStateFilter;
+    label: string;
+    value: number;
+    detail: string;
+    attention?: boolean;
+  }> = [
+    {
+      filter: "Order Confirmed",
+      label: "Orders confirmed",
+      value: summary.confirmedToday,
+      detail: `${summary.confirmedSevenDays} in the last 7 days`
+    },
+    {
+      filter: "Intake Review",
+      label: "Intake review",
+      value: summary.intakeReview,
+      detail: "Likely Wrike orders needing review",
+      attention: summary.intakeReview > 0
+    },
+    {
+      filter: "Ready to Submit",
+      label: "Waiting to submit",
+      value: summary.waiting,
+      detail: "Ready for more than 30 minutes",
+      attention: summary.waiting > 0
+    },
+    {
+      filter: "Confirmation Needed",
+      label: "Confirmation needed",
+      value: summary.confirmationNeeded,
+      detail: "Submitted; verify in Lift",
+      attention: summary.confirmationNeeded > 0
+    },
+    {
+      filter: "Needs Attention",
+      label: "Failed or blocked",
+      value: summary.blocked,
+      detail: summary.needsTriage ? `${summary.needsTriage} total triage signals` : "No immediate issues",
+      attention: summary.blocked > 0
+    }
+  ];
+  return (
+    <div className="operations-triage-strip" aria-label="Operations triage summary">
+      {cards.map((card) => (
+        <button
+          key={card.filter}
+          className={`${card.attention ? "needs-attention" : ""} ${activeFilter === card.filter ? "is-active" : ""}`}
+          onClick={() => onSelectFilter(card.filter)}
+        >
+          <span>{card.label}</span>
+          <strong>{card.value}</strong>
+          <small>{card.detail}</small>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WrikeIntakeReview({ snapshots }: { snapshots: CustomerWrikeOperationsSnapshot[] }) {
+  const latest = [...snapshots].sort(
+    (first, second) => Date.parse(second.snapshot.checked_at) - Date.parse(first.snapshot.checked_at)
+  );
+  const rows = latest.flatMap((entry) => {
+    const failures = new globalThis.Map(entry.snapshot.candidate_failures.map((failure) => [failure.task_id, failure]));
+    const candidateRows = entry.snapshot.pending_intake
+      .filter((candidate) => candidate.readiness_score >= 2 || failures.has(candidate.task_id))
+      .map((candidate) => ({ entry, candidate, failure: failures.get(candidate.task_id) ?? null }));
+    const candidateIds = new Set(candidateRows.map((row) => row.candidate.task_id));
+    const failureOnlyRows = entry.snapshot.candidate_failures
+      .filter((failure) => failure.task_id && !candidateIds.has(failure.task_id))
+      .map((failure) => ({ entry, candidate: null, failure }));
+    return [...candidateRows, ...failureOnlyRows];
+  });
+  return (
+    <div className="wrike-intake-review">
+      <div className="wrike-intake-review-heading">
+        <div>
+          <strong>Wrike intake review</strong>
+          <span>Latest durable discovery evidence. These are candidates, not Pathfinder jobs.</span>
+        </div>
+        <small>{latest[0] ? `Last checked ${displayTimestamp(latest[0].snapshot.checked_at)}` : "No discovery snapshot yet"}</small>
+      </div>
+      {rows.length ? (
+        <div className="wrike-intake-review-list">
+          {rows.map(({ entry, candidate, failure }) => (
+            <article key={`${entry.import_method_id}-${candidate?.task_id ?? failure?.task_id}`}>
+              <div>
+                <strong>{candidate?.contract_number ?? "Contract not found"}</strong>
+                <span>{candidate?.task_title ?? `Wrike task ${failure?.task_id}`}</span>
+                <small>{entry.customer_name} · {entry.import_method_name}</small>
+              </div>
+              <div>
+                <span className="mini-pill mini-pill-warning">Review intake</span>
+                <strong>
+                  {failure
+                    ? failure.stage === "submit"
+                      ? "The prepared order could not be submitted."
+                      : failure.stage === "writeback"
+                        ? "The order status could not be posted back to Wrike."
+                        : "Pathfinder could not finish preparing this Wrike order."
+                    : candidate?.reasons.map((reason) => reason.message).join(" · ")}
+                </strong>
+                <small>
+                  {failure
+                    ? `Review ${failure.reason_code.replaceAll("_", " ")} and the linked job history before taking action.`
+                    : "Complete the missing Wrike order signals, then run discovery again."}
+                </small>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="empty-state">No likely Wrike candidates currently need intake review.</p>
+      )}
+    </div>
+  );
+}
+
 function JobListControls({
   archiveFilter,
   intakeFilter,
@@ -2682,6 +2924,7 @@ function JobListControls({
   onStateFilterChange,
   onSortFieldChange,
   onSortDirectionChange,
+  onReset,
   onBulkAction
 }: {
   archiveFilter: JobArchiveFilter;
@@ -2695,6 +2938,7 @@ function JobListControls({
   onStateFilterChange: (filter: JobStateFilter) => void;
   onSortFieldChange: (field: JobSortField) => void;
   onSortDirectionChange: (direction: JobSortDirection) => void;
+  onReset: () => void;
   onBulkAction: () => void;
 }) {
   const restoring = archiveFilter === "Archived";
@@ -2721,6 +2965,7 @@ function JobListControls({
           <span>State</span>
           <select value={stateFilter} onChange={(event) => onStateFilterChange(event.target.value as JobStateFilter)}>
             <option value="Current Orders">Current orders</option>
+            <option value="Intake Review">Intake review</option>
             <option value="Needs Attention">Needs attention</option>
             <option value="Ready to Submit">Ready to submit</option>
             <option value="Confirmation Needed">Confirmation needed</option>
@@ -2731,8 +2976,8 @@ function JobListControls({
         <label>
           <span>Sort by</span>
           <select value={sortField} onChange={(event) => onSortFieldChange(event.target.value as JobSortField)}>
-            <option value="updated_at">Updated</option>
-            <option value="created_at">Created</option>
+            <option value="updated_at">Last activity</option>
+            <option value="created_at">Pathfinder intake</option>
             <option value="state">State</option>
           </select>
         </label>
@@ -2747,10 +2992,13 @@ function JobListControls({
           </select>
         </label>
       </div>
-      <button className="secondary-button" onClick={onBulkAction} disabled={!selectedCount}>
-        <Archive size={16} />
-        {restoring ? "Restore" : "Archive"} selected{selectedCount ? ` (${selectedCount})` : ""}
-      </button>
+      <div className="job-list-control-actions">
+        <button className="quiet-button" onClick={onReset}>Reset view</button>
+        <button className="secondary-button" onClick={onBulkAction} disabled={!selectedCount}>
+          <Archive size={16} />
+          {restoring ? "Restore" : "Archive"} selected{selectedCount ? ` (${selectedCount})` : ""}
+        </button>
+      </div>
     </div>
   );
 }
@@ -2792,8 +3040,8 @@ function JobListTable({
             <th>Intake</th>
             <th>Lift Order</th>
             <th>State</th>
-            <th>Created</th>
-            <th>Updated</th>
+            <th title="When Pathfinder first created the job record">Pathfinder Intake</th>
+            <th>Last Activity</th>
             <th className="job-row-action-heading">Action</th>
           </tr>
         </thead>
@@ -2859,6 +3107,118 @@ function JobListTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+function OrderLineComparison({
+  job,
+  snapshot,
+  loading,
+  onRefresh
+}: {
+  job: ProcessingJobPreview;
+  snapshot: PathfinderOrderSnapshot | null;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const sourceByLine = new globalThis.Map(job.canonical_order.lines.map((line) => [line.line_number, line]));
+  const resolutionByLine = new globalThis.Map(job.product_resolution_results.map((result) => [result.line_number, result]));
+  const preparedByLine = new globalThis.Map(job.lift_payload.lines.map((line) => [line.line_number, line]));
+  const liveByLine = new globalThis.Map((snapshot?.live_order?.lines ?? []).map((line) => [line.line_number, line]));
+  const lineNumbers = Array.from(
+    new Set([...sourceByLine.keys(), ...preparedByLine.keys(), ...liveByLine.keys()])
+  ).sort((first, second) => first - second);
+
+  return (
+    <details className="order-line-comparison">
+      <summary>
+        <span>
+          <ClipboardList size={16} />
+          Compare order lines
+        </span>
+        <small>Input → prepared payload → current Lift order</small>
+      </summary>
+      <div className="order-line-comparison-body">
+        <div className="order-line-comparison-intro">
+          <span>This read-only view aligns product and quantity by line number.</span>
+          {job.target_order_number ? (
+            <button className="secondary-button" onClick={onRefresh} disabled={loading}>
+              <RefreshCw size={15} className={loading ? "spin" : undefined} />
+              {loading ? "Checking Lift…" : snapshot ? "Refresh from Lift" : "Load current Lift order"}
+            </button>
+          ) : (
+            <small>Current Lift values appear after the order is confirmed.</small>
+          )}
+        </div>
+        <div className="job-list-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Line</th>
+                <th>Input order</th>
+                <th>Prepared for Lift</th>
+                <th>Current in Lift</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lineNumbers.map((lineNumber) => {
+                const source = sourceByLine.get(lineNumber);
+                const resolution = resolutionByLine.get(lineNumber);
+                const prepared = preparedByLine.get(lineNumber);
+                const live = liveByLine.get(lineNumber);
+                const sourceRow = job.parsed_order_rows.find(
+                  (row) => row.row_number === resolution?.source_row_number && row.sheet_name === resolution.source_sheet_name
+                );
+                const preparedIdentity = prepared?.unit_number || prepared?.product_id || prepared?.product_name || "Product unavailable";
+                const liveIdentity = live?.unit_number || live?.product_name || "Product unavailable";
+                const matches = Boolean(
+                  live && prepared &&
+                  Number(live.quantity) === Number(prepared.quantity) &&
+                  (live.unit_number
+                    ? live.unit_number === prepared.unit_number
+                    : live.product_name?.trim().toLowerCase() === prepared.product_name?.trim().toLowerCase())
+                );
+                const result = !snapshot?.live_order
+                  ? "Awaiting live check"
+                  : !prepared
+                    ? "Extra in Lift"
+                    : !live
+                      ? "Missing in Lift"
+                      : matches
+                        ? "Match"
+                        : "Changed";
+                return (
+                  <tr key={lineNumber}>
+                    <td>{lineNumber}</td>
+                    <td>
+                      <strong>{source?.product_name || source?.description || resolution?.display_label || source?.customer_sku || source?.unit_number || "Product unavailable"}</strong>
+                      <span className="cell-meta">Qty {source?.quantity ?? "—"}</span>
+                      {sourceRow?.quantity_resolution ? (
+                        <span className="cell-meta">{sourceRow.quantity_resolution.source_value} normalized to {sourceRow.quantity_resolution.resolved_quantity}</span>
+                      ) : null}
+                    </td>
+                    <td>
+                      <strong>{preparedIdentity}</strong>
+                      <span className="cell-meta">Qty {prepared?.quantity ?? "—"}</span>
+                    </td>
+                    <td>
+                      <strong>{live ? liveIdentity : "Not loaded"}</strong>
+                      <span className="cell-meta">Qty {live?.quantity ?? "—"}</span>
+                    </td>
+                    <td>
+                      <span className={`mini-pill ${result === "Match" ? "mini-pill-success" : result === "Awaiting live check" ? "mini-pill-neutral" : "mini-pill-warning"}`}>
+                        {result}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -4106,6 +4466,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [activeTargetsView, setActiveTargetsView] = useState<TargetDetailView>("Environments");
   const [activeOutputTemplateId, setActiveOutputTemplateId] = useState<string | null>(null);
   const [globalJobs, setGlobalJobs] = useState<ProcessingJobPreview[]>([]);
+  const [wrikeOperationsSnapshots, setWrikeOperationsSnapshots] = useState<CustomerWrikeOperationsSnapshot[]>([]);
   const [jobsLastRefreshedAt, setJobsLastRefreshedAt] = useState<string | null>(null);
   const [activeMethodId, setActiveMethodId] = useState("manual-xlsx");
   const [manualImportMethodId, setManualImportMethodId] = useState("manual-xlsx");
@@ -4246,11 +4607,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [wrikeWritebackOpen, setWrikeWritebackOpen] = useState(false);
   const [wrikeWritebackConfirmation, setWrikeWritebackConfirmation] = useState("");
   const [wrikeWritebackState, setWrikeWritebackState] = useState<"idle" | "posting" | "error">("idle");
-  const [jobArchiveFilter, setJobArchiveFilter] = useState<JobArchiveFilter>("Active");
-  const [jobIntakeFilter, setJobIntakeFilter] = useState<JobIntakeFilter>("All");
-  const [jobStateFilter, setJobStateFilter] = useState<JobStateFilter>("Current Orders");
-  const [jobSortField, setJobSortField] = useState<JobSortField>("updated_at");
-  const [jobSortDirection, setJobSortDirection] = useState<JobSortDirection>("desc");
+  const [globalJobView, setGlobalJobView] = useState<JobViewPreferences>(() =>
+    loadJobViewPreferences("pathfinder.jobs.view.global.v1")
+  );
+  const [customerJobView, setCustomerJobView] = useState<JobViewPreferences>(() =>
+    loadJobViewPreferences("pathfinder.jobs.view.customer.v1")
+  );
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [openProductMapTool, setOpenProductMapTool] = useState<"preload" | "unit-library" | null>(null);
 
@@ -4515,10 +4877,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         fetch(`${apiBaseUrl}/api/jobs`)
       ]);
       const targetsPayload = await readJsonResponse<{ targets: TargetConfig[] }>(targetsResponse);
-      const jobsPayload = await readJsonResponse<{ jobs: ProcessingJobPreview[] }>(jobsResponse);
+      const jobsPayload = await readJsonResponse<{
+        jobs: ProcessingJobPreview[];
+        wrike_operations_snapshots?: CustomerWrikeOperationsSnapshot[];
+      }>(jobsResponse);
       setTargets(targetsPayload.targets);
       setLocalDraftTargetIds([]);
       setGlobalJobs(jobsPayload.jobs);
+      setWrikeOperationsSnapshots(jobsPayload.wrike_operations_snapshots ?? []);
       setJobsLastRefreshedAt(new Date().toISOString());
       setTargetsAndJobsState("idle");
     } catch (error) {
@@ -4529,8 +4895,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   async function refreshVisibleJobs() {
     const response = await fetch(`${apiBaseUrl}/api/jobs`, { cache: "no-store" });
-    const payload = await readJsonResponse<{ jobs: ProcessingJobPreview[] }>(response);
+    const payload = await readJsonResponse<{
+      jobs: ProcessingJobPreview[];
+      wrike_operations_snapshots?: CustomerWrikeOperationsSnapshot[];
+    }>(response);
     setGlobalJobs(payload.jobs);
+    setWrikeOperationsSnapshots(payload.wrike_operations_snapshots ?? []);
     setWorkspace((current) =>
       current
         ? {
@@ -6028,8 +6398,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }, []);
 
   useEffect(() => {
+    window.localStorage.setItem("pathfinder.jobs.view.global.v1", JSON.stringify(globalJobView));
+  }, [globalJobView]);
+
+  useEffect(() => {
+    window.localStorage.setItem("pathfinder.jobs.view.customer.v1", JSON.stringify(customerJobView));
+  }, [customerJobView]);
+
+  useEffect(() => {
     setSelectedJobIds([]);
-  }, [activeGlobalView, activeCustomerView, selectedCustomerId, jobArchiveFilter, jobIntakeFilter]);
+  }, [activeGlobalView, activeCustomerView, selectedCustomerId, globalJobView, customerJobView]);
 
   useEffect(() => {
     const isJobViewActive =
@@ -6401,21 +6779,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     : workspace?.jobs ?? [];
   const customerJobs = sortAndFilterJobs(
     customerJobsUnfiltered,
-    jobArchiveFilter,
-    jobIntakeFilter,
-    jobStateFilter,
-    jobSortField,
-    jobSortDirection
+    customerJobView.archiveFilter,
+    customerJobView.intakeFilter,
+    customerJobView.stateFilter,
+    customerJobView.sortField,
+    customerJobView.sortDirection
   );
   const overviewJobs = customerJobsUnfiltered.filter((job) => !job.archived_at).slice(0, 5);
   const allJobsUnfiltered = globalJobs.length ? globalJobs : customerJobsUnfiltered;
   const allJobs = sortAndFilterJobs(
     allJobsUnfiltered,
-    jobArchiveFilter,
-    jobIntakeFilter,
-    jobStateFilter,
-    jobSortField,
-    jobSortDirection
+    globalJobView.archiveFilter,
+    globalJobView.intakeFilter,
+    globalJobView.stateFilter,
+    globalJobView.sortField,
+    globalJobView.sortDirection
+  );
+  const customerWrikeOperationsSnapshots = wrikeOperationsSnapshots.filter(
+    (entry) => entry.customer_id === selectedCustomer.lift_customer_id
   );
   const currentJobList = activeGlobalView === "Jobs" ? allJobs : customerJobs;
   const selectedJobs = currentJobList.filter((job) => selectedJobIds.includes(job.job_id));
@@ -6423,6 +6804,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     ? selectedJobAttempts
     : (workspace?.submit_attempts ?? []).filter((attempt) => attempt.job_id === selectedJobDetail?.job_id);
   const latestJobAttempt = visibleJobDetailAttempts[0] ?? null;
+  const latestJobAttemptReconciled = Boolean(
+    latestJobAttempt?.state === "Submission Uncertain" && selectedJobDetail?.target_order_number
+  );
   const canRetrySelectedJob =
     selectedJobDetail?.state === "Ready" || selectedJobDetail?.state === "Submit Failed";
   const canReevaluateSelectedJob = Boolean(
@@ -14900,21 +15284,30 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   Auto-refreshing while visible
                   {jobsLastRefreshedAt ? ` · Updated ${displayTimestamp(jobsLastRefreshedAt)}` : ""}
                 </div>
-                <JobListControls
-                  archiveFilter={jobArchiveFilter}
-                  intakeFilter={jobIntakeFilter}
-                  stateFilter={jobStateFilter}
-                  sortField={jobSortField}
-                  sortDirection={jobSortDirection}
-                  selectedCount={selectedJobs.length}
-                  onArchiveFilterChange={setJobArchiveFilter}
-                  onIntakeFilterChange={setJobIntakeFilter}
-                  onStateFilterChange={setJobStateFilter}
-                  onSortFieldChange={setJobSortField}
-                  onSortDirectionChange={setJobSortDirection}
-                  onBulkAction={() => requestJobsArchive(selectedJobs, jobArchiveFilter !== "Archived")}
+                <OperationsTriageStrip
+                  jobs={customerJobsUnfiltered.filter((job) => !job.archived_at)}
+                  snapshots={customerWrikeOperationsSnapshots}
+                  activeFilter={customerJobView.stateFilter}
+                  onSelectFilter={(stateFilter) => setCustomerJobView((current) => ({ ...current, stateFilter }))}
                 />
-                <JobListTable
+                <JobListControls
+                  archiveFilter={customerJobView.archiveFilter}
+                  intakeFilter={customerJobView.intakeFilter}
+                  stateFilter={customerJobView.stateFilter}
+                  sortField={customerJobView.sortField}
+                  sortDirection={customerJobView.sortDirection}
+                  selectedCount={selectedJobs.length}
+                  onArchiveFilterChange={(archiveFilter) => setCustomerJobView((current) => ({ ...current, archiveFilter }))}
+                  onIntakeFilterChange={(intakeFilter) => setCustomerJobView((current) => ({ ...current, intakeFilter }))}
+                  onStateFilterChange={(stateFilter) => setCustomerJobView((current) => ({ ...current, stateFilter }))}
+                  onSortFieldChange={(sortField) => setCustomerJobView((current) => ({ ...current, sortField }))}
+                  onSortDirectionChange={(sortDirection) => setCustomerJobView((current) => ({ ...current, sortDirection }))}
+                  onReset={() => setCustomerJobView(defaultJobViewPreferences)}
+                  onBulkAction={() => requestJobsArchive(selectedJobs, customerJobView.archiveFilter !== "Archived")}
+                />
+                {customerJobView.stateFilter === "Intake Review" ? (
+                  <WrikeIntakeReview snapshots={customerWrikeOperationsSnapshots} />
+                ) : <JobListTable
                   jobs={customerJobs}
                   selectedJobIds={selectedJobIds}
                   onToggleJob={(jobId, selected) =>
@@ -14931,8 +15324,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   }
                   onOpenJob={(job) => void openJobDetail(job)}
                   onArchiveJob={(job) => requestJobsArchive([job], !job.archived_at)}
-                />
-                {customerJobs.length === 0 ? <p className="empty-state">No persisted jobs for this customer yet.</p> : null}
+                />}
+                {customerJobView.stateFilter !== "Intake Review" && customerJobs.length === 0 ? <p className="empty-state">No persisted jobs for this customer yet.</p> : null}
               </section>
             ) : null}
 
@@ -16897,6 +17290,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               {jobsLastRefreshedAt ? ` · Updated ${displayTimestamp(jobsLastRefreshedAt)}` : ""}
             </div>
             <ProofOpsPanel apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} />
+            <OperationsTriageStrip
+              jobs={allJobsUnfiltered.filter((job) => !job.archived_at)}
+              snapshots={wrikeOperationsSnapshots}
+              activeFilter={globalJobView.stateFilter}
+              onSelectFilter={(stateFilter) => setGlobalJobView((current) => ({ ...current, stateFilter }))}
+            />
             <div className="internal-order-lookup">
               <div>
                 <p className="eyebrow">Staff Status Lookup</p>
@@ -17005,20 +17404,23 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             ) : null}
             <JobListControls
-              archiveFilter={jobArchiveFilter}
-              intakeFilter={jobIntakeFilter}
-              stateFilter={jobStateFilter}
-              sortField={jobSortField}
-              sortDirection={jobSortDirection}
+              archiveFilter={globalJobView.archiveFilter}
+              intakeFilter={globalJobView.intakeFilter}
+              stateFilter={globalJobView.stateFilter}
+              sortField={globalJobView.sortField}
+              sortDirection={globalJobView.sortDirection}
               selectedCount={selectedJobs.length}
-              onArchiveFilterChange={setJobArchiveFilter}
-              onIntakeFilterChange={setJobIntakeFilter}
-              onStateFilterChange={setJobStateFilter}
-              onSortFieldChange={setJobSortField}
-              onSortDirectionChange={setJobSortDirection}
-              onBulkAction={() => requestJobsArchive(selectedJobs, jobArchiveFilter !== "Archived")}
+              onArchiveFilterChange={(archiveFilter) => setGlobalJobView((current) => ({ ...current, archiveFilter }))}
+              onIntakeFilterChange={(intakeFilter) => setGlobalJobView((current) => ({ ...current, intakeFilter }))}
+              onStateFilterChange={(stateFilter) => setGlobalJobView((current) => ({ ...current, stateFilter }))}
+              onSortFieldChange={(sortField) => setGlobalJobView((current) => ({ ...current, sortField }))}
+              onSortDirectionChange={(sortDirection) => setGlobalJobView((current) => ({ ...current, sortDirection }))}
+              onReset={() => setGlobalJobView(defaultJobViewPreferences)}
+              onBulkAction={() => requestJobsArchive(selectedJobs, globalJobView.archiveFilter !== "Archived")}
             />
-            <JobListTable
+            {globalJobView.stateFilter === "Intake Review" ? (
+              <WrikeIntakeReview snapshots={wrikeOperationsSnapshots} />
+            ) : <JobListTable
               jobs={allJobs}
               includeCustomer
               selectedJobIds={selectedJobIds}
@@ -17036,8 +17438,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               }
               onOpenJob={(job) => void openJobDetail(job)}
               onArchiveJob={(job) => requestJobsArchive([job], !job.archived_at)}
-            />
-            {allJobs.length === 0 ? <p className="empty-state">No persisted jobs yet.</p> : null}
+            />}
+            {globalJobView.stateFilter !== "Intake Review" && allJobs.length === 0 ? <p className="empty-state">No persisted jobs yet.</p> : null}
           </section>
         ) : null}
 
@@ -17320,9 +17722,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       : "Refresh certification required"
                   }
                 />
-                <DetailItem label="Created" value={displayTimestamp(selectedJobDetail.created_at)} />
-                <DetailItem label="Updated" value={displayTimestamp(selectedJobDetail.updated_at)} />
+                <DetailItem label="Pathfinder intake" value={displayTimestamp(selectedJobDetail.created_at)} />
+                <DetailItem label="Last activity" value={displayTimestamp(selectedJobDetail.updated_at)} />
+                <DetailItem label="Order confirmed" value={selectedJobDetail.order_confirmed_at ? displayTimestamp(selectedJobDetail.order_confirmed_at) : "Not confirmed"} />
+                <DetailItem label="Lift created" value={orderSnapshotResult?.live_order?.creation_date ? displayTimestamp(orderSnapshotResult.live_order.creation_date) : "Load current Lift order"} />
               </dl>
+              <OrderLineComparison
+                job={selectedJobDetail}
+                snapshot={orderSnapshotResult}
+                loading={orderSnapshotState === "loading"}
+                onRefresh={() => void loadOrderSnapshot(selectedJobDetail)}
+              />
               {selectedJobDetail.target_order_lookup_url ? (
                 <a
                   className="detail-link"
@@ -17581,14 +17991,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <div className="latest-attempt-callout">
                   <div>
                     <span>Latest submit attempt</span>
-                    <strong>{latestJobAttempt.state}</strong>
-                    <em>{latestJobAttempt.response.message}</em>
+                    <strong>{latestJobAttemptReconciled ? "Order confirmed" : latestJobAttempt.state}</strong>
+                    <em>
+                      {latestJobAttemptReconciled
+                        ? `Pathfinder reconciled the earlier uncertain response to Lift order ${selectedJobDetail.target_order_number}.`
+                        : latestJobAttempt.response.message}
+                    </em>
                   </div>
                   {latestJobAttempt.response.error_translation ? (
                     <div>
-                      <span>{latestJobAttempt.response.error_translation.category}</span>
-                      <strong>{latestJobAttempt.response.error_translation.operator_message}</strong>
-                      <em>{latestJobAttempt.response.error_translation.suggested_action}</em>
+                      <span>{latestJobAttemptReconciled ? "Recovery complete" : latestJobAttempt.response.error_translation.category}</span>
+                      <strong>{latestJobAttemptReconciled ? "Lift confirmed the existing order." : latestJobAttempt.response.error_translation.operator_message}</strong>
+                      <em>{latestJobAttemptReconciled ? "No retry is required." : latestJobAttempt.response.error_translation.suggested_action}</em>
                     </div>
                   ) : null}
                 </div>
@@ -17625,8 +18039,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <td>{attempt.ext_id}</td>
                       <td>{attempt.company_id}</td>
                       <td>
-                        <strong>{attempt.response.error_translation?.operator_message ?? attempt.response.message}</strong>
-                        <span className="cell-meta">{attempt.response.error_translation?.source_message ?? attempt.response.status}</span>
+                        <strong>
+                          {attempt.state === "Submission Uncertain" && selectedJobDetail.target_order_number
+                            ? `Reconciled to Lift order ${selectedJobDetail.target_order_number}; no retry required.`
+                            : attempt.response.error_translation?.operator_message ?? attempt.response.message}
+                        </strong>
+                        <span className="cell-meta">
+                          {attempt.state === "Submission Uncertain" && selectedJobDetail.target_order_number
+                            ? "Historical timeout retained for audit"
+                            : attempt.response.error_translation?.source_message ?? attempt.response.status}
+                        </span>
                       </td>
                       <td>{displayTimestamp(attempt.updated_at)}</td>
                     </tr>
