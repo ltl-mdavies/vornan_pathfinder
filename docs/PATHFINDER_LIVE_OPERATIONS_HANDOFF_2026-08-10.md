@@ -301,6 +301,21 @@ Rollback is application-only: restore the immediately prior API artifact and Sta
 
 Known staged follow-up: cache expiry can still cause a browser-triggered parallel Lift fan-out. This slice makes that path safe, coalesced, observable, jittered, and backed off on core failure, but it does not move refreshes to a background worker or retain durable refresh history. Design the later stale-while-revalidate/background refresh around measured source latency, API Gateway's request budget, bounded per-order leases, adaptive scheduling, and the same independent last-good merge contract; do not simply raise the 15-second source timeout.
 
+### Repository-ready Jobs detail hierarchy — not deployed
+
+The `codex/pathfinder-job-detail-polish` repository slice reorganizes the existing Admin Jobs detail page without changing an API, store, job state, submit path, recovery guard, or external-system behavior. It is not production behavior until its Admin artifact is merged and deployed.
+
+The slice:
+
+- promotes Wrike Contract/campaign, Pathfinder job identity, Lift order identity, Pathfinder state, current Lift status, and post-confirmation source-change attention into the page header;
+- replaces the flat diagnostic summary with an operator-facing order overview and retains Pathfinder Intake, Last Activity, Order Confirmed, and live-only Lift Created timestamps;
+- keeps the line comparison full width, summarizes match coverage, and shows the resolved Lift product name/identifier rather than an internal line token where available;
+- collapses source-order history, current Lift production detail, submit attempts, certification, product resolution, and raw source/canonical/Lift payload evidence by default while preserving every existing datum and action;
+- distinguishes **Refresh Lift status**, **Open in Lift**, and **Job actions** so their scopes are explicit;
+- does not invoke discovery, Lift reads/writes, Wrike writes, publication, configuration saves, or production mutation during validation.
+
+This is an Admin-only presentation release. Deployment, when separately approved, should not require an API change or CloudFormation change. Rollback is the prior Admin `index.html` version plus CloudFront invalidation; do not restore or replace a production table and do not change the active Momentara Import Method.
+
 The discovery fingerprint still includes the route-wide mapped-product set. A mapping change can therefore invalidate more previews than the exact product dependency requires. The explicit recovery control updates one intended blocked job in place, but dependency-aware discovery invalidation remains hardening debt.
 
 Known hardening debt:

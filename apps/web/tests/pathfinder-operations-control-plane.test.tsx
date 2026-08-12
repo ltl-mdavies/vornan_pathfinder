@@ -90,3 +90,25 @@ test("Jobs shows durable Lift order-header status and the line comparison uses t
   assert.match(source, /job\.target_order_number \? "Not checked" : "Not in Lift"/);
   assert.match(styles, /\.order-line-comparison table \{[\s\S]*?width: 100%;[\s\S]*?table-layout: fixed;/);
 });
+
+test("Job detail prioritizes order identity, attention, and progressive disclosure", async () => {
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(source, /Wrike order · \{displayJobId\(selectedJobDetail\.job_id\)\}/);
+  assert.match(source, /\{selectedJobContractNumber\} · \{selectedJobCampaignName\}/);
+  assert.match(source, /aria-label="Order needs review"/);
+  assert.match(source, /Refresh Lift status/);
+  assert.match(source, /aria-label="Job actions"/);
+  assert.match(source, /Current Lift order/);
+  assert.match(source, /Technical evidence/);
+  assert.match(source, /Snapshot diagnostics/);
+  assert.doesNotMatch(source, /<details className="job-recovery-history" open>/);
+  assert.match(styles, /\.job-detail-primary-summary \{[\s\S]*?grid-template-columns: repeat\(4,/);
+  assert.match(styles, /\.job-detail-technical-evidence-body \{/);
+});
+
+test("Job line comparison summarizes matches and shows resolved Lift product identity", () => {
+  assert.match(source, /matchingLineCount/);
+  assert.match(source, /of \$\{lineNumbers\.length\} lines match/);
+  assert.match(source, /resolution\?\.product_name \|\| prepared\?\.product_name/);
+  assert.match(source, /Lift ID \{preparedIdentifier\}/);
+});
