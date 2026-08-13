@@ -329,6 +329,21 @@ Authenticated production smoke confirmed the Jobs triage summary and separate Li
 
 Rollback is Admin-only: restore `index.html` version `fc1EXjd9uKPqjuoVw8EWGMLo26FmdEDG` and invalidate CloudFront. Do not restore or replace a production table and do not change the active Momentara Import Method.
 
+### Repository-ready customer overview clarity — not deployed
+
+The `codex/pathfinder-customer-overview-clarity` slice is prepared from `origin/main` `d7dc62729814328ee00e421a48ccba50d60a9b24` and remains pre-merge/pre-deployment. It changes only the customer overview presentation and one additive `/api/jobs` runtime projection:
+
+- **Tracked Orders** counts active rows from the existing source-order projection, so retained technical siblings do not inflate the metric;
+- **Confirmed in Lift**, **Ready to Submit**, and **Needs Attention** replace the former line-count, validation-rate, workspace-state, and route-wide mapping cards;
+- the full-width Recent Jobs table labels **Pathfinder State** separately from **Lift Status**, and shows Lift order number/name, **Lift Created**, **Last Activity**, and route;
+- `target_order_created_at` comes only from `snapshot.live_order.creation_date` in the latest durable order-status snapshot. The Jobs list and customer overview do not issue a provider GET or other live Lift request;
+- missing durable creation evidence renders **Not checked** for a linked Lift order and **Not in Lift** before submission;
+- the non-data-backed success-rate sparkline is removed, overview provenance no longer says **Local**, and endpoint/auth/format/resolver detail moves behind **View target setup**.
+
+Safety boundaries: the slice does not alter Wrike discovery or qualification, scheduled intake, multi-proof ZIP selection/publication, Lift request construction or transport, uncertain-write recovery, Wrike writeback, status refresh, Proof behavior, capability gates, saved configuration, or production data. No AWS, Wrike, Lift, Proof, status-token, or production mutation was used for repository validation.
+
+Release sequence after explicit approval: merge the green PR, deploy API first, confirm the stack change set is code-only and all unrelated parameters/counts remain unchanged, then deploy Admin and invalidate CloudFront. Read-only acceptance should confirm unique overview counts, explicit table labels, durable Lift status/creation values, and the **Not checked** / **Not in Lift** fallbacks without clicking discovery, refresh, submit, archive, writeback, or configuration controls. Roll back application code only to the preceding API/Admin artifacts recorded above; never restore or replace a production table for this presentation slice.
+
 The discovery fingerprint still includes the route-wide mapped-product set. A mapping change can therefore invalidate more previews than the exact product dependency requires. The explicit recovery control updates one intended blocked job in place, but dependency-aware discovery invalidation remains hardening debt.
 
 Known hardening debt:

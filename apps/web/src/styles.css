@@ -2665,7 +2665,7 @@ h1 {
 }
 
 .overview-grid-two {
-  grid-template-columns: minmax(500px, 0.95fr) minmax(0, 1.05fr);
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .manual-flow-guide {
@@ -3245,7 +3245,7 @@ h1 {
 
 .metric-strip {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 13px;
 }
 
@@ -7998,6 +7998,42 @@ h1 {
   overflow-x: auto;
 }
 
+.customer-recent-jobs-table {
+  min-width: 1320px;
+}
+
+.customer-recent-jobs-table th:nth-child(1) {
+  width: 17%;
+}
+
+.customer-recent-jobs-table th:nth-child(2) {
+  width: 10%;
+}
+
+.customer-recent-jobs-table th:nth-child(3) {
+  width: 10%;
+}
+
+.customer-recent-jobs-table th:nth-child(4) {
+  width: 19%;
+}
+
+.customer-recent-jobs-table th:nth-child(5) {
+  width: 10%;
+}
+
+.customer-recent-jobs-table th:nth-child(6) {
+  width: 9%;
+}
+
+.customer-recent-jobs-table th:nth-child(7) {
+  width: 9%;
+}
+
+.customer-recent-jobs-table th:nth-child(8) {
+  width: 16%;
+}
+
 .jobs-live-status {
   display: flex;
   align-items: center;
@@ -8697,50 +8733,18 @@ td {
 }
 
 .jobs-summary-footer {
-  display: grid;
-  grid-template-columns: minmax(100px, 0.7fr) minmax(110px, 0.7fr) minmax(150px, 1fr);
-  gap: 18px;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 18px;
   padding: 18px 16px;
   background: rgba(243, 247, 241, 0.55);
-}
-
-.jobs-summary-footer span,
-.jobs-summary-footer strong {
-  display: block;
 }
 
 .jobs-summary-footer span {
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 700;
-}
-
-.jobs-summary-footer strong {
-  margin-top: 5px;
-  color: var(--text-primary);
-  font-family: "Plus Jakarta Sans", Inter, sans-serif;
-  font-size: 22px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.jobs-summary-footer div:nth-child(2) strong {
-  color: #0f6a35;
-}
-
-.jobs-summary-footer svg {
-  width: 100%;
-  height: 42px;
-  overflow: visible;
-}
-
-.jobs-summary-footer polyline {
-  fill: none;
-  stroke: #2f7d4c;
-  stroke-width: 2.25;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .pill {

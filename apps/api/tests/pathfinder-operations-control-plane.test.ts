@@ -48,7 +48,7 @@ test("Jobs reads durable Wrike operations evidence without adding a second disco
   assert.doesNotMatch(jobsRoute, /runConfiguredWrikeIntakeCore/);
 });
 
-test("Jobs projects cached Lift header status without issuing live Lift requests", () => {
+test("Jobs projects cached Lift header status and creation time without issuing live Lift requests", () => {
   const jobsRouteStart = source.indexOf('app.get("/api/jobs"');
   const jobsRouteEnd = source.indexOf('app.get("/api/customers/:liftCustomerId/jobs/:jobId"', jobsRouteStart);
   assert.ok(jobsRouteStart > 0 && jobsRouteEnd > jobsRouteStart);
@@ -56,6 +56,7 @@ test("Jobs projects cached Lift header status without issuing live Lift requests
   assert.match(jobsRoute, /sourceOrderJobProjectionWithStatus/);
   assert.match(source, /getPublicOrderStatusSnapshots/);
   assert.match(source, /target_order_status/);
+  assert.match(source, /target_order_created_at: snapshot\?\.live_order\?\.creation_date \?\? null/);
   assert.doesNotMatch(jobsRoute, /fetchLiftOrderLookup/);
   assert.doesNotMatch(jobsRoute, /buildInternalOrderSnapshotForJob/);
 });

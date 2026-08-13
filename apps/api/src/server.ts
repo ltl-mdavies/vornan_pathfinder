@@ -5280,7 +5280,8 @@ async function sourceOrderJobProjectionWithStatus(jobs: ProcessingJobPreview[]) 
       ...job,
       target_order_status: snapshot?.order_status ?? verified?.status ?? null,
       target_order_status_checked_at:
-        snapshot?.lookups.order?.fetched_at ?? snapshot?.refreshed_at ?? verified?.checked_at ?? null
+        snapshot?.lookups.order?.fetched_at ?? snapshot?.refreshed_at ?? verified?.checked_at ?? null,
+      target_order_created_at: snapshot?.live_order?.creation_date ?? null
     } satisfies ProcessingJobPreview;
   });
 }

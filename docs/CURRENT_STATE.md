@@ -27,6 +27,14 @@ Never infer a production capability from merged code alone. Record repository-re
 
 ## Current production posture
 
+### Repository-ready customer overview clarity — not deployed
+
+The `codex/pathfinder-customer-overview-clarity` repository slice is in review and is not part of the deployed baseline above. It replaces line-count and replay-distorted customer overview metrics with four operational counts computed from the current source-order Jobs projection: **Tracked Orders**, **Confirmed in Lift**, **Ready to Submit**, and **Needs Attention**. Historical Wrike siblings remain nested audit records and do not become additional tracked orders.
+
+The overview's Recent Jobs table is full width, explicitly separates Pathfinder state from Lift order status, and shows Lift order number/name, durable Lift creation time, last Pathfinder activity, and route. Lift creation time is projected only from the existing durable order-status snapshot; the overview performs no live Lift fan-out and displays **Not checked** or **Not in Lift** when the evidence is absent. The static success-rate chart and the misleading **Local** workspace KPI are removed, customer provenance is labeled **Lift directory** or **Saved Pathfinder record**, and transport/configuration detail moves behind **View target setup**.
+
+This slice is additive presentation/projection work only. It does not change discovery, qualification, multi-proof ZIP handling, publication, submit, uncertain-write recovery, Wrike writeback, Proof behavior, capability gates, saved configuration, or production data. A future release must deploy API before Admin so the optional `target_order_created_at` projection is available, then validate the customer overview read-only. Until that release is explicitly approved and reconciled, production remains at the deployed application baseline recorded above.
+
 ### Pathfinder / Momentara
 
 The production API stack is live. Scheduled Momentara intake is enabled every 15 minutes for customer `284619` and Import Method `method-1784901795973`, with up to 25 independent candidates per cycle. Scheduled Lift submission, status-comment writeback, workbook/reference-document publication through `go.vornan.co`, live Lift transport, and live-customer submission are enabled.

@@ -932,6 +932,7 @@ interface ProcessingJobPreview {
   target_order_lookup_url?: string | null;
   target_order_status?: NormalizedLiftOrder["status"] | null;
   target_order_status_checked_at?: string | null;
+  target_order_created_at?: string | null;
   order_confirmed_at?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   wrike_status_writebacks?: WrikeStatusWritebackRecord[];
@@ -6825,7 +6826,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     customerJobView.sortField,
     customerJobView.sortDirection
   );
-  const overviewJobs = customerJobsUnfiltered.filter((job) => !job.archived_at).slice(0, 5);
+  const activeCustomerJobs = customerJobsUnfiltered.filter((job) => !job.archived_at);
+  const overviewJobs = [...activeCustomerJobs]
+    .sort((first, second) => Date.parse(second.updated_at) - Date.parse(first.updated_at))
+    .slice(0, 5);
   const allJobsUnfiltered = globalJobs.length ? globalJobs : customerJobsUnfiltered;
   const allJobs = sortAndFilterJobs(
     allJobsUnfiltered,
@@ -6838,6 +6842,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const customerWrikeOperationsSnapshots = wrikeOperationsSnapshots.filter(
     (entry) => entry.customer_id === selectedCustomer.lift_customer_id
   );
+  const customerOperationsSummary = buildOperationsSummary(activeCustomerJobs, customerWrikeOperationsSnapshots);
+  const confirmedCustomerJobCount = activeCustomerJobs.filter(
+    (job) => jobOperationalState(job) === "Order Confirmed"
+  ).length;
+  const readyCustomerJobCount = activeCustomerJobs.filter(
+    (job) => jobOperationalState(job) === "Ready to Submit"
+  ).length;
+  const customerAttentionDetail = customerOperationsSummary.needsTriage
+    ? `${customerOperationsSummary.intakeReview} intake · ${customerOperationsSummary.confirmationNeeded} confirmation · ${customerOperationsSummary.blocked} blocked`
+    : "No immediate triage signals";
   const currentJobList = activeGlobalView === "Jobs" ? allJobs : customerJobs;
   const selectedJobs = currentJobList.filter((job) => selectedJobIds.includes(job.job_id));
   const visibleJobDetailAttempts = selectedJobAttempts.length
@@ -7840,7 +7854,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const mappedColumnCount = fieldMappingColumns.filter((column) =>
     Boolean(selectedDirectMappingTarget(mappings, column, effectiveProductScope?.scope_id))
   ).length;
-  const customerOrderCount = customerJobs.reduce((total, job) => total + jobOrderCount(job), 0);
   const readyJobCount = customerJobs.filter((job) => job.state === "Ready" || job.state === "Completed").length;
   const failedJobCount = customerJobs.filter((job) => isFailureState(job.state)).length;
   const validationRate = customerJobs.length ? Math.round((readyJobCount / customerJobs.length) * 1000) / 10 : 0;
@@ -10471,7 +10484,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <>
                 <section className="customer-overview">
                   <div className="panel customer-panel">
-                    <PanelHeader icon={Users} title="Customer Details" detail={customerDirectory.source === "lift-endpoint" ? "Lift endpoint" : "Local seed"} />
+                    <PanelHeader icon={Users} title="Customer Details" detail={customerDirectory.source === "lift-endpoint" ? "Lift directory" : "Saved Pathfinder record"} />
                     <dl className="customer-detail-grid">
                       <DetailItem label="Customer Name" value={selectedCustomer.customer_name} />
                       <DetailItem label="Status" value={selectedCustomer.customer_status} />
@@ -10500,7 +10513,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
 
                   <div className="panel target-summary-panel">
-                    <PanelHeader icon={Database} title="Primary Target" detail={primaryOutputRoute.name} />
+                    <div className="table-panel-header">
+                      <PanelHeader icon={Database} title="Primary Target" detail={primaryOutputRoute.name} />
+                      <button className="table-header-link" onClick={() => runHeaderAction("target")}>
+                        View target setup
+                        <ArrowGlyph />
+                      </button>
+                    </div>
                     <div className="primary-target-body">
                       <div className="target-identity">
                         <div className="target-logo">{targetLogoText(primaryRouteTarget)}</div>
@@ -10511,13 +10530,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <span className="target-env">{primaryRouteEnvironment?.name ?? "No environment"}</span>
                       </div>
                       <dl className="target-summary">
-                        <DetailItem label="Endpoint" value={primaryRouteEnvironment?.endpoint_url ?? submitRequest.endpoint_url} />
                         <DetailItem label="Company ID" value={primaryRouteCompanyId} />
-                        <DetailItem label="Auth" value={primaryRouteAuth} />
                         <DetailItem label="Destination" value={`${primaryOutputRoute.destination_account_name}${primaryOutputRoute.destination_account_id ? ` / ${primaryOutputRoute.destination_account_id}` : ""}`} />
-                        <DetailItem label="Format" value={`${primaryRouteTemplate?.destination_method ?? "HTTP POST"} · ${primaryRouteTemplate?.output_format ?? "JSON"}`} />
-                        <DetailItem label="Product Mapping Strategy" value={primaryOutputRoute.product_identifier_label} />
-                        <DetailItem label="Product Key Resolver" value={activeResolverSummary} />
                         <DetailItem
                           label="Route Readiness"
                           value={`${primaryRouteDiagnostics.status} · ${primaryRouteDiagnostics.blocking_count} blocking / ${primaryRouteDiagnostics.warning_count} warning`}
@@ -10529,11 +10543,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
                 <section className="metric-strip" aria-label="Customer KPIs">
                   {[
-                    { value: String(customerOrderCount), label: "Previewed Orders", trend: customerJobs.length ? "Persisted locally" : "No jobs yet", intent: "good", icon: FileText },
-                    { value: `${validationRate}%`, label: "Validation Pass Rate", trend: `Ready previews: ${readyJobCount}`, intent: "good", icon: Check },
-                    { value: String(readyJobCount), label: "Ready For Submit", trend: `${primaryRouteEnvironment?.name ?? "Selected"} submit gated`, intent: "good", icon: Send },
-                    { value: workspaceState === "loading" ? "Syncing" : "Local", label: "Workspace State", trend: workspace?.updated_at ? displayTimestamp(workspace.updated_at) : "Seeded defaults", intent: "good", icon: Clock3 },
-                    { value: String(unmappedProductCount), label: "Product Mapping Gaps", trend: unmappedProductCount ? `Needs ${activeOutputRoute.product_identifier_label}` : "No unresolved products", intent: unmappedProductCount ? "bad" : "good", icon: AlertTriangle }
+                    { value: String(activeCustomerJobs.length), label: "Tracked Orders", trend: "Unique current source orders", intent: "good", icon: FileText },
+                    { value: String(confirmedCustomerJobCount), label: "Confirmed in Lift", trend: `${customerOperationsSummary.confirmedSevenDays} in the last 7 days`, intent: "good", icon: Check },
+                    { value: String(readyCustomerJobCount), label: "Ready to Submit", trend: readyCustomerJobCount ? "Waiting for scheduled or operator submit" : "No orders waiting", intent: "good", icon: Send },
+                    { value: String(customerOperationsSummary.needsTriage), label: "Needs Attention", trend: customerAttentionDetail, intent: customerOperationsSummary.needsTriage ? "bad" : "good", icon: AlertTriangle }
                   ].map(({ value, label, trend, intent, icon: Icon }) => (
                     <div className="metric-card" key={label}>
                       <div className="metric-icon">
@@ -10622,14 +10635,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <ArrowGlyph />
                       </button>
                     </div>
-                    <table>
+                    <table className="customer-recent-jobs-table">
                       <thead>
                         <tr>
                           <th>Job</th>
                           <th>Method</th>
-                          <th>Status</th>
-                          <th>Orders</th>
-                          <th>Started</th>
+                          <th>Pathfinder State</th>
+                          <th>Lift Order</th>
+                          <th>Lift Status</th>
+                          <th>Lift Created</th>
+                          <th>Last Activity</th>
                           <th>Route</th>
                         </tr>
                       </thead>
@@ -10637,36 +10652,49 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     {overviewJobs.map((job) => (
                       <tr key={job.job_id}>
                         <td>
-                          <button className="link-button" onClick={() => void openJobDetail(job)}>
-                            {displayJobId(job.job_id)}
-                          </button>
+                          <span className="job-identity-cell">
+                            <button className="link-button" onClick={() => void openJobDetail(job)}>
+                              {displayJobId(job.job_id)}
+                            </button>
+                            <small>{jobContractNumber(job)}</small>
+                            <small title={jobCampaignName(job)}>{jobCampaignName(job)}</small>
+                          </span>
                         </td>
                         <td>{job.import_method_name}</td>
-                            <td>
-                              <StatePill state={job.state} />
-                            </td>
-                            <td>{jobOrderCount(job)}</td>
-                            <td>{displayTimestamp(job.created_at)}</td>
-                            <td>{job.output_route_name ?? activeOutputRoute.name}</td>
-                          </tr>
-                        ))}
+                        <td><StatePill state={job.state} /></td>
+                        <td>
+                          <span className="job-identity-cell">
+                            <strong>{job.target_order_number ?? "Not in Lift"}</strong>
+                            <small>{job.target_order_number ? job.lift_payload.order.order_title || "Order name not available" : "Awaiting submission"}</small>
+                          </span>
+                        </td>
+                        <td>
+                          {job.target_order_status ? (
+                            <span className="mini-pill mini-pill-neutral job-order-status">{job.target_order_status.label}</span>
+                          ) : (
+                            <span className="cell-meta">{job.target_order_number ? "Not checked" : "Not in Lift"}</span>
+                          )}
+                        </td>
+                        <td>{job.target_order_created_at ? displayTimestamp(job.target_order_created_at) : job.target_order_number ? "Not checked" : "Not in Lift"}</td>
+                        <td>{displayTimestamp(job.updated_at)}</td>
+                        <td>{job.output_route_name ?? activeOutputRoute.name}</td>
+                      </tr>
+                    ))}
                       </tbody>
                     </table>
                     {overviewJobs.length === 0 ? <p className="empty-state">No persisted preview jobs yet.</p> : null}
                     <div className="jobs-summary-footer">
-                      <div>
-                        <span>Total Jobs</span>
-                        <strong>{customerJobs.length}</strong>
-                      </div>
-                      <div>
-                        <span>Success Rate</span>
-                        <strong>{validationRate}%</strong>
-                      </div>
-                      <svg viewBox="0 0 180 36" role="img" aria-label="Success trend">
-                        <polyline
-                          points="0,24 12,23 24,24 36,22 48,23 60,21 72,22 84,20 96,18 108,20 120,15 132,12 144,14 156,10 168,12 180,8"
-                        />
-                      </svg>
+                      <span>Showing {overviewJobs.length} most recent of {activeCustomerJobs.length} tracked orders.</span>
+                      <button
+                        className="table-header-link"
+                        onClick={() => {
+                          setActiveGlobalView("Customers");
+                          setActiveCustomerView("Jobs");
+                        }}
+                      >
+                        View all jobs
+                        <ArrowGlyph />
+                      </button>
                     </div>
                   </div>
                 </section>
