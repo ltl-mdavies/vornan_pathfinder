@@ -4,7 +4,7 @@ This is the entry point for all new Pathfinder, Vornan Proof, and live-support t
 
 Last reconciled: **2026-08-13**
 
-Deployed application baseline: `origin/main` application commit `e9f2f5397841241db71a164f002f609044f43293`
+Deployed application baseline: `origin/main` application commit `9f78d2d4b122984c53bc3b96506588996768f5d0`
 
 Live evidence: read-only AWS inspection, authenticated Admin smoke, and natural scheduled-intake continuity through 2026-08-13 in account `744016783602`, region `us-east-1`
 
@@ -27,9 +27,19 @@ Never infer a production capability from merged code alone. Record repository-re
 
 ## Current production posture
 
-### Approved combined Proof and source-review release in development
+### Deployed combined source-review and default-dark Proof release
 
-The next coordinated release is being prepared from current main. Its Pathfinder slice adds stable Lift-impact classification for post-transport Wrike replays and exact, audited internal review disposition; it does not add an order-update/retry path and does not auto-clear the six retained legacy warning events. Its Proof slices keep customer actions default-dark while making saved customer setup authoritative only after verified customer identity and live policy revalidation are complete. The planned production order is shared API first, dedicated Proof default-dark second, then Admin and any changed Proof SPA, followed by a natural scheduler cycle and read-only continuity reconciliation. This paragraph is repository status, not evidence that any new capability is deployed or activated.
+PRs #197, #199, #198, #200, #201, and #202 are merged and deployed together from final application commit `9f78d2d4b122984c53bc3b96506588996768f5d0`. Merged-main validation `31740363776` / job `94581986809` passed the full repository, browser, deployment-contract, readiness, and packaging matrix. The Pathfinder slice adds stable Lift-impact classification for post-transport Wrike replays and exact, append-only operator dispositions. It does not add a Lift order-update/retry path, and it does not auto-clear retained review history. The Admin now presents precise review language, immutable source/Lift identities, and explicit **No Lift update needed** / **Mark reviewed** controls; invoking either control remains a separately authorized production mutation.
+
+The first API rollout exposed a legacy-event idempotency defect: one natural scheduler cycle appended five duplicate review records because the new event ID included classifier metadata that was absent from the retained legacy records. No job/order/attempt/token/snapshot count, publication, Lift call, or Wrike write changed. The API was immediately rolled back; Proof and Admin were not deployed. PR #201 then made the immutable source-version tuple (`source_evidence_id`, Import Method fingerprint, and sorted reference-proof evidence IDs) the dedupe boundary, and PR #202 corrected telemetry so a reused event no longer increments `MaterialReviewOpened`. The five append-only incident records are intentionally retained; no deletion, backfill, acknowledgement, or table rollback occurred.
+
+The final API artifact is `api/pathfinder-api-lambda-9f78d2d4b122984c53bc3b96506588996768f5d0.zip`, S3 version `LCM76VW6gcgaIUxbP2oetVAzp6X_vP4Q`, ETag `50fa0085bad6395f9b02fcf6e445c007`, Lambda SHA-256 `RtaQjn4+JzcDnH19wLZJUxDVK0wyqfa7fypv15tgqGM=`, and revision `d1456842-0ea4-4021-9f1f-caf6e56218ff`. Natural cycle `41b53866-86b6-4fe0-ba4c-938aa2254b47` replayed all six qualified candidates with zero preparations, Lift submissions, Wrike writes, or failures. Strongly consistent histories were unchanged; all six reused assessments emitted `review_event_opened=false`, `MaterialReviewOpened=0`, and `ReviewEventReused=1`.
+
+The dedicated Proof runtime and SPA are deployed default-dark from the same commit. The Lambda artifact is `proof/dev/vornan-proof-lambdas-9f78d2d4b122984c53bc3b96506588996768f5d0.zip`, S3 version `3mP27wYjTHhnzgYnJm6.tOp0v.UTEn.o`, ETag `5c8c474a0a2f73f2a805bc79a39219af`, with public/operator/sync Lambda SHA-256 `B8klnTEe7HoNYEW1o7jF1w8iYkh5vSnlutVSYcXT0G0=`. The isolated public runtime now has exact-table `GetItem` access to `Pathfinder-CustomerWorkspaces-prod` and revalidates bound policy/identity on every sensitive request. Proof SPA `index.html` is version `03EBjq4DDFwqGnJvTNGMt1gZ7aarlath`, ETag `e7e1aa16c99cd940a543d2253dbc1548`, invalidation `IEDO6513H0SVOONZ84QB7H38VV`. Protected public read remains limited to customer `1249` through `2026-08-25T23:59:59Z`; approval, revision, grant creation, LTL Demo, upload, scan, publication, operator action, and Lift gates remain false.
+
+Admin deployment workflow `31741587264` / job `94586034820` succeeded on exact final main. Admin `index.html` is version `N7Y8HLWV9ujMV66EPHeWCMI_CVInnnMR`, ETag `f691cb261c8d68aecdeb5b357badb7b6`, invalidation `I58MLKSAN2XDPDN5YK4KNYDCXE`. Authenticated read-only smoke verified the Jobs review presentation and customer Proof identity/settings UI without invoking discovery, provider refresh, disposition, identity verification, save, grant, or any other mutation.
+
+Protected counts remain Customers 1, CustomerWorkspaces 1, Targets 2, ImportMethods 2, OutputRoutes 1, ProductMappings 278, Jobs 56, OrderIds 59, SubmitAttempts 19, LiftProductCache 337, OrderStatusTokens 20, OrderStatusSnapshots 12, CanonicalRegistry 1, ProofCore-dev 142, and ProofAudit-dev 147. The first natural cycle after every release surface was live, correlation `4a3da847-8918-4304-9d68-1c4d8fdf0a88`, checked `2026-08-13T20:42:53.229Z` and completed `20:43:10.076Z`; it replayed all six candidates with zero preparation, Lift submission, Wrike write, or failure, and the counts and all six source-review history sets remained unchanged. Proof access remains 16 retained grants, 0 active grants, and 0 sessions; all queues are empty; all four Pathfinder and ten Proof alarms are `OK`. Scheduled discovery/submit/writeback, live Lift transport/customer submit, `go.vornan.co`, GPA and IBA roots, multi-proof ZIP, scoped `TBD` → `0.5`, and `MM/DD/YYYY` remain unchanged.
 
 ### Deployed customer overview clarity release
 

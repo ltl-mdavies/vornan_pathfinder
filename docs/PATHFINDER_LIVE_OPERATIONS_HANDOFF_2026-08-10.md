@@ -26,6 +26,30 @@ Read-only AWS inspection after the 2026-08-11 operations release confirmed:
 
 The saved production Wrike Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). Its `Order Form` hardware section (`order-form-hardware-13`, quantity column `Qty. Needed`) stores the scoped text-quantity rule `TBD` → `0.5`.
 
+### 2026-08-13 combined source-review and Proof foundation release record
+
+Final deployed application commit: `9f78d2d4b122984c53bc3b96506588996768f5d0`. The release includes PRs #197, #199, #198, #200, #201, and #202. Merged-main validation `31740363776` / job `94581986809` succeeded.
+
+Pathfinder adds a versioned stable Lift-impact assessment for post-transport Wrike replays, preserves the duplicate-order/no-retry boundary, and allows an authenticated operator to append an event-specific **No Lift update needed** or **Mark reviewed** disposition. A disposition changes only the exact Jobs record and audit history; it never calls Lift or Wrike, publishes a file, invokes discovery, or creates another order identity. Material or unverified impact still stops before publication, Lift transport, and Wrike writeback. Legacy events without sufficient component evidence use precise **unable to verify source impact** language rather than claiming a customer edit.
+
+The first rollout from `4a5c617a761261c4e9c0808f27e712479a83508d` revealed that five retained legacy events could receive a second event ID when classifier metadata was added. One natural cycle appended five history records but changed no protected item count and produced zero Lift/Wrike/publication effects. The API was immediately restored to the prior artifact; Proof and Admin were not deployed. The five append-only records were preserved. PR #201 deduplicates review/no-impact events using the immutable source-version tuple of workbook evidence ID, Import Method fingerprint, and sorted reference-proof evidence IDs. PR #202 makes telemetry count only an actual append and emits `ReviewEventReused` for the retained event. Never delete, rewrite, batch-disposition, or backfill the incident records as part of application rollback.
+
+Final API identity:
+
+- artifact `api/pathfinder-api-lambda-9f78d2d4b122984c53bc3b96506588996768f5d0.zip`;
+- S3 version `LCM76VW6gcgaIUxbP2oetVAzp6X_vP4Q`, ETag `50fa0085bad6395f9b02fcf6e445c007`;
+- package SHA-256 `46d6908e7e3e2737039c7d7dc0b6495310d52b4c32a9f6bb7f2a6fd79b60a863`;
+- Lambda SHA-256 `RtaQjn4+JzcDnH19wLZJUxDVK0wyqfa7fypv15tgqGM=`, revision `d1456842-0ea4-4021-9f1f-caf6e56218ff`;
+- stack `UPDATE_COMPLETE`, API health HTTP 200, and no scan-worker event-source mapping.
+
+The inspected/executed change set changed only `LambdaCodeS3Key`, Lambda code, and dependent API/EventBridge bindings. It changed or replaced no data resource. Natural cycle `41b53866-86b6-4fe0-ba4c-938aa2254b47`, checked `2026-08-13T20:27:53.116Z` and completed `20:28:10.250Z`, replayed six of six candidates with zero preparations, Lift submissions, Wrike writes, failures, or candidate failures. Strongly consistent histories added no event. Each reused assessment emitted `review_event_opened=false`, `MaterialReviewOpened=0`, `ReviewEventReused=1`, `lift_actions=false`, and `wrike_writes=false`.
+
+Admin workflow `31741587264` / job `94586034820` succeeded on exact final main. `index.html` version is `N7Y8HLWV9ujMV66EPHeWCMI_CVInnnMR`, ETag `f691cb261c8d68aecdeb5b357badb7b6`; invalidation `I58MLKSAN2XDPDN5YK4KNYDCXE` completed. Authenticated read-only smoke confirmed exact Wrike/Lift identity, the source-review banner and controls, operational timestamps, and customer Proof setup. No disposition, save, discovery, refresh, archive, or provider action was invoked.
+
+Final protected counts are Customers 1, CustomerWorkspaces 1, Targets 2, ImportMethods 2, OutputRoutes 1, ProductMappings 278, Jobs 56, OrderIds 59, SubmitAttempts 19, LiftProductCache 337, OrderStatusTokens 20, OrderStatusSnapshots 12, CanonicalRegistry 1, ProofCore-dev 142, and ProofAudit-dev 147. The first natural scheduler cycle after API, dedicated Proof runtime/SPA, and Admin were all live, correlation `4a3da847-8918-4304-9d68-1c4d8fdf0a88`, checked `2026-08-13T20:42:53.229Z` and completed `20:43:10.076Z`; it replayed six of six candidates with zero preparations, Lift submissions, Wrike writes, failures, or count/history changes. All four Pathfinder and ten Proof alarms are `OK`; all scan/sync queues and DLQs are empty; 16 Proof grants are retained, none active, and there are no sessions.
+
+Application rollback is one service at a time and never a table restore. The pre-release API boundary is `api/pathfinder-api-lambda-e9f2f5397841241db71a164f002f609044f43293.zip`, S3 version `lzQPU7WzSsN.2vvMFNtvdsodHmY3i5kF`, Lambda SHA-256 `I1sfMSba40nBWJmh5lMfmilLjuKS8mjQcRcRTWJ/GeM=`. The pre-release Admin boundary is `index.html` version `Wk33oxh_Xoi6oj.N67z29m_3S8vYI8jd`. Preserve every live parameter and all append-only history when restoring an artifact.
+
 ### 2026-08-11 operations release record
 
 - merged repository commit: `677005c5bf8910a931eeadfa878ba6f80204b97c` (PR #178);
