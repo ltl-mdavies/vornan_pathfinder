@@ -37,6 +37,50 @@ function queueDepth(attributes = {}) {
   ].reduce((total, name) => total + (Number(attributes[name]) || 0), 0);
 }
 
+function values(value, pattern) {
+  return [...new Set((value ?? "")
+    .split(",")
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => pattern.test(candidate)))];
+}
+
+function proofWindowMode(parameters) {
+  const publicReadEnabled = parameters.PublicReadEnabled === "true";
+  const operatorGrantCreationEnabled = parameters.OperatorGrantCreationEnabled === "true";
+  const productionPublicReadApproved = parameters.ProductionPublicReadApproved === "true";
+  const ltlDemoQaEnabled = parameters.LtlDemoQaEnabled === "true";
+  const noCustomDomain = !parameters.ProofDomainName && !parameters.CertificateArn;
+  const canonicalProtectedDomain =
+    parameters.ProofDomainName === "proof.vornan.co" && Boolean(parameters.CertificateArn);
+
+  if (
+    ltlDemoQaEnabled &&
+    !publicReadEnabled &&
+    !operatorGrantCreationEnabled &&
+    !productionPublicReadApproved &&
+    (noCustomDomain || canonicalProtectedDomain)
+  ) {
+    return "ltl_demo_qa";
+  }
+  if (
+    publicReadEnabled &&
+    operatorGrantCreationEnabled &&
+    !productionPublicReadApproved &&
+    noCustomDomain
+  ) {
+    return "isolated_operator_window";
+  }
+  if (
+    publicReadEnabled &&
+    !operatorGrantCreationEnabled &&
+    productionPublicReadApproved &&
+    canonicalProtectedDomain
+  ) {
+    return "protected_public_read";
+  }
+  return "unrecognized";
+}
+
 function parseStoredData(item) {
   const value = item?.data?.S;
   if (!value) return null;
@@ -95,11 +139,16 @@ export function evaluateProofReadOnlyWindowStatus(input = {}, now = new Date()) 
   const stack = input.stack ?? {};
   const parameters = entries(stack.Parameters, "ParameterKey", "ParameterValue");
   const outputs = entries(stack.Outputs, "OutputKey", "OutputValue");
-  const expiry = parameters.ReadOnlyActivationExpiresAt ?? "";
+  const windowMode = proofWindowMode(parameters);
+  const ltlDemoQaActive = windowMode === "ltl_demo_qa";
+  const expiry = ltlDemoQaActive
+    ? parameters.LtlDemoQaExpiresAt ?? ""
+    : parameters.ReadOnlyActivationExpiresAt ?? "";
   const expiryMs = Date.parse(expiry);
-  const cohort = (parameters.GrantAllowedCustomerIds ?? "")
-    .split(",")
-    .filter((value) => /^\d{1,20}$/.test(value));
+  const cohort = ltlDemoQaActive
+    ? ["1249"]
+    : values(parameters.GrantAllowedCustomerIds, /^\d{1,20}$/);
+  const allowedOrders = values(parameters.LtlDemoQaAllowedOrders, /^A\d{7,8}$/);
   const expectedAlarmNames = EXPECTED_ALARM_SUFFIXES.map(
     (suffix) => `vornan-proof-dev-${suffix}`
   );
@@ -119,14 +168,27 @@ export function evaluateProofReadOnlyWindowStatus(input = {}, now = new Date()) 
     environment_is_dev: parameters.EnvironmentName === "dev",
     lift_environment_is_dev: parameters.LiftReadEnvironment === "dev",
     production_reads_acknowledged: parameters.ProductionLiftReadsAcknowledged === "true",
-    public_read_window_enabled: parameters.PublicReadEnabled === "true",
+    recognized_window_mode: windowMode !== "unrecognized",
+    public_read_window_enabled:
+      parameters.PublicReadEnabled === "true" || ltlDemoQaActive,
     read_only_qa_recorded: parameters.ReadOnlyQaConfirmed === "true",
-    operator_window_enabled: parameters.OperatorGrantCreationEnabled === "true",
+    operator_boundary_valid:
+      windowMode === "isolated_operator_window"
+        ? parameters.OperatorGrantCreationEnabled === "true"
+        : parameters.OperatorGrantCreationEnabled === "false",
     activation_deadline_active: Number.isFinite(expiryMs) && expiryMs > now.getTime(),
     approved_cohort_configured: cohort.length > 0,
-    production_public_read_unapproved: parameters.ProductionPublicReadApproved === "false",
+    ltl_demo_order_allowlist_configured: !ltlDemoQaActive || allowedOrders.length > 0,
+    production_public_read_boundary_valid:
+      windowMode === "protected_public_read"
+        ? parameters.ProductionPublicReadApproved === "true"
+        : parameters.ProductionPublicReadApproved === "false",
     synthetic_worker_disabled: parameters.SyntheticQaEnabled === "false",
-    custom_domain_absent: !parameters.ProofDomainName && !parameters.CertificateArn,
+    domain_boundary_valid:
+      windowMode === "protected_public_read"
+        ? parameters.ProofDomainName === "proof.vornan.co" && Boolean(parameters.CertificateArn)
+        : (!parameters.ProofDomainName && !parameters.CertificateArn) ||
+          (ltlDemoQaActive && parameters.ProofDomainName === "proof.vornan.co" && Boolean(parameters.CertificateArn)),
     waf_configured: parameters.ManagedWebAclEnabled === "true" || Boolean(parameters.ProofWebAclArn),
     required_outputs_available: Object.values(outputGates).every(Boolean),
     all_expected_alarms_present: missingAlarms.length === 0,
@@ -142,13 +204,15 @@ export function evaluateProofReadOnlyWindowStatus(input = {}, now = new Date()) 
     "environment_is_dev",
     "lift_environment_is_dev",
     "production_reads_acknowledged",
+    "recognized_window_mode",
     "public_read_window_enabled",
     "read_only_qa_recorded",
-    "operator_window_enabled",
+    "operator_boundary_valid",
     "approved_cohort_configured",
-    "production_public_read_unapproved",
+    "ltl_demo_order_allowlist_configured",
+    "production_public_read_boundary_valid",
     "synthetic_worker_disabled",
-    "custom_domain_absent",
+    "domain_boundary_valid",
     "waf_configured",
     "required_outputs_available"
   ];
@@ -177,8 +241,20 @@ export function evaluateProofReadOnlyWindowStatus(input = {}, now = new Date()) 
   return {
     status,
     checked_at: now.toISOString(),
+    window_mode: windowMode,
     activation_expires_at: Number.isFinite(expiryMs) ? new Date(expiryMs).toISOString() : null,
     cohort_size: cohort.length,
+    allowed_order_count: allowedOrders.length,
+    capabilities: {
+      public_read: parameters.PublicReadEnabled === "true" || ltlDemoQaActive,
+      operator_grant_creation: parameters.OperatorGrantCreationEnabled === "true",
+      customer_approval:
+        parameters.CustomerApprovalEnabled === "true" || ltlDemoQaActive,
+      customer_revision_upload:
+        parameters.CustomerRevisionUploadEnabled === "true" || ltlDemoQaActive,
+      private_asset_upload:
+        parameters.ProofAssetUploadEnabled === "true" || ltlDemoQaActive
+    },
     counts: {
       alarms_expected: expectedAlarmNames.length,
       alarms_missing: missingAlarms.length,

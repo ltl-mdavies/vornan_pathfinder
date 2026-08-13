@@ -67,6 +67,44 @@ The reconciled profile is fixed to customer `1249`, requires explicitly allowlis
 
 The exact configuration, activation, shutdown, and diagnostic contract is in `docs/VORNAN_PROOF_LTL_DEMO_QA_PROFILE.md`.
 
+## Setup-based customer enablement requirement
+
+Customer onboarding must not require a new application artifact, CloudFormation
+deployment, or per-customer environment variable. Pathfinder already persists an
+authenticated, audited customer Proof policy with these operator-facing choices:
+
+- `Proof off`, `View only`, or `Review enabled`;
+- `Simple` or `Advanced` review when review is enabled; and
+- an exact Lift-order override when one order needs different behavior.
+
+That policy is the required long-term customer control plane. The remaining work
+is to make it authoritative at every grant, session, public DTO, approval, and
+operator-action boundary. Today the platform-wide deployment flags still decide
+whether those runtime capabilities exist, and the public approval runtime does
+not yet enforce the saved customer profile as its primary authorization source.
+Do not describe the Admin setting as live customer enablement until that
+integration has passed end-to-end QA.
+
+The intended operating model is:
+
+1. deploy each Proof platform capability once behind an emergency global kill
+   switch;
+2. onboard or disable a customer through their saved Pathfinder Proof settings;
+3. resolve the exact customer and optional order override from durable order
+   association on every sensitive request;
+4. fail closed for missing, ambiguous, stale, disabled, or unsupported policy;
+5. record actor, previous/next policy, profile version, order scope, and time in
+   durable audit without changing Import Methods, mappings, Jobs, submit attempts,
+   order IDs, or Wrike/Lift scheduler state; and
+6. persist a setting change through a narrow conditional write to the exact
+   customer policy/workspace version, never through a broad whole-store rewrite;
+   and
+7. make disablement stop new grants and decisions immediately, with an explicit
+   revoke/end-session workflow for existing access.
+
+Infrastructure gates remain platform emergency controls. They must not become
+the normal per-customer onboarding mechanism.
+
 ## Revised-art completion in merged main
 
 The same branch adds repository-side, default-dark completion beyond private finalization:
@@ -84,13 +122,14 @@ No upload, scan, publication, `/a/*` delivery, credential read, Lift call, deplo
 
 ## Remaining checkpoints after protected-read renewal
 
-1. Diagnose Pathfinder task `MAAAAAEN2Ujj`'s `attachment_validation_failed` leaf cause under a separately approved read boundary; do not recover or resubmit it from this Proof task.
-2. Decide whether and when to republish the current Proof SPA as a separate versioned release; the protected-read renewal deliberately retained the previous SPA.
-3. Activate the LTL Demo profile separately for one exact allowlist/expiry and test valid review sessions/current proofs.
-4. Activate upload separately and finalize one bounded file.
-5. Activate the exact-object scan worker and require `NO_THREATS_FOUND`; stop on every other result.
-6. Activate `/a/*` delivery and publication separately, publish one cleared version, and record direct HTTP `200`, content type, length, checksum, version, and settle barrier evidence.
-7. Activate operator action QA last, prepare and confirm exactly one `REVISED_ART_WILL_BE_SENT`, then reconcile authoritatively with zero retry and close all temporary gates.
+1. Merge the corrected bounded-window monitor and confirm it reports the current protected public-read posture without granting mutation authority.
+2. Make the saved customer Proof policy authoritative for grants, sessions, public review profile, decisions, and operator actions; customer onboarding after platform launch must not require deployment.
+3. Activate one exact order override for the approved Momentara/LTL Demo pilot and verify that unrelated customer settings, orders, and Pathfinder runtime records are unchanged.
+4. Activate the LTL Demo profile separately for one exact allowlist/expiry and test valid review sessions/current proofs.
+5. Activate upload separately and finalize one bounded file.
+6. Activate the exact-object scan worker and require `NO_THREATS_FOUND`; stop on every other result.
+7. Activate `/a/*` delivery and publication separately, publish one cleared version, and record direct HTTP `200`, content type, length, checksum, version, and settle barrier evidence.
+8. Activate operator action QA last, prepare and confirm exactly one `REVISED_ART_WILL_BE_SENT`, then reconcile authoritatively with zero retry and close all temporary gates.
 
 ## Recommended QA sequence
 
