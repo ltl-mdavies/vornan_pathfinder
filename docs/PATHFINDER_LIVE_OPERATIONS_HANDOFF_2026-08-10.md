@@ -40,9 +40,9 @@ The API stack returned to `UPDATE_COMPLETE`, health returned HTTP 200, and all t
 
 The API errors, throttles, scheduled-candidate-failure, and scheduled-invocation alarms were all `OK` at reconciliation time. Alarm state is evidence at a moment in time, not a perpetual health guarantee.
 
-### Repository-ready operational timestamp correction — not deployed
+### 2026-08-13 operational timestamp correction release record
 
-The approved repository slice on `codex/pathfinder-operational-timestamps` is pre-merge and pre-deployment. It changes no production record, gate, schedule, configuration, route, or external service. The production diagnosis was read-only:
+PR #195 merged and deployed as application commit `e9f2f5397841241db71a164f002f609044f43293`. It changed no production record, gate, schedule, configuration, route, or external service. The production diagnosis was read-only:
 
 - Lift order `A0228506` had durable `creation_date: "2026-08-13"`, a date without a time or timezone;
 - Pathfinder recorded job creation at `2026-08-13T14:28:10.258Z` and exact order confirmation at `2026-08-13T14:28:17.997Z`, matching Lift's 10:28 AM Eastern audit;
@@ -53,16 +53,24 @@ The repository fix adds read-only projection fields for Lift-creation value, pre
 
 The Admin presents **Pathfinder Intake**, **Lift Created**, and **Last Activity** on both Jobs lists. Recent Jobs ranks immediate triage first, then confirmed orders by Lift creation; a compact Pending Intake notice links durable pre-job Wrike issues to Intake Review. Existing saved `updated_at` sort preferences migrate to the projected Last Activity sort. No persisted schema migration or backfill is required.
 
-Release sequence, once separately approved:
+Release identifiers and reconciliation:
 
-1. merge only after focused API/web tests and full check/test/build are green;
-2. deploy API first while preserving every unrelated stack parameter;
-3. verify API health, protected counts, schedule/gates, and the projected timestamp contract;
-4. deploy Admin second and invalidate CloudFront;
-5. authenticate and verify `A0228506` shows the exact 10:28 AM Eastern creation, a date-only historical order shows no fabricated time, Jobs shows all three timestamp columns, and failed/blocked items lead Recent Jobs;
-6. observe one natural scheduler cycle and confirm no unexpected preparation, Lift submit, or Wrike write.
+- merged-main validation: workflow `31716952564`, job `94503966937` (`success`);
+- API deployment: workflow `31717446469`, job `94505640947` (`success`);
+- API artifact: `api/pathfinder-api-lambda-e9f2f5397841241db71a164f002f609044f43293.zip`, S3 version `lzQPU7WzSsN.2vvMFNtvdsodHmY3i5kF`, ETag `2979d5f6f6e38b00b7d173ebea715e16`;
+- deployed Lambda SHA-256: `I1sfMSba40nBWJmh5lMfmilLjuKS8mjQcRcRTWJ/GeM=`; revision `dd522cb0-6dcb-4e79-bb44-6b5a9f5b3a41`;
+- Admin deployment: workflow `31717869044`, job `94507073423` (`success`);
+- Admin `index.html`: S3 version `Wk33oxh_Xoi6oj.N67z29m_3S8vYI8jd`, ETag `44a8b53ff8636935ae8ee986071ac234`;
+- Admin bundles: `assets/index-f9_Mz9eg.js`, `assets/react-sXpfDjey.js`, `assets/icons-8RSbaZ6e.js`, and `assets/index-D4NlFs7B.css`;
+- CloudFront invalidation: `IAWASHNMEJFHX6O5JN1T6FBHJT` (`Completed`).
 
-Rollback uses the immediately previous API Lambda artifact and Admin S3/CloudFront artifact. Because the slice stores no new production state, no data rollback is expected. If API rollback precedes Admin rollback, the Admin retains a compatibility fallback to existing fields. The unavoidable known limit is that Lift-only historical records with a date-only header cannot gain an exact creation time without trustworthy original Pathfinder submit evidence.
+The API stack returned to `UPDATE_COMPLETE`. Stack events show that only `PathfinderApiFunction` and the code property of the already-disabled `ProofAssetScanWorkerFunction` updated; no table, bucket, queue, mapping, configuration, or other protected data resource changed. `LambdaCodeS3Key` was the only changed parameter. HTTP health returned 200, the Lambda was Active/Successful, and the Admin distribution remained available with a no-cache entrypoint.
+
+Authenticated production smoke confirmed `A0228506` at **Aug 13, 10:28 AM** for both Pathfinder intake and exact Lift creation; historical date-only `A0228322` rendered as **Aug 11** without an invented time; Recent Jobs led with the failed/blocked and stale Ready records before the newest confirmed Lift orders; and full Jobs consistently showed **Pathfinder Intake**, **Lift Created**, and **Last Activity** with the new sort choices. No discovery, Lift refresh, submit/retry, archive, Wrike write, configuration save, Proof action, or other mutation control was invoked.
+
+The first authoritative natural post-release scheduler cycle, correlation `9c3ac9ca-ef52-44ce-b997-6e97567fa08f`, checked at `2026-08-13T15:57:53.496Z` and completed at `15:58:07.565Z`. It replayed all six qualified candidates, prepared zero jobs, submitted zero Lift orders, wrote zero Wrike comments, and recorded zero failures. Final protected counts remained Customers 1, CustomerWorkspaces 1, Targets 2, ImportMethods 2, OutputRoutes 1, ProductMappings 278, Jobs 56, OrderIds 59, SubmitAttempts 19, LiftProductCache 337, OrderStatusTokens 20, OrderStatusSnapshots 12, CanonicalRegistry 1, ProofCore-dev 142, and ProofAudit-dev 147. All four Pathfinder alarms remained `OK`; the scheduler remained `ENABLED` at `rate(15 minutes)`; and all live submit, writeback, transport, document-publication, campaign-root, multi-proof ZIP, `TBD` → `0.5`, `MM/DD/YYYY`, and Proof boundaries were preserved.
+
+Rollback is application-only: restore API artifact `api/pathfinder-api-lambda-a772630ad5cc499bbc846dd7d9e4f3f8d8307736.zip` (S3 version `nj9R519E1iUE_30zyfxOgHadW4PX9.Hl`, Lambda SHA `qdTZsYi5tpj/jSi+2AA1iV7kbWTKwxDiFfass8/JN8g=`) and Admin `index.html` version `pbRlKloC8Kc7jkhepJOUmYOjpRLBIxvh`, then invalidate CloudFront. Do not restore or replace a production table or alter any Pathfinder/Proof gate. Because this release stores no new production state, no data rollback is expected. If API rollback precedes Admin rollback, the Admin retains a compatibility fallback to existing fields. The unavoidable known limit is that Lift-only historical records with a date-only header cannot gain an exact creation time without trustworthy original Pathfinder submit evidence.
 
 ### 2026-08-11 multi-reference-proof release and 2026-08-12 continuity record
 
