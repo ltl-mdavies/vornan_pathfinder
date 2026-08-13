@@ -103,8 +103,11 @@ test("Customer overview uses unique order KPIs and explicit durable Lift columns
   assert.match(source, /<th>Lift Order<\/th>/);
   assert.match(source, /<th>Lift Status<\/th>/);
   assert.match(source, /<th>Lift Created<\/th>/);
+  assert.match(source, /<th>Pathfinder Intake<\/th>/);
   assert.match(source, /target_order_created_at/);
-  assert.match(source, /Showing \{overviewJobs\.length\} most recent of \{activeCustomerJobs\.length\} tracked orders/);
+  assert.match(source, /rankRecentOperationalJobs/);
+  assert.match(source, /Issues first, then newest Lift orders/);
+  assert.match(source, /Open Pending Intake/);
   assert.doesNotMatch(source, /aria-label="Success trend"/);
   assert.match(styles, /\.metric-strip \{[\s\S]*?repeat\(4,/);
   assert.match(styles, /\.overview-grid-two \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);

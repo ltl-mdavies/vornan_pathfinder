@@ -125,6 +125,12 @@ import { ImportMethodWorkbookSetup } from "./ImportMethodWorkbookSetup";
 import { WrikeIntakeBehaviorSetup } from "./WrikeIntakeBehaviorSetup";
 import { CompositeFieldMappingSetup } from "./CompositeFieldMappingSetup";
 import { selectedDirectMappingTarget, updateDirectMapping } from "./field-mapping-draft";
+import {
+  compareOperationalJobTime,
+  displayLiftCreated,
+  lastMeaningfulActivity,
+  rankRecentOperationalJobs
+} from "./job-operational-times";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
 type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
@@ -138,7 +144,7 @@ type JobStateFilter =
   | "Confirmation Needed"
   | "Order Confirmed"
   | "All States";
-type JobSortField = "state" | "updated_at" | "created_at";
+type JobSortField = "state" | "last_activity_at" | "created_at" | "target_order_created_at";
 type JobSortDirection = "asc" | "desc";
 
 type JobViewPreferences = {
@@ -160,7 +166,8 @@ const defaultJobViewPreferences: JobViewPreferences = {
 function loadJobViewPreferences(storageKey: string): JobViewPreferences {
   if (typeof window === "undefined") return defaultJobViewPreferences;
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(storageKey) ?? "{}") as Partial<JobViewPreferences>;
+    const parsed = JSON.parse(window.localStorage.getItem(storageKey) ?? "{}") as
+      Omit<Partial<JobViewPreferences>, "sortField"> & { sortField?: string };
     return {
       archiveFilter: ["Active", "Archived", "All"].includes(parsed.archiveFilter ?? "")
         ? parsed.archiveFilter as JobArchiveFilter
@@ -171,8 +178,8 @@ function loadJobViewPreferences(storageKey: string): JobViewPreferences {
       stateFilter: ["Current Orders", "Intake Review", "Needs Attention", "Ready to Submit", "Confirmation Needed", "Order Confirmed", "All States"].includes(parsed.stateFilter ?? "")
         ? parsed.stateFilter as JobStateFilter
         : defaultJobViewPreferences.stateFilter,
-      sortField: ["state", "updated_at", "created_at"].includes(parsed.sortField ?? "")
-        ? parsed.sortField as JobSortField
+      sortField: ["state", "last_activity_at", "created_at", "target_order_created_at", "updated_at"].includes(parsed.sortField ?? "")
+        ? (parsed.sortField === "updated_at" ? "last_activity_at" : parsed.sortField) as JobSortField
         : defaultJobViewPreferences.sortField,
       sortDirection: ["asc", "desc"].includes(parsed.sortDirection ?? "")
         ? parsed.sortDirection as JobSortDirection
@@ -933,6 +940,9 @@ interface ProcessingJobPreview {
   target_order_status?: NormalizedLiftOrder["status"] | null;
   target_order_status_checked_at?: string | null;
   target_order_created_at?: string | null;
+  target_order_created_precision?: "date" | "timestamp" | null;
+  target_order_created_source?: "lift_header" | "pathfinder_submit_confirmation" | null;
+  last_activity_at?: string | null;
   order_confirmed_at?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];
   wrike_status_writebacks?: WrikeStatusWritebackRecord[];
@@ -2740,10 +2750,10 @@ function sortAndFilterJobs(
     if (sortField === "state") {
       const comparison = first.state.localeCompare(second.state);
       return comparison === 0
-        ? Date.parse(second.updated_at) - Date.parse(first.updated_at)
+        ? compareOperationalJobTime(first, second, "last_activity_at", "desc")
         : comparison * direction;
     }
-    return (Date.parse(first[sortField]) - Date.parse(second[sortField])) * direction;
+    return compareOperationalJobTime(first, second, sortField, sortDirection);
   });
 }
 
@@ -2980,8 +2990,9 @@ function JobListControls({
         <label>
           <span>Sort by</span>
           <select value={sortField} onChange={(event) => onSortFieldChange(event.target.value as JobSortField)}>
-            <option value="updated_at">Last activity</option>
+            <option value="last_activity_at">Last activity</option>
             <option value="created_at">Pathfinder intake</option>
+            <option value="target_order_created_at">Lift created</option>
             <option value="state">State</option>
           </select>
         </label>
@@ -3046,6 +3057,7 @@ function JobListTable({
             <th>Order Status</th>
             <th>State</th>
             <th title="When Pathfinder first created the job record">Pathfinder Intake</th>
+            <th title="When Lift created the target order; date only when Lift does not provide a time">Lift Created</th>
             <th>Last Activity</th>
             <th className="job-row-action-heading">Action</th>
           </tr>
@@ -3116,7 +3128,11 @@ function JobListTable({
                 <StatePill state={job.state} />
               </td>
               <td>{displayTimestamp(job.created_at)}</td>
-              <td>{displayTimestamp(job.updated_at)}</td>
+              <td>
+                {displayLiftCreated(job.target_order_created_at, job.target_order_created_precision) ??
+                  (job.target_order_number ? "Date unavailable" : "Not in Lift")}
+              </td>
+              <td>{displayTimestamp(lastMeaningfulActivity(job))}</td>
               <td className="job-row-action-cell">
                 <button className="table-icon-button" onClick={() => onArchiveJob(job)} title={job.archived_at ? "Restore job" : "Archive job"}>
                   {job.archived_at ? <RefreshCw size={15} /> : <Archive size={15} />}
@@ -6827,9 +6843,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     customerJobView.sortDirection
   );
   const activeCustomerJobs = customerJobsUnfiltered.filter((job) => !job.archived_at);
-  const overviewJobs = [...activeCustomerJobs]
-    .sort((first, second) => Date.parse(second.updated_at) - Date.parse(first.updated_at))
-    .slice(0, 5);
   const allJobsUnfiltered = globalJobs.length ? globalJobs : customerJobsUnfiltered;
   const allJobs = sortAndFilterJobs(
     allJobsUnfiltered,
@@ -6843,6 +6856,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     (entry) => entry.customer_id === selectedCustomer.lift_customer_id
   );
   const customerOperationsSummary = buildOperationsSummary(activeCustomerJobs, customerWrikeOperationsSnapshots);
+  const overviewJobs = rankRecentOperationalJobs(activeCustomerJobs);
   const confirmedCustomerJobCount = activeCustomerJobs.filter(
     (job) => jobOperationalState(job) === "Order Confirmed"
   ).length;
@@ -10635,6 +10649,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <ArrowGlyph />
                       </button>
                     </div>
+                    {customerOperationsSummary.intakeReview > 0 ? (
+                      <button
+                        className="overview-intake-alert"
+                        onClick={() => {
+                          setCustomerJobView((current) => ({ ...current, stateFilter: "Intake Review" }));
+                          setActiveGlobalView("Customers");
+                          setActiveCustomerView("Jobs");
+                        }}
+                      >
+                        <AlertTriangle size={15} />
+                        {customerOperationsSummary.intakeReview} Wrike intake issue{customerOperationsSummary.intakeReview === 1 ? "" : "s"} need review
+                        <span>Open Pending Intake</span>
+                      </button>
+                    ) : null}
                     <table className="customer-recent-jobs-table">
                       <thead>
                         <tr>
@@ -10643,6 +10671,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <th>Pathfinder State</th>
                           <th>Lift Order</th>
                           <th>Lift Status</th>
+                          <th>Pathfinder Intake</th>
                           <th>Lift Created</th>
                           <th>Last Activity</th>
                           <th>Route</th>
@@ -10675,8 +10704,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <span className="cell-meta">{job.target_order_number ? "Not checked" : "Not in Lift"}</span>
                           )}
                         </td>
-                        <td>{job.target_order_created_at ? displayTimestamp(job.target_order_created_at) : job.target_order_number ? "Not checked" : "Not in Lift"}</td>
-                        <td>{displayTimestamp(job.updated_at)}</td>
+                        <td>{displayTimestamp(job.created_at)}</td>
+                        <td>
+                          {displayLiftCreated(job.target_order_created_at, job.target_order_created_precision) ??
+                            (job.target_order_number ? "Date unavailable" : "Not in Lift")}
+                        </td>
+                        <td>{displayTimestamp(lastMeaningfulActivity(job))}</td>
                         <td>{job.output_route_name ?? activeOutputRoute.name}</td>
                       </tr>
                     ))}
@@ -10684,7 +10717,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </table>
                     {overviewJobs.length === 0 ? <p className="empty-state">No persisted preview jobs yet.</p> : null}
                     <div className="jobs-summary-footer">
-                      <span>Showing {overviewJobs.length} most recent of {activeCustomerJobs.length} tracked orders.</span>
+                      <span>Issues first, then newest Lift orders · showing {overviewJobs.length} of {activeCustomerJobs.length} tracked orders.</span>
                       <button
                         className="table-header-link"
                         onClick={() => {
@@ -17830,8 +17863,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <DetailItem label="Current step" value={selectedJobLiftStep ?? "Load current Lift order"} />
                   <DetailItem label="Pathfinder intake" value={displayTimestamp(selectedJobDetail.created_at)} />
                   <DetailItem label="Order confirmed" value={selectedJobDetail.order_confirmed_at ? displayTimestamp(selectedJobDetail.order_confirmed_at) : "Not confirmed"} />
-                  <DetailItem label="Last activity" value={displayTimestamp(selectedJobDetail.updated_at)} />
-                  <DetailItem label="Lift created" value={orderSnapshotResult?.live_order?.creation_date ? displayTimestamp(orderSnapshotResult.live_order.creation_date) : "Load current Lift order"} />
+                  <DetailItem label="Last activity" value={displayTimestamp(lastMeaningfulActivity(selectedJobDetail))} />
+                  <DetailItem
+                    label="Lift created"
+                    value={
+                      displayLiftCreated(
+                        selectedJobDetail.target_order_created_at ?? orderSnapshotResult?.live_order?.creation_date,
+                        selectedJobDetail.target_order_created_precision ??
+                          (orderSnapshotResult?.live_order?.creation_date ? "date" : null)
+                      ) ?? "Load current Lift order"
+                    }
+                  />
                 </dl>
               </section>
               <OrderLineComparison

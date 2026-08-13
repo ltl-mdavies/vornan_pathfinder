@@ -7999,27 +7999,27 @@ h1 {
 }
 
 .customer-recent-jobs-table {
-  min-width: 1320px;
+  min-width: 1480px;
 }
 
 .customer-recent-jobs-table th:nth-child(1) {
-  width: 17%;
+  width: 16%;
 }
 
 .customer-recent-jobs-table th:nth-child(2) {
-  width: 10%;
+  width: 8%;
 }
 
 .customer-recent-jobs-table th:nth-child(3) {
-  width: 10%;
+  width: 9%;
 }
 
 .customer-recent-jobs-table th:nth-child(4) {
-  width: 19%;
+  width: 17%;
 }
 
 .customer-recent-jobs-table th:nth-child(5) {
-  width: 10%;
+  width: 8%;
 }
 
 .customer-recent-jobs-table th:nth-child(6) {
@@ -8031,7 +8031,33 @@ h1 {
 }
 
 .customer-recent-jobs-table th:nth-child(8) {
-  width: 16%;
+  width: 9%;
+}
+
+.customer-recent-jobs-table th:nth-child(9) {
+  width: 15%;
+}
+
+.overview-intake-alert {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 10px 18px;
+  background: rgba(196, 134, 42, 0.09);
+  color: var(--text-primary);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.overview-intake-alert span {
+  margin-left: auto;
+  color: var(--vornan-forest);
+  font-size: 11px;
 }
 
 .jobs-live-status {

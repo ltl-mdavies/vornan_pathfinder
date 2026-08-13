@@ -719,6 +719,12 @@ export interface ProcessingJobPreview {
   target_order_status_checked_at?: string | null;
   /** Runtime list projection from the latest durable Lift order snapshot. */
   target_order_created_at?: string | null;
+  /** Whether the projected Lift creation value includes a trustworthy time. */
+  target_order_created_precision?: "date" | "timestamp" | null;
+  /** Provenance for the projected Lift creation value. */
+  target_order_created_source?: "lift_header" | "pathfinder_submit_confirmation" | null;
+  /** Runtime projection of the latest meaningful operator-visible event. */
+  last_activity_at?: string | null;
   order_confirmed_at?: string | null;
   target_order_lookup_url?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];

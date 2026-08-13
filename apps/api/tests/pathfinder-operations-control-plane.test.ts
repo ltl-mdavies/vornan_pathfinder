@@ -56,7 +56,9 @@ test("Jobs projects cached Lift header status and creation time without issuing 
   assert.match(jobsRoute, /sourceOrderJobProjectionWithStatus/);
   assert.match(source, /getPublicOrderStatusSnapshots/);
   assert.match(source, /target_order_status/);
-  assert.match(source, /target_order_created_at: snapshot\?\.live_order\?\.creation_date \?\? null/);
+  assert.match(source, /projectLiftCreation/);
+  assert.match(source, /target_order_created_precision/);
+  assert.match(source, /projectLastMeaningfulActivity/);
   assert.doesNotMatch(jobsRoute, /fetchLiftOrderLookup/);
   assert.doesNotMatch(jobsRoute, /buildInternalOrderSnapshotForJob/);
 });
