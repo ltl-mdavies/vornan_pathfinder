@@ -77,13 +77,29 @@ authenticated, audited customer Proof policy with these operator-facing choices:
 - `Simple` or `Advanced` review when review is enabled; and
 - an exact Lift-order override when one order needs different behavior.
 
-That policy is the required long-term customer control plane. The remaining work
-is to make it authoritative at every grant, session, public DTO, approval, and
-operator-action boundary. Today the platform-wide deployment flags still decide
-whether those runtime capabilities exist, and the public approval runtime does
-not yet enforce the saved customer profile as its primary authorization source.
-Do not describe the Admin setting as live customer enablement until that
-integration has passed end-to-end QA.
+That policy is the required long-term customer control plane. The stacked
+`codex/proof-setup-enablement-runtime` repository slice makes it authoritative
+for new grants and sessions, customer-safe review-profile projection, customer
+approval, and revised-art upload authorization. New grants retain an immutable
+binding to the exact customer/order policy version; missing or ambiguous order
+association and unbound review access fail closed. Changing a customer default
+or exact-order exception revokes affected active grants before the new
+conditional setting write, so an existing session cannot retain a stale review
+profile. Simple review remains quantity-free; Advanced is the only profile that
+exposes the multi-proof allocation workspace.
+
+The same slice replaces broad customer-setting persistence with a strongly read,
+exact-workspace conditional write. A stale Admin page receives `409` instead of
+overwriting another operator's change. The selected customer workspace and its
+bounded Proof-setting audit are the only Pathfinder records written. Import
+Methods, mappings, Jobs, submit attempts, order IDs, Lift/Wrike state, and all
+other customer workspaces are not part of this write path.
+
+This is repository state only until the stacked slice is reviewed, merged,
+deployed default-dark, and exercised in the bounded QA sequence. Platform-wide
+deployment flags still decide whether a capability exists and remain emergency
+kill switches. Do not describe the Admin setting as live customer enablement
+until the integration has passed end-to-end QA.
 
 The intended operating model is:
 
@@ -99,8 +115,8 @@ The intended operating model is:
 6. persist a setting change through a narrow conditional write to the exact
    customer policy/workspace version, never through a broad whole-store rewrite;
    and
-7. make disablement stop new grants and decisions immediately, with an explicit
-   revoke/end-session workflow for existing access.
+7. make every saved capability/profile change revoke affected active grants so
+   new grants and decisions use only the newly saved policy.
 
 Infrastructure gates remain platform emergency controls. They must not become
 the normal per-customer onboarding mechanism.
@@ -123,7 +139,7 @@ No upload, scan, publication, `/a/*` delivery, credential read, Lift call, deplo
 ## Remaining checkpoints after protected-read renewal
 
 1. Merge the corrected bounded-window monitor and confirm it reports the current protected public-read posture without granting mutation authority.
-2. Make the saved customer Proof policy authoritative for grants, sessions, public review profile, decisions, and operator actions; customer onboarding after platform launch must not require deployment.
+2. Review, merge, and default-dark deploy the stacked setup-enablement runtime slice, then prove its conditional-write, grant-binding, session, public-profile, decision, and grant-revocation behavior without changing customer capability settings.
 3. Activate one exact order override for the approved Momentara/LTL Demo pilot and verify that unrelated customer settings, orders, and Pathfinder runtime records are unchanged.
 4. Activate the LTL Demo profile separately for one exact allowlist/expiry and test valid review sessions/current proofs.
 5. Activate upload separately and finalize one bounded file.

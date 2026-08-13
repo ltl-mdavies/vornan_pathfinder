@@ -9,7 +9,7 @@ export const demoOrder: ProofOrder = {
   health: "active",
   counts: { pending: 4, regenerating: 0, waiting: 0, reviewed: 1, total: 5 },
   last_synced_at: "2026-07-20T16:42:00.000Z",
-  access: { scope: "view", decisions_enabled: false, revision_upload_enabled: false },
+  access: { scope: "view", decisions_enabled: false, review_experience: "simple", revision_upload_enabled: false },
   tasks: [
     {
       task_id: "ptask_a",
@@ -173,7 +173,12 @@ export function demoOrderForHash(hash: string): ProofOrder {
       versions: []
     };
     const tasks = [...demoOrder.tasks.slice(0, -1), singleProofTask];
-    return { ...demoOrder, tasks, counts: proofTaskCounts(tasks) };
+    return {
+      ...demoOrder,
+      access: { ...demoOrder.access, review_experience: "advanced" },
+      tasks,
+      counts: proofTaskCounts(tasks)
+    };
   }
   if (hash === "#/proof/shared-asset-qa") {
     const batchOrder: ProofOrder = demoOrderForHash("#/proof/batch-qa");

@@ -55,6 +55,7 @@ export interface ProofOrder {
   access: {
     scope: "view" | "review";
     decisions_enabled: boolean;
+    review_experience: "simple" | "advanced";
     revision_upload_enabled?: boolean;
   };
 }

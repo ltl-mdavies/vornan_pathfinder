@@ -1198,6 +1198,7 @@ interface PathfinderCustomerWorkspace {
   primary_target_id: string;
   primary_output_route_id: string;
   primary_target: TargetConfig;
+  proof_access_revoked_count?: number;
   updated_at: string;
 }
 
@@ -4899,12 +4900,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(value)
+          body: JSON.stringify({
+            ...value,
+            expected_policy_updated_at: workspace?.proof_capability_policy.updated_at
+          })
         }
       );
       const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       setWorkspace(updatedWorkspace);
-      setWorkspaceMessage("Vornan Proof customer settings saved.");
+      setWorkspaceMessage(updatedWorkspace.proof_access_revoked_count
+        ? `Vornan Proof customer settings saved. ${updatedWorkspace.proof_access_revoked_count} active review link${updatedWorkspace.proof_access_revoked_count === 1 ? " was" : "s were"} revoked so the new setting applies immediately.`
+        : "Vornan Proof customer settings saved.");
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Proof customer settings could not be saved.");
       setWorkspaceState("error");
@@ -4927,12 +4933,17 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(value)
+          body: JSON.stringify({
+            ...value,
+            expected_policy_updated_at: workspace?.proof_capability_policy.updated_at
+          })
         }
       );
       const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       setWorkspace(updatedWorkspace);
-      setWorkspaceMessage(`Vornan Proof exception saved for ${orderNumber}.`);
+      setWorkspaceMessage(updatedWorkspace.proof_access_revoked_count
+        ? `Vornan Proof exception saved for ${orderNumber}. ${updatedWorkspace.proof_access_revoked_count} active review link${updatedWorkspace.proof_access_revoked_count === 1 ? " was" : "s were"} revoked so the new setting applies immediately.`
+        : `Vornan Proof exception saved for ${orderNumber}.`);
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Proof order exception could not be saved.");
       setWorkspaceState("error");
@@ -4946,11 +4957,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/proof-capability-policy/orders/${encodeURIComponent(orderNumber)}`,
-        { method: "DELETE" }
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            expected_policy_updated_at: workspace?.proof_capability_policy.updated_at
+          })
+        }
       );
       const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       setWorkspace(updatedWorkspace);
-      setWorkspaceMessage(`Vornan Proof exception removed for ${orderNumber}.`);
+      setWorkspaceMessage(updatedWorkspace.proof_access_revoked_count
+        ? `Vornan Proof exception removed for ${orderNumber}. ${updatedWorkspace.proof_access_revoked_count} active review link${updatedWorkspace.proof_access_revoked_count === 1 ? " was" : "s were"} revoked so the customer default applies immediately.`
+        : `Vornan Proof exception removed for ${orderNumber}.`);
     } catch (error) {
       setWorkspaceMessage(error instanceof Error ? error.message : "Proof order exception could not be removed.");
       setWorkspaceState("error");

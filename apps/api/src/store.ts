@@ -2098,6 +2098,13 @@ export class CustomerProofCapabilityValidationError extends Error {
   }
 }
 
+export class CustomerProofCapabilityConflictError extends Error {
+  constructor() {
+    super("Vornan Proof settings changed after this customer page was loaded. Refresh and try again.");
+    this.name = "CustomerProofCapabilityConflictError";
+  }
+}
+
 function proofCapabilityAuditEntry(input: {
   scope: "customer" | "order";
   order_number: string | null;
@@ -5163,58 +5170,134 @@ export async function updateStatusAccessPolicy(customer: LiftCustomer, policyPat
   return workspace;
 }
 
+async function mutateCustomerProofCapabilityWorkspace(
+  customer: LiftCustomer,
+  expectedPolicyUpdatedAt: string,
+  mutation: (
+    workspace: PathfinderCustomerWorkspace,
+    timestamp: string
+  ) => PathfinderCustomerWorkspace
+) {
+  if (!Number.isFinite(Date.parse(expectedPolicyUpdatedAt))) {
+    throw new CustomerProofCapabilityValidationError(
+      "The current Proof settings version is required. Refresh the customer page and try again."
+    );
+  }
+  const config = getPathfinderPersistenceRuntimeConfig();
+  const timestamp = now();
+
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: tables.workspaces,
+      Key: { customer_id: dynamoString(customer.lift_customer_id) },
+      ConsistentRead: true
+    }));
+    const storedData = response.Item?.data?.S;
+    const storedWorkspace = response.Item
+      ? parseDynamoData<PathfinderCustomerWorkspace>(response.Item as Record<string, AttributeValue>)
+      : null;
+    const workspace = normalizeWorkspace(storedWorkspace ?? createWorkspace(customer));
+    if (workspace.proof_capability_policy.updated_at !== expectedPolicyUpdatedAt) {
+      throw new CustomerProofCapabilityConflictError();
+    }
+    const next = mutation(workspace, timestamp);
+    next.updated_at = timestamp;
+    const command = new PutItemCommand({
+      TableName: tables.workspaces,
+      Item: dynamoItem(
+        { customer_id: customer.lift_customer_id },
+        workspaceRecord(next)
+      ),
+      ConditionExpression: storedData
+        ? "#stored_data = :expected_data"
+        : "attribute_not_exists(customer_id)",
+      ...(storedData
+        ? {
+            ExpressionAttributeNames: { "#stored_data": "data" },
+            ExpressionAttributeValues: { ":expected_data": { S: storedData } }
+          }
+        : {})
+    });
+    try {
+      await getDynamoClient().send(command);
+    } catch (error) {
+      if ((error as { name?: string }).name === "ConditionalCheckFailedException") {
+        throw new CustomerProofCapabilityConflictError();
+      }
+      throw error;
+    }
+    const scope = pathfinderStoreReadScope.getStore();
+    if (scope?.store) scope.store.workspaces[customer.lift_customer_id] = next;
+    return next;
+  }
+
+  const store = await readStore();
+  const workspace = normalizeWorkspace(
+    store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer)
+  );
+  if (workspace.proof_capability_policy.updated_at !== expectedPolicyUpdatedAt) {
+    throw new CustomerProofCapabilityConflictError();
+  }
+  const next = mutation(workspace, timestamp);
+  next.updated_at = timestamp;
+  store.workspaces[customer.lift_customer_id] = next;
+  await writeStore(store);
+  return next;
+}
+
 export async function updateCustomerProofCapabilityPolicy(
   customer: LiftCustomer,
   policyPatch: Pick<CustomerProofCapabilityPolicy, "access_mode" | "review_experience">,
-  actorId: string
+  actorId: string,
+  expectedPolicyUpdatedAt: string
 ) {
   assertCustomerProofCapabilityInput(
     policyPatch.access_mode,
     policyPatch.review_experience
   );
-  const store = await readStore();
-  const workspace = normalizeWorkspace(
-    store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer)
+  return mutateCustomerProofCapabilityWorkspace(
+    customer,
+    expectedPolicyUpdatedAt,
+    (workspace, timestamp) => {
+      const previous = workspace.proof_capability_policy;
+      const next = normalizeCustomerProofCapabilityPolicy({
+        ...previous,
+        access_mode: policyPatch.access_mode,
+        review_experience: policyPatch.review_experience,
+        updated_at: timestamp,
+        updated_by: safeProofCapabilityActor(actorId)
+      }, timestamp);
+      if (
+        previous.access_mode !== next.access_mode ||
+        previous.review_experience !== next.review_experience
+      ) {
+        workspace.proof_capability_audit = [
+          proofCapabilityAuditEntry({
+            scope: "customer",
+            order_number: null,
+            previous_access_mode: previous.access_mode,
+            next_access_mode: next.access_mode,
+            previous_review_experience: previous.review_experience,
+            next_review_experience: next.review_experience,
+            actor_id: actorId,
+            created_at: timestamp
+          }),
+          ...workspace.proof_capability_audit
+        ].slice(0, 100);
+      }
+      workspace.proof_capability_policy = next;
+      return workspace;
+    }
   );
-  const timestamp = now();
-  const previous = workspace.proof_capability_policy;
-  const next = normalizeCustomerProofCapabilityPolicy({
-    ...previous,
-    access_mode: policyPatch.access_mode,
-    review_experience: policyPatch.review_experience,
-    updated_at: timestamp,
-    updated_by: safeProofCapabilityActor(actorId)
-  }, timestamp);
-  if (
-    previous.access_mode !== next.access_mode ||
-    previous.review_experience !== next.review_experience
-  ) {
-    workspace.proof_capability_audit = [
-      proofCapabilityAuditEntry({
-        scope: "customer",
-        order_number: null,
-        previous_access_mode: previous.access_mode,
-        next_access_mode: next.access_mode,
-        previous_review_experience: previous.review_experience,
-        next_review_experience: next.review_experience,
-        actor_id: actorId,
-        created_at: timestamp
-      }),
-      ...workspace.proof_capability_audit
-    ].slice(0, 100);
-  }
-  workspace.proof_capability_policy = next;
-  workspace.updated_at = timestamp;
-  store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
-  return workspace;
 }
 
 export async function upsertCustomerProofOrderOverride(
   customer: LiftCustomer,
   orderNumberValue: string,
   policyPatch: Pick<CustomerProofOrderOverride, "access_mode" | "review_experience">,
-  actorId: string
+  actorId: string,
+  expectedPolicyUpdatedAt: string
 ) {
   const orderNumber = orderNumberValue.trim().toUpperCase();
   if (!/^A\d{7,8}$/.test(orderNumber)) {
@@ -5226,63 +5309,62 @@ export async function upsertCustomerProofOrderOverride(
     policyPatch.access_mode,
     policyPatch.review_experience
   );
-  const store = await readStore();
-  const workspace = normalizeWorkspace(
-    store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer)
-  );
-  const timestamp = now();
-  const policy = workspace.proof_capability_policy;
-  const previousOverride = policy.order_overrides.find(
-    (candidate) => candidate.order_number === orderNumber
-  );
-  const previousAccessMode = previousOverride?.access_mode ?? policy.access_mode;
-  const previousReviewExperience = previousOverride?.review_experience ?? policy.review_experience;
-  const nextOverride: CustomerProofOrderOverride = {
-    order_number: orderNumber,
-    access_mode: policyPatch.access_mode,
-    review_experience: policyPatch.review_experience,
-    updated_at: timestamp,
-    updated_by: safeProofCapabilityActor(actorId)
-  };
-  workspace.proof_capability_policy = normalizeCustomerProofCapabilityPolicy({
-    ...policy,
-    order_overrides: [
-      nextOverride,
-      ...policy.order_overrides.filter(
-        (candidate) => candidate.order_number !== orderNumber
-      )
-    ],
-    updated_at: timestamp,
-    updated_by: safeProofCapabilityActor(actorId)
-  }, timestamp);
-  if (
-    previousAccessMode !== nextOverride.access_mode ||
-    previousReviewExperience !== nextOverride.review_experience
-  ) {
-    workspace.proof_capability_audit = [
-      proofCapabilityAuditEntry({
-        scope: "order",
+  return mutateCustomerProofCapabilityWorkspace(
+    customer,
+    expectedPolicyUpdatedAt,
+    (workspace, timestamp) => {
+      const policy = workspace.proof_capability_policy;
+      const previousOverride = policy.order_overrides.find(
+        (candidate) => candidate.order_number === orderNumber
+      );
+      const previousAccessMode = previousOverride?.access_mode ?? policy.access_mode;
+      const previousReviewExperience = previousOverride?.review_experience ?? policy.review_experience;
+      const nextOverride: CustomerProofOrderOverride = {
         order_number: orderNumber,
-        previous_access_mode: previousAccessMode,
-        next_access_mode: nextOverride.access_mode,
-        previous_review_experience: previousReviewExperience,
-        next_review_experience: nextOverride.review_experience,
-        actor_id: actorId,
-        created_at: timestamp
-      }),
-      ...workspace.proof_capability_audit
-    ].slice(0, 100);
-  }
-  workspace.updated_at = timestamp;
-  store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
-  return workspace;
+        access_mode: policyPatch.access_mode,
+        review_experience: policyPatch.review_experience,
+        updated_at: timestamp,
+        updated_by: safeProofCapabilityActor(actorId)
+      };
+      workspace.proof_capability_policy = normalizeCustomerProofCapabilityPolicy({
+        ...policy,
+        order_overrides: [
+          nextOverride,
+          ...policy.order_overrides.filter(
+            (candidate) => candidate.order_number !== orderNumber
+          )
+        ],
+        updated_at: timestamp,
+        updated_by: safeProofCapabilityActor(actorId)
+      }, timestamp);
+      if (
+        previousAccessMode !== nextOverride.access_mode ||
+        previousReviewExperience !== nextOverride.review_experience
+      ) {
+        workspace.proof_capability_audit = [
+          proofCapabilityAuditEntry({
+            scope: "order",
+            order_number: orderNumber,
+            previous_access_mode: previousAccessMode,
+            next_access_mode: nextOverride.access_mode,
+            previous_review_experience: previousReviewExperience,
+            next_review_experience: nextOverride.review_experience,
+            actor_id: actorId,
+            created_at: timestamp
+          }),
+          ...workspace.proof_capability_audit
+        ].slice(0, 100);
+      }
+      return workspace;
+    }
+  );
 }
 
 export async function removeCustomerProofOrderOverride(
   customer: LiftCustomer,
   orderNumberValue: string,
-  actorId: string
+  actorId: string,
+  expectedPolicyUpdatedAt: string
 ) {
   const orderNumber = orderNumberValue.trim().toUpperCase();
   if (!/^A\d{7,8}$/.test(orderNumber)) {
@@ -5290,41 +5372,39 @@ export async function removeCustomerProofOrderOverride(
       "A valid Lift order number is required for a Proof override."
     );
   }
-  const store = await readStore();
-  const workspace = normalizeWorkspace(
-    store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer)
+  return mutateCustomerProofCapabilityWorkspace(
+    customer,
+    expectedPolicyUpdatedAt,
+    (workspace, timestamp) => {
+      const policy = workspace.proof_capability_policy;
+      const previous = policy.order_overrides.find(
+        (candidate) => candidate.order_number === orderNumber
+      );
+      if (!previous) return workspace;
+      workspace.proof_capability_policy = normalizeCustomerProofCapabilityPolicy({
+        ...policy,
+        order_overrides: policy.order_overrides.filter(
+          (candidate) => candidate.order_number !== orderNumber
+        ),
+        updated_at: timestamp,
+        updated_by: safeProofCapabilityActor(actorId)
+      }, timestamp);
+      workspace.proof_capability_audit = [
+        proofCapabilityAuditEntry({
+          scope: "order",
+          order_number: orderNumber,
+          previous_access_mode: previous.access_mode,
+          next_access_mode: policy.access_mode,
+          previous_review_experience: previous.review_experience,
+          next_review_experience: policy.review_experience,
+          actor_id: actorId,
+          created_at: timestamp
+        }),
+        ...workspace.proof_capability_audit
+      ].slice(0, 100);
+      return workspace;
+    }
   );
-  const policy = workspace.proof_capability_policy;
-  const previous = policy.order_overrides.find(
-    (candidate) => candidate.order_number === orderNumber
-  );
-  if (!previous) return workspace;
-  const timestamp = now();
-  workspace.proof_capability_policy = normalizeCustomerProofCapabilityPolicy({
-    ...policy,
-    order_overrides: policy.order_overrides.filter(
-      (candidate) => candidate.order_number !== orderNumber
-    ),
-    updated_at: timestamp,
-    updated_by: safeProofCapabilityActor(actorId)
-  }, timestamp);
-  workspace.proof_capability_audit = [
-    proofCapabilityAuditEntry({
-      scope: "order",
-      order_number: orderNumber,
-      previous_access_mode: previous.access_mode,
-      next_access_mode: policy.access_mode,
-      previous_review_experience: previous.review_experience,
-      next_review_experience: policy.review_experience,
-      actor_id: actorId,
-      created_at: timestamp
-    }),
-    ...workspace.proof_capability_audit
-  ].slice(0, 100);
-  workspace.updated_at = timestamp;
-  store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
-  return workspace;
 }
 
 export async function resolveCustomerProofCapabilityForOrder(

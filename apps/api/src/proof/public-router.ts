@@ -156,7 +156,11 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         "Customer revised-art uploads are not enabled."
       );
     }
-    if (session.scope !== "review" || !session.participant_id) {
+    if (
+      session.scope !== "review" ||
+      session.capability?.access_mode !== "review" ||
+      !session.participant_id
+    ) {
       throw new ProofAssetUploadServiceError(
         "unauthenticated",
         "Identify the reviewer in a review-enabled session first."
@@ -210,7 +214,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.get("/order", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const { session, grant } = await validateProofSession(rawSession);
       const order = await getProofOrder(session.order_number);
       if (!order) {
         deny(res);
@@ -226,7 +230,9 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         include_asset_urls: !automaticRefresh.stale,
         decisions_enabled:
           proofRuntime.feature_flags.approve &&
-          proofRuntime.feature_flags.public_read
+          proofRuntime.feature_flags.public_read &&
+          grant.capability?.access_mode === "review",
+        review_experience: grant.capability?.review_experience ?? "simple"
       });
       const feedbackStates = new Map(
         (await loadProofFeedbackStates(order, session)).map((state) => [state.task_id, state])
@@ -241,6 +247,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
             ...publicOrder.access,
             revision_upload_enabled:
               session.scope === "review" &&
+              grant.capability?.access_mode === "review" &&
               proofRuntime.feature_flags.public_read &&
               proofRuntime.feature_flags.revision_upload
           },

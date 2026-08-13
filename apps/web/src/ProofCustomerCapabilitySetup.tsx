@@ -116,7 +116,7 @@ export function ProofCustomerCapabilitySetup({
         <div>
           <span className="section-eyebrow">Customer default</span>
           <h3>Choose how this customer uses Vornan Proof.</h3>
-          <p>Start simple. Add an order exception only when a specific job needs different controls.</p>
+          <p>Start simple. Add an order exception only when a specific job needs different controls. Changes apply to newly issued links; revoke any active links when turning Proof off.</p>
         </div>
         <span className="proof-capability-safe-default"><ShieldCheck size={15} /> Advanced is never automatic</span>
       </div>

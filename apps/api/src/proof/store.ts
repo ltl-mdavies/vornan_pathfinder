@@ -3,6 +3,7 @@ import {
   GetItemCommand,
   PutItemCommand,
   QueryCommand,
+  ScanCommand,
   type AttributeValue
 } from "@aws-sdk/client-dynamodb";
 import type {
@@ -281,12 +282,44 @@ export async function listProofGrants(orderNumber: string) {
       ExpressionAttributeValues: {
         ":pk": stringAttribute(`ORDER#${orderNumber}`),
         ":prefix": stringAttribute("GRANT#")
-      }
+      },
+      ConsistentRead: true
     }));
     return (response.Items ?? []).map((item) => parseData<ProofAccessGrant>(item)).filter((item): item is ProofAccessGrant => Boolean(item));
   }
   const store = await readLocalStore();
   return Object.values(store.grants).filter((grant) => grant.order_number === orderNumber);
+}
+
+export async function listProofGrantsForCapabilityCustomer(pathfinderCustomerId: string) {
+  const config = getProofRuntimeConfig();
+  if (config.storage_driver === "disabled") {
+    throw new Error("Vornan Proof persistence is disabled until the dedicated Proof core table is configured.");
+  }
+  if (config.storage_driver === "dynamodb") {
+    const grants: ProofAccessGrant[] = [];
+    let ExclusiveStartKey: Record<string, AttributeValue> | undefined;
+    do {
+      const response = await client().send(new ScanCommand({
+        TableName: requiredCoreTable(),
+        FilterExpression: "begins_with(sk, :prefix)",
+        ExpressionAttributeValues: { ":prefix": stringAttribute("GRANT#") },
+        ConsistentRead: true,
+        ExclusiveStartKey
+      }));
+      grants.push(...(response.Items ?? [])
+        .map((item) => parseData<ProofAccessGrant>(item))
+        .filter((grant): grant is ProofAccessGrant =>
+          grant?.capability?.pathfinder_customer_id === pathfinderCustomerId
+        ));
+      ExclusiveStartKey = response.LastEvaluatedKey as Record<string, AttributeValue> | undefined;
+    } while (ExclusiveStartKey);
+    return grants;
+  }
+  const store = await readLocalStore();
+  return Object.values(store.grants).filter(
+    (grant) => grant.capability?.pathfinder_customer_id === pathfinderCustomerId
+  );
 }
 
 export async function getProofGrantById(grantId: string) {
