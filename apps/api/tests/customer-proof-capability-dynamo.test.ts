@@ -39,6 +39,12 @@ let storedItem: Record<string, AttributeValue> = {
       proof_capability_policy: {
         access_mode: "view_only",
         review_experience: "simple",
+        customer_identity: {
+          proof_customer_id: "1249",
+          verified_order_number: "A0226753",
+          verified_at: "2026-08-13T15:59:00.000Z",
+          verified_by: "operator-qa"
+        },
         order_overrides: [],
         updated_at: initialPolicyUpdatedAt,
         updated_by: "system-default"

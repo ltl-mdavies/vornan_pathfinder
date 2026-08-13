@@ -10,7 +10,10 @@ const qaEnvironment = {
   PATHFINDER_PROOF_LIFT_REPORT_READ_URL: "https://qa-lift.example.invalid/ords/91/AS360ProofReport/N?offset=0",
   PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false",
   PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: "2099-07-28T21:49:50.000Z",
-  PATHFINDER_PROOF_EDGE_SHARED_SECRET: "x".repeat(32)
+  PATHFINDER_PROOF_EDGE_SHARED_SECRET: "x".repeat(32),
+  PATHFINDER_PROOF_CUSTOMER_WORKSPACES_TABLE: "Pathfinder-CustomerWorkspaces-prod",
+  PATHFINDER_PROOF_CUSTOMER_WORKSPACES_TABLE_ARN:
+    "arn:aws:dynamodb:us-east-1:744016783602:table/Pathfinder-CustomerWorkspaces-prod"
 };
 
 test("accepts an isolated default-off QA deployment", () => {
@@ -101,13 +104,10 @@ test("requires exact target, transaction, and secret bindings before customer ap
     }),
     /target table exactly/
   );
-  assert.throws(
-    () => validateProofDeployment({
-      ...approvalWindow,
-      PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: ""
-    }),
-    /existing valid review grants/
-  );
+  assert.equal(validateProofDeployment({
+    ...approvalWindow,
+    PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: ""
+  }).customer_approval_enabled, true);
 });
 
 test("keeps isolated customer approval default-off and least-privileged", () => {
@@ -172,7 +172,6 @@ test("requires exact private asset bindings before customer revised-art upload",
     { PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: "false" },
     { PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS: "false" },
     { PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "false" },
-    { PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: "" },
     { PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: "" },
     { PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: "A0226753, A0227641" },
     { PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: "2099-07-28T21:49:51.000Z" },
@@ -297,7 +296,7 @@ test("retains and deletion-protects both durable Proof tables", () => {
   }
 });
 
-test("requires a bounded activation deadline and customer cohort in deployment contracts", () => {
+test("requires bounded activation and durable customer policy bindings in deployment contracts", () => {
   const proofTemplate = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
   const apiTemplate = readFileSync(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8");
   const proofWorkflow = readFileSync(new URL("../../.github/workflows/deploy-proof.yml", import.meta.url), "utf8");
@@ -306,12 +305,15 @@ test("requires a bounded activation deadline and customer cohort in deployment c
   assert.match(proofTemplate, /PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ReadOnlyActivationExpiresAt/);
   assert.match(proofTemplate, /OperatorGrantCreationRequiresIsolatedDevWindow:/);
   assert.match(proofTemplate, /PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref GrantAllowedCustomerIds/);
-  assert.match(apiTemplate, /ProofGrantCreationRequiresBoundedCohort:/);
+  assert.match(apiTemplate, /ProofGrantCreationRequiresBoundedWindow:/);
   assert.match(apiTemplate, /PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS: !Ref ProofGrantAllowedCustomerIds/);
   assert.match(apiTemplate, /PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT: !Ref ProofReadOnlyActivationExpiresAt/);
   assert.match(proofWorkflow, /ReadOnlyActivationExpiresAt="\$\{READ_ONLY_ACTIVATION_EXPIRES_AT\}"/);
   assert.match(proofWorkflow, /OperatorGrantCreationEnabled="\$\{OPERATOR_GRANT_CREATION_ENABLED\}"/);
   assert.match(proofWorkflow, /GrantAllowedCustomerIds="\$\{GRANT_ALLOWED_CUSTOMER_IDS\}"/);
+  assert.match(proofTemplate, /PathfinderCustomerWorkspacesTableName:/);
+  assert.match(proofTemplate, /Resource: !Ref PathfinderCustomerWorkspacesTableArn/);
+  assert.match(proofWorkflow, /PathfinderCustomerWorkspacesTableName="\$\{PATHFINDER_CUSTOMER_WORKSPACES_TABLE\}"/);
   assert.match(apiWorkflow, /ProofGrantAllowedCustomerIds=/);
   assert.match(apiWorkflow, /ProofReadOnlyActivationExpiresAt=/);
 });

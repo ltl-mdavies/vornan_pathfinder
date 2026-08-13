@@ -11,6 +11,9 @@ This profile reduces repeated QA setup without broadening customer or order acce
 - The profile is dev-only and expires no later than 24 hours after activation.
 - Review sessions are capped at 12 hours and also capped by the grant and profile expiry.
 - Existing grant/session, CSRF, participant identity, current-proof, feedback acknowledgement, task version, attachment, and Proof version checks remain authoritative.
+- The selected Pathfinder customer must first have a verified durable Proof
+  customer identity of `1249`; the isolated runtime re-reads its exact saved
+  customer/order policy on token exchange and every bound session request.
 - Core records and audit events remain in the dedicated Proof tables.
 - Automatic retry is always false.
 

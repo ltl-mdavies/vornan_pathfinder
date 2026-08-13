@@ -205,6 +205,13 @@ export interface StatusAccessPolicy {
 export type CustomerProofAccessMode = "disabled" | "view_only" | "review";
 export type CustomerProofReviewExperience = "simple" | "advanced";
 
+export interface CustomerProofCustomerIdentity {
+  proof_customer_id: string;
+  verified_order_number: string;
+  verified_at: string;
+  verified_by: string;
+}
+
 export interface CustomerProofOrderOverride {
   order_number: string;
   access_mode: CustomerProofAccessMode;
@@ -216,6 +223,7 @@ export interface CustomerProofOrderOverride {
 export interface CustomerProofCapabilityPolicy {
   access_mode: CustomerProofAccessMode;
   review_experience: CustomerProofReviewExperience;
+  customer_identity: CustomerProofCustomerIdentity | null;
   order_overrides: CustomerProofOrderOverride[];
   updated_at: string;
   updated_by: string;
@@ -223,7 +231,7 @@ export interface CustomerProofCapabilityPolicy {
 
 export interface CustomerProofCapabilityAuditEntry {
   change_id: string;
-  scope: "customer" | "order";
+  scope: "customer" | "order" | "identity";
   order_number: string | null;
   previous_access_mode: CustomerProofAccessMode;
   next_access_mode: CustomerProofAccessMode;
@@ -231,11 +239,16 @@ export interface CustomerProofCapabilityAuditEntry {
   next_review_experience: CustomerProofReviewExperience;
   actor_id: string;
   created_at: string;
+  previous_proof_customer_id?: string | null;
+  next_proof_customer_id?: string | null;
+  verification_order_number?: string | null;
 }
 
 export interface ResolvedCustomerProofCapability {
   association_status: "associated" | "unassociated" | "ambiguous";
   pathfinder_customer_id: string | null;
+  proof_customer_id: string | null;
+  identity_verified_at: string | null;
   customer_name: string | null;
   access_mode: CustomerProofAccessMode;
   review_experience: CustomerProofReviewExperience;
@@ -2008,6 +2021,7 @@ function createDefaultCustomerProofCapabilityPolicy(timestamp = now()): Customer
   return {
     access_mode: "view_only",
     review_experience: "simple",
+    customer_identity: null,
     order_overrides: [],
     updated_at: timestamp,
     updated_by: "system-default"
@@ -2043,6 +2057,7 @@ function normalizeCustomerProofCapabilityPolicy(
       policy?.review_experience,
       accessMode
     ),
+    customer_identity: normalizeProofCustomerIdentity(policy?.customer_identity),
     order_overrides: [...overrides.values()]
       .sort((left, right) => left.order_number.localeCompare(right.order_number))
       .slice(0, 100),
@@ -2059,11 +2074,31 @@ function normalizedProofCapabilityAudit(
   return (entries ?? [])
     .filter((entry) =>
       /^pcap_[a-f0-9]{24}$/.test(entry?.change_id ?? "") &&
-      (entry.scope === "customer" || entry.scope === "order") &&
+      (entry.scope === "customer" || entry.scope === "order" || entry.scope === "identity") &&
       (entry.order_number === null || /^A\d{7,8}$/.test(entry.order_number)) &&
       Number.isFinite(Date.parse(entry.created_at))
     )
     .slice(0, 100);
+}
+
+function normalizeProofCustomerIdentity(
+  identity: CustomerProofCustomerIdentity | null | undefined
+): CustomerProofCustomerIdentity | null {
+  const proofCustomerId = identity?.proof_customer_id?.trim() ?? "";
+  const orderNumber = identity?.verified_order_number?.trim().toUpperCase() ?? "";
+  if (
+    !/^\d{1,20}$/.test(proofCustomerId) ||
+    !/^A\d{7,8}$/.test(orderNumber) ||
+    !Number.isFinite(Date.parse(identity?.verified_at ?? ""))
+  ) {
+    return null;
+  }
+  return {
+    proof_customer_id: proofCustomerId,
+    verified_order_number: orderNumber,
+    verified_at: new Date(identity!.verified_at).toISOString(),
+    verified_by: safeProofCapabilityActor(identity?.verified_by)
+  };
 }
 
 function assertCustomerProofCapabilityInput(
@@ -2106,7 +2141,7 @@ export class CustomerProofCapabilityConflictError extends Error {
 }
 
 function proofCapabilityAuditEntry(input: {
-  scope: "customer" | "order";
+  scope: "customer" | "order" | "identity";
   order_number: string | null;
   previous_access_mode: CustomerProofAccessMode;
   next_access_mode: CustomerProofAccessMode;
@@ -2114,6 +2149,9 @@ function proofCapabilityAuditEntry(input: {
   next_review_experience: CustomerProofReviewExperience;
   actor_id: string;
   created_at: string;
+  previous_proof_customer_id?: string | null;
+  next_proof_customer_id?: string | null;
+  verification_order_number?: string | null;
 }): CustomerProofCapabilityAuditEntry {
   return {
     change_id: `pcap_${randomBytes(12).toString("hex")}`,
@@ -5261,6 +5299,11 @@ export async function updateCustomerProofCapabilityPolicy(
     expectedPolicyUpdatedAt,
     (workspace, timestamp) => {
       const previous = workspace.proof_capability_policy;
+      if (policyPatch.access_mode !== "disabled" && !previous.customer_identity) {
+        throw new CustomerProofCapabilityValidationError(
+          "Verify this customer's Proof identity from an associated Lift order before enabling Proof."
+        );
+      }
       const next = normalizeCustomerProofCapabilityPolicy({
         ...previous,
         access_mode: policyPatch.access_mode,
@@ -5314,6 +5357,11 @@ export async function upsertCustomerProofOrderOverride(
     expectedPolicyUpdatedAt,
     (workspace, timestamp) => {
       const policy = workspace.proof_capability_policy;
+      if (policyPatch.access_mode !== "disabled" && !policy.customer_identity) {
+        throw new CustomerProofCapabilityValidationError(
+          "Verify this customer's Proof identity from an associated Lift order before enabling an order exception."
+        );
+      }
       const previousOverride = policy.order_overrides.find(
         (candidate) => candidate.order_number === orderNumber
       );
@@ -5355,6 +5403,59 @@ export async function upsertCustomerProofOrderOverride(
           ...workspace.proof_capability_audit
         ].slice(0, 100);
       }
+      return workspace;
+    }
+  );
+}
+
+export async function verifyCustomerProofCustomerIdentity(
+  customer: LiftCustomer,
+  proofCustomerIdValue: string,
+  verifiedOrderNumberValue: string,
+  actorId: string,
+  expectedPolicyUpdatedAt: string
+) {
+  const proofCustomerId = proofCustomerIdValue.trim();
+  const verifiedOrderNumber = verifiedOrderNumberValue.trim().toUpperCase();
+  if (!/^\d{1,20}$/.test(proofCustomerId) || !/^A\d{7,8}$/.test(verifiedOrderNumber)) {
+    throw new CustomerProofCapabilityValidationError(
+      "Proof customer identity requires an exact numeric customer ID and associated Lift order."
+    );
+  }
+  return mutateCustomerProofCapabilityWorkspace(
+    customer,
+    expectedPolicyUpdatedAt,
+    (workspace, timestamp) => {
+      const policy = workspace.proof_capability_policy;
+      const previousIdentity = policy.customer_identity;
+      const nextIdentity: CustomerProofCustomerIdentity = {
+        proof_customer_id: proofCustomerId,
+        verified_order_number: verifiedOrderNumber,
+        verified_at: timestamp,
+        verified_by: safeProofCapabilityActor(actorId)
+      };
+      workspace.proof_capability_policy = normalizeCustomerProofCapabilityPolicy({
+        ...policy,
+        customer_identity: nextIdentity,
+        updated_at: timestamp,
+        updated_by: safeProofCapabilityActor(actorId)
+      }, timestamp);
+      workspace.proof_capability_audit = [
+        proofCapabilityAuditEntry({
+          scope: "identity",
+          order_number: verifiedOrderNumber,
+          previous_access_mode: policy.access_mode,
+          next_access_mode: policy.access_mode,
+          previous_review_experience: policy.review_experience,
+          next_review_experience: policy.review_experience,
+          actor_id: actorId,
+          created_at: timestamp,
+          previous_proof_customer_id: previousIdentity?.proof_customer_id ?? null,
+          next_proof_customer_id: proofCustomerId,
+          verification_order_number: verifiedOrderNumber
+        }),
+        ...workspace.proof_capability_audit
+      ].slice(0, 100);
       return workspace;
     }
   );
@@ -5427,6 +5528,8 @@ export async function resolveCustomerProofCapabilityForOrder(
     return {
       association_status: customerIds.length ? "ambiguous" : "unassociated",
       pathfinder_customer_id: null,
+      proof_customer_id: null,
+      identity_verified_at: null,
       customer_name: null,
       access_mode: "view_only",
       review_experience: "simple",
@@ -5439,6 +5542,8 @@ export async function resolveCustomerProofCapabilityForOrder(
     return {
       association_status: "unassociated",
       pathfinder_customer_id: null,
+      proof_customer_id: null,
+      identity_verified_at: null,
       customer_name: null,
       access_mode: "view_only",
       review_experience: "simple",
@@ -5454,6 +5559,8 @@ export async function resolveCustomerProofCapabilityForOrder(
   return {
     association_status: "associated",
     pathfinder_customer_id: normalized.customer.lift_customer_id,
+    proof_customer_id: policy.customer_identity?.proof_customer_id ?? null,
+    identity_verified_at: policy.customer_identity?.verified_at ?? null,
     customer_name: normalized.customer.customer_name,
     access_mode: override?.access_mode ?? policy.access_mode,
     review_experience: override?.review_experience ?? policy.review_experience,

@@ -15,6 +15,12 @@ export interface CustomerProofOrderOverride {
 export interface CustomerProofCapabilityPolicy {
   access_mode: CustomerProofAccessMode;
   review_experience: CustomerProofReviewExperience;
+  customer_identity: {
+    proof_customer_id: string;
+    verified_order_number: string;
+    verified_at: string;
+    verified_by: string;
+  } | null;
   order_overrides: CustomerProofOrderOverride[];
   updated_at: string;
   updated_by: string;
@@ -22,7 +28,7 @@ export interface CustomerProofCapabilityPolicy {
 
 export interface CustomerProofCapabilityAuditEntry {
   change_id: string;
-  scope: "customer" | "order";
+  scope: "customer" | "order" | "identity";
   order_number: string | null;
   previous_access_mode: CustomerProofAccessMode;
   next_access_mode: CustomerProofAccessMode;
@@ -30,6 +36,9 @@ export interface CustomerProofCapabilityAuditEntry {
   next_review_experience: CustomerProofReviewExperience;
   actor_id: string;
   created_at: string;
+  previous_proof_customer_id?: string | null;
+  next_proof_customer_id?: string | null;
+  verification_order_number?: string | null;
 }
 
 const accessOptions: Array<{
@@ -81,7 +90,8 @@ export function ProofCustomerCapabilitySetup({
   busy,
   onSave,
   onUpsertOverride,
-  onRemoveOverride
+  onRemoveOverride,
+  onVerifyIdentity
 }: {
   policy: CustomerProofCapabilityPolicy;
   audit: CustomerProofCapabilityAuditEntry[];
@@ -92,6 +102,7 @@ export function ProofCustomerCapabilitySetup({
     value: Pick<CustomerProofOrderOverride, "access_mode" | "review_experience">
   ) => Promise<void>;
   onRemoveOverride: (orderNumber: string) => Promise<void>;
+  onVerifyIdentity: (orderNumber: string) => Promise<void>;
 }) {
   const [accessMode, setAccessMode] = useState(policy.access_mode);
   const [experience, setExperience] = useState(policy.review_experience);
@@ -99,6 +110,7 @@ export function ProofCustomerCapabilitySetup({
   const [overrideAccess, setOverrideAccess] = useState<CustomerProofAccessMode>("review");
   const [overrideExperience, setOverrideExperience] =
     useState<CustomerProofReviewExperience>("simple");
+  const [identityOrderNumber, setIdentityOrderNumber] = useState("");
 
   useEffect(() => {
     setAccessMode(policy.access_mode);
@@ -119,6 +131,32 @@ export function ProofCustomerCapabilitySetup({
           <p>Start simple. Add an order exception only when a specific job needs different controls. Changes apply to newly issued links; revoke any active links when turning Proof off.</p>
         </div>
         <span className="proof-capability-safe-default"><ShieldCheck size={15} /> Advanced is never automatic</span>
+      </div>
+
+      <div className="proof-experience-choice">
+        <div>
+          <span className="section-eyebrow">Verified Proof identity</span>
+          <strong>{policy.customer_identity ? `Proof customer ${policy.customer_identity.proof_customer_id}` : "Verification required"}</strong>
+          <small>{policy.customer_identity
+            ? `Verified from ${policy.customer_identity.verified_order_number} on ${formatTimestamp(policy.customer_identity.verified_at)}.`
+            : "Verify one associated current Lift order once. Future customer enablement then uses saved settings without a deployment allowlist."}</small>
+        </div>
+        <div className="proof-segmented-control">
+          <input
+            value={identityOrderNumber}
+            aria-label="Lift order used to verify Proof customer identity"
+            placeholder="A0226753"
+            onChange={(event) => setIdentityOrderNumber(event.target.value.toUpperCase())}
+          />
+          <button
+            type="button"
+            disabled={busy || !/^A\d{7,8}$/.test(identityOrderNumber)}
+            onClick={async () => {
+              await onVerifyIdentity(identityOrderNumber);
+              setIdentityOrderNumber("");
+            }}
+          >Verify</button>
+        </div>
       </div>
 
       <div className="proof-capability-options" role="radiogroup" aria-label="Customer Proof access">
@@ -171,7 +209,7 @@ export function ProofCustomerCapabilitySetup({
         <button
           className="primary-button"
           type="button"
-          disabled={busy}
+        disabled={busy || (accessMode !== "disabled" && !policy.customer_identity)}
           onClick={() => void onSave({
             access_mode: accessMode,
             review_experience: normalizedExperience(accessMode, experience)
@@ -260,8 +298,10 @@ export function ProofCustomerCapabilitySetup({
           <div>
             {audit.slice(0, 8).map((entry) => (
               <p key={entry.change_id}>
-                <strong>{entry.order_number ?? "Customer default"}</strong>
-                <span>{entry.next_access_mode === "review" ? `${entry.next_review_experience} review` : entry.next_access_mode.replace("_", " ")}</span>
+                <strong>{entry.scope === "identity" ? "Proof identity" : entry.order_number ?? "Customer default"}</strong>
+                <span>{entry.scope === "identity"
+                  ? `Verified customer ${entry.next_proof_customer_id ?? "—"}`
+                  : entry.next_access_mode === "review" ? `${entry.next_review_experience} review` : entry.next_access_mode.replace("_", " ")}</span>
                 <small>{formatTimestamp(entry.created_at)}</small>
               </p>
             ))}

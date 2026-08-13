@@ -23,6 +23,8 @@ const session: ProofAccessSession = {
   ended_at: null,
   capability: {
     pathfinder_customer_id: "284619",
+    proof_customer_id: "1249",
+    identity_verified_at: "2026-08-13T15:59:00.000Z",
     access_mode: "review",
     review_experience: "simple",
     source: "customer_default",

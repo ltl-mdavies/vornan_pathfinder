@@ -20,7 +20,8 @@ test("customer Proof settings are safe by default, audited, order-aware, and per
         removeCustomerProofOrderOverride,
         resolveCustomerProofCapabilityForOrder,
         updateCustomerProofCapabilityPolicy,
-        upsertCustomerProofOrderOverride
+        upsertCustomerProofOrderOverride,
+        verifyCustomerProofCustomerIdentity
       } = await import(${JSON.stringify(storeModuleUrl)});
 
       const customer = {
@@ -34,6 +35,7 @@ test("customer Proof settings are safe by default, audited, order-aware, and per
       assert.equal(initial.proof_capability_policy.access_mode, "view_only");
       assert.equal(initial.proof_capability_policy.review_experience, "simple");
       assert.deepEqual(initial.proof_capability_policy.order_overrides, []);
+      assert.equal(initial.proof_capability_policy.customer_identity, null);
 
       await persistJobSnapshot(customer, {
         job_id: "job-proof-capability",
@@ -51,24 +53,35 @@ test("customer Proof settings are safe by default, audited, order-aware, and per
       assert.equal(before.access_mode, "view_only");
       assert.equal(before.review_experience, "simple");
 
+      const identified = await verifyCustomerProofCustomerIdentity(
+        customer,
+        "1249",
+        "A0226753",
+        "operator-test",
+        before.policy_updated_at
+      );
+      assert.equal(identified.proof_capability_policy.customer_identity.proof_customer_id, "1249");
+      assert.equal(identified.proof_capability_audit[0].scope, "identity");
+
       const advanced = await updateCustomerProofCapabilityPolicy(customer, {
         access_mode: "review",
         review_experience: "advanced"
-      }, "operator-test", before.policy_updated_at);
-      assert.equal(advanced.proof_capability_audit.length, 1);
+      }, "operator-test", identified.proof_capability_policy.updated_at);
+      assert.equal(advanced.proof_capability_audit.length, 2);
       assert.equal(advanced.proof_capability_audit[0].scope, "customer");
 
       const inherited = await resolveCustomerProofCapabilityForOrder("A0226753");
       assert.equal(inherited.source, "customer_default");
       assert.equal(inherited.access_mode, "review");
       assert.equal(inherited.review_experience, "advanced");
+      assert.equal(inherited.proof_customer_id, "1249");
 
       const simpleOverride = await upsertCustomerProofOrderOverride(customer, "a0226753", {
         access_mode: "review",
         review_experience: "simple"
       }, "operator-test", advanced.proof_capability_policy.updated_at);
       assert.equal(simpleOverride.proof_capability_policy.order_overrides[0].order_number, "A0226753");
-      assert.equal(simpleOverride.proof_capability_audit.length, 2);
+      assert.equal(simpleOverride.proof_capability_audit.length, 3);
 
       const overridden = await resolveCustomerProofCapabilityForOrder("A0226753");
       assert.equal(overridden.source, "order_override");

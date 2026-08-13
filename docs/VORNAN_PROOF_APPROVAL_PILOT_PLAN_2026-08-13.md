@@ -49,10 +49,18 @@ customer policy/workspace version. A stale Admin page must fail with a conflict;
 it must never overwrite a newer setting or cause unrelated customer, Import
 Method, mapping, Job, order, attempt, status, or runtime record to be rewritten.
 
-The pilot must stop unless the public Proof runtime enforces the resolved saved
-policy at grant creation, session/current-order resolution, public DTO/profile,
-and decision execution. A global deployment flag by itself is not customer
-authorization.
+The closing repository slice also requires a one-time identity verification from
+an exact associated current Lift order. That authenticated action derives the
+Proof/Lift customer ID from the server's authoritative Proof read, stores it in
+the selected customer policy with actor/order/time audit, and never accepts the
+ID from the browser. Once verified, ordinary enable/disable/profile changes use
+the saved customer setting and do not require a customer environment allowlist.
+
+The pilot must stop unless the public Proof runtime consistently reads the exact
+CustomerWorkspace and enforces the resolved saved identity/policy/version at
+token exchange, session/current-order resolution, public DTO/profile, and every
+approval/upload-sensitive request. A global deployment flag or successful grant
+revocation by itself is not customer authorization.
 
 ## Repository and live gates
 

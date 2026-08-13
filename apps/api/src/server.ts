@@ -216,6 +216,8 @@ import {
   updateOutputRoute,
   updateStatusAccessPolicy,
   updateCustomerProofCapabilityPolicy,
+  verifyCustomerProofCustomerIdentity,
+  resolveCustomerProofCapabilityForOrder,
   upsertCustomerProofOrderOverride,
   removeCustomerProofOrderOverride,
   CustomerProofCapabilityConflictError,
@@ -292,6 +294,7 @@ import {
 } from "./proof/access-service.js";
 import { getProofRuntimeConfig } from "./proof/runtime-config.js";
 import { getProofOrder } from "./proof/store.js";
+import { syncProofOrder } from "./proof/service.js";
 import { BoundedSnapshotCache, CoalescedRefreshes } from "./order-snapshot-cache.js";
 import {
   clearTargetEnvironmentProofingApi,
@@ -7288,6 +7291,104 @@ app.put("/api/customers/:liftCustomerId/status-access-policy", async (req, res) 
   } catch (error) {
     res.status(500).json({
       error: error instanceof Error ? error.message : "Status access policy save failed."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/proof-capability-policy/identity", async (req, res) => {
+  try {
+    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const authUser = res.locals.authUser as { uid?: unknown } | undefined;
+    const actorId = typeof authUser?.uid === "string" ? authUser.uid : "local-operator";
+    const orderNumber = typeof req.body?.order_number === "string"
+      ? req.body.order_number.trim().toUpperCase()
+      : "";
+    const expectedPolicyUpdatedAt = typeof req.body?.expected_policy_updated_at === "string"
+      ? req.body.expected_policy_updated_at
+      : "";
+    if (!/^A\d{7,8}$/.test(orderNumber)) {
+      throw new CustomerProofCapabilityValidationError(
+        "A valid associated Lift order is required to verify the Proof customer identity."
+      );
+    }
+    const previousWorkspace = await getOrCreateWorkspace(customer);
+    if (previousWorkspace.proof_capability_policy.updated_at !== expectedPolicyUpdatedAt) {
+      throw new CustomerProofCapabilityConflictError();
+    }
+    const association = await resolveCustomerProofCapabilityForOrder(orderNumber);
+    if (
+      association.association_status !== "associated" ||
+      association.pathfinder_customer_id !== customer.lift_customer_id
+    ) {
+      throw new CustomerProofCapabilityValidationError(
+        "The verification order is not uniquely associated with this Pathfinder customer."
+      );
+    }
+    const { order } = await syncProofOrder(orderNumber, {
+      audit_context: {
+        actor_type: "operator",
+        actor_id: actorId,
+        correlation_id: req.get("x-request-id") ?? `proof-identity-${customer.lift_customer_id}-${orderNumber}`,
+        source: "operator"
+      }
+    });
+    if (!/^\d{1,20}$/.test(order.customer_id ?? "")) {
+      throw new CustomerProofCapabilityValidationError(
+        "Lift did not return a valid Proof customer identity for the associated order."
+      );
+    }
+    const customerOrderNumbers = [...new Set((await listJobs())
+      .filter((job) => job.customer_id === customer.lift_customer_id)
+      .map((job) => job.target_order_number?.trim().toUpperCase())
+      .filter((candidate): candidate is string => /^A\d{7,8}$/.test(candidate ?? "")))];
+    const activeGrants = [...new Map((await Promise.all([
+      listCustomerCapabilityProofGrants(customer.lift_customer_id),
+      ...customerOrderNumbers.map((candidate) => listOrderProofGrants(candidate))
+    ]))
+      .flat()
+      .filter((grant) => grant.status === "active" && !grant.revoked_at)
+      .map((grant) => [grant.grant_id, grant])).values()];
+    const auditContext = {
+      actor_type: "operator" as const,
+      actor_id: actorId,
+      correlation_id: req.get("x-request-id") ?? `proof-identity-${customer.lift_customer_id}-${orderNumber}`,
+      source: "operator" as const
+    };
+    await Promise.all(activeGrants.map((grant) => revokeProofGrantForCapabilityChange(
+      grant.grant_id,
+      new Date(),
+      auditContext
+    )));
+    const workspace = await verifyCustomerProofCustomerIdentity(
+      customer,
+      order.customer_id!,
+      orderNumber,
+      actorId,
+      expectedPolicyUpdatedAt
+    );
+    const postWriteActiveGrants = [...new Map((await Promise.all([
+      listCustomerCapabilityProofGrants(customer.lift_customer_id),
+      ...customerOrderNumbers.map((candidate) => listOrderProofGrants(candidate))
+    ]))
+      .flat()
+      .filter((grant) => grant.status === "active" && !grant.revoked_at)
+      .map((grant) => [grant.grant_id, grant])).values()];
+    await Promise.all(postWriteActiveGrants.map((grant) => revokeProofGrantForCapabilityChange(
+      grant.grant_id,
+      new Date(),
+      auditContext
+    )));
+    res.json({
+      ...workspace,
+      primary_target: await getTarget(workspace.primary_target_id),
+      proof_access_revoked_count: new Set([
+        ...activeGrants.map((grant) => grant.grant_id),
+        ...postWriteActiveGrants.map((grant) => grant.grant_id)
+      ]).size
+    });
+  } catch (error) {
+    res.status(error instanceof CustomerProofCapabilityConflictError ? 409 : error instanceof CustomerProofCapabilityValidationError ? 400 : 500).json({
+      error: error instanceof Error ? error.message : "Proof customer identity verification failed."
     });
   }
 });

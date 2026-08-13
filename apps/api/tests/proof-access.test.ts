@@ -178,6 +178,8 @@ test("does not issue review access from a view-only customer capability", async 
         scope: "review",
         capability: {
           pathfinder_customer_id: "284619",
+          proof_customer_id: "1249",
+          identity_verified_at: "2026-08-13T15:59:00.000Z",
           access_mode: "view_only",
           review_experience: "simple",
           source: "customer_default",
@@ -196,6 +198,8 @@ test("binds the customer policy to the durable grant without exposing Pathfinder
     order_number: order.order_number,
     capability: {
       pathfinder_customer_id: "284619",
+      proof_customer_id: "1249",
+      identity_verified_at: "2026-08-13T15:59:00.000Z",
       access_mode: "view_only",
       review_experience: "simple",
       source: "order_override",
@@ -208,10 +212,23 @@ test("binds the customer policy to the durable grant without exposing Pathfinder
   assert.equal(durable?.capability?.source, "order_override");
 });
 
-test("rejects direct grant-service calls outside the configured customer cohort", async () => {
+test("uses durable customer identity instead of the environment cohort for bound grants", async () => {
   const previous = process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS;
   process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = "9999";
   try {
+    const created = await access.createProofGrant({
+      order_number: order.order_number,
+      capability: {
+        pathfinder_customer_id: "284619",
+        proof_customer_id: "1249",
+        identity_verified_at: "2026-08-13T15:59:00.000Z",
+        access_mode: "view_only",
+        review_experience: "simple",
+        source: "customer_default",
+        policy_updated_at: "2026-08-13T16:00:00.000Z"
+      }
+    });
+    assert.equal(created.grant.scope, "view");
     await assert.rejects(
       () => access.createProofGrant({ order_number: order.order_number }),
       access.ProofGrantCohortDeniedError

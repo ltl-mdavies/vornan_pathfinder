@@ -4919,6 +4919,33 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWorkspaceState("idle");
   }
 
+  async function verifyCustomerProofIdentity(orderNumber: string) {
+    setWorkspaceState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/proof-capability-policy/identity`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            order_number: orderNumber,
+            expected_policy_updated_at: workspace?.proof_capability_policy.updated_at
+          })
+        }
+      );
+      const updatedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
+      setWorkspace(updatedWorkspace);
+      setWorkspaceMessage(updatedWorkspace.proof_access_revoked_count
+        ? `Proof customer identity verified from ${orderNumber}. ${updatedWorkspace.proof_access_revoked_count} active review link${updatedWorkspace.proof_access_revoked_count === 1 ? " was" : "s were"} revoked.`
+        : `Proof customer identity verified from ${orderNumber}.`);
+    } catch (error) {
+      setWorkspaceMessage(error instanceof Error ? error.message : "Proof customer identity could not be verified.");
+      setWorkspaceState("error");
+      return;
+    }
+    setWorkspaceState("idle");
+  }
+
   async function saveCustomerProofOrderOverride(
     orderNumber: string,
     value: {
@@ -15843,6 +15870,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     audit={workspace.proof_capability_audit}
                     busy={workspaceState === "saving"}
                     onSave={saveCustomerProofCapability}
+                    onVerifyIdentity={verifyCustomerProofIdentity}
                     onUpsertOverride={saveCustomerProofOrderOverride}
                     onRemoveOverride={removeCustomerProofOrderOverride}
                   />
