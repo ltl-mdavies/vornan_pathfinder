@@ -5560,6 +5560,7 @@ async function createWrikeEvidencePreviewForMethod(args: {
       },
       source_order_last_seen_at: new Date().toISOString()
     };
+    const sourceReviewHistoryCount = protectedJob.source_order_history?.length ?? 0;
     protectedJob = appendWrikeSourceOrderHistory(protectedJob, {
       action:
         impactAssessment.classification === "processing_only"
@@ -5570,6 +5571,8 @@ async function createWrikeEvidencePreviewForMethod(args: {
       impactAssessment,
       message: impactMessage
     });
+    const sourceReviewEventOpened =
+      (protectedJob.source_order_history?.length ?? 0) > sourceReviewHistoryCount;
     protectedJob = await persistJobSnapshot(customer, protectedJob);
     console.info(JSON.stringify({
       _aws: {
@@ -5580,6 +5583,7 @@ async function createWrikeEvidencePreviewForMethod(args: {
           Metrics: [
             { Name: "Assessment", Unit: "Count" },
             { Name: "MaterialReviewOpened", Unit: "Count" },
+            { Name: "ReviewEventReused", Unit: "Count" },
             { Name: "ImpactUnavailable", Unit: "Count" }
           ]
         }]
@@ -5598,10 +5602,13 @@ async function createWrikeEvidencePreviewForMethod(args: {
       header_changed: impactAssessment.header_changed,
       lines_changed: impactAssessment.lines_changed,
       document_set_changed: impactAssessment.document_set_changed,
+      review_event_opened: sourceReviewEventOpened,
       lift_actions: false,
       wrike_writes: false,
       Assessment: 1,
-      MaterialReviewOpened: impactAssessment.classification === "material" ? 1 : 0,
+      MaterialReviewOpened:
+        sourceReviewEventOpened && impactAssessment.classification === "material" ? 1 : 0,
+      ReviewEventReused: sourceReviewEventOpened ? 0 : 1,
       ImpactUnavailable: impactAssessment.classification === "impact_unavailable" ? 1 : 0
     }));
     const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
