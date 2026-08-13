@@ -106,6 +106,8 @@ test("scheduled Wrike preparation keeps one record per source task", () => {
   assert.match(source, /existingJob: sourceOrder\.anchor \?\? undefined/);
   assert.match(source, /source_change_observed_after_transport/);
   assert.match(source, /assessWrikeSourceOrderImpact/);
+  assert.match(source, /sourceReviewEventOpened/);
+  assert.match(source, /ReviewEventReused/);
   assert.match(source, /source_change_assessed_no_impact/);
   assert.match(source, /Pathfinder did not change Lift or Wrike/);
   assert.match(source, /sourceOrderJobProjection/);
