@@ -40,6 +40,30 @@ The API stack returned to `UPDATE_COMPLETE`, health returned HTTP 200, and all t
 
 The API errors, throttles, scheduled-candidate-failure, and scheduled-invocation alarms were all `OK` at reconciliation time. Alarm state is evidence at a moment in time, not a perpetual health guarantee.
 
+### Repository-ready operational timestamp correction — not deployed
+
+The approved repository slice on `codex/pathfinder-operational-timestamps` is pre-merge and pre-deployment. It changes no production record, gate, schedule, configuration, route, or external service. The production diagnosis was read-only:
+
+- Lift order `A0228506` had durable `creation_date: "2026-08-13"`, a date without a time or timezone;
+- Pathfinder recorded job creation at `2026-08-13T14:28:10.258Z` and exact order confirmation at `2026-08-13T14:28:17.997Z`, matching Lift's 10:28 AM Eastern audit;
+- JavaScript parsed the date-only Lift value as UTC midnight, producing the false Aug 12, 8:00 PM Eastern display;
+- stable scheduler replays advanced generic job `updated_at`, so it was not a trustworthy operator activity clock.
+
+The repository fix adds read-only projection fields for Lift-creation value, precision, provenance, and meaningful last activity. Exact Pathfinder submit confirmation is used for Pathfinder-created orders. A full Lift timestamp remains authoritative when one exists. Lift date-only values remain date-only for historical or manually associated orders; manual link time is never presented as creation time. Meaningful activity excludes discovery sightings, status-check freshness, and generic replay updates to stable jobs.
+
+The Admin presents **Pathfinder Intake**, **Lift Created**, and **Last Activity** on both Jobs lists. Recent Jobs ranks immediate triage first, then confirmed orders by Lift creation; a compact Pending Intake notice links durable pre-job Wrike issues to Intake Review. Existing saved `updated_at` sort preferences migrate to the projected Last Activity sort. No persisted schema migration or backfill is required.
+
+Release sequence, once separately approved:
+
+1. merge only after focused API/web tests and full check/test/build are green;
+2. deploy API first while preserving every unrelated stack parameter;
+3. verify API health, protected counts, schedule/gates, and the projected timestamp contract;
+4. deploy Admin second and invalidate CloudFront;
+5. authenticate and verify `A0228506` shows the exact 10:28 AM Eastern creation, a date-only historical order shows no fabricated time, Jobs shows all three timestamp columns, and failed/blocked items lead Recent Jobs;
+6. observe one natural scheduler cycle and confirm no unexpected preparation, Lift submit, or Wrike write.
+
+Rollback uses the immediately previous API Lambda artifact and Admin S3/CloudFront artifact. Because the slice stores no new production state, no data rollback is expected. If API rollback precedes Admin rollback, the Admin retains a compatibility fallback to existing fields. The unavoidable known limit is that Lift-only historical records with a date-only header cannot gain an exact creation time without trustworthy original Pathfinder submit evidence.
+
 ### 2026-08-11 multi-reference-proof release and 2026-08-12 continuity record
 
 - merged repository commit: `b6794380e44d3ca1ab22add3151525589ba6770c` (PR #184);

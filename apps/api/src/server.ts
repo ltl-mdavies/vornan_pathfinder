@@ -65,6 +65,7 @@ import {
   type SourceConnectionStatus,
   type SourceConnectorProvider
 } from "@pathfinder/source-connections";
+import { projectLastMeaningfulActivity, projectLiftCreation } from "./job-operational-timestamps.js";
 import {
   appendOrderNameRetrySuffix,
   applyOrderNameResolution,
@@ -5276,12 +5277,16 @@ async function sourceOrderJobProjectionWithStatus(jobs: ProcessingJobPreview[]) 
     const orderKey = jobOrderStatusKey(job);
     const snapshot = orderKey ? snapshotsByKey.get(orderKey) : null;
     const verified = verifiedAssociationOrderStatus(job);
+    const liftCreation = projectLiftCreation(job, snapshot?.live_order?.creation_date ?? null);
     return {
       ...job,
       target_order_status: snapshot?.order_status ?? verified?.status ?? null,
       target_order_status_checked_at:
         snapshot?.lookups.order?.fetched_at ?? snapshot?.refreshed_at ?? verified?.checked_at ?? null,
-      target_order_created_at: snapshot?.live_order?.creation_date ?? null
+      target_order_created_at: liftCreation.value,
+      target_order_created_precision: liftCreation.precision,
+      target_order_created_source: liftCreation.source,
+      last_activity_at: projectLastMeaningfulActivity(job)
     } satisfies ProcessingJobPreview;
   });
 }
