@@ -717,6 +717,8 @@ export interface ProcessingJobPreview {
   /** Runtime list projection from the latest durable Lift order-header evidence. */
   target_order_status?: NormalizedLiftOrder["status"] | null;
   target_order_status_checked_at?: string | null;
+  /** Runtime list projection from the latest durable Lift order snapshot. */
+  target_order_created_at?: string | null;
   order_confirmed_at?: string | null;
   target_order_lookup_url?: string | null;
   target_order_association_history?: LiftOrderAssociationHistoryEntry[];

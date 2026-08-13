@@ -91,6 +91,38 @@ test("Jobs shows durable Lift order-header status and the line comparison uses t
   assert.match(styles, /\.order-line-comparison table \{[\s\S]*?width: 100%;[\s\S]*?table-layout: fixed;/);
 });
 
+test("Customer overview uses unique order KPIs and explicit durable Lift columns", async () => {
+  const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(source, /label: "Tracked Orders"/);
+  assert.match(source, /label: "Confirmed in Lift"/);
+  assert.match(source, /label: "Ready to Submit"/);
+  assert.match(source, /label: "Needs Attention"/);
+  assert.doesNotMatch(source, /label: "Previewed Orders"/);
+  assert.doesNotMatch(source, /label: "Workspace State"/);
+  assert.match(source, /<th>Pathfinder State<\/th>/);
+  assert.match(source, /<th>Lift Order<\/th>/);
+  assert.match(source, /<th>Lift Status<\/th>/);
+  assert.match(source, /<th>Lift Created<\/th>/);
+  assert.match(source, /target_order_created_at/);
+  assert.match(source, /Showing \{overviewJobs\.length\} most recent of \{activeCustomerJobs\.length\} tracked orders/);
+  assert.doesNotMatch(source, /aria-label="Success trend"/);
+  assert.match(styles, /\.metric-strip \{[\s\S]*?repeat\(4,/);
+  assert.match(styles, /\.overview-grid-two \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\)/);
+});
+
+test("Customer overview distinguishes data provenance and hides technical target transport details", () => {
+  assert.match(source, /Lift directory/);
+  assert.match(source, /Saved Pathfinder record/);
+  assert.match(source, /View target setup/);
+  const overviewStart = source.indexOf('{activeCustomerView === "Overview"');
+  const overviewEnd = source.indexOf('{activeCustomerView === "Import Methods"', overviewStart);
+  const overview = source.slice(overviewStart, overviewEnd);
+  assert.doesNotMatch(overview, /label="Endpoint"/);
+  assert.doesNotMatch(overview, /label="Auth"/);
+  assert.doesNotMatch(overview, /label="Format"/);
+  assert.doesNotMatch(overview, /Product Key Resolver/);
+});
+
 test("Job detail prioritizes order identity, attention, and progressive disclosure", async () => {
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   assert.match(source, /Wrike order · \{displayJobId\(selectedJobDetail\.job_id\)\}/);
