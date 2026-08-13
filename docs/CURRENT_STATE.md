@@ -2,11 +2,11 @@
 
 This is the entry point for all new Pathfinder, Vornan Proof, and live-support tasks. Read this file before using older design notes, launch checklists, or thread handoffs.
 
-Last reconciled: **2026-08-12**
+Last reconciled: **2026-08-13**
 
-Deployed application baseline: `origin/main` at `01e82bdfcb518d8758e494f53887852d248d536b`
+Deployed application baseline: `origin/main` at `a772630ad5cc499bbc846dd7d9e4f3f8d8307736`
 
-Live evidence: read-only AWS inspection, authenticated Admin smoke, and natural scheduled-intake continuity through 2026-08-12 in account `744016783602`, region `us-east-1`
+Live evidence: read-only AWS inspection, authenticated Admin smoke, and natural scheduled-intake continuity through 2026-08-13 in account `744016783602`, region `us-east-1`
 
 ## Authority order
 
@@ -27,13 +27,15 @@ Never infer a production capability from merged code alone. Record repository-re
 
 ## Current production posture
 
-### Repository-ready customer overview clarity — not deployed
+### Deployed customer overview clarity release
 
-The `codex/pathfinder-customer-overview-clarity` repository slice is in review and is not part of the deployed baseline above. It replaces line-count and replay-distorted customer overview metrics with four operational counts computed from the current source-order Jobs projection: **Tracked Orders**, **Confirmed in Lift**, **Ready to Submit**, and **Needs Attention**. Historical Wrike siblings remain nested audit records and do not become additional tracked orders.
+PR #193 merged and deployed as `a772630ad5cc499bbc846dd7d9e4f3f8d8307736` on 2026-08-13. Merged-main validation `31710079956`, API workflow `31710477663`, and Admin workflow `31711111458` completed successfully. The release replaces line-count and replay-distorted customer metrics with **Tracked Orders**, **Confirmed in Lift**, **Ready to Submit**, and **Needs Attention**, all computed from the existing source-order Jobs projection. Historical Wrike siblings remain nested audit records and do not become additional tracked orders.
 
 The overview's Recent Jobs table is full width, explicitly separates Pathfinder state from Lift order status, and shows Lift order number/name, durable Lift creation time, last Pathfinder activity, and route. Lift creation time is projected only from the existing durable order-status snapshot; the overview performs no live Lift fan-out and displays **Not checked** or **Not in Lift** when the evidence is absent. The static success-rate chart and the misleading **Local** workspace KPI are removed, customer provenance is labeled **Lift directory** or **Saved Pathfinder record**, and transport/configuration detail moves behind **View target setup**.
 
-This slice is additive presentation/projection work only. It does not change discovery, qualification, multi-proof ZIP handling, publication, submit, uncertain-write recovery, Wrike writeback, Proof behavior, capability gates, saved configuration, or production data. A future release must deploy API before Admin so the optional `target_order_created_at` projection is available, then validate the customer overview read-only. Until that release is explicitly approved and reconciled, production remains at the deployed application baseline recorded above.
+The API stack changed only the Lambda artifact and dependent API/EventBridge bindings; no data resource was changed or replaced. The only parameter change was `LambdaCodeS3Key`. During the predeployment baseline window, natural scheduler correlation `921f37d6-2455-4b3f-a0dd-dd8793e1e022` legitimately created and confirmed BHA contract `C316994` as Lift order `A0228506`, posted one Wrike comment, and recorded zero failures. That completed before the API update began and accounts exactly for the one-item increases in Jobs, Order IDs, Submit Attempts, status tokens, and snapshots. The first post-release cycle, correlation `10960a07-8d81-46ec-bb01-856b6c1ec57b`, replayed all six current orders with zero preparations, Lift submissions, Wrike writes, or failures.
+
+Final protected counts were Customers 1, CustomerWorkspaces 1, Targets 2, ImportMethods 2, OutputRoutes 1, ProductMappings 278, Jobs 56, OrderIds 59, SubmitAttempts 19, LiftProductCache 337, OrderStatusTokens 20, OrderStatusSnapshots 12, CanonicalRegistry 1, ProofCore-dev 142, and ProofAudit-dev 147. All four Pathfinder alarms were `OK`; the scheduler remained enabled at 15 minutes; live submit/writeback/transport, `go.vornan.co`, both campaign roots, multi-proof ZIP, `TBD` → `0.5`, `MM/DD/YYYY`, and all Proof boundaries were preserved.
 
 ### Pathfinder / Momentara
 
