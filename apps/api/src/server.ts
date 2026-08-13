@@ -145,6 +145,11 @@ import {
   wrikeSourceOrderKey
 } from "./wrike-source-orders.js";
 import {
+  assessWrikeSourceOrderImpact,
+  buildWrikeSourceOrderImpact,
+  type WrikeSourceOrderImpactAssessment
+} from "./wrike-source-order-impact.js";
+import {
   archiveImportMethod,
   associateJobWithLiftOrder,
   prepareWrikeStatusWriteback,
@@ -189,6 +194,7 @@ import {
   persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
   persistWrikeOperationsSnapshot,
+  recordWrikeSourceOrderReviewDisposition,
   reserveSubmitAttempt,
   rebindActiveOrderStatusTokensForJob,
   previewProductMappingReplacement,
@@ -201,6 +207,7 @@ import {
   rotateImportMethodPublicIntakeKey,
   setJobsArchived,
   WrikeStatusWritebackConflictError,
+  WrikeSourceOrderReviewConflictError,
   updateProductMapping,
   upsertCatalogPreset,
   updateImportMethod,
@@ -5163,6 +5170,7 @@ function appendWrikeSourceOrderHistory(
     sourceEvidence: NonNullable<ProcessingJobPreview["source_evidence"]>;
     referenceProofEvidenceIds?: string[];
     message: string;
+    impactAssessment?: WrikeSourceOrderImpactAssessment;
     createdAt?: string;
   }
 ) {
@@ -5182,6 +5190,10 @@ function appendWrikeSourceOrderHistory(
     .update(args.sourceEvidence.import_method_fingerprint)
     .update("\0")
     .update(proofIds.join("\0"))
+    .update("\0")
+    .update(args.impactAssessment?.classification ?? "unassessed")
+    .update("\0")
+    .update(args.impactAssessment?.detected_fingerprint ?? "")
     .digest("hex")}`;
   const existing = job.source_order_history ?? [];
   if (existing.some((entry) => entry.event_id === eventId)) {
@@ -5197,7 +5209,8 @@ function appendWrikeSourceOrderHistory(
         source_evidence_id: args.sourceEvidence.evidence_id,
         import_method_fingerprint: args.sourceEvidence.import_method_fingerprint,
         reference_proof_evidence_ids: proofIds,
-        message: args.message
+        message: args.message,
+        ...(args.impactAssessment ? { impact_assessment: args.impactAssessment } : {})
       },
       ...existing
     ].slice(0, 100)
@@ -5446,9 +5459,76 @@ async function createWrikeEvidencePreviewForMethod(args: {
 
   const sourceOrder = await wrikeSourceOrderAnchorDisposition(customer, sourceJobs);
   if (sourceOrder.anchor && sourceOrder.possibleTransport) {
-    const transportMessage = valueAsString(sourceOrder.anchor.target_order_number).trim()
-      ? `Pathfinder found updated source information after Lift order ${sourceOrder.anchor.target_order_number} was confirmed. Review the change before deciding whether Lift needs an update.`
-      : "Pathfinder found updated source information after a Lift submission may have occurred. Reconcile the existing submission before taking any action.";
+    let impactAssessment: WrikeSourceOrderImpactAssessment;
+    try {
+      const parsed = await parseWorkbookArrayBuffer(
+        loaded.bytes.buffer.slice(
+          loaded.bytes.byteOffset,
+          loaded.bytes.byteOffset + loaded.bytes.byteLength
+        ) as ArrayBuffer,
+        workbookParseOptions(method)
+      );
+      const orderRows = parsed.parsed_order_rows.filter((row) => row.row_type === "order");
+      if (!orderRows.length) throw new Error("WrikeSourceImpactOrderRowsUnavailable");
+      const dryRun = await createPreviewJobForRequest(
+        customer.lift_customer_id,
+        {
+          source_grid: {
+            columns: parsed.columns,
+            rows: orderRows.map((row) => row.values)
+          },
+          source_sheets: parsed.source_sheets,
+          parsed_order_rows: parsed.parsed_order_rows,
+          reference_rows: parsed.reference_rows,
+          incomplete_rows: parsed.incomplete_rows,
+          source_file_name: loaded.record.file_name,
+          sheet_name: parsed.sheetName,
+          import_method_id: method.import_method_id
+        },
+        sourceOrder.anchor.public_intake,
+        {
+          sourceEvidence,
+          referenceProofEvidenceIds: args.referenceProofEvidenceIds,
+          wrikeOrderContext: args.orderContext,
+          existingJob: sourceOrder.anchor,
+          dryRun: true
+        }
+      );
+      const baselineImpact = sourceOrder.anchor.source_order_impact ??
+        buildWrikeSourceOrderImpact({
+          payload: sourceOrder.anchor.lift_payload,
+          workbook_sha256: sourceOrder.anchor.source_evidence?.evidence_sha256 ?? "",
+          reference_proof_evidence_ids: (sourceOrder.anchor.source_document_publications ?? [])
+            .filter((publication) => publication.document_role === "reference_proof")
+            .flatMap((publication) => publication.source_evidence_ids ?? [publication.evidence_id])
+        });
+      impactAssessment = assessWrikeSourceOrderImpact(
+        baselineImpact,
+        dryRun.job.source_order_impact ?? null
+      );
+    } catch (error) {
+      impactAssessment = assessWrikeSourceOrderImpact(
+        sourceOrder.anchor.source_order_impact ?? null,
+        null
+      );
+      console.warn(JSON.stringify({
+        event: "source_order_change_assessment_failed",
+        customer_id: customer.lift_customer_id,
+        job_id: sourceOrder.anchor.job_id,
+        source_task_id: sourceEvidence.task_id,
+        reason_code: "impact_unavailable",
+        failure_category: error instanceof Error ? error.name : "unknown"
+      }));
+    }
+    const liftIdentity = valueAsString(sourceOrder.anchor.target_order_number).trim()
+      ? `Lift order ${sourceOrder.anchor.target_order_number}`
+      : "the possibly submitted Lift order";
+    const impactMessage =
+      impactAssessment.classification === "material"
+        ? `Pathfinder found a Lift-impacting source difference after ${liftIdentity} was confirmed. Pathfinder did not change Lift or Wrike.`
+        : impactAssessment.classification === "processing_only"
+          ? "Pathfinder checked the source and found no Lift-impacting change. A technical processing difference was recorded; no action is needed."
+          : `Pathfinder could not verify whether the latest source affects ${liftIdentity}. Pathfinder did not change Lift or Wrike.`;
     let protectedJob: ProcessingJobPreview = {
       ...sourceOrder.anchor,
       source_evidence: {
@@ -5461,12 +5541,49 @@ async function createWrikeEvidencePreviewForMethod(args: {
       source_order_last_seen_at: new Date().toISOString()
     };
     protectedJob = appendWrikeSourceOrderHistory(protectedJob, {
-      action: "source_change_observed_after_transport",
+      action:
+        impactAssessment.classification === "processing_only"
+          ? "source_change_assessed_no_impact"
+          : "source_change_observed_after_transport",
       sourceEvidence,
       referenceProofEvidenceIds: args.referenceProofEvidenceIds,
-      message: transportMessage
+      impactAssessment,
+      message: impactMessage
     });
     protectedJob = await persistJobSnapshot(customer, protectedJob);
+    console.info(JSON.stringify({
+      _aws: {
+        Timestamp: Date.now(),
+        CloudWatchMetrics: [{
+          Namespace: "Pathfinder/WrikeSourceOrders",
+          Dimensions: [["Service", "Operation", "Classification"]],
+          Metrics: [
+            { Name: "Assessment", Unit: "Count" },
+            { Name: "MaterialReviewOpened", Unit: "Count" },
+            { Name: "ImpactUnavailable", Unit: "Count" }
+          ]
+        }]
+      },
+      event: "source_order_change_assessed",
+      service: "pathfinder-api",
+      operation: "source_order_impact_assessment",
+      Service: "pathfinder-api",
+      Operation: "source_order_impact_assessment",
+      Classification: impactAssessment.classification,
+      customer_id_hash: createHash("sha256").update(customer.lift_customer_id).digest("hex").slice(0, 16),
+      job_id_hash: createHash("sha256").update(protectedJob.job_id).digest("hex").slice(0, 16),
+      source_task_id_hash: createHash("sha256").update(sourceEvidence.task_id).digest("hex").slice(0, 16),
+      classification: impactAssessment.classification,
+      reason_codes: impactAssessment.reason_codes,
+      header_changed: impactAssessment.header_changed,
+      lines_changed: impactAssessment.lines_changed,
+      document_set_changed: impactAssessment.document_set_changed,
+      lift_actions: false,
+      wrike_writes: false,
+      Assessment: 1,
+      MaterialReviewOpened: impactAssessment.classification === "material" ? 1 : 0,
+      ImpactUnavailable: impactAssessment.classification === "impact_unavailable" ? 1 : 0
+    }));
     const target = (await getTarget(outputRoute.target_id, false)) as TargetConfig | null;
     return {
       preview_status: "Replayed" as const,
@@ -5511,6 +5628,7 @@ async function createWrikeEvidencePreviewForMethod(args: {
       sourceEvidence,
       wrikeOrderContext: args.orderContext,
       sourceDocumentPublications: args.sourceDocumentPublications,
+      referenceProofEvidenceIds: args.referenceProofEvidenceIds,
       existingJob: sourceOrder.anchor ?? undefined
     }
   );
@@ -7412,7 +7530,9 @@ async function createPreviewJobForRequest(
   options?: {
     sourceEvidence?: ProcessingJobPreview["source_evidence"];
     sourceDocumentPublications?: ProcessingJobPreview["source_document_publications"];
+    referenceProofEvidenceIds?: string[];
     existingJob?: ProcessingJobPreview;
+    dryRun?: boolean;
     recovery?: {
       actor_id: string;
       previous_mapping_fingerprint: string;
@@ -7610,7 +7730,9 @@ async function createPreviewJobForRequest(
         updated_at: timestamp
       } satisfies CustomerProductMapping;
     });
-    const nextProductMappings = await bulkUpsertProductMappings(customer, seenMappings);
+    const nextProductMappings = options?.dryRun
+      ? seenMappings
+      : await bulkUpsertProductMappings(customer, seenMappings);
     const unresolvedProductKeys = new Set(
       productResolutionResults
         .filter((result) => result.status !== "Mapped")
@@ -7828,6 +7950,9 @@ async function createPreviewJobForRequest(
       source_evidence: options?.sourceEvidence ?? options?.existingJob?.source_evidence ?? null,
       source_order_last_seen_at: options?.existingJob?.source_order_last_seen_at ?? null,
       source_order_history: options?.existingJob?.source_order_history ?? [],
+      source_order_impact: options?.existingJob?.source_order_impact,
+      source_order_review_dispositions:
+        options?.existingJob?.source_order_review_dispositions ?? [],
       source_document_publications:
         options?.sourceDocumentPublications ??
         options?.existingJob?.source_document_publications ??
@@ -7837,12 +7962,18 @@ async function createPreviewJobForRequest(
         : options?.existingJob?.recovery_audit ?? []
     };
     if (options?.sourceEvidence) {
-      const referenceProofEvidenceIds = (options.sourceDocumentPublications ?? [])
-        .filter((publication) => publication.document_role === "reference_proof")
-        .flatMap((publication) => publication.source_evidence_ids ?? [publication.evidence_id]);
+      const referenceProofEvidenceIds = options.referenceProofEvidenceIds ??
+        (options.sourceDocumentPublications ?? [])
+          .filter((publication) => publication.document_role === "reference_proof")
+          .flatMap((publication) => publication.source_evidence_ids ?? [publication.evidence_id]);
       job = {
         ...job,
-        source_order_last_seen_at: timestamp
+        source_order_last_seen_at: timestamp,
+        source_order_impact: buildWrikeSourceOrderImpact({
+          payload: job.lift_payload,
+          workbook_sha256: options.sourceEvidence.evidence_sha256,
+          reference_proof_evidence_ids: referenceProofEvidenceIds
+        })
       };
       job = appendWrikeSourceOrderHistory(job, {
         action: options.existingJob ? "source_version_prepared" : "source_order_created",
@@ -7852,6 +7983,15 @@ async function createPreviewJobForRequest(
           ? "Pathfinder prepared an updated source version inside this order record. No additional Pathfinder job was created."
           : "Pathfinder created this order record from the qualified Wrike Placard Order."
       });
+    }
+    if (options?.dryRun) {
+      return {
+        job,
+        workspace: {
+          ...workspace,
+          primary_target: maskTargetConfig(target)
+        }
+      };
     }
     const nextWorkspace = await persistPreviewJob(customer, job, method, {
       persistMethod: !isAdHocManualImport && !options?.existingJob
@@ -7909,6 +8049,84 @@ app.get("/api/customers/:liftCustomerId/jobs/:jobId", async (req, res) => {
     });
   }
 });
+
+app.post(
+  "/api/customers/:liftCustomerId/jobs/:jobId/source-order-reviews/:eventId/disposition",
+  async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const customer = await findLiftCustomer(req.params.liftCustomerId);
+      const disposition = valueAsString(req.body?.disposition).trim();
+      if (!["no_lift_update_needed", "resolved"].includes(disposition)) {
+        res.status(400).json({ error: "Choose No Lift update needed or Mark reviewed." });
+        return;
+      }
+      const actorId =
+        typeof res.locals.authUser?.email === "string" && res.locals.authUser.email.trim()
+          ? res.locals.authUser.email.trim().toLowerCase()
+          : "authenticated-operator";
+      const result = await recordWrikeSourceOrderReviewDisposition(customer, {
+        job_id: req.params.jobId,
+        event_id: req.params.eventId,
+        disposition: disposition as "no_lift_update_needed" | "resolved",
+        actor_id: actorId,
+        note: typeof req.body?.note === "string" ? req.body.note : null
+      });
+      if (!result) {
+        res.status(404).json({ error: "Preview job not found." });
+        return;
+      }
+      const jobs = await listJobs();
+      const job = await sourceOrderJobDetail(result.job, jobs);
+      console.info(JSON.stringify({
+        _aws: {
+          Timestamp: Date.parse(result.disposition.created_at) || Date.now(),
+          CloudWatchMetrics: [{
+            Namespace: "Pathfinder/WrikeSourceOrders",
+            Dimensions: [["Service", "Operation", "Disposition"]],
+            Metrics: [{ Name: "DispositionRecorded", Unit: "Count" }]
+          }]
+        },
+        event: "source_order_review_disposition_recorded",
+        service: "pathfinder-api",
+        operation: "source_order_review_disposition",
+        Service: "pathfinder-api",
+        Operation: "source_order_review_disposition",
+        Disposition: result.disposition.disposition,
+        disposition_id: result.disposition.disposition_id,
+        source_event_id: result.disposition.event_id,
+        customer_id: customer.lift_customer_id,
+        job_id: result.job.job_id,
+        source_task_id: result.job.source_evidence?.task_id ?? null,
+        disposition: result.disposition.disposition,
+        actor_id: result.disposition.actor_id,
+        reused: result.reused,
+        lift_actions: false,
+        wrike_writes: false,
+        DispositionRecorded: result.reused ? 0 : 1
+      }));
+      res.status(result.reused ? 200 : 201).json({
+        job,
+        disposition: result.disposition,
+        reused: result.reused,
+        message:
+          result.disposition.disposition === "no_lift_update_needed"
+            ? "Review saved. No Lift update is needed, and no Lift or Wrike action occurred."
+            : "Review saved. No Lift or Wrike action occurred.",
+        lift_actions: false,
+        wrike_writes: false
+      });
+    } catch (error) {
+      if (error instanceof WrikeSourceOrderReviewConflictError) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+      res.status(500).json({
+        error: "The source review could not be saved. No Lift or Wrike action occurred."
+      });
+    }
+  }
+);
 
 app.post(
   "/api/customers/:liftCustomerId/jobs/:jobId/re-evaluate-mappings",

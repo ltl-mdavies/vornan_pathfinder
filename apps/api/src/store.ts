@@ -77,6 +77,10 @@ import {
 } from "@pathfinder/wrike-adapter";
 import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
 import { assertLocalStorageDriver, getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
+import type {
+  WrikeSourceOrderImpact,
+  WrikeSourceOrderImpactAssessment
+} from "./wrike-source-order-impact.js";
 
 export type ImportMethodStatus = "Active" | "Inactive" | "Draft" | "Paused" | "Archived";
 export type ImportMethodSource = "XLSX" | "Google Sheet" | "PDF PO" | "REST API" | "Clipboard" | "SFTP" | "Wrike";
@@ -672,12 +676,27 @@ export interface WrikeSourceOrderHistoryEntry {
     | "source_order_created"
     | "source_version_prepared"
     | "source_change_observed_after_transport"
+    | "source_change_assessed_no_impact"
     | "campaign_identity_captured";
   created_at: string;
   source_evidence_id: string;
   import_method_fingerprint: string;
   reference_proof_evidence_ids: string[];
   message: string;
+  impact_assessment?: WrikeSourceOrderImpactAssessment;
+}
+
+export type WrikeSourceOrderReviewDispositionValue =
+  | "no_lift_update_needed"
+  | "resolved";
+
+export interface WrikeSourceOrderReviewDisposition {
+  disposition_id: string;
+  event_id: string;
+  disposition: WrikeSourceOrderReviewDispositionValue;
+  actor_id: string;
+  created_at: string;
+  note: string | null;
 }
 
 export interface WrikeRelatedSourceJobSummary {
@@ -783,6 +802,8 @@ export interface ProcessingJobPreview {
   } | null;
   source_order_last_seen_at?: string | null;
   source_order_history?: WrikeSourceOrderHistoryEntry[];
+  source_order_impact?: WrikeSourceOrderImpact;
+  source_order_review_dispositions?: WrikeSourceOrderReviewDisposition[];
   /** Read-only list projection. Related records remain independently stored for audit. */
   source_order_summary?: WrikeSourceOrderSummary;
   source_document_publications?: Array<{
@@ -5402,6 +5423,177 @@ export async function persistJobSnapshot(customer: LiftCustomer, job: Processing
   }
 
   return nextJob;
+}
+
+export class WrikeSourceOrderReviewConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WrikeSourceOrderReviewConflictError";
+  }
+}
+
+let localWrikeSourceOrderReviewQueue: Promise<void> = Promise.resolve();
+
+function normalizedSourceOrderReviewNote(value: string | null | undefined) {
+  const note = value?.trim().replace(/\s+/g, " ") ?? "";
+  if (note.length > 300) {
+    throw new WrikeSourceOrderReviewConflictError("Keep the review note to 300 characters or fewer.");
+  }
+  return note || null;
+}
+
+function nextSourceOrderReviewDisposition(args: {
+  job: ProcessingJobPreview;
+  event_id: string;
+  disposition: WrikeSourceOrderReviewDispositionValue;
+  actor_id: string;
+  note?: string | null;
+  created_at: string;
+}) {
+  const event = args.job.source_order_history?.find(
+    (entry) =>
+      entry.event_id === args.event_id &&
+      entry.action === "source_change_observed_after_transport"
+  );
+  if (!event) {
+    throw new WrikeSourceOrderReviewConflictError(
+      "This source review event is no longer available. Refresh the job and try again."
+    );
+  }
+  const existing = args.job.source_order_review_dispositions?.find(
+    (entry) => entry.event_id === args.event_id
+  );
+  if (existing) return { job: args.job, disposition: existing, reused: true as const };
+  const actorId = args.actor_id.trim().toLowerCase().slice(0, 200) || "authenticated-operator";
+  const disposition: WrikeSourceOrderReviewDisposition = {
+    disposition_id: `wsord_${createHash("sha256")
+      .update("pathfinder-wrike-source-order-review-v1\0")
+      .update(args.job.customer_id)
+      .update("\0")
+      .update(args.job.job_id)
+      .update("\0")
+      .update(args.event_id)
+      .digest("hex")}`,
+    event_id: args.event_id,
+    disposition: args.disposition,
+    actor_id: actorId,
+    created_at: args.created_at,
+    note: normalizedSourceOrderReviewNote(args.note)
+  };
+  return {
+    job: {
+      ...args.job,
+      updated_at: args.created_at,
+      source_order_review_dispositions: [
+        disposition,
+        ...(args.job.source_order_review_dispositions ?? [])
+      ].slice(0, 100)
+    },
+    disposition,
+    reused: false as const
+  };
+}
+
+export async function recordWrikeSourceOrderReviewDisposition(
+  customer: LiftCustomer,
+  args: {
+    job_id: string;
+    event_id: string;
+    disposition: WrikeSourceOrderReviewDispositionValue;
+    actor_id: string;
+    note?: string | null;
+  }
+) {
+  if (!["no_lift_update_needed", "resolved"].includes(args.disposition)) {
+    throw new WrikeSourceOrderReviewConflictError("Choose a supported source review disposition.");
+  }
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: tables.jobs,
+      Key: {
+        customer_id: dynamoString(customer.lift_customer_id),
+        job_id: dynamoString(args.job_id)
+      },
+      ConsistentRead: true
+    }));
+    const item = response.Item as Record<string, AttributeValue> | undefined;
+    const job = item ? parseDynamoData<ProcessingJobPreview>(item) : null;
+    if (!job) return null;
+    const next = nextSourceOrderReviewDisposition({
+      job,
+      event_id: args.event_id,
+      disposition: args.disposition,
+      actor_id: args.actor_id,
+      note: args.note,
+      created_at: now()
+    });
+    if (next.reused) return next;
+    const expectedUpdatedAt = item?.updated_at?.S;
+    if (!expectedUpdatedAt) {
+      throw new WrikeSourceOrderReviewConflictError(
+        "The current job version could not be verified safely. Refresh and try again."
+      );
+    }
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: tables.jobs,
+        Item: {
+          ...dynamoItem(
+            { customer_id: next.job.customer_id, job_id: next.job.job_id },
+            compactProcessingJobForDynamo(next.job)
+          ),
+          updated_at: dynamoString(next.job.updated_at)
+        },
+        ConditionExpression: "updated_at = :expected_updated_at",
+        ExpressionAttributeValues: {
+          ":expected_updated_at": dynamoString(expectedUpdatedAt)
+        }
+      }));
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) throw error;
+      throw new WrikeSourceOrderReviewConflictError(
+        "This job changed while the review was being saved. Refresh and try again."
+      );
+    }
+    return next;
+  }
+
+  const operation = localWrikeSourceOrderReviewQueue.then(async () => {
+    const store = await readStore();
+    const job = store.jobs.find(
+      (candidate) =>
+        candidate.customer_id === customer.lift_customer_id && candidate.job_id === args.job_id
+    );
+    if (!job) return null;
+    const next = nextSourceOrderReviewDisposition({
+      job,
+      event_id: args.event_id,
+      disposition: args.disposition,
+      actor_id: args.actor_id,
+      note: args.note,
+      created_at: now()
+    });
+    if (next.reused) return next;
+    store.jobs = store.jobs.map((candidate) =>
+      candidate.customer_id === customer.lift_customer_id && candidate.job_id === args.job_id
+        ? next.job
+        : candidate
+    );
+    const workspace = normalizeWorkspace(
+      store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer)
+    );
+    workspace.jobs = store.jobs.filter(
+      (candidate) => candidate.customer_id === customer.lift_customer_id
+    );
+    workspace.updated_at = next.job.updated_at;
+    store.workspaces[customer.lift_customer_id] = workspace;
+    await writeStore(store);
+    return next;
+  });
+  localWrikeSourceOrderReviewQueue = operation.then(() => undefined, () => undefined);
+  return operation;
 }
 
 export class LiftOrderAssociationConflictError extends Error {

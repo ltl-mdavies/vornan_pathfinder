@@ -27,6 +27,10 @@ Never infer a production capability from merged code alone. Record repository-re
 
 ## Current production posture
 
+### Approved combined Proof and source-review release in development
+
+The next coordinated release is being prepared from current main. Its Pathfinder slice adds stable Lift-impact classification for post-transport Wrike replays and exact, audited internal review disposition; it does not add an order-update/retry path and does not auto-clear the six retained legacy warning events. Its Proof slices keep customer actions default-dark while making saved customer setup authoritative only after verified customer identity and live policy revalidation are complete. The planned production order is shared API first, dedicated Proof default-dark second, then Admin and any changed Proof SPA, followed by a natural scheduler cycle and read-only continuity reconciliation. This paragraph is repository status, not evidence that any new capability is deployed or activated.
+
 ### Deployed customer overview clarity release
 
 PR #193 merged and deployed as `a772630ad5cc499bbc846dd7d9e4f3f8d8307736` on 2026-08-13. Merged-main validation `31710079956`, API workflow `31710477663`, and Admin workflow `31711111458` completed successfully. The release replaces line-count and replay-distorted customer metrics with **Tracked Orders**, **Confirmed in Lift**, **Ready to Submit**, and **Needs Attention**, all computed from the existing source-order Jobs projection. Historical Wrike siblings remain nested audit records and do not become additional tracked orders.

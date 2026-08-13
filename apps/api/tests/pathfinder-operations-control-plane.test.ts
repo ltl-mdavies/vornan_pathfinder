@@ -105,9 +105,24 @@ test("scheduled Wrike preparation keeps one record per source task", () => {
   assert.match(source, /wrikeSourceOrderAnchorDisposition/);
   assert.match(source, /existingJob: sourceOrder\.anchor \?\? undefined/);
   assert.match(source, /source_change_observed_after_transport/);
-  assert.match(source, /Reconcile the existing submission before taking any action/);
+  assert.match(source, /assessWrikeSourceOrderImpact/);
+  assert.match(source, /source_change_assessed_no_impact/);
+  assert.match(source, /Pathfinder did not change Lift or Wrike/);
   assert.match(source, /sourceOrderJobProjection/);
   assert.match(source, /related_record_count/);
+});
+
+test("source review dispositions are internal, conditional, and never call external systems", () => {
+  const start = source.indexOf("source-order-reviews/:eventId/disposition");
+  const end = source.indexOf('"/api/customers/:liftCustomerId/jobs/:jobId/re-evaluate-mappings"', start);
+  assert.ok(start > 0 && end > start);
+  const route = source.slice(start, end);
+  assert.match(route, /recordWrikeSourceOrderReviewDisposition/);
+  assert.match(route, /lift_actions: false/);
+  assert.match(route, /wrike_writes: false/);
+  assert.doesNotMatch(route, /submitLiftOrder/);
+  assert.doesNotMatch(route, /postWrikeTaskComment/);
+  assert.match(storeSource, /ConditionExpression: "updated_at = :expected_updated_at"/);
 });
 
 test("confirmed or uncertain source changes stop before document publication", () => {

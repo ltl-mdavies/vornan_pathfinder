@@ -1006,12 +1006,38 @@ interface ProcessingJobPreview {
       | "source_order_created"
       | "source_version_prepared"
       | "source_change_observed_after_transport"
+      | "source_change_assessed_no_impact"
       | "campaign_identity_captured";
     created_at: string;
     source_evidence_id: string;
     import_method_fingerprint: string;
     reference_proof_evidence_ids: string[];
     message: string;
+    impact_assessment?: {
+      version: 1;
+      classification: "material" | "processing_only" | "impact_unavailable";
+      reason_codes: Array<
+        | "lift_header_changed"
+        | "lift_lines_changed"
+        | "reference_proof_set_changed"
+        | "workbook_content_changed"
+        | "processing_only_changed"
+        | "impact_unavailable"
+      >;
+      header_changed: boolean | null;
+      lines_changed: boolean | null;
+      document_set_changed: boolean | null;
+      baseline_fingerprint: string | null;
+      detected_fingerprint: string | null;
+    };
+  }>;
+  source_order_review_dispositions?: Array<{
+    disposition_id: string;
+    event_id: string;
+    disposition: "no_lift_update_needed" | "resolved";
+    actor_id: string;
+    created_at: string;
+    note: string | null;
   }>;
   source_order_summary?: {
     source_order_key: string;
@@ -4594,6 +4620,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [jobDetailState, setJobDetailState] = useState<"idle" | "loading" | "error">("idle");
   const [jobMappingReevaluationState, setJobMappingReevaluationState] =
     useState<"idle" | "loading" | "error">("idle");
+  const [sourceOrderReviewDraft, setSourceOrderReviewDraft] = useState<{
+    eventId: string;
+    disposition: "no_lift_update_needed" | "resolved";
+    note: string;
+  } | null>(null);
+  const [sourceOrderReviewState, setSourceOrderReviewState] =
+    useState<"idle" | "saving" | "error">("idle");
   const [orderLookupState, setOrderLookupState] = useState<"idle" | "loading" | "error">("idle");
   const [orderLookupResult, setOrderLookupResult] = useState<LiftOrderLookupResult | null>(null);
   const [proofReportState, setProofReportState] = useState<"idle" | "loading" | "error">("idle");
@@ -5555,6 +5588,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setJobActionMenuOpen(false);
     setSelectedJobDetail(job);
     setSelectedJobAttempts([]);
+    setSourceOrderReviewDraft(null);
+    setSourceOrderReviewState("idle");
     setOrderLookupResult(null);
     setOrderLookupState("idle");
     setProofReportResult(null);
@@ -5600,6 +5635,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setWrikeWritebackConfirmation("");
     setWrikeWritebackState("idle");
     setJobMappingReevaluationState("idle");
+    setSourceOrderReviewDraft(null);
+    setSourceOrderReviewState("idle");
   }
 
   async function reevaluateJobProductMappings(job: ProcessingJobPreview) {
@@ -5631,6 +5668,45 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           : "The job could not be checked again. No Lift order was created or retried."
       );
       setJobMappingReevaluationState("error");
+    }
+  }
+
+  async function saveSourceOrderReview(job: ProcessingJobPreview) {
+    if (!sourceOrderReviewDraft) return;
+    setSourceOrderReviewState("saving");
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/customers/${encodeURIComponent(job.customer_id)}/jobs/${encodeURIComponent(job.job_id)}/source-order-reviews/${encodeURIComponent(sourceOrderReviewDraft.eventId)}/disposition`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            disposition: sourceOrderReviewDraft.disposition,
+            note: sourceOrderReviewDraft.note
+          })
+        }
+      );
+      const payload = await readJsonResponse<{
+        job: ProcessingJobPreview;
+        message: string;
+        lift_actions: false;
+        wrike_writes: false;
+      }>(response);
+      setSelectedJobDetail(payload.job);
+      setGlobalJobs((current) => upsertJob(current, payload.job));
+      setWorkspace((current) =>
+        current ? { ...current, jobs: upsertJob(current.jobs, payload.job) } : current
+      );
+      setWorkspaceMessage(payload.message);
+      setSourceOrderReviewDraft(null);
+      setSourceOrderReviewState("idle");
+    } catch (error) {
+      setWorkspaceMessage(
+        error instanceof Error
+          ? error.message
+          : "The review could not be saved. No Lift or Wrike action occurred."
+      );
+      setSourceOrderReviewState("error");
     }
   }
 
@@ -6885,9 +6961,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const selectedJobMissingOrderTitle = Boolean(
     canRetrySelectedJob && !selectedJobDetail?.lift_payload.order.order_title?.trim()
   );
+  const selectedJobResolvedSourceEvents = new Set(
+    selectedJobDetail?.source_order_review_dispositions?.map((entry) => entry.event_id) ?? []
+  );
   const selectedJobSourceAttention = selectedJobDetail?.source_order_history?.filter(
-    (entry) => entry.action === "source_change_observed_after_transport"
+    (entry) =>
+      entry.action === "source_change_observed_after_transport" &&
+      !selectedJobResolvedSourceEvents.has(entry.event_id)
   ) ?? [];
+  const selectedJobActiveSourceAttention = selectedJobSourceAttention[0] ?? null;
+  const selectedJobSourceChangeSummary = selectedJobActiveSourceAttention?.impact_assessment
+    ? [
+        selectedJobActiveSourceAttention.impact_assessment.header_changed ? "order details" : null,
+        selectedJobActiveSourceAttention.impact_assessment.lines_changed ? "order lines" : null,
+        selectedJobActiveSourceAttention.impact_assessment.document_set_changed ? "reference proofs" : null
+      ].filter((value): value is string => Boolean(value))
+    : [];
   const selectedJobContractNumber = selectedJobDetail ? jobContractNumber(selectedJobDetail) : "Contract pending";
   const selectedJobCampaignName = selectedJobDetail ? jobCampaignName(selectedJobDetail) : "Campaign pending";
   const selectedJobLiftOrderNumber = selectedJobDetail?.target_order_number ?? latestJobAttempt?.response.lift_order_id ?? null;
@@ -17834,15 +17923,47 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </span>
                 </div>
               ) : null}
-              {selectedJobSourceAttention.length ? (
-                <section className="job-detail-attention" role="status" aria-label="Order needs review">
+              {selectedJobActiveSourceAttention ? (
+                <section className="job-detail-attention" aria-labelledby="source-review-title">
                   <AlertTriangle size={19} />
                   <div>
                     <span>Review needed</span>
-                    <strong>{selectedJobSourceAttention[0]?.message}</strong>
+                    <strong id="source-review-title">
+                      {selectedJobActiveSourceAttention.impact_assessment?.classification === "material"
+                        ? `${selectedJobSourceChangeSummary.length ? selectedJobSourceChangeSummary.join(", ") : "Lift-bound order information"} changed after confirmation.`
+                        : "Pathfinder could not verify whether the latest source affects this Lift order."}
+                    </strong>
                     <small>
-                      Lift order {selectedJobLiftOrderNumber ?? "pending"} is preserved. Review the source change before deciding whether the confirmed order needs an update.
+                      Lift order {selectedJobLiftOrderNumber ?? "pending"} is preserved. Pathfinder did not change Lift or Wrike. Review this event and record the safe disposition below.
                     </small>
+                    <div className="job-detail-attention-actions">
+                      <button
+                        className="secondary-button"
+                        onClick={() => {
+                          setSourceOrderReviewState("idle");
+                          setSourceOrderReviewDraft({
+                            eventId: selectedJobActiveSourceAttention.event_id,
+                            disposition: "no_lift_update_needed",
+                            note: ""
+                          });
+                        }}
+                      >
+                        No Lift update needed
+                      </button>
+                      <button
+                        className="secondary-button"
+                        onClick={() => {
+                          setSourceOrderReviewState("idle");
+                          setSourceOrderReviewDraft({
+                            eventId: selectedJobActiveSourceAttention.event_id,
+                            disposition: "resolved",
+                            note: ""
+                          });
+                        }}
+                      >
+                        Mark reviewed
+                      </button>
+                    </div>
                   </div>
                 </section>
               ) : null}
@@ -17921,28 +18042,56 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </small>
                   </summary>
                   <div>
-                    {(selectedJobDetail.source_order_history ?? []).map((entry) => (
-                      <article key={entry.event_id}>
-                        <span className={entry.action === "source_change_observed_after_transport" ? "mini-pill mini-pill-warning" : "mini-pill mini-pill-neutral"}>
-                          {entry.action === "source_order_created"
-                            ? "Order created"
-                            : entry.action === "source_version_prepared"
-                              ? "Source updated"
-                              : entry.action === "campaign_identity_captured"
-                                ? "Campaign matched"
-                                : "Review needed"}
-                        </span>
-                        <div>
-                          <strong>{entry.message}</strong>
-                          <small>
-                            {displayTimestamp(entry.created_at)} · Evidence {entry.source_evidence_id}
-                            {entry.reference_proof_evidence_ids.length
-                              ? ` · ${entry.reference_proof_evidence_ids.length} reference proof${entry.reference_proof_evidence_ids.length === 1 ? "" : "s"}`
-                              : ""}
-                          </small>
-                        </div>
-                      </article>
-                    ))}
+                    {(selectedJobDetail.source_order_history ?? []).map((entry) => {
+                      const disposition = selectedJobDetail.source_order_review_dispositions?.find(
+                        (candidate) => candidate.event_id === entry.event_id
+                      );
+                      const needsReview =
+                        entry.action === "source_change_observed_after_transport" && !disposition;
+                      return (
+                        <article key={entry.event_id}>
+                          <span
+                            className={
+                              needsReview
+                                ? "mini-pill mini-pill-warning"
+                                : disposition
+                                  ? "mini-pill mini-pill-success"
+                                  : "mini-pill mini-pill-neutral"
+                            }
+                          >
+                            {entry.action === "source_order_created"
+                              ? "Order created"
+                              : entry.action === "source_version_prepared"
+                                ? "Source updated"
+                                : entry.action === "campaign_identity_captured"
+                                  ? "Campaign matched"
+                                  : entry.action === "source_change_assessed_no_impact"
+                                    ? "No order impact"
+                                    : disposition
+                                      ? "Reviewed"
+                                      : "Review needed"}
+                          </span>
+                          <div>
+                            <strong>{entry.message}</strong>
+                            <small>
+                              {displayTimestamp(entry.created_at)} · Evidence {entry.source_evidence_id}
+                              {entry.reference_proof_evidence_ids.length
+                                ? ` · ${entry.reference_proof_evidence_ids.length} reference proof${entry.reference_proof_evidence_ids.length === 1 ? "" : "s"}`
+                                : ""}
+                            </small>
+                            {disposition ? (
+                              <small className="job-source-review-resolution">
+                                {disposition.disposition === "no_lift_update_needed"
+                                  ? "No Lift update needed"
+                                  : "Marked reviewed"}
+                                {` · ${disposition.actor_id} · ${displayTimestamp(disposition.created_at)}`}
+                                {disposition.note ? ` · ${disposition.note}` : ""}
+                              </small>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
                     {selectedJobDetail.source_order_summary?.related_records.map((record) => (
                       <article key={record.job_id}>
                         <span className="mini-pill mini-pill-neutral">Historical record</span>
@@ -19458,6 +19607,97 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               ) : (
                 <p className="empty-state">Loading snapshot...</p>
               )}
+            </section>
+          </div>
+        ) : null}
+
+        {sourceOrderReviewDraft && selectedJobDetail ? (
+          <div
+            className="product-map-modal-backdrop"
+            role="presentation"
+            onClick={() => sourceOrderReviewState !== "saving" && setSourceOrderReviewDraft(null)}
+          >
+            <section
+              className="product-map-modal source-order-review-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="source-order-review-modal-title"
+              aria-describedby="source-order-review-modal-description"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="modal-section-header">
+                <div>
+                  <p className="eyebrow">Source order review</p>
+                  <h2 id="source-order-review-modal-title">
+                    {sourceOrderReviewDraft.disposition === "no_lift_update_needed"
+                      ? "Confirm no Lift update is needed"
+                      : "Mark this event reviewed"}
+                  </h2>
+                  <span id="source-order-review-modal-description">
+                    This records an internal disposition only. No Lift or Wrike action will occur.
+                  </span>
+                </div>
+                <button
+                  className="modal-close-button"
+                  onClick={() => setSourceOrderReviewDraft(null)}
+                  aria-label="Cancel source order review"
+                  disabled={sourceOrderReviewState === "saving"}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="source-order-review-identities">
+                <div>
+                  <span>Wrike order</span>
+                  <strong>{selectedJobContractNumber} · {selectedJobCampaignName}</strong>
+                </div>
+                <div>
+                  <span>Pathfinder job</span>
+                  <strong>{displayJobId(selectedJobDetail.job_id)}</strong>
+                </div>
+                <div>
+                  <span>Lift order</span>
+                  <strong>{selectedJobLiftOrderNumber ?? "Confirmation pending"}</strong>
+                </div>
+              </div>
+              <label className="setup-control source-order-review-note">
+                <span>Review note (optional)</span>
+                <textarea
+                  value={sourceOrderReviewDraft.note}
+                  maxLength={300}
+                  rows={3}
+                  autoFocus
+                  onChange={(event) =>
+                    setSourceOrderReviewDraft((current) =>
+                      current ? { ...current, note: event.target.value } : current
+                    )
+                  }
+                  placeholder="Add a short non-sensitive note for the activity history."
+                />
+                <small>{sourceOrderReviewDraft.note.length}/300 characters</small>
+              </label>
+              {sourceOrderReviewState === "error" ? (
+                <p className="form-error" role="alert">
+                  The review was not saved. Refresh the job if it changed and try again.
+                </p>
+              ) : null}
+              <div className="modal-action-row">
+                <button
+                  className="secondary-button"
+                  onClick={() => setSourceOrderReviewDraft(null)}
+                  disabled={sourceOrderReviewState === "saving"}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="primary-button"
+                  onClick={() => void saveSourceOrderReview(selectedJobDetail)}
+                  disabled={sourceOrderReviewState === "saving"}
+                >
+                  <Check size={16} />
+                  {sourceOrderReviewState === "saving" ? "Saving review…" : "Save review"}
+                </button>
+              </div>
             </section>
           </div>
         ) : null}

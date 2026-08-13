@@ -86,7 +86,10 @@ export function projectLastMeaningfulActivity(job: ProcessingJobPreview) {
     job.order_confirmed_at,
     job.archived_at,
     stateResultTimestamp,
-    ...(job.source_order_history ?? []).map((entry) => entry.created_at),
+    ...(job.source_order_history ?? [])
+      .filter((entry) => entry.action !== "source_change_assessed_no_impact")
+      .map((entry) => entry.created_at),
+    ...(job.source_order_review_dispositions ?? []).map((entry) => entry.created_at),
     ...(job.source_document_publications ?? []).map((entry) => entry.published_at),
     ...(job.recovery_audit ?? []).map((entry) => entry.created_at),
     ...(job.target_order_association_history ?? []).map((entry) => entry.linked_at),
