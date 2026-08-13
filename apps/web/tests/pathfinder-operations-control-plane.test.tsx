@@ -130,7 +130,11 @@ test("Job detail prioritizes order identity, attention, and progressive disclosu
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   assert.match(source, /Wrike order · \{displayJobId\(selectedJobDetail\.job_id\)\}/);
   assert.match(source, /\{selectedJobContractNumber\} · \{selectedJobCampaignName\}/);
-  assert.match(source, /aria-label="Order needs review"/);
+  assert.match(source, /aria-labelledby="source-review-title"/);
+  assert.match(source, /No Lift update needed/);
+  assert.match(source, /Mark reviewed/);
+  assert.match(source, /No Lift or Wrike action will occur/);
+  assert.match(source, /source_order_review_dispositions/);
   assert.match(source, /Refresh Lift status/);
   assert.match(source, /aria-label="Job actions"/);
   assert.match(source, /Current Lift order/);

@@ -400,6 +400,21 @@ Known hardening debt:
 - add success/failure notifications that do not require daily babysitting;
 - persist scheduler candidate failures in durable audit history after the sanitized log contract is proven in production.
 
+### Repository-ready post-transport source review (not yet deployed)
+
+The approved next release replaces broad-fingerprint warnings with a fail-closed, Lift-impacting comparison while preserving every duplicate-order and uncertain-submit guard:
+
+- the existing broad Import Method/route/mapping fingerprint remains preparation and idempotency evidence, but fingerprint inequality alone no longer claims that a customer changed an order;
+- a versioned impact digest compares only stable Lift-bound header fields, lines/resolved product identity, workbook content, and the stable reference-proof evidence set; Ext_ID/job metadata, signed URLs, task chatter, unrelated mappings, and code/schema noise are excluded;
+- the post-transport check is an in-memory dry run. It does not persist product mappings, publish documents, create a job/order identity, call Lift, write Wrike, or reserve a submit attempt;
+- an identical effective order records a collapsed **No order impact** history item and does not advance Last Activity;
+- a material difference records sanitized changed-component reason codes and keeps **Review needed** open; an unavailable comparison uses **Unable to verify source impact** language and remains fail closed;
+- an authenticated operator may disposition one exact event as **No Lift update needed** or **Mark reviewed**. The narrow conditional Jobs-item write is idempotent, preserves the immutable original event, records actor/time/optional bounded note, advances Last Activity, and causes zero external effect;
+- a later distinct material event receives a new event identity and reopens attention. Prior disposition never suppresses a later event.
+- sanitized `Pathfinder/WrikeSourceOrders` EMF records assessment/material/unknown outcomes and successful dispositions using hashed identities and component booleans/digests; customer cells, filenames, URLs, payloads, and review notes are excluded. Observe natural volume before activating age/unknown-rate alarms.
+
+The six existing production events are not automatically migrated, reclassified, or cleared by deployment. Because their historical records lack component-level impact digests, the Admin must describe them as unverifiable until a separately authorized read-only assessment is completed. Any production disposition remains a separately approved exact-event data mutation. Rollback is application-only; retained assessment/disposition fields and history must not be deleted.
+
 ## Newly confirmed Momentara requirements — 2026-08-10
 
 These requirements are implemented in the deployed runtime and configured in production. Multi-root discovery contains the GPA and IBA roots, and the text-quantity rule is scoped to the hardware section described below.

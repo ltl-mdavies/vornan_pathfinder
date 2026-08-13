@@ -71,6 +71,35 @@ test("no-op scheduler updates do not advance confirmed job activity", () => {
   assert.equal(projectLastMeaningfulActivity(job()), "2026-08-13T14:28:17.997Z");
 });
 
+test("processing-only source checks do not advance activity, but human review does", () => {
+  const processingOnly = job({
+    source_order_history: [{
+      event_id: "event-no-impact",
+      action: "source_change_assessed_no_impact",
+      created_at: "2026-08-13T15:00:00.000Z",
+      source_evidence_id: "evidence",
+      import_method_fingerprint: "fingerprint",
+      reference_proof_evidence_ids: [],
+      message: "No order impact."
+    }]
+  });
+  assert.equal(projectLastMeaningfulActivity(processingOnly), "2026-08-13T14:28:17.997Z");
+  assert.equal(
+    projectLastMeaningfulActivity({
+      ...processingOnly,
+      source_order_review_dispositions: [{
+        disposition_id: "disposition",
+        event_id: "event-material",
+        disposition: "resolved",
+        actor_id: "operator@vornan.co",
+        created_at: "2026-08-13T15:05:00.000Z",
+        note: null
+      }]
+    }),
+    "2026-08-13T15:05:00.000Z"
+  );
+});
+
 test("failure result and durable writeback events advance meaningful activity", () => {
   assert.equal(
     projectLastMeaningfulActivity(job({

@@ -93,6 +93,12 @@ Treat as ambiguous. Search Lift by Ext_ID and reconcile before any retry. If fou
 
 Repair in order: associate Lift order → create/confirm status token → verify status loads → inspect durable writeback state → post once if explicitly approved and not already posted/uncertain.
 
+### Source review appears after Lift confirmation
+
+Do not infer a customer workbook edit from a broad processing-fingerprint change. Confirm the exact source-change event, workbook evidence/version, reference-proof set, Pathfinder job/Ext_ID, and Lift order. Current historical events may lack component-level impact evidence; describe those as **Unable to verify source impact**, not as a proven customer change.
+
+The repository-ready classifier compares the effective Lift-bound header, lines/product identity, workbook content, and stable proof set without publishing or calling Lift/Wrike. A technical-only result requires no operator warning. Material or unavailable impact remains stopped before publication/transport/writeback. The supported dispositions are **No Lift update needed** and **Mark reviewed** for one exact event. Either action is an internal, conditional, append-only Jobs-item update; it does not update Lift or Wrike. Obtain explicit approval naming the job, event ID, and disposition before using it in production. Never batch-clear legacy events or use a disposition to bypass an uncertain-submit reconciliation.
+
 ### Proof unavailable or stale
 
 Synchronize the exact Lift order through the read path, verify current `ATTACHMENT_ID` and shared-line scope, and refresh signed links transiently. Never treat an expired signed URL as evidence that the proof record itself is absent.
