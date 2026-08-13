@@ -43,6 +43,12 @@ count before the save, verify exactly one additive audit entry afterward, and
 prove Import Methods, mappings, output routes, Jobs, order IDs, submit attempts,
 status records, and scheduled intake parameters are unchanged.
 
+Before production setup enablement, replace the current general store-save path
+for customer Proof settings with a narrow conditional write against the exact
+customer policy/workspace version. A stale Admin page must fail with a conflict;
+it must never overwrite a newer setting or cause unrelated customer, Import
+Method, mapping, Job, order, attempt, status, or runtime record to be rewritten.
+
 The pilot must stop unless the public Proof runtime enforces the resolved saved
 policy at grant creation, session/current-order resolution, public DTO/profile,
 and decision execution. A global deployment flag by itself is not customer

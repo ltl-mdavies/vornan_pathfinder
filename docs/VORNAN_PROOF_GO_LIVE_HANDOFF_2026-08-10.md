@@ -96,7 +96,10 @@ The intended operating model is:
 5. record actor, previous/next policy, profile version, order scope, and time in
    durable audit without changing Import Methods, mappings, Jobs, submit attempts,
    order IDs, or Wrike/Lift scheduler state; and
-6. make disablement stop new grants and decisions immediately, with an explicit
+6. persist a setting change through a narrow conditional write to the exact
+   customer policy/workspace version, never through a broad whole-store rewrite;
+   and
+7. make disablement stop new grants and decisions immediately, with an explicit
    revoke/end-session workflow for existing access.
 
 Infrastructure gates remain platform emergency controls. They must not become
