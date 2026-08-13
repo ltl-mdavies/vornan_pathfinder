@@ -3,7 +3,8 @@ import test from "node:test";
 import type { LiftOrderPayload } from "@pathfinder/lift-adapter";
 import {
   assessWrikeSourceOrderImpact,
-  buildWrikeSourceOrderImpact
+  buildWrikeSourceOrderImpact,
+  hasRecordedWrikeSourceOrderReviewVersion
 } from "../src/wrike-source-order-impact.js";
 
 function payload(): LiftOrderPayload {
@@ -99,4 +100,52 @@ test("missing impact remains fail closed", () => {
   const assessment = assessWrikeSourceOrderImpact(null, null);
   assert.equal(assessment.classification, "impact_unavailable");
   assert.deepEqual(assessment.reason_codes, ["impact_unavailable"]);
+});
+
+test("an existing review for the same immutable source version suppresses classifier-only duplicates", () => {
+  const sourceVersion = {
+    source_evidence_id: "wrike_workbook_same",
+    import_method_fingerprint: "processing-fingerprint-same",
+    reference_proof_evidence_ids: ["proof-b", "proof-a"]
+  };
+  assert.equal(hasRecordedWrikeSourceOrderReviewVersion([
+    {
+      action: "source_change_observed_after_transport",
+      source_evidence_id: sourceVersion.source_evidence_id,
+      import_method_fingerprint: sourceVersion.import_method_fingerprint,
+      reference_proof_evidence_ids: ["proof-a", "proof-b"]
+    }
+  ], sourceVersion), true);
+  assert.equal(hasRecordedWrikeSourceOrderReviewVersion([
+    {
+      action: "source_change_assessed_no_impact",
+      source_evidence_id: sourceVersion.source_evidence_id,
+      import_method_fingerprint: sourceVersion.import_method_fingerprint,
+      reference_proof_evidence_ids: ["proof-a", "proof-b"]
+    }
+  ], sourceVersion), true);
+});
+
+test("a distinct workbook, processing fingerprint, or proof set remains eligible for a new review", () => {
+  const history = [{
+    action: "source_change_observed_after_transport",
+    source_evidence_id: "wrike_workbook_original",
+    import_method_fingerprint: "processing-fingerprint-original",
+    reference_proof_evidence_ids: ["proof-original"]
+  }];
+  assert.equal(hasRecordedWrikeSourceOrderReviewVersion(history, {
+    source_evidence_id: "wrike_workbook_updated",
+    import_method_fingerprint: "processing-fingerprint-original",
+    reference_proof_evidence_ids: ["proof-original"]
+  }), false);
+  assert.equal(hasRecordedWrikeSourceOrderReviewVersion(history, {
+    source_evidence_id: "wrike_workbook_original",
+    import_method_fingerprint: "processing-fingerprint-updated",
+    reference_proof_evidence_ids: ["proof-original"]
+  }), false);
+  assert.equal(hasRecordedWrikeSourceOrderReviewVersion(history, {
+    source_evidence_id: "wrike_workbook_original",
+    import_method_fingerprint: "processing-fingerprint-original",
+    reference_proof_evidence_ids: ["proof-updated"]
+  }), false);
 });

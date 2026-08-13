@@ -147,6 +147,7 @@ import {
 import {
   assessWrikeSourceOrderImpact,
   buildWrikeSourceOrderImpact,
+  hasRecordedWrikeSourceOrderReviewVersion,
   type WrikeSourceOrderImpactAssessment
 } from "./wrike-source-order-impact.js";
 import {
@@ -5184,6 +5185,19 @@ function appendWrikeSourceOrderHistory(
   }
 ) {
   const proofIds = [...(args.referenceProofEvidenceIds ?? [])].sort();
+  const isSourceReview =
+    args.action === "source_change_observed_after_transport" ||
+    args.action === "source_change_assessed_no_impact";
+  if (isSourceReview && hasRecordedWrikeSourceOrderReviewVersion(
+    job.source_order_history,
+    {
+      source_evidence_id: args.sourceEvidence.evidence_id,
+      import_method_fingerprint: args.sourceEvidence.import_method_fingerprint,
+      reference_proof_evidence_ids: proofIds
+    }
+  )) {
+    return job;
+  }
   const eventId = `wsoh_${createHash("sha256")
     .update("pathfinder-wrike-source-order-history-v1\0")
     .update(job.customer_id)
@@ -5199,10 +5213,7 @@ function appendWrikeSourceOrderHistory(
     .update(args.sourceEvidence.import_method_fingerprint)
     .update("\0")
     .update(proofIds.join("\0"))
-    .update("\0")
-    .update(args.impactAssessment?.classification ?? "unassessed")
-    .update("\0")
-    .update(args.impactAssessment?.detected_fingerprint ?? "")
+    .update(isSourceReview ? "\0source-review-version-v2" : "\0unassessed\0")
     .digest("hex")}`;
   const existing = job.source_order_history ?? [];
   if (existing.some((entry) => entry.event_id === eventId)) {

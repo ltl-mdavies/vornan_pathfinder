@@ -30,6 +30,31 @@ export interface WrikeSourceOrderImpactAssessment {
   detected_fingerprint: string | null;
 }
 
+type WrikeSourceOrderReviewVersion = {
+  action: string;
+  source_evidence_id: string;
+  import_method_fingerprint: string;
+  reference_proof_evidence_ids?: string[];
+};
+
+const SOURCE_REVIEW_ACTIONS = new Set([
+  "source_change_observed_after_transport",
+  "source_change_assessed_no_impact"
+]);
+
+export function hasRecordedWrikeSourceOrderReviewVersion(
+  history: WrikeSourceOrderReviewVersion[] | undefined,
+  sourceVersion: Omit<WrikeSourceOrderReviewVersion, "action">
+) {
+  const proofIds = [...(sourceVersion.reference_proof_evidence_ids ?? [])].sort();
+  return (history ?? []).some((entry) =>
+    SOURCE_REVIEW_ACTIONS.has(entry.action) &&
+    entry.source_evidence_id === sourceVersion.source_evidence_id &&
+    entry.import_method_fingerprint === sourceVersion.import_method_fingerprint &&
+    JSON.stringify([...(entry.reference_proof_evidence_ids ?? [])].sort()) === JSON.stringify(proofIds)
+  );
+}
+
 function stableValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stableValue);
   if (!value || typeof value !== "object") return value;
