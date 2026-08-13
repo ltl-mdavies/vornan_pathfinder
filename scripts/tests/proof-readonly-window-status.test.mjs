@@ -32,6 +32,12 @@ function inventory(overrides = {}) {
     ReadOnlyActivationExpiresAt: "2099-07-28T21:49:50.000Z",
     OperatorGrantCreationEnabled: "true",
     GrantAllowedCustomerIds: "1249",
+    CustomerApprovalEnabled: "false",
+    CustomerRevisionUploadEnabled: "false",
+    ProofAssetUploadEnabled: "false",
+    LtlDemoQaEnabled: "false",
+    LtlDemoQaAllowedOrders: "",
+    LtlDemoQaExpiresAt: "",
     SyntheticQaEnabled: "false",
     ReadOnlyQaConfirmed: "true",
     ProductionPublicReadApproved: "false",
@@ -71,12 +77,47 @@ function inventory(overrides = {}) {
 test("reports a healthy bounded window with no active access", () => {
   const result = evaluateProofReadOnlyWindowStatus(inventory(), new Date("2026-07-21T22:00:00.000Z"));
   assert.equal(result.status, "healthy_no_active_access");
+  assert.equal(result.window_mode, "isolated_operator_window");
   assert.equal(result.cohort_size, 1);
   assert.equal(result.counts.alarms_expected, 10);
   assert.equal(result.public_read_change_authorized, false);
   assert.equal(result.grant_creation_change_authorized, false);
   assert.equal(result.deployment_authorized, false);
   assert.equal(result.lift_write_authorized, false);
+});
+
+test("recognizes the current protected public-read posture", () => {
+  const result = evaluateProofReadOnlyWindowStatus(inventory({ parameters: {
+    OperatorGrantCreationEnabled: "false",
+    ProductionPublicReadApproved: "true",
+    ProofDomainName: "proof.vornan.co",
+    CertificateArn: "certificate"
+  } }), new Date("2026-07-21T22:00:00.000Z"));
+  assert.equal(result.status, "healthy_no_active_access");
+  assert.equal(result.window_mode, "protected_public_read");
+  assert.equal(result.capabilities.public_read, true);
+  assert.equal(result.capabilities.customer_approval, false);
+});
+
+test("recognizes the exact-order LTL Demo QA posture without exposing the allowlist", () => {
+  const result = evaluateProofReadOnlyWindowStatus(inventory({ parameters: {
+    PublicReadEnabled: "false",
+    OperatorGrantCreationEnabled: "false",
+    GrantAllowedCustomerIds: "",
+    ReadOnlyActivationExpiresAt: "",
+    LtlDemoQaEnabled: "true",
+    LtlDemoQaAllowedOrders: "A0226753",
+    LtlDemoQaExpiresAt: "2099-07-28T21:49:50.000Z",
+    ProofDomainName: "proof.vornan.co",
+    CertificateArn: "certificate"
+  } }), new Date("2026-07-21T22:00:00.000Z"));
+  assert.equal(result.status, "healthy_no_active_access");
+  assert.equal(result.window_mode, "ltl_demo_qa");
+  assert.equal(result.cohort_size, 1);
+  assert.equal(result.allowed_order_count, 1);
+  assert.equal(result.capabilities.customer_approval, true);
+  assert.equal(result.capabilities.customer_revision_upload, true);
+  assert.doesNotMatch(JSON.stringify(result), /A0226753|1249/);
 });
 
 test("fails closed for an expired or unsafe stack posture", () => {
