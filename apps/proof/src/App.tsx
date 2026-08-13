@@ -39,6 +39,7 @@ import {
 import { proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation } from "./lifecycle-state";
 import { ProofPreview } from "./proof-preview";
 import { RevisionUploadDialog } from "./revision-upload-dialog";
+import { usesAdvancedQuantityAllocation } from "./review-experience";
 import {
   quantityDraftMatches,
   buildDemoTransformationSummary,
@@ -406,6 +407,7 @@ type ActionTransportProps = {
   onSaveDraft: (draft: SavedQuantityDraft) => void;
   demoBatchEnabled: boolean;
   decisionsEnabled: boolean;
+  reviewExperience: "simple" | "advanced";
   revisionUploadEnabled: boolean;
   participantIdentified: boolean;
   onApproveSingle: (task: ProofTask, note: string) => Promise<void>;
@@ -413,8 +415,8 @@ type ActionTransportProps = {
   mobile?: boolean;
 };
 
-function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestRevision, mobile = false }: ActionTransportProps) {
-  const multiProof = tasks.length > 1;
+function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, reviewExperience, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestRevision, mobile = false }: ActionTransportProps) {
+  const multiProof = usesAdvancedQuantityAllocation(tasks.length, reviewExperience);
   const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
   const selectedCreativeNumber = tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1;
   const stagedTasks = tasks.filter((task) => stagedTaskIds.includes(task.task_id));
@@ -467,6 +469,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
     ? "Approval access is not enabled for this review link."
     : !participantIdentified
       ? "Identify the reviewer before approving this proof."
+      : tasks.length > 1 && reviewExperience === "simple"
+        ? "This line has multiple current proofs and requires the Advanced review profile."
       : selectedTask.feedback_required && !selectedTask.feedback_acknowledged
         ? "Review and acknowledge the prepress team feedback before approving."
         : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
@@ -478,6 +482,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
     ? "Revised artwork upload is not enabled for this review link."
     : !participantIdentified
       ? "Identify the reviewer before providing revised artwork."
+      : tasks.length > 1 && reviewExperience === "simple"
+        ? "This line has multiple current proofs and requires coordinated support."
       : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
         ? "This proof is shared by multiple lines and needs coordinated support before replacement artwork can be accepted."
         : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
@@ -1291,6 +1297,7 @@ export function App() {
                 onSaveDraft={(draft) => saveQuantityReview(selectedGroup?.group_id ?? selectedTask.task_id, draft)}
                 demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
                 decisionsEnabled={order!.access.decisions_enabled}
+                reviewExperience={order!.access.review_experience}
                 revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                 participantIdentified={Boolean(participant)}
                 onApproveSingle={approveSingleProof}
@@ -1374,6 +1381,7 @@ export function App() {
                   onSaveDraft={(draft) => saveQuantityReview(group.group_id, draft)}
                   demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
                   decisionsEnabled={order!.access.decisions_enabled}
+                  reviewExperience={order!.access.review_experience}
                   revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                   participantIdentified={Boolean(participant)}
                   onApproveSingle={approveSingleProof}

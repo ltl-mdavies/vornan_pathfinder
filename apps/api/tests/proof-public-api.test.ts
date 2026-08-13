@@ -14,6 +14,14 @@ let store: typeof import("../src/proof/store.ts");
 let createPublicRouter: typeof import("../src/proof/public-router.ts")["createProofPublicRouter"];
 let createAdminRouter: typeof import("../src/proof/router.ts")["createProofAdminRouter"];
 
+const reviewCapability = {
+  pathfinder_customer_id: "284619",
+  access_mode: "review" as const,
+  review_experience: "simple" as const,
+  source: "customer_default" as const,
+  policy_updated_at: "2026-08-08T15:30:00.000Z"
+};
+
 function exchangeCredentials(exchange: request.Response) {
   const cookies = exchange.headers["set-cookie"] ?? [];
   const session = cookies.find((cookie: string) => cookie.startsWith("vornan_proof_session=")) ?? "";
@@ -417,7 +425,8 @@ test("exposes the one supported approval route only to a review-scoped session",
     }));
     const created = await access.createProofGrant({
       order_number: order.order_number,
-      scope: "review"
+      scope: "review",
+      capability: reviewCapability
     });
     const exchange = await request(approvalApp)
       .post("/api/public/proof/sessions")
@@ -438,6 +447,7 @@ test("exposes the one supported approval route only to a review-scoped session",
       .expect(200);
     assert.equal(packet.body.order.access.scope, "review");
     assert.equal(packet.body.order.access.decisions_enabled, true);
+    assert.equal(packet.body.order.access.review_experience, "simple");
     assert.equal(packet.body.order.tasks[0].attachment_id, order.tasks[0]!.attachment_id);
     assert.equal(packet.body.order.tasks[0].version, order.tasks[0]!.version);
 
@@ -513,7 +523,8 @@ test("binds revised-art upload lifecycle calls to one identified review session 
     }));
     const created = await access.createProofGrant({
       order_number: order.order_number,
-      scope: "review"
+      scope: "review",
+      capability: reviewCapability
     });
     delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
     const exchange = await request(revisionApp)
@@ -591,7 +602,8 @@ test("keeps customer revised-art upload dark before any upload service call", as
   }));
   const created = await access.createProofGrant({
     order_number: order.order_number,
-    scope: "review"
+    scope: "review",
+    capability: reviewCapability
   });
   delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
   const exchange = await request(darkApp)

@@ -54,7 +54,7 @@ test("customer Proof settings are safe by default, audited, order-aware, and per
       const advanced = await updateCustomerProofCapabilityPolicy(customer, {
         access_mode: "review",
         review_experience: "advanced"
-      }, "operator-test");
+      }, "operator-test", before.policy_updated_at);
       assert.equal(advanced.proof_capability_audit.length, 1);
       assert.equal(advanced.proof_capability_audit[0].scope, "customer");
 
@@ -66,7 +66,7 @@ test("customer Proof settings are safe by default, audited, order-aware, and per
       const simpleOverride = await upsertCustomerProofOrderOverride(customer, "a0226753", {
         access_mode: "review",
         review_experience: "simple"
-      }, "operator-test");
+      }, "operator-test", advanced.proof_capability_policy.updated_at);
       assert.equal(simpleOverride.proof_capability_policy.order_overrides[0].order_number, "A0226753");
       assert.equal(simpleOverride.proof_capability_audit.length, 2);
 
@@ -74,7 +74,12 @@ test("customer Proof settings are safe by default, audited, order-aware, and per
       assert.equal(overridden.source, "order_override");
       assert.equal(overridden.review_experience, "simple");
 
-      await removeCustomerProofOrderOverride(customer, "A0226753", "operator-test");
+      await removeCustomerProofOrderOverride(
+        customer,
+        "A0226753",
+        "operator-test",
+        simpleOverride.proof_capability_policy.updated_at
+      );
       const restored = await resolveCustomerProofCapabilityForOrder("A0226753");
       assert.equal(restored.source, "customer_default");
       assert.equal(restored.review_experience, "advanced");
@@ -88,8 +93,16 @@ test("customer Proof settings are safe by default, audited, order-aware, and per
         updateCustomerProofCapabilityPolicy(customer, {
           access_mode: "view_only",
           review_experience: "advanced"
-        }, "operator-test"),
+        }, "operator-test", restored.policy_updated_at),
         (error) => error instanceof CustomerProofCapabilityValidationError
+      );
+
+      await assert.rejects(
+        updateCustomerProofCapabilityPolicy(customer, {
+          access_mode: "disabled",
+          review_experience: "simple"
+        }, "operator-test", advanced.proof_capability_policy.updated_at),
+        (error) => error.name === "CustomerProofCapabilityConflictError"
       );
     `;
     const result = spawnSync(

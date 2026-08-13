@@ -141,6 +141,15 @@ export interface ProofSyncDiagnosticsSummary {
 
 export type ProofGrantScope = "view" | "review";
 export type ProofGrantStatus = "active" | "revoked";
+export type ProofReviewExperience = "simple" | "advanced";
+
+export interface ProofGrantCapabilityBinding {
+  pathfinder_customer_id: string;
+  access_mode: "view_only" | "review";
+  review_experience: ProofReviewExperience;
+  source: "customer_default" | "order_override";
+  policy_updated_at: string;
+}
 
 export interface ProofAccessGrant {
   grant_id: string;
@@ -155,6 +164,7 @@ export interface ProofAccessGrant {
   exchanged_at: string | null;
   revoked_at: string | null;
   last_used_at: string | null;
+  capability?: ProofGrantCapabilityBinding | null;
 }
 
 export interface ProofAccessSession {
@@ -170,6 +180,7 @@ export interface ProofAccessSession {
   expires_at_epoch: number;
   last_seen_at: string;
   ended_at: string | null;
+  capability?: ProofGrantCapabilityBinding | null;
 }
 
 export interface ProofParticipant {
@@ -350,6 +361,10 @@ export interface ProofAuditMetadata {
   total_task_count?: number;
   grant_scope?: ProofGrantScope;
   grant_status?: ProofGrantStatus;
+  customer_proof_access_mode?: "view_only" | "review";
+  customer_proof_review_experience?: ProofReviewExperience;
+  customer_proof_policy_source?: "customer_default" | "order_override";
+  customer_proof_policy_updated_at?: string;
   delivery_mode?: "log" | "ses";
   delivery_status?: "logged" | "sent" | "failed";
   decision_kind?: ProofDecisionKind;
@@ -465,7 +480,11 @@ export interface PublicProofOrder {
   tasks: PublicProofTask[];
   counts: PublicProofCounts;
   last_synced_at: string;
-  access: { scope: ProofGrantScope; decisions_enabled: boolean };
+  access: {
+    scope: ProofGrantScope;
+    decisions_enabled: boolean;
+    review_experience: ProofReviewExperience;
+  };
 }
 
 export interface OrderRollupProofRecord extends OrderRollupProof, LiftLineIdentity {}
@@ -1363,7 +1382,11 @@ export function proofReviewLifecycleTransitions(
 export function toPublicProofOrder(
   order: ProofOrder,
   scope: ProofGrantScope = "view",
-  options: { include_asset_urls?: boolean; decisions_enabled?: boolean } = {}
+  options: {
+    include_asset_urls?: boolean;
+    decisions_enabled?: boolean;
+    review_experience?: ProofReviewExperience;
+  } = {}
 ): PublicProofOrder {
   const decisionsEnabled = scope === "review" && options.decisions_enabled === true;
   const sharedLinesByAttachment = new Map<string, string[]>();
@@ -1405,7 +1428,13 @@ export function toPublicProofOrder(
     })),
     counts: publicProofCounts(order.tasks),
     last_synced_at: order.last_synced_at,
-    access: { scope, decisions_enabled: decisionsEnabled }
+    access: {
+      scope,
+      decisions_enabled: decisionsEnabled,
+      review_experience: decisionsEnabled && options.review_experience === "advanced"
+        ? "advanced"
+        : "simple"
+    }
   };
 }
 

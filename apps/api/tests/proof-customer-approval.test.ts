@@ -20,7 +20,14 @@ const session: ProofAccessSession = {
   expires_at: "2026-08-08T18:00:00.000Z",
   expires_at_epoch: 1_786_213_200,
   last_seen_at: now.toISOString(),
-  ended_at: null
+  ended_at: null,
+  capability: {
+    pathfinder_customer_id: "284619",
+    access_mode: "review",
+    review_experience: "simple",
+    source: "customer_default",
+    policy_updated_at: "2026-08-08T15:30:00.000Z"
+  }
 };
 
 function proofOrder(state: "pending" | "approved" = "pending"): ProofOrder {

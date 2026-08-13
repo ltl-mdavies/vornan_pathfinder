@@ -428,7 +428,10 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
       const orderNumber = normalizeLiftOrderNumber(req.params.orderNumber);
       const customerCapability = await resolveCustomerCapability(orderNumber);
       if (
-        customerCapability.association_status === "associated" &&
+        customerCapability.association_status !== "associated" ||
+        !customerCapability.pathfinder_customer_id ||
+        !customerCapability.policy_updated_at ||
+        customerCapability.source === "safe_default" ||
         customerCapability.access_mode === "disabled"
       ) {
         throw new ProofGrantCohortDeniedError();
@@ -449,6 +452,13 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         label: typeof req.body?.label === "string" ? req.body.label : null,
         scope: req.body?.scope,
         expires_at: typeof req.body?.expires_at === "string" ? req.body.expires_at : null,
+        capability: {
+          pathfinder_customer_id: customerCapability.pathfinder_customer_id,
+          access_mode: customerCapability.access_mode,
+          review_experience: customerCapability.review_experience,
+          source: customerCapability.source,
+          policy_updated_at: customerCapability.policy_updated_at
+        },
         audit_context: operatorAuditContext(req, res)
       });
       res.status(201).json(result);

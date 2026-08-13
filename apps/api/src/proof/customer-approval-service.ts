@@ -178,7 +178,11 @@ export function createProofCustomerApprovalService(
       if (!config.feature_flags.approve || !config.feature_flags.public_read) {
         throw new ProofCustomerApprovalError("disabled", "Customer Proof approval is not enabled.");
       }
-      if (input.session.scope !== "review" || !input.session.participant_id) {
+      if (
+        input.session.scope !== "review" ||
+        input.session.capability?.access_mode !== "review" ||
+        !input.session.participant_id
+      ) {
         throw new ProofCustomerApprovalError("not_allowed", "Identify the reviewer in a review-enabled session first.");
       }
       const environment = targetEnvironment(await readTargetConfig(TARGET_ID));

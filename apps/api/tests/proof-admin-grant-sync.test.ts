@@ -64,7 +64,18 @@ function appWith(dependencies: ProofAdminRouterDependencies) {
     res.locals.authUser = { uid: "operator-route-qa" };
     next();
   });
-  app.use("/api/proof", createProofAdminRouter(dependencies));
+  app.use("/api/proof", createProofAdminRouter({
+    resolveCustomerCapability: async () => ({
+      association_status: "associated",
+      pathfinder_customer_id: "284619",
+      customer_name: "Empirical - Momentara",
+      access_mode: "view_only",
+      review_experience: "simple",
+      source: "customer_default",
+      policy_updated_at: "2026-08-08T15:30:00.000Z"
+    }),
+    ...dependencies
+  }));
   return app;
 }
 
@@ -191,6 +202,13 @@ test("performs the first read-only sync before creating a grant for an uncached 
       lifecycle.push(`grant:${input.order_number}`);
       assert.equal(input.scope, "view");
       assert.equal(input.label, "Customer review");
+      assert.deepEqual(input.capability, {
+        pathfinder_customer_id: "284619",
+        access_mode: "view_only",
+        review_experience: "simple",
+        source: "customer_default",
+        policy_updated_at: "2026-08-08T15:30:00.000Z"
+      });
       return grantResult;
     }
   }))
@@ -275,6 +293,35 @@ test("fails closed before grant creation when the synchronized order is outside 
     .expect(403);
 
   assert.equal(grantCreated, false);
+  assert.deepEqual(response.body, { error: "Proof access is outside the configured read-only grant cohort." });
+});
+
+test("fails closed before cache or Lift access when the order has no authoritative customer Proof policy", async () => {
+  const lifecycle: string[] = [];
+  const response = await request(appWith({
+    resolveCustomerCapability: async () => ({
+      association_status: "unassociated",
+      pathfinder_customer_id: null,
+      customer_name: null,
+      access_mode: "view_only",
+      review_experience: "simple",
+      source: "safe_default",
+      policy_updated_at: null
+    }),
+    getOrderForGrant: async () => {
+      lifecycle.push("cache");
+      return cachedOrder;
+    },
+    createGrant: async () => {
+      lifecycle.push("grant");
+      return grantResult;
+    }
+  }))
+    .post("/api/proof/orders/A0221132/grants")
+    .send({ scope: "view" })
+    .expect(403);
+
+  assert.deepEqual(lifecycle, []);
   assert.deepEqual(response.body, { error: "Proof access is outside the configured read-only grant cohort." });
 });
 

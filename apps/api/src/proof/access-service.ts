@@ -3,6 +3,7 @@ import {
   normalizeLiftOrderNumber,
   type ProofAccessGrant,
   type ProofAccessSession,
+  type ProofGrantCapabilityBinding,
   type ProofGrantScope
 } from "@pathfinder/proof-domain";
 import { getProofRuntimeConfig } from "./runtime-config.js";
@@ -15,6 +16,7 @@ import {
   getProofSessionByHash,
   listProofParticipants,
   listProofGrants,
+  listProofGrantsForCapabilityCustomer,
   persistProofGrant,
   persistProofSession
 } from "./store.js";
@@ -109,6 +111,18 @@ function activeGrant(grant: ProofAccessGrant | null, now: Date) {
   return Boolean(grant && grant.status === "active" && !grant.revoked_at && Date.parse(grant.expires_at) > now.getTime());
 }
 
+function capabilityAllowsScope(
+  capability: ProofGrantCapabilityBinding | null | undefined,
+  scope: ProofGrantScope
+) {
+  if (!capability) return scope === "view";
+  if (
+    !capability.pathfinder_customer_id ||
+    !Number.isFinite(Date.parse(capability.policy_updated_at))
+  ) return false;
+  return scope === "view" || capability.access_mode === "review";
+}
+
 export async function validateProofGrantAccessUrl(grantId: string, accessUrl: string, now = new Date()) {
   const config = getProofRuntimeConfig();
   let parsed: URL;
@@ -152,7 +166,12 @@ export async function validateProofGrantAccessUrl(grantId: string, accessUrl: st
 }
 
 export function publicProofGrant(grant: ProofAccessGrant, participantCount = 0): PublicProofGrant {
-  const { token_hash: _tokenHash, expires_at_epoch: _expiresEpoch, ...safe } = grant;
+  const {
+    token_hash: _tokenHash,
+    expires_at_epoch: _expiresEpoch,
+    capability: _capability,
+    ...safe
+  } = grant;
   return { ...safe, participant_count: participantCount };
 }
 
@@ -161,6 +180,7 @@ export async function createProofGrant(input: {
   label?: string | null;
   scope?: ProofGrantScope;
   expires_at?: string | null;
+  capability?: ProofGrantCapabilityBinding | null;
   now?: Date;
   audit_context?: ProofAuditContext;
 }) {
@@ -185,6 +205,9 @@ export async function createProofGrant(input: {
   }
   if (requestedScope === "review" && !config.feature_flags.approve) {
     throw new ProofAccessValidationError("Review-scoped Proof access is not enabled.");
+  }
+  if (!capabilityAllowsScope(input.capability, requestedScope)) {
+    throw new ProofGrantCohortDeniedError();
   }
   const now = input.now ?? new Date();
   const deadline = activationDeadline(now);
@@ -211,14 +234,26 @@ export async function createProofGrant(input: {
     expires_at_epoch: Math.floor(boundedExpiresAt.getTime() / 1000),
     exchanged_at: null,
     revoked_at: null,
-    last_used_at: null
+    last_used_at: null,
+    capability: input.capability ?? null
   };
   await persistProofGrant(grant);
   await recordProofAuditEvent({
     action: "proof.grant_created",
     order_number: grant.order_number,
     grant_id: grant.grant_id,
-    metadata: { grant_scope: grant.scope, grant_status: grant.status },
+    metadata: {
+      grant_scope: grant.scope,
+      grant_status: grant.status,
+      ...(grant.capability
+        ? {
+            customer_proof_access_mode: grant.capability.access_mode,
+            customer_proof_review_experience: grant.capability.review_experience,
+            customer_proof_policy_source: grant.capability.source,
+            customer_proof_policy_updated_at: grant.capability.policy_updated_at
+          }
+        : {})
+    },
     context: input.audit_context,
     occurred_at: now.toISOString()
   });
@@ -236,11 +271,21 @@ export async function listOrderProofGrants(orderNumber: string) {
   );
 }
 
-export async function revokeProofGrant(grantId: string, now = new Date(), auditContext?: ProofAuditContext) {
-  const config = getProofRuntimeConfig();
-  if (!config.feature_flags.grant_creation) {
-    throw new ProofAccessFeatureDisabledError("grant creation");
-  }
+export async function listCustomerCapabilityProofGrants(pathfinderCustomerId: string) {
+  const grants = await listProofGrantsForCapabilityCustomer(pathfinderCustomerId);
+  return Promise.all(
+    grants.map(async (grant) => publicProofGrant(
+      grant,
+      (await listProofParticipants(grant.grant_id)).length
+    ))
+  );
+}
+
+async function persistProofGrantRevocation(
+  grantId: string,
+  now: Date,
+  auditContext?: ProofAuditContext
+) {
   const grant = await getProofGrantById(grantId);
   if (!grant) {
     return null;
@@ -260,6 +305,22 @@ export async function revokeProofGrant(grantId: string, now = new Date(), auditC
     occurred_at: now.toISOString()
   });
   return publicProofGrant(revoked);
+}
+
+export async function revokeProofGrant(grantId: string, now = new Date(), auditContext?: ProofAuditContext) {
+  const config = getProofRuntimeConfig();
+  if (!config.feature_flags.grant_creation) {
+    throw new ProofAccessFeatureDisabledError("grant creation");
+  }
+  return persistProofGrantRevocation(grantId, now, auditContext);
+}
+
+export async function revokeProofGrantForCapabilityChange(
+  grantId: string,
+  now = new Date(),
+  auditContext?: ProofAuditContext
+) {
+  return persistProofGrantRevocation(grantId, now, auditContext);
 }
 
 export async function updateProofGrant(
@@ -289,6 +350,7 @@ export async function updateProofGrant(
       order_number: grant.order_number,
       label: input.label === undefined ? grant.label : input.label,
       expires_at: input.expires_at ?? null,
+      capability: grant.capability ?? null,
       now,
       audit_context: auditContext
     });
@@ -375,14 +437,25 @@ export async function exchangeProofToken(rawToken: string, now = new Date()) {
     expires_at: expiresAt.toISOString(),
     expires_at_epoch: Math.floor(expiresAt.getTime() / 1000),
     last_seen_at: now.toISOString(),
-    ended_at: null
+    ended_at: null,
+    capability: claimed.capability ?? null
   };
   await persistProofSession(session);
   await recordProofAuditEvent({
     action: "proof.session_exchanged",
     order_number: session.order_number,
     grant_id: session.grant_id,
-    metadata: { grant_scope: session.scope },
+    metadata: {
+      grant_scope: session.scope,
+      ...(session.capability
+        ? {
+            customer_proof_access_mode: session.capability.access_mode,
+            customer_proof_review_experience: session.capability.review_experience,
+            customer_proof_policy_source: session.capability.source,
+            customer_proof_policy_updated_at: session.capability.policy_updated_at
+          }
+        : {})
+    },
     context: {
       actor_type: "customer_session",
       actor_id: session.session_id,
@@ -410,7 +483,14 @@ export async function validateProofSession(rawSession: string, now = new Date())
     throw new ProofAccessDeniedError();
   }
   const grant = await getProofGrantById(session.grant_id);
-  if (!grant || !activeGrant(grant, now) || grant.order_number !== session.order_number || grant.scope !== session.scope) {
+  if (
+    !grant ||
+    !activeGrant(grant, now) ||
+    grant.order_number !== session.order_number ||
+    grant.scope !== session.scope ||
+    !capabilityAllowsScope(grant.capability, grant.scope) ||
+    JSON.stringify(session.capability ?? null) !== JSON.stringify(grant.capability ?? null)
+  ) {
     throw new ProofAccessDeniedError();
   }
   return { session, grant };

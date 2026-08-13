@@ -705,6 +705,18 @@ test("creates a customer-safe DTO without Lift identities or internal proof meta
   assert.equal(serialized.includes("detailed_report"), false);
   assert.equal(serialized.includes("internal warning"), false);
   assert.match(serialized, /\"decisions_enabled\":false/);
+  assert.equal(publicOrder.access.review_experience, "simple");
+  assert.deepEqual(
+    toPublicProofOrder(normalized, "review", {
+      decisions_enabled: true,
+      review_experience: "advanced"
+    }).access,
+    {
+      scope: "review",
+      decisions_enabled: true,
+      review_experience: "advanced"
+    }
+  );
 });
 
 test("creates customer-safe task history without Lift identifiers or private approval metadata", () => {
