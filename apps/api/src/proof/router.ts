@@ -159,7 +159,8 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         public_base_host: new URL(config.access.public_base_url).host,
         grant_ttl_days: config.access.grant_ttl_days,
         session_ttl_minutes: config.access.session_ttl_minutes,
-        grant_cohort_configured: config.access.grant_allowed_customer_ids.length > 0,
+        durable_customer_authority: true,
+        legacy_view_grant_cohort_configured: config.access.grant_allowed_customer_ids.length > 0,
         activation_expiry_configured: Boolean(config.access.read_only_activation_expires_at)
       },
       feature_flags: config.feature_flags,
@@ -430,6 +431,8 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
       if (
         customerCapability.association_status !== "associated" ||
         !customerCapability.pathfinder_customer_id ||
+        !customerCapability.proof_customer_id ||
+        !customerCapability.identity_verified_at ||
         !customerCapability.policy_updated_at ||
         customerCapability.source === "safe_default" ||
         customerCapability.access_mode === "disabled"
@@ -440,11 +443,11 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
       let eligibleOrder = cached;
       if (!cached || !cached.customer_id || orderIsStale(cached.last_synced_at)) {
         eligibleOrder = (await syncOrderForGrant(orderNumber, {
+          allowed_customer_ids: [customerCapability.proof_customer_id],
           audit_context: operatorAuditContext(req, res)
         })).order;
       }
-      const allowedCustomerIds = getProofRuntimeConfig().access.grant_allowed_customer_ids;
-      if (!eligibleOrder?.customer_id || !allowedCustomerIds.includes(eligibleOrder.customer_id)) {
+      if (eligibleOrder?.customer_id !== customerCapability.proof_customer_id) {
         throw new ProofGrantCohortDeniedError();
       }
       const result = await createGrant({
@@ -454,6 +457,8 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         expires_at: typeof req.body?.expires_at === "string" ? req.body.expires_at : null,
         capability: {
           pathfinder_customer_id: customerCapability.pathfinder_customer_id,
+          proof_customer_id: customerCapability.proof_customer_id,
+          identity_verified_at: customerCapability.identity_verified_at,
           access_mode: customerCapability.access_mode,
           review_experience: customerCapability.review_experience,
           source: customerCapability.source,

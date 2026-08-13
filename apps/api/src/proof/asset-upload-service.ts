@@ -28,7 +28,7 @@ import {
   transitionProofAssetUpload
 } from "./asset-upload-store.js";
 
-const CUSTOMER_ID = "1249";
+const LTL_DEMO_CUSTOMER_ID = "1249";
 const CONTENT_POLICY_ID = "proof-revised-art-operator-v1";
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/;
 const ASSET_ID = /^passet_[a-f0-9]{64}$/;
@@ -90,6 +90,7 @@ export interface ProofAssetUploadActorContext {
   source: "operator" | "public_api";
   grant_id: string | null;
   participant_id: string | null;
+  proof_customer_id: string | null;
 }
 
 let sharedS3: S3Client | null = null;
@@ -126,7 +127,8 @@ function uploadActor(input: {
       actor.source !== "public_api" ||
       !/^[A-Za-z0-9_.:-]{1,180}$/.test(actor.actor_id) ||
       !/^pgrant_[A-Za-z0-9-]{8,80}$/.test(actor.grant_id ?? "") ||
-      !/^pparticipant_[A-Za-z0-9-]{8,80}$/.test(actor.participant_id ?? "")
+      !/^pparticipant_[A-Za-z0-9-]{8,80}$/.test(actor.participant_id ?? "") ||
+      !/^\d{1,20}$/.test(actor.proof_customer_id ?? "")
     ) {
       throw new ProofAssetUploadServiceError(
         "unauthenticated",
@@ -140,7 +142,8 @@ function uploadActor(input: {
     actor_id: actorId(input.operator_uid ?? ""),
     source: "operator" as const,
     grant_id: null,
-    participant_id: null
+    participant_id: null,
+    proof_customer_id: null
   };
 }
 
@@ -227,10 +230,14 @@ function normalizedPrepare(
   };
 }
 
-function currentTask(order: ProofOrder, request: ReturnType<typeof normalizedPrepare>) {
+function currentTask(
+  order: ProofOrder,
+  request: ReturnType<typeof normalizedPrepare>,
+  expectedProofCustomerId: string
+) {
   const task = order.tasks.find((candidate) => candidate.task_id === request.task_id);
   if (
-    order.customer_id !== CUSTOMER_ID ||
+    order.customer_id !== expectedProofCustomerId ||
     !task ||
     !task.actionable ||
     task.attachment_id !== request.attachment_id ||
@@ -425,8 +432,11 @@ export function createProofAssetUploadService(
           "Proof order is not in the bounded revised-art upload allowlist."
         );
       }
+      const expectedProofCustomerId = actor.actor_type === "customer_session"
+        ? actor.proof_customer_id!
+        : LTL_DEMO_CUSTOMER_ID;
       const { order } = await syncOrder(request.order_number, {
-        allowed_customer_ids: [CUSTOMER_ID],
+        allowed_customer_ids: [expectedProofCustomerId],
         audit_context: {
           actor_type: actor.actor_type,
           actor_id: actor.actor_id,
@@ -434,7 +444,7 @@ export function createProofAssetUploadService(
           source: actor.source
         }
       });
-      const task = currentTask(order, request);
+      const task = currentTask(order, request, expectedProofCustomerId);
       const ids = identities(request);
       // A fresh Lift sync authors last_synced_at after this request's initial
       // gate timestamp. Anchor the durable upload record at the later server

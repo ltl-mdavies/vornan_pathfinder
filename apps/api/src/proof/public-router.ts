@@ -30,6 +30,7 @@ import {
   type ProofAssetUploadPrepareRequest,
   type ProofAssetUploadStatusRequest
 } from "./asset-upload-service.js";
+import type { ProofCustomerCapabilityAuthorityReader } from "./customer-capability-authority.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
 export const PROOF_SESSION_COOKIE_PATH = "/api/public/proof";
@@ -135,6 +136,7 @@ interface ProofPublicRouterDependencies {
   prepareRevisionAsset?: ReturnType<typeof createProofAssetUploadService>["prepare"];
   revisionAssetStatus?: ReturnType<typeof createProofAssetUploadService>["status"];
   finalizeRevisionAsset?: ReturnType<typeof createProofAssetUploadService>["finalize"];
+  readCustomerCapabilityWorkspace?: ProofCustomerCapabilityAuthorityReader;
 }
 
 export function createProofPublicRouter(dependencies: ProofPublicRouterDependencies = {}) {
@@ -145,6 +147,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   const prepareRevisionAsset = dependencies.prepareRevisionAsset ?? revisionAssets.prepare;
   const revisionAssetStatus = dependencies.revisionAssetStatus ?? revisionAssets.status;
   const finalizeRevisionAsset = dependencies.finalizeRevisionAsset ?? revisionAssets.finalize;
+  const readCustomerCapabilityWorkspace = dependencies.readCustomerCapabilityWorkspace;
 
   function revisionActor(session: Awaited<ReturnType<typeof validateProofSession>>["session"]) {
     if (
@@ -159,6 +162,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
     if (
       session.scope !== "review" ||
       session.capability?.access_mode !== "review" ||
+      !/^\d{1,20}$/.test(session.capability?.proof_customer_id ?? "") ||
       !session.participant_id
     ) {
       throw new ProofAssetUploadServiceError(
@@ -171,7 +175,8 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       actor_id: session.session_id,
       source: "public_api" as const,
       grant_id: session.grant_id,
-      participant_id: session.participant_id
+      participant_id: session.participant_id,
+      proof_customer_id: session.capability.proof_customer_id
     };
   }
 
@@ -186,7 +191,11 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
     try {
       const previousRawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
       const rawToken = typeof req.body?.token === "string" ? req.body.token : "";
-      const { raw_session: rawSession, raw_csrf: rawCsrf, session } = await exchangeProofToken(rawToken);
+      const { raw_session: rawSession, raw_csrf: rawCsrf, session } = await exchangeProofToken(
+        rawToken,
+        new Date(),
+        readCustomerCapabilityWorkspace
+      );
       if (previousRawSession && previousRawSession !== rawSession) {
         await endProofSession(previousRawSession).catch(() => undefined);
       }
@@ -214,7 +223,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.get("/order", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session, grant } = await validateProofSession(rawSession);
+      const { session, grant } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
       const order = await getProofOrder(session.order_number);
       if (!order) {
         deny(res);
@@ -267,7 +276,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.get("/tasks/:taskId/history", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
       const order = await getProofOrder(session.order_number);
       if (!order) {
         deny(res);
@@ -290,7 +299,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.post("/participants", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
       requireCsrf(req, session);
       const existingParticipant = Boolean(session.participant_id);
       const { participant } = await identifyProofParticipant({
@@ -308,7 +317,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.post("/tasks/:taskId/feedback-acknowledgements", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
       requireCsrf(req, session);
       const order = await getProofOrder(session.order_number);
       if (!order) {
@@ -336,7 +345,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.post("/tasks/:taskId/decisions/approve", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
       requireCsrf(req, session);
       const result = await approveProof({
         session,
@@ -359,7 +368,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.post("/tasks/:taskId/revised-assets/uploads/prepare", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
       requireCsrf(req, session);
       const result = await prepareRevisionAsset({
         request: {
@@ -384,7 +393,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.get("/revised-assets/uploads/:assetId", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
       revisionActor(session);
       const result = await revisionAssetStatus({
         request: {
@@ -401,7 +410,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.post("/revised-assets/uploads/finalize", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
       requireCsrf(req, session);
       const result = await finalizeRevisionAsset({
         request: {
@@ -420,7 +429,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.post("/order/refresh", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
       requireCsrf(req, session);
       const refresh = await enqueueSync(session.order_number, "public_refresh");
       if (!refresh.queued) {
@@ -438,7 +447,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   router.post("/sessions/current/extend", async (req, res) => {
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
-      const { session } = await validateProofSession(rawSession);
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
       requireCsrf(req, session);
       const extended = await extendProofSession(rawSession);
       const maxAge = Math.max(0, Date.parse(extended.expires_at) - Date.now());

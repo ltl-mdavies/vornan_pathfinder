@@ -51,6 +51,8 @@ aws cloudformation deploy \
     ProofAssetBucketArn="${PATHFINDER_PROOF_ASSET_BUCKET_ARN:-}" \
     PathfinderTargetsTableName="${PATHFINDER_PROOF_TARGETS_TABLE:-}" \
     PathfinderTargetsTableArn="${PATHFINDER_PROOF_TARGETS_TABLE_ARN:-}" \
+    PathfinderCustomerWorkspacesTableName="${PATHFINDER_PROOF_CUSTOMER_WORKSPACES_TABLE:-}" \
+    PathfinderCustomerWorkspacesTableArn="${PATHFINDER_PROOF_CUSTOMER_WORKSPACES_TABLE_ARN:-}" \
     ProofingApiSecretArn="${PATHFINDER_PROOFING_API_SECRET_ARN:-}" \
     PathfinderSecretPrefix="${PATHFINDER_SECRET_PREFIX:-/vornan/pathfinder/}" \
     SyntheticQaEnabled="${synthetic_qa_enabled}" \

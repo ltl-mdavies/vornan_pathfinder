@@ -68,6 +68,8 @@ function appWith(dependencies: ProofAdminRouterDependencies) {
     resolveCustomerCapability: async () => ({
       association_status: "associated",
       pathfinder_customer_id: "284619",
+      proof_customer_id: "1249",
+      identity_verified_at: "2026-08-13T15:59:00.000Z",
       customer_name: "Empirical - Momentara",
       access_mode: "view_only",
       review_experience: "simple",
@@ -131,7 +133,8 @@ test("reports a redacted operator integration-health posture without exposing se
       public_base_host: "proof.qa.vornan.co",
       grant_ttl_days: 14,
       session_ttl_minutes: 30,
-      grant_cohort_configured: true,
+      durable_customer_authority: true,
+      legacy_view_grant_cohort_configured: true,
       activation_expiry_configured: true
     });
     assert.equal(response.body.lift_reads.order_host, "qa-lift.example.invalid");
@@ -204,6 +207,8 @@ test("performs the first read-only sync before creating a grant for an uncached 
       assert.equal(input.label, "Customer review");
       assert.deepEqual(input.capability, {
         pathfinder_customer_id: "284619",
+        proof_customer_id: "1249",
+        identity_verified_at: "2026-08-13T15:59:00.000Z",
         access_mode: "view_only",
         review_experience: "simple",
         source: "customer_default",
@@ -302,6 +307,8 @@ test("fails closed before cache or Lift access when the order has no authoritati
     resolveCustomerCapability: async () => ({
       association_status: "unassociated",
       pathfinder_customer_id: null,
+      proof_customer_id: null,
+      identity_verified_at: null,
       customer_name: null,
       access_mode: "view_only",
       review_experience: "simple",
@@ -325,7 +332,7 @@ test("fails closed before cache or Lift access when the order has no authoritati
   assert.deepEqual(response.body, { error: "Proof access is outside the configured read-only grant cohort." });
 });
 
-test("fails closed when no grant customer cohort is configured", async () => {
+test("creates a durably bound grant without a configured environment customer cohort", async () => {
   const configured = process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS;
   delete process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS;
   try {
@@ -336,7 +343,7 @@ test("fails closed when no grant customer cohort is configured", async () => {
     }))
       .post("/api/proof/orders/A0221132/grants")
       .send({ scope: "view" })
-      .expect(403);
+      .expect(201);
   } finally {
     if (configured !== undefined) process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = configured;
   }

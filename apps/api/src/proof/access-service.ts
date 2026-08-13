@@ -20,6 +20,10 @@ import {
   persistProofGrant,
   persistProofSession
 } from "./store.js";
+import {
+  revalidateProofCustomerCapability,
+  type ProofCustomerCapabilityAuthorityReader
+} from "./customer-capability-authority.js";
 
 export class ProofAccessDeniedError extends Error {
   constructor() {
@@ -118,6 +122,8 @@ function capabilityAllowsScope(
   if (!capability) return scope === "view";
   if (
     !capability.pathfinder_customer_id ||
+    !/^\d{1,20}$/.test(capability.proof_customer_id ?? "") ||
+    !Number.isFinite(Date.parse(capability.identity_verified_at ?? "")) ||
     !Number.isFinite(Date.parse(capability.policy_updated_at))
   ) return false;
   return scope === "view" || capability.access_mode === "review";
@@ -192,16 +198,33 @@ export async function createProofGrant(input: {
   if (!ltlDemoOrderAllowed(config, orderNumber)) {
     throw new ProofGrantCohortDeniedError();
   }
+  const requestedScope = input.scope ?? "view";
+  if (requestedScope !== "view" && requestedScope !== "review") {
+    throw new ProofAccessValidationError("Proof access scope must be view or review.");
+  }
   const order = await getProofOrder(orderNumber);
   if (!order) {
     throw new ProofOrderNotSynchronizedError(orderNumber);
   }
-  if (!order.customer_id || !config.access.grant_allowed_customer_ids.includes(order.customer_id)) {
+  const legacyViewCohort =
+    !input.capability &&
+    (input.scope ?? "view") === "view" &&
+    order.customer_id &&
+    config.access.grant_allowed_customer_ids.includes(order.customer_id);
+  const durableCustomerAuthority = Boolean(
+    input.capability && order.customer_id === input.capability.proof_customer_id
+  );
+  const ltlDemoCustomerAuthority = Boolean(
+    config.ltl_demo_qa.active &&
+    order.customer_id === config.ltl_demo_qa.allowed_customer_id &&
+    durableCustomerAuthority
+  );
+  if (
+    !order.customer_id ||
+    (!legacyViewCohort && !durableCustomerAuthority) ||
+    (config.ltl_demo_qa.active && !ltlDemoCustomerAuthority)
+  ) {
     throw new ProofGrantCohortDeniedError();
-  }
-  const requestedScope = input.scope ?? "view";
-  if (requestedScope !== "view" && requestedScope !== "review") {
-    throw new ProofAccessValidationError("Proof access scope must be view or review.");
   }
   if (requestedScope === "review" && !config.feature_flags.approve) {
     throw new ProofAccessValidationError("Review-scoped Proof access is not enabled.");
@@ -395,7 +418,11 @@ export async function updateProofGrant(
   return { grant: publicProofGrant(updated), access_url: null };
 }
 
-export async function exchangeProofToken(rawToken: string, now = new Date()) {
+export async function exchangeProofToken(
+  rawToken: string,
+  now = new Date(),
+  readWorkspace?: ProofCustomerCapabilityAuthorityReader
+) {
   const config = getProofRuntimeConfig();
   if (!config.feature_flags.public_read) {
     throw new ProofAccessFeatureDisabledError("public read");
@@ -411,6 +438,9 @@ export async function exchangeProofToken(rawToken: string, now = new Date()) {
     grant.exchanged_at ||
     !ltlDemoOrderAllowed(config, grant.order_number)
   ) {
+    throw new ProofAccessDeniedError();
+  }
+  if (!(await revalidateProofCustomerCapability(grant, readWorkspace))) {
     throw new ProofAccessDeniedError();
   }
   const claimed = await claimProofGrant(grant, now.toISOString());
@@ -467,7 +497,11 @@ export async function exchangeProofToken(rawToken: string, now = new Date()) {
   return { raw_session: rawSession, raw_csrf: rawCsrf, session };
 }
 
-export async function validateProofSession(rawSession: string, now = new Date()) {
+export async function validateProofSession(
+  rawSession: string,
+  now = new Date(),
+  readWorkspace?: ProofCustomerCapabilityAuthorityReader
+) {
   const config = getProofRuntimeConfig();
   if (!config.feature_flags.public_read || !/^[A-Za-z0-9_-]{43}$/.test(rawSession)) {
     throw new ProofAccessDeniedError();
@@ -491,6 +525,9 @@ export async function validateProofSession(rawSession: string, now = new Date())
     !capabilityAllowsScope(grant.capability, grant.scope) ||
     JSON.stringify(session.capability ?? null) !== JSON.stringify(grant.capability ?? null)
   ) {
+    throw new ProofAccessDeniedError();
+  }
+  if (!(await revalidateProofCustomerCapability(grant, readWorkspace))) {
     throw new ProofAccessDeniedError();
   }
   return { session, grant };

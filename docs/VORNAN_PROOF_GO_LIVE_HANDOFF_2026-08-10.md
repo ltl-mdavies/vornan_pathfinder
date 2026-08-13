@@ -121,6 +121,45 @@ The intended operating model is:
 Infrastructure gates remain platform emergency controls. They must not become
 the normal per-customer onboarding mechanism.
 
+### Closing repository slice: durable customer authority
+
+The stacked `codex/proof-customer-authority-revalidation` slice closes the two
+remaining repository gaps without activating production:
+
+- Admin verifies one exact associated current Lift order and derives the Proof/
+  Lift customer ID from the authoritative Proof read. The server never accepts a
+  client-supplied customer ID.
+- The mapping is stored inside the exact CustomerWorkspace Proof policy with the
+  verification order, actor, timestamp, conditional policy version, and a
+  durable identity audit entry. Reverification also records audit.
+- Enabling customer or order Proof access requires that verified identity. New
+  grants bind the Pathfinder customer, verified Proof customer, identity time,
+  order, resolved default/override source, access mode, profile, and policy time.
+- Normal bound grants and approval/upload synchronization compare the Lift order
+  customer to that durable identity. `PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS`
+  is no longer normal customer authorization; it remains only for the legacy
+  isolated view-grant operator window. LTL Demo QA remains independently fixed
+  to customer `1249` plus its exact order allowlist and expiry.
+- The isolated public Lambda receives read-only `GetItem` permission for the
+  exact existing CustomerWorkspaces table. Before a bound token exchange and on
+  every bound session request, it consistently reads only that customer record
+  and re-resolves the exact order mode/profile/version. Missing, malformed,
+  disabled, cross-customer, changed, or stale authority returns the generic
+  access denial even if grant revocation failed.
+- Legacy unbound view-only grants retain read compatibility; unbound review
+  authority remains denied. No new customer review grant can use that legacy
+  path.
+
+This adds no table, index, backfill, broad scan, or destructive migration. The
+isolated stack gains two parameter bindings (CustomerWorkspaces name and ARN),
+one exact-table `dynamodb:GetItem` statement, and one non-secret environment
+entry. Default-dark deployment must preserve the live customer workspace table
+and must not create or replace it.
+
+The first customer launch remains **Simple only**. Advanced may remain saved for
+future operator/UX qualification, but its public multi-proof submission transport
+is still unavailable and must not be represented as customer-live.
+
 ## Revised-art completion in merged main
 
 The same branch adds repository-side, default-dark completion beyond private finalization:
@@ -139,7 +178,7 @@ No upload, scan, publication, `/a/*` delivery, credential read, Lift call, deplo
 ## Remaining checkpoints after protected-read renewal
 
 1. Merge the corrected bounded-window monitor and confirm it reports the current protected public-read posture without granting mutation authority.
-2. Review, merge, and default-dark deploy the stacked setup-enablement runtime slice, then prove its conditional-write, grant-binding, session, public-profile, decision, and grant-revocation behavior without changing customer capability settings.
+2. Review, merge, and default-dark deploy the stacked setup-enablement and customer-authority runtime slices, then prove conditional writes, verified identity, exact-table public revalidation, grant binding, session denial after policy drift, public profile, decision, and grant revocation without changing production customer settings.
 3. Activate one exact order override for the approved Momentara/LTL Demo pilot and verify that unrelated customer settings, orders, and Pathfinder runtime records are unchanged.
 4. Activate the LTL Demo profile separately for one exact allowlist/expiry and test valid review sessions/current proofs.
 5. Activate upload separately and finalize one bounded file.

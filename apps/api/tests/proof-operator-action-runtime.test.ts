@@ -109,6 +109,8 @@ const request = {
 const advancedCustomerCapability = {
   association_status: "associated" as const,
   pathfinder_customer_id: "284619",
+  proof_customer_id: "1249",
+  identity_verified_at: "2026-08-13T15:59:00.000Z",
   customer_name: "Synthetic Pathfinder customer",
   access_mode: "review" as const,
   review_experience: "advanced" as const,

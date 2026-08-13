@@ -488,11 +488,9 @@ Rules:
         AssertDescription: Wrike Lift document publication requires its dedicated delivery bucket.
       - Assert: !Equals [!Ref WrikeLiftDocumentDeliveryBaseUrl, "https://go.vornan.co"]
         AssertDescription: Wrike Lift document publication requires the exact go.vornan.co origin.
-  ProofGrantCreationRequiresBoundedCohort:
+  ProofGrantCreationRequiresBoundedWindow:
     RuleCondition: !Equals [!Ref ProofGrantCreationEnabled, "true"]
     Assertions:
-      - Assert: !Not [!Equals [!Ref ProofGrantAllowedCustomerIds, ""]]
-        AssertDescription: ProofGrantAllowedCustomerIds must be configured before grant creation can be enabled.
       - Assert: !Not [!Equals [!Ref ProofReadOnlyActivationExpiresAt, ""]]
         AssertDescription: ProofReadOnlyActivationExpiresAt must be configured before grant creation can be enabled.
   ProofLinkEmailRequiresGrantCreation:
@@ -514,8 +512,6 @@ Rules:
           - !Not [!Equals [!Ref ProofAuditTableName, ""]]
           - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
         AssertDescription: Customer Proof approval requires the dedicated Proof core and audit tables.
-      - Assert: !Not [!Equals [!Ref ProofGrantAllowedCustomerIds, ""]]
-        AssertDescription: Customer Proof approval requires an explicit Lift customer cohort.
       - Assert: !Not [!Equals [!Ref ProofReadOnlyActivationExpiresAt, ""]]
         AssertDescription: Customer Proof approval requires a bounded activation deadline.
   ProofCustomerRevisionUploadRequiresReviewBoundary:
@@ -531,8 +527,6 @@ Rules:
           - !Not [!Equals [!Ref ProofAuditTableName, ""]]
           - !Not [!Equals [!Ref ProofAuditTableArn, ""]]
         AssertDescription: Customer revised-art upload requires the dedicated Proof core and audit tables.
-      - Assert: !Not [!Equals [!Ref ProofGrantAllowedCustomerIds, ""]]
-        AssertDescription: Customer revised-art upload requires an explicit Lift customer cohort.
       - Assert: !Not [!Equals [!Ref ProofReadOnlyActivationExpiresAt, ""]]
         AssertDescription: Customer revised-art upload requires a bounded review-session deadline.
   ProofLtlDemoQaRequiresIsolatedBoundary:

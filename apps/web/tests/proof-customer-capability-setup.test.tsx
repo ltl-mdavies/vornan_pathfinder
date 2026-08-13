@@ -10,6 +10,12 @@ import {
 const policy: CustomerProofCapabilityPolicy = {
   access_mode: "review",
   review_experience: "advanced",
+  customer_identity: {
+    proof_customer_id: "1249",
+    verified_order_number: "A0226753",
+    verified_at: "2026-08-04T13:45:00.000Z",
+    verified_by: "operator-test"
+  },
   order_overrides: [{
     order_number: "A0226753",
     access_mode: "review",
@@ -28,6 +34,7 @@ test("renders non-technical Proof access choices, explicit Advanced review, and 
       audit={[]}
       busy={false}
       onSave={async () => undefined}
+      onVerifyIdentity={async () => undefined}
       onUpsertOverride={async () => undefined}
       onRemoveOverride={async () => undefined}
     />
@@ -38,6 +45,8 @@ test("renders non-technical Proof access choices, explicit Advanced review, and 
   assert.match(markup, /View only/);
   assert.match(markup, /Review enabled/);
   assert.match(markup, /Advanced is never automatic/);
+  assert.match(markup, /Proof customer 1249/);
+  assert.match(markup, /Verified from A0226753/);
   assert.match(markup, /Shows quantity allocation when multiple current creatives share one Lift line/);
   assert.match(markup, /Order exceptions/);
   assert.match(markup, /A0226753/);

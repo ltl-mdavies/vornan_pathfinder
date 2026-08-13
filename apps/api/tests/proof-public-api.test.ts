@@ -16,11 +16,29 @@ let createAdminRouter: typeof import("../src/proof/router.ts")["createProofAdmin
 
 const reviewCapability = {
   pathfinder_customer_id: "284619",
+  proof_customer_id: "1249",
+  identity_verified_at: "2026-08-13T15:59:00.000Z",
   access_mode: "review" as const,
   review_experience: "simple" as const,
   source: "customer_default" as const,
   policy_updated_at: "2026-08-08T15:30:00.000Z"
 };
+let authorityPolicyUpdatedAt = reviewCapability.policy_updated_at;
+
+const readCustomerCapabilityWorkspace = async (pathfinderCustomerId: string) => ({
+  customer: { lift_customer_id: pathfinderCustomerId },
+  proof_capability_policy: {
+    access_mode: "review",
+    review_experience: "simple",
+    customer_identity: {
+      proof_customer_id: reviewCapability.proof_customer_id,
+      verified_order_number: order.order_number,
+      verified_at: reviewCapability.identity_verified_at
+    },
+    order_overrides: [],
+    updated_at: authorityPolicyUpdatedAt
+  }
+});
 
 function exchangeCredentials(exchange: request.Response) {
   const cookies = exchange.headers["set-cookie"] ?? [];
@@ -117,7 +135,11 @@ before(async () => {
   process.env.PATHFINDER_PROOF_SYNC_QUEUE_URL = "";
   process.env.PATHFINDER_PROOF_TELEMETRY_MODE = "off";
   ({ proofPublicApp: app } = await import("../src/proof/public-server.ts"));
-  ({ createProofPublicRouter: createPublicRouter } = await import("../src/proof/public-router.ts"));
+  const publicRouterModule = await import("../src/proof/public-router.ts");
+  createPublicRouter = (dependencies = {}) => publicRouterModule.createProofPublicRouter({
+    ...dependencies,
+    readCustomerCapabilityWorkspace
+  });
   ({ createProofAdminRouter: createAdminRouter } = await import("../src/proof/router.ts"));
   access = await import("../src/proof/access-service.ts");
   store = await import("../src/proof/store.ts");
@@ -481,6 +503,34 @@ test("exposes the one supported approval route only to a review-scoped session",
     assert.equal(call.request.task_id, order.tasks[0]!.task_id);
     assert.equal(call.request.idempotency_key, "approval-route-qa-0001");
   } finally {
+    delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
+  }
+});
+
+test("fails a bound session closed when the saved policy changes even if the grant remains active", async () => {
+  process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS = "true";
+  const policyApp = express();
+  policyApp.use(express.json());
+  policyApp.use("/api/public/proof", createPublicRouter());
+  try {
+    const created = await access.createProofGrant({
+      order_number: order.order_number,
+      scope: "review",
+      capability: reviewCapability
+    });
+    const exchange = await request(policyApp)
+      .post("/api/public/proof/sessions")
+      .send({ token: created.access_url.split("/").at(-1)! })
+      .expect(201);
+    const credentials = exchangeCredentials(exchange);
+    authorityPolicyUpdatedAt = "2026-08-13T16:01:00.000Z";
+    await request(policyApp)
+      .get("/api/public/proof/order")
+      .set("Cookie", credentials.cookie)
+      .expect(401);
+    assert.equal((await store.getProofGrantById(created.grant.grant_id))?.status, "active");
+  } finally {
+    authorityPolicyUpdatedAt = reviewCapability.policy_updated_at;
     delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
   }
 });

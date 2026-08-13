@@ -106,6 +106,15 @@ Parameters:
   PathfinderTargetsTableArn:
     Type: String
     AllowedPattern: "^$|^arn:(aws[A-Za-z-]*?):dynamodb:[a-z0-9-]+:[0-9]{12}:table/[A-Za-z0-9_.-]{3,255}$"
+  PathfinderCustomerWorkspacesTableName:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9_.-]{3,255}$"
+    Description: Exact existing Pathfinder customer workspace table used only for live Proof policy revalidation.
+  PathfinderCustomerWorkspacesTableArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:(aws[A-Za-z-]*?):dynamodb:[a-z0-9-]+:[0-9]{12}:table/[A-Za-z0-9_.-]{3,255}$"
   ProofingApiSecretArn:
     Type: String
     AllowedPattern: "^$|^arn:(aws[A-Za-z-]*?):secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:/vornan/pathfinder/targets/lift-standard-graphics-[A-Za-z0-9]+$"
@@ -198,6 +207,9 @@ Conditions:
   CustomerRuntimeActive: !Or
     - !Condition CustomerApprovalActive
     - !Condition CustomerRevisionUploadActive
+  PublicSessionPolicyActive: !Or
+    - !Equals [!Ref PublicReadEnabled, "true"]
+    - !Condition LtlDemoQaActive
 
 Rules:
   ProofAliasAndCertificateMustBePaired:
@@ -256,6 +268,10 @@ Rules:
         AssertDescription: ReadOnlyQaConfirmed must be true before public read can be enabled.
       - Assert: !Not [!Equals [!Ref ReadOnlyActivationExpiresAt, ""]]
         AssertDescription: ReadOnlyActivationExpiresAt must be configured before public read can be enabled.
+      - Assert: !And
+          - !Not [!Equals [!Ref PathfinderCustomerWorkspacesTableName, ""]]
+          - !Not [!Equals [!Ref PathfinderCustomerWorkspacesTableArn, ""]]
+        AssertDescription: Public Proof sessions require the exact customer workspace policy table binding.
       - Assert: !Or
           - !Not [!Equals [!Ref ProofWebAclArn, ""]]
           - !Equals [!Ref ManagedWebAclEnabled, "true"]
@@ -290,8 +306,6 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref PublicReadEnabled, "true"]
         AssertDescription: Customer approval requires public Proof sessions.
-      - Assert: !Not [!Equals [!Ref GrantAllowedCustomerIds, ""]]
-        AssertDescription: Customer approval requires an explicit Lift customer cohort for existing valid review grants.
       - Assert: !Not [!Equals [!Ref ReadOnlyActivationExpiresAt, ""]]
         AssertDescription: Customer approval requires a bounded UTC deadline.
       - Assert: !And
@@ -308,8 +322,6 @@ Rules:
         AssertDescription: Customer revised-art upload requires public Proof sessions.
       - Assert: !Equals [!Ref ProofAssetUploadEnabled, "true"]
         AssertDescription: Customer revised-art upload requires the private asset upload capability.
-      - Assert: !Not [!Equals [!Ref GrantAllowedCustomerIds, ""]]
-        AssertDescription: Customer revised-art upload requires an explicit Lift customer cohort.
       - Assert: !Not [!Equals [!Ref ReadOnlyActivationExpiresAt, ""]]
         AssertDescription: Customer revised-art upload requires a bounded review deadline.
       - Assert: !And
@@ -343,6 +355,8 @@ Rules:
       - Assert: !And
           - !Not [!Equals [!Ref PathfinderTargetsTableName, ""]]
           - !Not [!Equals [!Ref PathfinderTargetsTableArn, ""]]
+          - !Not [!Equals [!Ref PathfinderCustomerWorkspacesTableName, ""]]
+          - !Not [!Equals [!Ref PathfinderCustomerWorkspacesTableArn, ""]]
           - !Not [!Equals [!Ref ProofingApiSecretArn, ""]]
           - !Not [!Equals [!Ref ProofAssetBucketName, ""]]
           - !Not [!Equals [!Ref ProofAssetBucketArn, ""]]
@@ -786,6 +800,12 @@ Resources:
                 Action: dynamodb:PutItem
                 Resource: !GetAtt ProofAuditTable.Arn
               - !If
+                - PublicSessionPolicyActive
+                - Effect: Allow
+                  Action: dynamodb:GetItem
+                  Resource: !Ref PathfinderCustomerWorkspacesTableArn
+                - !Ref "AWS::NoValue"
+              - !If
                 - CustomerRuntimeActive
                 - Effect: Allow
                   Action: dynamodb:GetItem
@@ -930,6 +950,7 @@ Resources:
           PATHFINDER_PROOF_AUTO_REFRESH_MAX_INACTIVE_DAYS: !Ref AutomaticRefreshMaxInactiveDays
           PATHFINDER_PROOF_EDGE_SHARED_SECRET: !Ref EdgeSharedSecret
           PATHFINDER_PROOF_TARGETS_TABLE: !If [CustomerRuntimeActive, !Ref PathfinderTargetsTableName, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_CUSTOMER_WORKSPACES_TABLE: !If [PublicSessionPolicyActive, !Ref PathfinderCustomerWorkspacesTableName, !Ref "AWS::NoValue"]
           PATHFINDER_SECRETS_DRIVER: !If [CustomerRuntimeActive, "secrets-manager", !Ref "AWS::NoValue"]
           PATHFINDER_SECRET_PREFIX: !If [CustomerRuntimeActive, !Ref PathfinderSecretPrefix, !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If [CustomerRevisionUploadActive, "true", !Ref "AWS::NoValue"]

@@ -89,6 +89,18 @@ function validateCustomerRuntimeBindings(env) {
   }
 }
 
+function validateCustomerPolicyBinding(env) {
+  const tableName = required(env, "PATHFINDER_PROOF_CUSTOMER_WORKSPACES_TABLE");
+  const tableArn = required(env, "PATHFINDER_PROOF_CUSTOMER_WORKSPACES_TABLE_ARN");
+  if (!/^[A-Za-z0-9_.-]{3,255}$/.test(tableName)) {
+    throw new Error("PATHFINDER_PROOF_CUSTOMER_WORKSPACES_TABLE is invalid.");
+  }
+  const escaped = tableName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (!new RegExp(`^arn:aws[a-zA-Z-]*:dynamodb:[a-z0-9-]+:[0-9]{12}:table/${escaped}$`).test(tableArn)) {
+    throw new Error("PATHFINDER_PROOF_CUSTOMER_WORKSPACES_TABLE_ARN must identify the configured customer workspace table exactly.");
+  }
+}
+
 function safePublicBaseUrl(env, name) {
   const value = required(env, name);
   let parsed;
@@ -262,6 +274,9 @@ export function validateProofDeployment(env = process.env) {
       throw new Error("PATHFINDER_PROOF_PRODUCTION_PUBLIC_READ_APPROVED=true is required for production public read.");
     }
   }
+  if (publicReadEnabled) {
+    validateCustomerPolicyBinding(env);
+  }
   let operatorPublicBaseUrl = null;
   if (operatorGrantCreationEnabled) {
     if (
@@ -289,11 +304,6 @@ export function validateProofDeployment(env = process.env) {
         "PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS=true requires the bounded public-read window with synthetic QA disabled."
       );
     }
-    if (grantAllowedCustomerIds.length === 0) {
-      throw new Error(
-        "PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS is required for customer approvals through existing valid review grants."
-      );
-    }
     validateCustomerRuntimeBindings(env);
   }
   if (customerRevisionUploadEnabled || proofAssetUploadEnabled) {
@@ -306,9 +316,6 @@ export function validateProofDeployment(env = process.env) {
       throw new Error(
         "Customer revised-art upload requires the bounded public-read window with synthetic QA disabled."
       );
-    }
-    if (grantAllowedCustomerIds.length === 0) {
-      throw new Error("PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS is required for customer revised-art upload.");
     }
     validateCustomerRuntimeBindings(env);
     if (!ltlDemoQaEnabled) {

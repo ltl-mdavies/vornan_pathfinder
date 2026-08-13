@@ -145,6 +145,8 @@ export type ProofReviewExperience = "simple" | "advanced";
 
 export interface ProofGrantCapabilityBinding {
   pathfinder_customer_id: string;
+  proof_customer_id: string;
+  identity_verified_at: string;
   access_mode: "view_only" | "review";
   review_experience: ProofReviewExperience;
   source: "customer_default" | "order_override";

@@ -181,6 +181,7 @@ export function createProofCustomerApprovalService(
       if (
         input.session.scope !== "review" ||
         input.session.capability?.access_mode !== "review" ||
+        !/^\d{1,20}$/.test(input.session.capability?.proof_customer_id ?? "") ||
         !input.session.participant_id
       ) {
         throw new ProofCustomerApprovalError("not_allowed", "Identify the reviewer in a review-enabled session first.");
@@ -193,7 +194,7 @@ export function createProofCustomerApprovalService(
         source: "public_api" as const
       };
       const { order } = await syncOrder(input.session.order_number, {
-        allowed_customer_ids: config.access.grant_allowed_customer_ids,
+        allowed_customer_ids: [input.session.capability.proof_customer_id],
         audit_context: auditContext
       });
       const task = currentSingleProof(order, input.request);
@@ -310,7 +311,7 @@ export function createProofCustomerApprovalService(
       let reconciled: ProofOrder | null = null;
       try {
         reconciled = (await syncOrder(order.order_number, {
-          allowed_customer_ids: config.access.grant_allowed_customer_ids,
+          allowed_customer_ids: [input.session.capability.proof_customer_id],
           audit_context: auditContext
         })).order;
       } catch {

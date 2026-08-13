@@ -298,7 +298,8 @@ test("attributes customer revision uploads to the identified review grant and pa
       actor_id: "psession_customer-revision-qa",
       source: "public_api",
       grant_id: grantId,
-      participant_id: participantId
+      participant_id: participantId,
+      proof_customer_id: "1249"
     },
     correlation_id: "customer-revision-audit-qa"
   });
