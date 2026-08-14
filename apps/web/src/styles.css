@@ -3857,6 +3857,10 @@ h1 {
   margin-bottom: 16px;
 }
 
+.target-save-feedback {
+  margin: -4px 0 16px;
+}
+
 .target-detail-header h1,
 .target-detail-header p {
   margin: 0;

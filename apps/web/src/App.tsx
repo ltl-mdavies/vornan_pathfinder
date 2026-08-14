@@ -4585,6 +4585,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const pendingNavigationRef = useRef<(() => void) | null>(null);
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("loading");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [targetSaveFeedback, setTargetSaveFeedback] = useState<{
+    tone: "success" | "error";
+    message: string;
+  } | null>(null);
   const [workspaceSetupRequiredCustomerId, setWorkspaceSetupRequiredCustomerId] = useState<string | null>(null);
   const workspaceRequestIdRef = useRef(0);
   const [statusPolicyDraft, setStatusPolicyDraft] = useState<StatusAccessPolicy | null>(null);
@@ -4768,6 +4772,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setLastSubmitAttempt(null);
     setStatusPolicyDraft(null);
     setWorkspaceSetupRequiredCustomerId(null);
+    setTargetSaveFeedback(null);
     setWorkspaceState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${liftCustomerId}/workspace`);
@@ -6439,82 +6444,58 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     return readJsonResponse<PathfinderCustomerWorkspace>(response);
   }
 
-  async function saveTarget(target: TargetConfig) {
+  async function saveCustomerRoutes(routes: OutputRoute[], successMessage: string) {
+    if (!workspace || routes.length === 0) {
+      return true;
+    }
+
     setWorkspaceState("saving");
+    setTargetSaveFeedback(null);
     try {
-      const response = await fetch(`${apiBaseUrl}/api/targets/${target.target_id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(target)
-      });
-      const savedTarget = await readJsonResponse<TargetConfig>(response);
-      setTargets((current) => [savedTarget, ...current.filter((candidate) => candidate.target_id !== savedTarget.target_id)]);
-      const savedActiveEnvironment = savedTarget.environments.find(
-        (environment) =>
-          environment.name === savedTarget.lift.active_environment ||
-          environmentRoleKey(environment.name, environment.role) === savedTarget.lift.active_environment
-      );
-      let nextWorkspace =
-        workspace && workspace.primary_target?.target_id === savedTarget.target_id
-          ? { ...workspace, primary_target: savedTarget }
-          : workspace;
-
-      if (savedActiveEnvironment && nextWorkspace) {
-        const routesToSync = nextWorkspace.output_routes.filter(
-          (route) => route.target_id === savedTarget.target_id && route.environment_id !== savedActiveEnvironment.environment_id
-        );
-        for (const route of routesToSync) {
-          nextWorkspace = await persistOutputRoute({
-            ...route,
-            environment_id: savedActiveEnvironment.environment_id
-          });
-        }
+      let nextWorkspace = workspace;
+      for (const route of routes) {
+        nextWorkspace = await persistOutputRoute(route);
       }
 
-      if (nextWorkspace) {
-        const dirtyRoutesToPersist = nextWorkspace.output_routes.filter(
-          (route) => route.target_id === savedTarget.target_id && dirtyOutputRouteIds.includes(route.output_route_id)
-        );
-        for (const route of dirtyRoutesToPersist) {
-          nextWorkspace = await persistOutputRoute(route);
-        }
-      }
-
-      setWorkspace((current) => {
-        if (!current) {
-          return current;
-        }
-        return nextWorkspace ? { ...nextWorkspace, primary_target: savedTarget } : { ...current, primary_target: savedTarget };
-      });
-      setDirtyTargetIds((current) => current.filter((targetId) => targetId !== savedTarget.target_id));
-      setLocalDraftTargetIds((current) => current.filter((targetId) => targetId !== savedTarget.target_id));
-      setDirtyOutputRouteIds((current) => {
-        const savedRouteIds = new Set(
-          (nextWorkspace?.output_routes ?? workspace?.output_routes ?? [])
-            .filter((route) => route.target_id === savedTarget.target_id)
-            .map((route) => route.output_route_id)
-        );
-        return current.filter((routeId) => !savedRouteIds.has(routeId));
-      });
+      const savedRouteIds = new Set(routes.map((route) => route.output_route_id));
+      setWorkspace(nextWorkspace);
+      setDirtyOutputRouteIds((current) => current.filter((routeId) => !savedRouteIds.has(routeId)));
       setRouteStrategyChanges((current) => {
         const next = { ...current };
-        (nextWorkspace?.output_routes ?? workspace?.output_routes ?? [])
-          .filter((route) => route.target_id === savedTarget.target_id)
-          .forEach((route) => delete next[route.output_route_id]);
+        savedRouteIds.forEach((routeId) => delete next[routeId]);
         return next;
       });
-      setWorkspaceMessage(
-        savedActiveEnvironment
-          ? `Target settings saved. Current workspace routes now use ${savedActiveEnvironment.name}.`
-          : "Target settings saved."
-      );
+      setWorkspaceMessage(successMessage);
+      setTargetSaveFeedback({ tone: "success", message: successMessage });
       setWorkspaceState("idle");
       return true;
-    } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Target save failed.");
+    } catch {
+      const message =
+        "We couldn't save this customer route. Reload the page before trying again. No preview or Lift order was submitted.";
+      setWorkspaceMessage(message);
+      setTargetSaveFeedback({ tone: "error", message });
       setWorkspaceState("error");
       return false;
     }
+  }
+
+  async function saveTarget(target: TargetConfig) {
+    if (dirtyTargetIds.includes(target.target_id)) {
+      const message =
+        "Reusable target editing is temporarily unavailable. Reload to discard those changes; customer route settings can still be saved safely.";
+      setWorkspaceMessage(message);
+      setTargetSaveFeedback({ tone: "error", message });
+      setWorkspaceState("error");
+      return false;
+    }
+
+    const dirtyRoutes = (workspace?.output_routes ?? []).filter(
+      (route) => route.target_id === target.target_id && dirtyOutputRouteIds.includes(route.output_route_id)
+    );
+    return saveCustomerRoutes(
+      dirtyRoutes,
+      `${dirtyRoutes.length === 1 ? "Customer route" : `${dirtyRoutes.length} customer routes`} saved for ${selectedCustomer.customer_name}.`
+    );
   }
 
   function applyCatalogPreset(preset: LiftCatalogPreset) {
@@ -7164,9 +7145,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const selectedTargetRoutes = selectedTarget
     ? outputRoutes.filter((route) => route.target_id === selectedTarget.target_id)
     : [];
+  const selectedTargetHasSharedUnsavedChanges = selectedTarget
+    ? dirtyTargetIds.includes(selectedTarget.target_id)
+    : false;
+  const selectedTargetHasRouteUnsavedChanges = selectedTargetRoutes.some((route) =>
+    dirtyOutputRouteIds.includes(route.output_route_id)
+  );
   const selectedTargetHasUnsavedChanges = selectedTarget
-    ? dirtyTargetIds.includes(selectedTarget.target_id) ||
-      selectedTargetRoutes.some((route) => dirtyOutputRouteIds.includes(route.output_route_id))
+    ? selectedTargetHasSharedUnsavedChanges || selectedTargetHasRouteUnsavedChanges
     : false;
   const selectedTargetTestRoute = selectedTargetRoutes[0] ?? null;
   const selectedTargetTestEnvironment =
@@ -8333,7 +8319,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   async function changePrimaryRouteEnvironment(environmentId: string) {
     const environment = primaryRouteTarget?.environments.find((candidate) => candidate.environment_id === environmentId);
     if (!environment || !primaryRouteTarget) {
-      setWorkspaceMessage("Choose a valid target environment.");
+      const message = "Choose an available environment for this customer route.";
+      setWorkspaceMessage(message);
+      setTargetSaveFeedback({ tone: "error", message });
       setWorkspaceState("error");
       return;
     }
@@ -8342,18 +8330,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       ...primaryOutputRoute,
       environment_id: environment.environment_id
     };
-    const nextTarget: TargetConfig = {
-      ...primaryRouteTarget,
-      lift: {
-        ...primaryRouteTarget.lift,
-        active_environment: environmentRoleKey(environment.name, environment.role)
-      }
-    };
     setOpenTopbarMenu(null);
-    updateOutputRouteDraft(nextRoute.output_route_id, { environment_id: environment.environment_id });
-    await saveTarget(nextTarget);
-    setDirtyOutputRouteIds((current) => current.filter((routeId) => routeId !== nextRoute.output_route_id));
-    setWorkspaceMessage(`Primary route and target active environment set to ${environment.name}. Regenerate preview jobs to apply it.`);
+    await saveOutputRoute(
+      nextRoute,
+      `${selectedCustomer.customer_name}'s route now uses ${environment.name}. New previews will use this environment.`
+    );
   }
 
   function runHeaderAction(action: "manual-import" | "preview" | "product-map" | "import-methods" | "jobs" | "target") {
@@ -8410,8 +8391,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       pendingNavigationRef.current = action;
       setLeavePrompt({
         scope: "target",
-        title: "Unsaved target changes",
-        body: "Save target, environment, output template, route, and value-rule changes before leaving, or continue without saving."
+        title: selectedTargetHasSharedUnsavedChanges ? "Unsaved reusable target changes" : "Unsaved customer route changes",
+        body: selectedTargetHasSharedUnsavedChanges
+          ? "Reusable target editing is temporarily unavailable. Continue without saving to reload the last saved target."
+          : `Save ${selectedCustomer.customer_name}'s route before leaving, or continue without saving.`
       });
       return;
     }
@@ -8795,6 +8778,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   function updateOutputRouteDraft(routeId: string, patch: Partial<OutputRoute>) {
+    setTargetSaveFeedback(null);
     setWorkspace((current) => {
       if (!current) {
         return current;
@@ -8934,25 +8918,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     });
   }
 
-  async function saveOutputRoute(route: OutputRoute) {
-    setWorkspaceState("saving");
-    try {
-      const nextWorkspace = await persistOutputRoute(route);
-      setWorkspace(nextWorkspace);
-      setDirtyOutputRouteIds((current) => current.filter((routeId) => routeId !== route.output_route_id));
-      setRouteStrategyChanges((current) => {
-        const next = { ...current };
-        delete next[route.output_route_id];
-        return next;
-      });
-      setWorkspaceMessage("Output route saved.");
-      setWorkspaceState("idle");
-      return true;
-    } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Output route save failed.");
-      setWorkspaceState("error");
-      return false;
-    }
+  async function saveOutputRoute(route: OutputRoute, successMessage = "Customer route saved.") {
+    return saveCustomerRoutes([route], successMessage);
   }
 
   async function saveProductMapping(mapping: CustomerProductMapping | ProductResolutionResult) {
@@ -10201,6 +10168,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   function updateTargetDraft(targetId: string, updater: (target: TargetConfig) => TargetConfig) {
+    setTargetSaveFeedback(null);
     setTargets((current) => current.map((target) => (target.target_id === targetId ? updater(target) : target)));
     setWorkspace((current) =>
       current?.primary_target?.target_id === targetId
@@ -10706,7 +10674,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   {openTopbarMenu === "environment" ? (
                     <div className="topbar-popover environment-popover">
                       <strong>Primary Route Environment</strong>
-                      <p>{primaryOutputRoute.name}</p>
+                      <p>{selectedCustomer.customer_name} · {primaryOutputRoute.name}</p>
                       <div className="topbar-menu-list">
                         {(primaryRouteTarget?.environments ?? []).map((environment) => (
                           <button
@@ -10733,7 +10701,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           })
                         }
                       >
-                        Manage environments
+                        View reusable environments
                       </button>
                     </div>
                   ) : null}
@@ -16713,7 +16681,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       }`}
                     >
                       {selectedTargetHasUnsavedChanges ? (
-                        "Unsaved changes"
+                        selectedTargetHasSharedUnsavedChanges ? "Target changes unavailable" : "Unsaved customer route"
                       ) : (
                         <>
                           <Check size={13} />
@@ -16733,11 +16701,30 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       className="primary-button"
                       onClick={() => void saveTarget(selectedTarget)}
                       disabled={!selectedTargetHasUnsavedChanges || workspaceState === "saving"}
+                      title={
+                        selectedTargetHasSharedUnsavedChanges
+                          ? "Reusable target saving is temporarily unavailable"
+                          : `Save route changes for ${selectedCustomer.customer_name}`
+                      }
                     >
-                      {workspaceState === "saving" ? "Saving" : "Save Changes"}
+                      {workspaceState === "saving"
+                        ? "Saving"
+                        : selectedTargetHasSharedUnsavedChanges
+                          ? "Save unavailable"
+                          : "Save Customer Route"}
                     </button>
                   </div>
                 </header>
+
+                {targetSaveFeedback ? (
+                  <p
+                    className={`target-save-feedback ${targetSaveFeedback.tone === "error" ? "import-error" : "import-warning"}`}
+                    role={targetSaveFeedback.tone === "error" ? "alert" : "status"}
+                    aria-live={targetSaveFeedback.tone === "error" ? "assertive" : "polite"}
+                  >
+                    {targetSaveFeedback.message}
+                  </p>
+                ) : null}
 
                 <nav className="target-tabs" aria-label="Selected target setup sections">
                   {targetDetailTabs.map((tab) => (
