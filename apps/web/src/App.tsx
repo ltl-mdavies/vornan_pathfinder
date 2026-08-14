@@ -4416,6 +4416,21 @@ function productKeyFromCatalogRow(
   return sourceKey ? `${config.prefix ?? ""}${sourceKey}${config.suffix ?? ""}` : "";
 }
 
+const momentaraLegacyCustomerId = "284619";
+
+function isMomentaraLegacyProductRecipe(config: ProductResolutionConfig) {
+  return (
+    config.strategy === "derived_key" &&
+    config.mode === "map_to_lift_unit" &&
+    config.source_column === "SIGN TYPE" &&
+    config.prefix === "MOMENTARA__" &&
+    config.suffix === "" &&
+    config.fallback_strategy === "none" &&
+    config.composite_columns.join("\0") ===
+      ["DESCRIPTION", "Media Type", "Final Size Width", "Final Size Length", "STOCK", "FINISHING"].join("\0")
+  );
+}
+
 function preloadDimensionValue(row: Record<string, unknown>, dimension: "width" | "height") {
   const columns =
     dimension === "width"
@@ -4663,6 +4678,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [preloadSourceName, setPreloadSourceName] = useState("Customer product list");
   const [preloadGrid, setPreloadGrid] = useState<SourceGrid>({ columns: [], rows: [] });
   const [preloadWorkbookProfiles, setPreloadWorkbookProfiles] = useState<ProductWorkbookSheetProfile[]>([]);
+  const [preloadParseState, setPreloadParseState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [preloadLocalMessage, setPreloadLocalMessage] = useState("");
   const [preloadSourceColumn, setPreloadSourceColumn] = useState("");
   const [preloadProductNameColumn, setPreloadProductNameColumn] = useState("");
   const [preloadUnitColumn, setPreloadUnitColumn] = useState("");
@@ -7603,9 +7620,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   ]);
   const validPreloadRows = preloadPreviewRows.filter((row) => row.customer_product_key && row.action !== "Duplicate");
   const selectedPreloadRows = preloadPreviewRows.filter((row) => preloadSelectedIds.includes(row.row_id));
+  const preloadCanonicalReadyCount = preloadPreviewRows.filter((row) => Boolean(row.customer_product_key)).length;
   const preloadMappedCount = preloadPreviewRows.filter((row) => row.status === "Mapped").length;
+  const preloadDestinationPendingCount = validPreloadRows.filter((row) => row.status !== "Mapped").length;
   const preloadDuplicateCount = preloadPreviewRows.filter((row) => row.action === "Duplicate").length;
   const preloadMissingCount = preloadPreviewRows.filter((row) => row.action === "Missing key").length;
+  const preloadHasUnconfirmedProfiles = preloadWorkbookProfiles.some(
+    (profile) => profile.included && profile.setup_required
+  );
+  const preloadForeignRecipeBlocked =
+    selectedCustomer.lift_customer_id !== momentaraLegacyCustomerId &&
+    isMomentaraLegacyProductRecipe(selectedOutputMapProductConfig);
+  const preloadSaveBlocked = preloadHasUnconfirmedProfiles || preloadForeignRecipeBlocked;
+  const preloadRecipeSource =
+    selectedOutputMapProductConfig.strategy === "composite_key"
+      ? selectedOutputMapProductConfig.composite_columns.join(" + ") || "Not configured"
+      : selectedOutputMapProductConfig.strategy === "direct_lift_unit_number"
+        ? selectedOutputMapProductConfig.direct_unit_number_column || selectedOutputMapProductConfig.source_column || "Not configured"
+        : selectedOutputMapProductConfig.source_column || "Selected workbook key";
   const productResolutionExample = buildProductResolutionExample(
     activeProductConfig,
     sourceGrid.rows,
@@ -9599,7 +9631,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   function parsePreloadProductList() {
     const parsed = parseDelimitedProductList(preloadText);
     if (!parsed.columns.length || !parsed.rows.length) {
-      setWorkspaceMessage("Paste a product list with a header row and at least one product row.");
+      setPreloadParseState("error");
+      setPreloadLocalMessage("Paste a product list with a header row and at least one product row.");
       return;
     }
 
@@ -9621,38 +9654,53 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setPreloadFinalWidthColumn(guessedFinalWidthColumn);
     setPreloadFinalHeightColumn(guessedFinalHeightColumn);
     setPreloadSelectedIds([]);
-    setWorkspaceMessage(`${parsed.rows.length} customer product row${parsed.rows.length === 1 ? "" : "s"} parsed for review.`);
+    setPreloadParseState("ready");
+    setPreloadLocalMessage(
+      `${parsed.rows.length} customer product row${parsed.rows.length === 1 ? "" : "s"} parsed locally for review. Nothing has been saved.`
+    );
   }
 
   async function importPreloadCatalogFile(file: File) {
+    setPreloadParseState("loading");
+    setPreloadLocalMessage(`Reading ${file.name} locally…`);
+    setPreloadSourceName(file.name);
     try {
       const parsed = await parseWorkbookArrayBuffer(await file.arrayBuffer());
       const profiles = parsed.source_sheets.map(inferProductWorkbookProfile);
       const grid = productWorkbookProfileGrid(profiles);
-      if (!grid.rows.length) {
-        throw new Error("No product rows were found. Include a sheet and choose a product key column.");
-      }
 
       setPreloadWorkbookProfiles(profiles);
       setPreloadGrid(grid);
-      setPreloadSourceName(file.name);
-      setPreloadSourceColumn(PRODUCT_WORKBOOK_KEY_COLUMN);
-      setPreloadProductNameColumn(PRODUCT_WORKBOOK_NAME_COLUMN);
+      setPreloadSourceColumn(grid.rows.length ? PRODUCT_WORKBOOK_KEY_COLUMN : "");
+      setPreloadProductNameColumn(grid.rows.length ? PRODUCT_WORKBOOK_NAME_COLUMN : "");
       setPreloadUnitColumn("");
       setPreloadFinalWidthColumn("Final Size Width");
       setPreloadFinalHeightColumn("Final Size Length");
       setPreloadSelectedIds([]);
-      setWorkspaceMessage(
-        `${grid.rows.length} products loaded from ${profiles.filter((profile) => profile.included).length} included workbook tabs.`
+      setProductMappingReplacementPreview(null);
+      setPreloadParseState("ready");
+      const setupRequiredCount = profiles.filter((profile) => profile.setup_required).length;
+      setPreloadLocalMessage(
+        grid.rows.length
+          ? `${file.name}: ${grid.rows.length} product row${grid.rows.length === 1 ? "" : "s"} found across ${profiles.length} sheet${profiles.length === 1 ? "" : "s"}. ${setupRequiredCount ? `Confirm setup for ${setupRequiredCount} sheet${setupRequiredCount === 1 ? "" : "s"}.` : "Workbook structure recognized."} Nothing has been saved.`
+          : `${file.name} loaded, but no product key is selected yet. Choose a sheet and product key column. Nothing has been saved.`
       );
-    } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Product list upload failed.");
+    } catch {
+      setPreloadWorkbookProfiles([]);
+      setPreloadGrid({ columns: [], rows: [] });
+      setPreloadSelectedIds([]);
+      setPreloadParseState("error");
+      setPreloadLocalMessage(
+        `Pathfinder could not read ${file.name}. Confirm it is a valid XLSX, XLS, or CSV file, then try again.`
+      );
     }
   }
 
   function updatePreloadWorkbookProfile(
     sheetName: string,
-    patch: Partial<Pick<ProductWorkbookSheetProfile, "kind" | "included" | "key_column" | "name_column">>
+    patch: Partial<
+      Pick<ProductWorkbookSheetProfile, "kind" | "included" | "key_column" | "name_column" | "setup_required">
+    >
   ) {
     setPreloadWorkbookProfiles((current) => {
       const next = current.map((profile) => {
@@ -9664,7 +9712,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         return {
           ...updated,
           included: updated.kind === "ignore" ? false : patch.included ?? updated.included,
-          valid_row_count: validRowCount
+          valid_row_count: validRowCount,
+          setup_required:
+            updated.kind === "ignore"
+              ? false
+              : patch.setup_required ??
+                (patch.key_column !== undefined || patch.kind !== undefined ? false : updated.setup_required)
         };
       });
       const grid = productWorkbookProfileGrid(next);
@@ -9675,8 +9728,30 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setPreloadFinalHeightColumn("Final Size Length");
       setPreloadSelectedIds([]);
       setProductMappingReplacementPreview(null);
+      setPreloadParseState("ready");
+      setPreloadLocalMessage(
+        `${grid.rows.length} product row${grid.rows.length === 1 ? "" : "s"} prepared locally. Nothing has been saved.`
+      );
       return next;
     });
+  }
+
+  function resetPreloadWorkbook() {
+    setPreloadWorkbookProfiles([]);
+    setPreloadGrid({ columns: [], rows: [] });
+    setPreloadSourceName("Customer product list");
+    setPreloadSourceColumn("");
+    setPreloadProductNameColumn("");
+    setPreloadUnitColumn("");
+    setPreloadFinalWidthColumn("");
+    setPreloadFinalHeightColumn("");
+    setPreloadSelectedIds([]);
+    setProductMappingReplacementPreview(null);
+    setPreloadParseState("idle");
+    setPreloadLocalMessage("");
+    if (productPreloadFileRef.current) {
+      productPreloadFileRef.current.value = "";
+    }
   }
 
   function togglePreloadRow(rowId: string) {
@@ -9752,6 +9827,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function savePreloadedProductMappings(scope: "selected" | "all") {
+    if (preloadForeignRecipeBlocked) {
+      setPreloadParseState("error");
+      setPreloadLocalMessage(
+        "This customer inherited a product-key recipe that belongs to another customer. Update this Import Method to a neutral recipe before saving mappings. Nothing has been saved."
+      );
+      return;
+    }
+    if (preloadHasUnconfirmedProfiles) {
+      setPreloadParseState("error");
+      setPreloadLocalMessage("Confirm each included workbook sheet before saving product mappings. Nothing has been saved.");
+      return;
+    }
     const rowsToSave = scope === "selected" ? selectedPreloadRows : validPreloadRows;
     const saveableRows = rowsToSave.filter((row) => row.customer_product_key && row.action !== "Duplicate");
 
@@ -9783,6 +9870,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function reviewProductMappingReplacement() {
+    if (preloadSaveBlocked) {
+      setPreloadParseState("error");
+      setPreloadLocalMessage(
+        preloadForeignRecipeBlocked
+          ? "This customer inherited a product-key recipe that belongs to another customer. Update the Import Method before reviewing a replacement. Nothing has been saved."
+          : "Confirm each included workbook sheet before reviewing a full-list replacement. Nothing has been saved."
+      );
+      return;
+    }
     if (!validPreloadRows.length) {
       setWorkspaceMessage("Load and preview the complete authoritative customer product list first.");
       return;
@@ -14025,14 +14121,67 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </span>
                       </div>
                       <div className="product-preload-stats">
-                        <span>{preloadPreviewRows.length} parsed</span>
-                        <span>{preloadMappedCount} with {selectedOutputMapRoute.product_identifier_label}</span>
-                        <span>{preloadDuplicateCount + preloadMissingCount} need review</span>
+                        <span>{preloadPreviewRows.length} source rows</span>
+                        <span>{preloadCanonicalReadyCount} canonical ready</span>
+                        <span>{preloadMappedCount} mapped to Lift</span>
+                        <span>{preloadDestinationPendingCount} need Lift mapping</span>
                         <button className="modal-close-button" onClick={() => setOpenProductMapTool(null)} aria-label="Close preload product list">
                           <X size={17} />
                         </button>
                       </div>
                     </div>
+
+                    <section className="product-preload-recipe" aria-label="Product key recipe">
+                      <div className="product-preload-recipe-heading">
+                        <div>
+                          <strong>Product Key Recipe</strong>
+                          <span>Review how source values become customer product keys before saving.</span>
+                        </div>
+                        <span className="mini-pill">
+                          {isMomentaraLegacyProductRecipe(selectedOutputMapProductConfig)
+                            ? "Momentara legacy recipe"
+                            : "Customer-neutral recipe"}
+                        </span>
+                      </div>
+                      <dl className="product-preload-recipe-grid">
+                        <div>
+                          <dt>Customer</dt>
+                          <dd>{selectedCustomer.customer_name} · {selectedCustomer.lift_customer_id}</dd>
+                        </div>
+                        <div>
+                          <dt>Route</dt>
+                          <dd>{selectedOutputMapRoute.name}</dd>
+                        </div>
+                        <div>
+                          <dt>Source</dt>
+                          <dd>{preloadRecipeSource}</dd>
+                        </div>
+                        <div>
+                          <dt>Transformation</dt>
+                          <dd>{selectedOutputMapProductConfig.strategy.replaceAll("_", " ")}</dd>
+                        </div>
+                        <div>
+                          <dt>Prefix</dt>
+                          <dd>{selectedOutputMapProductConfig.prefix || "None"}</dd>
+                        </div>
+                        <div>
+                          <dt>Suffix</dt>
+                          <dd>{selectedOutputMapProductConfig.suffix || "None"}</dd>
+                        </div>
+                      </dl>
+                      {preloadForeignRecipeBlocked ? (
+                        <div className="product-preload-recipe-alert" role="alert">
+                          <AlertTriangle size={17} aria-hidden="true" />
+                          <span>
+                            This Import Method uses a product-key recipe assigned to another customer. Update it to a neutral recipe before saving mappings. Nothing has been saved.
+                          </span>
+                        </div>
+                      ) : isMomentaraLegacyProductRecipe(selectedOutputMapProductConfig) ? (
+                        <div className="product-preload-recipe-note">
+                          This established Momentara recipe is preserved for customer 284619.
+                        </div>
+                      ) : null}
+                    </section>
 
                     {preloadWorkbookProfiles.length ? (
                       <section className="product-workbook-structure" aria-label="Product workbook structure">
@@ -14042,7 +14191,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <span>Include each product tab and confirm how Pathfinder identifies products on that tab.</span>
                           </div>
                           <span className="mini-pill mini-pill-success">
-                            {preloadWorkbookProfiles.filter((profile) => profile.included).length} tabs · {preloadGrid.rows.length} products
+                            {preloadSourceName} · {preloadWorkbookProfiles.length} sheet{preloadWorkbookProfiles.length === 1 ? "" : "s"} · {preloadGrid.rows.length} rows
                           </span>
                         </div>
                         <div className="product-workbook-sheet-list">
@@ -14063,6 +14212,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 <span>
                                   <strong>{profile.sheet_name}</strong>
                                   <small>{profile.valid_row_count} product rows</small>
+                                  <span className={`product-workbook-inference product-workbook-inference-${profile.setup_required ? "review" : "ready"}`}>
+                                    {profile.setup_required
+                                      ? "Confirmation required"
+                                      : profile.inference === "recognized"
+                                        ? "Recognized"
+                                        : "Confirmed"}
+                                  </span>
                                 </span>
                               </label>
                               <label className="setup-control">
@@ -14083,12 +14239,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                       kind,
                                       included: kind !== "ignore" && Boolean(keyColumn),
                                       key_column: keyColumn,
-                                      name_column: nameColumn
+                                      name_column: nameColumn,
+                                      setup_required: kind === "custom"
                                     });
                                   }}
                                 >
                                   <option value="standard">Standard products</option>
                                   <option value="hardware">Hardware products</option>
+                                  <option value="custom">Custom / choose columns</option>
                                   <option value="ignore">Ignore sheet</option>
                                 </select>
                               </label>
@@ -14118,14 +14276,43 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   {profile.columns.map((column) => <option key={column} value={column}>{column}</option>)}
                                 </select>
                               </label>
+                              {profile.included && profile.setup_required ? (
+                                <button
+                                  className="secondary-button product-workbook-confirm"
+                                  disabled={!profile.key_column}
+                                  onClick={() =>
+                                    updatePreloadWorkbookProfile(profile.sheet_name, { setup_required: false })
+                                  }
+                                >
+                                  <Check size={14} />
+                                  Confirm setup
+                                </button>
+                              ) : null}
                             </article>
                           ))}
                         </div>
                         <p className="product-workbook-structure-note">
-                          Standard tabs use Description. Hardware uses PS SKU as the stable key; OPS SKU in incoming order grids is treated as the matching alias. Hardware names include useful item detail without changing product identity.
+                          Sheet suggestions are advisory. Choose Custom to use any populated source column as the stable product key. Original uploaded columns remain available for review and destination mapping.
                         </p>
                       </section>
                     ) : null}
+
+                    <div className="product-preload-readiness" role="note">
+                      <div>
+                        <strong>Source structure</strong>
+                        <span>{preloadWorkbookProfiles.length ? `${preloadWorkbookProfiles.length} workbook sheet${preloadWorkbookProfiles.length === 1 ? "" : "s"}` : "Paste or upload a list"}</span>
+                      </div>
+                      <div>
+                        <strong>Canonical products</strong>
+                        <span>
+                          {preloadCanonicalReadyCount} of {preloadPreviewRows.length} have stable customer keys · {preloadDuplicateCount + preloadMissingCount} key issue{preloadDuplicateCount + preloadMissingCount === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <div>
+                        <strong>Lift destination</strong>
+                        <span>{preloadMappedCount} mapped · {preloadDestinationPendingCount} need mapping</span>
+                      </div>
+                    </div>
 
                     <div className="product-preload-grid">
                       <label className="setup-control product-preload-source">
@@ -14239,26 +14426,39 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           />
                           <button className="secondary-button" onClick={() => productPreloadFileRef.current?.click()}>
                             <Upload size={15} />
-                            Upload List
+                            {preloadParseState === "loading" ? "Reading…" : "Upload List"}
                           </button>
                           <button className="secondary-button" onClick={parsePreloadProductList}>
                             <FileSpreadsheet size={15} />
                             Preview List
                           </button>
+                          <button className="text-button" onClick={resetPreloadWorkbook} disabled={preloadParseState === "loading"}>
+                            <RefreshCw size={14} />
+                            Reset
+                          </button>
                           <button
                             className="primary-button"
                             onClick={() => void savePreloadedProductMappings(preloadSelectedIds.length ? "selected" : "all")}
-                            disabled={workspaceState === "saving" || validPreloadRows.length === 0}
+                            disabled={workspaceState === "saving" || preloadParseState === "loading" || preloadSaveBlocked || validPreloadRows.length === 0}
                           >
                             <Upload size={15} />
                             Add or Update {preloadSelectedIds.length ? `${preloadSelectedIds.length} Selected` : "Valid Rows"}
                           </button>
                         </div>
+                        {preloadLocalMessage ? (
+                          <div
+                            className={`product-preload-message ${preloadParseState === "error" ? "product-preload-message-error" : ""}`}
+                            role={preloadParseState === "error" ? "alert" : "status"}
+                            aria-live={preloadParseState === "error" ? "assertive" : "polite"}
+                          >
+                            {preloadLocalMessage}
+                          </div>
+                        ) : null}
                         <div className="authoritative-product-list-card">
                           <div>
                             <strong>Is this the complete customer product list?</strong>
                             <span>
-                              Review a controlled replacement when this file contains every Momentara product expected for this route.
+                              Review a controlled replacement when this file contains every customer product expected for this route.
                               Omitted products become inactive; nothing is permanently deleted.
                             </span>
                           </div>
@@ -14276,7 +14476,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <button
                             className="secondary-button"
                             onClick={() => void reviewProductMappingReplacement()}
-                            disabled={workspaceState === "saving" || validPreloadRows.length === 0}
+                            disabled={workspaceState === "saving" || preloadSaveBlocked || validPreloadRows.length === 0}
                           >
                             <ShieldCheck size={15} />
                             Review Full-List Replacement
