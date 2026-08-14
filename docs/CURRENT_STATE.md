@@ -4,9 +4,9 @@ This is the entry point for all new Pathfinder, Vornan Proof, and live-support t
 
 Last reconciled: **2026-08-14**
 
-Deployed application baseline: `origin/main` application commit `9f78d2d4b122984c53bc3b96506588996768f5d0`
+Deployed application baseline: `origin/main` application commit `6a6d436ff30c570b0d6a0ecdb32f75a263855145`
 
-Live evidence: read-only AWS inspection, authenticated Admin smoke, and natural scheduled-intake continuity through 2026-08-13 in account `744016783602`, region `us-east-1`
+Live evidence: read-only AWS inspection, authenticated Admin smoke, and natural scheduled-intake continuity through 2026-08-14 in account `744016783602`, region `us-east-1`
 
 ## Authority order
 
@@ -26,6 +26,14 @@ Never infer a production capability from merged code alone. Record repository-re
 - [Pathfinder live support runbook](./PATHFINDER_LIVE_SUPPORT_RUNBOOK.md) — incident triage, mutation boundaries, recovery procedure, and the contract for a dedicated support task.
 
 ## Current production posture
+
+### Release A deployed; neutral-source Admin hotfix pending review
+
+Release A is live from `6a6d436ff30c570b0d6a0ecdb32f75a263855145`. It replaces the whole-store workspace, Import Method, Output Route, catalog-preset, and Lift product-cache persistence paths with focused customer-scoped writes; adds neutral new-customer construction; and makes arbitrary populated product workbooks available for manual column setup. The API and Admin deployments preserved all Momentara scheduled intake, Lift submit, Wrike writeback, document publication, multi-proof ZIP, `TBD` → `0.5`, and `MM/DD/YYYY` behavior. The first natural post-API cycle replayed all ten candidates with zero preparations, Lift submits, Wrike writes, or failures, and no protected count or configuration changed.
+
+Targets remain reusable destination definitions. Output Routes are selected-customer records, keyed by customer and route ID. Production reads confirm Momentara `284619` uses `env-lift-prod`, while LTL Demo `1249` separately uses `env-lift-qa1`; the shared route ID does not merge those records. No route change is required to protect Momentara.
+
+The retained `1249` Manual XLSX method still contains an unused legacy Momentara product recipe. The current repository hotfix, not yet merged or deployed, adds an explicit **Choose during preload** source option that saves the exact neutral product-resolution object and prevents a hidden prefix, suffix, composite, fallback, or direct identifier from surviving. Workbook column selection remains browser-local until an explicit mapping save. The Admin also labels reusable Targets separately from customer Routes and names the selected customer on the Route view. No production configuration, mapping, preview, provider, Lift, Wrike, or Proof action is part of this hotfix.
 
 ### Customer-workspace persistence incident — repository fix in review
 
