@@ -2,12 +2,14 @@ interface WorkspaceLoadingProps {
   message?: string;
   error?: string | null;
   onRetry?: () => void;
+  actionLabel?: string;
 }
 
 export function WorkspaceLoading({
   message = "Loading your current Pathfinder workspace…",
   error = null,
-  onRetry
+  onRetry,
+  actionLabel = "Try again"
 }: WorkspaceLoadingProps) {
   return (
     <main className="app-shell workspace-loading-shell" aria-busy={!error}>
@@ -36,7 +38,7 @@ export function WorkspaceLoading({
           </div>
           {error && onRetry ? (
             <button className="secondary-button" type="button" onClick={onRetry}>
-              Try again
+              {actionLabel}
             </button>
           ) : null}
         </div>

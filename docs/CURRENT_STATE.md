@@ -27,6 +27,14 @@ Never infer a production capability from merged code alone. Record repository-re
 
 ## Current production posture
 
+### Customer-workspace persistence incident — repository fix in review
+
+On 2026-08-14, selecting `LTL Demo / 1249` in production Admin created the intended isolated Customer, CustomerWorkspace, Manual XLSX Import Method, and Output Route records, then returned a raw DynamoDB throughput error. No preview, Pathfinder job, submit attempt, Lift order, or Wrike action occurred. Read-only evidence found 21 `WriteThrottleEvents` on `Pathfinder-Jobs-prod` in the incident minute and zero throttles on every other protected table. The retained `1249` setup records are valid production data and must not be deleted, reseeded, or recreated.
+
+The cause is the legacy whole-store Dynamo writer: after the four setup records were durable, it attempted an unbounded `PutItem` rewrite of every existing Job and a replacement pass over the Lift product cache. The same writer remained reachable from Import Method and Output Route saves, so the Proof pilot is stopped before any `1249` configuration save.
+
+The repository-ready fix gives workspace creation, Import Method saves, and Output Route saves focused, customer-scoped conditional transactions. These paths cannot write Jobs, Lift product cache, other customers, submit attempts, mappings, or external systems. New customer setup becomes an explicit idempotent Admin confirmation; workspace reads no longer create records. API/UI failures use fixed nontechnical copy, state that no preview or Lift order was submitted, and emit sanitized operation/outcome/table-class telemetry without AWS exception text or URLs. This code is not deployed until its draft PR is reviewed and a separate one-at-a-time API-first/Admin-second release is approved.
+
 ### Deployed combined source-review and default-dark Proof release
 
 PRs #197, #199, #198, #200, #201, and #202 are merged and deployed together from final application commit `9f78d2d4b122984c53bc3b96506588996768f5d0`. Merged-main validation `31740363776` / job `94581986809` passed the full repository, browser, deployment-contract, readiness, and packaging matrix. The Pathfinder slice adds stable Lift-impact classification for post-transport Wrike replays and exact, append-only operator dispositions. It does not add a Lift order-update/retry path, and it does not auto-clear retained review history. The Admin now presents precise review language, immutable source/Lift identities, and explicit **No Lift update needed** / **Mark reviewed** controls; invoking either control remains a separately authorized production mutation.

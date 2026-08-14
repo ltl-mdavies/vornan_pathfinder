@@ -4570,6 +4570,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const pendingNavigationRef = useRef<(() => void) | null>(null);
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("loading");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [workspaceSetupRequiredCustomerId, setWorkspaceSetupRequiredCustomerId] = useState<string | null>(null);
   const workspaceRequestIdRef = useRef(0);
   const [statusPolicyDraft, setStatusPolicyDraft] = useState<StatusAccessPolicy | null>(null);
   const [newStatusDomain, setNewStatusDomain] = useState("");
@@ -4749,9 +4750,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setLastPreviewJob(null);
     setLastSubmitAttempt(null);
     setStatusPolicyDraft(null);
+    setWorkspaceSetupRequiredCustomerId(null);
     setWorkspaceState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${liftCustomerId}/workspace`);
+      if (response.status === 404) {
+        if (workspaceRequestIdRef.current !== requestId) {
+          return;
+        }
+        setWorkspaceSetupRequiredCustomerId(liftCustomerId);
+        setWorkspaceMessage(
+          "This customer does not have a Pathfinder workspace yet. Confirm setup to create an isolated Manual XLSX method and output route. No preview or Lift order will be submitted."
+        );
+        setWorkspaceState("error");
+        return;
+      }
       const loadedWorkspace = await readJsonResponse<PathfinderCustomerWorkspace>(response);
       if (workspaceRequestIdRef.current !== requestId) {
         return;
@@ -4776,11 +4789,36 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       if (workspaceRequestIdRef.current !== requestId) {
         return;
       }
-      setWorkspaceMessage(error instanceof Error ? error.message : "Workspace load failed.");
+      setWorkspaceMessage(
+        error instanceof Error
+          ? error.message
+          : "Pathfinder could not load this workspace right now. No preview or Lift order was submitted."
+      );
       setWorkspaceState("error");
       return;
     }
     setWorkspaceState("idle");
+  }
+
+  async function setupCustomerWorkspace(liftCustomerId: string) {
+    setWorkspaceState("saving");
+    setWorkspaceMessage("Setting up an isolated customer workspace…");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${liftCustomerId}/workspace`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      await readJsonResponse<PathfinderCustomerWorkspace & { setup_retained?: boolean }>(response);
+      setWorkspaceSetupRequiredCustomerId(null);
+      await loadWorkspace(liftCustomerId);
+    } catch (error) {
+      setWorkspaceMessage(
+        error instanceof Error
+          ? error.message
+          : "Pathfinder could not set up this workspace right now. No preview or Lift order was submitted."
+      );
+      setWorkspaceState("error");
+    }
   }
 
   function updateStatusPolicyDraft(patch: Partial<StatusAccessPolicy>) {
@@ -10345,8 +10383,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     return (
       <WorkspaceLoading
         error={initialLoadError}
+        actionLabel={workspaceSetupRequiredCustomerId ? "Set up workspace" : "Try again"}
         onRetry={() => {
           setWorkspaceMessage(null);
+          if (workspaceSetupRequiredCustomerId) {
+            void setupCustomerWorkspace(workspaceSetupRequiredCustomerId);
+            return;
+          }
           if (customers.length === 0) {
             void loadCustomers();
           } else if (selectedCustomerId) {

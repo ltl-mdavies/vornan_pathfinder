@@ -168,6 +168,7 @@ import {
   getCanonicalRegistryOverrides,
   getCanonicalRegistryUsageByPath,
   getOrCreateWorkspace,
+  getWorkspace,
   findCustomerSourceConnection,
   findCustomerSourceConnectionById,
   finalizeReservedSubmitAttempt,
@@ -209,6 +210,7 @@ import {
   setJobsArchived,
   WrikeStatusWritebackConflictError,
   WrikeSourceOrderReviewConflictError,
+  WorkspacePersistenceConflictError,
   updateProductMapping,
   upsertCatalogPreset,
   updateImportMethod,
@@ -7194,36 +7196,160 @@ app.get("/api/lift/customers", async (req, res) => {
   }
 });
 
+type WorkspacePersistenceOperation = "workspace_create" | "import_method_save" | "output_route_save";
+
+function emitWorkspacePersistenceTelemetry(args: {
+  customer_id: string;
+  operation: WorkspacePersistenceOperation;
+  outcome: "success" | "conflict" | "temporarily_unavailable";
+  table_classes: Array<"customer" | "workspace" | "import_method" | "output_route">;
+  retained?: boolean | null;
+}) {
+  console.info(JSON.stringify({
+    _aws: {
+      Timestamp: Date.now(),
+      CloudWatchMetrics: [{
+        Namespace: "Pathfinder/WorkspacePersistence",
+        Dimensions: [["Service", "Operation", "Outcome"]],
+        Metrics: [
+          { Name: "PersistenceRequest", Unit: "Count" },
+          { Name: "PersistenceFailure", Unit: "Count" }
+        ]
+      }]
+    },
+    event: "workspace_persistence_complete",
+    service: "pathfinder-api",
+    operation: args.operation,
+    outcome: args.outcome,
+    customer_id_hash: createHash("sha256").update(args.customer_id).digest("hex").slice(0, 16),
+    table_classes: args.table_classes,
+    retained: args.retained ?? null,
+    external_effects: false,
+    PersistenceRequest: 1,
+    PersistenceFailure: args.outcome === "success" ? 0 : 1
+  }));
+}
+
+function sendWorkspacePersistenceError(
+  res: Response,
+  args: {
+    customer_id: string;
+    operation: WorkspacePersistenceOperation;
+    error: unknown;
+    table_classes: Array<"customer" | "workspace" | "import_method" | "output_route">;
+    retained?: boolean | null;
+  }
+) {
+  const conflict = args.error instanceof WorkspacePersistenceConflictError;
+  emitWorkspacePersistenceTelemetry({
+    customer_id: args.customer_id,
+    operation: args.operation,
+    outcome: conflict ? "conflict" : "temporarily_unavailable",
+    table_classes: args.table_classes,
+    retained: args.retained
+  });
+  res.status(conflict ? 409 : 503).json({
+    code: conflict ? "workspace_save_conflict" : "workspace_temporarily_unavailable",
+    retained: args.retained ?? null,
+    error: conflict
+      ? "This customer workspace changed while you were editing. Reload it before saving again. No preview or Lift order was submitted."
+      : args.operation === "workspace_create" && args.retained === true
+        ? "Customer setup was retained, but Pathfinder could not finish loading it. Try again. No preview or Lift order was submitted."
+        : args.operation === "workspace_create"
+          ? "Pathfinder could not finish setting up this customer workspace. Try again shortly. No preview or Lift order was submitted."
+          : args.retained === true
+            ? "Customer setup changes were retained, but Pathfinder could not finish reloading them. Reload this workspace. No preview or Lift order was submitted."
+            : "Pathfinder could not save this customer setup right now. Reload and try again. No preview or Lift order was submitted."
+  });
+}
+
 app.get("/api/customers/:liftCustomerId/workspace", async (req, res) => {
   try {
-    const customer = await findLiftCustomer(req.params.liftCustomerId);
-    const workspace = await getOrCreateWorkspace(customer);
+    const workspace = await getWorkspace(req.params.liftCustomerId);
+    if (!workspace) {
+      res.status(404).json({
+        code: "workspace_setup_required",
+        error: "This customer does not have a Pathfinder workspace yet. Confirm setup before creating one."
+      });
+      return;
+    }
     const target = await getTarget(workspace.primary_target_id);
 
     res.json({
       ...workspace,
       primary_target: target
     });
+  } catch {
+    res.status(503).json({
+      code: "workspace_temporarily_unavailable",
+      error: "Pathfinder could not load this customer workspace right now. Try again shortly. No preview or Lift order was submitted."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/workspace", async (req, res) => {
+  const customerId = req.params.liftCustomerId;
+  try {
+    const customer = await findLiftCustomer(customerId);
+    const existing = await getWorkspace(customerId);
+    const workspace = existing ?? await getOrCreateWorkspace(customer);
+    const target = await getTarget(workspace.primary_target_id);
+    emitWorkspacePersistenceTelemetry({
+      customer_id: customerId,
+      operation: "workspace_create",
+      outcome: "success",
+      table_classes: ["customer", "workspace", "import_method", "output_route"],
+      retained: true
+    });
+    res.status(existing ? 200 : 201).json({
+      ...workspace,
+      primary_target: target,
+      setup_retained: true
+    });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Workspace load failed."
+    let retained: boolean | null = null;
+    try {
+      retained = Boolean(await getWorkspace(customerId));
+    } catch {
+      retained = null;
+    }
+    sendWorkspacePersistenceError(res, {
+      customer_id: customerId,
+      operation: "workspace_create",
+      error,
+      table_classes: ["customer", "workspace", "import_method", "output_route"],
+      retained
     });
   }
 });
 
 app.put("/api/customers/:liftCustomerId/import-methods/:methodId", async (req, res) => {
+  let retained = false;
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
     const workspace = await updateImportMethod(customer, req.params.methodId, req.body as Partial<ImportMethod>);
+    retained = true;
     const target = await getTarget(workspace.primary_target_id);
+
+    emitWorkspacePersistenceTelemetry({
+      customer_id: req.params.liftCustomerId,
+      operation: "import_method_save",
+      outcome: "success",
+      table_classes: ["workspace", "import_method"],
+      retained: true
+    });
 
     res.json({
       ...workspace,
       primary_target: target
     });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Import method save failed."
+    sendWorkspacePersistenceError(res, {
+      customer_id: req.params.liftCustomerId,
+      operation: "import_method_save",
+      error,
+      table_classes: ["workspace", "import_method"],
+      retained
     });
   }
 });
@@ -7280,18 +7406,32 @@ app.delete("/api/customers/:liftCustomerId/import-methods/:methodId", async (req
 });
 
 app.put("/api/customers/:liftCustomerId/output-routes/:routeId", async (req, res) => {
+  let retained = false;
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
     const workspace = await updateOutputRoute(customer, req.params.routeId, req.body as Partial<OutputRoute>);
+    retained = true;
     const target = await getTarget(workspace.primary_target_id);
+
+    emitWorkspacePersistenceTelemetry({
+      customer_id: req.params.liftCustomerId,
+      operation: "output_route_save",
+      outcome: "success",
+      table_classes: ["workspace", "output_route", "import_method"],
+      retained: true
+    });
 
     res.json({
       ...workspace,
       primary_target: target
     });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Output route save failed."
+    sendWorkspacePersistenceError(res, {
+      customer_id: req.params.liftCustomerId,
+      operation: "output_route_save",
+      error,
+      table_classes: ["workspace", "output_route", "import_method"],
+      retained
     });
   }
 });

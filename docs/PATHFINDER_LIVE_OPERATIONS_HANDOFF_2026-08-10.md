@@ -26,6 +26,24 @@ Read-only AWS inspection after the 2026-08-11 operations release confirmed:
 
 The saved production Wrike Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). Its `Order Form` hardware section (`order-form-hardware-13`, quantity column `Qty. Needed`) stores the scoped text-quantity rule `TBD` → `0.5`.
 
+### 2026-08-14 customer-workspace persistence incident
+
+At approximately `2026-08-14T14:18:20Z`, authenticated Admin selection of `LTL Demo / 1249` invoked the deployed implicit workspace-creation path. The intended records were retained: Customers and CustomerWorkspaces increased from one to two, ImportMethods from two to three, and OutputRoutes from one to two. The new workspace contains the default `view_only` / `simple` Proof policy with no verified identity or override, one Active `manual-xlsx` method, and its own route with Live Customer and Sandbox `1249` profiles. ProductMappings remained 278; Jobs 56; OrderIds 59; SubmitAttempts 19; LiftProductCache 337; status tokens/snapshots 20/12; CanonicalRegistry 1; ProofCore/ProofAudit 142/147. Customer `1249` has zero Jobs and zero Submit Attempts. No preview, publication, Lift call, Wrike write, grant, or Proof action occurred.
+
+The request nevertheless failed after exposing a raw DynamoDB `ProvisionedThroughputExceededException`. CloudWatch recorded exactly 21 `WriteThrottleEvents` on `Pathfinder-Jobs-prod` during the incident minute and zero protected-table read/write throttles elsewhere in the surrounding window. The deployed whole-store writer had already saved the four intended setup records, then attempted unbounded `PutItem` rewrites of all 56 Jobs and a replacement pass over the Lift product cache. Existing-workspace reads are now non-writing, but the deployed Import Method and Output Route save paths still reach that writer; the `1249` Proof pilot is stopped before either configuration save.
+
+The repository incident fix, pending review/deployment, replaces these three paths with focused conditional transactions:
+
+- workspace reads are read-only; a missing workspace returns a setup-required response and Admin requires an explicit **Set up workspace** confirmation;
+- setup atomically creates only the exact Customer, CustomerWorkspace, seed Manual XLSX method, and seed Output Route and is idempotent when they already exist;
+- Import Method saves write only the selected workspace and exact method;
+- Output Route saves write only the selected workspace, exact route, and customer-local methods linked to that route;
+- none of these paths can write Jobs, product cache, submit attempts, product mappings, another customer, or an external system;
+- optimistic exact-data conditions return a nontechnical reload conflict rather than overwriting a concurrent save;
+- sanitized telemetry records operation, outcome, hashed customer identity, and table classes only; API/UI errors never include an AWS exception, documentation URL, payload, credential, or table name and explicitly say no preview or Lift order was submitted.
+
+Preserve the current `1249` records exactly. Do not delete/reseed them, restore a table, reselect setup merely to test it, or resume configuration/Proof QA until the focused API/Admin release is separately approved and reconciled. Deployment acceptance must show the expected 2/2/3/2 customer/workspace/method/route counts, unchanged Jobs/cache/protected counts, all Pathfinder/Proof gates preserved, zero new throttles from read-only smoke, and a natural Momentara scheduler cycle with normal idempotent behavior.
+
 ### 2026-08-13 combined source-review and Proof foundation release record
 
 Final deployed application commit: `9f78d2d4b122984c53bc3b96506588996768f5d0`. The release includes PRs #197, #199, #198, #200, #201, and #202. Merged-main validation `31740363776` / job `94581986809` succeeded.

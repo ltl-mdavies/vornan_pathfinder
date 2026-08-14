@@ -67,6 +67,14 @@ Do not place secrets, OAuth tokens, signed URLs, raw customer files, or unrestri
 
 ## Common incidents
 
+### Customer workspace setup or configuration save fails
+
+Stop before retrying setup, saving an Import Method/Output Route, generating a preview, or invoking any external action. Capture the selected customer ID, request time/correlation, current Customers/CustomerWorkspaces/ImportMethods/OutputRoutes counts, customer-scoped Jobs/SubmitAttempts counts, and DynamoDB throttles by table. A failed response is not proof that setup failed: verify whether the exact customer/workspace/method/route records were retained before proposing any action.
+
+The 2026-08-14 `LTL Demo / 1249` incident retained one valid isolated setup while the legacy whole-store writer later throttled on broad Job rewrites. Preserve those records. Do not delete, reseed, recreate, directly edit DynamoDB, or repeat setup. Until the focused persistence fix is deployed, do not save the `1249` Import Method or Output Route because those deployed paths can repeat the broad rewrite. Customer `1249` must remain at zero Jobs and zero Submit Attempts until a separately approved Manual XLSX preview/submit checkpoint.
+
+After the focused fix is deployed, a workspace read is read-only and a missing workspace requires explicit Admin confirmation. Setup/configuration responses must never contain an AWS exception or documentation URL. A conflict instructs the operator to reload; a temporary failure states whether setup was retained when known and that no preview or Lift order was submitted. Validate the exact customer-scoped table delta and confirm Jobs, cache, mappings, attempts, other customers, Wrike, Lift, and Proof remain untouched.
+
 ### Discovered but not imported
 
 Report the candidate and every failed eligibility condition: task title/type, campaign scope, ready status, Print Vendor, contract identity, workbook presence/version, workbook structure, and qualified rows. Do not silently discard it.
