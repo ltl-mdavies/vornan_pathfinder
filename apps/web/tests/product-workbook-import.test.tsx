@@ -60,15 +60,56 @@ test("combines standard product tabs and a PS SKU hardware tab into one canonica
   );
   assert.equal(profiles[2]?.kind, "hardware");
   assert.equal(profiles[2]?.key_column, "PS SKU");
+  assert.ok(grid.columns.includes("DESCRIPTION"));
+  assert.ok(grid.columns.includes("PS SKU"));
+  assert.ok(grid.columns.includes("Item SKU"));
 });
 
-test("ignores unknown sheets and excludes explicitly disabled tabs", () => {
+test("retains unknown populated sheets for manual setup and excludes explicitly disabled tabs", () => {
   const unknown = inferProductWorkbookProfile(sheet("Notes", ["Comment"], [{ Comment: "Reference only" }]));
   const standard = inferProductWorkbookProfile(sheet("Ice Boxes", ["DESCRIPTION"], [{ DESCRIPTION: "Ice Box Door" }]));
   standard.included = false;
   const grid = productWorkbookProfileGrid([unknown, standard]);
 
-  assert.equal(unknown.kind, "ignore");
+  assert.equal(unknown.kind, "custom");
   assert.equal(unknown.included, false);
+  assert.equal(unknown.setup_required, true);
+  assert.deepEqual(unknown.columns, ["Comment"]);
   assert.equal(grid.rows.length, 0);
+
+  unknown.key_column = "Comment";
+  unknown.name_column = "Comment";
+  unknown.included = true;
+  unknown.setup_required = false;
+  const configured = productWorkbookProfileGrid([unknown]);
+  assert.equal(configured.rows.length, 1);
+  assert.ok(configured.columns.includes("Comment"));
+  assert.equal(configured.rows[0]?.[PRODUCT_WORKBOOK_KEY_COLUMN], "Reference only");
+});
+
+test("accepts the unchanged LTL Demo workbook shape as four setup-required product rows", () => {
+  const profile = inferProductWorkbookProfile(sheet(
+    "Sheet 1",
+    ["ContractNumber", "Product", "Height", "Width", "Quantity", "Note", "Artwork"],
+    [
+      { ContractNumber: "C100001", Product: "Standees", Height: "72", Width: "24", Quantity: "1" },
+      { ContractNumber: "C100001", Product: "Posters", Height: "36", Width: "24", Quantity: "2" },
+      { ContractNumber: "C100001", Product: "Banners", Height: "48", Width: "96", Quantity: "1" },
+      { ContractNumber: "C100001", Product: "Decals", Height: "12", Width: "12", Quantity: "4" }
+    ]
+  ));
+  const grid = productWorkbookProfileGrid([profile]);
+
+  assert.equal(profile.kind, "custom");
+  assert.equal(profile.inference, "suggested");
+  assert.equal(profile.setup_required, true);
+  assert.equal(profile.key_column, "Product");
+  assert.equal(profile.name_column, "Product");
+  assert.equal(profile.width_column, "Width");
+  assert.equal(profile.height_column, "Height");
+  assert.equal(grid.rows.length, 4);
+  assert.ok(grid.columns.includes("Product"));
+  assert.ok(grid.columns.includes("Quantity"));
+  assert.ok(grid.columns.includes("Artwork"));
+  assert.equal(grid.rows[0]?.[PRODUCT_WORKBOOK_KEY_COLUMN], "Standees");
 });

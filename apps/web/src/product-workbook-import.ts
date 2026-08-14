@@ -1,6 +1,7 @@
 import type { ParsedSourceRow, ParsedWorkbookSheet, SourceGrid } from "@pathfinder/templates";
 
-export type ProductWorkbookProfileKind = "standard" | "hardware" | "ignore";
+export type ProductWorkbookProfileKind = "standard" | "hardware" | "custom" | "ignore";
+export type ProductWorkbookInference = "recognized" | "suggested" | "none";
 
 export interface ProductWorkbookSheetProfile {
   sheet_name: string;
@@ -14,6 +15,8 @@ export interface ProductWorkbookSheetProfile {
   width_column: string;
   height_column: string;
   valid_row_count: number;
+  inference: ProductWorkbookInference;
+  setup_required: boolean;
 }
 
 export const PRODUCT_WORKBOOK_KEY_COLUMN = "Pathfinder Product Key";
@@ -33,11 +36,22 @@ export function workbookColumn(columns: string[], candidates: RegExp[]) {
 export function inferProductWorkbookProfile(sheet: ParsedWorkbookSheet): ProductWorkbookSheetProfile {
   const hardwareKey = workbookColumn(sheet.columns, [/^PS SKU$/i, /^OPS SKU$/i]);
   const standardKey = workbookColumn(sheet.columns, [/^DESCRIPTION$/i]);
-  const kind: ProductWorkbookProfileKind = hardwareKey ? "hardware" : standardKey ? "standard" : "ignore";
-  const keyColumn = hardwareKey || standardKey;
+  const genericKey = workbookColumn(sheet.columns, [
+    /^Product$/i,
+    /^Product Name$/i,
+    /^SKU$/i,
+    /^Item SKU$/i,
+    /^Product ID$/i
+  ]);
+  const kind: ProductWorkbookProfileKind = hardwareKey
+    ? "hardware"
+    : standardKey
+      ? "standard"
+      : "custom";
+  const keyColumn = hardwareKey || standardKey || genericKey;
   const nameColumn = hardwareKey
     ? workbookColumn(sheet.columns, [/^Hardware$/i, /^Description$/i])
-    : standardKey;
+    : standardKey || workbookColumn(sheet.columns, [/^Product Name$/i, /^Product$/i, /^Description$/i]);
   const detailColumns = hardwareKey
     ? ["Item SKU", "Description"].filter((column) => sheet.columns.includes(column) && column !== nameColumn)
     : [];
@@ -47,7 +61,7 @@ export function inferProductWorkbookProfile(sheet: ParsedWorkbookSheet): Product
   return {
     sheet_name: sheet.sheet_name,
     kind,
-    included: kind !== "ignore" && validRowCount > 0,
+    included: Boolean(keyColumn) && validRowCount > 0,
     columns: sheet.columns,
     rows: sheet.parsed_rows,
     key_column: keyColumn,
@@ -55,7 +69,9 @@ export function inferProductWorkbookProfile(sheet: ParsedWorkbookSheet): Product
     detail_columns: detailColumns,
     width_column: widthColumn,
     height_column: heightColumn,
-    valid_row_count: validRowCount
+    valid_row_count: validRowCount,
+    inference: hardwareKey || standardKey ? "recognized" : genericKey ? "suggested" : "none",
+    setup_required: !hardwareKey && !standardKey
   };
 }
 
@@ -87,8 +103,14 @@ export function productWorkbookProfileGrid(profiles: ProductWorkbookSheetProfile
       }];
     });
   });
+  const sourceColumns = Array.from(new Set(
+    profiles
+      .filter((profile) => profile.included)
+      .flatMap((profile) => profile.columns)
+  ));
   return {
-    columns: [
+    columns: Array.from(new Set([
+      ...sourceColumns,
       PRODUCT_WORKBOOK_KEY_COLUMN,
       PRODUCT_WORKBOOK_NAME_COLUMN,
       PRODUCT_WORKBOOK_SHEET_COLUMN,
@@ -96,7 +118,7 @@ export function productWorkbookProfileGrid(profiles: ProductWorkbookSheetProfile
       PRODUCT_WORKBOOK_SOURCE_COLUMN,
       "Final Size Width",
       "Final Size Length"
-    ],
+    ])),
     rows
   };
 }
