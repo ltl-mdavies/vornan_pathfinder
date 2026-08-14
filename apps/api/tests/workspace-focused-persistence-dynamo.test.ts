@@ -267,6 +267,17 @@ test("creates one isolated customer workspace without rewriting Jobs or cache ta
   const workspace = await getOrCreateWorkspace(customer);
 
   assert.equal(workspace.customer.lift_customer_id, "1249");
+  assert.deepEqual(workspace.import_methods[0].product_resolution_config, {
+    strategy: "derived_key",
+    mode: "map_to_lift_unit",
+    source_column: "",
+    prefix: "",
+    suffix: "",
+    composite_columns: [],
+    fallback_strategy: "none",
+    direct_unit_number_column: null
+  });
+  assert.deepEqual(workspace.catalog_presets, []);
   assert.deepEqual(new Set(transactionTables()), new Set([
     tableNames.customers,
     tableNames.workspaces,

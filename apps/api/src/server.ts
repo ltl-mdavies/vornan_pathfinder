@@ -161,7 +161,7 @@ import {
   consumePublicIntakeEmailVerification,
   createCustomerSourceConnection,
   createDefaultPublicIntakeConfig,
-  createDefaultProductResolutionConfig,
+  createNeutralProductResolutionConfig,
   deleteTarget,
   deleteCatalogPreset,
   deleteCanonicalRegistryCustomField,
@@ -8249,7 +8249,7 @@ async function createPreviewJobForRequest(
         mappings: [],
         source_config: {},
         workbook_sheet_policy: "rows_with_quantity" as const,
-        product_resolution_config: createDefaultProductResolutionConfig(),
+        product_resolution_config: createNeutralProductResolutionConfig(),
         product_resolution_overrides: {},
         order_name_resolution_config: createDefaultOrderNameResolutionConfig(),
         ext_id_strategy: "pathfinder_generated" as const,
@@ -8261,7 +8261,7 @@ async function createPreviewJobForRequest(
       }),
       mappings,
       product_resolution_config: {
-        ...createDefaultProductResolutionConfig(),
+        ...createNeutralProductResolutionConfig(),
         ...(existingMethod?.product_resolution_config ?? {}),
         ...((body.product_resolution_config as Partial<ProductResolutionConfig> | undefined) ?? {})
       },

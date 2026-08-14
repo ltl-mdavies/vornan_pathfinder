@@ -1566,13 +1566,13 @@ const importMethodSourceOptions: ImportMethodSource[] = [
 ];
 const importMethodStatusOptions: ImportMethodStatus[] = ["Active", "Inactive", "Draft", "Paused"];
 
-const defaultProductResolutionConfig: ProductResolutionConfig = {
+const neutralProductResolutionConfig: ProductResolutionConfig = {
   strategy: "derived_key",
   mode: "map_to_lift_unit",
-  source_column: "SIGN TYPE",
-  prefix: "MOMENTARA__",
+  source_column: "",
+  prefix: "",
   suffix: "",
-  composite_columns: ["DESCRIPTION", "Media Type", "Final Size Width", "Final Size Length", "STOCK", "FINISHING"],
+  composite_columns: [],
   fallback_strategy: "none",
   direct_unit_number_column: null
 };
@@ -6356,7 +6356,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           incomplete_rows: incompleteRows,
           mappings,
           submit_profile_id: selectedSubmitProfile.profile_id,
-          product_resolution_config: method?.product_resolution_config ?? defaultProductResolutionConfig,
+          product_resolution_config: method?.product_resolution_config ?? neutralProductResolutionConfig,
           product_resolution_overrides: method?.product_resolution_overrides ?? {},
           order_name_resolution_config: method?.order_name_resolution_config ?? defaultOrderNameResolutionConfig,
           ext_id_strategy: method?.ext_id_strategy ?? "pathfinder_generated"
@@ -6912,7 +6912,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       ? workflowImportMethod?.product_resolution_overrides?.[effectiveProductScope.scope_id]
       : null) ??
     workflowImportMethod?.product_resolution_config ??
-    defaultProductResolutionConfig;
+    neutralProductResolutionConfig;
   const activeOrderNameConfig =
     workflowImportMethod?.order_name_resolution_config ?? defaultOrderNameResolutionConfig;
   const activeOrderNameStrategyCopy =
@@ -9898,7 +9898,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       mappings: [],
       source_config: {},
       workbook_sheet_policy: "rows_with_quantity",
-      product_resolution_config: defaultProductResolutionConfig,
+      product_resolution_config: neutralProductResolutionConfig,
       product_resolution_overrides: {},
       order_name_resolution_config: defaultOrderNameResolutionConfig,
       ext_id_strategy: "pathfinder_generated",
