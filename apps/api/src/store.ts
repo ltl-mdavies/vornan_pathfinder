@@ -14,6 +14,7 @@ import {
   ScanCommand,
   TransactWriteItemsCommand,
   type AttributeValue,
+  type TransactWriteItem,
   type WriteRequest
 } from "@aws-sdk/client-dynamodb";
 import {
@@ -2512,6 +2513,10 @@ function liftProductCacheSort(item: LiftUnitCatalogItem) {
   return item.product_id ?? item.unit_number ?? item.catalog_item_id;
 }
 
+function liftProductCacheIdentity(item: LiftUnitCatalogItem) {
+  return `${liftProductCachePartition(item)}\0${liftProductCacheSort(item)}`;
+}
+
 function pushByCustomer<T>(map: Map<string, T[]>, customerId: string | undefined, item: T) {
   if (!customerId) {
     return;
@@ -3904,6 +3909,112 @@ function replaceScopedImportMethod(
   ];
 }
 
+function replaceScopedWorkspace(workspace: PathfinderCustomerWorkspace) {
+  const scope = pathfinderStoreReadScope.getStore();
+  if (!scope?.store) return;
+  scope.store.workspaces[workspace.customer.lift_customer_id] = workspace;
+}
+
+function mergeScopedLiftProductCatalog(items: LiftUnitCatalogItem[]) {
+  const scope = pathfinderStoreReadScope.getStore();
+  if (!scope?.store) return;
+  const merged = new Map(
+    scope.store.lift_unit_catalog.map((item) => [liftProductCacheIdentity(item), item])
+  );
+  items.forEach((item) => merged.set(liftProductCacheIdentity(item), item));
+  scope.store.lift_unit_catalog = Array.from(merged.values());
+}
+
+export class WorkspacePersistenceConflictError extends Error {
+  constructor() {
+    super("This customer workspace changed while it was being saved. Reload it before trying again.");
+    this.name = "WorkspacePersistenceConflictError";
+  }
+}
+
+type FocusedDynamoRecord = {
+  table_name: string;
+  keys: Record<string, string>;
+  data: unknown;
+  expected_updated_at: string | null;
+};
+
+function dynamoItemWithRecordTimestamp(keys: Record<string, string>, data: unknown) {
+  const item = dynamoItem(keys, data);
+  return {
+    ...item,
+    record_updated_at: dynamoString(durableRecordUpdatedAt(item))
+  };
+}
+
+async function persistFocusedDynamoRecords(records: FocusedDynamoRecord[], clientRequestSeed: string) {
+  const currentItems = await Promise.all(
+    records.map((record) =>
+      getDynamoClient().send(new GetItemCommand({
+        TableName: record.table_name,
+        Key: Object.fromEntries(
+          Object.entries(record.keys).map(([key, value]) => [key, dynamoString(value)])
+        ),
+        ConsistentRead: true
+      }))
+    )
+  );
+
+  for (let index = 0; index < records.length; index += 1) {
+    const expectedUpdatedAt = records[index].expected_updated_at;
+    const storedItem = currentItems[index].Item as Record<string, AttributeValue> | undefined;
+    const stored = storedItem ? parseDynamoData<{ updated_at?: string }>(storedItem) : null;
+    if (
+      (expectedUpdatedAt === null && storedItem) ||
+      (expectedUpdatedAt !== null && (!storedItem || stored?.updated_at !== expectedUpdatedAt))
+    ) {
+      throw new WorkspacePersistenceConflictError();
+    }
+  }
+
+  const transactItems: TransactWriteItem[] = records.map((record, index): TransactWriteItem => {
+    const storedItem = currentItems[index].Item as Record<string, AttributeValue> | undefined;
+    const keyNames = Object.keys(record.keys);
+    const absenceKey = keyNames[keyNames.length - 1];
+    if (storedItem) {
+      return {
+        Put: {
+          TableName: record.table_name,
+          Item: dynamoItemWithRecordTimestamp(record.keys, record.data),
+          ConditionExpression: "#stored_data = :expected_data",
+          ExpressionAttributeNames: { "#stored_data": "data" },
+          ExpressionAttributeValues: {
+            ":expected_data": storedItem.data as AttributeValue
+          }
+        }
+      };
+    }
+    return {
+      Put: {
+        TableName: record.table_name,
+        Item: dynamoItemWithRecordTimestamp(record.keys, record.data),
+        ConditionExpression: "attribute_not_exists(#absence_key)",
+        ExpressionAttributeNames: { "#absence_key": absenceKey }
+      }
+    };
+  });
+
+  try {
+    await getDynamoClient().send(new TransactWriteItemsCommand({
+      ClientRequestToken: createHash("sha256")
+        .update(clientRequestSeed)
+        .digest("hex")
+        .slice(0, 36),
+      TransactItems: transactItems
+    }));
+  } catch (error) {
+    if ((error as { name?: string }).name === "TransactionCanceledException") {
+      throw new WorkspacePersistenceConflictError();
+    }
+    throw error;
+  }
+}
+
 async function writeStore(store: PathfinderStore) {
   const sanitizedStore: PathfinderStore = {
     ...store,
@@ -4413,9 +4524,69 @@ export async function getOrCreateWorkspace(customer: LiftCustomer) {
   }
 
   const workspace = createWorkspace(customer);
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    const customerResponse = await getDynamoClient().send(new GetItemCommand({
+      TableName: tables.customers,
+      Key: { customer_id: dynamoString(customer.lift_customer_id) },
+      ConsistentRead: true
+    }));
+    const records: FocusedDynamoRecord[] = [
+      {
+        table_name: tables.workspaces,
+        keys: { customer_id: customer.lift_customer_id },
+        data: workspaceRecord(workspace),
+        expected_updated_at: null
+      },
+      ...workspace.import_methods.map((method) => ({
+        table_name: tables.import_methods,
+        keys: {
+          customer_id: customer.lift_customer_id,
+          import_method_id: method.import_method_id
+        },
+        data: { ...method, customer_id: customer.lift_customer_id },
+        expected_updated_at: null
+      })),
+      ...workspace.output_routes.map((route) => ({
+        table_name: tables.output_routes,
+        keys: {
+          customer_id: customer.lift_customer_id,
+          output_route_id: route.output_route_id
+        },
+        data: { ...route, customer_id: customer.lift_customer_id },
+        expected_updated_at: null
+      }))
+    ];
+    if (!customerResponse.Item) {
+      records.unshift({
+        table_name: tables.customers,
+        keys: { customer_id: customer.lift_customer_id },
+        data: customer,
+        expected_updated_at: null
+      });
+    }
+    await persistFocusedDynamoRecords(
+      records,
+      `workspace-create\0${customer.lift_customer_id}\0${workspace.updated_at}`
+    );
+    replaceScopedWorkspace(workspace);
+    return workspace;
+  }
+
   store.workspaces[customer.lift_customer_id] = workspace;
   await writeStore(store);
   return workspace;
+}
+
+export async function getWorkspace(customerId: string) {
+  const store = await readStore();
+  const existing = store.workspaces[customerId];
+  if (!existing) return null;
+  const normalized = normalizeWorkspace(existing);
+  normalized.jobs = store.jobs.filter((job) => job.customer_id === customerId);
+  normalized.submit_attempts = store.submit_attempts.filter((attempt) => attempt.customer_id === customerId);
+  return normalized;
 }
 
 export class SourceConnectionNotFoundError extends Error {
@@ -4921,6 +5092,7 @@ export async function renameCanonicalRegistryCustomField(fieldId: string, newPat
 export async function updateImportMethod(customer: LiftCustomer, methodId: string, methodPatch: Partial<ImportMethod>) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const expectedWorkspaceUpdatedAt = workspace.updated_at;
   const timestamp = now();
   const existingMethod = workspace.import_methods.find((method) => method.import_method_id === methodId);
   const isCompleteNewMethod =
@@ -5035,6 +5207,29 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
   ];
   workspace.updated_at = timestamp;
   store.workspaces[customer.lift_customer_id] = workspace;
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    await persistFocusedDynamoRecords(
+      [
+        {
+          table_name: tables.workspaces,
+          keys: { customer_id: customer.lift_customer_id },
+          data: workspaceRecord(workspace),
+          expected_updated_at: expectedWorkspaceUpdatedAt
+        },
+        {
+          table_name: tables.import_methods,
+          keys: { customer_id: customer.lift_customer_id, import_method_id: methodId },
+          data: { ...nextMethod, customer_id: customer.lift_customer_id },
+          expected_updated_at: existingMethod?.updated_at ?? null
+        }
+      ],
+      `import-method-save\0${customer.lift_customer_id}\0${methodId}\0${timestamp}`
+    );
+    replaceScopedWorkspace(workspace);
+    return workspace;
+  }
   await writeStore(store);
 
   return workspace;
@@ -5140,9 +5335,11 @@ export async function archiveImportMethod(customer: LiftCustomer, methodId: stri
 export async function updateOutputRoute(customer: LiftCustomer, routeId: string, routePatch: Partial<OutputRoute>) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const expectedWorkspaceUpdatedAt = workspace.updated_at;
   const timestamp = now();
-  const existingRoute =
-    workspace.output_routes.find((route) => route.output_route_id === routeId) ?? createSeedOutputRoute(timestamp);
+  const storedRoute = workspace.output_routes.find((route) => route.output_route_id === routeId) ?? null;
+  const existingRoute = storedRoute ?? createSeedOutputRoute(timestamp);
+  const linkedMethodsBefore = workspace.import_methods.filter((method) => method.output_route_id === routeId);
   const routePatchWithoutLegacyContract = { ...routePatch } as Partial<OutputRoute> & { order_name_contract?: unknown };
   delete routePatchWithoutLegacyContract.order_name_contract;
   const nextRoute: OutputRoute = {
@@ -5180,6 +5377,42 @@ export async function updateOutputRoute(customer: LiftCustomer, routeId: string,
     workspace.primary_output_route_id === routeId ? nextRoute.output_route_id : workspace.primary_output_route_id;
   workspace.updated_at = timestamp;
   store.workspaces[customer.lift_customer_id] = workspace;
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    const linkedMethodsAfter = workspace.import_methods.filter((method) => method.output_route_id === routeId);
+    const expectedMethodsById = new Map(
+      linkedMethodsBefore.map((method) => [method.import_method_id, method])
+    );
+    await persistFocusedDynamoRecords(
+      [
+        {
+          table_name: tables.workspaces,
+          keys: { customer_id: customer.lift_customer_id },
+          data: workspaceRecord(workspace),
+          expected_updated_at: expectedWorkspaceUpdatedAt
+        },
+        {
+          table_name: tables.output_routes,
+          keys: { customer_id: customer.lift_customer_id, output_route_id: routeId },
+          data: { ...nextRoute, customer_id: customer.lift_customer_id },
+          expected_updated_at: storedRoute?.updated_at ?? null
+        },
+        ...linkedMethodsAfter.map((method) => ({
+          table_name: tables.import_methods,
+          keys: {
+            customer_id: customer.lift_customer_id,
+            import_method_id: method.import_method_id
+          },
+          data: { ...method, customer_id: customer.lift_customer_id },
+          expected_updated_at: expectedMethodsById.get(method.import_method_id)?.updated_at ?? null
+        }))
+      ],
+      `output-route-save\0${customer.lift_customer_id}\0${routeId}\0${timestamp}`
+    );
+    replaceScopedWorkspace(workspace);
+    return workspace;
+  }
   await writeStore(store);
 
   return workspace;
@@ -6641,19 +6874,138 @@ export async function listLiftUnitCatalog(filters: {
   return fetchSize === null ? filtered : filtered.slice(fetchOffset, fetchOffset + fetchSize);
 }
 
-export async function upsertLiftProductCatalog(items: LiftUnitCatalogItem[]) {
-  const store = await readStore();
-  const timestamp = now();
-  const nextById = new Map(store.lift_unit_catalog.map((item) => [item.catalog_item_id, item]));
+export class LiftProductCatalogPersistenceError extends Error {
+  constructor(
+    public readonly persistence_outcome: "partial" | "uncertain",
+    public readonly definitely_persisted_count: number,
+    public readonly requested_count: number
+  ) {
+    super(
+      persistence_outcome === "partial"
+        ? "Pathfinder saved only part of the selected Lift product catalog."
+        : "Pathfinder could not confirm every Lift product catalog write."
+    );
+    this.name = "LiftProductCatalogPersistenceError";
+  }
+}
 
+type FocusedLiftProductCacheWrite = {
+  item: LiftUnitCatalogItem;
+  dynamo_item: Record<string, AttributeValue>;
+};
+
+async function reconcileFocusedLiftProductCacheBatch(
+  tableName: string,
+  writes: FocusedLiftProductCacheWrite[]
+) {
+  const confirmed: LiftUnitCatalogItem[] = [];
+  for (const write of writes) {
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: tableName,
+      Key: {
+        route_environment_id: write.dynamo_item.route_environment_id,
+        product_id: write.dynamo_item.product_id
+      },
+      ConsistentRead: true
+    }));
+    if (
+      response.Item?.catalog_refresh_id?.S === write.dynamo_item.catalog_refresh_id?.S &&
+      response.Item?.data?.S === write.dynamo_item.data?.S
+    ) {
+      confirmed.push(write.item);
+    }
+  }
+  return confirmed;
+}
+
+async function persistFocusedLiftProductCache(
+  tableName: string,
+  items: LiftUnitCatalogItem[]
+) {
+  const refreshId = randomBytes(16).toString("hex");
+  const writes: FocusedLiftProductCacheWrite[] = items.map((item) => ({
+    item,
+    dynamo_item: {
+      ...dynamoItem(
+        {
+          route_environment_id: liftProductCachePartition(item),
+          product_id: liftProductCacheSort(item)
+        },
+        item
+      ),
+      catalog_refresh_id: dynamoString(refreshId)
+    }
+  }));
+  const definitelyPersisted: LiftUnitCatalogItem[] = [];
+
+  for (let index = 0; index < writes.length; index += 25) {
+    const batch = writes.slice(index, index + 25);
+    let pending: WriteRequest[] = batch.map((write) => ({
+      PutRequest: { Item: write.dynamo_item }
+    }));
+
+    try {
+      while (pending.length > 0) {
+        const response = await getDynamoClient().send(new BatchWriteItemCommand({
+          RequestItems: { [tableName]: pending }
+        }));
+        pending = response.UnprocessedItems?.[tableName] ?? [];
+      }
+      definitelyPersisted.push(...batch.map((write) => write.item));
+    } catch {
+      let reconciled: LiftUnitCatalogItem[];
+      try {
+        reconciled = await reconcileFocusedLiftProductCacheBatch(tableName, batch);
+      } catch {
+        mergeScopedLiftProductCatalog(definitelyPersisted);
+        throw new LiftProductCatalogPersistenceError(
+          "uncertain",
+          definitelyPersisted.length,
+          items.length
+        );
+      }
+
+      definitelyPersisted.push(...reconciled);
+      if (reconciled.length === batch.length) {
+        continue;
+      }
+      mergeScopedLiftProductCatalog(definitelyPersisted);
+      throw new LiftProductCatalogPersistenceError(
+        "partial",
+        definitelyPersisted.length,
+        items.length
+      );
+    }
+  }
+
+  mergeScopedLiftProductCatalog(definitelyPersisted);
+  return definitelyPersisted;
+}
+
+export async function upsertLiftProductCatalog(items: LiftUnitCatalogItem[]) {
+  const timestamp = now();
+  const normalizedByIdentity = new Map<string, LiftUnitCatalogItem>();
   items.forEach((item) => {
     const normalized = normalizeLiftCatalogItem({ ...item, updated_at: timestamp }, timestamp);
-    nextById.set(normalized.catalog_item_id, normalized);
+    normalizedByIdentity.set(liftProductCacheIdentity(normalized), normalized);
   });
+  const normalizedItems = Array.from(normalizedByIdentity.values());
+  const config = getPathfinderPersistenceRuntimeConfig();
 
-  store.lift_unit_catalog = Array.from(nextById.values());
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    return persistFocusedLiftProductCache(tables.lift_product_cache, normalizedItems);
+  }
+
+  const store = await readStore();
+  const nextByIdentity = new Map(
+    store.lift_unit_catalog.map((item) => [liftProductCacheIdentity(item), item])
+  );
+  normalizedItems.forEach((item) => nextByIdentity.set(liftProductCacheIdentity(item), item));
+
+  store.lift_unit_catalog = Array.from(nextByIdentity.values());
   await writeStore(store);
-  return store.lift_unit_catalog;
+  return normalizedItems;
 }
 
 export async function updateProductMapping(

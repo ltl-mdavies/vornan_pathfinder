@@ -32,6 +32,15 @@ test("Wrike Import Method exposes safe discovery and actionable pending intake",
   assert.match(source, /No Lift order was submitted and no Wrike status was changed/);
 });
 
+test("customer onboarding requires an explicit no-submit workspace setup confirmation", async () => {
+  const loadingSource = await readFile(new URL("../src/WorkspaceLoading.tsx", import.meta.url), "utf8");
+  assert.match(source, /workspaceSetupRequiredCustomerId/);
+  assert.match(source, /method: "POST"/);
+  assert.match(source, /Set up workspace/);
+  assert.match(source, /No preview or Lift order will be submitted/);
+  assert.match(loadingSource, /actionLabel/);
+});
+
 test("Jobs presents one source-order identity with nontechnical state filters", () => {
   assert.match(source, /Current orders/);
   assert.match(source, /Ready to submit/);

@@ -168,6 +168,7 @@ import {
   getCanonicalRegistryOverrides,
   getCanonicalRegistryUsageByPath,
   getOrCreateWorkspace,
+  getWorkspace,
   findCustomerSourceConnection,
   findCustomerSourceConnectionById,
   finalizeReservedSubmitAttempt,
@@ -209,6 +210,7 @@ import {
   setJobsArchived,
   WrikeStatusWritebackConflictError,
   WrikeSourceOrderReviewConflictError,
+  WorkspacePersistenceConflictError,
   updateProductMapping,
   upsertCatalogPreset,
   updateImportMethod,
@@ -226,6 +228,7 @@ import {
   updateTarget,
   TargetInUseError,
   TargetNotFoundError,
+  LiftProductCatalogPersistenceError,
   LiftOrderAssociationConflictError,
   renameCanonicalRegistryCustomField,
   upsertLiftProductCatalog,
@@ -551,8 +554,12 @@ function normalizeLiftProductPayloadItem(
   }
 ): LiftUnitCatalogItem {
   const productId = liftProductValue(item.productId ?? item.product_id);
-  const liftedUnitNumbers = liftProductValues(item.unitNumbers ?? item.unit_numbers);
-  const unitNumber = liftProductValue(item.unitNumber ?? item.unit_number) ?? liftedUnitNumbers[0] ?? null;
+  const unitNumberValue = item.unitNumber ?? item.unit_number;
+  const liftedUnitNumbers = liftProductValues(item.unitNumbers ?? item.unit_numbers ?? unitNumberValue);
+  const unitNumber =
+    (Array.isArray(unitNumberValue) ? null : liftProductValue(unitNumberValue)) ??
+    liftedUnitNumbers[0] ??
+    null;
   const unitNumbers = Array.from(new Set([...(unitNumber ? [unitNumber] : []), ...liftedUnitNumbers]));
   const catalogId = liftProductValue(item.catalogId ?? item.catalog_id);
   const productName = liftProductValue(item.productName ?? item.product_name) ?? productId ?? unitNumber ?? "Unnamed Lift product";
@@ -597,7 +604,7 @@ function normalizeLiftProductPayloadItem(
   };
 }
 
-function normalizeLiftProductPayloadItems(
+export function normalizeLiftProductPayloadItems(
   item: Record<string, unknown>,
   context: {
     targetId: string;
@@ -697,6 +704,67 @@ async function fetchLiftProductsFromTarget(target: TargetConfig, route: OutputRo
       companyId: route.company_id ?? environment?.headers.Company ?? target.lift.headers.Company
     })
   );
+}
+
+type LiftProductCatalogRefreshOutcome =
+  | "success"
+  | "scope_invalid"
+  | "partially_persisted"
+  | "persistence_uncertain"
+  | "temporarily_unavailable";
+
+function safeLiftCatalogId(value: unknown) {
+  const catalogId = typeof value === "string" ? value.trim() : "";
+  return /^[a-zA-Z0-9._-]{1,64}$/.test(catalogId) ? catalogId : null;
+}
+
+function emitLiftProductCatalogRefreshTelemetry(args: {
+  target_id: string;
+  environment_id: string;
+  company_id: string;
+  catalog_id: unknown;
+  fetched_count: number;
+  persisted_count: number;
+  outcome: LiftProductCatalogRefreshOutcome;
+  duration_ms: number;
+}) {
+  const scopeHash = createHash("sha256")
+    .update(`${args.target_id}\0${args.environment_id}\0${args.company_id}`)
+    .digest("hex")
+    .slice(0, 16);
+  console.info(JSON.stringify({
+    _aws: {
+      Timestamp: Date.now(),
+      CloudWatchMetrics: [{
+        Namespace: "Pathfinder/LiftProductCatalog",
+        Dimensions: [["Service", "Outcome"]],
+        Metrics: [
+          { Name: "RefreshRequest", Unit: "Count" },
+          { Name: "RefreshFailure", Unit: "Count" },
+          { Name: "FetchedProduct", Unit: "Count" },
+          { Name: "PersistedProduct", Unit: "Count" },
+          { Name: "RefreshDuration", Unit: "Milliseconds" }
+        ]
+      }]
+    },
+    event: "lift_product_catalog_refresh_complete",
+    service: "pathfinder-api",
+    outcome: args.outcome,
+    scope_hash: scopeHash,
+    catalog_id: safeLiftCatalogId(args.catalog_id),
+    table_class: "lift_product_cache",
+    fetched_count: args.fetched_count,
+    persisted_count: args.persisted_count,
+    provider_write: false,
+    preview_created: false,
+    lift_order_submitted: false,
+    wrike_write: false,
+    RefreshRequest: 1,
+    RefreshFailure: args.outcome === "success" ? 0 : 1,
+    FetchedProduct: args.fetched_count,
+    PersistedProduct: args.persisted_count,
+    RefreshDuration: Math.max(0, args.duration_ms)
+  }));
 }
 
 async function fetchLiftOrderLookup(args: {
@@ -7194,36 +7262,160 @@ app.get("/api/lift/customers", async (req, res) => {
   }
 });
 
+type WorkspacePersistenceOperation = "workspace_create" | "import_method_save" | "output_route_save";
+
+function emitWorkspacePersistenceTelemetry(args: {
+  customer_id: string;
+  operation: WorkspacePersistenceOperation;
+  outcome: "success" | "conflict" | "temporarily_unavailable";
+  table_classes: Array<"customer" | "workspace" | "import_method" | "output_route">;
+  retained?: boolean | null;
+}) {
+  console.info(JSON.stringify({
+    _aws: {
+      Timestamp: Date.now(),
+      CloudWatchMetrics: [{
+        Namespace: "Pathfinder/WorkspacePersistence",
+        Dimensions: [["Service", "Operation", "Outcome"]],
+        Metrics: [
+          { Name: "PersistenceRequest", Unit: "Count" },
+          { Name: "PersistenceFailure", Unit: "Count" }
+        ]
+      }]
+    },
+    event: "workspace_persistence_complete",
+    service: "pathfinder-api",
+    operation: args.operation,
+    outcome: args.outcome,
+    customer_id_hash: createHash("sha256").update(args.customer_id).digest("hex").slice(0, 16),
+    table_classes: args.table_classes,
+    retained: args.retained ?? null,
+    external_effects: false,
+    PersistenceRequest: 1,
+    PersistenceFailure: args.outcome === "success" ? 0 : 1
+  }));
+}
+
+function sendWorkspacePersistenceError(
+  res: Response,
+  args: {
+    customer_id: string;
+    operation: WorkspacePersistenceOperation;
+    error: unknown;
+    table_classes: Array<"customer" | "workspace" | "import_method" | "output_route">;
+    retained?: boolean | null;
+  }
+) {
+  const conflict = args.error instanceof WorkspacePersistenceConflictError;
+  emitWorkspacePersistenceTelemetry({
+    customer_id: args.customer_id,
+    operation: args.operation,
+    outcome: conflict ? "conflict" : "temporarily_unavailable",
+    table_classes: args.table_classes,
+    retained: args.retained
+  });
+  res.status(conflict ? 409 : 503).json({
+    code: conflict ? "workspace_save_conflict" : "workspace_temporarily_unavailable",
+    retained: args.retained ?? null,
+    error: conflict
+      ? "This customer workspace changed while you were editing. Reload it before saving again. No preview or Lift order was submitted."
+      : args.operation === "workspace_create" && args.retained === true
+        ? "Customer setup was retained, but Pathfinder could not finish loading it. Try again. No preview or Lift order was submitted."
+        : args.operation === "workspace_create"
+          ? "Pathfinder could not finish setting up this customer workspace. Try again shortly. No preview or Lift order was submitted."
+          : args.retained === true
+            ? "Customer setup changes were retained, but Pathfinder could not finish reloading them. Reload this workspace. No preview or Lift order was submitted."
+            : "Pathfinder could not save this customer setup right now. Reload and try again. No preview or Lift order was submitted."
+  });
+}
+
 app.get("/api/customers/:liftCustomerId/workspace", async (req, res) => {
   try {
-    const customer = await findLiftCustomer(req.params.liftCustomerId);
-    const workspace = await getOrCreateWorkspace(customer);
+    const workspace = await getWorkspace(req.params.liftCustomerId);
+    if (!workspace) {
+      res.status(404).json({
+        code: "workspace_setup_required",
+        error: "This customer does not have a Pathfinder workspace yet. Confirm setup before creating one."
+      });
+      return;
+    }
     const target = await getTarget(workspace.primary_target_id);
 
     res.json({
       ...workspace,
       primary_target: target
     });
+  } catch {
+    res.status(503).json({
+      code: "workspace_temporarily_unavailable",
+      error: "Pathfinder could not load this customer workspace right now. Try again shortly. No preview or Lift order was submitted."
+    });
+  }
+});
+
+app.post("/api/customers/:liftCustomerId/workspace", async (req, res) => {
+  const customerId = req.params.liftCustomerId;
+  try {
+    const customer = await findLiftCustomer(customerId);
+    const existing = await getWorkspace(customerId);
+    const workspace = existing ?? await getOrCreateWorkspace(customer);
+    const target = await getTarget(workspace.primary_target_id);
+    emitWorkspacePersistenceTelemetry({
+      customer_id: customerId,
+      operation: "workspace_create",
+      outcome: "success",
+      table_classes: ["customer", "workspace", "import_method", "output_route"],
+      retained: true
+    });
+    res.status(existing ? 200 : 201).json({
+      ...workspace,
+      primary_target: target,
+      setup_retained: true
+    });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Workspace load failed."
+    let retained: boolean | null = null;
+    try {
+      retained = Boolean(await getWorkspace(customerId));
+    } catch {
+      retained = null;
+    }
+    sendWorkspacePersistenceError(res, {
+      customer_id: customerId,
+      operation: "workspace_create",
+      error,
+      table_classes: ["customer", "workspace", "import_method", "output_route"],
+      retained
     });
   }
 });
 
 app.put("/api/customers/:liftCustomerId/import-methods/:methodId", async (req, res) => {
+  let retained = false;
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
     const workspace = await updateImportMethod(customer, req.params.methodId, req.body as Partial<ImportMethod>);
+    retained = true;
     const target = await getTarget(workspace.primary_target_id);
+
+    emitWorkspacePersistenceTelemetry({
+      customer_id: req.params.liftCustomerId,
+      operation: "import_method_save",
+      outcome: "success",
+      table_classes: ["workspace", "import_method"],
+      retained: true
+    });
 
     res.json({
       ...workspace,
       primary_target: target
     });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Import method save failed."
+    sendWorkspacePersistenceError(res, {
+      customer_id: req.params.liftCustomerId,
+      operation: "import_method_save",
+      error,
+      table_classes: ["workspace", "import_method"],
+      retained
     });
   }
 });
@@ -7280,18 +7472,32 @@ app.delete("/api/customers/:liftCustomerId/import-methods/:methodId", async (req
 });
 
 app.put("/api/customers/:liftCustomerId/output-routes/:routeId", async (req, res) => {
+  let retained = false;
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
     const workspace = await updateOutputRoute(customer, req.params.routeId, req.body as Partial<OutputRoute>);
+    retained = true;
     const target = await getTarget(workspace.primary_target_id);
+
+    emitWorkspacePersistenceTelemetry({
+      customer_id: req.params.liftCustomerId,
+      operation: "output_route_save",
+      outcome: "success",
+      table_classes: ["workspace", "output_route", "import_method"],
+      retained: true
+    });
 
     res.json({
       ...workspace,
       primary_target: target
     });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Output route save failed."
+    sendWorkspacePersistenceError(res, {
+      customer_id: req.params.liftCustomerId,
+      operation: "output_route_save",
+      error,
+      table_classes: ["workspace", "output_route", "import_method"],
+      retained
     });
   }
 });
@@ -9708,44 +9914,139 @@ app.delete("/api/targets/:targetId", async (req, res) => {
 });
 
 app.get("/api/lift/product-catalog", async (req, res) => {
+  const refreshRequested = req.query.refresh === "1" || req.query.refresh === "true";
+  const requestedTargetId = req.query.target_id ? String(req.query.target_id) : "";
+  const requestedEnvironmentId = req.query.environment_id ? String(req.query.environment_id) : "";
+  const requestedCompanyId = req.query.company_id ? String(req.query.company_id) : "";
+  const refreshStartedAt = Date.now();
+  let refreshTelemetryEmitted = false;
   try {
-    const targetId = req.query.target_id ? String(req.query.target_id) : undefined;
+    let targetId = requestedTargetId || undefined;
     const routeId = req.query.output_route_id ? String(req.query.output_route_id) : undefined;
-    const companyId = req.query.company_id ? String(req.query.company_id) : undefined;
+    let environmentIdFilter = requestedEnvironmentId || undefined;
+    let companyId = requestedCompanyId || undefined;
     const customerId = req.query.customer_id ? String(req.query.customer_id) : undefined;
     let refreshed = false;
     let refreshedCount = 0;
+    let persistedCount = 0;
+    let refreshOutcome: LiftProductCatalogRefreshOutcome | "not_requested" = "not_requested";
     let refreshError: string | null = null;
 
-    if (req.query.refresh === "1" || req.query.refresh === "true") {
+    if (refreshRequested) {
       if (!targetId || !routeId || !customerId) {
-        throw new Error("Refresh requires target_id, output_route_id, and customer_id.");
+        emitLiftProductCatalogRefreshTelemetry({
+          target_id: requestedTargetId,
+          environment_id: requestedEnvironmentId,
+          company_id: requestedCompanyId,
+          catalog_id: req.query.catalog_id,
+          fetched_count: 0,
+          persisted_count: 0,
+          outcome: "scope_invalid",
+          duration_ms: Date.now() - refreshStartedAt
+        });
+        refreshTelemetryEmitted = true;
+        res.status(400).json({
+          code: "lift_catalog_refresh_scope_required",
+          error: "Select a customer, target, and output route before refreshing Lift products. No preview or Lift order was submitted."
+        });
+        return;
       }
-      const customer = await findLiftCustomer(customerId);
-      const workspace = await getOrCreateWorkspace(customer);
+      const workspace = await getWorkspace(customerId);
       const route =
-        workspace.output_routes.find((candidate) => candidate.output_route_id === routeId) ??
-        workspace.output_routes.find((candidate) => candidate.output_route_id === workspace.primary_output_route_id) ??
-        workspace.output_routes[0];
+        workspace?.output_routes.find((candidate) => candidate.output_route_id === routeId) ?? null;
       const target = (await getTarget(targetId, false)) as TargetConfig | null;
 
-      if (!route || !target) {
-        throw new Error("Could not find the selected target or output route for product catalog refresh.");
+      if (!workspace || !route || !target || route.target_id !== target.target_id) {
+        emitLiftProductCatalogRefreshTelemetry({
+          target_id: targetId,
+          environment_id: requestedEnvironmentId,
+          company_id: requestedCompanyId,
+          catalog_id: req.query.catalog_id,
+          fetched_count: 0,
+          persisted_count: 0,
+          outcome: "scope_invalid",
+          duration_ms: Date.now() - refreshStartedAt
+        });
+        refreshTelemetryEmitted = true;
+        res.status(404).json({
+          code: "lift_catalog_refresh_scope_not_found",
+          error: "Pathfinder could not find that customer's selected Lift route. No setup, preview, or Lift order was changed."
+        });
+        return;
       }
 
+      const environment =
+        target.environments.find((candidate) => candidate.environment_id === route.environment_id) ??
+        target.environments.find((candidate) => candidate.name === target.lift.active_environment);
+      const environmentId = environment?.environment_id ?? route.environment_id ?? requestedEnvironmentId;
+      const resolvedCompanyId =
+        route.company_id ?? environment?.headers.Company ?? target.lift.headers.Company ?? requestedCompanyId;
+
+      let fetchedCount = 0;
       try {
         const liftedProducts = await fetchLiftProductsFromTarget(target, route, req.query);
-        await upsertLiftProductCatalog(liftedProducts);
+        fetchedCount = liftedProducts.length;
+        const persistedProducts = await upsertLiftProductCatalog(liftedProducts);
         refreshed = true;
         refreshedCount = liftedProducts.length;
+        persistedCount = persistedProducts.length;
+        refreshOutcome = "success";
+        emitLiftProductCatalogRefreshTelemetry({
+          target_id: targetId,
+          environment_id: environmentId,
+          company_id: resolvedCompanyId,
+          catalog_id: req.query.catalog_id,
+          fetched_count: liftedProducts.length,
+          persisted_count: persistedProducts.length,
+          outcome: "success",
+          duration_ms: Date.now() - refreshStartedAt
+        });
+        refreshTelemetryEmitted = true;
       } catch (error) {
-        refreshError = error instanceof Error ? error.message : "Lift product catalog refresh failed.";
+        const persistenceError =
+          error instanceof LiftProductCatalogPersistenceError ? error : null;
+        persistedCount = persistenceError?.definitely_persisted_count ?? 0;
+        refreshedCount = persistedCount;
+        refreshOutcome =
+          persistenceError?.persistence_outcome === "partial"
+            ? "partially_persisted"
+            : persistenceError?.persistence_outcome === "uncertain"
+              ? "persistence_uncertain"
+              : "temporarily_unavailable";
+        refreshError = persistenceError
+          ? persistenceError.persistence_outcome === "partial"
+            ? `Pathfinder saved ${persistedCount} of ${persistenceError.requested_count} products before the refresh stopped. Existing cached products were preserved. Reload before trying again. No preview or Lift order was submitted.`
+            : `Pathfinder confirmed ${persistedCount} of ${persistenceError.requested_count} product saves, but could not verify the remaining products. Existing cached products were preserved. Reload and reconcile the catalog before trying again. No preview or Lift order was submitted.`
+          : "Pathfinder could not refresh this Lift product catalog right now. Existing cached products were preserved. No preview or Lift order was submitted.";
+        emitLiftProductCatalogRefreshTelemetry({
+          target_id: targetId,
+          environment_id: environmentId,
+          company_id: resolvedCompanyId,
+          catalog_id: req.query.catalog_id,
+          fetched_count: fetchedCount,
+          persisted_count: persistedCount,
+          outcome: refreshOutcome,
+          duration_ms: Date.now() - refreshStartedAt
+        });
+        refreshTelemetryEmitted = true;
+      }
+    }
+
+    if (customerId && routeId) {
+      const workspace = await getWorkspace(customerId);
+      const selectedRoute = workspace?.output_routes.find(
+        (candidate) => candidate.output_route_id === routeId
+      );
+      if (selectedRoute) {
+        targetId = selectedRoute.target_id;
+        environmentIdFilter = selectedRoute.environment_id;
+        companyId = selectedRoute.company_id ?? undefined;
       }
     }
 
     const products = await listLiftUnitCatalog({
       target_id: targetId,
-      environment_id: req.query.environment_id ? String(req.query.environment_id) : undefined,
+      environment_id: environmentIdFilter,
       company_id: companyId,
       q: req.query.q ? String(req.query.q) : undefined,
       product_id: req.query.product_id ? String(req.query.product_id) : undefined,
@@ -9773,12 +10074,29 @@ app.get("/api/lift/product-catalog", async (req, res) => {
       products,
       refreshed,
       refreshed_count: refreshedCount,
+      persisted_count: persistedCount,
+      refresh_outcome: refreshOutcome,
       refresh_error: refreshError,
-      source: refreshed ? "lift-api" : "local-cache"
+      source: refreshed ? "lift-api" : persistedCount > 0 ? "local-cache-partial" : "local-cache"
     });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Lift product catalog load failed."
+  } catch {
+    if (refreshRequested && !refreshTelemetryEmitted) {
+      emitLiftProductCatalogRefreshTelemetry({
+        target_id: requestedTargetId,
+        environment_id: requestedEnvironmentId,
+        company_id: requestedCompanyId,
+        catalog_id: req.query.catalog_id,
+        fetched_count: 0,
+        persisted_count: 0,
+        outcome: "temporarily_unavailable",
+        duration_ms: Date.now() - refreshStartedAt
+      });
+    }
+    res.status(503).json({
+      code: "lift_catalog_temporarily_unavailable",
+      error: refreshRequested
+        ? "Pathfinder could not complete this product catalog refresh right now. Existing cached products were preserved. No preview or Lift order was submitted."
+        : "Pathfinder could not load cached Lift products right now. Try again shortly."
     });
   }
 });
