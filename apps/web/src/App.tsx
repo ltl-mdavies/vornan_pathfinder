@@ -6539,11 +6539,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           target_id: selectedOutputMapRoute.target_id,
           catalog_id: catalogId,
           catalog_name: catalogName,
-          status: "Active"
+          status: "Active",
+          expected_workspace_updated_at: workspace.updated_at
         })
       });
-      const payload = await readJsonResponse<{ catalog_presets: LiftCatalogPreset[] }>(response);
-      setWorkspace((current) => (current ? { ...current, catalog_presets: payload.catalog_presets } : current));
+      const payload = await readJsonResponse<{
+        catalog_presets: LiftCatalogPreset[];
+        workspace_updated_at: string;
+        changed: boolean;
+      }>(response);
+      setWorkspace((current) =>
+        current
+          ? {
+              ...current,
+              catalog_presets: payload.catalog_presets,
+              updated_at: payload.workspace_updated_at
+            }
+          : current
+      );
       setCatalogPresetId(catalogId);
       setWorkspaceMessage(`Catalog preset saved: ${catalogName} / ${catalogId}.`);
       setWorkspaceState("idle");
@@ -6558,10 +6571,29 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/catalog-presets/${preset.preset_id}`,
-        { method: "DELETE" }
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            output_route_id: preset.output_route_id,
+            expected_workspace_updated_at: workspace?.updated_at ?? null
+          })
+        }
       );
-      const payload = await readJsonResponse<{ catalog_presets: LiftCatalogPreset[] }>(response);
-      setWorkspace((current) => (current ? { ...current, catalog_presets: payload.catalog_presets } : current));
+      const payload = await readJsonResponse<{
+        catalog_presets: LiftCatalogPreset[];
+        workspace_updated_at: string;
+        changed: boolean;
+      }>(response);
+      setWorkspace((current) =>
+        current
+          ? {
+              ...current,
+              catalog_presets: payload.catalog_presets,
+              updated_at: payload.workspace_updated_at
+            }
+          : current
+      );
       setWorkspaceMessage(`Catalog preset removed: ${preset.catalog_name}.`);
       setWorkspaceState("idle");
     } catch (error) {

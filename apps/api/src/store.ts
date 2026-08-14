@@ -3932,6 +3932,13 @@ export class WorkspacePersistenceConflictError extends Error {
   }
 }
 
+export class CatalogPresetValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CatalogPresetValidationError";
+  }
+}
+
 type FocusedDynamoRecord = {
   table_name: string;
   keys: Record<string, string>;
@@ -6755,6 +6762,46 @@ export async function persistSubmitAttempt(customer: LiftCustomer, attempt: Subm
   return normalizedAttempt;
 }
 
+function catalogPresetMatches(
+  preset: LiftCatalogPreset,
+  candidate: Pick<
+    LiftCatalogPreset,
+    "output_route_id" | "target_id" | "catalog_id" | "catalog_name" | "status"
+  >
+) {
+  return (
+    preset.output_route_id === candidate.output_route_id &&
+    preset.target_id === candidate.target_id &&
+    preset.catalog_id === candidate.catalog_id &&
+    preset.catalog_name === candidate.catalog_name &&
+    preset.status === candidate.status
+  );
+}
+
+async function persistCatalogPresetWorkspace(
+  store: PathfinderStore,
+  workspace: PathfinderCustomerWorkspace,
+  expectedWorkspaceUpdatedAt: string,
+  operationSeed: string
+) {
+  store.workspaces[workspace.customer.lift_customer_id] = workspace;
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    await persistFocusedDynamoRecords(
+      [{
+        table_name: getDynamoTableConfig().workspaces,
+        keys: { customer_id: workspace.customer.lift_customer_id },
+        data: workspaceRecord(workspace),
+        expected_updated_at: expectedWorkspaceUpdatedAt
+      }],
+      operationSeed
+    );
+    replaceScopedWorkspace(workspace);
+    return;
+  }
+  await writeStore(store);
+}
+
 export async function listProductMappings(customer: LiftCustomer) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
@@ -6767,24 +6814,46 @@ export async function listCatalogPresets(customer: LiftCustomer) {
   return workspace.catalog_presets;
 }
 
-export async function upsertCatalogPreset(customer: LiftCustomer, patch: Partial<LiftCatalogPreset>) {
+export async function upsertCatalogPreset(
+  customer: LiftCustomer,
+  patch: Partial<LiftCatalogPreset>,
+  expectedWorkspaceUpdatedAt?: string | null
+) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
-  const timestamp = now();
-  const route =
-    workspace.output_routes.find((candidate) => candidate.output_route_id === patch.output_route_id) ??
-    workspace.output_routes.find((candidate) => candidate.output_route_id === workspace.primary_output_route_id) ??
-    workspace.output_routes[0];
+  const routeId = String(patch.output_route_id ?? "").trim();
+  const route = workspace.output_routes.find((candidate) => candidate.output_route_id === routeId);
   const catalogId = String(patch.catalog_id ?? "").trim();
 
+  if (!routeId || !route) {
+    throw new CatalogPresetValidationError("Choose a valid output route before saving this catalog preset.");
+  }
   if (!catalogId) {
-    throw new Error("Catalog ID is required.");
+    throw new CatalogPresetValidationError("Catalog ID is required.");
   }
 
   const presetId =
     patch.preset_id ??
     `catalog-preset-${customer.lift_customer_id}-${route.output_route_id}-${catalogId}`.replace(/[^a-zA-Z0-9_-]/g, "-");
   const existing = workspace.catalog_presets.find((preset) => preset.preset_id === presetId);
+  if (existing && existing.output_route_id !== route.output_route_id) {
+    throw new CatalogPresetValidationError("This catalog preset belongs to a different output route.");
+  }
+  const candidate = {
+    output_route_id: route.output_route_id,
+    target_id: route.target_id,
+    catalog_id: catalogId,
+    catalog_name: String(patch.catalog_name ?? existing?.catalog_name ?? catalogId).trim() || catalogId,
+    status: patch.status === "Inactive" ? "Inactive" as const : "Active" as const
+  };
+  if (existing && catalogPresetMatches(existing, candidate)) {
+    return { workspace, changed: false };
+  }
+  if (expectedWorkspaceUpdatedAt && expectedWorkspaceUpdatedAt !== workspace.updated_at) {
+    throw new WorkspacePersistenceConflictError();
+  }
+  const previousWorkspaceUpdatedAt = workspace.updated_at;
+  const timestamp = now();
   const preset = normalizeCatalogPreset(
     {
       ...(existing ?? {
@@ -6792,16 +6861,14 @@ export async function upsertCatalogPreset(customer: LiftCustomer, patch: Partial
         output_route_id: route.output_route_id,
         target_id: route.target_id,
         catalog_id: catalogId,
-        catalog_name: patch.catalog_name ?? catalogId,
+        catalog_name: candidate.catalog_name,
         status: "Active",
         created_at: timestamp,
         updated_at: timestamp
       }),
       ...patch,
       preset_id: presetId,
-      output_route_id: route.output_route_id,
-      target_id: route.target_id,
-      catalog_id: catalogId,
+      ...candidate,
       updated_at: timestamp
     } as LiftCatalogPreset,
     workspace
@@ -6812,19 +6879,47 @@ export async function upsertCatalogPreset(customer: LiftCustomer, patch: Partial
     ...workspace.catalog_presets.filter((candidate) => candidate.preset_id !== preset.preset_id)
   ];
   workspace.updated_at = timestamp;
-  store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
-  return workspace.catalog_presets;
+  await persistCatalogPresetWorkspace(
+    store,
+    workspace,
+    previousWorkspaceUpdatedAt,
+    `catalog-preset-save\0${customer.lift_customer_id}\0${route.output_route_id}\0${presetId}\0${timestamp}`
+  );
+  return { workspace, changed: true };
 }
 
-export async function deleteCatalogPreset(customer: LiftCustomer, presetId: string) {
+export async function deleteCatalogPreset(
+  customer: LiftCustomer,
+  presetId: string,
+  options: { output_route_id?: string | null; expected_workspace_updated_at?: string | null } = {}
+) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
+  const existing = workspace.catalog_presets.find((preset) => preset.preset_id === presetId);
+  if (!existing) {
+    return { workspace, changed: false };
+  }
+  const routeId = String(options.output_route_id ?? "").trim();
+  if (!routeId || existing.output_route_id !== routeId) {
+    throw new CatalogPresetValidationError("This catalog preset belongs to a different output route.");
+  }
+  if (
+    options.expected_workspace_updated_at &&
+    options.expected_workspace_updated_at !== workspace.updated_at
+  ) {
+    throw new WorkspacePersistenceConflictError();
+  }
+  const previousWorkspaceUpdatedAt = workspace.updated_at;
+  const timestamp = now();
   workspace.catalog_presets = workspace.catalog_presets.filter((preset) => preset.preset_id !== presetId);
-  workspace.updated_at = now();
-  store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
-  return workspace.catalog_presets;
+  workspace.updated_at = timestamp;
+  await persistCatalogPresetWorkspace(
+    store,
+    workspace,
+    previousWorkspaceUpdatedAt,
+    `catalog-preset-delete\0${customer.lift_customer_id}\0${routeId}\0${presetId}\0${timestamp}`
+  );
+  return { workspace, changed: true };
 }
 
 export async function listLiftUnitCatalog(filters: {

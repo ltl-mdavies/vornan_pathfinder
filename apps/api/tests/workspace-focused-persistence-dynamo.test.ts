@@ -85,6 +85,8 @@ const originalSend = clientPrototype.send;
 let getOrCreateWorkspace: typeof import("../src/store.ts")["getOrCreateWorkspace"];
 let updateImportMethod: typeof import("../src/store.ts")["updateImportMethod"];
 let updateOutputRoute: typeof import("../src/store.ts")["updateOutputRoute"];
+let upsertCatalogPreset: typeof import("../src/store.ts")["upsertCatalogPreset"];
+let deleteCatalogPreset: typeof import("../src/store.ts")["deleteCatalogPreset"];
 let upsertLiftProductCatalog: typeof import("../src/store.ts")["upsertLiftProductCatalog"];
 let normalizeLiftProductPayloadItems: typeof import("../src/server.ts")["normalizeLiftProductPayloadItems"];
 
@@ -186,7 +188,14 @@ before(async () => {
     return {};
   };
 
-  ({ getOrCreateWorkspace, updateImportMethod, updateOutputRoute, upsertLiftProductCatalog } =
+  ({
+    getOrCreateWorkspace,
+    updateImportMethod,
+    updateOutputRoute,
+    upsertCatalogPreset,
+    deleteCatalogPreset,
+    upsertLiftProductCatalog
+  } =
     await import("../src/store.ts"));
   ({ normalizeLiftProductPayloadItems } = await import("../src/server.ts"));
 });
@@ -325,6 +334,89 @@ test("fails closed before a transaction when the selected workspace changed conc
   assert.equal(transactionTables().length, 0);
 });
 
+test("saves and deletes catalog presets through only the selected workspace record", async () => {
+  const workspace = await getOrCreateWorkspace(customer);
+  const route = workspace.output_routes[0];
+  commands.length = 0;
+
+  const saved = await upsertCatalogPreset(
+    customer,
+    {
+      preset_id: "catalog-preset-1249-6338",
+      output_route_id: route.output_route_id,
+      target_id: route.target_id,
+      catalog_id: "6338",
+      catalog_name: "LTL Demo catalog",
+      status: "Active"
+    },
+    workspace.updated_at
+  );
+
+  assert.equal(saved.changed, true);
+  assert.deepEqual(new Set(transactionTables()), new Set([tableNames.workspaces]));
+  assert.ok(!transactionTables().includes(tableNames.jobs));
+  assert.ok(!transactionTables().includes(tableNames.liftProductCache));
+  assert.ok(!transactionTables().includes(tableNames.productMappings));
+  assert.ok(!transactionTables().includes(tableNames.importMethods));
+  assert.ok(!transactionTables().includes(tableNames.outputRoutes));
+
+  commands.length = 0;
+  const repeatedSave = await upsertCatalogPreset(
+    customer,
+    {
+      preset_id: "catalog-preset-1249-6338",
+      output_route_id: route.output_route_id,
+      target_id: route.target_id,
+      catalog_id: "6338",
+      catalog_name: "LTL Demo catalog",
+      status: "Active"
+    },
+    workspace.updated_at
+  );
+  assert.equal(repeatedSave.changed, false);
+  assert.equal(transactionTables().length, 0);
+
+  commands.length = 0;
+  const deleted = await deleteCatalogPreset(customer, "catalog-preset-1249-6338", {
+    output_route_id: route.output_route_id,
+    expected_workspace_updated_at: saved.workspace.updated_at
+  });
+  assert.equal(deleted.changed, true);
+  assert.deepEqual(new Set(transactionTables()), new Set([tableNames.workspaces]));
+
+  commands.length = 0;
+  const repeatedDelete = await deleteCatalogPreset(customer, "catalog-preset-1249-6338", {
+    output_route_id: route.output_route_id,
+    expected_workspace_updated_at: saved.workspace.updated_at
+  });
+  assert.equal(repeatedDelete.changed, false);
+  assert.equal(transactionTables().length, 0);
+});
+
+test("catalog preset writes fail closed when the selected workspace changed concurrently", async () => {
+  const workspace = await getOrCreateWorkspace(customer);
+  const route = workspace.output_routes[0];
+  commands.length = 0;
+  forceWorkspaceVersionDrift = true;
+
+  await assert.rejects(
+    upsertCatalogPreset(
+      customer,
+      {
+        preset_id: "catalog-preset-stale-6338",
+        output_route_id: route.output_route_id,
+        target_id: route.target_id,
+        catalog_id: "6338",
+        catalog_name: "Stale preset",
+        status: "Active"
+      },
+      workspace.updated_at
+    ),
+    { name: "WorkspacePersistenceConflictError" }
+  );
+  assert.equal(transactionTables().length, 0);
+});
+
 test("API workspace failures are sanitized and state that no external order effect occurred", async () => {
   const source = await readFile(new URL("../src/server.ts", import.meta.url), "utf8");
   assert.match(source, /workspace_setup_required/);
@@ -334,6 +426,19 @@ test("API workspace failures are sanitized and state that no external order effe
   assert.doesNotMatch(
     source,
     /app\.get\("\/api\/customers\/:liftCustomerId\/workspace"[\s\S]{0,900}error instanceof Error \? error\.message/
+  );
+});
+
+test("catalog preset API failures are sanitized and report no external effect", async () => {
+  const source = await readFile(new URL("../src/server.ts", import.meta.url), "utf8");
+  assert.match(source, /catalog_preset_persistence_complete/);
+  assert.match(source, /catalog_preset_save_conflict/);
+  assert.match(source, /catalog_preset_temporarily_unavailable/);
+  assert.match(source, /Existing customer settings were preserved/);
+  assert.match(source, /external_effects: false/);
+  assert.doesNotMatch(
+    source,
+    /app\.put\("\/api\/customers\/:liftCustomerId\/catalog-presets\/:presetId"[\s\S]{0,2400}error instanceof Error \? error\.message/
   );
 });
 

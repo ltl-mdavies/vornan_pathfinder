@@ -59,6 +59,8 @@ test("read-only configuration access never persists the whole store", async () =
   const getWorkspace = source.match(/export async function getOrCreateWorkspace[\s\S]*?\n}\n\nexport class SourceConnectionNotFoundError/);
   const listProductMappings = exportedFunctionSource(source, "listProductMappings");
   const listCatalogPresets = exportedFunctionSource(source, "listCatalogPresets");
+  const upsertCatalogPreset = exportedFunctionSource(source, "upsertCatalogPreset");
+  const deleteCatalogPreset = exportedFunctionSource(source, "deleteCatalogPreset");
 
   assert.ok(getTarget);
   assert.ok(getWorkspace);
@@ -69,6 +71,10 @@ test("read-only configuration access never persists the whole store", async () =
   assert.doesNotMatch(existingBranch[0], /writeStore\(/);
   assert.doesNotMatch(listProductMappings, /writeStore\(/);
   assert.doesNotMatch(listCatalogPresets, /writeStore\(/);
+  assert.doesNotMatch(upsertCatalogPreset, /writeStore\(/);
+  assert.doesNotMatch(deleteCatalogPreset, /writeStore\(/);
+  assert.match(upsertCatalogPreset, /persistCatalogPresetWorkspace/);
+  assert.match(deleteCatalogPreset, /persistCatalogPresetWorkspace/);
 });
 
 test("scheduled preview hot paths persist only affected Dynamo records", async () => {
