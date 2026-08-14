@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
+  BatchWriteItemCommand,
   DynamoDBClient,
   GetItemCommand,
   ScanCommand,
@@ -9,12 +10,14 @@ import {
 } from "@aws-sdk/client-dynamodb";
 import test, { after, before, beforeEach } from "node:test";
 
-type Command = GetItemCommand | ScanCommand | TransactWriteItemsCommand;
+type Command = BatchWriteItemCommand | GetItemCommand | ScanCommand | TransactWriteItemsCommand;
 type Item = Record<string, AttributeValue>;
 
 const commands: Command[] = [];
 const tableItems = new Map<string, Item[]>();
 let forceWorkspaceVersionDrift = false;
+let catalogBatchCount = 0;
+let failCatalogBatchAt: number | null = null;
 const tableNames = {
   customers: "Pathfinder-CUSTOMERS-focused",
   workspaces: "Pathfinder-CUSTOMER_WORKSPACES-focused",
@@ -64,6 +67,7 @@ function dataItem(keys: Record<string, string>, data: unknown): Item {
 function keyNamesForTable(tableName: string) {
   if (tableName === tableNames.importMethods) return ["customer_id", "import_method_id"];
   if (tableName === tableNames.outputRoutes) return ["customer_id", "output_route_id"];
+  if (tableName === tableNames.liftProductCache) return ["route_environment_id", "product_id"];
   if (tableName === tableNames.targets) return ["target_id"];
   return ["customer_id"];
 }
@@ -80,6 +84,8 @@ const originalSend = clientPrototype.send;
 let getOrCreateWorkspace: typeof import("../src/store.ts")["getOrCreateWorkspace"];
 let updateImportMethod: typeof import("../src/store.ts")["updateImportMethod"];
 let updateOutputRoute: typeof import("../src/store.ts")["updateOutputRoute"];
+let upsertLiftProductCatalog: typeof import("../src/store.ts")["upsertLiftProductCatalog"];
+let normalizeLiftProductPayloadItems: typeof import("../src/server.ts")["normalizeLiftProductPayloadItems"];
 
 before(async () => {
   process.env.PATHFINDER_RUNTIME = "lambda";
@@ -143,15 +149,46 @@ before(async () => {
       }
       return {};
     }
+    if (command instanceof BatchWriteItemCommand) {
+      const requests = command.input.RequestItems ?? {};
+      if (requests[tableNames.liftProductCache]) {
+        catalogBatchCount += 1;
+        if (failCatalogBatchAt === catalogBatchCount) {
+          const error = new Error("simulated cache persistence failure");
+          error.name = "ProvisionedThroughputExceededException";
+          throw error;
+        }
+      }
+      for (const [tableName, writes] of Object.entries(requests)) {
+        const current = tableItems.get(tableName) ?? [];
+        const next = [...current];
+        for (const write of writes ?? []) {
+          const item = write.PutRequest?.Item as Item | undefined;
+          if (!item) continue;
+          const key = Object.fromEntries(
+            keyNamesForTable(tableName).map((name) => [name, item[name]])
+          ) as Item;
+          const existingIndex = next.findIndex((candidate) => matchesKey(candidate, key));
+          if (existingIndex >= 0) next.splice(existingIndex, 1);
+          next.push(structuredClone(item));
+        }
+        tableItems.set(tableName, next);
+      }
+      return { UnprocessedItems: {} };
+    }
     return {};
   };
 
-  ({ getOrCreateWorkspace, updateImportMethod, updateOutputRoute } = await import("../src/store.ts"));
+  ({ getOrCreateWorkspace, updateImportMethod, updateOutputRoute, upsertLiftProductCatalog } =
+    await import("../src/store.ts"));
+  ({ normalizeLiftProductPayloadItems } = await import("../src/server.ts"));
 });
 
 beforeEach(() => {
   commands.length = 0;
   forceWorkspaceVersionDrift = false;
+  catalogBatchCount = 0;
+  failCatalogBatchAt = null;
 });
 
 after(() => {
@@ -164,6 +201,49 @@ function transactionTables() {
     .flatMap((command) => command.input.TransactItems ?? [])
     .map((item) => item.Put?.TableName)
     .filter((name): name is string => Boolean(name));
+}
+
+function catalogItem(index: number, catalogId: string, status: "Active" | "Inactive" = "Active") {
+  return {
+    catalog_item_id: `lift-standard-graphics-91-env-lift-${catalogId}-product-${catalogId}-${index}`,
+    product_id: `${catalogId}${String(index).padStart(3, "0")}`,
+    unit_number: `UNIT-${catalogId}-${index}`,
+    unit_numbers: [`UNIT-${catalogId}-${index}`],
+    product_name: `Catalog ${catalogId} Product ${index}`,
+    company_id: "91",
+    target_id: "lift-standard-graphics",
+    environment_id: "env-lift-qa1",
+    catalog_id: catalogId,
+    status,
+    source: "Lift import" as const,
+    updated_at: "2026-08-14T00:00:00.000Z"
+  };
+}
+
+function seedCatalogBaseline() {
+  const baseline = [
+    ...Array.from({ length: 334 }, (_, index) => catalogItem(index, "8102")),
+    ...Array.from({ length: 3 }, (_, index) => catalogItem(index, "other"))
+  ];
+  tableItems.set(
+    tableNames.liftProductCache,
+    baseline.map((item) =>
+      dataItem(
+        {
+          route_environment_id: `${item.target_id}#${item.environment_id}#${item.company_id}`,
+          product_id: item.product_id
+        },
+        item
+      )
+    )
+  );
+  return baseline;
+}
+
+function storedCatalogItems() {
+  return (tableItems.get(tableNames.liftProductCache) ?? []).map((item) =>
+    JSON.parse(item.data.S!) as ReturnType<typeof catalogItem>
+  );
 }
 
 test("creates one isolated customer workspace without rewriting Jobs or cache tables", async () => {
@@ -247,4 +327,124 @@ test("API workspace failures are sanitized and state that no external order effe
     source,
     /app\.get\("\/api\/customers\/:liftCustomerId\/workspace"[\s\S]{0,900}error instanceof Error \? error\.message/
   );
+});
+
+test("normalizes the observed camelCase Lift product shape including unitNumber arrays", () => {
+  const [active] = normalizeLiftProductPayloadItems(
+    {
+      productId: 6338001,
+      productName: "LTL Demo Active Product",
+      catalogId: 6338,
+      catalogName: "LTL Demo",
+      unitNumber: ["LTL-DEMO-1", "LTL-DEMO-1-ALT"],
+      status: "A"
+    },
+    { targetId: "lift-standard-graphics", environmentId: "env-lift-qa1", companyId: "91" }
+  );
+  const [inactive] = normalizeLiftProductPayloadItems(
+    {
+      productId: 6338002,
+      productName: "LTL Demo Inactive Product",
+      catalogId: 6338,
+      unitNumber: ["LTL-DEMO-2"],
+      status: "I"
+    },
+    { targetId: "lift-standard-graphics", environmentId: "env-lift-qa1", companyId: "91" }
+  );
+
+  assert.equal(active.product_id, "6338001");
+  assert.equal(active.catalog_id, "6338");
+  assert.equal(active.unit_number, "LTL-DEMO-1");
+  assert.deepEqual(active.unit_numbers, ["LTL-DEMO-1", "LTL-DEMO-1-ALT"]);
+  assert.equal(active.status, "Active");
+  assert.equal(inactive.status, "Inactive");
+});
+
+test("upserts only exact Lift product-cache rows and preserves the existing 337-row baseline", async () => {
+  const baseline = seedCatalogBaseline();
+  const baselineById = new Map(baseline.map((item) => [item.product_id, item]));
+  const demoProducts = Array.from(
+    { length: 18 },
+    (_, index) => catalogItem(index, "6338", index === 17 ? "Inactive" : "Active")
+  );
+  commands.length = 0;
+
+  const persisted = await upsertLiftProductCatalog(demoProducts);
+  const stored = storedCatalogItems();
+
+  assert.equal(persisted.length, 18);
+  assert.equal(stored.length, 355);
+  assert.equal(stored.filter((item) => item.catalog_id === "8102").length, 334);
+  assert.equal(stored.filter((item) => item.catalog_id === "6338").length, 18);
+  assert.equal(stored.filter((item) => item.catalog_id === "6338" && item.status === "Inactive").length, 1);
+  baselineById.forEach((expected, productId) => {
+    assert.deepEqual(stored.find((item) => item.product_id === productId), expected);
+  });
+
+  const writtenTables = commands
+    .filter((command): command is BatchWriteItemCommand => command instanceof BatchWriteItemCommand)
+    .flatMap((command) => Object.keys(command.input.RequestItems ?? {}));
+  assert.deepEqual(new Set(writtenTables), new Set([tableNames.liftProductCache]));
+  const writtenCacheRows = commands
+    .filter((command): command is BatchWriteItemCommand => command instanceof BatchWriteItemCommand)
+    .flatMap((command) => command.input.RequestItems?.[tableNames.liftProductCache] ?? [])
+    .map((write) => write.PutRequest?.Item as Item);
+  assert.equal(writtenCacheRows.length, 18);
+  writtenCacheRows.forEach((item) => {
+    const data = JSON.parse(item.data.S!) as ReturnType<typeof catalogItem>;
+    assert.equal(
+      item.route_environment_id.S,
+      `${data.target_id}#${data.environment_id}#${data.company_id}`
+    );
+    assert.equal(item.product_id.S, data.product_id);
+  });
+  assert.ok(!writtenTables.includes(tableNames.jobs));
+  assert.ok(!writtenTables.includes(tableNames.productMappings));
+  assert.equal(commands.some((command) => command instanceof ScanCommand), false);
+
+  commands.length = 0;
+  const replayed = await upsertLiftProductCatalog(demoProducts);
+  assert.equal(replayed.length, 18);
+  assert.equal(storedCatalogItems().length, 355, "a repeated refresh must overwrite exact keys, not duplicate rows");
+});
+
+test("a partial cache write failure cannot remove or rewrite existing catalog rows", async () => {
+  const baseline = seedCatalogBaseline();
+  const baselineById = new Map(baseline.map((item) => [item.product_id, item]));
+  const nextProducts = Array.from({ length: 30 }, (_, index) => catalogItem(index, "6338"));
+  failCatalogBatchAt = 2;
+
+  await assert.rejects(upsertLiftProductCatalog(nextProducts), {
+    name: "ProvisionedThroughputExceededException"
+  });
+
+  const stored = storedCatalogItems();
+  baselineById.forEach((expected, productId) => {
+    assert.deepEqual(stored.find((item) => item.product_id === productId), expected);
+  });
+  assert.equal(stored.filter((item) => item.catalog_id === "8102").length, 334);
+  assert.equal(stored.length, 362, "only the first additive batch may persist before a later batch fails");
+  const writtenTables = commands
+    .filter((command): command is BatchWriteItemCommand => command instanceof BatchWriteItemCommand)
+    .flatMap((command) => Object.keys(command.input.RequestItems ?? {}));
+  assert.deepEqual(new Set(writtenTables), new Set([tableNames.liftProductCache]));
+});
+
+test("catalog refresh failures use bounded telemetry and never return raw provider or Dynamo errors", async () => {
+  const source = await readFile(new URL("../src/server.ts", import.meta.url), "utf8");
+  const route = source.slice(
+    source.indexOf('app.get("/api/lift/product-catalog"'),
+    source.indexOf('app.post("/api/lift/preview"')
+  );
+
+  assert.match(source, /Namespace: "Pathfinder\/LiftProductCatalog"/);
+  assert.match(source, /table_class: "lift_product_cache"/);
+  assert.match(route, /Existing cached products were preserved/);
+  assert.match(route, /No preview or Lift order was submitted/);
+  assert.match(route, /const workspace = await getWorkspace\(customerId\)/);
+  assert.match(route, /targetId = selectedRoute\.target_id/);
+  assert.match(route, /environmentIdFilter = selectedRoute\.environment_id/);
+  assert.match(route, /companyId = selectedRoute\.company_id/);
+  assert.doesNotMatch(route, /getOrCreateWorkspace\(customer\)/);
+  assert.doesNotMatch(route, /error instanceof Error \? error\.message/);
 });

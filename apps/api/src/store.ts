@@ -2513,6 +2513,10 @@ function liftProductCacheSort(item: LiftUnitCatalogItem) {
   return item.product_id ?? item.unit_number ?? item.catalog_item_id;
 }
 
+function liftProductCacheIdentity(item: LiftUnitCatalogItem) {
+  return `${liftProductCachePartition(item)}\0${liftProductCacheSort(item)}`;
+}
+
 function pushByCustomer<T>(map: Map<string, T[]>, customerId: string | undefined, item: T) {
   if (!customerId) {
     return;
@@ -3909,6 +3913,16 @@ function replaceScopedWorkspace(workspace: PathfinderCustomerWorkspace) {
   const scope = pathfinderStoreReadScope.getStore();
   if (!scope?.store) return;
   scope.store.workspaces[workspace.customer.lift_customer_id] = workspace;
+}
+
+function mergeScopedLiftProductCatalog(items: LiftUnitCatalogItem[]) {
+  const scope = pathfinderStoreReadScope.getStore();
+  if (!scope?.store) return;
+  const merged = new Map(
+    scope.store.lift_unit_catalog.map((item) => [liftProductCacheIdentity(item), item])
+  );
+  items.forEach((item) => merged.set(liftProductCacheIdentity(item), item));
+  scope.store.lift_unit_catalog = Array.from(merged.values());
 }
 
 export class WorkspacePersistenceConflictError extends Error {
@@ -6861,18 +6875,42 @@ export async function listLiftUnitCatalog(filters: {
 }
 
 export async function upsertLiftProductCatalog(items: LiftUnitCatalogItem[]) {
-  const store = await readStore();
   const timestamp = now();
-  const nextById = new Map(store.lift_unit_catalog.map((item) => [item.catalog_item_id, item]));
-
+  const normalizedByIdentity = new Map<string, LiftUnitCatalogItem>();
   items.forEach((item) => {
     const normalized = normalizeLiftCatalogItem({ ...item, updated_at: timestamp }, timestamp);
-    nextById.set(normalized.catalog_item_id, normalized);
+    normalizedByIdentity.set(liftProductCacheIdentity(normalized), normalized);
   });
+  const normalizedItems = Array.from(normalizedByIdentity.values());
+  const config = getPathfinderPersistenceRuntimeConfig();
 
-  store.lift_unit_catalog = Array.from(nextById.values());
+  if (config.storage_driver === "dynamodb") {
+    const tables = getDynamoTableConfig();
+    await upsertDynamoTable(
+      tables.lift_product_cache,
+      normalizedItems.map((item) =>
+        dynamoItem(
+          {
+            route_environment_id: liftProductCachePartition(item),
+            product_id: liftProductCacheSort(item)
+          },
+          item
+        )
+      )
+    );
+    mergeScopedLiftProductCatalog(normalizedItems);
+    return normalizedItems;
+  }
+
+  const store = await readStore();
+  const nextByIdentity = new Map(
+    store.lift_unit_catalog.map((item) => [liftProductCacheIdentity(item), item])
+  );
+  normalizedItems.forEach((item) => nextByIdentity.set(liftProductCacheIdentity(item), item));
+
+  store.lift_unit_catalog = Array.from(nextByIdentity.values());
   await writeStore(store);
-  return store.lift_unit_catalog;
+  return normalizedItems;
 }
 
 export async function updateProductMapping(

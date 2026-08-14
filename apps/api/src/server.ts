@@ -553,8 +553,12 @@ function normalizeLiftProductPayloadItem(
   }
 ): LiftUnitCatalogItem {
   const productId = liftProductValue(item.productId ?? item.product_id);
-  const liftedUnitNumbers = liftProductValues(item.unitNumbers ?? item.unit_numbers);
-  const unitNumber = liftProductValue(item.unitNumber ?? item.unit_number) ?? liftedUnitNumbers[0] ?? null;
+  const unitNumberValue = item.unitNumber ?? item.unit_number;
+  const liftedUnitNumbers = liftProductValues(item.unitNumbers ?? item.unit_numbers ?? unitNumberValue);
+  const unitNumber =
+    (Array.isArray(unitNumberValue) ? null : liftProductValue(unitNumberValue)) ??
+    liftedUnitNumbers[0] ??
+    null;
   const unitNumbers = Array.from(new Set([...(unitNumber ? [unitNumber] : []), ...liftedUnitNumbers]));
   const catalogId = liftProductValue(item.catalogId ?? item.catalog_id);
   const productName = liftProductValue(item.productName ?? item.product_name) ?? productId ?? unitNumber ?? "Unnamed Lift product";
@@ -599,7 +603,7 @@ function normalizeLiftProductPayloadItem(
   };
 }
 
-function normalizeLiftProductPayloadItems(
+export function normalizeLiftProductPayloadItems(
   item: Record<string, unknown>,
   context: {
     targetId: string;
@@ -699,6 +703,62 @@ async function fetchLiftProductsFromTarget(target: TargetConfig, route: OutputRo
       companyId: route.company_id ?? environment?.headers.Company ?? target.lift.headers.Company
     })
   );
+}
+
+type LiftProductCatalogRefreshOutcome = "success" | "scope_invalid" | "temporarily_unavailable";
+
+function safeLiftCatalogId(value: unknown) {
+  const catalogId = typeof value === "string" ? value.trim() : "";
+  return /^[a-zA-Z0-9._-]{1,64}$/.test(catalogId) ? catalogId : null;
+}
+
+function emitLiftProductCatalogRefreshTelemetry(args: {
+  target_id: string;
+  environment_id: string;
+  company_id: string;
+  catalog_id: unknown;
+  fetched_count: number;
+  persisted_count: number;
+  outcome: LiftProductCatalogRefreshOutcome;
+  duration_ms: number;
+}) {
+  const scopeHash = createHash("sha256")
+    .update(`${args.target_id}\0${args.environment_id}\0${args.company_id}`)
+    .digest("hex")
+    .slice(0, 16);
+  console.info(JSON.stringify({
+    _aws: {
+      Timestamp: Date.now(),
+      CloudWatchMetrics: [{
+        Namespace: "Pathfinder/LiftProductCatalog",
+        Dimensions: [["Service", "Outcome"]],
+        Metrics: [
+          { Name: "RefreshRequest", Unit: "Count" },
+          { Name: "RefreshFailure", Unit: "Count" },
+          { Name: "FetchedProduct", Unit: "Count" },
+          { Name: "PersistedProduct", Unit: "Count" },
+          { Name: "RefreshDuration", Unit: "Milliseconds" }
+        ]
+      }]
+    },
+    event: "lift_product_catalog_refresh_complete",
+    service: "pathfinder-api",
+    outcome: args.outcome,
+    scope_hash: scopeHash,
+    catalog_id: safeLiftCatalogId(args.catalog_id),
+    table_class: "lift_product_cache",
+    fetched_count: args.fetched_count,
+    persisted_count: args.persisted_count,
+    provider_write: false,
+    preview_created: false,
+    lift_order_submitted: false,
+    wrike_write: false,
+    RefreshRequest: 1,
+    RefreshFailure: args.outcome === "success" ? 0 : 1,
+    FetchedProduct: args.fetched_count,
+    PersistedProduct: args.persisted_count,
+    RefreshDuration: Math.max(0, args.duration_ms)
+  }));
 }
 
 async function fetchLiftOrderLookup(args: {
@@ -9848,44 +9908,122 @@ app.delete("/api/targets/:targetId", async (req, res) => {
 });
 
 app.get("/api/lift/product-catalog", async (req, res) => {
+  const refreshRequested = req.query.refresh === "1" || req.query.refresh === "true";
+  const requestedTargetId = req.query.target_id ? String(req.query.target_id) : "";
+  const requestedEnvironmentId = req.query.environment_id ? String(req.query.environment_id) : "";
+  const requestedCompanyId = req.query.company_id ? String(req.query.company_id) : "";
+  const refreshStartedAt = Date.now();
+  let refreshTelemetryEmitted = false;
   try {
-    const targetId = req.query.target_id ? String(req.query.target_id) : undefined;
+    let targetId = requestedTargetId || undefined;
     const routeId = req.query.output_route_id ? String(req.query.output_route_id) : undefined;
-    const companyId = req.query.company_id ? String(req.query.company_id) : undefined;
+    let environmentIdFilter = requestedEnvironmentId || undefined;
+    let companyId = requestedCompanyId || undefined;
     const customerId = req.query.customer_id ? String(req.query.customer_id) : undefined;
     let refreshed = false;
     let refreshedCount = 0;
     let refreshError: string | null = null;
 
-    if (req.query.refresh === "1" || req.query.refresh === "true") {
+    if (refreshRequested) {
       if (!targetId || !routeId || !customerId) {
-        throw new Error("Refresh requires target_id, output_route_id, and customer_id.");
+        emitLiftProductCatalogRefreshTelemetry({
+          target_id: requestedTargetId,
+          environment_id: requestedEnvironmentId,
+          company_id: requestedCompanyId,
+          catalog_id: req.query.catalog_id,
+          fetched_count: 0,
+          persisted_count: 0,
+          outcome: "scope_invalid",
+          duration_ms: Date.now() - refreshStartedAt
+        });
+        refreshTelemetryEmitted = true;
+        res.status(400).json({
+          code: "lift_catalog_refresh_scope_required",
+          error: "Select a customer, target, and output route before refreshing Lift products. No preview or Lift order was submitted."
+        });
+        return;
       }
-      const customer = await findLiftCustomer(customerId);
-      const workspace = await getOrCreateWorkspace(customer);
+      const workspace = await getWorkspace(customerId);
       const route =
-        workspace.output_routes.find((candidate) => candidate.output_route_id === routeId) ??
-        workspace.output_routes.find((candidate) => candidate.output_route_id === workspace.primary_output_route_id) ??
-        workspace.output_routes[0];
+        workspace?.output_routes.find((candidate) => candidate.output_route_id === routeId) ?? null;
       const target = (await getTarget(targetId, false)) as TargetConfig | null;
 
-      if (!route || !target) {
-        throw new Error("Could not find the selected target or output route for product catalog refresh.");
+      if (!workspace || !route || !target || route.target_id !== target.target_id) {
+        emitLiftProductCatalogRefreshTelemetry({
+          target_id: targetId,
+          environment_id: requestedEnvironmentId,
+          company_id: requestedCompanyId,
+          catalog_id: req.query.catalog_id,
+          fetched_count: 0,
+          persisted_count: 0,
+          outcome: "scope_invalid",
+          duration_ms: Date.now() - refreshStartedAt
+        });
+        refreshTelemetryEmitted = true;
+        res.status(404).json({
+          code: "lift_catalog_refresh_scope_not_found",
+          error: "Pathfinder could not find that customer's selected Lift route. No setup, preview, or Lift order was changed."
+        });
+        return;
       }
 
+      const environment =
+        target.environments.find((candidate) => candidate.environment_id === route.environment_id) ??
+        target.environments.find((candidate) => candidate.name === target.lift.active_environment);
+      const environmentId = environment?.environment_id ?? route.environment_id ?? requestedEnvironmentId;
+      const resolvedCompanyId =
+        route.company_id ?? environment?.headers.Company ?? target.lift.headers.Company ?? requestedCompanyId;
+
+      let fetchedCount = 0;
       try {
         const liftedProducts = await fetchLiftProductsFromTarget(target, route, req.query);
-        await upsertLiftProductCatalog(liftedProducts);
+        fetchedCount = liftedProducts.length;
+        const persistedProducts = await upsertLiftProductCatalog(liftedProducts);
         refreshed = true;
         refreshedCount = liftedProducts.length;
-      } catch (error) {
-        refreshError = error instanceof Error ? error.message : "Lift product catalog refresh failed.";
+        emitLiftProductCatalogRefreshTelemetry({
+          target_id: targetId,
+          environment_id: environmentId,
+          company_id: resolvedCompanyId,
+          catalog_id: req.query.catalog_id,
+          fetched_count: liftedProducts.length,
+          persisted_count: persistedProducts.length,
+          outcome: "success",
+          duration_ms: Date.now() - refreshStartedAt
+        });
+        refreshTelemetryEmitted = true;
+      } catch {
+        refreshError =
+          "Pathfinder could not refresh this Lift product catalog right now. Existing cached products were preserved. No preview or Lift order was submitted.";
+        emitLiftProductCatalogRefreshTelemetry({
+          target_id: targetId,
+          environment_id: environmentId,
+          company_id: resolvedCompanyId,
+          catalog_id: req.query.catalog_id,
+          fetched_count: fetchedCount,
+          persisted_count: 0,
+          outcome: "temporarily_unavailable",
+          duration_ms: Date.now() - refreshStartedAt
+        });
+        refreshTelemetryEmitted = true;
+      }
+    }
+
+    if (customerId && routeId) {
+      const workspace = await getWorkspace(customerId);
+      const selectedRoute = workspace?.output_routes.find(
+        (candidate) => candidate.output_route_id === routeId
+      );
+      if (selectedRoute) {
+        targetId = selectedRoute.target_id;
+        environmentIdFilter = selectedRoute.environment_id;
+        companyId = selectedRoute.company_id ?? undefined;
       }
     }
 
     const products = await listLiftUnitCatalog({
       target_id: targetId,
-      environment_id: req.query.environment_id ? String(req.query.environment_id) : undefined,
+      environment_id: environmentIdFilter,
       company_id: companyId,
       q: req.query.q ? String(req.query.q) : undefined,
       product_id: req.query.product_id ? String(req.query.product_id) : undefined,
@@ -9916,9 +10054,24 @@ app.get("/api/lift/product-catalog", async (req, res) => {
       refresh_error: refreshError,
       source: refreshed ? "lift-api" : "local-cache"
     });
-  } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Lift product catalog load failed."
+  } catch {
+    if (refreshRequested && !refreshTelemetryEmitted) {
+      emitLiftProductCatalogRefreshTelemetry({
+        target_id: requestedTargetId,
+        environment_id: requestedEnvironmentId,
+        company_id: requestedCompanyId,
+        catalog_id: req.query.catalog_id,
+        fetched_count: 0,
+        persisted_count: 0,
+        outcome: "temporarily_unavailable",
+        duration_ms: Date.now() - refreshStartedAt
+      });
+    }
+    res.status(503).json({
+      code: "lift_catalog_temporarily_unavailable",
+      error: refreshRequested
+        ? "Pathfinder could not complete this product catalog refresh right now. Existing cached products were preserved. No preview or Lift order was submitted."
+        : "Pathfinder could not load cached Lift products right now. Try again shortly."
     });
   }
 });

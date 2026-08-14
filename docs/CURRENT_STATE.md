@@ -2,7 +2,7 @@
 
 This is the entry point for all new Pathfinder, Vornan Proof, and live-support tasks. Read this file before using older design notes, launch checklists, or thread handoffs.
 
-Last reconciled: **2026-08-13**
+Last reconciled: **2026-08-14**
 
 Deployed application baseline: `origin/main` application commit `9f78d2d4b122984c53bc3b96506588996768f5d0`
 
@@ -33,7 +33,9 @@ On 2026-08-14, selecting `LTL Demo / 1249` in production Admin created the inten
 
 The cause is the legacy whole-store Dynamo writer: after the four setup records were durable, it attempted an unbounded `PutItem` rewrite of every existing Job and a replacement pass over the Lift product cache. The same writer remained reachable from Import Method and Output Route saves, so the Proof pilot is stopped before any `1249` configuration save.
 
-The repository-ready fix gives workspace creation, Import Method saves, and Output Route saves focused, customer-scoped conditional transactions. These paths cannot write Jobs, Lift product cache, other customers, submit attempts, mappings, or external systems. New customer setup becomes an explicit idempotent Admin confirmation; workspace reads no longer create records. API/UI failures use fixed nontechnical copy, state that no preview or Lift order was submitted, and emit sanitized operation/outcome/table-class telemetry without AWS exception text or URLs. This code is not deployed until its draft PR is reviewed and a separate one-at-a-time API-first/Admin-second release is approved.
+Subsequent authenticated attempts to refresh Lift catalog `6338` exposed the same writer through `upsertLiftProductCatalog`: user-confirmed Lift evidence contained 18 products, but the cache remained at 337 total rows, including 334 catalog-`8102` rows and zero catalog-`6338` rows. Jobs recorded 28, 24, and 85 write throttles in the three attempt windows while LiftProductCache and ProductMappings recorded none. The deployed writer rewrote Jobs before replacing the cache, so throttling stopped the operation before any catalog row persisted. ProductMappings remained 278; customer `1249` still has zero Jobs and zero Submit Attempts. Do not repeat product refresh before the focused fix is deployed and a single exact refresh is approved.
+
+The repository-ready fix gives workspace creation, Import Method saves, and Output Route saves focused, customer-scoped conditional transactions. It also makes Lift catalog refresh an additive upsert of only the normalized cache rows keyed by target/environment/company and product identity; it cannot scan, delete, or replace existing cache rows or write Jobs, mappings, workspaces, routes, attempts, or another customer. New customer setup becomes an explicit idempotent Admin confirmation; workspace reads no longer create records. API/UI failures use fixed nontechnical copy, state that no preview or Lift order was submitted, and emit sanitized operation/outcome/table-class telemetry without AWS/provider exception text, payloads, credentials, or URLs. This code is not deployed until its draft PR is reviewed and a separate one-at-a-time API-first/Admin-second release is approved.
 
 ### Deployed combined source-review and default-dark Proof release
 
