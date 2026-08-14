@@ -6952,14 +6952,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             title: "Prefer the customer title, then fall back safely",
             body: "Pathfinder uses a mapped order.order_title when present, otherwise it builds the configured deterministic composite."
           };
-  const activeResolverCopy = productResolverCopy(activeProductConfig.strategy);
+  const activeResolverCopy =
+    activeProductConfig.strategy === "derived_key" && !activeProductConfig.source_column
+      ? {
+          title: "Choose the product field during setup",
+          body: "No customer-specific source field is saved. Choose the matching column when loading a product list."
+        }
+      : productResolverCopy(activeProductConfig.strategy);
   const activeResolutionModeCopy = resolutionModeCopy(activeProductConfig.mode);
   const activeResolverSummary =
     activeProductConfig.strategy === "direct_lift_unit_number"
       ? `Direct from ${activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column}`
       : activeProductConfig.strategy === "composite_key"
         ? `Composite key from ${activeProductConfig.composite_columns.length} columns`
-        : `Derived key from ${activeProductConfig.source_column}`;
+        : activeProductConfig.source_column
+          ? `Derived key from ${activeProductConfig.source_column}`
+          : "Choose during product list setup";
   const productExampleTestColumn =
     activeProductConfig.strategy === "direct_lift_unit_number"
       ? activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column
@@ -13567,24 +13575,32 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <span>Source Column</span>
                             <select
                               value={activeProductConfig.source_column}
-                              onChange={(event) =>
-                                updateActiveProductResolutionConfig({
-                                  ...activeProductConfig,
-                                  source_column: event.target.value
-                                })
-                              }
+                              onChange={(event) => {
+                                const sourceColumn = event.target.value;
+                                updateActiveProductResolutionConfig(
+                                  sourceColumn
+                                    ? {
+                                        ...activeProductConfig,
+                                        source_column: sourceColumn
+                                      }
+                                    : { ...neutralProductResolutionConfig }
+                                );
+                              }}
                             >
+                              <option value="">Choose during preload</option>
                               {availableInputColumns.map((column) => (
                                 <option key={column} value={column}>
                                   {column}
                                 </option>
                               ))}
                             </select>
+                            <small>Choose the workbook field later.</small>
                           </label>
                           <label className="setup-control">
                             <span>Prefix</span>
                             <input
                               value={activeProductConfig.prefix}
+                              disabled={!activeProductConfig.source_column}
                               onChange={(event) =>
                                 updateActiveProductResolutionConfig({
                                   ...activeProductConfig,
@@ -13597,6 +13613,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             <span>Suffix</span>
                             <input
                               value={activeProductConfig.suffix}
+                              disabled={!activeProductConfig.source_column}
                               onChange={(event) =>
                                 updateActiveProductResolutionConfig({
                                   ...activeProductConfig,
@@ -13726,7 +13743,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       {activeProductConfig.strategy !== "composite_key" ? (
                         <label className="setup-control resolver-test-value">
                           <span>
-                            Test {productExampleTestColumn}
+                            {productExampleTestColumn ? `Test ${productExampleTestColumn}` : "Test value"}
                             {activeProductConfig.strategy === "direct_lift_unit_number" ? " product identifier" : " value"}
                           </span>
                           <input
@@ -16681,9 +16698,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     All targets
                   </button>
                   <div className="target-detail-heading">
-                    <p className="eyebrow">Target setup</p>
+                    <p className="eyebrow">Reusable target</p>
                     <h1>{selectedTarget.name}</h1>
-                    <span>{selectedTarget.target_type} · {selectedTarget.status}</span>
+                    <span>Shared destination setup · {selectedTarget.target_type} · {selectedTarget.status}</span>
                   </div>
                   <div className="target-header-status">
                     <span className={`health-chip health-chip-${selectedTarget.health_status.toLowerCase()}`}>
@@ -16737,7 +16754,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 {activeTargetsView === "Environments" ? (
                   <section className="panel setup-panel">
                     <div className="table-panel-header">
-                      <PanelHeader icon={SlidersHorizontal} title="Target Environments" detail="Endpoint, auth, and headers" />
+                      <PanelHeader icon={SlidersHorizontal} title="Target Environments" detail="Reusable connections" />
                       <button className="secondary-button table-header-action" onClick={() => addTargetEnvironmentDraft(selectedTarget.target_id)}>
                         <Plus size={15} />
                         Add Environment
@@ -17311,7 +17328,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
                 {activeTargetsView === "Output Routes" ? (
                   <section className="panel setup-panel output-routes-panel">
-                    <PanelHeader icon={Workflow} title="Output Routes" detail="Target + environment + account + template" />
+                    <PanelHeader icon={Workflow} title="Output Routes" detail={`For ${selectedCustomer.customer_name}`} />
+                    <div className="output-route-scope" role="note">
+                      <strong>Customer route</strong>
+                      <span>These settings apply only to {selectedCustomer.customer_name}. The target is shared.</span>
+                    </div>
                     <div className="output-route-stack">
                       {selectedTargetRoutes.map((route) => {
                         const environment = targetEnvironments.find((candidate) => candidate.environment_id === route.environment_id);
@@ -17342,6 +17363,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 <span>{route.target_system} · {route.destination_account_name || "No destination account"}</span>
                               </div>
                               <div className="output-route-chips">
+                                <span className="mini-pill mini-pill-neutral">Customer route</span>
                                 <RouteDiagnosticPill status={routeDiagnostics.status} />
                                 <span className={route.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
                                   {route.status}
@@ -17594,7 +17616,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                   ))}
                                 </div>
                               </div>
-                              <span className="target-footer-save-note">Route edits save with this target from the header.</span>
+                              <span className="target-footer-save-note">
+                                Route edits save for {selectedCustomer.customer_name} from the header.
+                              </span>
                             </div>
                           </article>
                         );

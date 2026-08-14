@@ -4285,6 +4285,26 @@ h1 {
   overflow: hidden;
 }
 
+.output-route-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 14px 16px 0;
+  padding: 10px 12px;
+  color: var(--text-secondary);
+  background: rgba(247, 248, 245, 0.76);
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.output-route-scope strong {
+  flex: 0 0 auto;
+  color: var(--text-primary);
+}
+
 .output-route-stack {
   display: grid;
   gap: 14px;
