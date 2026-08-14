@@ -1451,7 +1451,7 @@ function createSeedEcommerceOutputTemplate(timestamp = now()): OutputTemplate {
   };
 }
 
-export function createDefaultProductResolutionConfig(): ProductResolutionConfig {
+export function createMomentaraProductResolutionConfig(): ProductResolutionConfig {
   return {
     strategy: "derived_key",
     mode: "map_to_lift_unit",
@@ -1469,6 +1469,26 @@ export function createDefaultProductResolutionConfig(): ProductResolutionConfig 
     fallback_strategy: "none",
     direct_unit_number_column: null
   };
+}
+
+export function createNeutralProductResolutionConfig(): ProductResolutionConfig {
+  return {
+    strategy: "derived_key",
+    mode: "map_to_lift_unit",
+    source_column: "",
+    prefix: "",
+    suffix: "",
+    composite_columns: [],
+    fallback_strategy: "none",
+    direct_unit_number_column: null
+  };
+}
+
+// Compatibility contract: normalization of already-persisted methods keeps the
+// original Momentara fallback. New workspace/method construction must call the
+// neutral constructor explicitly instead of changing this legacy default.
+export function createDefaultProductResolutionConfig(): ProductResolutionConfig {
+  return createMomentaraProductResolutionConfig();
 }
 
 function createSeedTarget(): TargetConfig {
@@ -1855,7 +1875,9 @@ function createSeedLiftUnitCatalog(timestamp = now()): LiftUnitCatalogItem[] {
   ];
 }
 
-function createSeedMethod(timestamp: string): ImportMethod {
+type WorkspaceSeedProfile = "neutral" | "momentara_legacy";
+
+function createSeedMethod(timestamp: string, profile: WorkspaceSeedProfile = "neutral"): ImportMethod {
   const mappings = buildDefaultMappings(sampleSourceGrid.columns);
   const route = createSeedOutputRoute(timestamp);
 
@@ -1872,7 +1894,10 @@ function createSeedMethod(timestamp: string): ImportMethod {
     mappings,
     source_config: {},
     workbook_sheet_policy: "rows_with_quantity",
-    product_resolution_config: createDefaultProductResolutionConfig(),
+    product_resolution_config:
+      profile === "momentara_legacy"
+        ? createMomentaraProductResolutionConfig()
+        : createNeutralProductResolutionConfig(),
     product_resolution_overrides: {},
     order_name_resolution_config: createDefaultOrderNameResolutionConfig(),
     ext_id_strategy: "pathfinder_generated",
@@ -1884,8 +1909,12 @@ function createSeedMethod(timestamp: string): ImportMethod {
   };
 }
 
-function createSeedCatalogPresets(customer: LiftCustomer, route: OutputRoute, timestamp = now()): LiftCatalogPreset[] {
-  return customer.customer_name.toLowerCase().includes("momentara")
+function createSeedCatalogPresets(
+  profile: WorkspaceSeedProfile,
+  route: OutputRoute,
+  timestamp = now()
+): LiftCatalogPreset[] {
+  return profile === "momentara_legacy"
     ? [
         {
           preset_id: "catalog-preset-empirical-momentara-pg-8102",
@@ -2161,11 +2190,14 @@ function proofCapabilityAuditEntry(input: {
   };
 }
 
-function createWorkspace(customer: LiftCustomer): PathfinderCustomerWorkspace {
+function createWorkspace(
+  customer: LiftCustomer,
+  profile: WorkspaceSeedProfile = "neutral"
+): PathfinderCustomerWorkspace {
   const timestamp = now();
-  const method = createSeedMethod(timestamp);
+  const method = createSeedMethod(timestamp, profile);
   const route = createSeedOutputRoute(timestamp);
-  const catalogPresets = createSeedCatalogPresets(customer, route, timestamp);
+  const catalogPresets = createSeedCatalogPresets(profile, route, timestamp);
 
   return {
     customer,
@@ -3809,9 +3841,14 @@ function normalizeWorkspace(workspace: PathfinderCustomerWorkspace): PathfinderC
     };
   });
   const primaryOutputRouteId = workspace.primary_output_route_id ?? outputRoutes[0]?.output_route_id ?? route.output_route_id;
-  const catalogPresets = workspace.catalog_presets?.length
+  const catalogPresets = Array.isArray(workspace.catalog_presets)
     ? workspace.catalog_presets
-    : createSeedCatalogPresets(workspace.customer, outputRoutes[0] ?? route);
+    : createSeedCatalogPresets(
+        workspace.customer.customer_name.toLowerCase().includes("momentara")
+          ? "momentara_legacy"
+          : "neutral",
+        outputRoutes[0] ?? route
+      );
 
   return {
     ...workspace,
