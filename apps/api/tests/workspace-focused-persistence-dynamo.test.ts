@@ -102,13 +102,13 @@ before(async () => {
     PATHFINDER_CANONICAL_REGISTRY_TABLE: tableNames.canonicalRegistry
   });
 
-  const seed = JSON.parse(
-    await readFile(new URL("../../../data/pathfinder-store.local.json", import.meta.url), "utf8")
-  ) as { targets: Record<string, unknown> };
-  const target = Object.values(seed.targets)[0];
+  const target = {
+    target_id: "lift-standard-graphics",
+    updated_at: "2026-08-14T00:00:00.000Z"
+  };
   tableItems.set(
     tableNames.targets,
-    [dataItem({ target_id: (target as { target_id: string }).target_id }, target)]
+    [dataItem({ target_id: target.target_id }, target)]
   );
 
   clientPrototype.send = async (command) => {
