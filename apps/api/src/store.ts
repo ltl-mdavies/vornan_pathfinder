@@ -6874,6 +6874,114 @@ export async function listLiftUnitCatalog(filters: {
   return fetchSize === null ? filtered : filtered.slice(fetchOffset, fetchOffset + fetchSize);
 }
 
+export class LiftProductCatalogPersistenceError extends Error {
+  constructor(
+    public readonly persistence_outcome: "partial" | "uncertain",
+    public readonly definitely_persisted_count: number,
+    public readonly requested_count: number
+  ) {
+    super(
+      persistence_outcome === "partial"
+        ? "Pathfinder saved only part of the selected Lift product catalog."
+        : "Pathfinder could not confirm every Lift product catalog write."
+    );
+    this.name = "LiftProductCatalogPersistenceError";
+  }
+}
+
+type FocusedLiftProductCacheWrite = {
+  item: LiftUnitCatalogItem;
+  dynamo_item: Record<string, AttributeValue>;
+};
+
+async function reconcileFocusedLiftProductCacheBatch(
+  tableName: string,
+  writes: FocusedLiftProductCacheWrite[]
+) {
+  const confirmed: LiftUnitCatalogItem[] = [];
+  for (const write of writes) {
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: tableName,
+      Key: {
+        route_environment_id: write.dynamo_item.route_environment_id,
+        product_id: write.dynamo_item.product_id
+      },
+      ConsistentRead: true
+    }));
+    if (
+      response.Item?.catalog_refresh_id?.S === write.dynamo_item.catalog_refresh_id?.S &&
+      response.Item?.data?.S === write.dynamo_item.data?.S
+    ) {
+      confirmed.push(write.item);
+    }
+  }
+  return confirmed;
+}
+
+async function persistFocusedLiftProductCache(
+  tableName: string,
+  items: LiftUnitCatalogItem[]
+) {
+  const refreshId = randomBytes(16).toString("hex");
+  const writes: FocusedLiftProductCacheWrite[] = items.map((item) => ({
+    item,
+    dynamo_item: {
+      ...dynamoItem(
+        {
+          route_environment_id: liftProductCachePartition(item),
+          product_id: liftProductCacheSort(item)
+        },
+        item
+      ),
+      catalog_refresh_id: dynamoString(refreshId)
+    }
+  }));
+  const definitelyPersisted: LiftUnitCatalogItem[] = [];
+
+  for (let index = 0; index < writes.length; index += 25) {
+    const batch = writes.slice(index, index + 25);
+    let pending: WriteRequest[] = batch.map((write) => ({
+      PutRequest: { Item: write.dynamo_item }
+    }));
+
+    try {
+      while (pending.length > 0) {
+        const response = await getDynamoClient().send(new BatchWriteItemCommand({
+          RequestItems: { [tableName]: pending }
+        }));
+        pending = response.UnprocessedItems?.[tableName] ?? [];
+      }
+      definitelyPersisted.push(...batch.map((write) => write.item));
+    } catch {
+      let reconciled: LiftUnitCatalogItem[];
+      try {
+        reconciled = await reconcileFocusedLiftProductCacheBatch(tableName, batch);
+      } catch {
+        mergeScopedLiftProductCatalog(definitelyPersisted);
+        throw new LiftProductCatalogPersistenceError(
+          "uncertain",
+          definitelyPersisted.length,
+          items.length
+        );
+      }
+
+      definitelyPersisted.push(...reconciled);
+      if (reconciled.length === batch.length) {
+        continue;
+      }
+      mergeScopedLiftProductCatalog(definitelyPersisted);
+      throw new LiftProductCatalogPersistenceError(
+        "partial",
+        definitelyPersisted.length,
+        items.length
+      );
+    }
+  }
+
+  mergeScopedLiftProductCatalog(definitelyPersisted);
+  return definitelyPersisted;
+}
+
 export async function upsertLiftProductCatalog(items: LiftUnitCatalogItem[]) {
   const timestamp = now();
   const normalizedByIdentity = new Map<string, LiftUnitCatalogItem>();
@@ -6886,20 +6994,7 @@ export async function upsertLiftProductCatalog(items: LiftUnitCatalogItem[]) {
 
   if (config.storage_driver === "dynamodb") {
     const tables = getDynamoTableConfig();
-    await upsertDynamoTable(
-      tables.lift_product_cache,
-      normalizedItems.map((item) =>
-        dynamoItem(
-          {
-            route_environment_id: liftProductCachePartition(item),
-            product_id: liftProductCacheSort(item)
-          },
-          item
-        )
-      )
-    );
-    mergeScopedLiftProductCatalog(normalizedItems);
-    return normalizedItems;
+    return persistFocusedLiftProductCache(tables.lift_product_cache, normalizedItems);
   }
 
   const store = await readStore();

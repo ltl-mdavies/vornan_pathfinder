@@ -18,6 +18,7 @@ const tableItems = new Map<string, Item[]>();
 let forceWorkspaceVersionDrift = false;
 let catalogBatchCount = 0;
 let failCatalogBatchAt: number | null = null;
+let failCatalogReconciliationReads = false;
 const tableNames = {
   customers: "Pathfinder-CUSTOMERS-focused",
   workspaces: "Pathfinder-CUSTOMER_WORKSPACES-focused",
@@ -123,6 +124,12 @@ before(async () => {
       return { Items: structuredClone(tableItems.get(command.input.TableName!) ?? []) };
     }
     if (command instanceof GetItemCommand) {
+      if (
+        failCatalogReconciliationReads &&
+        command.input.TableName === tableNames.liftProductCache
+      ) {
+        throw new Error("simulated cache reconciliation read failure");
+      }
       const item = (tableItems.get(command.input.TableName!) ?? []).find((candidate) =>
         matchesKey(candidate, command.input.Key as Item)
       );
@@ -189,6 +196,7 @@ beforeEach(() => {
   forceWorkspaceVersionDrift = false;
   catalogBatchCount = 0;
   failCatalogBatchAt = null;
+  failCatalogReconciliationReads = false;
 });
 
 after(() => {
@@ -390,6 +398,8 @@ test("upserts only exact Lift product-cache rows and preserves the existing 337-
     .flatMap((command) => command.input.RequestItems?.[tableNames.liftProductCache] ?? [])
     .map((write) => write.PutRequest?.Item as Item);
   assert.equal(writtenCacheRows.length, 18);
+  assert.equal(new Set(writtenCacheRows.map((item) => item.catalog_refresh_id.S)).size, 1);
+  assert.match(writtenCacheRows[0].catalog_refresh_id.S!, /^[a-f0-9]{32}$/);
   writtenCacheRows.forEach((item) => {
     const data = JSON.parse(item.data.S!) as ReturnType<typeof catalogItem>;
     assert.equal(
@@ -414,9 +424,17 @@ test("a partial cache write failure cannot remove or rewrite existing catalog ro
   const nextProducts = Array.from({ length: 30 }, (_, index) => catalogItem(index, "6338"));
   failCatalogBatchAt = 2;
 
-  await assert.rejects(upsertLiftProductCatalog(nextProducts), {
-    name: "ProvisionedThroughputExceededException"
-  });
+  let persistenceError: unknown;
+  try {
+    await upsertLiftProductCatalog(nextProducts);
+  } catch (error) {
+    persistenceError = error;
+  }
+
+  assert.equal((persistenceError as { name?: string }).name, "LiftProductCatalogPersistenceError");
+  assert.equal((persistenceError as { persistence_outcome?: string }).persistence_outcome, "partial");
+  assert.equal((persistenceError as { definitely_persisted_count?: number }).definitely_persisted_count, 25);
+  assert.equal((persistenceError as { requested_count?: number }).requested_count, 30);
 
   const stored = storedCatalogItems();
   baselineById.forEach((expected, productId) => {
@@ -430,6 +448,26 @@ test("a partial cache write failure cannot remove or rewrite existing catalog ro
   assert.deepEqual(new Set(writtenTables), new Set([tableNames.liftProductCache]));
 });
 
+test("a failed exact-key reconciliation reports only definitely completed batches as uncertain", async () => {
+  const baseline = seedCatalogBaseline();
+  const nextProducts = Array.from({ length: 30 }, (_, index) => catalogItem(index, "6338"));
+  failCatalogBatchAt = 2;
+  failCatalogReconciliationReads = true;
+
+  let persistenceError: unknown;
+  try {
+    await upsertLiftProductCatalog(nextProducts);
+  } catch (error) {
+    persistenceError = error;
+  }
+
+  assert.equal((persistenceError as { name?: string }).name, "LiftProductCatalogPersistenceError");
+  assert.equal((persistenceError as { persistence_outcome?: string }).persistence_outcome, "uncertain");
+  assert.equal((persistenceError as { definitely_persisted_count?: number }).definitely_persisted_count, 25);
+  assert.equal((persistenceError as { requested_count?: number }).requested_count, 30);
+  assert.equal(storedCatalogItems().length, baseline.length + 25);
+});
+
 test("catalog refresh failures use bounded telemetry and never return raw provider or Dynamo errors", async () => {
   const source = await readFile(new URL("../src/server.ts", import.meta.url), "utf8");
   const route = source.slice(
@@ -441,6 +479,10 @@ test("catalog refresh failures use bounded telemetry and never return raw provid
   assert.match(source, /table_class: "lift_product_cache"/);
   assert.match(route, /Existing cached products were preserved/);
   assert.match(route, /No preview or Lift order was submitted/);
+  assert.match(route, /error instanceof LiftProductCatalogPersistenceError/);
+  assert.match(route, /persisted_count: persistedCount/);
+  assert.match(route, /"partially_persisted"/);
+  assert.match(route, /"persistence_uncertain"/);
   assert.match(route, /const workspace = await getWorkspace\(customerId\)/);
   assert.match(route, /targetId = selectedRoute\.target_id/);
   assert.match(route, /environmentIdFilter = selectedRoute\.environment_id/);

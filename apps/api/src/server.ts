@@ -228,6 +228,7 @@ import {
   updateTarget,
   TargetInUseError,
   TargetNotFoundError,
+  LiftProductCatalogPersistenceError,
   LiftOrderAssociationConflictError,
   renameCanonicalRegistryCustomField,
   upsertLiftProductCatalog,
@@ -705,7 +706,12 @@ async function fetchLiftProductsFromTarget(target: TargetConfig, route: OutputRo
   );
 }
 
-type LiftProductCatalogRefreshOutcome = "success" | "scope_invalid" | "temporarily_unavailable";
+type LiftProductCatalogRefreshOutcome =
+  | "success"
+  | "scope_invalid"
+  | "partially_persisted"
+  | "persistence_uncertain"
+  | "temporarily_unavailable";
 
 function safeLiftCatalogId(value: unknown) {
   const catalogId = typeof value === "string" ? value.trim() : "";
@@ -9922,6 +9928,8 @@ app.get("/api/lift/product-catalog", async (req, res) => {
     const customerId = req.query.customer_id ? String(req.query.customer_id) : undefined;
     let refreshed = false;
     let refreshedCount = 0;
+    let persistedCount = 0;
+    let refreshOutcome: LiftProductCatalogRefreshOutcome | "not_requested" = "not_requested";
     let refreshError: string | null = null;
 
     if (refreshRequested) {
@@ -9981,6 +9989,8 @@ app.get("/api/lift/product-catalog", async (req, res) => {
         const persistedProducts = await upsertLiftProductCatalog(liftedProducts);
         refreshed = true;
         refreshedCount = liftedProducts.length;
+        persistedCount = persistedProducts.length;
+        refreshOutcome = "success";
         emitLiftProductCatalogRefreshTelemetry({
           target_id: targetId,
           environment_id: environmentId,
@@ -9992,17 +10002,30 @@ app.get("/api/lift/product-catalog", async (req, res) => {
           duration_ms: Date.now() - refreshStartedAt
         });
         refreshTelemetryEmitted = true;
-      } catch {
-        refreshError =
-          "Pathfinder could not refresh this Lift product catalog right now. Existing cached products were preserved. No preview or Lift order was submitted.";
+      } catch (error) {
+        const persistenceError =
+          error instanceof LiftProductCatalogPersistenceError ? error : null;
+        persistedCount = persistenceError?.definitely_persisted_count ?? 0;
+        refreshedCount = persistedCount;
+        refreshOutcome =
+          persistenceError?.persistence_outcome === "partial"
+            ? "partially_persisted"
+            : persistenceError?.persistence_outcome === "uncertain"
+              ? "persistence_uncertain"
+              : "temporarily_unavailable";
+        refreshError = persistenceError
+          ? persistenceError.persistence_outcome === "partial"
+            ? `Pathfinder saved ${persistedCount} of ${persistenceError.requested_count} products before the refresh stopped. Existing cached products were preserved. Reload before trying again. No preview or Lift order was submitted.`
+            : `Pathfinder confirmed ${persistedCount} of ${persistenceError.requested_count} product saves, but could not verify the remaining products. Existing cached products were preserved. Reload and reconcile the catalog before trying again. No preview or Lift order was submitted.`
+          : "Pathfinder could not refresh this Lift product catalog right now. Existing cached products were preserved. No preview or Lift order was submitted.";
         emitLiftProductCatalogRefreshTelemetry({
           target_id: targetId,
           environment_id: environmentId,
           company_id: resolvedCompanyId,
           catalog_id: req.query.catalog_id,
           fetched_count: fetchedCount,
-          persisted_count: 0,
-          outcome: "temporarily_unavailable",
+          persisted_count: persistedCount,
+          outcome: refreshOutcome,
           duration_ms: Date.now() - refreshStartedAt
         });
         refreshTelemetryEmitted = true;
@@ -10051,8 +10074,10 @@ app.get("/api/lift/product-catalog", async (req, res) => {
       products,
       refreshed,
       refreshed_count: refreshedCount,
+      persisted_count: persistedCount,
+      refresh_outcome: refreshOutcome,
       refresh_error: refreshError,
-      source: refreshed ? "lift-api" : "local-cache"
+      source: refreshed ? "lift-api" : persistedCount > 0 ? "local-cache-partial" : "local-cache"
     });
   } catch {
     if (refreshRequested && !refreshTelemetryEmitted) {
