@@ -157,6 +157,7 @@ import {
   addCanonicalRegistryCustomField,
   applyProductMappingReplacement,
   bulkUpsertProductMappings,
+  CatalogPresetValidationError,
   consumePublicIntakeEmailVerification,
   createCustomerSourceConnection,
   createDefaultPublicIntakeConfig,
@@ -7329,6 +7330,81 @@ function sendWorkspacePersistenceError(
   });
 }
 
+type CatalogPresetPersistenceOperation = "save" | "delete";
+type CatalogPresetPersistenceOutcome = "success" | "conflict" | "invalid" | "temporarily_unavailable";
+
+function safeRequestCorrelationId(value: unknown) {
+  const candidate = typeof value === "string" ? value.trim() : "";
+  return /^[a-zA-Z0-9._:-]{1,128}$/.test(candidate)
+    ? candidate
+    : randomBytes(12).toString("hex");
+}
+
+function emitCatalogPresetPersistenceTelemetry(args: {
+  correlation_id: string;
+  customer_id: string;
+  output_route_id: string;
+  preset_id: string;
+  operation: CatalogPresetPersistenceOperation;
+  outcome: CatalogPresetPersistenceOutcome;
+  changed: boolean;
+  duration_ms: number;
+}) {
+  console.info(JSON.stringify({
+    _aws: {
+      Timestamp: Date.now(),
+      CloudWatchMetrics: [{
+        Namespace: "Pathfinder/CatalogPresetPersistence",
+        Dimensions: [["Service", "Operation", "Outcome"]],
+        Metrics: [
+          { Name: "PersistenceRequest", Unit: "Count" },
+          { Name: "PersistenceFailure", Unit: "Count" },
+          { Name: "PersistenceDuration", Unit: "Milliseconds" }
+        ]
+      }]
+    },
+    event: "catalog_preset_persistence_complete",
+    service: "pathfinder-api",
+    correlation_id: safeRequestCorrelationId(args.correlation_id),
+    operation: args.operation,
+    outcome: args.outcome,
+    customer_id_hash: createHash("sha256").update(args.customer_id).digest("hex").slice(0, 16),
+    output_route_id_hash: createHash("sha256").update(args.output_route_id).digest("hex").slice(0, 16),
+    preset_id_hash: createHash("sha256").update(args.preset_id).digest("hex").slice(0, 16),
+    table_classes: ["customer_workspace"],
+    changed: args.changed,
+    external_effects: false,
+    PersistenceRequest: 1,
+    PersistenceFailure: args.outcome === "success" ? 0 : 1,
+    PersistenceDuration: Math.max(0, args.duration_ms)
+  }));
+}
+
+function catalogPresetPersistenceFailure(error: unknown) {
+  if (error instanceof WorkspacePersistenceConflictError) {
+    return {
+      status: 409,
+      code: "catalog_preset_save_conflict",
+      outcome: "conflict" as const,
+      message: "Catalog presets changed after this page loaded. Reload the customer workspace before trying again. No preview or Lift order was submitted."
+    };
+  }
+  if (error instanceof CatalogPresetValidationError) {
+    return {
+      status: 400,
+      code: "catalog_preset_invalid",
+      outcome: "invalid" as const,
+      message: error.message
+    };
+  }
+  return {
+    status: 503,
+    code: "catalog_preset_temporarily_unavailable",
+    outcome: "temporarily_unavailable" as const,
+    message: "Pathfinder could not save this catalog preset right now. Reload and try again. Existing customer settings were preserved, and no preview or Lift order was submitted."
+  };
+}
+
 app.get("/api/customers/:liftCustomerId/workspace", async (req, res) => {
   try {
     const workspace = await getWorkspace(req.params.liftCustomerId);
@@ -7939,30 +8015,104 @@ app.get("/api/customers/:liftCustomerId/catalog-presets", async (req, res) => {
 });
 
 app.put("/api/customers/:liftCustomerId/catalog-presets/:presetId", async (req, res) => {
+  const startedAt = Date.now();
+  const customerId = req.params.liftCustomerId;
+  const presetId = req.params.presetId;
+  const outputRouteId = String(req.body?.output_route_id ?? "");
+  const correlationId = safeRequestCorrelationId(req.get("x-request-id"));
   try {
-    const customer = await findLiftCustomer(req.params.liftCustomerId);
-    res.json({
-      catalog_presets: await upsertCatalogPreset(customer, {
+    const customer = await findLiftCustomer(customerId);
+    const result = await upsertCatalogPreset(
+      customer,
+      {
         ...(req.body as Partial<LiftCatalogPreset>),
-        preset_id: req.params.presetId
-      })
+        preset_id: presetId
+      },
+      typeof req.body?.expected_workspace_updated_at === "string"
+        ? req.body.expected_workspace_updated_at
+        : null
+    );
+    emitCatalogPresetPersistenceTelemetry({
+      correlation_id: correlationId,
+      customer_id: customerId,
+      output_route_id: outputRouteId,
+      preset_id: presetId,
+      operation: "save",
+      outcome: "success",
+      changed: result.changed,
+      duration_ms: Date.now() - startedAt
+    });
+    res.json({
+      catalog_presets: result.workspace.catalog_presets,
+      workspace_updated_at: result.workspace.updated_at,
+      changed: result.changed
     });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Catalog preset save failed."
+    const failure = catalogPresetPersistenceFailure(error);
+    emitCatalogPresetPersistenceTelemetry({
+      correlation_id: correlationId,
+      customer_id: customerId,
+      output_route_id: outputRouteId,
+      preset_id: presetId,
+      operation: "save",
+      outcome: failure.outcome,
+      changed: false,
+      duration_ms: Date.now() - startedAt
+    });
+    res.status(failure.status).json({
+      code: failure.code,
+      error: failure.message,
+      external_effects: false
     });
   }
 });
 
 app.delete("/api/customers/:liftCustomerId/catalog-presets/:presetId", async (req, res) => {
+  const startedAt = Date.now();
+  const customerId = req.params.liftCustomerId;
+  const presetId = req.params.presetId;
+  const outputRouteId = String(req.body?.output_route_id ?? "");
+  const correlationId = safeRequestCorrelationId(req.get("x-request-id"));
   try {
-    const customer = await findLiftCustomer(req.params.liftCustomerId);
+    const customer = await findLiftCustomer(customerId);
+    const result = await deleteCatalogPreset(customer, presetId, {
+      output_route_id: outputRouteId,
+      expected_workspace_updated_at:
+        typeof req.body?.expected_workspace_updated_at === "string"
+          ? req.body.expected_workspace_updated_at
+          : null
+    });
+    emitCatalogPresetPersistenceTelemetry({
+      correlation_id: correlationId,
+      customer_id: customerId,
+      output_route_id: outputRouteId,
+      preset_id: presetId,
+      operation: "delete",
+      outcome: "success",
+      changed: result.changed,
+      duration_ms: Date.now() - startedAt
+    });
     res.json({
-      catalog_presets: await deleteCatalogPreset(customer, req.params.presetId)
+      catalog_presets: result.workspace.catalog_presets,
+      workspace_updated_at: result.workspace.updated_at,
+      changed: result.changed
     });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Catalog preset delete failed."
+    const failure = catalogPresetPersistenceFailure(error);
+    emitCatalogPresetPersistenceTelemetry({
+      correlation_id: correlationId,
+      customer_id: customerId,
+      output_route_id: outputRouteId,
+      preset_id: presetId,
+      operation: "delete",
+      outcome: failure.outcome,
+      changed: false,
+      duration_ms: Date.now() - startedAt
+    });
+    res.status(failure.status).json({
+      code: failure.code,
+      error: failure.message,
+      external_effects: false
     });
   }
 });
