@@ -2381,6 +2381,10 @@ function pathfinderOrderNumberCandidate(timestamp = Date.now()) {
   return `PF${timestamp.toString(36).toUpperCase()}${randomBytes(2).toString("hex").toUpperCase()}`;
 }
 
+export function createUnreservedPathfinderOrderNumberCandidate() {
+  return pathfinderOrderNumberCandidate();
+}
+
 const locallyReservedPathfinderOrderNumbers = new Set<string>();
 
 export function getLocalReservedPathfinderOrderNumberCount() {
@@ -8090,7 +8094,7 @@ export async function persistPreviewJob(
   customer: LiftCustomer,
   job: ProcessingJobPreview,
   method: ImportMethod,
-  options: { persistMethod?: boolean } = {}
+  options: { persistMethod?: boolean; reserveOrderIdAtomically?: boolean } = {}
 ) {
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
@@ -8110,29 +8114,105 @@ export async function persistPreviewJob(
       ...workspace.import_methods.filter((candidate) => candidate.import_method_id !== method.import_method_id)
     ];
   }
-  workspace.updated_at = timestamp;
+  if (options.persistMethod !== false) {
+    workspace.updated_at = timestamp;
+  }
   store.workspaces[customer.lift_customer_id] = workspace;
   const config = getPathfinderPersistenceRuntimeConfig();
   if (config.storage_driver === "dynamodb") {
     const tables = getDynamoTableConfig();
-    await Promise.all([
-      upsertDynamoTableMonotonic(tables.jobs, [
-        dynamoItem(
-          { customer_id: job.customer_id, job_id: job.job_id },
-          compactProcessingJobForDynamo(job)
-        )
-      ]),
-      options.persistMethod === false
-        ? Promise.resolve()
-        : upsertDynamoTableMonotonic(tables.import_methods, [
-            dynamoItem(
-              { customer_id: customer.lift_customer_id, import_method_id: nextMethod.import_method_id },
-              { ...nextMethod, customer_id: customer.lift_customer_id }
-            )
-          ])
-    ]);
+    if (options.reserveOrderIdAtomically) {
+      if (options.persistMethod !== false) {
+        throw new Error("Atomic preview identity persistence cannot update an Import Method.");
+      }
+      try {
+        await getDynamoClient().send(
+          new TransactWriteItemsCommand({
+            ClientRequestToken: createHash("sha256")
+              .update(`${job.customer_id}:${job.job_id}:${job.pathfinder_order_id}`)
+              .digest("hex")
+              .slice(0, 36),
+            TransactItems: [
+              {
+                Put: {
+                  TableName: tables.order_ids,
+                  Item: {
+                    pathfinder_order_id: dynamoString(job.pathfinder_order_id),
+                    created_at: dynamoString(job.created_at)
+                  },
+                  ConditionExpression: "attribute_not_exists(pathfinder_order_id)"
+                }
+              },
+              {
+                Put: {
+                  TableName: tables.jobs,
+                  Item: dynamoItem(
+                    { customer_id: job.customer_id, job_id: job.job_id },
+                    compactProcessingJobForDynamo(job)
+                  ),
+                  ConditionExpression: "attribute_not_exists(customer_id) AND attribute_not_exists(job_id)"
+                }
+              }
+            ]
+          })
+        );
+      } catch (error) {
+        const transactionError = error as {
+          name?: string;
+          CancellationReasons?: Array<{ Code?: string }>;
+        };
+        const conflict =
+          transactionError.name === "TransactionCanceledException" &&
+          transactionError.CancellationReasons?.some((reason) => reason.Code === "ConditionalCheckFailed") === true;
+        throw Object.assign(
+          new Error(
+            conflict
+              ? "Pathfinder could not create this preview because its identity is already in use. Refresh Jobs before trying again."
+              : "Pathfinder could not confirm that this preview was saved. Refresh Jobs before trying again; do not recreate or submit it until its status is checked."
+          ),
+          {
+            statusCode: conflict ? 409 : 503,
+            reasonCode: conflict ? "preview_identity_conflict" : "preview_persistence_uncertain"
+          }
+        );
+      }
+    } else {
+      await Promise.all([
+        upsertDynamoTableMonotonic(tables.jobs, [
+          dynamoItem(
+            { customer_id: job.customer_id, job_id: job.job_id },
+            compactProcessingJobForDynamo(job)
+          )
+        ]),
+        options.persistMethod === false
+          ? Promise.resolve()
+          : upsertDynamoTableMonotonic(tables.import_methods, [
+              dynamoItem(
+                { customer_id: customer.lift_customer_id, import_method_id: nextMethod.import_method_id },
+                { ...nextMethod, customer_id: customer.lift_customer_id }
+              )
+            ])
+      ]);
+    }
   } else {
+    if (options.reserveOrderIdAtomically) {
+      if (
+        locallyReservedPathfinderOrderNumbers.has(job.pathfinder_order_id) ||
+        store.jobs.some(
+          (candidate) =>
+            candidate.job_id !== job.job_id && candidate.pathfinder_order_id === job.pathfinder_order_id
+        )
+      ) {
+        throw Object.assign(
+          new Error("Pathfinder could not create this preview because its identity is already in use. Refresh Jobs before trying again."),
+          { statusCode: 409, reasonCode: "preview_identity_conflict" }
+        );
+      }
+    }
     await writeStore(store);
+    if (options.reserveOrderIdAtomically) {
+      locallyReservedPathfinderOrderNumbers.add(job.pathfinder_order_id);
+    }
   }
 
   return workspace;

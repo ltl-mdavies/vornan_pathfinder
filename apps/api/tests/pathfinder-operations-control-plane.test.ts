@@ -93,7 +93,7 @@ test("in-place preview regeneration reuses all idempotency identities", () => {
   );
   assert.match(
     source,
-    /options\?\.existingJob\?\.pathfinder_order_id \?\? \(await reservePathfinderOrderNumber\(\)\)/
+    /options\?\.existingJob\?\.pathfinder_order_id \?\?[\s\S]{0,180}isRequestLocalManualPreview[\s\S]{0,180}createUnreservedPathfinderOrderNumberCandidate\(\)[\s\S]{0,180}await reservePathfinderOrderNumber\(\)/
   );
   assert.match(
     source,

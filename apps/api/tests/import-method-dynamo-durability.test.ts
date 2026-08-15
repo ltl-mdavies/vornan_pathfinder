@@ -87,10 +87,15 @@ test("scheduled preview hot paths persist only affected Dynamo records", async (
   assert.match(bulkMappings, /upsertDynamoTableMonotonic\(\s*tables\.product_mappings/);
   assert.match(persistPreview, /upsertDynamoTableMonotonic\(tables\.jobs/);
   assert.match(persistPreview, /upsertDynamoTableMonotonic\(tables\.import_methods/);
-  for (const functionSource of [persistJob, bulkMappings, persistPreview]) {
+  assert.match(persistPreview, /reserveOrderIdAtomically/);
+  assert.match(persistPreview, /new TransactWriteItemsCommand/);
+  assert.match(persistPreview, /tables\.order_ids/);
+  for (const functionSource of [persistJob, bulkMappings]) {
     assert.match(functionSource, /if \(config\.storage_driver === "dynamodb"\)/);
     assert.match(functionSource, /else \{\s*await writeStore\(store\);\s*}/);
   }
+  assert.match(persistPreview, /if \(config\.storage_driver === "dynamodb"\)/);
+  assert.match(persistPreview, /await writeStore\(store\)/);
 });
 
 test("seeded Lift configuration uses the current High End Work naming and product identifier", async () => {

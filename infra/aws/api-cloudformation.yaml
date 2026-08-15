@@ -1051,6 +1051,8 @@ Resources:
                 Resource:
                   - !GetAtt PathfinderCustomerWorkspacesTable.Arn
                   - !GetAtt PathfinderProductMappingsTable.Arn
+                  - !GetAtt PathfinderJobsTable.Arn
+                  - !GetAtt PathfinderOrderIdsTable.Arn
               - Effect: Allow
                 Action:
                   - secretsmanager:CreateSecret

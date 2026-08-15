@@ -194,6 +194,7 @@ import {
   persistPublicIntakeEmailVerification,
   persistJobSnapshot,
   persistPreviewJob,
+  createUnreservedPathfinderOrderNumberCandidate,
   persistPublicOrderStatusSnapshot,
   persistSubmitAttempt,
   persistWrikeOperationsSnapshot,
@@ -8538,7 +8539,10 @@ async function createPreviewJobForRequest(
     }
 
     const pathfinderOrderId =
-      options?.existingJob?.pathfinder_order_id ?? (await reservePathfinderOrderNumber());
+      options?.existingJob?.pathfinder_order_id ??
+      (isRequestLocalManualPreview
+        ? createUnreservedPathfinderOrderNumberCandidate()
+        : await reservePathfinderOrderNumber());
     const preparedPreview = preparePreviewPayload(pathfinderOrderId);
     const {
       liftPayload,
@@ -8695,7 +8699,8 @@ async function createPreviewJobForRequest(
       };
     }
     const nextWorkspace = await persistPreviewJob(customer, job, method, {
-      persistMethod: !isRequestLocalManualPreview && !isAdHocManualImport && !options?.existingJob
+      persistMethod: !isRequestLocalManualPreview && !isAdHocManualImport && !options?.existingJob,
+      reserveOrderIdAtomically: isRequestLocalManualPreview && !options?.existingJob
     });
 
     return {
@@ -8716,8 +8721,11 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
       { requestLocalManualPreview: true }
     ));
   } catch (error) {
-    const statusCode =
-      error && typeof error === "object" && "statusCode" in error && error.statusCode === 400 ? 400 : 500;
+    const requestedStatus =
+      error && typeof error === "object" && "statusCode" in error && typeof error.statusCode === "number"
+        ? error.statusCode
+        : 500;
+    const statusCode = [400, 409, 503].includes(requestedStatus) ? requestedStatus : 500;
     res.status(statusCode).json({
       error: error instanceof Error ? error.message : "Preview job failed."
     });
