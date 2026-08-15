@@ -234,4 +234,7 @@ test("manual preview preflight runs before Pathfinder identity reservation", asy
   const reservationSource = storeSource.slice(reservationStart, reservationEnd);
   assert.match(reservationSource, /TableName: tables\.order_ids/);
   assert.match(reservationSource, /ConditionExpression: "attribute_not_exists\(pathfinder_order_id\)"/);
+  assert.match(source, /createUnreservedPathfinderOrderNumberCandidate\(\)/);
+  assert.match(source, /reserveOrderIdAtomically: isRequestLocalManualPreview/);
+  assert.match(storeSource, /new TransactWriteItemsCommand\(\{[\s\S]*tables\.order_ids[\s\S]*tables\.jobs/);
 });

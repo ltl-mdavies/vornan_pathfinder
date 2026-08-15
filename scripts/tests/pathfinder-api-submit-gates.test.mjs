@@ -447,7 +447,20 @@ test("operator-only Proof action QA remains independently dark and narrowly scop
   );
   assert.match(
     template,
-    /- Effect: Allow\n\s+Action:\n\s+- dynamodb:TransactWriteItems\n\s+Resource:\n\s+- !GetAtt PathfinderCustomerWorkspacesTable\.Arn\n\s+- !GetAtt PathfinderProductMappingsTable\.Arn/
+    /- Effect: Allow\n\s+Action:\n\s+- dynamodb:TransactWriteItems\n\s+Resource:\n\s+- !GetAtt PathfinderCustomerWorkspacesTable\.Arn\n\s+- !GetAtt PathfinderProductMappingsTable\.Arn\n\s+- !GetAtt PathfinderJobsTable\.Arn\n\s+- !GetAtt PathfinderOrderIdsTable\.Arn/
+  );
+  const pathfinderTransactionPolicy = template.match(
+    /- Effect: Allow\n\s+Action:\n\s+- dynamodb:TransactWriteItems\n\s+Resource:\n((?:\s+- !GetAtt Pathfinder[^\n]+\n?)+)/
+  );
+  assert.ok(pathfinderTransactionPolicy);
+  assert.deepEqual(
+    [...pathfinderTransactionPolicy[1].matchAll(/!GetAtt (Pathfinder\w+Table)\.Arn/g)].map((match) => match[1]),
+    [
+      "PathfinderCustomerWorkspacesTable",
+      "PathfinderProductMappingsTable",
+      "PathfinderJobsTable",
+      "PathfinderOrderIdsTable"
+    ]
   );
   assert.match(
     template,
