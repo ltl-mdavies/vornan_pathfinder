@@ -19,6 +19,8 @@ let forceWorkspaceVersionDrift = false;
 let catalogBatchCount = 0;
 let failCatalogBatchAt: number | null = null;
 let failCatalogReconciliationReads = false;
+let injectCatalogCollisionAtWrite = false;
+let catalogTransactionWriteCount = 0;
 const tableNames = {
   customers: "Pathfinder-CUSTOMERS-focused",
   workspaces: "Pathfinder-CUSTOMER_WORKSPACES-focused",
@@ -128,7 +130,9 @@ before(async () => {
     if (command instanceof GetItemCommand) {
       if (
         failCatalogReconciliationReads &&
-        command.input.TableName === tableNames.liftProductCache
+        command.input.TableName === tableNames.liftProductCache &&
+        failCatalogBatchAt !== null &&
+        catalogBatchCount >= failCatalogBatchAt
       ) {
         throw new Error("simulated cache reconciliation read failure");
       }
@@ -145,6 +149,69 @@ before(async () => {
       return { Item: item ? structuredClone(item) : undefined };
     }
     if (command instanceof TransactWriteItemsCommand) {
+      const catalogTransactions = (command.input.TransactItems ?? []).filter(
+        (transaction) => transaction.Put?.TableName === tableNames.liftProductCache
+      );
+      if (catalogTransactions.length > 0) {
+        catalogBatchCount += 1;
+        if (injectCatalogCollisionAtWrite) {
+          injectCatalogCollisionAtWrite = false;
+          const intended = catalogTransactions[0].Put!.Item as Item;
+          const conflictingData = JSON.parse(intended.data.S!) as {
+            catalog_id?: string;
+            catalog_item_id?: string;
+          };
+          conflictingData.catalog_id = "8102";
+          conflictingData.catalog_item_id = "concurrent-different-catalog";
+          const conflicting = {
+            ...structuredClone(intended),
+            data: stringValue(JSON.stringify(conflictingData)),
+            catalog_scope: stringValue("8102")
+          };
+          delete conflicting.catalog_refresh_id;
+          const current = tableItems.get(tableNames.liftProductCache) ?? [];
+          const key = {
+            route_environment_id: intended.route_environment_id,
+            product_id: intended.product_id
+          } as Item;
+          tableItems.set(tableNames.liftProductCache, [
+            conflicting,
+            ...current.filter((candidate) => !matchesKey(candidate, key))
+          ]);
+        }
+        if (failCatalogBatchAt === catalogBatchCount) {
+          const error = new Error("simulated cache persistence failure");
+          error.name = "ProvisionedThroughputExceededException";
+          throw error;
+        }
+        const conditionFailed = catalogTransactions.some((transaction) => {
+          const put = transaction.Put!;
+          const item = put.Item as Item;
+          const key = {
+            route_environment_id: item.route_environment_id,
+            product_id: item.product_id
+          } as Item;
+          const existing = (tableItems.get(tableNames.liftProductCache) ?? []).find((candidate) =>
+            matchesKey(candidate, key)
+          );
+          if (!existing) return false;
+          if (put.ConditionExpression?.includes("attribute_not_exists(#partition_key)")) {
+            return true;
+          }
+          if (put.ConditionExpression === "#catalog_scope = :catalog_scope") {
+            return existing.catalog_scope?.S !== put.ExpressionAttributeValues?.[":catalog_scope"]?.S;
+          }
+          return (
+            existing.catalog_scope !== undefined ||
+            existing.data?.S !== put.ExpressionAttributeValues?.[":expected_data"]?.S
+          );
+        });
+        if (conditionFailed) {
+          const error = new Error("simulated catalog ownership conflict");
+          error.name = "TransactionCanceledException";
+          throw error;
+        }
+      }
       for (const transaction of command.input.TransactItems ?? []) {
         const put = transaction.Put;
         if (!put?.TableName || !put.Item) continue;
@@ -156,6 +223,7 @@ before(async () => {
           ...current.filter((candidate) => !matchesKey(candidate, key))
         ]);
       }
+      catalogTransactionWriteCount += catalogTransactions.length;
       return {};
     }
     if (command instanceof BatchWriteItemCommand) {
@@ -206,6 +274,8 @@ beforeEach(() => {
   catalogBatchCount = 0;
   failCatalogBatchAt = null;
   failCatalogReconciliationReads = false;
+  injectCatalogCollisionAtWrite = false;
+  catalogTransactionWriteCount = 0;
 });
 
 after(() => {
@@ -558,19 +628,19 @@ test("upserts only exact Lift product-cache rows and preserves the existing 337-
     assert.deepEqual(stored.find((item) => item.product_id === productId), expected);
   });
 
-  const writtenTables = commands
-    .filter((command): command is BatchWriteItemCommand => command instanceof BatchWriteItemCommand)
-    .flatMap((command) => Object.keys(command.input.RequestItems ?? {}));
+  const writtenTables = transactionTables();
   assert.deepEqual(new Set(writtenTables), new Set([tableNames.liftProductCache]));
   const writtenCacheRows = commands
-    .filter((command): command is BatchWriteItemCommand => command instanceof BatchWriteItemCommand)
-    .flatMap((command) => command.input.RequestItems?.[tableNames.liftProductCache] ?? [])
-    .map((write) => write.PutRequest?.Item as Item);
+    .filter((command): command is TransactWriteItemsCommand => command instanceof TransactWriteItemsCommand)
+    .flatMap((command) => command.input.TransactItems ?? [])
+    .filter((transaction) => transaction.Put?.TableName === tableNames.liftProductCache)
+    .map((transaction) => transaction.Put?.Item as Item);
   assert.equal(writtenCacheRows.length, 18);
   assert.equal(new Set(writtenCacheRows.map((item) => item.catalog_refresh_id.S)).size, 1);
   assert.match(writtenCacheRows[0].catalog_refresh_id.S!, /^[a-f0-9]{32}$/);
   writtenCacheRows.forEach((item) => {
     const data = JSON.parse(item.data.S!) as ReturnType<typeof catalogItem>;
+    assert.equal(item.catalog_scope.S, data.catalog_id);
     assert.equal(
       item.route_environment_id.S,
       `${data.target_id}#${data.environment_id}#${data.company_id}`
@@ -585,6 +655,108 @@ test("upserts only exact Lift product-cache rows and preserves the existing 337-
   const replayed = await upsertLiftProductCatalog(demoProducts);
   assert.equal(replayed.length, 18);
   assert.equal(storedCatalogItems().length, 355, "a repeated refresh must overwrite exact keys, not duplicate rows");
+});
+
+test("a cross-catalog cache identity collision writes nothing", async () => {
+  seedCatalogBaseline();
+  const existing = catalogItem(0, "8102");
+  const incoming = {
+    ...catalogItem(0, "6338"),
+    product_id: existing.product_id,
+    catalog_item_id: "incoming-cross-catalog-collision"
+  };
+  const before = structuredClone(tableItems.get(tableNames.liftProductCache));
+  commands.length = 0;
+
+  let collisionError: unknown;
+  try {
+    await upsertLiftProductCatalog([incoming]);
+  } catch (error) {
+    collisionError = error;
+  }
+
+  assert.equal((collisionError as { name?: string }).name, "LiftProductCatalogCollisionError");
+  assert.equal((collisionError as { collision_count?: number }).collision_count, 1);
+  assert.equal((collisionError as { requested_count?: number }).requested_count, 1);
+  assert.deepEqual(tableItems.get(tableNames.liftProductCache), before);
+  assert.equal(
+    commands.some((command) => command instanceof BatchWriteItemCommand),
+    false,
+    "collision detection must complete before the first cache write"
+  );
+  const collisionReads = commands.filter(
+    (command): command is GetItemCommand => command instanceof GetItemCommand
+  );
+  assert.equal(collisionReads.length, 1);
+  assert.equal(collisionReads[0].input.ConsistentRead, true);
+  assert.deepEqual(new Set(transactionTables()), new Set());
+});
+
+test("a write-time cross-catalog race is rejected atomically before the cache transaction writes", async () => {
+  seedCatalogBaseline();
+  const incoming = catalogItem(75, "6338");
+  injectCatalogCollisionAtWrite = true;
+  commands.length = 0;
+
+  let collisionError: unknown;
+  try {
+    await upsertLiftProductCatalog([incoming]);
+  } catch (error) {
+    collisionError = error;
+  }
+
+  assert.equal((collisionError as { name?: string }).name, "LiftProductCatalogCollisionError");
+  assert.equal((collisionError as { collision_count?: number }).collision_count, 1);
+  assert.equal(
+    (collisionError as { definitely_persisted_count?: number }).definitely_persisted_count,
+    0
+  );
+  assert.equal(catalogTransactionWriteCount, 0);
+  const stored = storedCatalogItems().find((item) => item.product_id === incoming.product_id);
+  assert.equal(stored?.catalog_id, "8102");
+  assert.notEqual(stored?.catalog_item_id, incoming.catalog_item_id);
+});
+
+test("the same product identity remains isolated between QA1 and PROD", async () => {
+  seedCatalogBaseline();
+  const qa1 = catalogItem(0, "8102");
+  const prod = {
+    ...catalogItem(0, "6338"),
+    product_id: qa1.product_id,
+    catalog_item_id: "prod-same-product-id",
+    environment_id: "env-lift-prod"
+  };
+  commands.length = 0;
+
+  const persisted = await upsertLiftProductCatalog([prod]);
+  const stored = storedCatalogItems();
+
+  assert.equal(persisted.length, 1);
+  assert.equal(stored.length, 338);
+  assert.equal(
+    stored.filter((item) => item.product_id === qa1.product_id && item.environment_id === "env-lift-qa1").length,
+    1
+  );
+  assert.equal(
+    stored.filter((item) => item.product_id === qa1.product_id && item.environment_id === "env-lift-prod").length,
+    1
+  );
+});
+
+test("conflicting catalogs inside one provider response are rejected before cache reads or writes", async () => {
+  seedCatalogBaseline();
+  const first = { ...catalogItem(50, "6338"), product_id: "shared-provider-product" };
+  const second = { ...catalogItem(51, "8102"), product_id: "shared-provider-product" };
+  commands.length = 0;
+
+  await assert.rejects(
+    () => upsertLiftProductCatalog([first, second]),
+    (error: unknown) =>
+      (error as { name?: string }).name === "LiftProductCatalogCollisionError" &&
+      (error as { collision_count?: number }).collision_count === 1
+  );
+
+  assert.equal(commands.length, 0);
 });
 
 test("a partial cache write failure cannot remove or rewrite existing catalog rows", async () => {
@@ -611,9 +783,7 @@ test("a partial cache write failure cannot remove or rewrite existing catalog ro
   });
   assert.equal(stored.filter((item) => item.catalog_id === "8102").length, 334);
   assert.equal(stored.length, 362, "only the first additive batch may persist before a later batch fails");
-  const writtenTables = commands
-    .filter((command): command is BatchWriteItemCommand => command instanceof BatchWriteItemCommand)
-    .flatMap((command) => Object.keys(command.input.RequestItems ?? {}));
+  const writtenTables = transactionTables();
   assert.deepEqual(new Set(writtenTables), new Set([tableNames.liftProductCache]));
 });
 
@@ -652,6 +822,11 @@ test("catalog refresh failures use bounded telemetry and never return raw provid
   assert.match(route, /persisted_count: persistedCount/);
   assert.match(route, /"partially_persisted"/);
   assert.match(route, /"persistence_uncertain"/);
+  assert.match(route, /"catalog_identity_collision"/);
+  assert.match(route, /lift_catalog_cross_catalog_identity_collision/);
+  assert.match(route, /Nothing was saved/);
+  assert.match(source, /CatalogIdentityCollision/);
+  assert.match(source, /collision_count/);
   assert.match(route, /const workspace = await getWorkspace\(customerId\)/);
   assert.match(route, /targetId = selectedRoute\.target_id/);
   assert.match(route, /environmentIdFilter = selectedRoute\.environment_id/);
