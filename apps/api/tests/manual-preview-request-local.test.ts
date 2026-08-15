@@ -76,18 +76,19 @@ test("manual preview overrides are request-local and validate before durable ide
       const fieldMappings = [
         { sourceColumn: "ContractNumber", targetField: "order.external_order_id", required: true },
         { sourceColumn: "ContractNumber", targetField: "order.contract_number", required: false },
-        { sourceColumn: "Product", targetField: "lines[].customer_sku", required: false },
-        { sourceColumn: "Product", targetField: "lines[].product_name", required: false },
+        { sourceColumn: "DESCRIPTION", targetField: "lines[].customer_sku", required: false },
+        { sourceColumn: "DESCRIPTION", targetField: "lines[].product_name", required: false },
         { sourceColumn: "Quantity", targetField: "lines[].quantity", required: true },
         { sourceColumn: "Width", targetField: "lines[].dimensions.final_width", required: true },
         { sourceColumn: "Height", targetField: "lines[].dimensions.final_height", required: true },
+        { sourceColumn: "Artwork", targetField: "lines[].artwork.file_url", required: true },
         { sourceColumn: "Requested Ship Date", targetField: "order.ship_date", required: true },
         { sourceColumn: "Due Date", targetField: "order.due_date", required: true }
       ];
       const productResolution = {
         strategy: "derived_key",
         mode: "map_to_lift_unit",
-        source_column: "Product",
+        source_column: "DESCRIPTION",
         prefix: "",
         suffix: "",
         composite_columns: [],
@@ -95,13 +96,18 @@ test("manual preview overrides are request-local and validate before durable ide
         direct_unit_number_column: null
       };
       const values = products.map((product, index) => ({
-        ContractNumber: "LTL-PROOF-PILOT-0825",
-        Product: product,
-        Height: index === 2 ? 48 : 36,
-        Width: index === 2 ? 18 : 24,
+        ContractNumber: index === 0 ? "777-88-99-00" : null,
+        DESCRIPTION: product,
+        Height: [46.2, 84.2, 14.5][index],
+        Width: [60.2, 42.2, 30.5][index],
         Quantity: [10, 15, 20][index],
-        "Requested Ship Date": "2026-08-25",
-        "Due Date": "2026-08-25"
+        Artwork: [
+          "https://adspace360-c.s3.amazonaws.com/images/TEST%20ART/2-Sheet_01.pdf",
+          "https://adspace360-c.s3.amazonaws.com/images/TEST%20ART/3-Sheet_01.pdf",
+          "https://adspace360-c.s3.amazonaws.com/images/TEST%20ART/DirClock_01.pdf"
+        ][index],
+        "Requested Ship Date": index === 0 ? "2026-08-25" : null,
+        "Due Date": index === 0 ? "2026-08-25" : null
       }));
       const parsedRows = values.map((row, index) => ({
         sheet_name: "Sheet 1",
@@ -136,12 +142,26 @@ test("manual preview overrides are request-local and validate before durable ide
       invalidDate.parsed_order_rows[0].values["Due Date"] = "ASAP";
       await request(app).post("/api/customers/1249/jobs/preview").send(invalidDate).expect(400);
       assert.equal((await listJobs()).length, 0);
+      assert.deepEqual(await listProductMappings(customer), mappingsBefore);
+      assert.deepEqual(
+        (await getOrCreateWorkspace(customer)).import_methods.find(
+          (candidate) => candidate.import_method_id === "manual-xlsx"
+        ),
+        methodBaseline
+      );
 
       const missingMapping = structuredClone(requestBody);
-      missingMapping.source_grid.rows[2].Product = "Unmapped_Pilot_Product";
-      missingMapping.parsed_order_rows[2].values.Product = "Unmapped_Pilot_Product";
+      missingMapping.source_grid.rows[2].DESCRIPTION = "Unmapped_Pilot_Product";
+      missingMapping.parsed_order_rows[2].values.DESCRIPTION = "Unmapped_Pilot_Product";
       await request(app).post("/api/customers/1249/jobs/preview").send(missingMapping).expect(400);
       assert.equal((await listJobs()).length, 0);
+      assert.deepEqual(await listProductMappings(customer), mappingsBefore);
+      assert.deepEqual(
+        (await getOrCreateWorkspace(customer)).import_methods.find(
+          (candidate) => candidate.import_method_id === "manual-xlsx"
+        ),
+        methodBaseline
+      );
 
       const preview = await request(app)
         .post("/api/customers/1249/jobs/preview")
@@ -163,7 +183,7 @@ test("manual preview overrides are request-local and validate before durable ide
       assert.equal(preview.body.job.lift_payload.order.requested_ship_date, "08/25/2026");
       assert.equal(preview.body.job.lift_payload.order.due_date, "08/25/2026");
       assert.equal(preview.body.job.manual_preview_basis.mode, "request_local");
-      assert.equal(preview.body.job.manual_preview_basis.product_resolution_config.source_column, "Product");
+      assert.equal(preview.body.job.manual_preview_basis.product_resolution_config.source_column, "DESCRIPTION");
       assert.deepEqual(preview.body.job.manual_preview_basis.mappings, fieldMappings);
 
       const jobs = await listJobs();
@@ -196,13 +216,18 @@ test("manual preview overrides are request-local and validate before durable ide
 });
 
 test("manual preview preflight runs before Pathfinder identity reservation", async () => {
-  const source = await import("node:fs/promises").then(({ readFile }) =>
-    readFile(new URL("../src/server.ts", import.meta.url), "utf8")
-  );
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../src/server.ts", import.meta.url), "utf8");
+  const storeSource = await readFile(new URL("../src/store.ts", import.meta.url), "utf8");
   const start = source.indexOf("if (isRequestLocalManualPreview)");
   const reserve = source.indexOf("await reservePathfinderOrderNumber()", start);
   assert.ok(start > 0 && reserve > start);
   assert.match(source.slice(start, reserve), /preflightFailures/);
   assert.match(source.slice(start, reserve), /unresolvedProducts\.length/);
   assert.match(source.slice(start, reserve), /statusCode: 400/);
+  const reservationStart = storeSource.indexOf("export async function reservePathfinderOrderNumber");
+  const reservationEnd = storeSource.indexOf("\nexport ", reservationStart + 1);
+  const reservationSource = storeSource.slice(reservationStart, reservationEnd);
+  assert.match(reservationSource, /TableName: tables\.order_ids/);
+  assert.match(reservationSource, /ConditionExpression: "attribute_not_exists\(pathfinder_order_id\)"/);
 });
