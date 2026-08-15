@@ -777,6 +777,20 @@ export interface ProcessingJobPreview {
   parsed_order_rows: ParsedSourceRow[];
   reference_rows: ParsedSourceRow[];
   mappings: FieldMapping[];
+  /**
+   * Immutable preparation settings used by an authenticated manual preview.
+   * These values are request-local evidence; they do not update the saved
+   * Import Method or customer product mappings.
+   */
+  manual_preview_basis?: {
+    mode: "request_local";
+    mappings: FieldMapping[];
+    product_resolution_config: ProductResolutionConfig;
+    product_resolution_overrides: Record<string, ProductResolutionConfig>;
+    order_name_resolution_config: OrderNameResolutionConfig;
+    ext_id_strategy: LiftExtIdStrategy;
+    captured_at: string;
+  } | null;
   product_resolution_results: ProductResolutionResult[];
   order_name_resolution_result?: OrderNameResolutionResult;
   unresolved_products: CustomerProductMapping[];
