@@ -18,6 +18,7 @@ test("manual preview overrides are request-local and validate before durable ide
       const { app } = await import(${JSON.stringify(serverModuleUrl)});
       const {
         bulkUpsertProductMappings,
+        getLocalReservedPathfinderOrderNumberCount,
         getOrCreateWorkspace,
         listJobs,
         listProductMappings,
@@ -53,7 +54,7 @@ test("manual preview overrides are request-local and validate before durable ide
         source_scope_id: "Sheet 1::default",
         customer_product_key: productKeys[index],
         display_label: product,
-        source_columns: ["Product"],
+        source_columns: ["DESCRIPTION"],
         product_identifier_type: "lift_product_id",
         product_identifier_value: productIds[index],
         lift_unit_number: null,
@@ -72,6 +73,7 @@ test("manual preview overrides are request-local and validate before durable ide
           (candidate) => candidate.import_method_id === "manual-xlsx"
         )
       );
+      const orderIdsBefore = getLocalReservedPathfinderOrderNumberCount();
 
       const fieldMappings = [
         { sourceColumn: "ContractNumber", targetField: "order.external_order_id", required: true },
@@ -142,6 +144,7 @@ test("manual preview overrides are request-local and validate before durable ide
       invalidDate.parsed_order_rows[0].values["Due Date"] = "ASAP";
       await request(app).post("/api/customers/1249/jobs/preview").send(invalidDate).expect(400);
       assert.equal((await listJobs()).length, 0);
+      assert.equal(getLocalReservedPathfinderOrderNumberCount(), orderIdsBefore);
       assert.deepEqual(await listProductMappings(customer), mappingsBefore);
       assert.deepEqual(
         (await getOrCreateWorkspace(customer)).import_methods.find(
@@ -155,6 +158,7 @@ test("manual preview overrides are request-local and validate before durable ide
       missingMapping.parsed_order_rows[2].values.DESCRIPTION = "Unmapped_Pilot_Product";
       await request(app).post("/api/customers/1249/jobs/preview").send(missingMapping).expect(400);
       assert.equal((await listJobs()).length, 0);
+      assert.equal(getLocalReservedPathfinderOrderNumberCount(), orderIdsBefore);
       assert.deepEqual(await listProductMappings(customer), mappingsBefore);
       assert.deepEqual(
         (await getOrCreateWorkspace(customer)).import_methods.find(

@@ -2383,6 +2383,10 @@ function pathfinderOrderNumberCandidate(timestamp = Date.now()) {
 
 const locallyReservedPathfinderOrderNumbers = new Set<string>();
 
+export function getLocalReservedPathfinderOrderNumberCount() {
+  return locallyReservedPathfinderOrderNumbers.size;
+}
+
 export async function reservePathfinderOrderNumber() {
   const config = getPathfinderPersistenceRuntimeConfig();
 
