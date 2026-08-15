@@ -69,14 +69,20 @@ export function manualPreviewMappings(
   ];
 }
 
-export function manualPreviewIdentityIsMapped(mappings: FieldMapping[]) {
+export function manualPreviewIdentityIsMapped(
+  mappings: FieldMapping[],
+  uploadedColumns: string[],
+  uploadedRows: Array<Record<string, unknown>>
+) {
   return [...identityTargets].every((targetField) =>
     mappings.some(
       (mapping) =>
         !mapping.ignored &&
         !mapping.valueExpression &&
         mapping.targetField === targetField &&
-        Boolean(mapping.sourceColumn)
+        Boolean(mapping.sourceColumn) &&
+        uploadedColumns.includes(mapping.sourceColumn) &&
+        uploadedRows.some((row) => String(row[mapping.sourceColumn] ?? "").trim().length > 0)
     )
   );
 }

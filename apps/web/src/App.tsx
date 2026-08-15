@@ -6363,7 +6363,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       );
       return;
     }
-    if (!manualPreviewIdentityReady) {
+    if (
+      !manualPreviewIdentityReady ||
+      canonicalOrder.order.external_order_id === "UNMAPPED-ORDER" ||
+      !canonicalOrder.order.contract_number
+    ) {
       setWorkspaceMessage("Choose the order identity column for this upload before generating a preview job.");
       return;
     }
@@ -6947,7 +6951,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     () => manualPreviewMappings(mappings, manualPreviewIdentityColumn),
     [manualPreviewIdentityColumn, mappings]
   );
-  const manualPreviewIdentityReady = manualPreviewIdentityIsMapped(effectiveManualMappings);
+  const manualPreviewIdentityReady = manualPreviewIdentityIsMapped(
+    effectiveManualMappings,
+    sourceGrid.columns,
+    sourceGrid.rows
+  );
   const sourcePreviewProductConfig =
     activeGlobalView === "Customers" && activeCustomerView === "Manual Import"
       ? effectiveManualProductConfig

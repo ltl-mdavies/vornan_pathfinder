@@ -65,7 +65,12 @@ test("the request-local identity column fans out to external order identity and 
 
   const effective = manualPreviewMappings(savedMappings, "ContractNumber");
 
-  assert.equal(manualPreviewIdentityIsMapped(effective), true);
+  assert.equal(
+    manualPreviewIdentityIsMapped(effective, ["ContractNumber", "Quantity"], [
+      { ContractNumber: "777-88-99-00", Quantity: 10 }
+    ]),
+    true
+  );
   assert.deepEqual(
     effective.filter((mapping) => mapping.targetField.startsWith("order.")).map((mapping) => ({
       sourceColumn: mapping.sourceColumn,
@@ -80,6 +85,28 @@ test("the request-local identity column fans out to external order identity and 
   assert.equal(savedMappings[1]?.sourceColumn, "Old ID");
 });
 
+test("a stale saved identity column cannot enable preview for a different upload", () => {
+  const staleMappings: FieldMapping[] = [
+    { sourceColumn: "Order Number", targetField: "order.external_order_id", required: true },
+    { sourceColumn: "Order Number", targetField: "order.contract_number" }
+  ];
+
+  assert.equal(
+    manualPreviewIdentityIsMapped(staleMappings, ["ContractNumber", "DESCRIPTION"], [
+      { ContractNumber: "777-88-99-00", DESCRIPTION: "2-Sheet_Penn" }
+    ]),
+    false
+  );
+  assert.equal(
+    manualPreviewIdentityIsMapped(
+      manualPreviewMappings(staleMappings, "ContractNumber"),
+      ["ContractNumber", "DESCRIPTION"],
+      [{ ContractNumber: "777-88-99-00", DESCRIPTION: "2-Sheet_Penn" }]
+    ),
+    true
+  );
+});
+
 test("Manual Import uses the same local drafts for review and the single atomic preview request", async () => {
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
 
@@ -89,6 +116,9 @@ test("Manual Import uses the same local drafts for review and the single atomic 
   assert.match(appSource, /mappings: effectiveManualMappings/);
   assert.match(appSource, /manualPreviewCreationBlocked \|\| workspaceState === "saving"/);
   assert.match(appSource, /Saved Import Method and product mappings will not change\./);
+  assert.match(appSource, /manualPreviewIdentityReady/);
+  assert.match(appSource, /Choose the order identity column for this upload/);
+  assert.match(appSource, /canonicalOrder\.order\.external_order_id === "UNMAPPED-ORDER"/);
   assert.doesNotMatch(
     appSource,
     /setManualPreviewProductKeyColumn\([^)]*\)[\s\S]{0,180}method:\s*"PUT"/
