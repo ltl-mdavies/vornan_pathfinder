@@ -33,7 +33,7 @@ test("sends workbook-local preview settings without saving customer setup", () =
   const previewSource = functionSource("createPreviewJob", "refreshSubmitCertification");
 
   assert.match(previewSource, /\/jobs\/preview/);
-  assert.match(previewSource, /mappings,/);
+  assert.match(previewSource, /mappings: effectiveManualMappings/);
   assert.match(previewSource, /product_resolution_config:/);
   assert.match(previewSource, /product_resolution_overrides:/);
   assert.match(previewSource, /order_name_resolution_config:/);

@@ -126,6 +126,12 @@ import { WrikeIntakeBehaviorSetup } from "./WrikeIntakeBehaviorSetup";
 import { CompositeFieldMappingSetup } from "./CompositeFieldMappingSetup";
 import { selectedDirectMappingTarget, updateDirectMapping } from "./field-mapping-draft";
 import {
+  manualPreviewDerivedProductKey,
+  manualPreviewIdentityIsMapped,
+  manualPreviewMappings,
+  manualPreviewProductConfig
+} from "./manual-preview-draft";
+import {
   compareOperationalJobTime,
   displayLiftCreated,
   lastMeaningfulActivity,
@@ -4412,8 +4418,7 @@ function productKeyFromCatalogRow(
     return normalizeProductKey(compositeColumns.map((column) => valueAsString(row[column])).filter(Boolean).join("__"));
   }
 
-  const sourceKey = normalizeProductKey(valueAsString(row[sourceColumn]));
-  return sourceKey ? `${config.prefix ?? ""}${sourceKey}${config.suffix ?? ""}` : "";
+  return manualPreviewDerivedProductKey(valueAsString(row[sourceColumn]), config);
 }
 
 const momentaraLegacyCustomerId = "284619";
@@ -4494,6 +4499,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [sourceName, setSourceName] = useState("");
   const [sheetName, setSheetName] = useState("");
   const [importError, setImportError] = useState<string | null>(null);
+  const [manualPreviewProductKeyColumn, setManualPreviewProductKeyColumn] = useState("");
+  const [manualPreviewIdentityColumn, setManualPreviewIdentityColumn] = useState("");
   const [sourceSchemaState, setSourceSchemaState] = useState<"idle" | "detecting" | "error">("idle");
   const [sourceSchemaMessage, setSourceSchemaMessage] = useState<string | null>(null);
   const [selectedSourceSchemaSheetName, setSelectedSourceSchemaSheetName] = useState("");
@@ -6356,6 +6363,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       );
       return;
     }
+    if (
+      !manualPreviewIdentityReady ||
+      canonicalOrder.order.external_order_id === "UNMAPPED-ORDER" ||
+      !canonicalOrder.order.contract_number
+    ) {
+      setWorkspaceMessage("Choose the order identity column for this upload before generating a preview job.");
+      return;
+    }
+    if (currentOrderProductBlockingCount > 0) {
+      setWorkspaceMessage("Resolve every product used by this upload before generating a preview job.");
+      return;
+    }
+    if (hasBlockingFailure) {
+      setWorkspaceMessage("Resolve the preview validation issues before generating a preview job.");
+      return;
+    }
     if (method && method.status !== "Active") {
       setWorkspaceMessage("Activate this import method before generating a preview job.");
       return;
@@ -6376,10 +6399,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           parsed_order_rows: parsedOrderRows,
           reference_rows: referenceRows,
           incomplete_rows: incompleteRows,
-          mappings,
+          mappings: effectiveManualMappings,
           submit_profile_id: selectedSubmitProfile.profile_id,
-          product_resolution_config: method?.product_resolution_config ?? neutralProductResolutionConfig,
-          product_resolution_overrides: method?.product_resolution_overrides ?? {},
+          product_resolution_config: effectiveManualProductConfig,
+          product_resolution_overrides: manualPreviewProductKeyColumn
+            ? {}
+            : method?.product_resolution_overrides ?? {},
           order_name_resolution_config: method?.order_name_resolution_config ?? defaultOrderNameResolutionConfig,
           ext_id_strategy: method?.ext_id_strategy ?? "pathfinder_generated"
         })
@@ -6754,6 +6779,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }, [selectedCustomerId]);
 
   useEffect(() => {
+    setManualPreviewProductKeyColumn("");
+    setManualPreviewIdentityColumn("");
+    setLastPreviewJob(null);
+    setLastSubmitAttempt(null);
+  }, [selectedCustomerId]);
+
+  useEffect(() => {
     setStatusPolicyDraft(workspace?.status_access_policy ?? createStatusAccessPolicyFallback(selectedCustomer));
     setNewStatusDomain("");
     setNewStatusDomainStatus("Approved");
@@ -6911,6 +6943,27 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       : null) ??
     workflowImportMethod?.product_resolution_config ??
     neutralProductResolutionConfig;
+  const effectiveManualProductConfig = manualPreviewProductConfig(
+    activeProductConfig,
+    manualPreviewProductKeyColumn
+  );
+  const effectiveManualMappings = useMemo(
+    () => manualPreviewMappings(mappings, manualPreviewIdentityColumn),
+    [manualPreviewIdentityColumn, mappings]
+  );
+  const manualPreviewIdentityReady = manualPreviewIdentityIsMapped(
+    effectiveManualMappings,
+    sourceGrid.columns,
+    sourceGrid.rows
+  );
+  const sourcePreviewProductConfig =
+    activeGlobalView === "Customers" && activeCustomerView === "Manual Import"
+      ? effectiveManualProductConfig
+      : activeProductConfig;
+  const sourcePreviewMappings =
+    activeGlobalView === "Customers" && activeCustomerView === "Manual Import"
+      ? effectiveManualMappings
+      : mappings;
   const activeOrderNameConfig =
     workflowImportMethod?.order_name_resolution_config ?? defaultOrderNameResolutionConfig;
   const activeOrderNameStrategyCopy =
@@ -7652,14 +7705,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         .slice(0, 8)
         .map((row, index) => {
         const sourceColumn =
-          activeProductConfig.strategy === "direct_lift_unit_number"
-            ? activeProductConfig.direct_unit_number_column ?? activeProductConfig.source_column
-            : activeProductConfig.source_column;
+          sourcePreviewProductConfig.strategy === "direct_lift_unit_number"
+            ? sourcePreviewProductConfig.direct_unit_number_column ?? sourcePreviewProductConfig.source_column
+            : sourcePreviewProductConfig.source_column;
         const customerProductKey = productKeyFromCatalogRow(
           row.values as Record<string, string>,
-          activeProductConfig,
+          sourcePreviewProductConfig,
           sourceColumn,
-          activeProductConfig.composite_columns
+          sourcePreviewProductConfig.composite_columns
         );
         const savedMapping = productMappings.find(
           (mapping) =>
@@ -7671,13 +7724,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           ? productMappingIdentifierForRoute(savedMapping, activeOutputRoute)
           : null;
         const resolvedIdentifier =
-          activeProductConfig.strategy === "direct_lift_unit_number" ||
-          activeProductConfig.mode === "send_derived_unit"
+          sourcePreviewProductConfig.strategy === "direct_lift_unit_number" ||
+          sourcePreviewProductConfig.mode === "send_derived_unit"
             ? customerProductKey || null
             : savedIdentifier;
         const status =
-          activeProductConfig.strategy === "direct_lift_unit_number" ||
-          activeProductConfig.mode === "send_derived_unit"
+          sourcePreviewProductConfig.strategy === "direct_lift_unit_number" ||
+          sourcePreviewProductConfig.mode === "send_derived_unit"
             ? resolvedIdentifier
               ? "Mapped"
               : "Unmapped"
@@ -7694,13 +7747,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           output_route_id: activeOutputRoute.output_route_id,
           source_scope_id: row.scope_id,
           line_number: index + 1,
-          strategy: activeProductConfig.strategy,
-          mode: activeProductConfig.mode,
+          strategy: sourcePreviewProductConfig.strategy,
+          mode: sourcePreviewProductConfig.mode,
           customer_product_key: customerProductKey,
           display_label: savedMapping?.display_label ?? displayLabel,
           source_columns:
-            activeProductConfig.strategy === "composite_key"
-              ? activeProductConfig.composite_columns
+            sourcePreviewProductConfig.strategy === "composite_key"
+              ? sourcePreviewProductConfig.composite_columns
               : [sourceColumn].filter(Boolean),
           resolved_product_identifier: resolvedIdentifier,
           resolved_unit_number:
@@ -7718,7 +7771,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             : `No saved ${activeOutputRoute.product_identifier_label} mapping matches this generated key.`
         };
       }),
-    [activeOutputRoute, activeProductConfig, effectiveProductScope, parsedOrderRows, productMappings]
+    [activeOutputRoute, effectiveProductScope, parsedOrderRows, productMappings, sourcePreviewProductConfig]
   );
   const displayedProductResolutionRows = productResolutionRows.length
     ? productResolutionRows
@@ -7784,7 +7837,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   const mappedCanonicalOrder = useMemo(
     () =>
-      mapSourceRowsToCanonicalOrder(sourceGrid.rows, mappings, {
+      mapSourceRowsToCanonicalOrder(sourceGrid.rows, sourcePreviewMappings, {
         customerId: `lift:${selectedCustomer.lift_customer_id}`,
         customerName: submitCustomer.customer_name,
         customerCrmId: selectedCustomer.crm_id ?? null,
@@ -7796,7 +7849,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       }),
     [
       activeOutputRoute.target_system,
-      mappings,
+      sourcePreviewMappings,
       selectedCustomer,
       selectedCustomer.crm_id,
       sourceGrid.rows,
@@ -7878,6 +7931,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     });
   const submitCertificationBlockingCount = submitCertification.items.filter((item) => item.blocking).length;
   const manualSourceReady = sourceGrid.rows.length > 0;
+  const manualPreviewCreationBlocked =
+    !manualSourceReady ||
+    !manualPreviewIdentityReady ||
+    currentOrderProductBlockingCount > 0 ||
+    hasBlockingFailure;
   const manualPreviewReady = Boolean(lastPreviewJob);
   const manualFixesNeeded = submitCertificationBlockingCount > 0 || currentOrderProductBlockingCount > 0;
   const activeRouteIsProd =
@@ -8687,6 +8745,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       );
       setSourceName(file.name);
       setSheetName(parsed.sheetName);
+      setManualPreviewProductKeyColumn("");
+      setManualPreviewIdentityColumn("");
       setLastPreviewJob(null);
       setLastSubmitAttempt(null);
       setImportError(null);
@@ -8718,6 +8778,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     );
     setSourceName("Sample workbook");
     setSheetName("Sample");
+    setManualPreviewProductKeyColumn("");
+    setManualPreviewIdentityColumn("");
     setLastPreviewJob(null);
     setLastSubmitAttempt(null);
     setImportError(null);
@@ -8731,6 +8793,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         ? mappingsForSourceColumns(sourceGrid.columns, nextMethod.mappings)
         : buildDefaultMappings(sourceGrid.columns)
     );
+    setManualPreviewProductKeyColumn("");
+    setManualPreviewIdentityColumn("");
     setLastPreviewJob(null);
     setLastSubmitAttempt(null);
     setImportError(null);
@@ -15313,6 +15377,59 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       ))}
                     </div>
                     {importError ? <p className="import-error">{importError}</p> : null}
+                    {manualSourceReady ? (
+                      <div className="manual-import-basis" aria-label="Settings for this upload">
+                        <label className="setup-control">
+                          <span>Product key for this upload</span>
+                          <select
+                            aria-label="Product key for this upload"
+                            value={manualPreviewProductKeyColumn}
+                            onChange={(event) => {
+                              setManualPreviewProductKeyColumn(event.target.value);
+                              setLastPreviewJob(null);
+                              setLastSubmitAttempt(null);
+                            }}
+                          >
+                            <option value="">
+                              {manualImportMethod?.product_resolution_config.source_column
+                                ? `Use saved: ${manualImportMethod.product_resolution_config.source_column}`
+                                : "Choose a column"}
+                            </option>
+                            {sourceGrid.columns.map((column) => (
+                              <option key={column} value={column}>{column}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="setup-control">
+                          <span>Order identity for this upload</span>
+                          <select
+                            aria-label="Order identity for this upload"
+                            value={manualPreviewIdentityColumn}
+                            onChange={(event) => {
+                              setManualPreviewIdentityColumn(event.target.value);
+                              setLastPreviewJob(null);
+                              setLastSubmitAttempt(null);
+                            }}
+                          >
+                            <option value="">
+                              {manualPreviewIdentityReady ? "Use saved field mapping" : "Choose a column"}
+                            </option>
+                            {sourceGrid.columns.map((column) => (
+                              <option key={column} value={column}>{column}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="manual-import-basis-summary">
+                          <span>This upload only</span>
+                          <strong>
+                            {currentOrderProductBlockingCount === 0 && manualPreviewIdentityReady
+                              ? "Products and order identity are ready"
+                              : "Complete these choices before preview"}
+                          </strong>
+                          <small>Saved Import Method and product mappings will not change.</small>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="submit-profile-panel">
                       <div className="submit-profile-heading">
                         <div>
@@ -15368,7 +15485,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <button
                         className="primary-button"
                         onClick={() => void createPreviewJob()}
-                        disabled={!manualSourceReady || workspaceState === "saving"}
+                        disabled={manualPreviewCreationBlocked || workspaceState === "saving"}
                       >
                         {workspaceState === "saving" ? "Saving Preview" : "Generate Preview Job"}
                       </button>
@@ -15584,6 +15701,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <tbody>
                         {foundInputElements.map(({ column, sample }) => {
                       const selected = selectedDirectMappingTarget(mappings, column);
+                      const isLocalIdentityColumn = column === manualPreviewIdentityColumn;
                       return (
                         <tr key={column}>
                           <td>
@@ -15592,15 +15710,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           </td>
                           <td>{sample || "No sample value found"}</td>
                           <td>
-                            <select
-                              value={selected}
-                              onChange={(event) =>
-                                setMappings((current) => updateDirectMapping(current, column, event.target.value))
-                              }
-                            >
-                              <option value="">Ignore</option>
-                              <CanonicalFieldOptionGroups fields={canonicalRegistryFields} />
-                            </select>
+                            {isLocalIdentityColumn ? (
+                              <div>
+                                <strong>Order ID + contract</strong>
+                                <span className="cell-meta">This upload only</span>
+                              </div>
+                            ) : (
+                              <select
+                                value={selected}
+                                onChange={(event) =>
+                                  setMappings((current) => updateDirectMapping(current, column, event.target.value))
+                                }
+                              >
+                                <option value="">Ignore</option>
+                                <CanonicalFieldOptionGroups fields={canonicalRegistryFields} />
+                              </select>
+                            )}
                           </td>
                         </tr>
                       );
@@ -15613,7 +15738,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     <button
                       className="primary-button"
                       onClick={() => void createPreviewJob()}
-                      disabled={!manualSourceReady || workspaceState === "saving"}
+                      disabled={manualPreviewCreationBlocked || workspaceState === "saving"}
                     >
                       {lastPreviewJob ? "Regenerate Preview Job" : "Generate Preview Job"}
                     </button>
