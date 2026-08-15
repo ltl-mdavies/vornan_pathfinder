@@ -7026,10 +7026,78 @@ export class LiftProductCatalogPersistenceError extends Error {
   }
 }
 
+export class LiftProductCatalogCollisionError extends Error {
+  constructor(
+    public readonly collision_count: number,
+    public readonly requested_count: number,
+    public readonly definitely_persisted_count = 0
+  ) {
+    super("Pathfinder found Lift product identities that belong to another catalog.");
+    this.name = "LiftProductCatalogCollisionError";
+  }
+}
+
 type FocusedLiftProductCacheWrite = {
   item: LiftUnitCatalogItem;
   dynamo_item: Record<string, AttributeValue>;
+  expected_existing_item?: Record<string, AttributeValue>;
 };
+
+function liftProductCatalogScope(item: LiftUnitCatalogItem) {
+  return String(item.catalog_id ?? "").trim();
+}
+
+function incomingLiftProductCatalogCollisionCount(items: LiftUnitCatalogItem[]) {
+  const catalogByIdentity = new Map<string, string>();
+  const collisions = new Set<string>();
+  items.forEach((item) => {
+    const identity = liftProductCacheIdentity(item);
+    const catalogId = liftProductCatalogScope(item);
+    const existingCatalogId = catalogByIdentity.get(identity);
+    if (existingCatalogId !== undefined && existingCatalogId !== catalogId) {
+      collisions.add(identity);
+      return;
+    }
+    catalogByIdentity.set(identity, catalogId);
+  });
+  return collisions.size;
+}
+
+async function inspectExistingLiftProductCatalogRows(
+  tableName: string,
+  items: LiftUnitCatalogItem[]
+) {
+  let collisionCount = 0;
+  const existingByIdentity = new Map<string, Record<string, AttributeValue>>();
+  for (const item of items) {
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: tableName,
+      Key: {
+        route_environment_id: dynamoString(liftProductCachePartition(item)),
+        product_id: dynamoString(liftProductCacheSort(item))
+      },
+      ConsistentRead: true
+    }));
+    if (!response.Item) continue;
+    const storedItem = response.Item as Record<string, AttributeValue>;
+    const existing = parseDynamoData<LiftUnitCatalogItem>(
+      storedItem
+    );
+    if (!existing) {
+      throw new Error("The existing Lift product cache row could not be verified.");
+    }
+    const serializedCatalogScope = liftProductCatalogScope(existing);
+    const durableCatalogScope = storedItem.catalog_scope?.S?.trim();
+    if (durableCatalogScope !== undefined && durableCatalogScope !== serializedCatalogScope) {
+      throw new Error("The existing Lift product cache catalog scope could not be verified.");
+    }
+    if ((durableCatalogScope ?? serializedCatalogScope) !== liftProductCatalogScope(item)) {
+      collisionCount += 1;
+    }
+    existingByIdentity.set(liftProductCacheIdentity(item), storedItem);
+  }
+  return { collision_count: collisionCount, existing_by_identity: existingByIdentity };
+}
 
 async function reconcileFocusedLiftProductCacheBatch(
   tableName: string,
@@ -7057,7 +7125,8 @@ async function reconcileFocusedLiftProductCacheBatch(
 
 async function persistFocusedLiftProductCache(
   tableName: string,
-  items: LiftUnitCatalogItem[]
+  items: LiftUnitCatalogItem[],
+  existingByIdentity: Map<string, Record<string, AttributeValue>>
 ) {
   const refreshId = randomBytes(16).toString("hex");
   const writes: FocusedLiftProductCacheWrite[] = items.map((item) => ({
@@ -7070,24 +7139,59 @@ async function persistFocusedLiftProductCache(
         },
         item
       ),
-      catalog_refresh_id: dynamoString(refreshId)
-    }
+      catalog_refresh_id: dynamoString(refreshId),
+      catalog_scope: dynamoString(liftProductCatalogScope(item))
+    },
+    expected_existing_item: existingByIdentity.get(liftProductCacheIdentity(item))
   }));
   const definitelyPersisted: LiftUnitCatalogItem[] = [];
 
   for (let index = 0; index < writes.length; index += 25) {
     const batch = writes.slice(index, index + 25);
-    let pending: WriteRequest[] = batch.map((write) => ({
-      PutRequest: { Item: write.dynamo_item }
-    }));
+    const transactItems: TransactWriteItem[] = batch.map((write): TransactWriteItem => {
+      const expected = write.expected_existing_item;
+      if (!expected) {
+        return {
+          Put: {
+            TableName: tableName,
+            Item: write.dynamo_item,
+            ConditionExpression:
+              "attribute_not_exists(#partition_key) AND attribute_not_exists(#sort_key)",
+            ExpressionAttributeNames: {
+              "#partition_key": "route_environment_id",
+              "#sort_key": "product_id"
+            }
+          }
+        };
+      }
+      const durableCatalogScope = expected.catalog_scope?.S?.trim();
+      return {
+        Put: {
+          TableName: tableName,
+          Item: write.dynamo_item,
+          ConditionExpression: durableCatalogScope !== undefined
+            ? "#catalog_scope = :catalog_scope"
+            : "attribute_not_exists(#catalog_scope) AND #stored_data = :expected_data",
+          ExpressionAttributeNames: durableCatalogScope !== undefined
+            ? { "#catalog_scope": "catalog_scope" }
+            : { "#catalog_scope": "catalog_scope", "#stored_data": "data" },
+          ExpressionAttributeValues: durableCatalogScope !== undefined
+            ? { ":catalog_scope": dynamoString(liftProductCatalogScope(write.item)) }
+            : { ":expected_data": expected.data as AttributeValue }
+        }
+      };
+    });
 
     try {
-      while (pending.length > 0) {
-        const response = await getDynamoClient().send(new BatchWriteItemCommand({
-          RequestItems: { [tableName]: pending }
-        }));
-        pending = response.UnprocessedItems?.[tableName] ?? [];
-      }
+      await getDynamoClient().send(new TransactWriteItemsCommand({
+        ClientRequestToken: createHash("sha256")
+          .update(refreshId)
+          .update("\0")
+          .update(String(index))
+          .digest("hex")
+          .slice(0, 36),
+        TransactItems: transactItems
+      }));
       definitelyPersisted.push(...batch.map((write) => write.item));
     } catch {
       let reconciled: LiftUnitCatalogItem[];
@@ -7106,6 +7210,28 @@ async function persistFocusedLiftProductCache(
       if (reconciled.length === batch.length) {
         continue;
       }
+      let collisionCount: number;
+      try {
+        ({ collision_count: collisionCount } = await inspectExistingLiftProductCatalogRows(
+          tableName,
+          batch.map((write) => write.item)
+        ));
+      } catch {
+        mergeScopedLiftProductCatalog(definitelyPersisted);
+        throw new LiftProductCatalogPersistenceError(
+          "uncertain",
+          definitelyPersisted.length,
+          items.length
+        );
+      }
+      if (collisionCount > 0) {
+        mergeScopedLiftProductCatalog(definitelyPersisted);
+        throw new LiftProductCatalogCollisionError(
+          collisionCount,
+          items.length,
+          definitelyPersisted.length
+        );
+      }
       mergeScopedLiftProductCatalog(definitelyPersisted);
       throw new LiftProductCatalogPersistenceError(
         "partial",
@@ -7121,9 +7247,15 @@ async function persistFocusedLiftProductCache(
 
 export async function upsertLiftProductCatalog(items: LiftUnitCatalogItem[]) {
   const timestamp = now();
+  const normalizedInput = items.map((item) =>
+    normalizeLiftCatalogItem({ ...item, updated_at: timestamp }, timestamp)
+  );
+  const incomingCollisionCount = incomingLiftProductCatalogCollisionCount(normalizedInput);
+  if (incomingCollisionCount > 0) {
+    throw new LiftProductCatalogCollisionError(incomingCollisionCount, normalizedInput.length);
+  }
   const normalizedByIdentity = new Map<string, LiftUnitCatalogItem>();
-  items.forEach((item) => {
-    const normalized = normalizeLiftCatalogItem({ ...item, updated_at: timestamp }, timestamp);
+  normalizedInput.forEach((normalized) => {
     normalizedByIdentity.set(liftProductCacheIdentity(normalized), normalized);
   });
   const normalizedItems = Array.from(normalizedByIdentity.values());
@@ -7131,13 +7263,31 @@ export async function upsertLiftProductCatalog(items: LiftUnitCatalogItem[]) {
 
   if (config.storage_driver === "dynamodb") {
     const tables = getDynamoTableConfig();
-    return persistFocusedLiftProductCache(tables.lift_product_cache, normalizedItems);
+    const inspection = await inspectExistingLiftProductCatalogRows(
+      tables.lift_product_cache,
+      normalizedItems
+    );
+    if (inspection.collision_count > 0) {
+      throw new LiftProductCatalogCollisionError(inspection.collision_count, normalizedItems.length);
+    }
+    return persistFocusedLiftProductCache(
+      tables.lift_product_cache,
+      normalizedItems,
+      inspection.existing_by_identity
+    );
   }
 
   const store = await readStore();
   const nextByIdentity = new Map(
     store.lift_unit_catalog.map((item) => [liftProductCacheIdentity(item), item])
   );
+  const collisionCount = normalizedItems.filter((item) => {
+    const existing = nextByIdentity.get(liftProductCacheIdentity(item));
+    return existing && liftProductCatalogScope(existing) !== liftProductCatalogScope(item);
+  }).length;
+  if (collisionCount > 0) {
+    throw new LiftProductCatalogCollisionError(collisionCount, normalizedItems.length);
+  }
   normalizedItems.forEach((item) => nextByIdentity.set(liftProductCacheIdentity(item), item));
 
   store.lift_unit_catalog = Array.from(nextByIdentity.values());

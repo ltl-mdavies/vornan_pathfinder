@@ -2,11 +2,11 @@
 
 This is the entry point for all new Pathfinder, Vornan Proof, and live-support tasks. Read this file before using older design notes, launch checklists, or thread handoffs.
 
-Last reconciled: **2026-08-14**
+Last reconciled: **2026-08-15**
 
-Deployed application baseline: API `6a6d436ff30c570b0d6a0ecdb32f75a263855145`; Admin `9076a7a1e1c07ba8ee673fa60591d301ff908ec7`
+Deployed application baseline: API `e331f7531c5b56eb739fdca386d8a66a81ac9e56`; Admin `cd221897e50c03d91afea41b068eb6000db6b4ac`
 
-Live evidence: read-only AWS inspection, authenticated Admin smoke, and natural scheduled-intake continuity through 2026-08-14 in account `744016783602`, region `us-east-1`
+Live evidence: read-only AWS inspection, authenticated Admin smoke, and natural scheduled-intake continuity through 2026-08-15 in account `744016783602`, region `us-east-1`
 
 ## Authority order
 
@@ -27,7 +27,7 @@ Never infer a production capability from merged code alone. Record repository-re
 
 ## Current production posture
 
-### Release A and route-only Admin hotfix deployed; template-lifecycle hotfix in review
+### Release A, route-only Admin, and template-lifecycle hotfixes deployed; catalog collision guard in review
 
 Release A is live from `6a6d436ff30c570b0d6a0ecdb32f75a263855145`. It replaces the whole-store workspace, Import Method, Output Route, catalog-preset, and Lift product-cache persistence paths with focused customer-scoped writes; adds neutral new-customer construction; and makes arbitrary populated product workbooks available for manual column setup. The API and Admin deployments preserved all Momentara scheduled intake, Lift submit, Wrike writeback, document publication, multi-proof ZIP, `TBD` → `0.5`, and `MM/DD/YYYY` behavior. The first natural post-API cycle replayed all ten candidates with zero preparations, Lift submits, Wrike writes, or failures, and no protected count or configuration changed.
 
@@ -37,7 +37,9 @@ Admin commit `9076a7a1e1c07ba8ee673fa60591d301ff908ec7` added an explicit **Choo
 
 At `2026-08-14T23:28:30.632Z`, one authorized focused save replaced `1249`'s unused Momentara-derived product recipe with the exact neutral contract: blank source/prefix/suffix, no composite columns, derived-key map-to-Lift-unit mode, no fallback, and no direct-unit column. The focused persistence boundary wrote only the workspace and exact Import Method, and no mapping, preview, provider, Lift, Wrike, or Proof action occurred.
 
-That same Import Method save also changed the linked workspace template mirror from `Draft` to `Published` because the deployed store derives template status from the already-Active method. Public intake remains disabled with no public key or publication timestamp, and no customer/external capability changed, but the template transition was outside the approved write set. Catalog refresh and the Proof pilot are stopped. The repository hotfix preserves an existing linked template object exactly during ordinary Import Method saves; a missing legacy mirror is created as `Draft`, and template lifecycle changes require a distinct explicit action. It performs no migration, backfill, or automatic correction of the currently retained `1249` template.
+That same Import Method save also changed the linked workspace template mirror from `Draft` to `Published` because the then-deployed store derived template status from the already-Active method. Public intake remains disabled with no public key or publication timestamp, and no customer/external capability changed, but the template transition was outside the approved write set. API commit `e331f7531c5b56eb739fdca386d8a66a81ac9e56` is now deployed and preserves an existing linked template object exactly during ordinary Import Method saves; a missing legacy mirror is created as `Draft`, and template lifecycle changes require a distinct explicit action. It performed no migration, backfill, or automatic correction of the currently retained `1249` template. Deployment workflow `31854780059` / job `94937352940` succeeded; artifact `api/pathfinder-api-lambda-e331f7531c5b56eb739fdca386d8a66a81ac9e56.zip` is S3 version `BvR5xDQ5sK8Vjt4c.0sc_EkR7vM0ldG6`, ETag `e68b31f4c35a85b3368464bdb3c0cd4c`, Lambda SHA-256 `+H82W0rZTqTGigPE8VcF3pu6p6E9t2BHr3p69k3D1I0=`. Natural cycle `wrike_scheduled_20260815005753101` replayed all ten candidates with zero preparations, Lift submissions, Wrike writes, or failures. Protected counts stayed `2/2/2/3/2/282/60/63/23/353/24/16/1/142/147`; alarms were `OK`, queues empty, and all Proof gates remained dark.
+
+The separately authorized PROD catalog-`6338` refresh was stopped before contacting Lift or writing cache data. The production cache identity is target + environment + company + product ID, so a catalog-`6338` product that shares a PROD product ID with catalog `8102` would overwrite that existing cache row. The current response cannot be inspected without the same request proceeding to persistence. The repository hotfix in review performs strongly consistent exact-key collision checks after the provider read and adds a durable catalog-scope marker plus transactional write-time ownership conditions. Any known cross-catalog identity collision returns a typed, sanitized no-write outcome; a collision introduced concurrently fails the affected transaction without overwriting the existing row and reports any earlier definitely persisted batch accurately. A collision-free response keeps the focused additive path and existing partial/uncertain reconciliation. No refresh, mapping, preview, submit, Wrike, or Proof action is authorized until that guard is merged, deployed, and reconciled.
 
 ### Customer-workspace persistence incident — resolved by Release A
 
