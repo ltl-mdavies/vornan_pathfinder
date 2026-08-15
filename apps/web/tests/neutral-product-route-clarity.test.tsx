@@ -29,6 +29,18 @@ test("keeps workbook product-field selection local until an explicit mapping sav
   assert.match(profileSource, /Nothing has been saved/);
 });
 
+test("sends workbook-local preview settings without saving customer setup", () => {
+  const previewSource = functionSource("createPreviewJob", "refreshSubmitCertification");
+
+  assert.match(previewSource, /\/jobs\/preview/);
+  assert.match(previewSource, /mappings,/);
+  assert.match(previewSource, /product_resolution_config:/);
+  assert.match(previewSource, /product_resolution_overrides:/);
+  assert.match(previewSource, /order_name_resolution_config:/);
+  assert.match(previewSource, /ext_id_strategy:/);
+  assert.doesNotMatch(previewSource, /persistImportMethod|saveImportMethod|product-mappings\/bulk/);
+});
+
 test("labels the reusable target separately from the selected customer route", () => {
   assert.match(source, />Reusable target</);
   assert.match(source, /title="Target Environments" detail="Reusable connections"/);

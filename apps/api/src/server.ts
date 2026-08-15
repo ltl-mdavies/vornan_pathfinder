@@ -8180,6 +8180,7 @@ async function createPreviewJobForRequest(
     referenceProofEvidenceIds?: string[];
     existingJob?: ProcessingJobPreview;
     dryRun?: boolean;
+    requestLocalManualPreview?: boolean;
     recovery?: {
       actor_id: string;
       previous_mapping_fingerprint: string;
@@ -8221,6 +8222,7 @@ async function createPreviewJobForRequest(
     const sheetName = body.sheet_name ? String(body.sheet_name) : null;
     const requestedMethodId = body.import_method_id ? String(body.import_method_id) : null;
     const isAdHocManualImport = requestedMethodId === "ad-hoc";
+    const isRequestLocalManualPreview = options?.requestLocalManualPreview === true;
     const existingMethod = requestedMethodId
       ? workspace.import_methods.find((method) => method.import_method_id === requestedMethodId)
       : workspace.import_methods.find((method) => method.import_method_id === "manual-xlsx") ?? workspace.import_methods[0];
@@ -8377,7 +8379,7 @@ async function createPreviewJobForRequest(
         updated_at: timestamp
       } satisfies CustomerProductMapping;
     });
-    const nextProductMappings = options?.dryRun
+    const nextProductMappings = options?.dryRun || isRequestLocalManualPreview
       ? seenMappings
       : await bulkUpsertProductMappings(customer, seenMappings);
     const unresolvedProductKeys = new Set(
@@ -8452,59 +8454,100 @@ async function createPreviewJobForRequest(
       }),
       ...validateOrderNameResolution(orderNameResolution.result, method.order_name_resolution_config)
     ];
-    const pathfinderOrderId =
-      options?.existingJob?.pathfinder_order_id ?? (await reservePathfinderOrderNumber());
-    const generatedLiftPayload = generateLiftPayload(canonicalOrder, {
-      jobId,
-      canonicalOrderId,
-      pathfinderOrderId,
-      extIdStrategy: method.ext_id_strategy
-    }, liftDocumentOutputFieldsForRoute(target, outputRoute));
     const outputTemplate = target.output_templates.find(
       (candidate) => candidate.output_template_id === outputRoute.output_template_id
     );
-    const rawLiftPayload = applyLiftOrderOutputMappings(
-      generatedLiftPayload,
-      canonicalOrder,
-      outputTemplate?.canonical_mappings ?? []
-    );
-    const datedLift = prepareLiftOrderDateFormat(
-      rawLiftPayload,
-      target.lift.order_date_format ?? "MM/DD/YYYY"
-    );
-    const normalizedLift = applyValueNormalizationToLiftPayload(
-      datedLift.payload,
-      outputRoute.value_normalization_rules
-    );
-    const liftPayload = normalizedLift.payload;
-    if (options?.existingJob) {
-      liftPayload.order.ext_id = options.existingJob.lift_payload.order.ext_id;
-      liftPayload.source.pathfinder_job_id = options.existingJob.job_id;
-      liftPayload.source.pathfinder_canonical_order_id =
-        options.existingJob.lift_payload.source.pathfinder_canonical_order_id;
-    }
-    const baseLiftValidation = validateLiftPayload(liftPayload, {
-      product_identifier_type: outputRoute.product_identifier_type,
-      product_identifier_label: outputRoute.product_identifier_label
-    });
-    const liftValidation = [
-      ...(datedLift.validation.length || normalizedLift.validation.length
-        ? baseLiftValidation.filter((message) => message.severity !== "PASS")
-        : baseLiftValidation),
-      ...datedLift.validation,
-      ...normalizedLift.validation
-    ];
     const routeLiftConfig = liftConfigForRoute(target, outputRoute);
     const routeEnvironment = routeEnvironmentForTarget(target, outputRoute);
-    const unmaskedSubmitRequest = buildLiftSubmitRequest(liftPayload, routeLiftConfig);
-    const submitValidation = validateSubmitReadiness(unmaskedSubmitRequest, liftPayload, submitProfile, outputRoute);
-    const submitRequest = maskLiftSubmitRequest(unmaskedSubmitRequest);
-    const submitIntegrity = buildSubmitIntegritySnapshot({
-      payload: liftPayload,
-      submit_request_masked: submitRequest,
-      source_document_publications: options?.sourceDocumentPublications,
-      reviewed_at: timestamp
-    });
+    const preparePreviewPayload = (pathfinderOrderId: string) => {
+      const generatedLiftPayload = generateLiftPayload(canonicalOrder, {
+        jobId,
+        canonicalOrderId,
+        pathfinderOrderId,
+        extIdStrategy: method.ext_id_strategy
+      }, liftDocumentOutputFieldsForRoute(target, outputRoute));
+      const rawLiftPayload = applyLiftOrderOutputMappings(
+        generatedLiftPayload,
+        canonicalOrder,
+        outputTemplate?.canonical_mappings ?? []
+      );
+      const datedLift = prepareLiftOrderDateFormat(
+        rawLiftPayload,
+        target.lift.order_date_format ?? "MM/DD/YYYY"
+      );
+      const normalizedLift = applyValueNormalizationToLiftPayload(
+        datedLift.payload,
+        outputRoute.value_normalization_rules
+      );
+      const liftPayload = normalizedLift.payload;
+      if (options?.existingJob) {
+        liftPayload.order.ext_id = options.existingJob.lift_payload.order.ext_id;
+        liftPayload.source.pathfinder_job_id = options.existingJob.job_id;
+        liftPayload.source.pathfinder_canonical_order_id =
+          options.existingJob.lift_payload.source.pathfinder_canonical_order_id;
+      }
+      const baseLiftValidation = validateLiftPayload(liftPayload, {
+        product_identifier_type: outputRoute.product_identifier_type,
+        product_identifier_label: outputRoute.product_identifier_label
+      });
+      const liftValidation = [
+        ...(datedLift.validation.length || normalizedLift.validation.length
+          ? baseLiftValidation.filter((message) => message.severity !== "PASS")
+          : baseLiftValidation),
+        ...datedLift.validation,
+        ...normalizedLift.validation
+      ];
+      const unmaskedSubmitRequest = buildLiftSubmitRequest(liftPayload, routeLiftConfig);
+      const submitValidation = validateSubmitReadiness(
+        unmaskedSubmitRequest,
+        liftPayload,
+        submitProfile,
+        outputRoute
+      );
+      const submitRequest = maskLiftSubmitRequest(unmaskedSubmitRequest);
+      const submitIntegrity = buildSubmitIntegritySnapshot({
+        payload: liftPayload,
+        submit_request_masked: submitRequest,
+        source_document_publications: options?.sourceDocumentPublications,
+        reviewed_at: timestamp
+      });
+      return {
+        liftPayload,
+        liftValidation,
+        submitValidation,
+        unmaskedSubmitRequest,
+        submitRequest,
+        submitIntegrity
+      };
+    };
+
+    if (isRequestLocalManualPreview) {
+      const preflight = preparePreviewPayload("PFLOCALPREVIEW");
+      const preflightFailures = [
+        ...canonicalValidation,
+        ...preflight.liftValidation,
+        ...preflight.submitValidation
+      ].filter((message) => message.severity === "FAIL");
+      if (unresolvedProducts.length > 0 || preflightFailures.length > 0) {
+        const firstFailure = preflightFailures[0];
+        const message = unresolvedProducts.length > 0
+          ? `${unresolvedProducts.length} product mapping${unresolvedProducts.length === 1 ? " is" : "s are"} required before creating this preview.`
+          : firstFailure?.message ?? "This order needs correction before a preview can be created.";
+        throw Object.assign(new Error(message), { statusCode: 400 });
+      }
+    }
+
+    const pathfinderOrderId =
+      options?.existingJob?.pathfinder_order_id ?? (await reservePathfinderOrderNumber());
+    const preparedPreview = preparePreviewPayload(pathfinderOrderId);
+    const {
+      liftPayload,
+      liftValidation,
+      submitValidation,
+      unmaskedSubmitRequest,
+      submitRequest,
+      submitIntegrity
+    } = preparedPreview;
     const allMessages = [...canonicalValidation, ...liftValidation, ...submitValidation];
     const jobState: ProcessingJobPreview["state"] = unresolvedProducts.length
       ? "Needs Mapping"
@@ -8579,6 +8622,17 @@ async function createPreviewJobForRequest(
       parsed_order_rows: orderRows,
       reference_rows: referenceRows,
       mappings,
+      manual_preview_basis: isRequestLocalManualPreview
+        ? {
+            mode: "request_local",
+            mappings,
+            product_resolution_config: method.product_resolution_config,
+            product_resolution_overrides: method.product_resolution_overrides,
+            order_name_resolution_config: method.order_name_resolution_config,
+            ext_id_strategy: method.ext_id_strategy,
+            captured_at: timestamp
+          }
+        : options?.existingJob?.manual_preview_basis ?? null,
       product_resolution_results: productResolutionResults,
       order_name_resolution_result: orderNameResolution.result,
       unresolved_products: unresolvedProducts,
@@ -8641,7 +8695,7 @@ async function createPreviewJobForRequest(
       };
     }
     const nextWorkspace = await persistPreviewJob(customer, job, method, {
-      persistMethod: !isAdHocManualImport && !options?.existingJob
+      persistMethod: !isRequestLocalManualPreview && !isAdHocManualImport && !options?.existingJob
     });
 
     return {
@@ -8655,7 +8709,12 @@ async function createPreviewJobForRequest(
 
 app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
   try {
-    res.json(await createPreviewJobForRequest(req.params.liftCustomerId, req.body as Record<string, unknown>));
+    res.json(await createPreviewJobForRequest(
+      req.params.liftCustomerId,
+      req.body as Record<string, unknown>,
+      undefined,
+      { requestLocalManualPreview: true }
+    ));
   } catch (error) {
     const statusCode =
       error && typeof error === "object" && "statusCode" in error && error.statusCode === 400 ? 400 : 500;
