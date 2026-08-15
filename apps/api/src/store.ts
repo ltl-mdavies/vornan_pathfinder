@@ -5238,12 +5238,17 @@ export async function updateImportMethod(customer: LiftCustomer, methodId: strin
     nextMethod,
     ...workspace.import_methods.filter((method) => method.import_method_id !== methodId)
   ];
+  const existingTemplate = workspace.templates.find(
+    (template) => template.template_id === nextMethod.template_id
+  );
   workspace.templates = [
-    {
+    existingTemplate ?? {
       template_id: nextMethod.template_id,
       name: `${nextMethod.name} Field Mapping`,
       version: "1.0.0",
-      status: nextMethod.status === "Active" ? "Published" : "Draft",
+      // A missing legacy mirror is created safely as Draft. Existing template
+      // lifecycle and content change only through an explicit template action.
+      status: "Draft",
       mappings: nextMethod.mappings,
       updated_at: timestamp
     },

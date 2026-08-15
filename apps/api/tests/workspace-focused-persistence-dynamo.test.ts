@@ -295,13 +295,66 @@ test("creates one isolated customer workspace without rewriting Jobs or cache ta
 
 test("saves an Import Method through only its workspace and method records", async () => {
   const workspace = await getOrCreateWorkspace(customer);
+  const templateBefore = workspace.templates.find(
+    (template) => template.template_id === "template_manual_xlsx_v1"
+  );
+  assert.ok(templateBefore);
+  assert.equal(templateBefore.status, "Draft");
   commands.length = 0;
 
-  await updateImportMethod(customer, "manual-xlsx", {
+  const saved = await updateImportMethod(customer, "manual-xlsx", {
     ...workspace.import_methods.find((method) => method.import_method_id === "manual-xlsx")!,
     name: "LTL Demo Manual XLSX"
   });
 
+  const templateAfter = saved.templates.find(
+    (template) => template.template_id === "template_manual_xlsx_v1"
+  );
+  assert.ok(templateAfter);
+  assert.deepEqual(templateAfter, templateBefore);
+
+  assert.deepEqual(new Set(transactionTables()), new Set([
+    tableNames.workspaces,
+    tableNames.importMethods
+  ]));
+  assert.ok(!transactionTables().includes(tableNames.jobs));
+  assert.ok(!transactionTables().includes(tableNames.liftProductCache));
+});
+
+test("creates a missing legacy template mirror as Draft through the focused method save", async () => {
+  const workspace = await getOrCreateWorkspace(customer);
+  const workspaceItem = (tableItems.get(tableNames.workspaces) ?? []).find(
+    (item) => item.customer_id?.S === customer.lift_customer_id
+  );
+  assert.ok(workspaceItem?.data.S);
+  const workspaceWithoutTemplate = JSON.parse(workspaceItem.data.S);
+  workspaceWithoutTemplate.templates = workspaceWithoutTemplate.templates.filter(
+    (template: { template_id?: string }) => template.template_id !== "template_manual_xlsx_v1"
+  );
+  workspaceItem.data = stringValue(JSON.stringify(workspaceWithoutTemplate));
+  commands.length = 0;
+
+  const methodBefore = workspace.import_methods.find(
+    (method) => method.import_method_id === "manual-xlsx"
+  );
+  assert.ok(methodBefore);
+  const saved = await updateImportMethod(customer, "manual-xlsx", {
+    product_resolution_config: {
+      ...methodBefore.product_resolution_config,
+      source_column: ""
+    }
+  });
+
+  const methodAfter = saved.import_methods.find(
+    (method) => method.import_method_id === "manual-xlsx"
+  );
+  const templateAfter = saved.templates.find(
+    (template) => template.template_id === "template_manual_xlsx_v1"
+  );
+  assert.ok(methodAfter);
+  assert.ok(templateAfter);
+  assert.equal(templateAfter.status, "Draft");
+  assert.deepEqual(templateAfter.mappings, methodAfter.mappings);
   assert.deepEqual(new Set(transactionTables()), new Set([
     tableNames.workspaces,
     tableNames.importMethods

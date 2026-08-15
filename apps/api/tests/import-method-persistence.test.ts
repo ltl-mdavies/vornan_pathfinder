@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, before } from "node:test";
@@ -71,6 +71,60 @@ test("reserves compact unique Pathfinder Order Numbers in local development", as
 test("uses the Pathfinder Order Number for newly seeded Import Methods", async () => {
   const workspace = await getOrCreateWorkspace(testCustomer);
   assert.equal(importMethod(workspace, "manual-xlsx").ext_id_strategy, "pathfinder_generated");
+});
+
+test("ordinary Import Method saves preserve the linked template lifecycle", async () => {
+  const before = await getOrCreateWorkspace(testCustomer);
+  const templateBefore = before.templates.find(
+    (template) => template.template_id === "template_manual_xlsx_v1"
+  );
+  assert.ok(templateBefore);
+  assert.equal(templateBefore.status, "Draft");
+
+  const saved = await updateImportMethod(testCustomer, "manual-xlsx", {
+    product_resolution_config: {
+      strategy: "source_column",
+      mode: "normalized_key",
+      source_column: "",
+      prefix: "",
+      suffix: "",
+      composite_columns: [],
+      fallback_strategy: "none",
+      direct_unit_number_column: null
+    }
+  } as any);
+
+  const methodAfter = importMethod(saved, "manual-xlsx");
+  const templateAfter = saved.templates.find(
+    (template) => template.template_id === "template_manual_xlsx_v1"
+  );
+  assert.ok(templateAfter);
+  assert.equal(methodAfter.status, "Active");
+  assert.deepEqual(templateAfter, templateBefore);
+
+  const persistedStore = JSON.parse(await readFile(testStorePath, "utf8"));
+  const persistedTemplate = persistedStore.workspaces[testCustomer.lift_customer_id].templates.find(
+    (template: any) => template.template_id === "template_manual_xlsx_v1"
+  );
+  persistedTemplate.status = "Published";
+  await writeFile(testStorePath, JSON.stringify(persistedStore, null, 2));
+
+  const publishedBefore = (await getOrCreateWorkspace(testCustomer)).templates.find(
+    (template) => template.template_id === "template_manual_xlsx_v1"
+  );
+  assert.ok(publishedBefore);
+  assert.equal(publishedBefore.status, "Published");
+
+  const savedPublished = await updateImportMethod(testCustomer, "manual-xlsx", {
+    product_resolution_config: {
+      ...methodAfter.product_resolution_config,
+      source_column: "Customer Product"
+    }
+  } as any);
+  const publishedAfter = savedPublished.templates.find(
+    (template) => template.template_id === "template_manual_xlsx_v1"
+  );
+  assert.deepEqual(publishedAfter, publishedBefore);
 });
 
 test("persists a Wrike source contract without retaining credentials or weakening preview review", async () => {
@@ -225,6 +279,10 @@ test("persists bounded Wrike operations evidence without changing or losing cust
 test("persists detected schemas and mappings without retaining workbook rows", async () => {
   const initialWorkspace = await getOrCreateWorkspace(testCustomer);
   const initialMethod = importMethod(initialWorkspace, "manual-xlsx");
+  const initialTemplate = initialWorkspace.templates.find(
+    (template) => template.template_id === initialMethod.template_id
+  );
+  assert.ok(initialTemplate);
   const mappings = [
     {
       sourceColumn: "Order Number",
@@ -389,7 +447,7 @@ test("persists detected schemas and mappings without retaining workbook rows", a
     (template: any) => template.template_id === initialMethod.template_id
   );
   assert.ok(savedTemplate);
-  assert.deepEqual(savedTemplate.mappings, mappings);
+  assert.deepEqual(savedTemplate, initialTemplate);
 
   const reloadedWorkspace = await getOrCreateWorkspace(testCustomer);
   const reloadedMethod = importMethod(reloadedWorkspace, "manual-xlsx");
