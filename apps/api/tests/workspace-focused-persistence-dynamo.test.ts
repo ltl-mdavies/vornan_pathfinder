@@ -21,6 +21,7 @@ let failCatalogBatchAt: number | null = null;
 let failCatalogReconciliationReads = false;
 let injectCatalogCollisionAtWrite = false;
 let catalogTransactionWriteCount = 0;
+let failProductMappingWrite = false;
 const tableNames = {
   customers: "Pathfinder-CUSTOMERS-focused",
   workspaces: "Pathfinder-CUSTOMER_WORKSPACES-focused",
@@ -71,6 +72,7 @@ function keyNamesForTable(tableName: string) {
   if (tableName === tableNames.importMethods) return ["customer_id", "import_method_id"];
   if (tableName === tableNames.outputRoutes) return ["customer_id", "output_route_id"];
   if (tableName === tableNames.liftProductCache) return ["route_environment_id", "product_id"];
+  if (tableName === tableNames.productMappings) return ["customer_route_id", "mapping_id"];
   if (tableName === tableNames.targets) return ["target_id"];
   return ["customer_id"];
 }
@@ -87,6 +89,7 @@ const originalSend = clientPrototype.send;
 let getOrCreateWorkspace: typeof import("../src/store.ts")["getOrCreateWorkspace"];
 let updateImportMethod: typeof import("../src/store.ts")["updateImportMethod"];
 let updateOutputRoute: typeof import("../src/store.ts")["updateOutputRoute"];
+let updateProductMapping: typeof import("../src/store.ts")["updateProductMapping"];
 let upsertCatalogPreset: typeof import("../src/store.ts")["upsertCatalogPreset"];
 let deleteCatalogPreset: typeof import("../src/store.ts")["deleteCatalogPreset"];
 let upsertLiftProductCatalog: typeof import("../src/store.ts")["upsertLiftProductCatalog"];
@@ -149,6 +152,14 @@ before(async () => {
       return { Item: item ? structuredClone(item) : undefined };
     }
     if (command instanceof TransactWriteItemsCommand) {
+      const productMappingTransactions = (command.input.TransactItems ?? []).filter(
+        (transaction) => transaction.Put?.TableName === tableNames.productMappings
+      );
+      if (failProductMappingWrite && productMappingTransactions.length > 0) {
+        const error = new Error("simulated product mapping persistence failure");
+        error.name = "ProvisionedThroughputExceededException";
+        throw error;
+      }
       const catalogTransactions = (command.input.TransactItems ?? []).filter(
         (transaction) => transaction.Put?.TableName === tableNames.liftProductCache
       );
@@ -260,6 +271,7 @@ before(async () => {
     getOrCreateWorkspace,
     updateImportMethod,
     updateOutputRoute,
+    updateProductMapping,
     upsertCatalogPreset,
     deleteCatalogPreset,
     upsertLiftProductCatalog
@@ -276,6 +288,7 @@ beforeEach(() => {
   failCatalogReconciliationReads = false;
   injectCatalogCollisionAtWrite = false;
   catalogTransactionWriteCount = 0;
+  failProductMappingWrite = false;
 });
 
 after(() => {
@@ -449,6 +462,74 @@ test("saves an Output Route through only its workspace, route, and linked method
     tableNames.importMethods
   ]));
   assert.ok(!transactionTables().includes(tableNames.jobs));
+  assert.ok(!transactionTables().includes(tableNames.liftProductCache));
+});
+
+test("approves exactly one customer-route product mapping without rewriting any other table", async () => {
+  const workspace = await getOrCreateWorkspace(customer);
+  const route = workspace.output_routes[0];
+  commands.length = 0;
+
+  const saved = await updateProductMapping(customer, "mapping-1249-one-sheet", {
+    output_route_id: route.output_route_id,
+    customer_product_key: "ONE_SHEET_30_375X46_375",
+    display_label: "One Sheet",
+    source_columns: ["Product"],
+    product_identifier_value: "348390",
+    lift_product_id: "348390",
+    product_name: "One Sheet",
+    status: "Mapped",
+    mapping_source: "Observed order"
+  });
+
+  assert.equal(saved.changed, true);
+  assert.equal(saved.product_mapping.product_identifier_value, "348390");
+  assert.deepEqual(new Set(transactionTables()), new Set([tableNames.productMappings]));
+  assert.ok(!transactionTables().includes(tableNames.jobs));
+  assert.ok(!transactionTables().includes(tableNames.workspaces));
+  assert.ok(!transactionTables().includes(tableNames.outputRoutes));
+  assert.ok(!transactionTables().includes(tableNames.importMethods));
+  assert.ok(!transactionTables().includes(tableNames.liftProductCache));
+
+  commands.length = 0;
+  const repeated = await updateProductMapping(customer, "mapping-1249-one-sheet", {
+    output_route_id: route.output_route_id,
+    customer_product_key: "ONE_SHEET_30_375X46_375",
+    display_label: "One Sheet",
+    source_columns: ["Product"],
+    product_identifier_value: "348390",
+    lift_product_id: "348390",
+    product_name: "One Sheet",
+    status: "Mapped",
+    mapping_source: "Observed order"
+  });
+  assert.equal(repeated.changed, false);
+  assert.equal(transactionTables().length, 0, "an identical approval must be a no-op");
+});
+
+test("a failed focused product mapping write never falls through to another table", async () => {
+  const workspace = await getOrCreateWorkspace(customer);
+  const route = workspace.output_routes[0];
+  commands.length = 0;
+  failProductMappingWrite = true;
+
+  await assert.rejects(
+    updateProductMapping(customer, "mapping-1249-failed", {
+      output_route_id: route.output_route_id,
+      customer_product_key: "PUMP_TOPPER_CHEVRON",
+      display_label: "Pump Topper Chevron",
+      source_columns: ["Product"],
+      product_identifier_value: "348392",
+      lift_product_id: "348392",
+      product_name: "Pump Topper Chevron",
+      status: "Mapped"
+    }),
+    { name: "ProvisionedThroughputExceededException" }
+  );
+
+  assert.deepEqual(new Set(transactionTables()), new Set([tableNames.productMappings]));
+  assert.ok(!transactionTables().includes(tableNames.jobs));
+  assert.ok(!transactionTables().includes(tableNames.workspaces));
   assert.ok(!transactionTables().includes(tableNames.liftProductCache));
 });
 

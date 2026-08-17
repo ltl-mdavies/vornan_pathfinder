@@ -3991,6 +3991,13 @@ export class WorkspacePersistenceConflictError extends Error {
   }
 }
 
+export class ProductMappingValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProductMappingValidationError";
+  }
+}
+
 export class CatalogPresetValidationError extends Error {
   constructor(message: string) {
     super(message);
@@ -7325,12 +7332,21 @@ export async function updateProductMapping(
   const store = await readStore();
   const workspace = normalizeWorkspace(store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer));
   const timestamp = now();
-  const route =
-    workspace.output_routes.find((candidate) => candidate.output_route_id === patch.output_route_id) ??
-    workspace.output_routes.find((candidate) => candidate.output_route_id === workspace.primary_output_route_id) ??
-    createSeedOutputRoute(timestamp);
+  const existingMapping = workspace.product_mappings.find((mapping) => mapping.mapping_id === mappingId);
+  const requestedRouteId = String(
+    patch.output_route_id ?? existingMapping?.output_route_id ?? workspace.primary_output_route_id ?? ""
+  ).trim();
+  const route = workspace.output_routes.find(
+    (candidate) => candidate.output_route_id === requestedRouteId
+  );
+  if (!route) {
+    throw new ProductMappingValidationError("Choose a valid customer route before approving this product mapping.");
+  }
+  if (existingMapping && existingMapping.output_route_id !== route.output_route_id) {
+    throw new ProductMappingValidationError("This product mapping belongs to a different customer route.");
+  }
   const existing =
-    workspace.product_mappings.find((mapping) => mapping.mapping_id === mappingId) ??
+    existingMapping ??
     ({
       mapping_id: mappingId,
       output_route_id: route.output_route_id,
@@ -7354,15 +7370,14 @@ export async function updateProductMapping(
     ...existing,
     ...patch,
     mapping_id: mappingId,
-    output_route_id: patch.output_route_id ?? existing.output_route_id ?? route.output_route_id,
-    target_id: patch.target_id ?? existing.target_id ?? route.target_id,
-    target_template: patch.target_template ?? existing.target_template ?? route.output_template,
+    output_route_id: route.output_route_id,
+    target_id: route.target_id,
+    target_template: route.output_template,
     replacement_version_id:
-      patch.replacement_version_id ??
       existing.replacement_version_id ??
-      activeProductMappingVersion(workspace, patch.output_route_id ?? existing.output_route_id ?? route.output_route_id),
+      activeProductMappingVersion(workspace, route.output_route_id),
     product_identifier_type:
-      patch.product_identifier_type ?? existing.product_identifier_type ?? route.product_identifier_type,
+      route.product_identifier_type,
     product_identifier_value:
       patch.product_identifier_value ??
       patch.lift_unit_number ??
@@ -7394,14 +7409,50 @@ export async function updateProductMapping(
     updated_at: timestamp
   };
 
+  if (existingMapping) {
+    const { updated_at: _existingUpdatedAt, ...existingComparable } = normalizeProductMapping(existingMapping);
+    const { updated_at: _nextUpdatedAt, ...nextComparable } = normalizeProductMapping(nextMapping);
+    if (JSON.stringify(existingComparable) === JSON.stringify(nextComparable)) {
+      return {
+        product_mappings: workspace.product_mappings,
+        product_mapping: existingMapping,
+        changed: false
+      };
+    }
+  }
+
   workspace.product_mappings = [
     nextMapping,
     ...workspace.product_mappings.filter((mapping) => mapping.mapping_id !== mappingId)
   ];
   workspace.updated_at = timestamp;
   store.workspaces[customer.lift_customer_id] = workspace;
-  await writeStore(store);
-  return workspace.product_mappings;
+  const config = getPathfinderPersistenceRuntimeConfig();
+  if (config.storage_driver === "dynamodb") {
+    await persistFocusedDynamoRecords(
+      [{
+        table_name: getDynamoTableConfig().product_mappings,
+        keys: {
+          customer_route_id: customerRouteKey(
+            customer.lift_customer_id,
+            nextMapping.output_route_id,
+            nextMapping.replacement_version_id
+          ),
+          mapping_id: nextMapping.mapping_id
+        },
+        data: { ...nextMapping, customer_id: customer.lift_customer_id },
+        expected_updated_at: existingMapping?.updated_at ?? null
+      }],
+      `product-mapping-save\0${customer.lift_customer_id}\0${nextMapping.output_route_id}\0${nextMapping.mapping_id}\0${timestamp}`
+    );
+  } else {
+    await writeStore(store);
+  }
+  return {
+    product_mappings: workspace.product_mappings,
+    product_mapping: nextMapping,
+    changed: true
+  };
 }
 
 export async function bulkUpsertProductMappings(customer: LiftCustomer, mappings: CustomerProductMapping[]) {

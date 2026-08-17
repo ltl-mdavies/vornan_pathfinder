@@ -202,6 +202,7 @@ import {
   reserveSubmitAttempt,
   rebindActiveOrderStatusTokensForJob,
   previewProductMappingReplacement,
+  ProductMappingValidationError,
   ProductMappingReplacementConflictError,
   ProductMappingReplacementValidationError,
   PublicIntakeLifecycleError,
@@ -8145,15 +8146,94 @@ app.get("/api/lift/unit-catalog", async (req, res) => {
   }
 });
 
+type ProductMappingPersistenceOutcome = "success" | "conflict" | "invalid" | "persistence_uncertain";
+
+function emitProductMappingPersistenceTelemetry(args: {
+  correlation_id: string;
+  customer_id: string;
+  output_route_id: string;
+  mapping_id: string;
+  outcome: ProductMappingPersistenceOutcome;
+  changed: boolean;
+  duration_ms: number;
+}) {
+  console.info(JSON.stringify({
+    _aws: {
+      Timestamp: Date.now(),
+      CloudWatchMetrics: [{
+        Namespace: "Pathfinder/ProductMappingPersistence",
+        Dimensions: [["Service", "Outcome"]],
+        Metrics: [
+          { Name: "PersistenceRequest", Unit: "Count" },
+          { Name: "PersistenceFailure", Unit: "Count" },
+          { Name: "PersistenceDuration", Unit: "Milliseconds" }
+        ]
+      }]
+    },
+    event: "product_mapping_persistence_complete",
+    service: "pathfinder-api",
+    correlation_id: safeRequestCorrelationId(args.correlation_id),
+    outcome: args.outcome,
+    customer_id_hash: createHash("sha256").update(args.customer_id).digest("hex").slice(0, 16),
+    output_route_id_hash: createHash("sha256").update(args.output_route_id).digest("hex").slice(0, 16),
+    mapping_id_hash: createHash("sha256").update(args.mapping_id).digest("hex").slice(0, 16),
+    table_classes: ["product_mapping"],
+    changed: args.changed,
+    external_effects: false,
+    PersistenceRequest: 1,
+    PersistenceFailure: args.outcome === "success" ? 0 : 1,
+    PersistenceDuration: Math.max(0, args.duration_ms)
+  }));
+}
+
 app.put("/api/customers/:liftCustomerId/product-mappings/:mappingId", async (req, res) => {
+  const startedAt = Date.now();
+  const customerId = req.params.liftCustomerId;
+  const mappingId = req.params.mappingId;
+  const outputRouteId = String(req.body?.output_route_id ?? "").trim();
+  const correlationId = String(req.header("x-correlation-id") ?? req.header("x-request-id") ?? "");
   try {
-    const customer = await findLiftCustomer(req.params.liftCustomerId);
-    res.json({
-      product_mappings: await updateProductMapping(customer, req.params.mappingId, req.body as Partial<CustomerProductMapping>)
+    const customer = await findLiftCustomer(customerId);
+    const result = await updateProductMapping(customer, mappingId, req.body as Partial<CustomerProductMapping>);
+    emitProductMappingPersistenceTelemetry({
+      correlation_id: correlationId,
+      customer_id: customerId,
+      output_route_id: result.product_mapping.output_route_id,
+      mapping_id: mappingId,
+      outcome: "success",
+      changed: result.changed,
+      duration_ms: Date.now() - startedAt
     });
+    res.json({ ...result, external_effects: false });
   } catch (error) {
-    res.status(500).json({
-      error: error instanceof Error ? error.message : "Product mapping save failed."
+    const invalid = error instanceof ProductMappingValidationError;
+    const conflict = error instanceof WorkspacePersistenceConflictError;
+    const outcome: ProductMappingPersistenceOutcome = invalid
+      ? "invalid"
+      : conflict
+        ? "conflict"
+        : "persistence_uncertain";
+    emitProductMappingPersistenceTelemetry({
+      correlation_id: correlationId,
+      customer_id: customerId,
+      output_route_id: outputRouteId,
+      mapping_id: mappingId,
+      outcome,
+      changed: false,
+      duration_ms: Date.now() - startedAt
+    });
+    res.status(invalid ? 400 : conflict ? 409 : 503).json({
+      code: invalid
+        ? "product_mapping_invalid"
+        : conflict
+          ? "product_mapping_save_conflict"
+          : "product_mapping_persistence_uncertain",
+      error: invalid
+        ? error.message
+        : conflict
+          ? "This product mapping changed while you were approving it. Reload the page before taking another action. No preview or Lift order was created."
+          : "Pathfinder could not confirm whether this product mapping was saved. Reload the page before taking another action. No preview or Lift order was created.",
+      external_effects: false
     });
   }
 });
