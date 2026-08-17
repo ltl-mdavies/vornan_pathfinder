@@ -227,6 +227,7 @@ import {
   upsertCustomerProofOrderOverride,
   removeCustomerProofOrderOverride,
   CustomerProofCapabilityConflictError,
+  CustomerProofCapabilityPersistenceError,
   CustomerProofCapabilityValidationError,
   updateTarget,
   TargetInUseError,
@@ -7273,6 +7274,74 @@ app.get("/api/lift/customers", async (req, res) => {
 
 type WorkspacePersistenceOperation = "workspace_create" | "import_method_save" | "output_route_save";
 
+type ProofCapabilityPolicyPersistenceOperation = "customer_default_save" | "order_override_save" | "order_override_remove";
+type ProofCapabilityPolicyPersistenceOutcome = "success" | "idempotent" | "conflict" | "invalid" | "temporarily_unavailable";
+
+function emitProofCapabilityPolicyPersistenceTelemetry(args: {
+  customer_id: string;
+  order_number?: string | null;
+  operation: ProofCapabilityPolicyPersistenceOperation;
+  outcome: ProofCapabilityPolicyPersistenceOutcome;
+  changed: boolean;
+  duration_ms: number;
+}) {
+  console.info(JSON.stringify({
+    _aws: {
+      Timestamp: Date.now(),
+      CloudWatchMetrics: [{
+        Namespace: "Pathfinder/ProofCapabilityPersistence",
+        Dimensions: [["Service", "Operation", "Outcome"]],
+        Metrics: [
+          { Name: "PersistenceRequest", Unit: "Count" },
+          { Name: "PersistenceFailure", Unit: "Count" },
+          { Name: "PersistenceDuration", Unit: "Milliseconds" }
+        ]
+      }]
+    },
+    event: "proof_capability_policy_persistence_complete",
+    service: "pathfinder-api",
+    operation: args.operation,
+    outcome: args.outcome,
+    customer_id_hash: createHash("sha256").update(args.customer_id).digest("hex").slice(0, 16),
+    order_number_hash: args.order_number
+      ? createHash("sha256").update(args.order_number).digest("hex").slice(0, 16)
+      : null,
+    table_classes: ["customer_workspace"],
+    changed: args.changed,
+    external_effects: false,
+    PersistenceRequest: 1,
+    PersistenceFailure: args.outcome === "success" || args.outcome === "idempotent" ? 0 : 1,
+    PersistenceDuration: Math.max(0, args.duration_ms)
+  }));
+}
+
+function proofCapabilityPolicyPersistenceFailure(error: unknown) {
+  if (error instanceof CustomerProofCapabilityConflictError) {
+    return {
+      status: 409,
+      outcome: "conflict" as const,
+      code: "proof_capability_policy_conflict",
+      message: "Vornan Proof settings changed after this customer page was loaded. Reload the customer workspace before saving again."
+    };
+  }
+  if (error instanceof CustomerProofCapabilityValidationError) {
+    return {
+      status: 400,
+      outcome: "invalid" as const,
+      code: "proof_capability_policy_invalid",
+      message: error.message
+    };
+  }
+  return {
+    status: 503,
+    outcome: "temporarily_unavailable" as const,
+    code: "proof_capability_policy_temporarily_unavailable",
+    message: error instanceof CustomerProofCapabilityPersistenceError
+      ? error.message
+      : "Vornan Proof settings could not be saved right now. Reload the customer workspace before trying again."
+  };
+}
+
 function emitWorkspacePersistenceTelemetry(args: {
   customer_id: string;
   operation: WorkspacePersistenceOperation;
@@ -7702,6 +7771,7 @@ app.post("/api/customers/:liftCustomerId/proof-capability-policy/identity", asyn
 });
 
 app.put("/api/customers/:liftCustomerId/proof-capability-policy", async (req, res) => {
+  const startedAt = Date.now();
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
     const authUser = res.locals.authUser as { uid?: unknown } | undefined;
@@ -7709,38 +7779,6 @@ app.put("/api/customers/:liftCustomerId/proof-capability-policy", async (req, re
     const patch = req.body as Partial<CustomerProofCapabilityPolicy> & {
       expected_policy_updated_at?: unknown;
     };
-    const previousWorkspace = await getOrCreateWorkspace(customer);
-    const capabilityChanging =
-      previousWorkspace.proof_capability_policy.access_mode !== patch.access_mode ||
-      previousWorkspace.proof_capability_policy.review_experience !== patch.review_experience;
-    if (previousWorkspace.proof_capability_policy.updated_at !== patch.expected_policy_updated_at) {
-      throw new CustomerProofCapabilityConflictError();
-    }
-    const customerOrderNumbers = capabilityChanging
-      ? [...new Set((await listJobs())
-          .filter((job) => job.customer_id === customer.lift_customer_id)
-          .map((job) => job.target_order_number?.trim().toUpperCase())
-          .filter((orderNumber): orderNumber is string => /^A\d{7,8}$/.test(orderNumber ?? "")))]
-      : [];
-    const activeGrants = capabilityChanging
-      ? [...new Map((await Promise.all([
-          listCustomerCapabilityProofGrants(customer.lift_customer_id),
-          ...customerOrderNumbers.map((orderNumber) => listOrderProofGrants(orderNumber))
-        ]))
-          .flat()
-          .filter((grant) => grant.status === "active" && !grant.revoked_at)
-          .map((grant) => [grant.grant_id, grant])).values()]
-      : [];
-    await Promise.all(activeGrants.map((grant) => revokeProofGrantForCapabilityChange(
-      grant.grant_id,
-      new Date(),
-      {
-        actor_type: "operator",
-        actor_id: actorId,
-        correlation_id: req.get("x-request-id") ?? `proof-policy-${customer.lift_customer_id}`,
-        source: "operator"
-      }
-    )));
     const workspace = await updateCustomerProofCapabilityPolicy(
       customer,
       {
@@ -7752,42 +7790,41 @@ app.put("/api/customers/:liftCustomerId/proof-capability-policy", async (req, re
         ? patch.expected_policy_updated_at
         : ""
     );
-    const postWriteActiveGrants = capabilityChanging
-      ? [...new Map((await Promise.all([
-          listCustomerCapabilityProofGrants(customer.lift_customer_id),
-          ...customerOrderNumbers.map((orderNumber) => listOrderProofGrants(orderNumber))
-        ]))
-          .flat()
-          .filter((grant) => grant.status === "active" && !grant.revoked_at)
-          .map((grant) => [grant.grant_id, grant])).values()]
-      : [];
-    await Promise.all(postWriteActiveGrants.map((grant) => revokeProofGrantForCapabilityChange(
-      grant.grant_id,
-      new Date(),
-      {
-        actor_type: "operator",
-        actor_id: actorId,
-        correlation_id: req.get("x-request-id") ?? `proof-policy-${customer.lift_customer_id}`,
-        source: "operator"
-      }
-    )));
-    const revokedGrantCount = new Set([
-      ...activeGrants.map((grant) => grant.grant_id),
-      ...postWriteActiveGrants.map((grant) => grant.grant_id)
-    ]).size;
+    const expectedPolicyUpdatedAt = typeof patch.expected_policy_updated_at === "string"
+      ? patch.expected_policy_updated_at
+      : "";
+    const changed = workspace.proof_capability_policy.updated_at !== expectedPolicyUpdatedAt;
+    emitProofCapabilityPolicyPersistenceTelemetry({
+      customer_id: customer.lift_customer_id,
+      operation: "customer_default_save",
+      outcome: changed ? "success" : "idempotent",
+      changed,
+      duration_ms: Date.now() - startedAt
+    });
     res.json({
       ...workspace,
       primary_target: await getTarget(workspace.primary_target_id),
-      proof_access_revoked_count: revokedGrantCount
+      proof_access_revoked_count: 0
     });
   } catch (error) {
-    res.status(error instanceof CustomerProofCapabilityConflictError ? 409 : error instanceof CustomerProofCapabilityValidationError ? 400 : 500).json({
-      error: error instanceof Error ? error.message : "Proof capability policy save failed."
+    const failure = proofCapabilityPolicyPersistenceFailure(error);
+    emitProofCapabilityPolicyPersistenceTelemetry({
+      customer_id: req.params.liftCustomerId,
+      operation: "customer_default_save",
+      outcome: failure.outcome,
+      changed: false,
+      duration_ms: Date.now() - startedAt
+    });
+    res.status(failure.status).json({
+      code: failure.code,
+      error: failure.message
     });
   }
 });
 
 app.put("/api/customers/:liftCustomerId/proof-capability-policy/orders/:orderNumber", async (req, res) => {
+  const startedAt = Date.now();
+  const orderNumber = req.params.orderNumber.trim().toUpperCase();
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
     const authUser = res.locals.authUser as { uid?: unknown } | undefined;
@@ -7795,34 +7832,6 @@ app.put("/api/customers/:liftCustomerId/proof-capability-policy/orders/:orderNum
     const patch = req.body as Partial<CustomerProofOrderOverride> & {
       expected_policy_updated_at?: unknown;
     };
-    const previousWorkspace = await getOrCreateWorkspace(customer);
-    if (previousWorkspace.proof_capability_policy.updated_at !== patch.expected_policy_updated_at) {
-      throw new CustomerProofCapabilityConflictError();
-    }
-    const orderNumber = req.params.orderNumber.trim().toUpperCase();
-    const previousOverride = previousWorkspace.proof_capability_policy.order_overrides.find(
-      (candidate) => candidate.order_number === orderNumber
-    );
-    const previousAccessMode = previousOverride?.access_mode ?? previousWorkspace.proof_capability_policy.access_mode;
-    const previousReviewExperience = previousOverride?.review_experience ?? previousWorkspace.proof_capability_policy.review_experience;
-    const capabilityChanging =
-      previousAccessMode !== patch.access_mode ||
-      previousReviewExperience !== patch.review_experience;
-    const activeGrants = capabilityChanging && /^A\d{7,8}$/.test(orderNumber)
-      ? (await listOrderProofGrants(orderNumber)).filter(
-          (grant) => grant.status === "active" && !grant.revoked_at
-        )
-      : [];
-    await Promise.all(activeGrants.map((grant) => revokeProofGrantForCapabilityChange(
-      grant.grant_id,
-      new Date(),
-      {
-        actor_type: "operator",
-        actor_id: actorId,
-        correlation_id: req.get("x-request-id") ?? `proof-policy-${customer.lift_customer_id}-${orderNumber}`,
-        source: "operator"
-      }
-    )));
     const workspace = await upsertCustomerProofOrderOverride(
       customer,
       req.params.orderNumber,
@@ -7835,65 +7844,47 @@ app.put("/api/customers/:liftCustomerId/proof-capability-policy/orders/:orderNum
         ? patch.expected_policy_updated_at
         : ""
     );
-    const postWriteActiveGrants = capabilityChanging && /^A\d{7,8}$/.test(orderNumber)
-      ? (await listOrderProofGrants(orderNumber)).filter(
-          (grant) => grant.status === "active" && !grant.revoked_at
-        )
-      : [];
-    await Promise.all(postWriteActiveGrants.map((grant) => revokeProofGrantForCapabilityChange(
-      grant.grant_id,
-      new Date(),
-      {
-        actor_type: "operator",
-        actor_id: actorId,
-        correlation_id: req.get("x-request-id") ?? `proof-policy-${customer.lift_customer_id}-${orderNumber}`,
-        source: "operator"
-      }
-    )));
-    const revokedGrantCount = new Set([
-      ...activeGrants.map((grant) => grant.grant_id),
-      ...postWriteActiveGrants.map((grant) => grant.grant_id)
-    ]).size;
+    const expectedPolicyUpdatedAt = typeof patch.expected_policy_updated_at === "string"
+      ? patch.expected_policy_updated_at
+      : "";
+    const changed = workspace.proof_capability_policy.updated_at !== expectedPolicyUpdatedAt;
+    emitProofCapabilityPolicyPersistenceTelemetry({
+      customer_id: customer.lift_customer_id,
+      order_number: orderNumber,
+      operation: "order_override_save",
+      outcome: changed ? "success" : "idempotent",
+      changed,
+      duration_ms: Date.now() - startedAt
+    });
     res.json({
       ...workspace,
       primary_target: await getTarget(workspace.primary_target_id),
-      proof_access_revoked_count: revokedGrantCount
+      proof_access_revoked_count: 0
     });
   } catch (error) {
-    res.status(error instanceof CustomerProofCapabilityConflictError ? 409 : error instanceof CustomerProofCapabilityValidationError ? 400 : 500).json({
-      error: error instanceof Error ? error.message : "Proof order override save failed."
+    const failure = proofCapabilityPolicyPersistenceFailure(error);
+    emitProofCapabilityPolicyPersistenceTelemetry({
+      customer_id: req.params.liftCustomerId,
+      order_number: orderNumber,
+      operation: "order_override_save",
+      outcome: failure.outcome,
+      changed: false,
+      duration_ms: Date.now() - startedAt
+    });
+    res.status(failure.status).json({
+      code: failure.code,
+      error: failure.message
     });
   }
 });
 
 app.delete("/api/customers/:liftCustomerId/proof-capability-policy/orders/:orderNumber", async (req, res) => {
+  const startedAt = Date.now();
+  const orderNumber = req.params.orderNumber.trim().toUpperCase();
   try {
     const customer = await findLiftCustomer(req.params.liftCustomerId);
     const authUser = res.locals.authUser as { uid?: unknown } | undefined;
     const actorId = typeof authUser?.uid === "string" ? authUser.uid : "local-operator";
-    const previousWorkspace = await getOrCreateWorkspace(customer);
-    if (previousWorkspace.proof_capability_policy.updated_at !== req.body?.expected_policy_updated_at) {
-      throw new CustomerProofCapabilityConflictError();
-    }
-    const orderNumber = req.params.orderNumber.trim().toUpperCase();
-    const removingExistingOverride = previousWorkspace.proof_capability_policy.order_overrides.some(
-      (candidate) => candidate.order_number === orderNumber
-    );
-    const activeGrants = removingExistingOverride && /^A\d{7,8}$/.test(orderNumber)
-      ? (await listOrderProofGrants(orderNumber)).filter(
-          (grant) => grant.status === "active" && !grant.revoked_at
-        )
-      : [];
-    await Promise.all(activeGrants.map((grant) => revokeProofGrantForCapabilityChange(
-      grant.grant_id,
-      new Date(),
-      {
-        actor_type: "operator",
-        actor_id: actorId,
-        correlation_id: req.get("x-request-id") ?? `proof-policy-${customer.lift_customer_id}-${orderNumber}`,
-        source: "operator"
-      }
-    )));
     const workspace = await removeCustomerProofOrderOverride(
       customer,
       req.params.orderNumber,
@@ -7902,33 +7893,36 @@ app.delete("/api/customers/:liftCustomerId/proof-capability-policy/orders/:order
         ? req.body.expected_policy_updated_at
         : ""
     );
-    const postWriteActiveGrants = removingExistingOverride && /^A\d{7,8}$/.test(orderNumber)
-      ? (await listOrderProofGrants(orderNumber)).filter(
-          (grant) => grant.status === "active" && !grant.revoked_at
-        )
-      : [];
-    await Promise.all(postWriteActiveGrants.map((grant) => revokeProofGrantForCapabilityChange(
-      grant.grant_id,
-      new Date(),
-      {
-        actor_type: "operator",
-        actor_id: actorId,
-        correlation_id: req.get("x-request-id") ?? `proof-policy-${customer.lift_customer_id}-${orderNumber}`,
-        source: "operator"
-      }
-    )));
-    const revokedGrantCount = new Set([
-      ...activeGrants.map((grant) => grant.grant_id),
-      ...postWriteActiveGrants.map((grant) => grant.grant_id)
-    ]).size;
+    const expectedPolicyUpdatedAt = typeof req.body?.expected_policy_updated_at === "string"
+      ? req.body.expected_policy_updated_at
+      : "";
+    const changed = workspace.proof_capability_policy.updated_at !== expectedPolicyUpdatedAt;
+    emitProofCapabilityPolicyPersistenceTelemetry({
+      customer_id: customer.lift_customer_id,
+      order_number: orderNumber,
+      operation: "order_override_remove",
+      outcome: changed ? "success" : "idempotent",
+      changed,
+      duration_ms: Date.now() - startedAt
+    });
     res.json({
       ...workspace,
       primary_target: await getTarget(workspace.primary_target_id),
-      proof_access_revoked_count: revokedGrantCount
+      proof_access_revoked_count: 0
     });
   } catch (error) {
-    res.status(error instanceof CustomerProofCapabilityConflictError ? 409 : error instanceof CustomerProofCapabilityValidationError ? 400 : 500).json({
-      error: error instanceof Error ? error.message : "Proof order override removal failed."
+    const failure = proofCapabilityPolicyPersistenceFailure(error);
+    emitProofCapabilityPolicyPersistenceTelemetry({
+      customer_id: req.params.liftCustomerId,
+      order_number: orderNumber,
+      operation: "order_override_remove",
+      outcome: failure.outcome,
+      changed: false,
+      duration_ms: Date.now() - startedAt
+    });
+    res.status(failure.status).json({
+      code: failure.code,
+      error: failure.message
     });
   }
 });

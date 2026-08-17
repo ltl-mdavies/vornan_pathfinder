@@ -26,6 +26,25 @@ Read-only AWS inspection after the 2026-08-11 operations release confirmed:
 
 The saved production Wrike Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). Its `Order Form` hardware section (`order-form-hardware-13`, quantity column `Qty. Needed`) stores the scoped text-quantity rule `TBD` → `0.5`.
 
+### Pending Proof authority workspace-persistence hardening
+
+Proof customer-default and order-override saves must use the selected
+`CustomerWorkspaces` record only, with a version conflict returning a sanitized
+`409` and no automatic retry. The save path may not create a workspace or touch
+Jobs, methods, routes, mappings, cache, attempts, grants, sessions, Proof
+tables, another customer, Lift, or Wrike. Its structured telemetry is limited
+to a hashed customer/order scope, operation, outcome, changed flag, duration,
+the `customer_workspace` table class, and `external_effects=false`.
+
+Identity verification is not a policy save: it remains separately authorized,
+performs the authoritative associated-order/Proof sync, and then writes the
+verified identity/audit to the same exact workspace. Policy changes fail closed
+for existing bound grants and sessions through runtime authority revalidation;
+they do not depend on a policy-save grant mutation. Deployment acceptance must
+prove only the intended API artifact and code boundary changes, no data-resource
+replacement, and a clean Momentara scheduler cycle before any further Proof
+pilot action.
+
 ### 2026-08-17 LTL Demo product-mapping approval hold
 
 Three authenticated LTL Demo `1249` Product Resolution approvals at approximately `2026-08-17T15:45:58Z` returned no visible confirmation. Strongly consistent reads show that the selected writes were durable before the request failed: ProductMappings rose from 285 to 288 and the customer-route now retains six mapping records. The same minute recorded 367 Jobs-table write throttles. No preview, `1249` Job, Submit Attempt, Lift order, Wrike action, publication, or Proof record resulted. Momentara configuration and natural scheduler continuity remain intact.

@@ -162,6 +162,23 @@ one exact-table `dynamodb:GetItem` statement, and one non-secret environment
 entry. Default-dark deployment must preserve the live customer workspace table
 and must not create or replace it.
 
+### Pending Proof policy persistence hardening
+
+Customer-default and exact-order override saves are a distinct workspace-only
+control-plane operation. They must condition on the saved Proof policy version,
+retain every non-Proof workspace field, and change only the selected
+`CustomerWorkspace` policy/audit content. A stale version returns a sanitized
+reload-required `409`; an unavailable persistence boundary returns a sanitized
+retry-later response. Identical saves are no-ops with no audit/version churn.
+
+These policy endpoints must not create a workspace, sync Lift Proof data, issue
+or revoke a grant, create a session, or invoke an external provider. The
+existing bound-grant/session revalidation is the fail-closed control: every
+sensitive request compares the durable customer, identity, order override,
+profile, and policy version. Identity verification remains separate and is the
+only operator flow that resolves an associated order and performs the required
+authoritative Proof sync before saving the verified identity/audit.
+
 The first customer launch remains **Simple only**. Advanced may remain saved for
 future operator/UX qualification, but its public multi-proof submission transport
 is still unavailable and must not be represented as customer-live.
