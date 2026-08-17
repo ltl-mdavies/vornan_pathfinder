@@ -9,3 +9,13 @@ test("shows the Lift product name below the resolved identifier in job review", 
   assert.match(appSource, /Lift product: \$\{result\.product_name\}/);
   assert.match(appSource, /Lift product name unavailable/);
 });
+
+test("manual product approval reports only confirmed row-level persistence", () => {
+  assert.match(appSource, /productMappingSaveFeedback/);
+  assert.match(appSource, /Saving this mapping…/);
+  assert.match(appSource, /Mapping saved\. Regenerate the preview when all products are mapped\./);
+  assert.match(appSource, /Mapping already saved\./);
+  assert.match(appSource, /role=\{saveFeedback\.state === "error" \? "alert" : "status"\}/);
+  assert.match(appSource, /disabled=\{saveFeedback\?\.state === "saving"\}/);
+  assert.match(appSource, /Pathfinder could not confirm this mapping\. Reload before taking another action\./);
+});

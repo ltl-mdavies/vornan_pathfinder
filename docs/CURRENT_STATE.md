@@ -2,9 +2,9 @@
 
 This is the entry point for all new Pathfinder, Vornan Proof, and live-support tasks. Read this file before using older design notes, launch checklists, or thread handoffs.
 
-Last reconciled: **2026-08-15**
+Last reconciled: **2026-08-17**
 
-Deployed application baseline: API `e331f7531c5b56eb739fdca386d8a66a81ac9e56`; Admin `cd221897e50c03d91afea41b068eb6000db6b4ac`
+Deployed application baseline: API `8fb293d4458fdfdd1c015849f81d88cb660284de`; Admin `0be1ca144d9c18669a62048d8711e6e198294408`
 
 Live evidence: read-only AWS inspection, authenticated Admin smoke, and natural scheduled-intake continuity through 2026-08-15 in account `744016783602`, region `us-east-1`
 
@@ -27,6 +27,14 @@ Never infer a production capability from merged code alone. Record repository-re
 
 ## Current production posture
 
+### Product mapping approval incident — repository hotfix in review
+
+On 2026-08-17, three authenticated **Product Resolution Review** approvals for LTL Demo customer `1249` appeared to do nothing in Admin. Read-only reconciliation proved the mapping writes occurred before the request failed: ProductMappings increased from 285 to 288, the `1249` route now retains six mapping records, and Jobs recorded 367 `WriteThrottleEvents` in the request minute. No preview, customer-`1249` Job or Submit Attempt, Lift order, Wrike action, publication, or Proof record was created. Momentara configuration and natural scheduled processing remained healthy.
+
+The cause is the legacy single-mapping path calling the whole-store Dynamo writer after changing a mapping. That writer rewrote the workspace/method/route mirrors and then attempted to rewrite all Jobs, so the browser received a failed response after the selected mappings were already durable. The six retained `1249` records are production evidence. Do not delete, normalize, replace, or approve them again until their exact identities are reconciled under a separate recovery authorization.
+
+The repository hotfix changes a single approval to one conditional write keyed by customer-route/version plus mapping ID. An identical repeat is a no-op. It cannot write Jobs, workspaces, methods, routes, cache, attempts, Proof data, or another customer. The API returns sanitized success, conflict, validation, or persistence-uncertain outcomes and emits bounded mapping-persistence telemetry. Admin shows row-local **Saving**, confirmed **Saved**, or reload-before-another-action guidance; it does not display a mapping as saved merely because the button was clicked. This behavior is not live until its draft PR is merged, deployed API-first/Admin-second, and reconciled. No cleanup, migration, backfill, mapping retry, preview, or external action is part of the hotfix.
+
 ### Release A, route-only Admin, and template-lifecycle hotfixes deployed; catalog collision guard in review
 
 Release A is live from `6a6d436ff30c570b0d6a0ecdb32f75a263855145`. It replaces the whole-store workspace, Import Method, Output Route, catalog-preset, and Lift product-cache persistence paths with focused customer-scoped writes; adds neutral new-customer construction; and makes arbitrary populated product workbooks available for manual column setup. The API and Admin deployments preserved all Momentara scheduled intake, Lift submit, Wrike writeback, document publication, multi-proof ZIP, `TBD` → `0.5`, and `MM/DD/YYYY` behavior. The first natural post-API cycle replayed all ten candidates with zero preparations, Lift submits, Wrike writes, or failures, and no protected count or configuration changed.
@@ -41,9 +49,11 @@ That same Import Method save also changed the linked workspace template mirror f
 
 The separately authorized PROD catalog-`6338` refresh was stopped before contacting Lift or writing cache data. The production cache identity is target + environment + company + product ID, so a catalog-`6338` product that shares a PROD product ID with catalog `8102` would overwrite that existing cache row. The current response cannot be inspected without the same request proceeding to persistence. The repository hotfix in review performs strongly consistent exact-key collision checks after the provider read and adds a durable catalog-scope marker plus transactional write-time ownership conditions. Any known cross-catalog identity collision returns a typed, sanitized no-write outcome; a collision introduced concurrently fails the affected transaction without overwriting the existing row and reports any earlier definitely persisted batch accurately. A collision-free response keeps the focused additive path and existing partial/uncertain reconciliation. No refresh, mapping, preview, submit, Wrike, or Proof action is authorized until that guard is merged, deployed, and reconciled.
 
-The next bounded repository slice isolates authenticated Manual Import preview settings from saved customer setup. Workbook-local field mappings, product resolution, order naming, and Ext_ID strategy are copied into the Job as immutable preparation evidence; preview creation does not save the Import Method or upsert ProductMappings. Manual preview now requires every product to resolve through an existing approved mapping and all canonical/Lift/submit validation to pass before Pathfinder reserves an Order ID or writes a Job. Missing mappings or invalid dates therefore return a no-write correction message. This slice is repository-ready only: the customer-`1249` preview, Lift submit, and Proof pilot remain stopped until merge, API deployment, read-only reconciliation, and a new exact action lock.
+Authenticated Manual Import preview isolation is deployed. Workbook-local field mappings, product resolution, order naming, and Ext_ID strategy remain request-local and are copied into the Job as immutable preparation evidence; preview creation does not save the Import Method or upsert ProductMappings. Manual preview requires every product to resolve through an existing approved mapping and all canonical/Lift/submit validation to pass before durable identity creation. Missing mappings, missing uploaded identity evidence, or invalid dates return a no-write correction message.
 
-A final production-path review stopped the first `1249` preview before invocation. Although request-local preparation no longer saves setup or mappings, its Pathfinder Order ID reservation and Job write were still separate DynamoDB operations. The narrow follow-up hotfix makes those two records one conditional `TransactWriteItems` unit after all preflight checks pass. It writes only the exact Order ID and new Job, uses no whole-store writer, and returns fixed conflict/uncertain copy without retrying. Its API-role change adds transaction permission only for the Jobs and Order IDs tables alongside the existing workspace/mapping transaction boundary. This follow-up is repository-only until its draft PR, merge, inspected API change set, release, and fresh preview action locks complete; no preview or external action occurred during discovery of the gap.
+API `8fb293d4458fdfdd1c015849f81d88cb660284de` atomically creates the exact Pathfinder Order ID and new Job in one conditional `TransactWriteItems` unit after preflight passes. It writes no workspace, method, route, mapping, cache, attempt, status, or Proof record. Admin `0be1ca144d9c18669a62048d8711e6e198294408` supplies the request-local product/identity choices from the uploaded workbook.
+
+One earlier customer-`1249` preview is retained: job `job_20260815124334_f8bcbe`, Ext_ID `PFMSUDA9EOD259`, state **Ready**. Its single supervised Lift submit attempt returned a deterministic HTTP 400 because Lift did not have the required LTL Demo / High End Work customer-order-type mapping. No Lift order or Proof action was created, and no retry is authorized. That Lift-side recovery remains separate from the later 2026-08-17 mapping-approval persistence incident. The newer three-product test workflow has no preview or external effect; it remains stopped until the six retained mappings are reconciled and separately authorized.
 
 ### Customer-workspace persistence incident — resolved by Release A
 

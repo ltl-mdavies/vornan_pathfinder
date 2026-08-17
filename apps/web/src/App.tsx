@@ -4673,6 +4673,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [selectedSubmitProfileId, setSelectedSubmitProfileId] = useState("sandbox-ltl-demo-1249");
   const [confirmedProdSandboxSubmitKey, setConfirmedProdSandboxSubmitKey] = useState<string | null>(null);
   const [productMappingDrafts, setProductMappingDrafts] = useState<Record<string, { unit: string; product: string }>>({});
+  const [productMappingSaveFeedback, setProductMappingSaveFeedback] = useState<Record<
+    string,
+    { state: "saving" | "saved" | "error"; message: string }
+  >>({});
   const [compositeColumnToAdd, setCompositeColumnToAdd] = useState("");
   const [orderNameComponentToAdd, setOrderNameComponentToAdd] = useState("");
   const [orderNameTextToAdd, setOrderNameTextToAdd] = useState("");
@@ -8998,10 +9002,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       outputRoutes.find((route) => route.output_route_id === routeId) ??
       outputRoutes.find((route) => route.output_route_id === selectedOutputMapRouteId) ??
       activeOutputRoute;
-    const draft =
-      productMappingDrafts[
-        productMappingDraftKey(mappingRoute.output_route_id, customerProductKey, sourceScopeId)
-      ];
+    const draftKey = productMappingDraftKey(
+      mappingRoute.output_route_id,
+      customerProductKey,
+      sourceScopeId
+    );
+    const draft = productMappingDrafts[draftKey];
     const currentUnit =
       draft?.unit ??
       ("mapping_id" in mapping
@@ -9011,10 +9017,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     const currentProduct = draft?.product ?? mapping.product_name ?? mapping.display_label;
 
     if (!currentUnit.trim()) {
-      setWorkspaceMessage(`Enter a ${mappingRoute.product_identifier_label} before approving the product mapping.`);
+      setProductMappingSaveFeedback((current) => ({
+        ...current,
+        [draftKey]: {
+          state: "error",
+          message: `Enter a ${mappingRoute.product_identifier_label} before approving this mapping.`
+        }
+      }));
       return;
     }
 
+    setProductMappingSaveFeedback((current) => ({
+      ...current,
+      [draftKey]: { state: "saving", message: "Saving this mapping…" }
+    }));
     setWorkspaceState("saving");
     try {
       const response = await fetch(
@@ -9053,12 +9069,33 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           })
         }
       );
-      const payload = await readJsonResponse<{ product_mappings: CustomerProductMapping[] }>(response);
+      const payload = await readJsonResponse<{
+        product_mappings: CustomerProductMapping[];
+        product_mapping: CustomerProductMapping;
+        changed: boolean;
+      }>(response);
       setWorkspace((current) => (current ? { ...current, product_mappings: payload.product_mappings } : current));
-      setWorkspaceMessage("Output product mapping approved. Regenerate preview to apply it.");
+      setProductMappingSaveFeedback((current) => ({
+        ...current,
+        [draftKey]: {
+          state: "saved",
+          message: payload.changed
+            ? "Mapping saved. Regenerate the preview when all products are mapped."
+            : "Mapping already saved."
+        }
+      }));
+      setWorkspaceMessage(null);
       setWorkspaceState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Product mapping save failed.");
+      setProductMappingSaveFeedback((current) => ({
+        ...current,
+        [draftKey]: {
+          state: "error",
+          message: error instanceof Error
+            ? error.message
+            : "Pathfinder could not confirm this mapping. Reload before taking another action."
+        }
+      }));
       setWorkspaceState("error");
     }
   }
@@ -15787,6 +15824,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                             "",
                           product: savedMapping?.product_name ?? result.product_name ?? result.display_label
                         };
+                        const saveFeedback = productMappingSaveFeedback[draftKey];
                         return (
                           <tr key={`${result.source_sheet_name}-${result.source_row_number}-${result.customer_product_key}`}>
                             <td>
@@ -15818,15 +15856,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 className="table-input"
                                 value={draft.unit}
                                 placeholder={outputIdentifierPlaceholder(activeOutputRoute)}
-                                onChange={(event) =>
+                                disabled={saveFeedback?.state === "saving"}
+                                onChange={(event) => {
                                   setProductMappingDrafts((current) => ({
                                     ...current,
                                     [draftKey]: {
                                       unit: event.target.value,
                                       product: draft.product
                                     }
-                                  }))
-                                }
+                                  }));
+                                  setProductMappingSaveFeedback((current) => {
+                                    const next = { ...current };
+                                    delete next[draftKey];
+                                    return next;
+                                  });
+                                }}
                               />
                             </td>
                             <td>
@@ -15834,24 +15878,47 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 className="table-input"
                                 value={draft.product}
                                 placeholder="Product name"
-                                onChange={(event) =>
+                                disabled={saveFeedback?.state === "saving"}
+                                onChange={(event) => {
                                   setProductMappingDrafts((current) => ({
                                     ...current,
                                     [draftKey]: {
                                       unit: draft.unit,
                                       product: event.target.value
                                     }
-                                  }))
-                                }
+                                  }));
+                                  setProductMappingSaveFeedback((current) => {
+                                    const next = { ...current };
+                                    delete next[draftKey];
+                                    return next;
+                                  });
+                                }}
                               />
                             </td>
                             <td>
                               <button
                                 className="secondary-button table-inline-button"
                                 onClick={() => void saveProductMapping(savedMapping ?? result)}
+                                disabled={saveFeedback?.state === "saving"}
+                                aria-label={`${savedMapping ? "Update" : "Approve"} mapping for ${result.customer_product_key}`}
                               >
-                                Approve
+                                {saveFeedback?.state === "saving"
+                                  ? "Saving…"
+                                  : saveFeedback?.state === "saved"
+                                    ? "Saved"
+                                    : savedMapping
+                                      ? "Update"
+                                      : "Approve"}
                               </button>
+                              {saveFeedback ? (
+                                <span
+                                  className={`mapping-save-feedback mapping-save-feedback-${saveFeedback.state}`}
+                                  role={saveFeedback.state === "error" ? "alert" : "status"}
+                                  aria-live={saveFeedback.state === "error" ? "assertive" : "polite"}
+                                >
+                                  {saveFeedback.message}
+                                </span>
+                              ) : null}
                             </td>
                           </tr>
                         );

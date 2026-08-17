@@ -97,6 +97,10 @@ The 2026-08-11 preparation incident for task `MAAAAAEN2Ujj` is resolved. Its two
 
 Confirm the exact normalized customer key and route. Reprocess the original evidence. If replacement jobs appear, identify the one tied to the intended task and mark the older preview as superseded. Verify cross-job dedupe before any submit.
 
+If **Approve** returns no confirmation or an error, do not click it again. A failed response is not proof that the mapping write failed. Capture customer, route, mapping ID/key, request time/correlation, ProductMappings count and exact customer-route records, plus Jobs-table throttles. Confirm that no preview, Job, Order ID, Submit Attempt, Lift order, Wrike action, publication, or Proof record was created. Preserve every retained mapping until Development or Support can distinguish the intended record from any duplicate under an explicitly authorized recovery. Never use full-list replacement or direct DynamoDB edits to clean up this incident class.
+
+After the focused single-mapping release, a confirmed success changes at most one exact customer-route/version mapping record and returns it to Admin. A conflict requires reload. A persistence-uncertain response requires exact-key read-only reconciliation before another action. Any Jobs/workspace/method/route/cache/attempt/other-customer write or Jobs throttle during mapping approval is a stop condition.
+
 ### Ready but not submitted
 
 Check scheduled submit is enabled, live-customer profile is selected, certification is current, no prior submit exists for the source evidence, and the scheduler cycle completed. Manual submit requires approval naming the exact job and Ext_ID.
