@@ -1,4 +1,4 @@
-export type CatalogLifecycle = "Active" | "Draft" | "Archived";
+export type CatalogLifecycle = "Active" | "Inactive" | "Draft" | "Archived";
 export type InspectionState = "Passed" | "Needs work" | "Not run";
 export type ApprovalState = "Approved" | "Pending" | "Needs review";
 
@@ -106,7 +106,7 @@ export const artworkCatalogFixture: ReadonlyArray<CatalogProduct> = [
           state: "Approved",
           reviewedAt: "2026-08-16T15:08:00.000Z",
           reviewedBy: "Morgan Lee",
-          summary: "Approved for repeat ordering by the internal catalog team."
+          summary: "Approved by the prepress team and customer for print production."
         }
       },
       {
@@ -220,7 +220,7 @@ export const artworkCatalogFixture: ReadonlyArray<CatalogProduct> = [
       previewAlt: "Route map artwork for an interior transit card",
       isCurrent: true,
       inspection: { state: "Needs work", summary: "Fine line detail requires review.", metrics: [] },
-      approval: { state: "Needs review", summary: "Human approval remains separate from technical inspection." }
+      approval: { state: "Needs review", summary: "Proof approval remains separate from technical inspection." }
     }],
     orderHistory: { totalOrders: 9, lastOrderedAt: "2026-07-30T11:15:00.000Z", openOrderCount: 0, recentReferences: [] }
   },
@@ -276,7 +276,7 @@ export const artworkCatalogFixture: ReadonlyArray<CatalogProduct> = [
       previewAlt: "Service update artwork for a transit kiosk panel",
       isCurrent: true,
       inspection: { state: "Passed", summary: "Technical checks passed.", metrics: [] },
-      approval: { state: "Approved", summary: "Approved for repeat ordering." }
+      approval: { state: "Approved", summary: "Approved by the prepress team and customer for print production." }
     }],
     orderHistory: { totalOrders: 4, lastOrderedAt: "2026-07-26T12:30:00.000Z", openOrderCount: 0, recentReferences: [] }
   }
