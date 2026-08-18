@@ -1191,7 +1191,7 @@ Resources:
               - !Ref ProofLtlDemoQaAllowedOrders
               - "true"
               - "false"
-              - "false"
+              - "true"
               - "false"
           # Pack the customer-review switches into the existing environment
           # footprint. Lambda limits the complete environment block to 4 KB.
