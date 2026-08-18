@@ -184,6 +184,25 @@ export function RevisionUploadDialog({
     }
   };
 
+  const retryFinalization = async () => {
+    if (!asset || busy) return;
+    setMessage(null);
+    try {
+      setStage("finalizing");
+      const finalized = await finalizeRevisionUpload(asset.asset_id);
+      setAsset(finalized.asset);
+      setStage("processing");
+      setPollCount(0);
+    } catch (error) {
+      if (error instanceof ProofApiError && error.status === 401) {
+        onSessionExpired();
+        return;
+      }
+      setStage("error");
+      setMessage(error instanceof Error ? error.message : "The revised artwork could not be verified.");
+    }
+  };
+
   const progress = asset ? revisionAssetProgress(asset) : null;
   const currentFilename = task?.current_version?.filename ?? "Current proof";
   const currentPreview = task?.current_version?.preview_kind === "image"
@@ -273,6 +292,7 @@ export function RevisionUploadDialog({
       <div className="revision-upload-actions">
         <button className="button secondary" type="button" disabled={busy} onClick={close}>{asset ? "Done" : "Cancel"}</button>
         {!asset ? <button className="button primary" type="button" disabled={!file || Boolean(blockedMessage) || Boolean(message) || busy} onClick={() => void submit()}>{busy ? stage === "hashing" ? "Checking file…" : "Uploading…" : "Upload and check file"}</button> : null}
+        {asset && stage === "error" ? <button className="button primary" type="button" disabled={busy} onClick={() => void retryFinalization()}>Retry file check</button> : null}
       </div>
     </dialog>
   );
