@@ -2,11 +2,13 @@ import {
   CreateSecretCommand,
   GetSecretValueCommand,
   PutSecretValueCommand,
+  ResourceExistsException,
   ResourceNotFoundException,
   SecretsManagerClient
 } from "@aws-sdk/client-secrets-manager";
 import type { LiftTargetConfig } from "@pathfinder/lift-adapter";
 import type { WrikeOAuthCredentials } from "@pathfinder/wrike-adapter";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -172,6 +174,152 @@ function normalizeCustomerSourceConnectionSecrets(value: unknown): CustomerSourc
   };
 }
 
+function canonicalizeSecretValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => canonicalizeSecretValue(entry));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([key, entry]) => [key, canonicalizeSecretValue(entry)])
+  );
+}
+
+function canonicalSecretString(value: unknown) {
+  return JSON.stringify(canonicalizeSecretValue(value));
+}
+
+function canonicalStoredSecretString(secretString: string | undefined) {
+  if (secretString === undefined) {
+    return null;
+  }
+  try {
+    return canonicalSecretString(JSON.parse(secretString));
+  } catch {
+    return null;
+  }
+}
+
+function secretWriteToken(
+  operation: "create" | "put",
+  secretName: string,
+  currentIdentity: string,
+  targetSecretString: string
+) {
+  return createHash("sha256")
+    .update(operation)
+    .update("\0")
+    .update(secretName)
+    .update("\0")
+    .update(currentIdentity)
+    .update("\0")
+    .update(targetSecretString)
+    .digest("hex");
+}
+
+function currentSecretIdentity(versionId: string | undefined, secretString: string | undefined) {
+  if (versionId) {
+    return `version:${versionId}`;
+  }
+  const canonicalCurrent = canonicalStoredSecretString(secretString);
+  return `content:${createHash("sha256")
+    .update(canonicalCurrent ?? secretString ?? "<binary-or-empty>")
+    .digest("hex")}`;
+}
+
+interface SecretsManagerWriteInput<T> {
+  cache_key: string;
+  description: string;
+  normalized: T;
+  secret_name: string;
+}
+
+async function writeCanonicalSecretsManagerValue<T>({
+  cache_key: cacheKey,
+  description,
+  normalized,
+  secret_name: secretName
+}: SecretsManagerWriteInput<T>) {
+  const client = getSecretsManagerClient();
+  const targetSecretString = canonicalSecretString(normalized);
+  let current:
+    | {
+        SecretString?: string;
+        VersionId?: string;
+      }
+    | undefined;
+
+  try {
+    current = await client.send(new GetSecretValueCommand({ SecretId: secretName }));
+  } catch (error) {
+    if (!(error instanceof ResourceNotFoundException)) {
+      throw error;
+    }
+  }
+
+  if (current) {
+    if (canonicalStoredSecretString(current.SecretString) === targetSecretString) {
+      secretsManagerReadCache.set(cacheKey, normalized);
+      return;
+    }
+    await client.send(
+      new PutSecretValueCommand({
+        SecretId: secretName,
+        SecretString: targetSecretString,
+        ClientRequestToken: secretWriteToken(
+          "put",
+          secretName,
+          currentSecretIdentity(current.VersionId, current.SecretString),
+          targetSecretString
+        )
+      })
+    );
+    secretsManagerReadCache.set(cacheKey, normalized);
+    return;
+  }
+
+  try {
+    await client.send(
+      new CreateSecretCommand({
+        Name: secretName,
+        SecretString: targetSecretString,
+        Description: description,
+        ClientRequestToken: secretWriteToken("create", secretName, "missing", targetSecretString)
+      })
+    );
+    secretsManagerReadCache.set(cacheKey, normalized);
+    return;
+  } catch (error) {
+    if (!(error instanceof ResourceExistsException)) {
+      throw error;
+    }
+  }
+
+  const raced = await client.send(new GetSecretValueCommand({ SecretId: secretName }));
+  if (canonicalStoredSecretString(raced.SecretString) === targetSecretString) {
+    secretsManagerReadCache.set(cacheKey, normalized);
+    return;
+  }
+  await client.send(
+    new PutSecretValueCommand({
+      SecretId: secretName,
+      SecretString: targetSecretString,
+      ClientRequestToken: secretWriteToken(
+        "put",
+        secretName,
+        currentSecretIdentity(raced.VersionId, raced.SecretString),
+        targetSecretString
+      )
+    })
+  );
+  secretsManagerReadCache.set(cacheKey, normalized);
+}
+
 async function readSecretsManagerTargetSecrets(targetId: string): Promise<TargetSecrets> {
   const secretName = targetSecretName(targetId);
   return secretsManagerReadCache.read(`target:${secretName}`, async () => {
@@ -192,29 +340,12 @@ async function readSecretsManagerTargetSecrets(targetId: string): Promise<Target
 
 async function writeSecretsManagerTargetSecrets(targetId: string, targetSecrets: TargetSecrets) {
   const secretName = targetSecretName(targetId);
-  const secretString = JSON.stringify(normalizeTargetSecrets(targetSecrets));
-
-  try {
-    await getSecretsManagerClient().send(
-      new PutSecretValueCommand({
-        SecretId: secretName,
-        SecretString: secretString
-      })
-    );
-    secretsManagerReadCache.set(`target:${secretName}`, normalizeTargetSecrets(targetSecrets));
-  } catch (error) {
-    if (!(error instanceof ResourceNotFoundException)) {
-      throw error;
-    }
-    await getSecretsManagerClient().send(
-      new CreateSecretCommand({
-        Name: secretName,
-        SecretString: secretString,
-        Description: `Pathfinder target credentials for ${targetId}`
-      })
-    );
-    secretsManagerReadCache.set(`target:${secretName}`, normalizeTargetSecrets(targetSecrets));
-  }
+  await writeCanonicalSecretsManagerValue({
+    secret_name: secretName,
+    cache_key: `target:${secretName}`,
+    normalized: normalizeTargetSecrets(targetSecrets),
+    description: `Pathfinder target credentials for ${targetId}`
+  });
 }
 
 async function readSecretsManagerWrikeConnectorSecrets(): Promise<WrikeConnectorSecrets> {
@@ -237,23 +368,12 @@ async function readSecretsManagerWrikeConnectorSecrets(): Promise<WrikeConnector
 
 async function writeSecretsManagerWrikeConnectorSecrets(connectorSecrets: WrikeConnectorSecrets) {
   const secretName = wrikeConnectorSecretName();
-  const secretString = JSON.stringify(normalizeWrikeConnectorSecrets(connectorSecrets));
-  try {
-    await getSecretsManagerClient().send(new PutSecretValueCommand({ SecretId: secretName, SecretString: secretString }));
-    secretsManagerReadCache.set(`wrike:${secretName}`, normalizeWrikeConnectorSecrets(connectorSecrets));
-  } catch (error) {
-    if (!(error instanceof ResourceNotFoundException)) {
-      throw error;
-    }
-    await getSecretsManagerClient().send(
-      new CreateSecretCommand({
-        Name: secretName,
-        SecretString: secretString,
-        Description: "Pathfinder Wrike OAuth connector credentials"
-      })
-    );
-    secretsManagerReadCache.set(`wrike:${secretName}`, normalizeWrikeConnectorSecrets(connectorSecrets));
-  }
+  await writeCanonicalSecretsManagerValue({
+    secret_name: secretName,
+    cache_key: `wrike:${secretName}`,
+    normalized: normalizeWrikeConnectorSecrets(connectorSecrets),
+    description: "Pathfinder Wrike OAuth connector credentials"
+  });
 }
 
 async function readSecretsManagerCustomerSourceConnectionSecrets(customerId: string, connectionId: string) {
@@ -281,23 +401,12 @@ async function writeSecretsManagerCustomerSourceConnectionSecrets(
 ) {
   const secretName = customerSourceConnectionSecretName(customerId, connectionId);
   const normalized = normalizeCustomerSourceConnectionSecrets(connectionSecrets);
-  const secretString = JSON.stringify(normalized);
-  try {
-    await getSecretsManagerClient().send(new PutSecretValueCommand({ SecretId: secretName, SecretString: secretString }));
-    secretsManagerReadCache.set(`customer-connection:${secretName}`, normalized);
-  } catch (error) {
-    if (!(error instanceof ResourceNotFoundException)) {
-      throw error;
-    }
-    await getSecretsManagerClient().send(
-      new CreateSecretCommand({
-        Name: secretName,
-        SecretString: secretString,
-        Description: `Pathfinder source connection ${connectionId} for customer ${customerId}`
-      })
-    );
-    secretsManagerReadCache.set(`customer-connection:${secretName}`, normalized);
-  }
+  await writeCanonicalSecretsManagerValue({
+    secret_name: secretName,
+    cache_key: `customer-connection:${secretName}`,
+    normalized,
+    description: `Pathfinder source connection ${connectionId} for customer ${customerId}`
+  });
 }
 
 export async function readTargetSecrets(targetId: string): Promise<TargetSecrets> {
