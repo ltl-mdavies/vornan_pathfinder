@@ -202,7 +202,7 @@ test("keeps customer revised-art upload default-off and exact-bucket scoped", ()
   );
   assert.match(
     publicRole,
-    /CustomerRevisionUploadActive[\s\S]*?- s3:GetObject[\s\S]*?- s3:GetObjectTagging[\s\S]*?- s3:PutObject[\s\S]*?- s3:PutObjectTagging[\s\S]*?ProofAssetBucketArn, "\/orders\/\*"/
+    /CustomerRevisionUploadActive[\s\S]*?- s3:GetObject[\s\S]*?- s3:GetObjectTagging[\s\S]*?- s3:GetObjectVersionTagging[\s\S]*?- s3:PutObject[\s\S]*?- s3:PutObjectTagging[\s\S]*?ProofAssetBucketArn, "\/orders\/\*"/
   );
   assert.doesNotMatch(publicRole, /s3:DeleteObject|s3:\*|arn:aws:s3:::\*/);
 });
