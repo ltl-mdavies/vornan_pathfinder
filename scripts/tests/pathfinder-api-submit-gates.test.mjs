@@ -576,7 +576,7 @@ test("the unified LTL Demo QA profile is allowlisted and does not compose with m
   );
   assert.match(
     template,
-    /PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: !Join[\s\S]*?!Ref ProofLtlDemoQaEnabled[\s\S]*?!Ref ProofLtlDemoQaAllowedOrders/
+    /PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: !Join[\s\S]*?!Ref ProofLtlDemoQaEnabled[\s\S]*?!Ref ProofLtlDemoQaAllowedOrders\s+- "true"\s+- "false"\s+- "true"\s+- "false"/
   );
 });
 
