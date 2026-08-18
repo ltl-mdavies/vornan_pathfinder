@@ -3,7 +3,10 @@ import test from "node:test";
 import type { InspectionObservation } from "@pathfinder/artwork-inspection-contracts";
 import {
   appendArtworkInspectionRerun,
+  appendArtworkApprovalDecision,
+  approvalState,
   ArtworkCatalogDomainError,
+  createArtworkApproval,
   createArtworkAsset,
   createArtworkInspection,
   createArtworkVersion,
@@ -133,6 +136,322 @@ test("keeps a usable artwork version valid when inspection is disabled", () => {
     (error: unknown) =>
       error instanceof ArtworkCatalogDomainError && error.code === "inspection_disabled"
   );
+});
+
+test("requires independent prepress and customer decisions for an artwork-version approval", () => {
+  const { catalog, usable } = fixture();
+  const disabled = createInspectionPolicyRevision({
+    catalog,
+    policy_revision_id: "policy_disabled_approval_001",
+    mode: "disabled",
+    provider_key: null,
+    created_at: timestamp
+  });
+  const requested = createArtworkApproval({
+    version: usable,
+    approval_id: "approval_001",
+    created_at: "2026-08-17T12:00:05.000Z"
+  });
+  const prepressApproved = appendArtworkApprovalDecision({
+    approval: requested,
+    approval_decision_id: "approval_decision_prepress_001",
+    party: "prepress",
+    outcome: "approved",
+    decided_by: "prepress_operator_001",
+    decided_at: "2026-08-17T12:00:06.000Z"
+  });
+
+  assert.throws(
+    () =>
+      appendArtworkApprovalDecision({
+        approval: prepressApproved,
+        approval_decision_id: "approval_decision_duplicate_party_001",
+        party: "prepress",
+        outcome: "rejected",
+        decided_by: "prepress_operator_002",
+        decided_at: "2026-08-17T12:00:07.000Z"
+      }),
+    (error: unknown) =>
+      error instanceof ArtworkCatalogDomainError && error.code === "approval_conflict"
+  );
+  const approved = appendArtworkApprovalDecision({
+    approval: prepressApproved,
+    approval_decision_id: "approval_decision_customer_001",
+    party: "customer",
+    outcome: "approved",
+    decided_by: "customer_reviewer_001",
+    decided_at: "2026-08-17T12:00:07.000Z"
+  });
+
+  assert.equal(approvalState(requested), "pending");
+  assert.equal(approvalState(prepressApproved), "pending");
+  assert.equal(approvalState(approved), "approved");
+  assert.deepEqual(evaluateArtworkReadiness(usable, disabled, null, approved), {
+    asset_safety: "usable",
+    inspection_requirement: "disabled",
+    inspection_evidence: "not_requested",
+    human_approval: "approved",
+    business_release: "held"
+  });
+  assert.equal(Object.isFrozen(approved), true);
+  assert.equal(Object.isFrozen(approved.decisions), true);
+  assert.equal(Object.isFrozen(approved.decisions[0]), true);
+  assert.equal(approved.decisions[1]?.decided_by, "customer_reviewer_001");
+  assert.equal(approved.updated_at, "2026-08-17T12:00:07.000Z");
+  assert.throws(
+    () =>
+      appendArtworkApprovalDecision({
+        approval: approved,
+        approval_decision_id: "approval_decision_after_terminal_001",
+        party: "customer",
+        outcome: "rejected",
+        decided_by: "customer_reviewer_002",
+        decided_at: "2026-08-17T12:00:08.000Z"
+      }),
+    (error: unknown) =>
+      error instanceof ArtworkCatalogDomainError && error.code === "approval_conflict"
+  );
+});
+
+test("keeps rejection terminal and starts a new approval for a successor artwork version", () => {
+  const { asset, catalog, initialized, specification, usable } = fixture();
+  assert.throws(
+    () =>
+      createArtworkApproval({
+        version: initialized,
+        approval_id: "approval_unsafe_001",
+        created_at: "2026-08-17T12:00:01.000Z"
+      }),
+    (error: unknown) =>
+      error instanceof ArtworkCatalogDomainError && error.code === "asset_not_usable"
+  );
+
+  const requested = createArtworkApproval({
+    version: usable,
+    approval_id: "approval_rejected_001",
+    created_at: "2026-08-17T12:00:05.000Z"
+  });
+  const rejected = appendArtworkApprovalDecision({
+    approval: requested,
+    approval_decision_id: "approval_decision_prepress_rejected_001",
+    party: "prepress",
+    outcome: "rejected",
+    decided_by: "prepress_operator_001",
+    note: "revise supplied artwork",
+    decided_at: "2026-08-17T12:00:06.000Z"
+  });
+  assert.equal(approvalState(rejected), "rejected");
+  assert.throws(
+    () =>
+      appendArtworkApprovalDecision({
+        approval: rejected,
+        approval_decision_id: "approval_decision_customer_after_rejection_001",
+        party: "customer",
+        outcome: "approved",
+        decided_by: "customer_reviewer_001",
+        decided_at: "2026-08-17T12:00:07.000Z"
+      }),
+    (error: unknown) =>
+      error instanceof ArtworkCatalogDomainError && error.code === "approval_conflict"
+  );
+
+  const successorInitialized = createArtworkVersion({
+    asset,
+    specification,
+    artwork_version_id: "version_002",
+    object_version_id: "object_version_002",
+    sha256: "b".repeat(64),
+    content_type: "application/pdf",
+    content_length: 110_000,
+    original_filename: "display-name-v2.pdf",
+    predecessor_version_id: usable.artwork_version_id,
+    created_at: "2026-08-17T12:01:00.000Z"
+  });
+  const successorUploading = transitionArtworkVersion(
+    successorInitialized,
+    "uploading",
+    "2026-08-17T12:01:01.000Z"
+  );
+  const successorUploaded = transitionArtworkVersion(
+    successorUploading,
+    "uploaded",
+    "2026-08-17T12:01:02.000Z"
+  );
+  const successorVerified = transitionArtworkVersion(
+    successorUploaded,
+    "content_verified",
+    "2026-08-17T12:01:03.000Z"
+  );
+  const successorScanPending = transitionArtworkVersion(
+    successorVerified,
+    "scan_pending",
+    "2026-08-17T12:01:04.000Z"
+  );
+  const successor = transitionArtworkVersion(
+    successorScanPending,
+    "usable",
+    "2026-08-17T12:01:05.000Z"
+  );
+  const successorApproval = createArtworkApproval({
+    version: successor,
+    approval_id: "approval_successor_001",
+    created_at: "2026-08-17T12:01:06.000Z"
+  });
+  assert.equal(approvalState(successorApproval), "pending");
+  assert.equal(successorApproval.decisions.length, 0);
+
+  const disabled = createInspectionPolicyRevision({
+    catalog,
+    policy_revision_id: "policy_disabled_successor_001",
+    mode: "disabled",
+    provider_key: null,
+    created_at: timestamp
+  });
+  assert.throws(
+    () => evaluateArtworkReadiness(successor, disabled, null, rejected),
+    (error: unknown) =>
+      error instanceof ArtworkCatalogDomainError && error.code === "binding_mismatch"
+  );
+});
+
+test("fails closed on approval identity, duplicate decision, and chronology mismatches", () => {
+  const { catalog, usable } = fixture();
+  const disabled = createInspectionPolicyRevision({
+    catalog,
+    policy_revision_id: "policy_disabled_binding_001",
+    mode: "disabled",
+    provider_key: null,
+    created_at: timestamp
+  });
+  const requested = createArtworkApproval({
+    version: usable,
+    approval_id: "approval_binding_001",
+    created_at: "2026-08-17T12:00:05.000Z"
+  });
+  const prepressApproved = appendArtworkApprovalDecision({
+    approval: requested,
+    approval_decision_id: "approval_decision_binding_001",
+    party: "prepress",
+    outcome: "approved",
+    decided_by: "prepress_operator_001",
+    decided_at: "2026-08-17T12:00:06.000Z"
+  });
+
+  assert.throws(
+    () =>
+      appendArtworkApprovalDecision({
+        approval: prepressApproved,
+        approval_decision_id: "approval_decision_binding_001",
+        party: "customer",
+        outcome: "approved",
+        decided_by: "customer_reviewer_001",
+        decided_at: "2026-08-17T12:00:07.000Z"
+      }),
+    (error: unknown) =>
+      error instanceof ArtworkCatalogDomainError && error.code === "approval_conflict"
+  );
+  assert.throws(
+    () =>
+      appendArtworkApprovalDecision({
+        approval: prepressApproved,
+        approval_decision_id: "approval_decision_backwards_001",
+        party: "customer",
+        outcome: "approved",
+        decided_by: "customer_reviewer_001",
+        decided_at: "2026-08-17T12:00:05.000Z"
+      }),
+    (error: unknown) =>
+      error instanceof ArtworkCatalogDomainError && error.code === "invalid_transition"
+  );
+
+  for (const mismatched of [
+    { ...requested, customer_id: "customer_other" as never },
+    { ...requested, catalog_id: "catalog_other" as never },
+    { ...requested, catalog_product_id: "product_other" as never },
+    { ...requested, artwork_asset_id: "asset_other" as never },
+    { ...requested, artwork_version_id: "version_other" as never },
+    { ...requested, specification_revision_id: "specification_other" as never },
+    { ...requested, object_version_id: "object_version_other" },
+    { ...requested, sha256: "f".repeat(64) }
+  ]) {
+    assert.throws(
+      () => evaluateArtworkReadiness(usable, disabled, null, mismatched),
+      (error: unknown) =>
+      error instanceof ArtworkCatalogDomainError && error.code === "binding_mismatch"
+    );
+  }
+  assert.throws(
+    () =>
+      createArtworkApproval({
+        version: usable,
+        approval_id: "approval_before_usable_001",
+        created_at: "2026-08-17T12:00:04.000Z"
+      }),
+    (error: unknown) =>
+      error instanceof ArtworkCatalogDomainError && error.code === "invalid_transition"
+  );
+});
+
+test("keeps technical inspection, approval, and business release independent", () => {
+  const { catalog, usable } = fixture();
+  const advisory = createInspectionPolicyRevision({
+    catalog,
+    policy_revision_id: "policy_advisory_approval_001",
+    mode: "advisory",
+    provider_key: "provider_alpha",
+    created_at: timestamp
+  });
+  const inspection = createArtworkInspection({
+    version: usable,
+    policy: advisory,
+    inspection_id: "inspection_approval_independence_001",
+    provider_key: "provider_alpha",
+    adapter_version: "adapter-1",
+    engine_revision: "engine-1",
+    idempotency_key: "idempotency-approval-independence-1",
+    created_at: "2026-08-17T12:00:05.000Z"
+  });
+  const completed = recordArtworkInspectionObservation(
+    inspection,
+    completedObservation(inspection.inspection_id, inspection.policy_revision_id),
+    "2026-08-17T12:00:10.000Z"
+  );
+  assert.deepEqual(evaluateArtworkReadiness(usable, advisory, completed), {
+    asset_safety: "usable",
+    inspection_requirement: "advisory",
+    inspection_evidence: "pass",
+    human_approval: "not_requested",
+    business_release: "held"
+  });
+
+  const requested = createArtworkApproval({
+    version: usable,
+    approval_id: "approval_independence_001",
+    created_at: "2026-08-17T12:00:11.000Z"
+  });
+  const prepressApproved = appendArtworkApprovalDecision({
+    approval: requested,
+    approval_decision_id: "approval_decision_independence_prepress_001",
+    party: "prepress",
+    outcome: "approved",
+    decided_by: "prepress_operator_001",
+    decided_at: "2026-08-17T12:00:12.000Z"
+  });
+  const approved = appendArtworkApprovalDecision({
+    approval: prepressApproved,
+    approval_decision_id: "approval_decision_independence_customer_001",
+    party: "customer",
+    outcome: "approved",
+    decided_by: "customer_reviewer_001",
+    decided_at: "2026-08-17T12:00:13.000Z"
+  });
+  assert.deepEqual(evaluateArtworkReadiness(usable, advisory, completed, approved), {
+    asset_safety: "usable",
+    inspection_requirement: "advisory",
+    inspection_evidence: "pass",
+    human_approval: "approved",
+    business_release: "held"
+  });
 });
 
 test("fails closed on customer, catalog, specification, provider, and asset safety mismatches", () => {

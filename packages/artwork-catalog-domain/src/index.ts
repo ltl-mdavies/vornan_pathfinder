@@ -16,6 +16,8 @@ export type ArtworkAssetId = BrandedId<"ArtworkAssetId">;
 export type ArtworkVersionId = BrandedId<"ArtworkVersionId">;
 export type InspectionPolicyRevisionId = BrandedId<"InspectionPolicyRevisionId">;
 export type ArtworkInspectionId = BrandedId<"ArtworkInspectionId">;
+export type ArtworkApprovalId = BrandedId<"ArtworkApprovalId">;
+export type ArtworkApprovalDecisionId = BrandedId<"ArtworkApprovalDecisionId">;
 
 export type ArtworkVersionState =
   | "initialized"
@@ -129,11 +131,39 @@ export interface ArtworkInspection {
   readonly updated_at: string;
 }
 
+export type ArtworkApprovalParty = "prepress" | "customer";
+export type ArtworkApprovalDecisionOutcome = "approved" | "rejected";
+export type ArtworkApprovalState = "not_requested" | "pending" | "approved" | "rejected";
+
+export interface ArtworkApprovalDecision {
+  readonly approval_decision_id: ArtworkApprovalDecisionId;
+  readonly party: ArtworkApprovalParty;
+  readonly outcome: ArtworkApprovalDecisionOutcome;
+  readonly decided_by: string;
+  readonly note: string | null;
+  readonly decided_at: string;
+}
+
+export interface ArtworkApproval {
+  readonly customer_id: CustomerId;
+  readonly catalog_id: CatalogId;
+  readonly catalog_product_id: CatalogProductId;
+  readonly artwork_asset_id: ArtworkAssetId;
+  readonly artwork_version_id: ArtworkVersionId;
+  readonly specification_revision_id: ProductSpecificationRevisionId;
+  readonly approval_id: ArtworkApprovalId;
+  readonly object_version_id: string;
+  readonly sha256: string;
+  readonly decisions: readonly ArtworkApprovalDecision[];
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
 export interface ArtworkReadiness {
   readonly asset_safety: "usable" | "pending" | "blocked";
   readonly inspection_requirement: InspectionPolicyMode;
   readonly inspection_evidence: InspectionEvidenceState;
-  readonly human_approval: "not_requested";
+  readonly human_approval: ArtworkApprovalState;
   readonly business_release: "held";
 }
 
@@ -143,7 +173,8 @@ export type ArtworkCatalogDomainErrorCode =
   | "invalid_transition"
   | "inspection_disabled"
   | "asset_not_usable"
-  | "rerun_conflict";
+  | "rerun_conflict"
+  | "approval_conflict";
 
 export class ArtworkCatalogDomainError extends Error {
   constructor(
@@ -386,10 +417,119 @@ function assetSafety(state: ArtworkVersionState): ArtworkReadiness["asset_safety
   return "pending";
 }
 
+function assertApprovalVersionBinding(approval: ArtworkApproval, version: ArtworkVersion): void {
+  const bindings: ReadonlyArray<readonly [string, string, string]> = [
+    ["approval.customer_id", approval.customer_id, version.customer_id],
+    ["approval.catalog_id", approval.catalog_id, version.catalog_id],
+    ["approval.catalog_product_id", approval.catalog_product_id, version.catalog_product_id],
+    ["approval.artwork_asset_id", approval.artwork_asset_id, version.artwork_asset_id],
+    ["approval.artwork_version_id", approval.artwork_version_id, version.artwork_version_id],
+    ["approval.specification_revision_id", approval.specification_revision_id, version.specification_revision_id],
+    ["approval.object_version_id", approval.object_version_id, version.object_version_id],
+    ["approval.sha256", approval.sha256, version.sha256]
+  ];
+  const mismatch = bindings.find(([, actual, expected]) => actual !== expected);
+  if (mismatch) {
+    throw new ArtworkCatalogDomainError("binding_mismatch", `${mismatch[0]} binding mismatch`);
+  }
+}
+
+export function approvalState(approval: ArtworkApproval | null | undefined): ArtworkApprovalState {
+  if (!approval) return "not_requested";
+  if (approval.decisions.some((decision) => decision.outcome === "rejected")) return "rejected";
+  const parties = new Set(approval.decisions.map((decision) => decision.party));
+  return parties.has("prepress") && parties.has("customer") ? "approved" : "pending";
+}
+
+export function createArtworkApproval(input: {
+  readonly version: ArtworkVersion;
+  readonly approval_id: string;
+  readonly created_at: string;
+}): ArtworkApproval {
+  if (input.version.state !== "usable") {
+    throw new ArtworkCatalogDomainError(
+      "asset_not_usable",
+      "only a usable artwork version may enter approval"
+    );
+  }
+  const createdAt = requireTimestamp(input.created_at, "created_at");
+  if (Date.parse(createdAt) < Date.parse(input.version.updated_at)) {
+    throw new ArtworkCatalogDomainError(
+      "invalid_transition",
+      "approval request time cannot precede the usable artwork version"
+    );
+  }
+  return Object.freeze({
+    customer_id: input.version.customer_id,
+    catalog_id: input.version.catalog_id,
+    catalog_product_id: input.version.catalog_product_id,
+    artwork_asset_id: input.version.artwork_asset_id,
+    artwork_version_id: input.version.artwork_version_id,
+    specification_revision_id: input.version.specification_revision_id,
+    approval_id: requireId<"ArtworkApprovalId">(input.approval_id, "approval_id"),
+    object_version_id: input.version.object_version_id,
+    sha256: input.version.sha256,
+    decisions: Object.freeze([]),
+    created_at: createdAt,
+    updated_at: createdAt
+  });
+}
+
+export function appendArtworkApprovalDecision(input: {
+  readonly approval: ArtworkApproval;
+  readonly approval_decision_id: string;
+  readonly party: ArtworkApprovalParty;
+  readonly outcome: ArtworkApprovalDecisionOutcome;
+  readonly decided_by: string;
+  readonly note?: string | null;
+  readonly decided_at: string;
+}): ArtworkApproval {
+  if (!(["prepress", "customer"] as const).includes(input.party)) {
+    throw new ArtworkCatalogDomainError("invalid_value", "approval party is unsupported");
+  }
+  if (!(["approved", "rejected"] as const).includes(input.outcome)) {
+    throw new ArtworkCatalogDomainError("invalid_value", "approval outcome is unsupported");
+  }
+  if (approvalState(input.approval) !== "pending") {
+    throw new ArtworkCatalogDomainError("approval_conflict", "terminal approval cannot accept decisions");
+  }
+  const decisionId = requireId<"ArtworkApprovalDecisionId">(
+    input.approval_decision_id,
+    "approval_decision_id"
+  );
+  if (input.approval.decisions.some((decision) => decision.approval_decision_id === decisionId)) {
+    throw new ArtworkCatalogDomainError("approval_conflict", "approval decision identity must be unique");
+  }
+  if (input.approval.decisions.some((decision) => decision.party === input.party)) {
+    throw new ArtworkCatalogDomainError("approval_conflict", "approval party decision is immutable");
+  }
+  const decidedAt = requireTimestamp(input.decided_at, "decided_at");
+  if (Date.parse(decidedAt) < Date.parse(input.approval.updated_at)) {
+    throw new ArtworkCatalogDomainError("invalid_transition", "approval decision time cannot move backwards");
+  }
+  const note = input.note === null || input.note === undefined
+    ? null
+    : requireText(input.note, "approval note", 1_000);
+  const decision = Object.freeze({
+    approval_decision_id: decisionId,
+    party: input.party,
+    outcome: input.outcome,
+    decided_by: requireText(input.decided_by, "decided_by", 256),
+    note,
+    decided_at: decidedAt
+  });
+  return Object.freeze({
+    ...input.approval,
+    decisions: Object.freeze([...input.approval.decisions, decision]),
+    updated_at: decidedAt
+  });
+}
+
 export function evaluateArtworkReadiness(
   version: ArtworkVersion,
   policy: InspectionPolicyRevision,
-  inspection?: ArtworkInspection | null
+  inspection?: ArtworkInspection | null,
+  approval?: ArtworkApproval | null
 ): ArtworkReadiness {
   assertEqual("customer_id", policy.customer_id, version.customer_id);
   assertEqual("catalog_id", policy.catalog_id, version.catalog_id);
@@ -399,6 +539,7 @@ export function evaluateArtworkReadiness(
     assertEqual("inspection.artwork_version_id", inspection.artwork_version_id, version.artwork_version_id);
     assertEqual("inspection.policy_revision_id", inspection.policy_revision_id, policy.policy_revision_id);
   }
+  if (approval) assertApprovalVersionBinding(approval, version);
 
   let evidence: InspectionEvidenceState = "not_requested";
   if (policy.mode !== "disabled") {
@@ -418,7 +559,7 @@ export function evaluateArtworkReadiness(
     asset_safety: assetSafety(version.state),
     inspection_requirement: policy.mode,
     inspection_evidence: evidence,
-    human_approval: "not_requested",
+    human_approval: approvalState(approval),
     business_release: "held"
   });
 }
