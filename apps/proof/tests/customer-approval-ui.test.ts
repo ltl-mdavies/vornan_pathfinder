@@ -30,5 +30,8 @@ test("keeps revised artwork in its upload lifecycle with an accessible customer 
   assert.match(revisionDialogSource, /onDrop=\{handleDrop\}/);
   assert.match(revisionDialogSource, /Choose a different file/);
   assert.match(revisionDialogSource, /Upload and check file/);
+  assert.match(revisionDialogSource, /Retry file check/);
+  assert.match(revisionDialogSource, /retryFinalization/);
+  assert.match(revisionDialogSource, /finalizeRevisionUpload\(asset\.asset_id\)/);
   assert.doesNotMatch(revisionDialogSource, /Private by default/);
 });
