@@ -207,6 +207,24 @@ test("keeps customer revised-art upload default-off and exact-bucket scoped", ()
   assert.doesNotMatch(publicRole, /s3:DeleteObject|s3:\*|arn:aws:s3:::\*/);
 });
 
+test("allows browser uploads only to the exact private asset bucket during the bounded revision window", () => {
+  const template = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
+  const webHeaders = template.slice(
+    template.indexOf("  ProofWebResponseHeadersPolicy:"),
+    template.indexOf("  ProofApiResponseHeadersPolicy:")
+  );
+  assert.match(
+    webHeaders,
+    /ContentSecurityPolicy: !If\s+- CustomerRevisionUploadActive\s+- !Sub "default-src 'self'; connect-src 'self' https:\/\/\$\{ProofAssetBucketName\}\.s3\.\$\{AWS::Region\}\.amazonaws\.com;/
+  );
+  assert.match(
+    webHeaders,
+    /- "default-src 'self'; connect-src 'self'; font-src 'self';/
+  );
+  assert.doesNotMatch(webHeaders, /connect-src 'self' https:\s*;/);
+  assert.doesNotMatch(webHeaders, /connect-src 'self' \*;/);
+});
+
 test("accepts only the bounded allowlisted LTL Demo QA profile", () => {
   const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
   const profile = {
