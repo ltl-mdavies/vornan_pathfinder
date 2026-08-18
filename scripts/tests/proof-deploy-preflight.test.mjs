@@ -124,6 +124,10 @@ test("keeps isolated customer approval default-off and least-privileged", () => 
   );
   assert.match(
     template,
+    /CustomerRuntimeActive[\s\S]*?Action: dynamodb:GetItem[\s\S]*?Resource: !GetAtt ProofAuditTable.Arn/
+  );
+  assert.match(
+    template,
     /CustomerRuntimeActive[\s\S]*?Action: dynamodb:TransactWriteItems[\s\S]*?!GetAtt ProofCoreTable.Arn[\s\S]*?!GetAtt ProofAuditTable.Arn/
   );
   assert.match(
@@ -137,6 +141,7 @@ test("keeps isolated customer approval default-off and least-privileged", () => 
   assert.doesNotMatch(publicRole, /dynamodb:Scan/);
   assert.equal((publicRole.match(/PathfinderTargetsTableArn/g) ?? []).length, 1);
   assert.match(publicRole, /Action: dynamodb:GetItem\n\s+Resource: !Ref PathfinderTargetsTableArn/);
+  assert.match(publicRole, /CustomerRuntimeActive[\s\S]*?Action: dynamodb:GetItem\n\s+Resource: !GetAtt ProofAuditTable.Arn/);
   assert.match(publicRole, /ignore_checks:\n\s+- W3037/);
   assert.doesNotMatch(publicRole, /secretsmanager:\*|Resource: "\*"/);
 });

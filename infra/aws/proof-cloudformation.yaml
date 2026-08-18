@@ -814,6 +814,12 @@ Resources:
               - !If
                 - CustomerRuntimeActive
                 - Effect: Allow
+                  Action: dynamodb:GetItem
+                  Resource: !GetAtt ProofAuditTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - CustomerRuntimeActive
+                - Effect: Allow
                   Action: dynamodb:TransactWriteItems
                   Resource:
                     - !GetAtt ProofCoreTable.Arn
