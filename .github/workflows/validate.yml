@@ -39,7 +39,8 @@ jobs:
         run: npm run build
 
       - name: Install browser regression runtime
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
+        run: npx playwright install chromium
 
       - name: Test Proof browser regressions
         run: npm run test:browser
