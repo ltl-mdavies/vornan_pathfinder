@@ -840,6 +840,7 @@ Resources:
                   Action:
                     - s3:GetObject
                     - s3:GetObjectTagging
+                    - s3:GetObjectVersionTagging
                     - s3:PutObject
                     - s3:PutObjectTagging
                   Resource: !Join ["", [!Ref ProofAssetBucketArn, "/orders/*"]]
