@@ -17,6 +17,7 @@ import {
 import type { ProofTask } from "./types";
 
 type LocalStage = "select" | "hashing" | "uploading" | "finalizing" | "processing" | "error";
+const ASSET_ID = /^passet_[a-f0-9]{64}$/;
 
 interface RevisionUploadDialogProps {
   open: boolean;
@@ -97,6 +98,28 @@ export function RevisionUploadDialog({
     dragDepth.current = 0;
     if (fileInput.current) fileInput.current.value = "";
   }, [task?.task_id, task?.current_version?.version_id]);
+
+  useEffect(() => {
+    const recoveryAssetId = new URLSearchParams(window.location.search).get("retry_asset")?.trim() ?? "";
+    if (!open || asset || !ASSET_ID.test(recoveryAssetId)) return;
+    let active = true;
+    void loadRevisionUploadStatus(recoveryAssetId)
+      .then((result) => {
+        if (!active) return;
+        setAsset(result.asset);
+        if (result.asset.state === "uploading") {
+          setStage("error");
+          setMessage("Your uploaded file is ready to be checked. Retry the file check without uploading it again.");
+        } else {
+          setStage("processing");
+          setPollCount(0);
+        }
+      })
+      .catch((error) => {
+        if (error instanceof ProofApiError && error.status === 401) sessionExpired.current();
+      });
+    return () => { active = false; };
+  }, [asset, open]);
 
   useEffect(() => {
     if (!open || !asset || asset.state === "ready_for_lift" || asset.verification_status === "quarantined" || (asset.verification_status === "cleared" && asset.publication_status === "not_started") || pollCount >= 24) return;
