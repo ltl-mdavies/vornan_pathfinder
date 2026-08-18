@@ -2184,6 +2184,13 @@ export class CustomerProofCapabilityConflictError extends Error {
   }
 }
 
+export class CustomerProofCapabilityPersistenceError extends Error {
+  constructor() {
+    super("Vornan Proof settings could not be saved right now. Refresh the customer page before trying again.");
+    this.name = "CustomerProofCapabilityPersistenceError";
+  }
+}
+
 function proofCapabilityAuditEntry(input: {
   scope: "customer" | "order" | "identity";
   order_number: string | null;
@@ -5546,11 +5553,24 @@ async function mutateCustomerProofCapabilityWorkspace(
     const storedWorkspace = response.Item
       ? parseDynamoData<PathfinderCustomerWorkspace>(response.Item as Record<string, AttributeValue>)
       : null;
-    const workspace = normalizeWorkspace(storedWorkspace ?? createWorkspace(customer));
+    if (!storedWorkspace) {
+      throw new CustomerProofCapabilityValidationError(
+        "Set up this customer workspace before saving Vornan Proof settings."
+      );
+    }
+    const workspace = normalizeWorkspace(storedWorkspace);
     if (workspace.proof_capability_policy.updated_at !== expectedPolicyUpdatedAt) {
       throw new CustomerProofCapabilityConflictError();
     }
+    const previousPolicy = JSON.stringify(workspace.proof_capability_policy);
+    const previousAudit = JSON.stringify(workspace.proof_capability_audit);
     const next = mutation(workspace, timestamp);
+    if (
+      JSON.stringify(next.proof_capability_policy) === previousPolicy &&
+      JSON.stringify(next.proof_capability_audit) === previousAudit
+    ) {
+      return workspace;
+    }
     next.updated_at = timestamp;
     const command = new PutItemCommand({
       TableName: tables.workspaces,
@@ -5574,7 +5594,7 @@ async function mutateCustomerProofCapabilityWorkspace(
       if ((error as { name?: string }).name === "ConditionalCheckFailedException") {
         throw new CustomerProofCapabilityConflictError();
       }
-      throw error;
+      throw new CustomerProofCapabilityPersistenceError();
     }
     const scope = pathfinderStoreReadScope.getStore();
     if (scope?.store) scope.store.workspaces[customer.lift_customer_id] = next;
@@ -5582,16 +5602,32 @@ async function mutateCustomerProofCapabilityWorkspace(
   }
 
   const store = await readStore();
-  const workspace = normalizeWorkspace(
-    store.workspaces[customer.lift_customer_id] ?? createWorkspace(customer)
-  );
+  const storedWorkspace = store.workspaces[customer.lift_customer_id];
+  if (!storedWorkspace) {
+    throw new CustomerProofCapabilityValidationError(
+      "Set up this customer workspace before saving Vornan Proof settings."
+    );
+  }
+  const workspace = normalizeWorkspace(storedWorkspace);
   if (workspace.proof_capability_policy.updated_at !== expectedPolicyUpdatedAt) {
     throw new CustomerProofCapabilityConflictError();
   }
+  const previousPolicy = JSON.stringify(workspace.proof_capability_policy);
+  const previousAudit = JSON.stringify(workspace.proof_capability_audit);
   const next = mutation(workspace, timestamp);
+  if (
+    JSON.stringify(next.proof_capability_policy) === previousPolicy &&
+    JSON.stringify(next.proof_capability_audit) === previousAudit
+  ) {
+    return workspace;
+  }
   next.updated_at = timestamp;
   store.workspaces[customer.lift_customer_id] = next;
-  await writeStore(store);
+  try {
+    await writeStore(store);
+  } catch {
+    throw new CustomerProofCapabilityPersistenceError();
+  }
   return next;
 }
 
@@ -5614,6 +5650,12 @@ export async function updateCustomerProofCapabilityPolicy(
         throw new CustomerProofCapabilityValidationError(
           "Verify this customer's Proof identity from an associated Lift order before enabling Proof."
         );
+      }
+      if (
+        previous.access_mode === policyPatch.access_mode &&
+        previous.review_experience === policyPatch.review_experience
+      ) {
+        return workspace;
       }
       const next = normalizeCustomerProofCapabilityPolicy({
         ...previous,
@@ -5676,6 +5718,19 @@ export async function upsertCustomerProofOrderOverride(
       const previousOverride = policy.order_overrides.find(
         (candidate) => candidate.order_number === orderNumber
       );
+      if (
+        previousOverride?.access_mode === policyPatch.access_mode &&
+        previousOverride?.review_experience === policyPatch.review_experience
+      ) {
+        return workspace;
+      }
+      if (
+        !previousOverride &&
+        policy.access_mode === policyPatch.access_mode &&
+        policy.review_experience === policyPatch.review_experience
+      ) {
+        return workspace;
+      }
       const previousAccessMode = previousOverride?.access_mode ?? policy.access_mode;
       const previousReviewExperience = previousOverride?.review_experience ?? policy.review_experience;
       const nextOverride: CustomerProofOrderOverride = {
@@ -5745,6 +5800,12 @@ export async function verifyCustomerProofCustomerIdentity(
         verified_at: timestamp,
         verified_by: safeProofCapabilityActor(actorId)
       };
+      if (
+        previousIdentity?.proof_customer_id === nextIdentity.proof_customer_id &&
+        previousIdentity.verified_order_number === nextIdentity.verified_order_number
+      ) {
+        return workspace;
+      }
       workspace.proof_capability_policy = normalizeCustomerProofCapabilityPolicy({
         ...policy,
         customer_identity: nextIdentity,
