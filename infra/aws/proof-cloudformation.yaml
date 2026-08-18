@@ -547,7 +547,10 @@ Resources:
         Comment: Vornan Proof browser security headers
         SecurityHeadersConfig:
           ContentSecurityPolicy:
-            ContentSecurityPolicy: "default-src 'self'; connect-src 'self'; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
+            ContentSecurityPolicy: !If
+              - CustomerRevisionUploadActive
+              - !Sub "default-src 'self'; connect-src 'self' https://${ProofAssetBucketName}.s3.${AWS::Region}.amazonaws.com; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
+              - "default-src 'self'; connect-src 'self'; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
             Override: true
           ContentTypeOptions:
             Override: true
