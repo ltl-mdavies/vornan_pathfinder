@@ -1050,6 +1050,15 @@ Resources:
                     - !Sub "${ProofAssetBucketArn}/orders/*"
                     - !Sub "${ProofAssetBucketArn}/a/*"
                 - !Ref "AWS::NoValue"
+              - !If
+                - ProofAssetPublicationActive
+                - Effect: Allow
+                  Action: s3:ListBucket
+                  Resource: !Ref ProofAssetBucketArn
+                  Condition:
+                    StringLike:
+                      s3:prefix: "a/plocator_*"
+                - !Ref "AWS::NoValue"
               - Effect: Allow
                 Action:
                   - dynamodb:TransactWriteItems
