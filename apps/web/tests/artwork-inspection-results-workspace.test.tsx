@@ -7,6 +7,7 @@ import {
   ArtworkInspectionResultsWorkspace,
   adjacentFindingId,
   clampInspectionZoom,
+  fitInspectionPreview,
   inspectionHasPageRail
 } from "../src/artwork-catalog/ArtworkInspectionResultsWorkspace";
 import {
@@ -25,6 +26,9 @@ test("renders the approved single-page heatmap results workspace with separate t
   assert.match(markup, /Version 7/);
   assert.match(markup, /aria-label="Artwork analysis view"/);
   assert.match(markup, /aria-pressed="true">Heatmap/);
+  assert.match(markup, /data-source-width="1200"/);
+  assert.match(markup, /data-source-height="675"/);
+  assert.match(markup, /data-fit-zoom="100"/);
   assert.match(markup, /Findings <span>4/);
   assert.match(markup, /Overall verdict/);
   assert.match(markup, /Needs work/);
@@ -64,6 +68,39 @@ test("keeps zoom bounded and finding navigation deterministic", () => {
   assert.equal(adjacentFindingId([], "missing", 1), "");
 });
 
+test("fits wide and tall artwork with one uniform scale and no ratio change", () => {
+  const wide = fitInspectionPreview({ width: 1000, height: 400 }, { width: 1200, height: 675 });
+  assert.equal(wide.height, 400);
+  assert.equal(wide.width / wide.height, 1200 / 675);
+  assert.equal(wide.width, 1200 * wide.scale);
+  assert.equal(wide.height, 675 * wide.scale);
+
+  const tall = fitInspectionPreview({ width: 400, height: 500 }, { width: 675, height: 1200 });
+  assert.equal(tall.height, 500);
+  assert.equal(tall.width / tall.height, 675 / 1200);
+  assert.equal(tall.width, 675 * tall.scale);
+  assert.equal(tall.height, 1200 * tall.scale);
+
+  assert.throws(
+    () => fitInspectionPreview({ width: 0, height: 500 }, { width: 1200, height: 675 }),
+    /positive finite numbers/
+  );
+});
+
+test("keeps original, heatmap, and callouts in the same source coordinate system", async () => {
+  const original = await readFile(new URL("../src/artwork-catalog/assets/pump-topper-chevron-current.png", import.meta.url));
+  const heatmap = await readFile(new URL("../src/artwork-catalog/assets/pump-topper-chevron-heatmap.png", import.meta.url));
+  const pngDimensions = (contents: Buffer) => ({ width: contents.readUInt32BE(16), height: contents.readUInt32BE(20) });
+  const fixturePage = artworkInspectionResultFixture.pages[0];
+
+  assert.deepEqual(pngDimensions(original), { width: fixturePage.pixelWidth, height: fixturePage.pixelHeight });
+  assert.deepEqual(pngDimensions(heatmap), { width: fixturePage.pixelWidth, height: fixturePage.pixelHeight });
+  for (const finding of artworkInspectionResultFixture.findings) {
+    assert.ok(finding.marker.xPercent >= 0 && finding.marker.xPercent <= 100);
+    assert.ok(finding.marker.yPercent >= 0 && finding.marker.yPercent <= 100);
+  }
+});
+
 test("fails closed when a finding references a page that was not supplied", () => {
   const invalid = {
     ...artworkInspectionResultFixture,
@@ -87,6 +124,13 @@ test("keeps the slice unmounted, injected, provider-neutral, and free of runtime
   assert.doesNotMatch(source, /api-client|@aws-sdk|process\.env|import\.meta\.env|\.\.\/App/);
   assert.doesNotMatch(source, /signed.?url|object.?key|provider.?payload|credential|secret/i);
   assert.doesNotMatch(styleSource, /PixelGuard|Durst|Vornan Proof/);
+  assert.doesNotMatch(styleSource, /object-fit:\s*(?:fill|cover)/);
+  assert.doesNotMatch(styleSource, /aspect-ratio:\s*3\.2\s*\/\s*1/);
+  assert.match(styleSource, /object-fit:\s*contain/);
+  assert.match(source, /ResizeObserver/);
+  assert.match(source, /fitInspectionPreview/);
+  assert.match(source, /left: `\$\{finding\.marker\.xPercent\}%`/);
+  assert.match(source, /top: `\$\{finding\.marker\.yPercent\}%`/);
   assert.match(source, /actions: ArtworkInspectionResultsActions/);
   assert.match(source, /onDownloadReport: \(inspectionId: string\)/);
   assert.match(source, /onOpenAnalyzedArtwork: \(inspectionId: string\)/);

@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -43,6 +43,8 @@ export type InspectionPage = Readonly<{
   pageNumber: number;
   label: string;
   dimensions: string;
+  pixelWidth: number;
+  pixelHeight: number;
   originalPreviewUrl: string;
   originalPreviewAlt: string;
   heatmapPreviewUrl: string;
@@ -84,6 +86,19 @@ export type ArtworkInspectionResultsWorkspaceProps = Readonly<{
 const MIN_ZOOM = 50;
 const MAX_ZOOM = 200;
 const ZOOM_STEP = 10;
+
+export type InspectionPreviewSize = Readonly<{ width: number; height: number; scale: number }>;
+
+export function fitInspectionPreview(
+  viewport: Readonly<{ width: number; height: number }>,
+  source: Readonly<{ width: number; height: number }>
+): InspectionPreviewSize {
+  if (![viewport.width, viewport.height, source.width, source.height].every((value) => Number.isFinite(value) && value > 0)) {
+    throw new Error("Inspection preview dimensions must be positive finite numbers.");
+  }
+  const scale = Math.min(viewport.width / source.width, viewport.height / source.height);
+  return { width: source.width * scale, height: source.height * scale, scale };
+}
 
 export function clampInspectionZoom(value: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
@@ -171,15 +186,44 @@ function ArtworkPreview({
   onSelectFinding: (findingId: string) => void;
   compact?: boolean;
 }>) {
+  const previewRef = useRef<HTMLElement>(null);
+  const [viewport, setViewport] = useState({ width: page.pixelWidth, height: page.pixelHeight });
   const heatmapVisible = mode === "heatmap";
   const markersVisible = mode === "heatmap" || mode === "findings";
   const imageUrl = heatmapVisible ? page.heatmapPreviewUrl : page.originalPreviewUrl;
   const imageAlt = heatmapVisible ? page.heatmapPreviewAlt : page.originalPreviewAlt;
-  const style = { "--inspection-preview-zoom": `${(zoom / 124) * 100}%` } as CSSProperties;
+  const fit = fitInspectionPreview(viewport, { width: page.pixelWidth, height: page.pixelHeight });
+  const zoomScale = zoom / 100;
+  const style = {
+    width: `${fit.width * zoomScale}px`,
+    height: `${fit.height * zoomScale}px`,
+    aspectRatio: `${page.pixelWidth} / ${page.pixelHeight}`
+  } as CSSProperties;
+
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!preview || typeof ResizeObserver === "undefined") return undefined;
+    const updateViewport = (width: number, height: number) => {
+      if (width <= 0 || height <= 0) return;
+      setViewport((current) => current.width === width && current.height === height ? current : { width, height });
+    };
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) updateViewport(entry.contentRect.width, entry.contentRect.height);
+    });
+    observer.observe(preview);
+    updateViewport(preview.clientWidth, preview.clientHeight);
+    return () => observer.disconnect();
+  }, [compact]);
 
   return (
-    <figure className={compact ? "inspection-preview inspection-preview-compact" : "inspection-preview"} style={style}>
-      <div className="inspection-preview-content">
+    <figure
+      ref={previewRef}
+      className={compact ? "inspection-preview inspection-preview-compact" : "inspection-preview"}
+      data-source-width={page.pixelWidth}
+      data-source-height={page.pixelHeight}
+      data-fit-zoom={zoom}
+    >
+      <div className="inspection-preview-content" style={style}>
         <img src={imageUrl} alt={imageAlt} />
         {markersVisible ? (
           <PreviewMarkers findings={findings} selectedFindingId={selectedFindingId} onSelectFinding={onSelectFinding} />
@@ -205,7 +249,7 @@ export function ArtworkInspectionResultsWorkspace({
   const [selectedPageNumber, setSelectedPageNumber] = useState(result.pages[0].pageNumber);
   const [selectedFindingId, setSelectedFindingId] = useState(result.findings[0]?.id ?? "");
   const [findingsExpanded, setFindingsExpanded] = useState(true);
-  const [zoom, setZoom] = useState(124);
+  const [zoom, setZoom] = useState(100);
 
   const selectedPage = result.pages.find((page) => page.pageNumber === selectedPageNumber) ?? result.pages[0];
   const selectedFinding = result.findings.find((finding) => finding.id === selectedFindingId) ?? result.findings[0];
@@ -266,7 +310,7 @@ export function ArtworkInspectionResultsWorkspace({
             <button type="button" onClick={() => setZoom((current) => clampInspectionZoom(current - ZOOM_STEP))} disabled={zoom === MIN_ZOOM} aria-label="Zoom out"><Minus size={15} aria-hidden="true" /></button>
             <output aria-live="polite">{zoom}%</output>
             <button type="button" onClick={() => setZoom((current) => clampInspectionZoom(current + ZOOM_STEP))} disabled={zoom === MAX_ZOOM} aria-label="Zoom in"><Plus size={15} aria-hidden="true" /></button>
-            <button type="button" onClick={() => setZoom(124)}>Fit <ChevronDown size={14} aria-hidden="true" /></button>
+            <button type="button" onClick={() => setZoom(100)}>Fit <ChevronDown size={14} aria-hidden="true" /></button>
           </div>
         </div>
 

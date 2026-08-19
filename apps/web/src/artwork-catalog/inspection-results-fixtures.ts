@@ -12,6 +12,8 @@ const singlePage: InspectionPage = {
   pageNumber: 1,
   label: "Page 1",
   dimensions: "72 × 15 in",
+  pixelWidth: 1200,
+  pixelHeight: 675,
   originalPreviewUrl,
   originalPreviewAlt: "Forest green and lime chevron transit artwork reading Move with purpose",
   heatmapPreviewUrl,
