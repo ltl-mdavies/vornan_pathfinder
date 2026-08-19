@@ -539,7 +539,7 @@ test("operator revised-art upload stays independently dark and exact-bucket scop
   );
   assert.doesNotMatch(
     template,
-    /ProofAssetBucketArn[\s\S]{0,500}s3:(DeleteObject|ListBucket)/
+    /ProofAssetBucketArn[\s\S]{0,500}s3:DeleteObject/
   );
   assert.match(
     workflow,
@@ -560,6 +560,14 @@ test("Proof publication stays independently dark and direct-delivery scoped", ()
   assert.match(
     template,
     /ProofAssetPublicationActive[\s\S]*?s3:GetObjectVersion[\s\S]*?s3:PutObject[\s\S]*?s3:PutObjectTagging[\s\S]*?ProofAssetBucketArn\}\/a\/\*/
+  );
+  assert.match(
+    template,
+    /ProofAssetPublicationActive[\s\S]*?Action: s3:ListBucket[\s\S]*?Resource: !Ref ProofAssetBucketArn[\s\S]*?s3:prefix: "a\/plocator_\*"/
+  );
+  assert.doesNotMatch(
+    template,
+    /Action: s3:ListBucket[\s\S]*?Resource: !Ref ProofAssetBucketArn[\s\S]*?s3:prefix: "(?!a\/plocator_\*")[^"]+"/
   );
   assert.match(
     workflow,
