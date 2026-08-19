@@ -305,7 +305,6 @@ export function validateProofRevisionAssetReadiness(
     uploadCompleted > verified ||
     verified > published ||
     published > deliveryVerified ||
-    lastProofActivity < uploadCompleted ||
     retentionAnchor !== Math.max(orderCompleted, lastProofActivity) ||
     record.lift_not_before_epoch !==
       computeProofAssetLiftNotBeforeEpoch({
