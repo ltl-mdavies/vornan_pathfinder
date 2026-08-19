@@ -165,6 +165,16 @@ function eventCorrelation(eventId: string) {
   return `pcorr_asset_${sha256("vornan-proof-asset-scan-event-v1", eventId)}`;
 }
 
+function publicationCorrelation(value: string) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 512) {
+    throw new ProofAssetVerificationPublicationError(
+      "invalid",
+      "Proof asset publication correlation is invalid."
+    );
+  }
+  return `pcorr_asset_${sha256("vornan-proof-asset-publication-v1", value)}`;
+}
+
 function auditEvent(input: {
   record: ProofAssetUploadRecord;
   action: ProofAuditAction;
@@ -368,7 +378,7 @@ export function createProofAssetVerificationPublicationService(
       asset_id: string;
       correlation_id: string;
     }) {
-      const correlation = eventCorrelation(input.correlation_id);
+      const correlation = publicationCorrelation(input.correlation_id);
       let record = await dependencies.getRecord(input.order_number, input.asset_id);
       if (!record) {
         throw new ProofAssetVerificationPublicationError(
