@@ -44,7 +44,9 @@ test("accepts only exact immutable revised-art asset identifiers for recovery", 
 test("keeps recovered publication separate from the revised-art Lift action", async () => {
   const source = await readFile(new URL("../src/ProofOpsPanel.tsx", import.meta.url), "utf8");
   assert.match(source, /Publish one cleared revised-art asset\./);
-  assert.match(source, /This control only loads and publishes the exact recorded asset\. It does not upload a file or send any Lift decision\./);
+  assert.match(source, /Publish exact cleared asset/);
+  assert.match(source, /Publication rechecks the exact order and scan clearance server-side; it does not upload a file or send any Lift decision\./);
+  assert.match(source, /const assetId = revisionUploadAsset\?\.asset_id \?\? revisionRecoveryAssetId\.trim\(\)/);
 });
 
 const order = {
