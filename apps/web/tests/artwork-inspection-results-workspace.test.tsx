@@ -36,6 +36,8 @@ test("renders the approved single-page heatmap results workspace with separate t
   assert.match(markup, /Problem area/);
   assert.match(markup, /Finding 1 of 4/);
   assert.match(markup, /Effective resolution 118 DPI/);
+  assert.match(markup, /Theater view/);
+  assert.doesNotMatch(markup, /Learn about effective resolution/);
   assert.match(markup, /Download report/);
   assert.match(markup, /Open analyzed artwork/);
   assert.match(markup, /Technical findings do not change Proof approval/);
@@ -99,6 +101,23 @@ test("keeps original, heatmap, and callouts in the same source coordinate system
     assert.ok(finding.marker.xPercent >= 0 && finding.marker.xPercent <= 100);
     assert.ok(finding.marker.yPercent >= 0 && finding.marker.yPercent <= 100);
   }
+});
+
+test("keeps theater view local, accessible, and free of unsupported education actions", async () => {
+  const source = await readFile(new URL("../src/artwork-catalog/ArtworkInspectionResultsWorkspace.tsx", import.meta.url), "utf8");
+  const fixtureSource = await readFile(new URL("../src/artwork-catalog/inspection-results-fixtures.ts", import.meta.url), "utf8");
+  const styleSource = await readFile(new URL("../src/artwork-catalog/artwork-inspection-results.css", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /learnMoreLabel|onLearnMore/);
+  assert.doesNotMatch(fixtureSource, /Learn about effective resolution|onLearnMore/);
+  assert.doesNotMatch(styleSource, /inspection-learn-more/);
+  assert.match(source, /aria-pressed=\{theaterMode\}/);
+  assert.match(source, /event\.key === "Escape"/);
+  assert.match(source, /Secondary inspection details are hidden/);
+  assert.match(source, /hidden=\{theaterMode\}/);
+  assert.match(styleSource, /artwork-inspection-results-theater \.inspection-preview/);
+  assert.match(styleSource, /inspection-overall-verdict[^}]*justify-content:\s*center/);
+  assert.match(styleSource, /inspection-key-metrics > div:not\(\.inspection-metrics-label\)[^}]*justify-content:\s*center/);
 });
 
 test("fails closed when a finding references a page that was not supplied", () => {

@@ -33,7 +33,6 @@ const findings: ReadonlyArray<InspectionFinding> = [
     regionLabel: "Upper-left circuit area",
     affectedArea: "18.7% of artwork",
     recommendation: "Replace with higher-resolution artwork or rebuild critical lines and diagonals.",
-    learnMoreLabel: "Learn about effective resolution",
     marker: { xPercent: 25, yPercent: 16 }
   },
   {
@@ -117,6 +116,5 @@ export const artworkInspectionMultiPageFixture: ArtworkInspectionResultViewModel
 export const artworkInspectionFixtureActions: ArtworkInspectionResultsActions = {
   onBack: () => undefined,
   onDownloadReport: () => undefined,
-  onOpenAnalyzedArtwork: () => undefined,
-  onLearnMore: () => undefined
+  onOpenAnalyzedArtwork: () => undefined
 };

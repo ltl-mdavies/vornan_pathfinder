@@ -9,7 +9,9 @@ import {
   Download,
   ExternalLink,
   Info,
+  Maximize2,
   Minus,
+  Minimize2,
   Plus
 } from "lucide-react";
 
@@ -35,7 +37,6 @@ export type InspectionFinding = Readonly<{
   regionLabel: string;
   affectedArea: string;
   recommendation: string;
-  learnMoreLabel?: string;
   marker: Readonly<{ xPercent: number; yPercent: number }>;
 }>;
 
@@ -74,7 +75,6 @@ export type ArtworkInspectionResultsActions = Readonly<{
   onBack: (inspectionId: string) => void;
   onDownloadReport: (inspectionId: string) => void;
   onOpenAnalyzedArtwork: (inspectionId: string) => void;
-  onLearnMore?: (input: { inspectionId: string; findingId: string }) => void;
 }>;
 
 export type ArtworkInspectionResultsWorkspaceProps = Readonly<{
@@ -250,6 +250,16 @@ export function ArtworkInspectionResultsWorkspace({
   const [selectedFindingId, setSelectedFindingId] = useState(result.findings[0]?.id ?? "");
   const [findingsExpanded, setFindingsExpanded] = useState(true);
   const [zoom, setZoom] = useState(100);
+  const [theaterMode, setTheaterMode] = useState(false);
+
+  useEffect(() => {
+    if (!theaterMode) return undefined;
+    const exitTheaterOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setTheaterMode(false);
+    };
+    window.addEventListener("keydown", exitTheaterOnEscape);
+    return () => window.removeEventListener("keydown", exitTheaterOnEscape);
+  }, [theaterMode]);
 
   const selectedPage = result.pages.find((page) => page.pageNumber === selectedPageNumber) ?? result.pages[0];
   const selectedFinding = result.findings.find((finding) => finding.id === selectedFindingId) ?? result.findings[0];
@@ -277,7 +287,11 @@ export function ArtworkInspectionResultsWorkspace({
   };
 
   return (
-    <section className="artwork-inspection-results" aria-labelledby="inspection-results-title">
+    <section
+      className={theaterMode ? "artwork-inspection-results artwork-inspection-results-theater" : "artwork-inspection-results"}
+      aria-labelledby="inspection-results-title"
+      data-theater-mode={theaterMode ? "true" : "false"}
+    >
       <header className="inspection-results-header">
         <div className="inspection-results-title-group">
           <button type="button" className="inspection-back-link" onClick={() => actions.onBack(result.inspectionId)}>
@@ -312,6 +326,18 @@ export function ArtworkInspectionResultsWorkspace({
             <button type="button" onClick={() => setZoom((current) => clampInspectionZoom(current + ZOOM_STEP))} disabled={zoom === MAX_ZOOM} aria-label="Zoom in"><Plus size={15} aria-hidden="true" /></button>
             <button type="button" onClick={() => setZoom(100)}>Fit <ChevronDown size={14} aria-hidden="true" /></button>
           </div>
+          <button
+            type="button"
+            className="inspection-theater-button"
+            aria-pressed={theaterMode}
+            onClick={() => setTheaterMode((current) => !current)}
+          >
+            {theaterMode ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}
+            {theaterMode ? "Exit theater" : "Theater view"}
+          </button>
+          <span className="inspection-visually-hidden" aria-live="polite">
+            {theaterMode ? "Theater view is active. Secondary inspection details are hidden. Press Escape to exit." : "Theater view is inactive."}
+          </span>
         </div>
 
         <div className={inspectionHasPageRail(result.pages) ? "inspection-viewer-body inspection-viewer-body-with-pages" : "inspection-viewer-body"}>
@@ -354,7 +380,7 @@ export function ArtworkInspectionResultsWorkspace({
         </div>
       </section>
 
-      <section className="inspection-summary" aria-label="Inspection summary">
+      <section className="inspection-summary" aria-label="Inspection summary" hidden={theaterMode}>
         <article className="inspection-overall-verdict">
           <span>Overall verdict</span>
           <div className={`inspection-verdict-title inspection-verdict-${result.verdict}`}>{verdictIcon(result.verdict)}<strong>{result.verdictLabel}</strong></div>
@@ -370,7 +396,7 @@ export function ArtworkInspectionResultsWorkspace({
         </dl>
       </section>
 
-      {findingsExpanded ? (
+      {theaterMode ? null : findingsExpanded ? (
         <section className="inspection-findings" aria-labelledby="inspection-findings-title">
           <div className="inspection-findings-list">
             <header><h2 id="inspection-findings-title">Findings ({result.findings.length})</h2></header>
@@ -410,7 +436,6 @@ export function ArtworkInspectionResultsWorkspace({
               </dl>
               <h4>Recommendation</h4>
               <p>{selectedFinding.recommendation}</p>
-              {selectedFinding.learnMoreLabel && actions.onLearnMore ? <button type="button" className="inspection-learn-more" onClick={() => actions.onLearnMore?.({ inspectionId: result.inspectionId, findingId: selectedFinding.id })}>{selectedFinding.learnMoreLabel} <ExternalLink size={13} aria-hidden="true" /></button> : null}
             </article>
           ) : <p className="inspection-no-findings">No technical findings were reported.</p>}
         </section>
@@ -418,7 +443,7 @@ export function ArtworkInspectionResultsWorkspace({
         <div className="inspection-findings-collapsed"><span>{result.findings.length} technical findings hidden</span></div>
       )}
 
-      <div className="inspection-results-actions">
+      <div className="inspection-results-actions" hidden={theaterMode}>
         <button type="button" className="inspection-collapse-button" onClick={() => setFindingsExpanded((current) => !current)}>
           {findingsExpanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
           {findingsExpanded ? "Collapse findings" : "Show findings"}
@@ -429,7 +454,7 @@ export function ArtworkInspectionResultsWorkspace({
         </div>
       </div>
 
-      <footer className="inspection-results-footer">
+      <footer className="inspection-results-footer" hidden={theaterMode}>
         <span><Info size={14} aria-hidden="true" /> Technical findings do not change Proof approval.</span>
         <span>Completed {formattedInspectionDate(result.completedAt)}</span>
         <span>Policy revision {result.policyRevision}</span>
