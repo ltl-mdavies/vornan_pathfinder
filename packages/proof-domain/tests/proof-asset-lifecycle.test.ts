@@ -177,6 +177,25 @@ test("allows Lift only after verification, clean scan, direct delivery, and sett
   );
 });
 
+test("accepts an initialized retention anchor that predates upload completion", () => {
+  const initializedAnchor = "2026-07-27T11:59:54.000Z";
+  const legacyReadyAsset = {
+    ...readyAsset,
+    last_proof_activity_at: initializedAnchor,
+    retention_anchor_at: initializedAnchor,
+    cleanup_eligible_at_epoch: computeProofAssetCleanupEligibleAtEpoch({
+      retention_anchor_at: initializedAnchor,
+      retention_days: readyAsset.retention_days
+    })
+  };
+  const validated = assertProofRevisionAssetReadyForLift({
+    asset: legacyReadyAsset,
+    binding,
+    now: new Date("2026-07-27T12:00:02.000Z")
+  });
+  assert.equal(validated.retention_anchor_at, initializedAnchor);
+});
+
 test("fails closed for external sources, cross-bound assets, scan failures, and cleanup eligibility", () => {
   assert.throws(
     () =>
