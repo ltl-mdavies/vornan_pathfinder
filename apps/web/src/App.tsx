@@ -137,9 +137,15 @@ import {
   lastMeaningfulActivity,
   rankRecentOperationalJobs
 } from "./job-operational-times";
+import {
+  ArtworkCatalogInternalPilot,
+  isArtworkCatalogInternalPilotAvailable
+} from "./artwork-catalog/ArtworkCatalogInternalPilot";
+import "./artwork-catalog/artwork-catalog.css";
+import "./artwork-catalog/artwork-inspection-results.css";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
-type CustomerView = "Overview" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
+type CustomerView = "Overview" | "Artwork Catalog" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
 type JobArchiveFilter = "Active" | "Archived" | "All";
 type JobIntakeFilter = "All" | "Customer Dropbox" | "Operator";
 type JobStateFilter =
@@ -1549,6 +1555,7 @@ const globalNavItems: Array<{ label: GlobalView; icon: typeof Gauge }> = [
 
 const customerNavItems: Array<{ label: CustomerView; icon: typeof Gauge }> = [
   { label: "Overview", icon: Gauge },
+  { label: "Artwork Catalog", icon: FileText },
   { label: "Import Methods", icon: Workflow },
   { label: "Output Product Map", icon: Database },
   { label: "Manual Import", icon: Upload },
@@ -2403,6 +2410,7 @@ const fallbackCustomer: LiftCustomer = {
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3000";
 const publicStatusBaseUrl = import.meta.env.VITE_STATUS_BASE_URL ?? "https://status.vornan.co";
+const artworkCatalogInternalPilotEnabled = import.meta.env.VITE_ARTWORK_CATALOG_INTERNAL_PILOT_ENABLED === "true";
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const contentType = response.headers.get("content-type") ?? "";
@@ -6772,6 +6780,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   const selectedCustomer =
     customers.find((customer) => customer.lift_customer_id === selectedCustomerId) ?? fallbackCustomer;
+  const artworkCatalogInternalPilotAvailable = Boolean(authSession) && isArtworkCatalogInternalPilotAvailable(
+    artworkCatalogInternalPilotEnabled,
+    selectedCustomerId
+  );
+  const visibleCustomerNavItems = customerNavItems.filter(
+    (item) => item.label !== "Artwork Catalog" || artworkCatalogInternalPilotAvailable
+  );
   const statusAccessPolicy = statusPolicyDraft ?? workspace?.status_access_policy ?? createStatusAccessPolicyFallback(selectedCustomer);
   const statusAccessDomains = statusAccessPolicy.approved_email_domains ?? [];
   const approvedStatusDomainCount = statusAccessDomains.filter((domain) => domain.status === "Approved").length;
@@ -10761,7 +10776,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           </div>
 
           <nav className="customer-nav" aria-label="Customer workspace">
-            {customerNavItems.map((item) => (
+            {visibleCustomerNavItems.map((item) => (
               <button
                 className={activeCustomerView === item.label ? "customer-nav-item customer-nav-item-active" : "customer-nav-item"}
                 key={item.label}
@@ -11175,6 +11190,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                 </section>
               </>
+            ) : null}
+
+            {activeCustomerView === "Artwork Catalog" && artworkCatalogInternalPilotAvailable ? (
+              <ArtworkCatalogInternalPilot
+                customerId={selectedCustomerId}
+                customerLabel={`${selectedCustomer.customer_name} · ${selectedCustomer.lift_customer_id}`}
+              />
             ) : null}
 
             {activeCustomerView === "Import Methods" ? (
