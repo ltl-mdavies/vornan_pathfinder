@@ -619,12 +619,18 @@ test("Proof asset scan processing is dark, sanitized, queued, and least-privileg
   );
   assert.match(role, /dynamodb:GetItem/);
   assert.match(role, /dynamodb:TransactWriteItems/);
+  assert.match(role, /dynamodb:PutItem/);
+  assert.match(role, /dynamodb:ConditionCheckItem/);
+  assert.match(
+    role,
+    /dynamodb:TransactWriteItems[\s\S]*?dynamodb:PutItem[\s\S]*?dynamodb:ConditionCheckItem[\s\S]*?Resource:\n\s+- !Ref ProofCoreTableArn\n\s+- !Ref ProofAuditTableArn/
+  );
   assert.match(role, /s3:GetObjectVersionTagging/);
   assert.match(role, /s3:PutObjectVersionTagging/);
   assert.match(role, /\$\{ProofAssetBucketArn\}\/orders\/\*/);
   assert.doesNotMatch(
     role,
-    /s3:(GetObject\s*$|GetObjectTagging|PutObject\s*$|PutObjectTagging|CopyObject|DeleteObject|ListBucket)|secretsmanager|cloudfront|execute-api|lambda:InvokeFunction/m
+    /s3:(GetObject\s*$|GetObjectTagging|PutObject\s*$|PutObjectTagging|CopyObject|DeleteObject|ListBucket)|dynamodb:(DeleteItem|UpdateItem|BatchWriteItem|Scan|Query)|secretsmanager|cloudfront|execute-api|lambda:InvokeFunction/m
   );
   assert.match(
     template,
