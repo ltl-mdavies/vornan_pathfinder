@@ -177,6 +177,10 @@ jobs:
           LTL_DEMO_QA_ENABLED: ${{ inputs.ltl_demo_qa_enabled }}
           LTL_DEMO_QA_ALLOWED_ORDERS: ${{ inputs.ltl_demo_qa_allowed_orders }}
           LTL_DEMO_QA_EXPIRES_AT: ${{ inputs.ltl_demo_qa_expires_at }}
+          LTL_DEMO_QA_GRANT_CREATION_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_GRANT_CREATION_ENABLED || 'false' }}
+          LTL_DEMO_QA_SESSION_READ_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_SESSION_READ_ENABLED || 'false' }}
+          LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED || 'false' }}
+          LTL_DEMO_QA_REVISION_UPLOAD_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_REVISION_UPLOAD_ENABLED || 'false' }}
           PROOF_ASSET_UPLOAD_ENABLED: ${{ vars.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD || 'false' }}
           PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: ${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS || '' }}
           PROOF_ASSET_UPLOAD_EXPIRES_AT: ${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT || '' }}
@@ -229,6 +233,10 @@ jobs:
               LtlDemoQaEnabled="${LTL_DEMO_QA_ENABLED}" \
               LtlDemoQaAllowedOrders="${LTL_DEMO_QA_ALLOWED_ORDERS}" \
               LtlDemoQaExpiresAt="${LTL_DEMO_QA_EXPIRES_AT}" \
+              LtlDemoQaGrantCreationEnabled="${LTL_DEMO_QA_GRANT_CREATION_ENABLED}" \
+              LtlDemoQaSessionReadEnabled="${LTL_DEMO_QA_SESSION_READ_ENABLED}" \
+              LtlDemoQaCustomerApprovalEnabled="${LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED}" \
+              LtlDemoQaRevisionUploadEnabled="${LTL_DEMO_QA_REVISION_UPLOAD_ENABLED}" \
               ProofAssetBucketName="${PROOF_ASSET_BUCKET}" \
               ProofAssetBucketArn="${PROOF_ASSET_BUCKET_ARN}" \
               PathfinderTargetsTableName="${PATHFINDER_TARGETS_TABLE}" \

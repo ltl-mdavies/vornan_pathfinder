@@ -410,6 +410,26 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
     Description: Shared bounded UTC expiry for the LTL Demo QA profile.
+  ProofLtlDemoQaGrantCreationEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled authenticated review-grant creation for the exact LTL Demo QA profile.
+  ProofLtlDemoQaSessionReadEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled token-authenticated session read for the exact LTL Demo QA profile.
+  ProofLtlDemoQaCustomerApprovalEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled Simple customer approval for the exact LTL Demo QA profile.
+  ProofLtlDemoQaRevisionUploadEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled private revised-art upload for the exact LTL Demo QA profile.
   ProofPublicReadEnabled:
     Type: String
     Default: "false"
@@ -560,6 +580,27 @@ Rules:
         AssertDescription: The profile never activates Lift actions.
       - Assert: !Equals [!Ref ProofLinkEmailEnabled, "false"]
         AssertDescription: The profile never sends Proof email.
+  ProofLtlDemoQaSessionReadRequiresGrantCreation:
+    RuleCondition: !Equals [!Ref ProofLtlDemoQaSessionReadEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref ProofLtlDemoQaEnabled, "true"]
+        AssertDescription: LTL Demo session read requires the exact QA profile.
+      - Assert: !Equals [!Ref ProofLtlDemoQaGrantCreationEnabled, "true"]
+        AssertDescription: LTL Demo session read requires authenticated grant creation.
+  ProofLtlDemoQaCustomerApprovalRequiresSessionRead:
+    RuleCondition: !Equals [!Ref ProofLtlDemoQaCustomerApprovalEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref ProofLtlDemoQaEnabled, "true"]
+        AssertDescription: LTL Demo customer approval requires the exact QA profile.
+      - Assert: !Equals [!Ref ProofLtlDemoQaSessionReadEnabled, "true"]
+        AssertDescription: LTL Demo customer approval requires token-authenticated session read.
+  ProofLtlDemoQaRevisionUploadRequiresSessionRead:
+    RuleCondition: !Equals [!Ref ProofLtlDemoQaRevisionUploadEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref ProofLtlDemoQaEnabled, "true"]
+        AssertDescription: LTL Demo revised-art upload requires the exact QA profile.
+      - Assert: !Equals [!Ref ProofLtlDemoQaSessionReadEnabled, "true"]
+        AssertDescription: LTL Demo revised-art upload requires token-authenticated session read.
   ProofOperatorActionRequiresDurableIsolation:
     RuleCondition: !Equals [!Ref ProofOperatorActionQaEnabled, "true"]
     Assertions:
@@ -699,9 +740,14 @@ Conditions:
   HasProofAssetScanWorkerBoundary: !And
     - !Condition HasProofTables
     - !Condition HasProofAssetBucket
+  ProofLtlDemoQaRevisionUploadActive: !And
+    - !Equals [!Ref ProofLtlDemoQaEnabled, "true"]
+    - !Equals [!Ref ProofLtlDemoQaRevisionUploadEnabled, "true"]
   ProofAssetUploadActive: !And
     - !Condition HasProofAssetBucket
-    - !Equals [!Ref ProofAssetUploadEnabled, "true"]
+    - !Or
+      - !Equals [!Ref ProofAssetUploadEnabled, "true"]
+      - !Condition ProofLtlDemoQaRevisionUploadActive
   ProofAssetPublicationActive: !And
     - !Condition HasProofAssetBucket
     - !Condition HasProofTables
@@ -1203,10 +1249,10 @@ Resources:
             - - !Ref ProofLtlDemoQaEnabled
               - !Ref ProofLtlDemoQaExpiresAt
               - !Ref ProofLtlDemoQaAllowedOrders
-              - "true"
-              - "false"
-              - "true"
-              - "false"
+              - !Ref ProofLtlDemoQaGrantCreationEnabled
+              - !Ref ProofLtlDemoQaSessionReadEnabled
+              - !Ref ProofLtlDemoQaCustomerApprovalEnabled
+              - !Ref ProofLtlDemoQaRevisionUploadEnabled
           # Pack the customer-review switches into the existing environment
           # footprint. Lambda limits the complete environment block to 4 KB.
           PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join
@@ -1230,8 +1276,8 @@ Resources:
           # requires the durable tables, bucket, allowlist, and expiry before
           # this condition can become true.
           PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If [ProofAssetUploadActive, "true", !Ref "AWS::NoValue"]
-          PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If [ProofAssetUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"]
-          PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If [ProofAssetUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"]
+          PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If [ProofLtlDemoQaRevisionUploadActive, !Ref ProofLtlDemoQaAllowedOrders, !If [ProofAssetUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"]]
+          PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If [ProofLtlDemoQaRevisionUploadActive, !Ref ProofLtlDemoQaExpiresAt, !If [ProofAssetUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"]]
           PATHFINDER_ENABLE_PROOF_ASSET_PUBLICATION: !If [ProofAssetPublicationActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_ASSET_PUBLICATION_ALLOWED_ORDERS: !If [ProofAssetPublicationActive, !Ref ProofAssetPublicationAllowedOrders, !Ref "AWS::NoValue"]
           PATHFINDER_PROOF_ASSET_PUBLICATION_EXPIRES_AT: !If [ProofAssetPublicationActive, !Ref ProofAssetPublicationExpiresAt, !Ref "AWS::NoValue"]
