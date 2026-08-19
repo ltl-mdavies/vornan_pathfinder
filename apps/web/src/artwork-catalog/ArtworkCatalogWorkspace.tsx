@@ -138,6 +138,7 @@ export type ArtworkCatalogWorkspaceProps = {
   products: ReadonlyArray<CatalogProduct>;
   actions: ArtworkCatalogActions;
   initialProductId?: string;
+  onOpenTechnicalInspection?: (input: { productId: string; versionId: string }) => void;
 };
 
 function formatDate(value?: string, includeYear = false) {
@@ -187,7 +188,8 @@ export function ArtworkCatalogWorkspace({
   customerLabel,
   products,
   actions,
-  initialProductId
+  initialProductId,
+  onOpenTechnicalInspection
 }: ArtworkCatalogWorkspaceProps) {
   const initialProduct = products.find((product) => product.id === initialProductId) ?? products[0] ?? null;
   const [selectedProductId, setSelectedProductId] = useState<string | null>(initialProduct?.id ?? null);
@@ -522,6 +524,15 @@ export function ArtworkCatalogWorkspace({
                     <p className="artwork-catalog-widget-summary">{current.inspection.summary}</p>
                     {current.inspection.metrics.length ? <dl className="artwork-catalog-metrics">{current.inspection.metrics.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl> : null}
                     <small>{current.inspection.checkedAt ? `Checked ${formatDate(current.inspection.checkedAt, true)}` : "Inspection has not run"}</small>
+                    {onOpenTechnicalInspection && current.inspection.checkedAt ? (
+                      <button
+                        type="button"
+                        className="artwork-catalog-widget-action"
+                        onClick={() => onOpenTechnicalInspection({ productId: selectedProduct.id, versionId: current.id })}
+                      >
+                        View results <ChevronRight size={12} aria-hidden="true" />
+                      </button>
+                    ) : null}
                   </section>
 
                   <section className="artwork-catalog-widget">
