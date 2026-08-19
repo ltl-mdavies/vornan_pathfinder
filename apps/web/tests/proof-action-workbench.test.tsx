@@ -1,7 +1,38 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildProofActionDraft } from "../src/ProofOpsPanel";
+import { buildProofActionDraft, canPublishClearedRevisedArt, type ProofAssetUploadSummary } from "../src/ProofOpsPanel";
+
+const clearedRevisionAsset: ProofAssetUploadSummary = {
+  asset_id: `passet_${"a".repeat(64)}`,
+  revision_id: `prevision_${"b".repeat(64)}`,
+  order_number: "A00000001",
+  task_id: "ptask_synthetic_001",
+  attachment_id: "proofing-synthetic-001",
+  original_filename: "revised.pdf",
+  content_type: "application/pdf",
+  content_length: 12,
+  sha256: "c".repeat(64),
+  state: "scan_pending",
+  record_version: 4,
+  initialized_at: "2026-08-18T00:00:00.000Z",
+  upload_completed_at: "2026-08-18T00:00:01.000Z",
+  verification_status: "cleared",
+  publication_status: "not_started"
+};
+
+test("shows the publication control only for a cleared unpubished asset within an enabled window", () => {
+  assert.equal(canPublishClearedRevisedArt(clearedRevisionAsset, true), true);
+  assert.equal(canPublishClearedRevisedArt(clearedRevisionAsset, false), false);
+  assert.equal(
+    canPublishClearedRevisedArt({ ...clearedRevisionAsset, publication_status: "delivery_verified" }, true),
+    false
+  );
+  assert.equal(
+    canPublishClearedRevisedArt({ ...clearedRevisionAsset, verification_status: "pending" }, true),
+    false
+  );
+});
 
 const order = {
   order_number: "A00000001",

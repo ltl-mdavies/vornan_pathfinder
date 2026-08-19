@@ -86,7 +86,7 @@ interface ResolvedCustomerProofCapability {
   policy_updated_at: string | null;
 }
 
-interface ProofAssetUploadSummary {
+export interface ProofAssetUploadSummary {
   asset_id: string;
   revision_id: string;
   order_number: string;
@@ -102,6 +102,16 @@ interface ProofAssetUploadSummary {
   upload_completed_at: string | null;
   verification_status: "pending" | "quarantined" | "cleared";
   publication_status: "not_started" | "published" | "delivery_verified";
+}
+
+export function canPublishClearedRevisedArt(asset: ProofAssetUploadSummary | null, publicationEnabled: boolean) {
+  return Boolean(
+    publicationEnabled &&
+      asset &&
+      asset.state === "scan_pending" &&
+      asset.verification_status === "cleared" &&
+      asset.publication_status !== "delivery_verified"
+  );
 }
 
 export type ProofActionDraftKind =
@@ -873,6 +883,41 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     }
   }
 
+  async function publishClearedRevisedArt() {
+    if (!order || !revisionUploadAsset || operatorActionInFlight.current) return;
+    operatorActionInFlight.current = true;
+    setMessage(null);
+    try {
+      const payload = await responseJson<{ asset: ProofAssetUploadSummary }>(
+        await request("/api/proof/operator-assets/publications", {
+          method: "POST",
+          body: JSON.stringify({
+            order_number: order.order_number,
+            asset_id: revisionUploadAsset.asset_id
+          })
+        })
+      );
+      setRevisionUploadAsset(payload.asset);
+      if (
+        payload.asset.state === "ready_for_lift" &&
+        payload.asset.verification_status === "cleared" &&
+        payload.asset.publication_status === "delivery_verified"
+      ) {
+        setRevisionAssetId(payload.asset.asset_id);
+        setMessage("Revised art is published, directly deliverable, and ready to bind to one supervised action.");
+      } else {
+        setRevisionAssetId("");
+        setMessage("Revised art publication did not reach a ready state. Refresh readiness before any Lift action.");
+      }
+      await loadAudit(order.order_number).catch(() => undefined);
+    } catch (error) {
+      setRevisionAssetId("");
+      setMessage(error instanceof Error ? error.message : "Revised-art publication could not be completed.");
+    } finally {
+      operatorActionInFlight.current = false;
+    }
+  }
+
   const pendingCount = order?.tasks.filter((task) => task.state === "pending").length ?? 0;
   const readOnlyPosture = health ? proofReadOnlyPosture(health) : null;
   const selectedTask = order?.tasks.find((task) => task.task_id === selectedTaskId) ?? null;
@@ -1272,6 +1317,19 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                       <button className="secondary-button" type="button" onClick={() => void inspectRevisedArtReadiness()}>
                         <RefreshCw size={14} /> Check readiness
                       </button>
+                      {canPublishClearedRevisedArt(
+                        revisionUploadAsset,
+                        health?.revised_art_upload.publication_enabled === true
+                      ) ? (
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={operatorActionInFlight.current}
+                          onClick={() => void publishClearedRevisedArt()}
+                        >
+                          <UploadCloud size={14} /> Publish cleared art
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                   <small className="proof-revised-art-boundary">
