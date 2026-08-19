@@ -90,6 +90,26 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
     Description: Shared bounded UTC expiry for the unified QA profile.
+  LtlDemoQaGrantCreationEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled authenticated grant creation for the exact LTL Demo QA profile.
+  LtlDemoQaSessionReadEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled token-authenticated session read for the exact LTL Demo QA profile.
+  LtlDemoQaCustomerApprovalEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled Simple customer approval for the exact LTL Demo QA profile.
+  LtlDemoQaRevisionUploadEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled private revised-art upload for the exact LTL Demo QA profile.
   ProofAssetBucketName:
     Type: String
     Default: ""
@@ -196,20 +216,29 @@ Conditions:
     - !Not [!Condition HasProvidedWebAcl]
   HasAlarmTopic: !Not [!Equals [!Ref AlarmTopicArn, ""]]
   LtlDemoQaActive: !Equals [!Ref LtlDemoQaEnabled, "true"]
+  LtlDemoQaSessionReadActive: !And
+    - !Condition LtlDemoQaActive
+    - !Equals [!Ref LtlDemoQaSessionReadEnabled, "true"]
+  LtlDemoQaCustomerApprovalActive: !And
+    - !Condition LtlDemoQaActive
+    - !Equals [!Ref LtlDemoQaCustomerApprovalEnabled, "true"]
+  LtlDemoQaRevisionUploadActive: !And
+    - !Condition LtlDemoQaActive
+    - !Equals [!Ref LtlDemoQaRevisionUploadEnabled, "true"]
   CustomerApprovalActive: !Or
     - !Equals [!Ref CustomerApprovalEnabled, "true"]
-    - !Condition LtlDemoQaActive
+    - !Condition LtlDemoQaCustomerApprovalActive
   CustomerRevisionUploadActive: !Or
     - !And
       - !Equals [!Ref CustomerRevisionUploadEnabled, "true"]
       - !Equals [!Ref ProofAssetUploadEnabled, "true"]
-    - !Condition LtlDemoQaActive
+    - !Condition LtlDemoQaRevisionUploadActive
   CustomerRuntimeActive: !Or
     - !Condition CustomerApprovalActive
     - !Condition CustomerRevisionUploadActive
   PublicSessionPolicyActive: !Or
     - !Equals [!Ref PublicReadEnabled, "true"]
-    - !Condition LtlDemoQaActive
+    - !Condition LtlDemoQaSessionReadActive
 
 Rules:
   ProofAliasAndCertificateMustBePaired:
@@ -375,6 +404,27 @@ Rules:
         AssertDescription: The profile cannot overlap synthetic QA.
       - Assert: !Equals [!Ref ProductionPublicReadApproved, "false"]
         AssertDescription: The dev-only profile cannot assert production public-read approval.
+  LtlDemoQaSessionReadRequiresGrantCreation:
+    RuleCondition: !Equals [!Ref LtlDemoQaSessionReadEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref LtlDemoQaEnabled, "true"]
+        AssertDescription: LTL Demo session read requires the exact QA profile.
+      - Assert: !Equals [!Ref LtlDemoQaGrantCreationEnabled, "true"]
+        AssertDescription: LTL Demo session read requires authenticated grant creation.
+  LtlDemoQaCustomerApprovalRequiresSessionRead:
+    RuleCondition: !Equals [!Ref LtlDemoQaCustomerApprovalEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref LtlDemoQaEnabled, "true"]
+        AssertDescription: LTL Demo customer approval requires the exact QA profile.
+      - Assert: !Equals [!Ref LtlDemoQaSessionReadEnabled, "true"]
+        AssertDescription: LTL Demo customer approval requires token-authenticated session read.
+  LtlDemoQaRevisionUploadRequiresSessionRead:
+    RuleCondition: !Equals [!Ref LtlDemoQaRevisionUploadEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref LtlDemoQaEnabled, "true"]
+        AssertDescription: LTL Demo revised-art upload requires the exact QA profile.
+      - Assert: !Equals [!Ref LtlDemoQaSessionReadEnabled, "true"]
+        AssertDescription: LTL Demo revised-art upload requires token-authenticated session read.
 
 Resources:
   ProofWebBucket:
@@ -942,10 +992,10 @@ Resources:
             - - !Ref LtlDemoQaEnabled
               - !Ref LtlDemoQaExpiresAt
               - !Ref LtlDemoQaAllowedOrders
-              - "false"
-              - "true"
-              - "true"
-              - "true"
+              - !Ref LtlDemoQaGrantCreationEnabled
+              - !Ref LtlDemoQaSessionReadEnabled
+              - !Ref LtlDemoQaCustomerApprovalEnabled
+              - !Ref LtlDemoQaRevisionUploadEnabled
           PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join
             - "|"
             - - !Ref PublicReadEnabled

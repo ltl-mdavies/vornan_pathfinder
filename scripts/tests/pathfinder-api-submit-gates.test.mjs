@@ -531,11 +531,11 @@ test("operator revised-art upload stays independently dark and exact-bucket scop
   );
   assert.match(
     template,
-    /PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If \[ProofAssetUploadActive, "true", !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If \[ProofAssetUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If \[ProofAssetUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_BUCKET: !If[\s\S]*?ProofAssetPublicationActive[\s\S]*?!Ref ProofAssetBucketName[\s\S]*?!If \[ProofAssetUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"\]/
+    /PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: !If \[ProofAssetUploadActive, "true", !Ref "AWS::NoValue"\][\s\S]*?PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: !If \[ProofLtlDemoQaRevisionUploadActive, !Ref ProofLtlDemoQaAllowedOrders, !If \[ProofAssetUploadActive, !Ref ProofAssetUploadAllowedOrders, !Ref "AWS::NoValue"\]\][\s\S]*?PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT: !If \[ProofLtlDemoQaRevisionUploadActive, !Ref ProofLtlDemoQaExpiresAt, !If \[ProofAssetUploadActive, !Ref ProofAssetUploadExpiresAt, !Ref "AWS::NoValue"\]\][\s\S]*?PATHFINDER_PROOF_ASSET_BUCKET: !If[\s\S]*?ProofAssetPublicationActive[\s\S]*?!Ref ProofAssetBucketName[\s\S]*?!If \[ProofAssetUploadActive, !Ref ProofAssetBucketName, !Ref "AWS::NoValue"\]/
   );
   assert.match(
     template,
-    /ProofAssetUploadActive: !And[\s\S]*?!Condition HasProofAssetBucket[\s\S]*?!Ref ProofAssetUploadEnabled, "true"[\s\S]*?- ProofAssetUploadActive[\s\S]*?s3:GetObject[\s\S]*?s3:GetObjectTagging[\s\S]*?s3:PutObject[\s\S]*?s3:PutObjectTagging[\s\S]*?\$\{ProofAssetBucketArn\}\/orders\/\*/
+    /ProofLtlDemoQaRevisionUploadActive: !And[\s\S]*?!Ref ProofLtlDemoQaEnabled, "true"[\s\S]*?!Ref ProofLtlDemoQaRevisionUploadEnabled, "true"[\s\S]*?ProofAssetUploadActive: !And[\s\S]*?!Condition HasProofAssetBucket[\s\S]*?!Ref ProofAssetUploadEnabled, "true"[\s\S]*?- ProofAssetUploadActive[\s\S]*?s3:GetObject[\s\S]*?s3:GetObjectTagging[\s\S]*?s3:PutObject[\s\S]*?s3:PutObjectTagging[\s\S]*?\$\{ProofAssetBucketArn\}\/orders\/\*/
   );
   assert.doesNotMatch(
     template,
@@ -584,7 +584,19 @@ test("the unified LTL Demo QA profile is allowlisted and does not compose with m
   );
   assert.match(
     template,
-    /PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: !Join[\s\S]*?!Ref ProofLtlDemoQaEnabled[\s\S]*?!Ref ProofLtlDemoQaAllowedOrders\s+- "true"\s+- "false"\s+- "true"\s+- "false"/
+    /PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: !Join[\s\S]*?!Ref ProofLtlDemoQaEnabled[\s\S]*?!Ref ProofLtlDemoQaAllowedOrders[\s\S]*?!Ref ProofLtlDemoQaGrantCreationEnabled[\s\S]*?!Ref ProofLtlDemoQaSessionReadEnabled[\s\S]*?!Ref ProofLtlDemoQaCustomerApprovalEnabled[\s\S]*?!Ref ProofLtlDemoQaRevisionUploadEnabled/
+  );
+  for (const parameter of [
+    "ProofLtlDemoQaGrantCreationEnabled",
+    "ProofLtlDemoQaSessionReadEnabled",
+    "ProofLtlDemoQaCustomerApprovalEnabled",
+    "ProofLtlDemoQaRevisionUploadEnabled"
+  ]) {
+    assert.match(template, new RegExp(`${parameter}:[\\s\\S]*?Default: "false"`));
+  }
+  assert.match(
+    template,
+    /ProofLtlDemoQaSessionReadRequiresGrantCreation:[\s\S]*?!Ref ProofLtlDemoQaEnabled, "true"[\s\S]*?!Ref ProofLtlDemoQaGrantCreationEnabled, "true"[\s\S]*?ProofLtlDemoQaCustomerApprovalRequiresSessionRead:[\s\S]*?!Ref ProofLtlDemoQaSessionReadEnabled, "true"[\s\S]*?ProofLtlDemoQaRevisionUploadRequiresSessionRead:[\s\S]*?!Ref ProofLtlDemoQaSessionReadEnabled, "true"/
   );
 });
 

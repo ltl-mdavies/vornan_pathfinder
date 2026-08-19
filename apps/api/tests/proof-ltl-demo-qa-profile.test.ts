@@ -47,6 +47,17 @@ test("fails closed without exact orders or outside the 24-hour profile window", 
   }
 });
 
+test("fails closed when a downstream QA capability is configured without an authenticated session boundary", () => {
+  const profile = getProofLtlDemoQaProfile(
+    { PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: "true|2026-08-11T20:00:00.000Z|A0226753|true|false|true|true" },
+    now
+  );
+  assert.equal(profile.grant_creation_enabled, true);
+  assert.equal(profile.public_read_enabled, false);
+  assert.equal(profile.customer_approval_enabled, false);
+  assert.equal(profile.asset_upload_enabled, false);
+});
+
 test("reuses the exact profile order allowlist for sessions and private uploads", () => {
   const env = {
     PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: scope,

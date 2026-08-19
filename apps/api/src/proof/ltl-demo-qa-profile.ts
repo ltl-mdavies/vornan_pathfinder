@@ -64,16 +64,21 @@ export function getProofLtlDemoQaProfile(
     expiry <= now.getTime() + MAXIMUM_PROFILE_WINDOW_MS
   );
 
+  const grantCreationEnabled = active && enabled(packedGrantCreation);
+  const publicReadEnabled = grantCreationEnabled && enabled(packedPublicRead);
+  const customerApprovalEnabled = publicReadEnabled && enabled(packedCustomerApproval);
+  const assetUploadEnabled = publicReadEnabled && enabled(packedAssetUpload);
+
   return {
     configured,
     active,
     allowed_customer_id: LTL_DEMO_CUSTOMER_ID,
     allowed_order_numbers: allowedOrderNumbers,
     activation_expires_at: activationExpiresAt,
-    grant_creation_enabled: active && enabled(packedGrantCreation),
-    public_read_enabled: active && enabled(packedPublicRead),
-    customer_approval_enabled: active && enabled(packedCustomerApproval),
-    asset_upload_enabled: active && enabled(packedAssetUpload),
+    grant_creation_enabled: grantCreationEnabled,
+    public_read_enabled: publicReadEnabled,
+    customer_approval_enabled: customerApprovalEnabled,
+    asset_upload_enabled: assetUploadEnabled,
     session_ttl_minutes: PROFILE_SESSION_TTL_MINUTES,
     automatic_retry: false
   };
