@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildProofActionDraft, canPublishClearedRevisedArt, type ProofAssetUploadSummary } from "../src/ProofOpsPanel";
+import { buildProofActionDraft, canPublishClearedRevisedArt, isProofAssetId, type ProofAssetUploadSummary } from "../src/ProofOpsPanel";
 
 const clearedRevisionAsset: ProofAssetUploadSummary = {
   asset_id: `passet_${"a".repeat(64)}`,
@@ -32,6 +32,13 @@ test("shows the publication control only for a cleared unpubished asset within a
     canPublishClearedRevisedArt({ ...clearedRevisionAsset, verification_status: "pending" }, true),
     false
   );
+});
+
+test("accepts only exact immutable revised-art asset identifiers for recovery", () => {
+  assert.equal(isProofAssetId(clearedRevisionAsset.asset_id), true);
+  assert.equal(isProofAssetId(` ${clearedRevisionAsset.asset_id} `), true);
+  assert.equal(isProofAssetId("passet_short"), false);
+  assert.equal(isProofAssetId(`prevision_${"a".repeat(64)}`), false);
 });
 
 const order = {

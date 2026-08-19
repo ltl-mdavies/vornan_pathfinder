@@ -114,6 +114,10 @@ export function canPublishClearedRevisedArt(asset: ProofAssetUploadSummary | nul
   );
 }
 
+export function isProofAssetId(value: string) {
+  return /^passet_[a-f0-9]{64}$/.test(value.trim());
+}
+
 export type ProofActionDraftKind =
   | "APPROVE"
   | "REJECT"
@@ -364,6 +368,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   const [allocationQuantities, setAllocationQuantities] = useState<Record<string, number>>({});
   const [proofComment, setProofComment] = useState("");
   const [revisionAssetId, setRevisionAssetId] = useState("");
+  const [revisionRecoveryAssetId, setRevisionRecoveryAssetId] = useState("");
   const [revisionUploadFile, setRevisionUploadFile] = useState<File | null>(null);
   const [revisionUploadProgress, setRevisionUploadProgress] = useState(0);
   const [revisionUploadState, setRevisionUploadState] = useState<
@@ -918,6 +923,34 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     }
   }
 
+  async function recoverRevisedArt() {
+    if (!order || operatorActionInFlight.current) return;
+    const assetId = revisionRecoveryAssetId.trim();
+    if (!isProofAssetId(assetId)) {
+      setMessage("Enter the exact revised-art asset identifier before loading its status.");
+      return;
+    }
+    operatorActionInFlight.current = true;
+    setMessage(null);
+    try {
+      const payload = await responseJson<{ asset: ProofAssetUploadSummary }>(
+        await request(
+          `/api/proof/operator-assets/uploads/${encodeURIComponent(order.order_number)}/${encodeURIComponent(assetId)}`
+        )
+      );
+      setRevisionUploadAsset(payload.asset);
+      setRevisionAssetId("");
+      setRevisionUploadState("pending_verification");
+      setMessage("Revised-art record loaded. Check readiness or publish only after a cleared scan.");
+    } catch (error) {
+      setRevisionUploadAsset(null);
+      setRevisionAssetId("");
+      setMessage(error instanceof Error ? error.message : "Revised-art status could not be loaded.");
+    } finally {
+      operatorActionInFlight.current = false;
+    }
+  }
+
   const pendingCount = order?.tasks.filter((task) => task.state === "pending").length ?? 0;
   const readOnlyPosture = health ? proofReadOnlyPosture(health) : null;
   const selectedTask = order?.tasks.find((task) => task.task_id === selectedTaskId) ?? null;
@@ -1302,6 +1335,26 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                         : "Uploads are default-disabled and require a separate bounded operator window."}
                     </small>
                   </div>
+                  {!revisionUploadAsset ? (
+                    <div className="proof-revised-art-upload-actions">
+                      <label>
+                        Existing revised-art asset ID
+                        <input
+                          value={revisionRecoveryAssetId}
+                          placeholder="passet_…"
+                          onChange={(event) => setRevisionRecoveryAssetId(event.target.value)}
+                        />
+                      </label>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={!isProofAssetId(revisionRecoveryAssetId) || operatorActionInFlight.current}
+                        onClick={() => void recoverRevisedArt()}
+                      >
+                        <RefreshCw size={14} /> Load existing revised art
+                      </button>
+                    </div>
+                  ) : null}
                   {revisionUploadAsset ? (
                     <div className="proof-revised-art-status" role="status">
                       <FileCheck2 size={17} />
