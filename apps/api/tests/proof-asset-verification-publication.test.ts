@@ -229,6 +229,17 @@ test("publishes a byte-identical copy, registers one opaque locator, and records
   assert.equal(run.locators.length, 1);
 });
 
+test("hashes an arbitrary browser request correlation before persisting publication evidence", async () => {
+  const run = harness();
+  await run.service.observeScan(observation(run.record()));
+  await run.service.publishCleared({
+    order_number: run.record().order_number,
+    asset_id: run.record().asset_id,
+    correlation_id: "browser request: external-id/with?punctuation"
+  });
+  assert.match(run.audits.at(-1)?.correlation_id ?? "", /^pcorr_asset_[a-f0-9]{64}$/);
+});
+
 test("retains a published-but-unready record when delivery redirects", async () => {
   const run = harness();
   await run.service.observeScan(observation(run.record()));
