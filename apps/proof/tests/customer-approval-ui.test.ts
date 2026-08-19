@@ -33,5 +33,8 @@ test("keeps revised artwork in its upload lifecycle with an accessible customer 
   assert.match(revisionDialogSource, /Retry file check/);
   assert.match(revisionDialogSource, /retryFinalization/);
   assert.match(revisionDialogSource, /finalizeRevisionUpload\(asset\.asset_id\)/);
+  assert.match(revisionDialogSource, /retry_asset/);
+  assert.match(revisionDialogSource, /loadRevisionUploadStatus\(recoveryAssetId\)/);
+  assert.match(revisionDialogSource, /without uploading it again/);
   assert.doesNotMatch(revisionDialogSource, /Private by default/);
 });
