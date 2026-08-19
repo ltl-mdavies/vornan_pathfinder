@@ -58,7 +58,7 @@ export interface ProofIntegrationHealth {
     allowed_content_types: string[];
     upload_ticket_seconds: number;
     scan_enabled: false;
-    publication_enabled: false;
+    publication_enabled: boolean;
     lift_resolution_enabled: false;
   };
 }
