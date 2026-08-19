@@ -816,6 +816,11 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:TransactWriteItems
+                  # DynamoDB evaluates the two conditional Put actions in the
+                  # scan transition against their underlying item permissions.
+                  # Keep these scoped to the two durable Proof tables only.
+                  - dynamodb:PutItem
+                  - dynamodb:ConditionCheckItem
                 Resource:
                   - !Ref ProofCoreTableArn
                   - !Ref ProofAuditTableArn
