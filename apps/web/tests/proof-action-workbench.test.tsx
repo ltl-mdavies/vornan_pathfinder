@@ -41,6 +41,12 @@ test("accepts only exact immutable revised-art asset identifiers for recovery", 
   assert.equal(isProofAssetId(`prevision_${"a".repeat(64)}`), false);
 });
 
+test("keeps recovered publication separate from the revised-art Lift action", async () => {
+  const source = await readFile(new URL("../src/ProofOpsPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /Publish one cleared revised-art asset\./);
+  assert.match(source, /This control only loads and publishes the exact recorded asset\. It does not upload a file or send any Lift decision\./);
+});
+
 const order = {
   order_number: "A00000001",
   customer_id: "1249",

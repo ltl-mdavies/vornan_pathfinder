@@ -1143,6 +1143,64 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
             </section>
           ) : null}
 
+          {health?.revised_art_upload.publication_enabled ? (
+            <section className="proof-action-workbench" aria-labelledby="proof-asset-publication-title">
+              <div className="proof-action-workbench-heading">
+                <div>
+                  <span className="eyebrow"><FileCheck2 size={14} /> Revised-art publication</span>
+                  <h4 id="proof-asset-publication-title">Publish one cleared revised-art asset.</h4>
+                  <p>Load an immutable revised-art record for this order, then publish it only after its recorded scan is clear.</p>
+                </div>
+                <span className="proof-action-locked"><LockKeyhole size={14} /> No Lift action</span>
+              </div>
+              {!revisionUploadAsset ? (
+                <div className="proof-revised-art-upload-actions">
+                  <label>
+                    Existing revised-art asset ID
+                    <input
+                      value={revisionRecoveryAssetId}
+                      placeholder="passet_…"
+                      onChange={(event) => setRevisionRecoveryAssetId(event.target.value)}
+                    />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={!isProofAssetId(revisionRecoveryAssetId) || operatorActionInFlight.current}
+                    onClick={() => void recoverRevisedArt()}
+                  >
+                    <RefreshCw size={14} /> Load existing revised art
+                  </button>
+                </div>
+              ) : (
+                <div className="proof-revised-art-status" role="status">
+                  <FileCheck2 size={17} />
+                  <div>
+                    <strong>{revisionUploadAsset.original_filename}</strong>
+                    <span>{`${revisionUploadAsset.state.replaceAll("_", " ")} · ${revisionUploadAsset.publication_status.replaceAll("_", " ")}`}</span>
+                    <small>Asset {revisionUploadAsset.asset_id.slice(0, 20)}…</small>
+                  </div>
+                  <button className="secondary-button" type="button" onClick={() => void inspectRevisedArtReadiness()}>
+                    <RefreshCw size={14} /> Check readiness
+                  </button>
+                  {canPublishClearedRevisedArt(revisionUploadAsset, true) ? (
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={operatorActionInFlight.current}
+                      onClick={() => void publishClearedRevisedArt()}
+                    >
+                      <UploadCloud size={14} /> Publish cleared art
+                    </button>
+                  ) : null}
+                </div>
+              )}
+              <small className="proof-revised-art-boundary">
+                This control only loads and publishes the exact recorded asset. It does not upload a file or send any Lift decision.
+              </small>
+            </section>
+          ) : null}
+
           <section className="proof-action-workbench" aria-labelledby="proof-action-workbench-title">
             <div className="proof-action-workbench-heading">
               <div>
