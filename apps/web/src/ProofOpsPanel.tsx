@@ -889,7 +889,8 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   }
 
   async function publishClearedRevisedArt() {
-    if (!order || !revisionUploadAsset || operatorActionInFlight.current) return;
+    const assetId = revisionUploadAsset?.asset_id ?? revisionRecoveryAssetId.trim();
+    if (!order || !isProofAssetId(assetId) || operatorActionInFlight.current) return;
     operatorActionInFlight.current = true;
     setMessage(null);
     try {
@@ -898,7 +899,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
           method: "POST",
           body: JSON.stringify({
             order_number: order.order_number,
-            asset_id: revisionUploadAsset.asset_id
+            asset_id: assetId
           })
         })
       );
@@ -1171,6 +1172,14 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                   >
                     <RefreshCw size={14} /> Load existing revised art
                   </button>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={!isProofAssetId(revisionRecoveryAssetId) || operatorActionInFlight.current}
+                    onClick={() => void publishClearedRevisedArt()}
+                  >
+                    <UploadCloud size={14} /> Publish exact cleared asset
+                  </button>
                 </div>
               ) : (
                 <div className="proof-revised-art-status" role="status">
@@ -1196,7 +1205,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 </div>
               )}
               <small className="proof-revised-art-boundary">
-                This control only loads and publishes the exact recorded asset. It does not upload a file or send any Lift decision.
+                This control only loads and publishes the exact recorded asset. Publication rechecks the exact order and scan clearance server-side; it does not upload a file or send any Lift decision.
               </small>
             </section>
           ) : null}
