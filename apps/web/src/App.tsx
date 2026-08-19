@@ -4702,6 +4702,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [preloadFinalHeightColumn, setPreloadFinalHeightColumn] = useState("");
   const [preloadDefaultUnit, setPreloadDefaultUnit] = useState("");
   const [preloadSelectedIds, setPreloadSelectedIds] = useState<string[]>([]);
+  const [preloadRecipeMethodId, setPreloadRecipeMethodId] = useState("");
   const [preloadClearExistingAssignments, setPreloadClearExistingAssignments] = useState(true);
   const [productMappingReplacementPreview, setProductMappingReplacementPreview] =
     useState<ProductMappingReplacementPreview | null>(null);
@@ -7470,9 +7471,22 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     environment: selectedOutputMapEnvironment,
     template: selectedOutputMapTemplate
   });
+  const routePreloadRecipeMethods = useMemo(
+    () =>
+      importMethods.filter(
+        (method) => method.output_route_id === selectedOutputMapRouteId && method.status === "Active"
+      ).sort((first, second) =>
+        first.name.localeCompare(second.name) || first.import_method_id.localeCompare(second.import_method_id)
+      ),
+    [importMethods, selectedOutputMapRouteId]
+  );
+  const effectivePreloadRecipeMethodId =
+    routePreloadRecipeMethods.length === 1
+      ? routePreloadRecipeMethods[0]?.import_method_id ?? ""
+      : preloadRecipeMethodId;
   const selectedOutputMapMethod =
-    importMethods.find((method) => method.output_route_id === selectedOutputMapRouteId && method.status !== "Archived") ??
-    activeImportMethod;
+    routePreloadRecipeMethods.find((method) => method.import_method_id === effectivePreloadRecipeMethodId) ?? null;
+  const preloadRecipeSelectionBlocked = !selectedOutputMapMethod;
   const selectedOutputMapProductConfig =
     selectedOutputMapMethod?.product_resolution_config ?? activeProductConfig;
   const productMappings = workspace?.product_mappings ?? [];
@@ -7610,12 +7624,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const workbookSheetName = valueAsString(row[PRODUCT_WORKBOOK_SHEET_COLUMN]);
       const workbookRowNumber = Number(row[PRODUCT_WORKBOOK_ROW_COLUMN]) || index + 2;
       const originalKeyColumn = valueAsString(row[PRODUCT_WORKBOOK_SOURCE_COLUMN]);
-      const key = productKeyFromCatalogRow(
-        row as Record<string, string>,
-        selectedOutputMapProductConfig,
-        effectivePreloadSourceColumn,
-        effectivePreloadCompositeColumns.length ? effectivePreloadCompositeColumns : selectedOutputMapProductConfig.composite_columns
-      );
+      const key = preloadRecipeSelectionBlocked
+        ? ""
+        : productKeyFromCatalogRow(
+            row as Record<string, string>,
+            selectedOutputMapProductConfig,
+            effectivePreloadSourceColumn,
+            effectivePreloadCompositeColumns.length
+              ? effectivePreloadCompositeColumns
+              : selectedOutputMapProductConfig.composite_columns
+          );
       const existing = routeProductMappings.find((mapping) => mapping.customer_product_key === key);
       const duplicate = key ? seenKeys.has(key) : false;
       if (key) {
@@ -7665,6 +7683,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     preloadFinalWidthColumn,
     preloadGrid.rows,
     preloadProductNameColumn,
+    preloadRecipeSelectionBlocked,
     preloadUnitColumn,
     routeProductMappings,
     selectedOutputMapProductConfig
@@ -7680,9 +7699,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     (profile) => profile.included && profile.setup_required
   );
   const preloadForeignRecipeBlocked =
+    Boolean(selectedOutputMapMethod) &&
     selectedCustomer.lift_customer_id !== momentaraLegacyCustomerId &&
     isMomentaraLegacyProductRecipe(selectedOutputMapProductConfig);
-  const preloadSaveBlocked = preloadHasUnconfirmedProfiles || preloadForeignRecipeBlocked;
+  const preloadSaveBlocked =
+    preloadRecipeSelectionBlocked || preloadHasUnconfirmedProfiles || preloadForeignRecipeBlocked;
   const preloadRecipeSource =
     selectedOutputMapProductConfig.strategy === "composite_key"
       ? selectedOutputMapProductConfig.composite_columns.join(" + ") || "Not configured"
@@ -7838,6 +7859,23 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   useEffect(() => {
     setSelectedUnitMapIds([]);
   }, [selectedOutputMapRouteId]);
+
+  useEffect(() => {
+    setPreloadRecipeMethodId("");
+    setPreloadSelectedIds([]);
+    setProductMappingReplacementPreview(null);
+  }, [openProductMapTool, selectedCustomerId, selectedOutputMapRouteId]);
+
+  useEffect(() => {
+    if (
+      preloadRecipeMethodId &&
+      !routePreloadRecipeMethods.some((method) => method.import_method_id === preloadRecipeMethodId)
+    ) {
+      setPreloadRecipeMethodId("");
+      setPreloadSelectedIds([]);
+      setProductMappingReplacementPreview(null);
+    }
+  }, [preloadRecipeMethodId, routePreloadRecipeMethods]);
 
   const mappedCanonicalOrder = useMemo(
     () =>
@@ -9844,6 +9882,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     );
   }
 
+  function selectPreloadRecipeMethod(methodId: string) {
+    const method = routePreloadRecipeMethods.find((candidate) => candidate.import_method_id === methodId) ?? null;
+    setPreloadRecipeMethodId(method?.import_method_id ?? "");
+    setPreloadSelectedIds([]);
+    setProductMappingReplacementPreview(null);
+    setPreloadParseState(method ? "ready" : preloadParseState);
+    setPreloadLocalMessage(
+      method
+        ? `${method.name} selected for product-key generation. Review the generated keys before saving. Nothing has been saved.`
+        : "Choose the Import Method whose incoming orders these product keys must match. Nothing has been saved."
+    );
+  }
+
   function preloadedMappingsForRows(rows: ProductMapPreloadRow[], clearExistingAssignments = false) {
     return rows.map((row) => {
       const productIdentifierValue = clearExistingAssignments
@@ -9903,6 +9954,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function savePreloadedProductMappings(scope: "selected" | "all") {
+    if (preloadRecipeSelectionBlocked) {
+      setPreloadParseState("error");
+      setPreloadLocalMessage(
+        "Choose the Import Method whose product-key recipe these rows must use before saving mappings. Nothing has been saved."
+      );
+      return;
+    }
     if (preloadForeignRecipeBlocked) {
       setPreloadParseState("error");
       setPreloadLocalMessage(
@@ -9949,7 +10007,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     if (preloadSaveBlocked) {
       setPreloadParseState("error");
       setPreloadLocalMessage(
-        preloadForeignRecipeBlocked
+        preloadRecipeSelectionBlocked
+          ? "Choose the Import Method whose product-key recipe this replacement must use. Nothing has been saved."
+          : preloadForeignRecipeBlocked
           ? "This customer inherited a product-key recipe that belongs to another customer. Update the Import Method before reviewing a replacement. Nothing has been saved."
           : "Confirm each included workbook sheet before reviewing a full-list replacement. Nothing has been saved."
       );
@@ -14224,11 +14284,31 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <span>Review how source values become customer product keys before saving.</span>
                         </div>
                         <span className="mini-pill">
-                          {isMomentaraLegacyProductRecipe(selectedOutputMapProductConfig)
+                          {selectedOutputMapMethod && isMomentaraLegacyProductRecipe(selectedOutputMapProductConfig)
                             ? "Momentara legacy recipe"
-                            : "Customer-neutral recipe"}
+                            : selectedOutputMapMethod
+                              ? "Customer-neutral recipe"
+                              : "Selection required"}
                         </span>
                       </div>
+                      <label className="setup-control">
+                        <span>Import Method Recipe</span>
+                        <select
+                          aria-label="Product key recipe Import Method"
+                          value={effectivePreloadRecipeMethodId}
+                          disabled={routePreloadRecipeMethods.length === 1}
+                          onChange={(event) => selectPreloadRecipeMethod(event.target.value)}
+                        >
+                          {routePreloadRecipeMethods.length !== 1 ? (
+                            <option value="">Choose an Import Method</option>
+                          ) : null}
+                          {routePreloadRecipeMethods.map((method) => (
+                            <option key={method.import_method_id} value={method.import_method_id}>
+                              {method.name} · {method.source}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
                       <dl className="product-preload-recipe-grid">
                         <div>
                           <dt>Customer</dt>
@@ -14239,30 +14319,51 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                           <dd>{selectedOutputMapRoute.name}</dd>
                         </div>
                         <div>
+                          <dt>Import method</dt>
+                          <dd>
+                            {selectedOutputMapMethod
+                              ? `${selectedOutputMapMethod.name} · ${selectedOutputMapMethod.source}`
+                              : "Choose a method"}
+                          </dd>
+                        </div>
+                        <div>
                           <dt>Source</dt>
-                          <dd>{preloadRecipeSource}</dd>
+                          <dd>{selectedOutputMapMethod ? preloadRecipeSource : "—"}</dd>
                         </div>
                         <div>
                           <dt>Transformation</dt>
-                          <dd>{selectedOutputMapProductConfig.strategy.replaceAll("_", " ")}</dd>
+                          <dd>
+                            {selectedOutputMapMethod
+                              ? selectedOutputMapProductConfig.strategy.replaceAll("_", " ")
+                              : "—"}
+                          </dd>
                         </div>
                         <div>
                           <dt>Prefix</dt>
-                          <dd>{selectedOutputMapProductConfig.prefix || "None"}</dd>
+                          <dd>{selectedOutputMapMethod ? selectedOutputMapProductConfig.prefix || "None" : "—"}</dd>
                         </div>
                         <div>
                           <dt>Suffix</dt>
-                          <dd>{selectedOutputMapProductConfig.suffix || "None"}</dd>
+                          <dd>{selectedOutputMapMethod ? selectedOutputMapProductConfig.suffix || "None" : "—"}</dd>
                         </div>
                       </dl>
-                      {preloadForeignRecipeBlocked ? (
+                      {preloadRecipeSelectionBlocked ? (
+                        <div className="product-preload-recipe-alert" role="alert">
+                          <AlertTriangle size={17} aria-hidden="true" />
+                          <span>
+                            {routePreloadRecipeMethods.length
+                              ? "Choose the Import Method whose incoming orders these product keys must match. Generated keys and mapping saves remain blocked until selected."
+                              : "No active Import Method is available for this route. Product keys and mapping saves remain blocked."}
+                          </span>
+                        </div>
+                      ) : preloadForeignRecipeBlocked ? (
                         <div className="product-preload-recipe-alert" role="alert">
                           <AlertTriangle size={17} aria-hidden="true" />
                           <span>
                             This Import Method uses a product-key recipe assigned to another customer. Update it to a neutral recipe before saving mappings. Nothing has been saved.
                           </span>
                         </div>
-                      ) : isMomentaraLegacyProductRecipe(selectedOutputMapProductConfig) ? (
+                      ) : selectedOutputMapMethod && isMomentaraLegacyProductRecipe(selectedOutputMapProductConfig) ? (
                         <div className="product-preload-recipe-note">
                           This established Momentara recipe is preserved for customer 284619.
                         </div>

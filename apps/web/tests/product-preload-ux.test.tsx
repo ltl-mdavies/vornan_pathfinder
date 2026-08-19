@@ -48,3 +48,47 @@ test("full-list replacement stays explicit and customer-neutral", () => {
   assert.doesNotMatch(source, /every Momentara product expected for this route/);
   assert.match(source, /onClick=\{resetPreloadWorkbook\}/);
 });
+
+test("routes with multiple active Import Methods require an explicit preload recipe selection", () => {
+  assert.match(source, /const \[preloadRecipeMethodId, setPreloadRecipeMethodId\] = useState\(""\)/);
+  assert.match(source, /method\.output_route_id === selectedOutputMapRouteId && method\.status === "Active"/);
+  assert.match(source, /routePreloadRecipeMethods\.length === 1/);
+  assert.match(source, /method\.import_method_id === effectivePreloadRecipeMethodId/);
+  assert.doesNotMatch(
+    source,
+    /importMethods\.find\(\(method\) => method\.output_route_id === selectedOutputMapRouteId && method\.status !== "Archived"\)/
+  );
+  assert.match(source, /aria-label="Product key recipe Import Method"/);
+  assert.match(source, /Choose the Import Method whose incoming orders these product keys must match/);
+});
+
+test("an ambiguous preload recipe cannot generate keys or reach either save path", () => {
+  const saveSource = functionSource("savePreloadedProductMappings", "reviewProductMappingReplacement");
+  const reviewSource = functionSource("reviewProductMappingReplacement", "applyReviewedProductMappingReplacement");
+
+  assert.match(source, /const preloadRecipeSelectionBlocked = !selectedOutputMapMethod/);
+  assert.match(source, /const key = preloadRecipeSelectionBlocked\s*\? ""\s*:\s*productKeyFromCatalogRow/);
+  assert.match(source, /preloadRecipeSelectionBlocked \|\| preloadHasUnconfirmedProfiles/);
+  assert.match(saveSource, /if \(preloadRecipeSelectionBlocked\)/);
+  assert.match(saveSource, /Nothing has been saved/);
+  assert.match(reviewSource, /preloadRecipeSelectionBlocked/);
+  assert.match(source, /disabled=\{workspaceState === "saving" \|\| preloadParseState === "loading" \|\| preloadSaveBlocked/);
+  assert.match(source, /disabled=\{workspaceState === "saving" \|\| preloadSaveBlocked/);
+});
+
+test("the selected recipe drives preview generation and resets across customer route and modal changes", () => {
+  const selectorSource = functionSource("selectPreloadRecipeMethod", "preloadedMappingsForRows");
+
+  assert.match(source, /selectedOutputMapMethod\?\.product_resolution_config \?\? activeProductConfig/);
+  assert.match(selectorSource, /setPreloadRecipeMethodId\(method\?\.import_method_id \?\? ""\)/);
+  assert.match(selectorSource, /setProductMappingReplacementPreview\(null\)/);
+  assert.match(selectorSource, /Nothing has been saved/);
+  assert.match(
+    source,
+    /\}, \[openProductMapTool, selectedCustomerId, selectedOutputMapRouteId\]\);/
+  );
+  assert.match(source, /!routePreloadRecipeMethods\.some\(\(method\) => method\.import_method_id === preloadRecipeMethodId\)/);
+  assert.match(source, /\{method\.name\} · \{method\.source\}/);
+  assert.match(source, /selectedOutputMapProductConfig\.prefix \|\| "None"/);
+  assert.match(source, /selectedOutputMapProductConfig\.suffix \|\| "None"/);
+});
