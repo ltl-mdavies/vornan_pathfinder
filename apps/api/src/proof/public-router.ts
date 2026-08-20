@@ -235,12 +235,18 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         : null;
       const automaticRefresh = proofAutomaticRefreshState(order);
       const proofRuntime = getProofRuntimeConfig();
+      const revisionUploadEnabled =
+        session.scope === "review" &&
+        grant.capability?.access_mode === "review" &&
+        proofRuntime.feature_flags.public_read &&
+        proofRuntime.feature_flags.revision_upload;
       const publicOrder = toPublicProofOrder(order, session.scope, {
         include_asset_urls: !automaticRefresh.stale,
         decisions_enabled:
           proofRuntime.feature_flags.approve &&
           proofRuntime.feature_flags.public_read &&
           grant.capability?.access_mode === "review",
+        revision_action_enabled: revisionUploadEnabled,
         review_experience: grant.capability?.review_experience ?? "simple"
       });
       const feedbackStates = new Map(
@@ -254,11 +260,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
           ...publicOrder,
           access: {
             ...publicOrder.access,
-            revision_upload_enabled:
-              session.scope === "review" &&
-              grant.capability?.access_mode === "review" &&
-              proofRuntime.feature_flags.public_read &&
-              proofRuntime.feature_flags.revision_upload
+            revision_upload_enabled: revisionUploadEnabled
           },
           health: automaticRefresh.stale && publicOrder.health === "active" ? "stale" : publicOrder.health,
           tasks: publicOrder.tasks.map((task) => ({ ...task, ...feedbackStates.get(task.task_id) }))
