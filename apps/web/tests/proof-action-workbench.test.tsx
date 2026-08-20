@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildProofActionDraft, canCreateProofReviewGrant, canPublishClearedRevisedArt, isProofAssetId, type ProofAssetUploadSummary } from "../src/ProofOpsPanel";
+import {
+  availableProofActions,
+  buildProofActionDraft,
+  canBindDeliveredRevisionAsset,
+  canCreateProofReviewGrant,
+  canPublishClearedRevisedArt,
+  isProofAssetId,
+  type ProofAssetUploadSummary
+} from "../src/ProofOpsPanel";
 
 const clearedRevisionAsset: ProofAssetUploadSummary = {
   asset_id: `passet_${"a".repeat(64)}`,
@@ -230,6 +238,46 @@ test("requires a verified Pathfinder asset only for revised-art actions", () => 
   assert.equal(draft.approve_quantity, null);
 });
 
+test("binds the revised-art action only to the exact delivery-ready current proof", () => {
+  const task = order.tasks[0];
+  const delivered = {
+    ...clearedRevisionAsset,
+    order_number: order.order_number,
+    task_id: task.task_id,
+    attachment_id: task.attachment_id!,
+    state: "ready_for_lift" as const,
+    publication_status: "delivery_verified" as const
+  };
+  const input = {
+    operatorActionEnabled: true,
+    orderNumber: order.order_number,
+    customerId: order.customer_id,
+    task,
+    asset: delivered
+  };
+
+  assert.equal(canBindDeliveredRevisionAsset(input), true);
+  assert.deepEqual(
+    availableProofActions(task, canBindDeliveredRevisionAsset(input)),
+    ["APPROVE", "REJECT", "REVISED_ART_WILL_BE_SENT"]
+  );
+  assert.deepEqual(availableProofActions(task, false), ["APPROVE", "REJECT"]);
+
+  for (const asset of [
+    { ...delivered, order_number: "A00000002" },
+    { ...delivered, task_id: "ptask_other" },
+    { ...delivered, attachment_id: "proofing-other" },
+    { ...delivered, state: "scan_pending" as const },
+    { ...delivered, verification_status: "pending" as const },
+    { ...delivered, publication_status: "published" as const }
+  ]) {
+    assert.equal(canBindDeliveredRevisionAsset({ ...input, asset }), false);
+  }
+  assert.equal(canBindDeliveredRevisionAsset({ ...input, operatorActionEnabled: false }), false);
+  assert.equal(canBindDeliveredRevisionAsset({ ...input, customerId: "284619" }), false);
+  assert.equal(canBindDeliveredRevisionAsset({ ...input, task: { ...task, actionable: false } }), false);
+});
+
 test("fails closed for stale, non-actionable, or cross-bound proof tasks", () => {
   assert.throws(
     () => buildProofActionDraft({
@@ -320,6 +368,9 @@ test("uses contextual approval, guided rejection, and accurate production-messag
   assert.match(source, /selectedLineProofs\.length > 1 \? "quantity_allocation" : "simple"/);
   assert.match(source, /Artwork will not be used/);
   assert.match(source, /Revised artwork will be provided/);
+  assert.match(source, /Bind delivery-ready asset/);
+  assert.match(source, /This read-only lookup binds only a cleared, delivery-verified asset/);
+  assert.match(source, /!selectedTaskActions\.includes\(proofAction\)/);
   assert.match(source, /Message to production team/);
   assert.match(source, /Lift order history and references the order line/);
   assert.equal(source.includes("aria-label=\"Approval mode\""), false);

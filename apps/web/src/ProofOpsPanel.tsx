@@ -49,7 +49,7 @@ interface ProofOrderSummary {
   } | null;
 }
 
-interface ProofTaskSummary {
+export interface ProofTaskSummary {
   task_id: string;
   order_line_id: string | null;
   line_number: string | null;
@@ -183,7 +183,10 @@ function decisionContextLabel(task: ProofTaskSummary | null) {
   }
 }
 
-function availableProofActions(task: ProofTaskSummary | null): ProofActionDraftKind[] {
+export function availableProofActions(
+  task: ProofTaskSummary | null,
+  revisionActionEligible = false
+): ProofActionDraftKind[] {
   switch (task?.decision_context?.state) {
     case "rejected_pending_action":
       return ["SEND_BACK_TO_ARTIST", "CANCEL_LINE", "REVISED_ART_WILL_BE_SENT"];
@@ -193,8 +196,34 @@ function availableProofActions(task: ProofTaskSummary | null): ProofActionDraftK
     case "cancel_requested":
       return [];
     default:
-      return ["APPROVE", "REJECT"];
+      return revisionActionEligible
+        ? ["APPROVE", "REJECT", "REVISED_ART_WILL_BE_SENT"]
+        : ["APPROVE", "REJECT"];
   }
+}
+
+export function canBindDeliveredRevisionAsset(input: {
+  operatorActionEnabled: boolean;
+  orderNumber: string | null | undefined;
+  customerId: string | null | undefined;
+  task: ProofTaskSummary | null;
+  asset: ProofAssetUploadSummary | null;
+}) {
+  const attachmentId = input.task?.attachment_id;
+  return Boolean(
+    input.operatorActionEnabled &&
+      input.orderNumber &&
+      input.customerId === "1249" &&
+      input.task?.actionable &&
+      attachmentId &&
+      input.task.current_version?.attachment_id === attachmentId &&
+      input.asset?.order_number === input.orderNumber &&
+      input.asset.task_id === input.task.task_id &&
+      input.asset.attachment_id === attachmentId &&
+      input.asset.state === "ready_for_lift" &&
+      input.asset.verification_status === "cleared" &&
+      input.asset.publication_status === "delivery_verified"
+  );
 }
 
 function proofActionLabel(action: ProofActionDraftKind) {
@@ -467,6 +496,9 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
       siblings.map((task) => [task.task_id, 0])
     ));
     setProofAction(availableProofActions(selected ?? null)[0] ?? "REJECT");
+    setRevisionAssetId("");
+    setRevisionRecoveryAssetId("");
+    setRevisionUploadAsset(null);
   }, [order, selectedTaskId]);
 
   useEffect(() => {
@@ -950,7 +982,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   }
 
   async function recoverRevisedArt() {
-    if (!order || operatorActionInFlight.current) return;
+    if (!order || !selectedTask || operatorActionInFlight.current) return;
     const assetId = revisionRecoveryAssetId.trim();
     if (!isProofAssetId(assetId)) {
       setMessage("Enter the exact revised-art asset identifier before loading its status.");
@@ -964,10 +996,23 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
           `/api/proof/operator-assets/uploads/${encodeURIComponent(order.order_number)}/${encodeURIComponent(assetId)}`
         )
       );
+      if (!canBindDeliveredRevisionAsset({
+        operatorActionEnabled: operatorActionAvailable,
+        orderNumber: order.order_number,
+        customerId: order.customer_id,
+        task: selectedTask,
+        asset: payload.asset
+      })) {
+        setRevisionUploadAsset(null);
+        setRevisionAssetId("");
+        setRevisionUploadState("pending_verification");
+        setMessage("The loaded revised-art asset is not the verified delivery-ready asset for this exact current proof. Lift action remains locked.");
+        return;
+      }
       setRevisionUploadAsset(payload.asset);
-      setRevisionAssetId("");
+      setRevisionAssetId(payload.asset.asset_id);
       setRevisionUploadState("pending_verification");
-      setMessage("Revised-art record loaded. Check readiness or publish only after a cleared scan.");
+      setMessage("Revised art is delivery-verified and bound to this exact current proof. Choose the revised-art action to prepare it.");
     } catch (error) {
       setRevisionUploadAsset(null);
       setRevisionAssetId("");
@@ -990,7 +1035,19 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     : [];
   const approvalMode: ProofApprovalMode =
     selectedLineProofs.length > 1 ? "quantity_allocation" : "simple";
-  const selectedTaskActions = availableProofActions(selectedTask);
+  const operatorActionAvailable = Boolean(
+    health?.operator_action_qa.enabled &&
+      order &&
+      health.operator_action_qa.allowed_order_numbers.includes(order.order_number)
+  );
+  const revisionActionEligible = canBindDeliveredRevisionAsset({
+    operatorActionEnabled: operatorActionAvailable,
+    orderNumber: order?.order_number,
+    customerId: order?.customer_id,
+    task: selectedTask,
+    asset: revisionUploadAsset
+  });
+  const selectedTaskActions = availableProofActions(selectedTask, revisionActionEligible);
   const selectedDecisionLabel = decisionContextLabel(selectedTask);
   const allocationAvailable =
     health?.operator_action_qa.advanced_quantity_allocation_enabled &&
@@ -1009,7 +1066,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   let actionDraftError: string | null = null;
   if (order && selectedTaskId) {
     try {
-      if (!selectedTaskActions.length) {
+      if (!selectedTaskActions.length || !selectedTaskActions.includes(proofAction)) {
         throw new Error("This proof is waiting for Lift to return a new current proof before another action can be prepared.");
       }
       if (
@@ -1261,6 +1318,33 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                   ))}
                 </select>
               </label>
+              {operatorActionAvailable && selectedTask?.actionable && selectedTask.attachment_id && selectedTask.current_version ? (
+                <div className="proof-revised-art-upload-actions" role="group" aria-label="Bind delivery-ready revised artwork">
+                  <label>
+                    Existing delivery-ready revised-art asset ID
+                    <input
+                      value={revisionRecoveryAssetId}
+                      placeholder="passet_…"
+                      onChange={(event) => {
+                        setRevisionRecoveryAssetId(event.target.value);
+                        setRevisionAssetId("");
+                        setRevisionUploadAsset(null);
+                      }}
+                    />
+                  </label>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={!isProofAssetId(revisionRecoveryAssetId) || operatorActionInFlight.current}
+                    onClick={() => void recoverRevisedArt()}
+                  >
+                    <RefreshCw size={14} /> Bind delivery-ready asset
+                  </button>
+                  <small>
+                    This read-only lookup binds only a cleared, delivery-verified asset for the selected current proof. It does not prepare or send a Lift action.
+                  </small>
+                </div>
+              ) : null}
               <label>
                 Action
                 <select
@@ -1427,26 +1511,6 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                         : "Uploads are default-disabled and require a separate bounded operator window."}
                     </small>
                   </div>
-                  {!revisionUploadAsset ? (
-                    <div className="proof-revised-art-upload-actions">
-                      <label>
-                        Existing revised-art asset ID
-                        <input
-                          value={revisionRecoveryAssetId}
-                          placeholder="passet_…"
-                          onChange={(event) => setRevisionRecoveryAssetId(event.target.value)}
-                        />
-                      </label>
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        disabled={!isProofAssetId(revisionRecoveryAssetId) || operatorActionInFlight.current}
-                        onClick={() => void recoverRevisedArt()}
-                      >
-                        <RefreshCw size={14} /> Load existing revised art
-                      </button>
-                    </div>
-                  ) : null}
                   {revisionUploadAsset ? (
                     <div className="proof-revised-art-status" role="status">
                       <FileCheck2 size={17} />
