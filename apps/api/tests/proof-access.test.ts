@@ -169,8 +169,51 @@ test("rejects unknown grant scopes before persistence", async () => {
   );
 });
 
-test("does not issue review access from a view-only customer capability", async () => {
-  process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS = "true";
+test("issues review access for revision upload without enabling approval", async () => {
+  process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS = "true";
+  try {
+    const created = await access.createProofGrant({
+      order_number: order.order_number,
+      scope: "review",
+      capability: {
+        pathfinder_customer_id: "284619",
+        proof_customer_id: "1249",
+        identity_verified_at: "2026-08-13T15:59:00.000Z",
+        access_mode: "review",
+        review_experience: "simple",
+        source: "order_override",
+        policy_updated_at: "2026-08-13T16:00:00.000Z"
+      }
+    });
+    assert.equal(created.grant.scope, "review");
+  } finally {
+    delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS;
+  }
+});
+
+test("does not issue review access when approval and revision upload are disabled", async () => {
+  delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
+  delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS;
+  await assert.rejects(
+    () => access.createProofGrant({
+      order_number: order.order_number,
+      scope: "review",
+      capability: {
+        pathfinder_customer_id: "284619",
+        proof_customer_id: "1249",
+        identity_verified_at: "2026-08-13T15:59:00.000Z",
+        access_mode: "review",
+        review_experience: "simple",
+        source: "order_override",
+        policy_updated_at: "2026-08-13T16:00:00.000Z"
+      }
+    }),
+    /Review-scoped Proof access is not enabled/
+  );
+});
+
+test("does not issue revision review access from a view-only customer capability", async () => {
+  process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS = "true";
   try {
     await assert.rejects(
       () => access.createProofGrant({
@@ -189,7 +232,7 @@ test("does not issue review access from a view-only customer capability", async 
       access.ProofGrantCohortDeniedError
     );
   } finally {
-    delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
+    delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS;
   }
 });
 

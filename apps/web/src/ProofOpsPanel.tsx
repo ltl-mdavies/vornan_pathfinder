@@ -86,6 +86,23 @@ interface ResolvedCustomerProofCapability {
   policy_updated_at: string | null;
 }
 
+export function canCreateProofReviewGrant(input: {
+  grantCreationEnabled: boolean;
+  approvalEnabled: boolean;
+  revisionUploadEnabled: boolean;
+  hasOrder: boolean;
+  associationStatus: ResolvedCustomerProofCapability["association_status"] | null;
+  accessMode: ResolvedCustomerProofCapability["access_mode"] | null;
+}) {
+  return Boolean(
+    input.grantCreationEnabled &&
+      (input.approvalEnabled || input.revisionUploadEnabled) &&
+      input.hasOrder &&
+      input.associationStatus === "associated" &&
+      input.accessMode === "review"
+  );
+}
+
 export interface ProofAssetUploadSummary {
   asset_id: string;
   revision_id: string;
@@ -409,6 +426,14 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     customerCapability?.association_status === "associated" &&
     customerCapability.access_mode === "review" &&
     customerCapability.review_experience === "advanced";
+  const reviewGrantAvailable = canCreateProofReviewGrant({
+    grantCreationEnabled: Boolean(health?.feature_flags.grant_creation),
+    approvalEnabled: Boolean(health?.feature_flags.approve),
+    revisionUploadEnabled: Boolean(health?.revised_art_upload.enabled),
+    hasOrder: Boolean(order),
+    associationStatus: customerCapability?.association_status ?? null,
+    accessMode: customerCapability?.access_mode ?? null
+  });
 
   useEffect(() => {
     if (!order) return;
@@ -1100,8 +1125,8 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
             <div>
               <ShieldCheck size={16} />
               <span>Customer capability</span>
-              <strong>{health.feature_flags.approve ? "Single-proof approval active" : health.feature_flags.public_read ? "View-only public read" : "Public read off"}</strong>
-              <small>Approve {health.feature_flags.approve ? "on" : "off"} · Revision off · Undo off · Automatic retry off</small>
+              <strong>{health.feature_flags.approve ? "Single-proof approval active" : health.revised_art_upload.enabled ? "Revised-art review active" : health.feature_flags.public_read ? "View-only public read" : "Public read off"}</strong>
+              <small>Approve {health.feature_flags.approve ? "on" : "off"} · Revision {health.revised_art_upload.enabled ? "on" : "off"} · Undo {health.feature_flags.undo ? "on" : "off"} · Automatic retry off</small>
             </div>
           </div>
           {readOnlyPosture.blockers.length ? (
@@ -1519,9 +1544,9 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
             <button className="secondary-button" type="button" disabled={!health?.feature_flags.grant_creation || state === "loading"} onClick={() => void createGrant("view")}>
               <Link2 size={16} /> Create view-only link
             </button>
-            {health?.feature_flags.approve ? (
-              <button className="primary-button" type="button" disabled={!health.feature_flags.grant_creation || state === "loading"} onClick={() => void createGrant("review")}>
-                <ShieldCheck size={16} /> Create approval link
+            {reviewGrantAvailable ? (
+              <button className="primary-button" type="button" disabled={state === "loading"} onClick={() => void createGrant("review")}>
+                <ShieldCheck size={16} /> Create review link
               </button>
             ) : null}
             {!health?.feature_flags.grant_creation ? <small>Grant creation is disabled in this environment.</small> : null}
