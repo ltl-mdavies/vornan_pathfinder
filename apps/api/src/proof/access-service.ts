@@ -226,7 +226,11 @@ export async function createProofGrant(input: {
   ) {
     throw new ProofGrantCohortDeniedError();
   }
-  if (requestedScope === "review" && !config.feature_flags.approve) {
+  if (
+    requestedScope === "review" &&
+    !config.feature_flags.approve &&
+    !config.feature_flags.revision_upload
+  ) {
     throw new ProofAccessValidationError("Review-scoped Proof access is not enabled.");
   }
   if (!capabilityAllowsScope(input.capability, requestedScope)) {

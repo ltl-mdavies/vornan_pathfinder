@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { buildProofActionDraft, canPublishClearedRevisedArt, isProofAssetId, type ProofAssetUploadSummary } from "../src/ProofOpsPanel";
+import { buildProofActionDraft, canCreateProofReviewGrant, canPublishClearedRevisedArt, isProofAssetId, type ProofAssetUploadSummary } from "../src/ProofOpsPanel";
 
 const clearedRevisionAsset: ProofAssetUploadSummary = {
   asset_id: `passet_${"a".repeat(64)}`,
@@ -20,6 +20,39 @@ const clearedRevisionAsset: ProofAssetUploadSummary = {
   verification_status: "cleared",
   publication_status: "not_started"
 };
+
+test("shows a review link for revision-only access only within an associated review capability", () => {
+  const revisionOnly = {
+    grantCreationEnabled: true,
+    approvalEnabled: false,
+    revisionUploadEnabled: true,
+    hasOrder: true,
+    associationStatus: "associated" as const,
+    accessMode: "review" as const
+  };
+  assert.equal(canCreateProofReviewGrant(revisionOnly), true);
+  assert.equal(canCreateProofReviewGrant({ ...revisionOnly, revisionUploadEnabled: false }), false);
+  assert.equal(canCreateProofReviewGrant({ ...revisionOnly, grantCreationEnabled: false }), false);
+  assert.equal(canCreateProofReviewGrant({ ...revisionOnly, hasOrder: false }), false);
+  assert.equal(canCreateProofReviewGrant({ ...revisionOnly, associationStatus: "unassociated" }), false);
+  assert.equal(canCreateProofReviewGrant({ ...revisionOnly, accessMode: "view_only" }), false);
+});
+
+test("keeps approval-capable review links distinct from approval wording", async () => {
+  assert.equal(canCreateProofReviewGrant({
+    grantCreationEnabled: true,
+    approvalEnabled: true,
+    revisionUploadEnabled: false,
+    hasOrder: true,
+    associationStatus: "associated",
+    accessMode: "review"
+  }), true);
+
+  const source = await readFile(new URL("../src/ProofOpsPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /Create review link/);
+  assert.doesNotMatch(source, /Create approval link/);
+  assert.match(source, /Revision \{health\.revised_art_upload\.enabled \? "on" : "off"\}/);
+});
 
 test("shows the publication control only for a cleared unpubished asset within an enabled window", () => {
   assert.equal(canPublishClearedRevisedArt(clearedRevisionAsset, true), true);
