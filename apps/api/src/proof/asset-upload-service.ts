@@ -22,6 +22,10 @@ import {
   type ProofAssetUploadRuntimeConfig
 } from "./asset-upload-config.js";
 import {
+  getProofOperatorActionQaConfig,
+  type ProofOperatorActionQaConfig
+} from "./operator-action-config.js";
+import {
   getProofAssetUploadRecord,
   ProofAssetUploadStoreError,
   reserveProofAssetUpload,
@@ -32,6 +36,8 @@ const LTL_DEMO_CUSTOMER_ID = "1249";
 const CONTENT_POLICY_ID = "proof-revised-art-operator-v1";
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/;
 const ASSET_ID = /^passet_[a-f0-9]{64}$/;
+const PRIVATE_PROOF_ASSET_BUCKET =
+  /^vornan-pathfinder-proof-assets-[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 
 type S3Sender = { send(command: unknown): Promise<any> };
 
@@ -79,6 +85,7 @@ export interface ProofAssetUploadServiceDependencies {
   reserve?: typeof reserveProofAssetUpload;
   transition?: typeof transitionProofAssetUpload;
   runtimeConfig?: () => ProofAssetUploadRuntimeConfig;
+  operatorActionConfig?: () => ProofOperatorActionQaConfig;
   createPost?: typeof createPresignedPost;
   s3?: S3Sender;
   now?: () => Date;
@@ -176,6 +183,50 @@ function requireGate(now: Date, config: ProofAssetUploadRuntimeConfig) {
     );
   }
   return config;
+}
+
+function normalizedStatusRequest(value: ProofAssetUploadStatusRequest) {
+  const orderNumber = value.order_number?.trim().toUpperCase();
+  const assetId = value.asset_id?.trim();
+  if (!/^A\d{7,8}$/.test(orderNumber) || !ASSET_ID.test(assetId)) {
+    throw new ProofAssetUploadServiceError(
+      "invalid",
+      "Proof asset inspection metadata is invalid."
+    );
+  }
+  return { order_number: orderNumber, asset_id: assetId };
+}
+
+function requireOperatorStatusGate(
+  now: Date,
+  config: ProofOperatorActionQaConfig,
+  orderNumber: string
+) {
+  const expiry = config.activation_expires_at
+    ? Date.parse(config.activation_expires_at)
+    : Number.NaN;
+  if (
+    !config.enabled ||
+    config.allowed_customer_id !== LTL_DEMO_CUSTOMER_ID ||
+    config.allowed_company_id !== "91" ||
+    config.advanced_quantity_allocation_enabled ||
+    !Number.isFinite(expiry) ||
+    expiry <= now.getTime() ||
+    !config.allowed_order_numbers.includes(orderNumber)
+  ) {
+    throw new ProofAssetUploadServiceError(
+      "disabled",
+      "Proof revised-art uploads are disabled or their bounded window has expired."
+    );
+  }
+}
+
+function isPrivateDurableProofAsset(record: ProofAssetUploadRecord) {
+  return (
+    record.source_kind === "proof_upload" &&
+    record.storage_boundary === "proof_assets" &&
+    PRIVATE_PROOF_ASSET_BUCKET.test(record.bucket_name)
+  );
 }
 
 function safeFilename(value: unknown) {
@@ -386,27 +437,42 @@ export function createProofAssetUploadService(
   const transition = dependencies.transition ?? transitionProofAssetUpload;
   const runtimeConfig =
     dependencies.runtimeConfig ?? getProofAssetUploadRuntimeConfig;
+  const operatorActionConfig =
+    dependencies.operatorActionConfig ?? getProofOperatorActionQaConfig;
   const createPost = dependencies.createPost ?? createPresignedPost;
   const s3 = dependencies.s3 ?? defaultS3();
   const now = dependencies.now ?? (() => new Date());
 
   return {
     async status(input: { request: ProofAssetUploadStatusRequest }) {
-      const config = requireGate(now(), runtimeConfig());
-      const orderNumber = input.request.order_number?.trim().toUpperCase();
-      const assetId = input.request.asset_id?.trim();
-      if (
-        !/^A\d{7,8}$/.test(orderNumber) ||
-        !ASSET_ID.test(assetId) ||
-        !config.allowed_order_numbers.includes(orderNumber)
-      ) {
-        throw new ProofAssetUploadServiceError(
-          "not_allowed",
-          "Proof asset inspection is outside the bounded upload window."
+      const request = normalizedStatusRequest(input.request);
+      const currentTime = now();
+      const uploadConfig = runtimeConfig();
+      const uploadGateActive = uploadConfig.enabled;
+      if (uploadGateActive) {
+        const config = requireGate(currentTime, uploadConfig);
+        if (!config.allowed_order_numbers.includes(request.order_number)) {
+          throw new ProofAssetUploadServiceError(
+            "not_allowed",
+            "Proof asset inspection is outside the bounded upload window."
+          );
+        }
+      } else {
+        requireOperatorStatusGate(
+          currentTime,
+          operatorActionConfig(),
+          request.order_number
         );
       }
-      const record = await getRecord(orderNumber, assetId);
-      if (!record || record.bucket_name !== config.bucket_name) {
+      const record = await getRecord(request.order_number, request.asset_id);
+      if (
+        !record ||
+        record.asset_id !== request.asset_id ||
+        record.order_number !== request.order_number ||
+        (uploadGateActive
+          ? record.bucket_name !== uploadConfig.bucket_name
+          : !isPrivateDurableProofAsset(record))
+      ) {
         throw new ProofAssetUploadServiceError(
           "stale",
           "Proof asset upload metadata was not found."
