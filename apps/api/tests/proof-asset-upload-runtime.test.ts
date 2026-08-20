@@ -3,6 +3,7 @@ import test from "node:test";
 import type { ProofOrder } from "@pathfinder/proof-domain";
 import type { ProofAssetUploadRecord } from "@pathfinder/proof-domain/proof-asset-upload";
 import type { ProofAssetUploadRuntimeConfig } from "../src/proof/asset-upload-config.ts";
+import type { ProofOperatorActionQaConfig } from "../src/proof/operator-action-config.ts";
 import {
   createProofAssetUploadService,
   ProofAssetUploadServiceError
@@ -73,6 +74,44 @@ function config(enabled = true): ProofAssetUploadRuntimeConfig {
   };
 }
 
+function operatorConfig(
+  overrides: Partial<ProofOperatorActionQaConfig> = {}
+): ProofOperatorActionQaConfig {
+  return {
+    enabled: true,
+    allowed_customer_id: "1249",
+    allowed_company_id: "91",
+    allowed_order_numbers: ["A0226753"],
+    jwt_ttl_seconds: 60,
+    activation_expires_at: "2026-08-01T13:00:00.000Z",
+    advanced_quantity_allocation_enabled: false,
+    ...overrides
+  };
+}
+
+function statusRecord(assetId = `passet_${"b".repeat(64)}`): ProofAssetUploadRecord {
+  return {
+    asset_id: assetId,
+    bucket_name: config().bucket_name,
+    order_number: "A0226753",
+    task_id: "ptask_synthetic_001",
+    attachment_id: "proofing-synthetic-0001",
+    revision_id: `prevision_${"c".repeat(64)}`,
+    source_kind: "proof_upload",
+    storage_boundary: "proof_assets",
+    original_filename: "Revised Artwork.pdf",
+    declared_content_type: "application/pdf",
+    declared_content_length: 8192,
+    declared_sha256: checksum,
+    state: "ready_for_lift",
+    record_version: 3,
+    initialized_at: "2026-08-01T12:00:00.000Z",
+    upload_completed_at: "2026-08-01T12:00:05.000Z",
+    verification_status: "cleared",
+    publication_status: "delivery_verified"
+  } as ProofAssetUploadRecord;
+}
+
 const request = {
   order_number: "A0226753",
   task_id: "ptask_synthetic_001",
@@ -88,6 +127,7 @@ test("dark upload gate denies before Lift read, persistence, or S3", async () =>
   const calls: string[] = [];
   const service = createProofAssetUploadService({
     runtimeConfig: () => config(false),
+    operatorActionConfig: () => operatorConfig(),
     now: () => now,
     syncOrder: async () => {
       calls.push("sync");
@@ -153,6 +193,7 @@ test("inspects only sanitized metadata inside the same bounded upload window", a
 
   const dark = createProofAssetUploadService({
     runtimeConfig: () => config(false),
+    operatorActionConfig: () => operatorConfig({ enabled: false }),
     now: () => now,
     getRecord: async () => {
       throw new Error("must not read");
@@ -163,6 +204,144 @@ test("inspects only sanitized metadata inside the same bounded upload window", a
     (error: unknown) =>
       error instanceof ProofAssetUploadServiceError && error.code === "disabled"
   );
+});
+
+test("permits one exact durable asset-status read through the bounded operator scope without enabling uploads", async () => {
+  const assetId = `passet_${"d".repeat(64)}`;
+  const record = statusRecord(assetId);
+  const calls: string[] = [];
+  const service = createProofAssetUploadService({
+    runtimeConfig: () => config(false),
+    operatorActionConfig: () => operatorConfig(),
+    now: () => now,
+    getRecord: async () => {
+      calls.push("read");
+      return record;
+    },
+    syncOrder: async () => {
+      calls.push("sync");
+      throw new Error("must not run");
+    },
+    reserve: async () => {
+      calls.push("reserve");
+      throw new Error("must not run");
+    },
+    transition: async () => {
+      calls.push("transition");
+      throw new Error("must not run");
+    },
+    s3: {
+      async send() {
+        calls.push("s3");
+        throw new Error("must not run");
+      }
+    }
+  });
+
+  const result = await service.status({
+    request: { order_number: "a0226753", asset_id: assetId }
+  });
+  assert.equal(result.asset.asset_id, assetId);
+  assert.equal(result.asset.state, "ready_for_lift");
+  assert.equal(JSON.stringify(result).includes("source_key"), false);
+  assert.equal(JSON.stringify(result).includes("delivery_url"), false);
+  assert.deepEqual(calls, ["read"]);
+
+  await assert.rejects(
+    () => service.prepare({
+      request,
+      operator_uid: "operator-synthetic",
+      correlation_id: "operator-status-must-not-upload"
+    }),
+    (error: unknown) =>
+      error instanceof ProofAssetUploadServiceError && error.code === "disabled"
+  );
+  await assert.rejects(
+    () => service.finalize({
+      request: { order_number: "A0226753", asset_id: assetId },
+      operator_uid: "operator-synthetic",
+      correlation_id: "operator-status-must-not-finalize"
+    }),
+    (error: unknown) =>
+      error instanceof ProofAssetUploadServiceError && error.code === "disabled"
+  );
+  assert.deepEqual(calls, ["read"]);
+});
+
+test("fails operator-only status fallback closed before any record read outside its exact scope", async () => {
+  const assetId = `passet_${"e".repeat(64)}`;
+  const cases: Array<{
+    request: { order_number: string; asset_id: string };
+    operator: ProofOperatorActionQaConfig;
+    code: "disabled" | "invalid";
+  }> = [
+    {
+      request: { order_number: "A0226753", asset_id: assetId },
+      operator: operatorConfig({ enabled: false }),
+      code: "disabled"
+    },
+    {
+      request: { order_number: "A0226753", asset_id: assetId },
+      operator: operatorConfig({ activation_expires_at: "2026-08-01T11:59:59.000Z" }),
+      code: "disabled"
+    },
+    {
+      request: { order_number: "A0229999", asset_id: assetId },
+      operator: operatorConfig(),
+      code: "disabled"
+    },
+    {
+      request: { order_number: "A0226753", asset_id: "passet_not-an-asset" },
+      operator: operatorConfig(),
+      code: "invalid"
+    }
+  ];
+
+  for (const candidate of cases) {
+    let reads = 0;
+    const service = createProofAssetUploadService({
+      runtimeConfig: () => config(false),
+      operatorActionConfig: () => candidate.operator,
+      now: () => now,
+      getRecord: async () => {
+        reads += 1;
+        throw new Error("must not read");
+      }
+    });
+    await assert.rejects(
+      () => service.status({ request: candidate.request }),
+      (error: unknown) =>
+        error instanceof ProofAssetUploadServiceError && error.code === candidate.code
+    );
+    assert.equal(reads, 0);
+  }
+});
+
+test("fails operator-only status fallback closed for missing or malformed durable records", async () => {
+  const assetId = `passet_${"f".repeat(64)}`;
+  for (const record of [
+    null,
+    { ...statusRecord(assetId), bucket_name: "not-a-private-proof-bucket" },
+    { ...statusRecord(assetId), storage_boundary: "other" as const },
+    { ...statusRecord(assetId), order_number: "A0229999" }
+  ]) {
+    let reads = 0;
+    const service = createProofAssetUploadService({
+      runtimeConfig: () => config(false),
+      operatorActionConfig: () => operatorConfig(),
+      now: () => now,
+      getRecord: async () => {
+        reads += 1;
+        return record as ProofAssetUploadRecord | null;
+      }
+    });
+    await assert.rejects(
+      () => service.status({ request: { order_number: "A0226753", asset_id: assetId } }),
+      (error: unknown) =>
+        error instanceof ProofAssetUploadServiceError && error.code === "stale"
+    );
+    assert.equal(reads, 1);
+  }
 });
 
 test("reserves immutable metadata before issuing one exact short-lived S3 POST", async () => {
