@@ -25,6 +25,7 @@ test("renders an unmounted operator workspace with distinct specification, inspe
       products={artworkCatalogFixture}
       actions={artworkCatalogFixtureActions}
       initialProductId="product_1249_pump_topper_chevron"
+      onOpenTechnicalInspection={() => undefined}
     />
   );
 
@@ -33,6 +34,8 @@ test("renders an unmounted operator workspace with distinct specification, inspe
   assert.match(markup, /Product specification/);
   assert.match(markup, /Technical inspection/);
   assert.match(markup, /Optional machine-generated evidence/);
+  assert.match(markup, /class="artwork-catalog-inspection-action"/);
+  assert.match(markup, /View results/);
   assert.match(markup, /Proof approval/);
   assert.match(markup, /Approval by the prepress team and customer for print production/);
   assert.match(markup, /Approved by the prepress team and customer for print production/);
@@ -139,6 +142,8 @@ test("slice remains unmounted, injected, provider neutral, and free of runtime c
   assert.doesNotMatch(source, /bulk|selected products|mass update/i);
   assert.doesNotMatch(source, /add to cart|shopping cart|unit price|quantity input/i);
   assert.match(source, /actions: ArtworkCatalogActions/);
+  assert.match(source, /onOpenTechnicalInspection\(\{ productId: selectedProduct\.id, versionId: current\.id \}\)/);
+  assert.match(styleSource, /\.artwork-catalog-inspection-action \{ width: 100%; min-height: 38px/);
   assert.match(source, /This changes the local prototype only/);
   assert.match(source, /No catalog data was saved/);
   assert.match(source, /aria-controls="artwork-catalog-filter-panel"/);

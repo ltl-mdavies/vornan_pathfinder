@@ -527,10 +527,11 @@ export function ArtworkCatalogWorkspace({
                     {onOpenTechnicalInspection && current.inspection.checkedAt ? (
                       <button
                         type="button"
-                        className="artwork-catalog-widget-action"
+                        className="artwork-catalog-inspection-action"
                         onClick={() => onOpenTechnicalInspection({ productId: selectedProduct.id, versionId: current.id })}
                       >
-                        View results <ChevronRight size={12} aria-hidden="true" />
+                        <span><Eye size={14} aria-hidden="true" /> View results</span>
+                        <ChevronRight size={14} aria-hidden="true" />
                       </button>
                     ) : null}
                   </section>
