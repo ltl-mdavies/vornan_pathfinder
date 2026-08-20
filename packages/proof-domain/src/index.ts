@@ -1387,10 +1387,13 @@ export function toPublicProofOrder(
   options: {
     include_asset_urls?: boolean;
     decisions_enabled?: boolean;
+    revision_action_enabled?: boolean;
     review_experience?: ProofReviewExperience;
   } = {}
 ): PublicProofOrder {
   const decisionsEnabled = scope === "review" && options.decisions_enabled === true;
+  const revisionActionEnabled = scope === "review" && options.revision_action_enabled === true;
+  const actionBindingEnabled = decisionsEnabled || revisionActionEnabled;
   const sharedLinesByAttachment = new Map<string, string[]>();
   for (const task of order.tasks) {
     const attachmentId = task.attachment_id;
@@ -1410,7 +1413,7 @@ export function toPublicProofOrder(
     health: order.health,
     tasks: order.tasks.map((task) => ({
       task_id: task.task_id,
-      ...(decisionsEnabled
+      ...(actionBindingEnabled
         ? { attachment_id: task.attachment_id, version: task.version }
         : {}),
       line_number: publicProofDisplayText(task.line_number, 32),

@@ -593,6 +593,9 @@ test("binds revised-art upload lifecycle calls to one identified review session 
       .set("Cookie", credentials.cookie)
       .expect(200);
     assert.equal(revisionOrder.body.order.access.revision_upload_enabled, true);
+    assert.equal(revisionOrder.body.order.access.decisions_enabled, false);
+    assert.equal(revisionOrder.body.order.tasks[0].attachment_id, order.tasks[0]!.attachment_id);
+    assert.equal(revisionOrder.body.order.tasks[0].version, order.tasks[0]!.version);
 
     const assetId = `passet_${"a".repeat(64)}`;
     await request(revisionApp)

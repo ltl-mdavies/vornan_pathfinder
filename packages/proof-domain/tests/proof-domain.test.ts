@@ -706,6 +706,22 @@ test("creates a customer-safe DTO without Lift identities or internal proof meta
   assert.equal(serialized.includes("internal warning"), false);
   assert.match(serialized, /\"decisions_enabled\":false/);
   assert.equal(publicOrder.access.review_experience, "simple");
+  const revisionOnlyOrder = toPublicProofOrder(normalized, "review", {
+    revision_action_enabled: true
+  });
+  assert.equal(revisionOnlyOrder.access.decisions_enabled, false);
+  assert.equal(revisionOnlyOrder.tasks[0]?.attachment_id, normalized.tasks[0]?.attachment_id);
+  assert.equal(revisionOnlyOrder.tasks[0]?.version, normalized.tasks[0]?.version);
+  const redactedReviewOrder = toPublicProofOrder(normalized, "review", {
+    revision_action_enabled: false
+  });
+  assert.equal("attachment_id" in redactedReviewOrder.tasks[0]!, false);
+  assert.equal("version" in redactedReviewOrder.tasks[0]!, false);
+  const redactedViewOrder = toPublicProofOrder(normalized, "view", {
+    revision_action_enabled: true
+  });
+  assert.equal("attachment_id" in redactedViewOrder.tasks[0]!, false);
+  assert.equal("version" in redactedViewOrder.tasks[0]!, false);
   assert.deepEqual(
     toPublicProofOrder(normalized, "review", {
       decisions_enabled: true,
