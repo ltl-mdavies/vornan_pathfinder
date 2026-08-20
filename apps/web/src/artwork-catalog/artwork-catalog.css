@@ -172,6 +172,12 @@
 .artwork-catalog-widget-summary { margin: 11px 0 0; color: var(--catalog-secondary); font-size: 10px; line-height: 1.45; }
 .artwork-catalog-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 10px; background: #f5f8f3; border-radius: 6px; }
 .artwork-catalog-widget > small { display: block; margin-top: 9px; color: var(--catalog-muted); font-size: 9px; }
+.artwork-catalog-inspection-action { width: 100%; min-height: 38px; margin-top: 10px; padding: 0 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--catalog-forest); background: #f4f8f1; border: 1px solid #d4dfcf; border-radius: 7px; font-size: 10px; font-weight: 850; text-align: left; transition: background .15s ease, border-color .15s ease, box-shadow .15s ease; }
+.artwork-catalog-inspection-action > span { min-width: 0; display: inline-flex; align-items: center; gap: 7px; }
+.artwork-catalog-inspection-action > svg { flex: 0 0 auto; transition: transform .15s ease; }
+.artwork-catalog-inspection-action:hover { background: #ebf3e7; border-color: #a9bba2; box-shadow: 0 5px 14px rgba(57, 82, 59, .07); }
+.artwork-catalog-inspection-action:hover > svg { transform: translateX(2px); }
+.artwork-catalog-inspection-action:active { background: #e5efe1; box-shadow: none; }
 .artwork-catalog-order-summary { margin-top: 12px; display: grid; grid-template-columns: auto 1fr; gap: 3px 9px; }
 .artwork-catalog-order-summary strong { color: var(--catalog-ink); font-size: 11px; }
 .artwork-catalog-order-summary span { align-self: center; color: var(--catalog-muted); font-size: 9px; }
@@ -327,7 +333,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .artwork-catalog-main, .artwork-catalog-table tbody tr, .artwork-catalog-card { transition: none; }
+  .artwork-catalog-main, .artwork-catalog-table tbody tr, .artwork-catalog-card, .artwork-catalog-inspection-action, .artwork-catalog-inspection-action > svg { transition: none; }
   .artwork-catalog-card:hover { transform: none; }
+  .artwork-catalog-inspection-action:hover > svg { transform: none; }
   .artwork-catalog-spinner { animation: none; }
 }
