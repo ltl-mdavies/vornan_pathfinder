@@ -403,13 +403,18 @@ Parameters:
   ProofLtlDemoQaAllowedOrders:
     Type: String
     Default: ""
-    AllowedPattern: "^$|^A[0-9]{7,8}(,A[0-9]{7,8}){0,24}$"
+    AllowedPattern: "^$|^LTL_DEMO_ALL$|^A[0-9]{7,8}(,A[0-9]{7,8}){0,24}$"
     Description: Exact demo orders available to the unified customer Proof QA profile.
   ProofLtlDemoQaExpiresAt:
     Type: String
     Default: ""
     AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
     Description: Shared bounded UTC expiry for the LTL Demo QA profile.
+  ProofLtlDemoQaPersistentEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Persistent LTL Demo 1249-only customer QA lane; all other customer and broad capability boundaries remain disabled.
   ProofLtlDemoQaGrantCreationEnabled:
     Type: String
     Default: "false"
@@ -554,8 +559,10 @@ Rules:
     Assertions:
       - Assert: !Not [!Equals [!Ref ProofLtlDemoQaAllowedOrders, ""]]
         AssertDescription: LTL Demo Proof QA requires exact allowlisted demo orders.
-      - Assert: !Not [!Equals [!Ref ProofLtlDemoQaExpiresAt, ""]]
-        AssertDescription: LTL Demo Proof QA requires one bounded UTC expiry.
+      - Assert: !Or
+          - !Equals [!Ref ProofLtlDemoQaPersistentEnabled, "true"]
+          - !Not [!Equals [!Ref ProofLtlDemoQaExpiresAt, ""]]
+        AssertDescription: LTL Demo Proof QA requires a persistent LTL-only lane or one bounded UTC expiry.
       - Assert: !And
           - !Not [!Equals [!Ref ProofCoreTableName, ""]]
           - !Not [!Equals [!Ref ProofCoreTableArn, ""]]
@@ -1253,6 +1260,7 @@ Resources:
               - !Ref ProofLtlDemoQaSessionReadEnabled
               - !Ref ProofLtlDemoQaCustomerApprovalEnabled
               - !Ref ProofLtlDemoQaRevisionUploadEnabled
+              - !Ref ProofLtlDemoQaPersistentEnabled
           # Pack the customer-review switches into the existing environment
           # footprint. Lambda limits the complete environment block to 4 KB.
           PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join

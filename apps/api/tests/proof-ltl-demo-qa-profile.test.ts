@@ -18,6 +18,7 @@ test("activates one bounded customer-1249 profile with explicit demo orders", ()
     allowed_customer_id: "1249",
     allowed_order_numbers: ["A0226753", "A0227641"],
     all_ltl_demo_orders: false,
+    persistent: false,
     activation_expires_at: "2026-08-11T20:00:00.000Z",
     grant_creation_enabled: true,
     public_read_enabled: true,
@@ -58,6 +59,18 @@ test("fails closed without exact orders or outside the 24-hour profile window", 
     assert.equal(profile.customer_approval_enabled, false);
     assert.equal(profile.asset_upload_enabled, false);
   }
+});
+
+test("admits a persistent LTL Demo-only all-orders lane without turning on any broader customer authority", () => {
+  const profile = getProofLtlDemoQaProfile(
+    { PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: "true||LTL_DEMO_ALL|true|true|true|true|true" },
+    now
+  );
+  assert.equal(profile.active, true);
+  assert.equal(profile.persistent, true);
+  assert.equal(profile.allowed_customer_id, "1249");
+  assert.equal(ltlDemoQaOrderAllowed(profile, "A0228753"), true);
+  assert.equal(ltlDemoQaOrderAllowed(profile, "not-an-order"), false);
 });
 
 test("fails closed when a downstream QA capability is configured without an authenticated session boundary", () => {
