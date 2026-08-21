@@ -284,6 +284,7 @@ export function ArtworkInspectionResultsWorkspace({
   const [selectedFindingId, setSelectedFindingId] = useState(result.findings[0]?.id ?? "");
   const [railTab, setRailTab] = useState<InspectionRailTab>("details");
   const [zoom, setZoom] = useState(100);
+  const findingCardRefs = useRef(new Map<string, HTMLElement>());
 
   const selectedPage = result.pages.find((page) => page.pageNumber === selectedPageNumber) ?? result.pages[0];
   const selectedFinding = result.findings.find((finding) => finding.id === selectedFindingId) ?? result.findings[0];
@@ -313,7 +314,13 @@ export function ArtworkInspectionResultsWorkspace({
     if (!finding) return;
     setSelectedFindingId(finding.id);
     setSelectedPageNumber(finding.pageNumber);
+    setRailTab("findings");
   };
+
+  useEffect(() => {
+    if (railTab !== "findings" || !selectedFindingId) return;
+    findingCardRefs.current.get(selectedFindingId)?.scrollIntoView({ block: "nearest" });
+  }, [railTab, selectedFindingId]);
 
   const moveFinding = (direction: -1 | 1) => {
     const findingId = adjacentFindingId(result.findings, selectedFindingId, direction);
@@ -475,7 +482,14 @@ export function ArtworkInspectionResultsWorkspace({
               {result.findings.length === 0 ? <p className="inspection-no-findings">No technical findings were reported.</p> : result.findings.map((finding) => {
                 const selected = finding.id === selectedFinding?.id;
                 return (
-                  <article className={selected ? "inspection-finding-card inspection-finding-card-selected" : "inspection-finding-card"} key={finding.id}>
+                  <article
+                    className={selected ? "inspection-finding-card inspection-finding-card-selected" : "inspection-finding-card"}
+                    key={finding.id}
+                    ref={(node) => {
+                      if (node) findingCardRefs.current.set(finding.id, node);
+                      else findingCardRefs.current.delete(finding.id);
+                    }}
+                  >
                     <button type="button" onClick={() => selectFinding(finding.id)} aria-expanded={selected}>
                       <span className="inspection-finding-number">{finding.number}</span>
                       <span className={`inspection-finding-icon inspection-finding-${finding.severity}`}>{findingIcon(finding.severity)}</span>

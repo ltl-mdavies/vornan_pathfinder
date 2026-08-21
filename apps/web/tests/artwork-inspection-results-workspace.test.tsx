@@ -135,6 +135,8 @@ test("keeps the unified workspace viewport-bound with one scrollable rail and pe
   assert.match(styleSource, /inspection-results-actions[^}]*min-height:\s*48px/);
   assert.match(styleSource, /inspection-results-footer[^}]*min-height:\s*24px/);
   assert.match(styleSource, /inspection-overall-verdict[^}]*flex-direction:\s*column/);
+  assert.match(source, /setRailTab\("findings"\)/);
+  assert.match(source, /findingCardRefs\.current\.get\(selectedFindingId\)\?\.scrollIntoView\(\{ block: "nearest" \}\)/);
   assert.doesNotMatch(styleSource, /theater/);
   assert.match(styleSource, /inspection-key-metrics > div[^}]*justify-content:\s*center/);
 });
