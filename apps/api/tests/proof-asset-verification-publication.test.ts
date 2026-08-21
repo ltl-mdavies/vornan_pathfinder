@@ -110,7 +110,7 @@ function harness(initial = uploadedRecord()) {
       locators.push(input);
       return {
         locator_id: input.locator_id,
-        delivery_url: `https://go.vornan.co/a/${input.locator_id}`
+        delivery_url: `https://go.vornan.co/a/${input.locator_id}/Revised%20Artwork.pdf`
       };
     },
     async verifyDirectDelivery() {
@@ -197,7 +197,7 @@ test("fails closed on a changed source version or conflicting scan replay", asyn
   );
 });
 
-test("publishes a byte-identical copy, registers one opaque locator, and records direct delivery", async () => {
+test("publishes a byte-identical copy, registers an opaque filename-bearing locator, and records direct delivery", async () => {
   const run = harness();
   await run.service.observeScan(observation(run.record()));
   const result = await run.service.publishCleared({

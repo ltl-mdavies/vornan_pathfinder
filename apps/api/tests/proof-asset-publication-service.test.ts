@@ -70,7 +70,7 @@ function clearedRecord() {
   }).record;
 }
 
-test("copies exact versions to immutable outbound and opaque direct-delivery objects", async () => {
+test("copies exact versions to immutable outbound and filename-bearing direct-delivery objects", async () => {
   let record: ProofAssetUploadRecord = clearedRecord();
   const commands: Array<CopyObjectCommand | HeadObjectCommand> = [];
   let headCount = 0;
@@ -138,6 +138,14 @@ test("copies exact versions to immutable outbound and opaque direct-delivery obj
       String(command.input.Key).startsWith("a/plocator_")
   ) as CopyObjectCommand;
   assert.match(String(locatorCopy.input.CopySource), /versionId=outbound-version-1/);
+  assert.match(
+    String(locatorCopy.input.Key),
+    /^a\/plocator_[a-f0-9]{64}\/Revised Artwork\.pdf$/
+  );
+  assert.equal(
+    locatorCopy.input.ContentDisposition,
+    'inline; filename="Revised Artwork.pdf"'
+  );
   assert.equal(JSON.stringify(result).includes("go.vornan.co"), false);
 });
 

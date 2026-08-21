@@ -15,6 +15,10 @@ import {
   getProofAssetUploadRecord,
   transitionProofAssetUpload
 } from "./asset-upload-store.js";
+import {
+  proofAssetDeliveryObjectKey,
+  proofAssetDeliveryUrl
+} from "./asset-delivery-url.js";
 
 const MAXIMUM_PUBLICATION_WINDOW_MS = 4 * 60 * 60 * 1_000;
 const LOCATOR_ID = /^plocator_[a-f0-9]{64}$/;
@@ -43,6 +47,10 @@ function base64Sha256(hex: string) {
 
 function sourceDisposition(filename: string) {
   return `attachment; filename="${filename.replace(/["\\]/g, "_")}"`;
+}
+
+function inlineDisposition(filename: string) {
+  return `inline; filename="${filename.replace(/["\\]/g, "_")}"`;
 }
 
 function notFound(error: unknown) {
@@ -166,7 +174,10 @@ export function createProofAssetPublicationService(
     }
     const record = await getRecordForOutbound(input.outbound_key);
     const config = assertActive(runtimeConfig(), record.order_number, now());
-    const key = `a/${input.locator_id}`;
+    const key = proofAssetDeliveryObjectKey(
+      input.locator_id,
+      record.original_filename
+    );
     let existing: any = null;
     try {
       existing = await s3.send(new HeadObjectCommand({
@@ -194,7 +205,7 @@ export function createProofAssetPublicationService(
         ),
         MetadataDirective: "REPLACE",
         ContentType: input.content_type,
-        ContentDisposition: sourceDisposition(record.original_filename),
+        ContentDisposition: inlineDisposition(record.original_filename),
         ChecksumAlgorithm: "SHA256",
         TaggingDirective: "REPLACE",
         Tagging: "proof-lifecycle=lift-outbound"
@@ -212,7 +223,11 @@ export function createProofAssetPublicationService(
     }
     return {
       locator_id: input.locator_id,
-      delivery_url: `${config.delivery_base_url}/${key}`
+      delivery_url: proofAssetDeliveryUrl(
+        config.delivery_base_url,
+        input.locator_id,
+        record.original_filename
+      )
     };
   }
 
