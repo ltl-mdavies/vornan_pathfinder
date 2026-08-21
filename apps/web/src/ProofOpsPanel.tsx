@@ -617,6 +617,36 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     }
   }
 
+  async function openLtlDemoQaSession() {
+    if (!order || order.customer_id !== "1249" || !health?.ltl_demo_qa.active || !reviewGrantAvailable) return;
+    const proofWindow = window.open("", "_blank");
+    if (!proofWindow) {
+      setMessage("Allow a pop-up for Pathfinder, then open the LTL Demo customer QA session again.");
+      return;
+    }
+    setState("loading");
+    setMessage(null);
+    setOneTimeAccess(null);
+    try {
+      const payload = await responseJson<{ grant: ProofGrant; access_url: string }>(
+        await request(`/api/proof/orders/${order.order_number}/grants`, {
+          method: "POST",
+          body: JSON.stringify({ scope: "review", label: "LTL Demo customer QA" })
+        })
+      );
+      proofWindow.opener = null;
+      proofWindow.location.replace(payload.access_url);
+      await loadGrants(order.order_number);
+      await loadAudit(order.order_number).catch(() => undefined);
+      setMessage("Opened an LTL Demo customer QA session. The review is ready in the new tab.");
+    } catch (error) {
+      proofWindow.close();
+      setMessage(error instanceof Error ? error.message : "LTL Demo customer QA could not be opened.");
+    } finally {
+      setState("idle");
+    }
+  }
+
   async function confirmGrantAction() {
     if (!pendingAction || !order) return;
     setState("loading");
@@ -1611,6 +1641,11 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
             {reviewGrantAvailable ? (
               <button className="primary-button" type="button" disabled={state === "loading"} onClick={() => void createGrant("review")}>
                 <ShieldCheck size={16} /> Create review link
+              </button>
+            ) : null}
+            {order?.customer_id === "1249" && health?.ltl_demo_qa.active && reviewGrantAvailable ? (
+              <button className="primary-button" type="button" disabled={state === "loading"} onClick={() => void openLtlDemoQaSession()}>
+                <ShieldCheck size={16} /> Open LTL Demo customer QA
               </button>
             ) : null}
             {!health?.feature_flags.grant_creation ? <small>Grant creation is disabled in this environment.</small> : null}

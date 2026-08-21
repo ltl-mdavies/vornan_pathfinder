@@ -6,6 +6,7 @@ import {
   type ProofGrantCapabilityBinding,
   type ProofGrantScope
 } from "@pathfinder/proof-domain";
+import { ltlDemoQaOrderAllowed } from "./ltl-demo-qa-profile.js";
 import { getProofRuntimeConfig } from "./runtime-config.js";
 import { recordProofAuditEvent, type ProofAuditContext } from "./audit-service.js";
 import {
@@ -84,7 +85,7 @@ function ltlDemoOrderAllowed(
 ) {
   return (
     !config.ltl_demo_qa.active ||
-    config.ltl_demo_qa.allowed_order_numbers.includes(orderNumber)
+    ltlDemoQaOrderAllowed(config.ltl_demo_qa, orderNumber)
   );
 }
 

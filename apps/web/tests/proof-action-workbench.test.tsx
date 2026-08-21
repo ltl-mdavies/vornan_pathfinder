@@ -62,6 +62,15 @@ test("keeps approval-capable review links distinct from approval wording", async
   assert.match(source, /Revision \{health\.revised_art_upload\.enabled \? "on" : "off"\}/);
 });
 
+test("opens an LTL Demo review session from the authenticated workspace without exposing a copied access link", async () => {
+  const source = await readFile(new URL("../src/ProofOpsPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /Open LTL Demo customer QA/);
+  assert.match(source, /order\.customer_id !== "1249"/);
+  assert.match(source, /window\.open\("", "_blank"\)/);
+  assert.match(source, /proofWindow\.location\.replace\(payload\.access_url\)/);
+  assert.match(source, /label: "LTL Demo customer QA"/);
+});
+
 test("shows the publication control only for a cleared unpubished asset within an enabled window", () => {
   assert.equal(canPublishClearedRevisedArt(clearedRevisionAsset, true), true);
   assert.equal(canPublishClearedRevisedArt(clearedRevisionAsset, false), false);

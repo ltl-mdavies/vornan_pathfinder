@@ -31,6 +31,7 @@ import {
   reserveProofAssetUpload,
   transitionProofAssetUpload
 } from "./asset-upload-store.js";
+import { LTL_DEMO_ALL_ORDERS } from "./ltl-demo-qa-profile.js";
 
 const LTL_DEMO_CUSTOMER_ID = "1249";
 const CONTENT_POLICY_ID = "proof-revised-art-operator-v1";
@@ -219,6 +220,10 @@ function requireOperatorStatusGate(
       "Proof revised-art uploads are disabled or their bounded window has expired."
     );
   }
+}
+
+function uploadOrderAllowed(config: { allowed_order_numbers: string[] }, orderNumber: string) {
+  return config.allowed_order_numbers.includes(orderNumber) || config.allowed_order_numbers.includes(LTL_DEMO_ALL_ORDERS);
 }
 
 function isPrivateDurableProofAsset(record: ProofAssetUploadRecord) {
@@ -451,7 +456,7 @@ export function createProofAssetUploadService(
       const uploadGateActive = uploadConfig.enabled;
       if (uploadGateActive) {
         const config = requireGate(currentTime, uploadConfig);
-        if (!config.allowed_order_numbers.includes(request.order_number)) {
+        if (!uploadOrderAllowed(config, request.order_number)) {
           throw new ProofAssetUploadServiceError(
             "not_allowed",
             "Proof asset inspection is outside the bounded upload window."
@@ -492,7 +497,7 @@ export function createProofAssetUploadService(
       const correlation = correlationId(input.correlation_id);
       const config = requireGate(currentTime, runtimeConfig());
       const request = normalizedPrepare(input.request, config);
-      if (!config.allowed_order_numbers.includes(request.order_number)) {
+      if (!uploadOrderAllowed(config, request.order_number)) {
         throw new ProofAssetUploadServiceError(
           "not_allowed",
           "Proof order is not in the bounded revised-art upload allowlist."
@@ -651,7 +656,7 @@ export function createProofAssetUploadService(
       if (
         !/^A\d{7,8}$/.test(orderNumber) ||
         !ASSET_ID.test(assetId) ||
-        !config.allowed_order_numbers.includes(orderNumber)
+        !uploadOrderAllowed(config, orderNumber)
       ) {
         throw new ProofAssetUploadServiceError(
           "not_allowed",

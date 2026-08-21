@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getProofAssetUploadRuntimeConfig } from "../src/proof/asset-upload-config.ts";
-import { getProofLtlDemoQaProfile } from "../src/proof/ltl-demo-qa-profile.ts";
+import { getProofLtlDemoQaProfile, ltlDemoQaOrderAllowed } from "../src/proof/ltl-demo-qa-profile.ts";
 import { getProofRuntimeConfig } from "../src/proof/runtime-config.ts";
 
 const now = new Date("2026-08-11T12:00:00.000Z");
@@ -17,6 +17,7 @@ test("activates one bounded customer-1249 profile with explicit demo orders", ()
     active: true,
     allowed_customer_id: "1249",
     allowed_order_numbers: ["A0226753", "A0227641"],
+    all_ltl_demo_orders: false,
     activation_expires_at: "2026-08-11T20:00:00.000Z",
     grant_creation_enabled: true,
     public_read_enabled: true,
@@ -25,6 +26,18 @@ test("activates one bounded customer-1249 profile with explicit demo orders", ()
     session_ttl_minutes: 720,
     automatic_retry: false
   });
+});
+
+test("allows every synchronized LTL Demo order only when the dedicated all-orders marker is explicit", () => {
+  const profile = getProofLtlDemoQaProfile(
+    { PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: "true|2026-08-11T20:00:00.000Z|LTL_DEMO_ALL|true|true|true|true" },
+    now
+  );
+  assert.equal(profile.active, true);
+  assert.equal(profile.all_ltl_demo_orders, true);
+  assert.deepEqual(profile.allowed_order_numbers, ["LTL_DEMO_ALL"]);
+  assert.equal(ltlDemoQaOrderAllowed(profile, "A0228753"), true);
+  assert.equal(ltlDemoQaOrderAllowed(profile, "invalid"), false);
 });
 
 test("fails closed without exact orders or outside the 24-hour profile window", () => {
