@@ -9,6 +9,7 @@ const {
   applyPublicProofVisibility,
   buildOrderSnapshot,
   mergeShippingReportIntoPackages,
+  normalizePackageDetailsPayload,
   normalizeShippingReportPayload,
   publicOrderStatusSnapshotFromInternal
 } = await import("../src/server.ts");
@@ -105,6 +106,30 @@ test("enriches exact package records with ShippingReport recipients and addresse
   assert.equal(packages[1]?.order_line_id, 9368151);
   assert.equal(packages[1]?.tracking_number, "1Z60V1572999272694");
   assert.equal(JSON.stringify(packages).includes("ACTUAL_SHIP_DATE"), false);
+});
+
+test("preserves numeric Lift tracking numbers from package and shipping reports", () => {
+  const packages = normalizePackageDetailsPayload({
+    rowset: [{
+      ORDER_NUMBER: "A0228214",
+      ORDER_LINE_ID: 9864989,
+      LINE_NUMBER: 1,
+      BOX_NUMBER: 6,
+      PACKAGE_TRACKING_NUMBER: 123456789012,
+      SHIP_METHOD: "PRIORITY_OVERNIGHT"
+    }]
+  });
+  const shipping = normalizeShippingReportPayload({
+    rowset: [{
+      ORDER_NUMBER: "A0228214",
+      ORDER_LINE_ID: 9864989,
+      TRACKING_NUMBER: 123456789012,
+      SHIP_METHOD: "PRIORITY_OVERNIGHT"
+    }]
+  });
+
+  assert.equal(packages[0]?.tracking_number, "123456789012");
+  assert.equal(shipping[0]?.tracking_number, "123456789012");
 });
 
 function buildFixtureSnapshot(proofOrder: ProofOrder | null = null) {
