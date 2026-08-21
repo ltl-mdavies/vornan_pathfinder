@@ -10,3 +10,9 @@ test("keeps large proof queues scrollable without shrinking line cards", () => {
   assert.match(styles, /\.task-list\s*\{[^}]*overflow-y:\s*auto;/s);
   assert.match(styles, /\.line-group-card\s*\{[^}]*min-height:\s*82px;/s);
 });
+
+test("keeps both horizontal edges reachable while a proof is zoomed", () => {
+  assert.match(styles, /\.proof-image-viewport\.zoomed\s*\{[^}]*place-items:\s*start start;/s);
+  assert.doesNotMatch(styles, /\.proof-image-viewport\.zoomed\s*\{[^}]*place-items:\s*start center;/s);
+  assert.match(styles, /\.proof-image-viewport\s*\{[^}]*overflow:\s*auto;/s);
+});
