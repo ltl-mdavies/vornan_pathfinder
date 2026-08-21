@@ -264,16 +264,16 @@ export function ArtworkInspectionResultsWorkspace({
   const [selectedFindingId, setSelectedFindingId] = useState(result.findings[0]?.id ?? "");
   const [findingsExpanded, setFindingsExpanded] = useState(true);
   const [zoom, setZoom] = useState(100);
-  const [theaterMode, setTheaterMode] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
 
   useEffect(() => {
-    if (!theaterMode) return undefined;
-    const exitTheaterOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setTheaterMode(false);
+    if (!focusMode) return undefined;
+    const exitFocusOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFocusMode(false);
     };
-    window.addEventListener("keydown", exitTheaterOnEscape);
-    return () => window.removeEventListener("keydown", exitTheaterOnEscape);
-  }, [theaterMode]);
+    window.addEventListener("keydown", exitFocusOnEscape);
+    return () => window.removeEventListener("keydown", exitFocusOnEscape);
+  }, [focusMode]);
 
   const selectedPage = result.pages.find((page) => page.pageNumber === selectedPageNumber) ?? result.pages[0];
   const selectedFinding = result.findings.find((finding) => finding.id === selectedFindingId) ?? result.findings[0];
@@ -303,9 +303,9 @@ export function ArtworkInspectionResultsWorkspace({
 
   return (
     <section
-      className={theaterMode ? "artwork-inspection-results artwork-inspection-results-theater" : "artwork-inspection-results"}
+      className={focusMode ? "artwork-inspection-results artwork-inspection-results-focus" : "artwork-inspection-results"}
       aria-labelledby="inspection-results-title"
-      data-theater-mode={theaterMode ? "true" : "false"}
+      data-focus-mode={focusMode ? "true" : "false"}
     >
       <header className="inspection-results-header">
         <div className="inspection-results-title-group">
@@ -350,15 +350,15 @@ export function ArtworkInspectionResultsWorkspace({
           </div>
           <button
             type="button"
-            className="inspection-theater-button"
-            aria-pressed={theaterMode}
-            onClick={() => setTheaterMode((current) => !current)}
+            className="inspection-focus-button"
+            aria-pressed={focusMode}
+            onClick={() => setFocusMode((current) => !current)}
           >
-            {theaterMode ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}
-            {theaterMode ? "Exit theater" : "Theater view"}
+            {focusMode ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}
+            {focusMode ? "Exit focus view" : "Focus view"}
           </button>
           <span className="inspection-visually-hidden" aria-live="polite">
-            {theaterMode ? "Theater view is active. Secondary inspection details are hidden. Press Escape to exit." : "Theater view is inactive."}
+            {focusMode ? "Focus view is active. Artwork is enlarged while the inspection summary, actions, and report details remain available. Press Escape to exit." : "Focus view is inactive."}
           </span>
         </div>
 
@@ -402,7 +402,7 @@ export function ArtworkInspectionResultsWorkspace({
         </div>
       </section>
 
-      <section className="inspection-summary" aria-label="Inspection summary" hidden={theaterMode}>
+      <section className="inspection-summary" aria-label="Inspection summary">
         <article className="inspection-overall-verdict">
           <span>Overall verdict</span>
           <div className={`inspection-verdict-title inspection-verdict-${result.verdict}`}>{verdictIcon(result.verdict)}<strong>{result.verdictLabel}</strong></div>
@@ -418,7 +418,7 @@ export function ArtworkInspectionResultsWorkspace({
         </dl>
       </section>
 
-      {result.localAnalysis && !theaterMode ? (
+      {result.localAnalysis && !focusMode ? (
         <details className="inspection-local-evidence">
           <summary>File evidence</summary>
           <dl>
@@ -429,7 +429,22 @@ export function ArtworkInspectionResultsWorkspace({
         </details>
       ) : null}
 
-      {theaterMode ? null : findingsExpanded ? (
+      {focusMode ? (
+        <section className="inspection-focus-findings" aria-label="Condensed findings summary">
+          <strong>{result.findings.length} {result.findings.length === 1 ? "finding" : "findings"}</strong>
+          {selectedFinding ? (
+            <>
+              <span className="inspection-focus-finding-number">{selectedFinding.number}</span>
+              <span className="inspection-focus-finding-title">{selectedFinding.listLabel ?? selectedFinding.title}</span>
+              <small>Page {selectedFinding.pageNumber} · {selectedFinding.regionLabel}</small>
+              <div>
+                <button type="button" onClick={() => moveFinding(-1)} aria-label="Previous finding"><ChevronLeft size={14} aria-hidden="true" /></button>
+                <button type="button" onClick={() => moveFinding(1)} aria-label="Next finding"><ChevronRight size={14} aria-hidden="true" /></button>
+              </div>
+            </>
+          ) : <span>No technical findings were reported.</span>}
+        </section>
+      ) : findingsExpanded ? (
         <section className="inspection-findings" aria-labelledby="inspection-findings-title">
           <div className="inspection-findings-list">
             <header><h2 id="inspection-findings-title">Findings ({result.findings.length})</h2></header>
@@ -476,10 +491,21 @@ export function ArtworkInspectionResultsWorkspace({
         <div className="inspection-findings-collapsed"><span>{result.findings.length} technical findings hidden</span></div>
       )}
 
-      <div className="inspection-results-actions" hidden={theaterMode}>
-        <button type="button" className="inspection-collapse-button" onClick={() => setFindingsExpanded((current) => !current)}>
-          {findingsExpanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
-          {findingsExpanded ? "Collapse findings" : "Show findings"}
+      <div className="inspection-results-actions">
+        <button
+          type="button"
+          className="inspection-collapse-button"
+          onClick={() => {
+            if (focusMode) {
+              setFocusMode(false);
+              setFindingsExpanded(true);
+              return;
+            }
+            setFindingsExpanded((current) => !current);
+          }}
+        >
+          {focusMode ? <Minimize2 size={14} aria-hidden="true" /> : findingsExpanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
+          {focusMode ? "Show full details" : findingsExpanded ? "Collapse findings" : "Show findings"}
         </button>
         <div>
           <button type="button" className="inspection-secondary-action" onClick={() => actions.onDownloadReport(result.inspectionId)}><Download size={15} aria-hidden="true" /> Download report</button>
@@ -487,7 +513,7 @@ export function ArtworkInspectionResultsWorkspace({
         </div>
       </div>
 
-      <footer className="inspection-results-footer" hidden={theaterMode}>
+      <footer className="inspection-results-footer">
         <span><Info size={14} aria-hidden="true" /> Technical findings do not change Proof approval.</span>
         <span>Completed {formattedInspectionDate(result.completedAt)}</span>
         <span>Policy revision {result.policyRevision}</span>

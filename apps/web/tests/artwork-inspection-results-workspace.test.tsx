@@ -36,7 +36,8 @@ test("renders the approved single-page heatmap results workspace with separate t
   assert.match(markup, /Problem area/);
   assert.match(markup, /Finding 1 of 4/);
   assert.match(markup, /Effective resolution 118 DPI/);
-  assert.match(markup, /Theater view/);
+  assert.match(markup, /Focus view/);
+  assert.doesNotMatch(markup, /Theater/);
   assert.doesNotMatch(markup, /Learn about effective resolution/);
   assert.match(markup, /Download report/);
   assert.match(markup, /Open analyzed artwork/);
@@ -103,7 +104,7 @@ test("keeps original, heatmap, and callouts in the same source coordinate system
   }
 });
 
-test("keeps theater view local, accessible, and free of unsupported education actions", async () => {
+test("keeps Focus view local, accessible, viewport-bound, and free of unsupported education actions", async () => {
   const source = await readFile(new URL("../src/artwork-catalog/ArtworkInspectionResultsWorkspace.tsx", import.meta.url), "utf8");
   const fixtureSource = await readFile(new URL("../src/artwork-catalog/inspection-results-fixtures.ts", import.meta.url), "utf8");
   const styleSource = await readFile(new URL("../src/artwork-catalog/artwork-inspection-results.css", import.meta.url), "utf8");
@@ -111,11 +112,19 @@ test("keeps theater view local, accessible, and free of unsupported education ac
   assert.doesNotMatch(source, /learnMoreLabel|onLearnMore/);
   assert.doesNotMatch(fixtureSource, /Learn about effective resolution|onLearnMore/);
   assert.doesNotMatch(styleSource, /inspection-learn-more/);
-  assert.match(source, /aria-pressed=\{theaterMode\}/);
+  assert.match(source, /aria-pressed=\{focusMode\}/);
   assert.match(source, /event\.key === "Escape"/);
-  assert.match(source, /Secondary inspection details are hidden/);
-  assert.match(source, /hidden=\{theaterMode\}/);
-  assert.match(styleSource, /artwork-inspection-results-theater \.inspection-preview/);
+  assert.match(source, /Artwork is enlarged while the inspection summary, actions, and report details remain available/);
+  assert.doesNotMatch(source, /hidden=\{focusMode\}/);
+  assert.doesNotMatch(source, /theaterMode|Theater view|Exit theater/);
+  assert.match(source, /inspection-focus-findings/);
+  assert.match(source, /Show full details/);
+  assert.match(styleSource, /artwork-inspection-results-focus[^}]*height:\s*100dvh/);
+  assert.match(styleSource, /artwork-inspection-results-focus[^}]*overflow:\s*hidden/);
+  assert.match(styleSource, /artwork-inspection-results-focus \.inspection-viewer[^}]*flex:\s*1 1 auto/);
+  assert.match(styleSource, /artwork-inspection-results-focus \.inspection-results-actions[^}]*flex:\s*0 0 auto/);
+  assert.match(styleSource, /artwork-inspection-results-focus \.inspection-results-footer[^}]*flex:\s*0 0 auto/);
+  assert.doesNotMatch(styleSource, /theater/);
   assert.match(styleSource, /inspection-overall-verdict[^}]*justify-content:\s*center/);
   assert.match(styleSource, /inspection-key-metrics > div:not\(\.inspection-metrics-label\)[^}]*justify-content:\s*center/);
 });
