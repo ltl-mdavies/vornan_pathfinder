@@ -9,6 +9,7 @@ import {
   type ProofAssetUploadRecord
 } from "@pathfinder/proof-domain/proof-asset-upload";
 import type { ProofAssetMalwareScanStatus } from "@pathfinder/proof-domain/proof-asset-lifecycle";
+import { proofAssetDeliveryPath } from "./asset-delivery-url.js";
 
 const BUCKET = /^vornan-pathfinder-proof-assets-[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 const VERSION_ID = /^[A-Za-z0-9._~+/=-]{1,1024}$/;
@@ -227,7 +228,11 @@ function locatorId(record: ProofAssetUploadRecord) {
   )}`;
 }
 
-function validateLocator(value: ProofAssetLocatorRegistration, expectedId: string) {
+function validateLocator(
+  value: ProofAssetLocatorRegistration,
+  expectedId: string,
+  filename: string
+) {
   let url: URL;
   try {
     url = new URL(value.delivery_url);
@@ -245,7 +250,7 @@ function validateLocator(value: ProofAssetLocatorRegistration, expectedId: strin
     url.username ||
     url.password ||
     url.hash ||
-    url.pathname !== `/a/${expectedId}`
+    url.pathname !== proofAssetDeliveryPath(expectedId, filename)
   ) {
     throw new ProofAssetVerificationPublicationError(
       "delivery_failed",
@@ -448,7 +453,11 @@ export function createProofAssetVerificationPublicationService(
         content_length: record.source_content_length!,
         expires_at_epoch: Math.floor(Date.parse(record.published_at!) / 1_000) + 86_400
       });
-      const deliveryUrl = validateLocator(registered, locator);
+      const deliveryUrl = validateLocator(
+        registered,
+        locator,
+        record.original_filename
+      );
       const observed = await dependencies.verifyDirectDelivery({
         delivery_url: deliveryUrl
       });

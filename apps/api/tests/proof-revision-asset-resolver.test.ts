@@ -15,7 +15,8 @@ import { assembleProofRevisionAssetReadiness } from "../src/proof/revision-asset
 
 const digest = "d".repeat(64);
 const locator = `plocator_${"e".repeat(64)}`;
-const deliveryUrl = `https://go.vornan.co/a/${locator}`;
+const filename = "Revised Artwork.pdf";
+const deliveryUrl = `https://go.vornan.co/a/${locator}/Revised%20Artwork.pdf`;
 
 function readyRecord() {
   let record = createProofAssetUploadRecord({
@@ -27,7 +28,7 @@ function readyRecord() {
     task_id: "ptask_synthetic_001",
     attachment_id: "proofing-synthetic-0001",
     replaces_proof_version_id: "pversion-synthetic-001",
-    original_filename: "Revised Artwork.pdf",
+    original_filename: filename,
     content_policy_id: "proof-policy-synthetic-v1",
     content_policy_max_bytes: 1024 * 1024,
     allowed_content_types: ["application/pdf"],
@@ -92,10 +93,11 @@ function readyRecord() {
   }).record;
 }
 
-test("reassembles only the checksum-bound transient direct URL", () => {
+test("reassembles only the checksum-bound direct filename URL", () => {
   const record = readyRecord();
   const readiness = assembleProofRevisionAssetReadiness(record);
   assert.equal(readiness?.delivery_url, deliveryUrl);
+  assert.match(readiness?.delivery_url ?? "", /Revised%20Artwork\.pdf$/);
   assert.equal(readiness?.delivery_url_sha256, record.delivery_url_sha256);
   assert.equal(readiness?.state, "ready_for_lift");
   assert.equal(readiness?.outbound_object_version_id, "outbound-version-1");
@@ -104,4 +106,14 @@ test("reassembles only the checksum-bound transient direct URL", () => {
     ...record,
     delivery_url_sha256: "0".repeat(64)
   }), null);
+});
+
+test("retains a prior opaque delivery alias when its durable checksum requires it", () => {
+  const record = readyRecord();
+  const legacyUrl = `https://go.vornan.co/a/${locator}`;
+  const readiness = assembleProofRevisionAssetReadiness({
+    ...record,
+    delivery_url_sha256: createHash("sha256").update(legacyUrl).digest("hex")
+  });
+  assert.equal(readiness?.delivery_url, legacyUrl);
 });

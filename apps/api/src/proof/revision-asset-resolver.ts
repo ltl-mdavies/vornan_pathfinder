@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import type { ProofRevisionAssetReadiness } from "@pathfinder/proof-domain/proof-asset-lifecycle";
 import type { ProofAssetUploadRecord } from "@pathfinder/proof-domain/proof-asset-upload";
 import { getProofAssetUploadRecord } from "./asset-upload-store.js";
+import { proofAssetDeliveryUrl } from "./asset-delivery-url.js";
 
-function deliveryUrl(locatorId: string) {
+function legacyDeliveryUrl(locatorId: string) {
   return `https://go.vornan.co/a/${locatorId}`;
 }
 
@@ -44,8 +45,20 @@ export function assembleProofRevisionAssetReadiness(
   ) {
     return null;
   }
-  const url = deliveryUrl(record.delivery_locator_id);
-  if (createHash("sha256").update(url).digest("hex") !== record.delivery_url_sha256) {
+  const filenameUrl = proofAssetDeliveryUrl(
+    "https://go.vornan.co",
+    record.delivery_locator_id,
+    record.original_filename
+  );
+  const filenameUrlSha256 = createHash("sha256").update(filenameUrl).digest("hex");
+  const legacyUrl = legacyDeliveryUrl(record.delivery_locator_id);
+  const legacyUrlSha256 = createHash("sha256").update(legacyUrl).digest("hex");
+  const url = filenameUrlSha256 === record.delivery_url_sha256
+    ? filenameUrl
+    : legacyUrlSha256 === record.delivery_url_sha256
+      ? legacyUrl
+      : null;
+  if (!url) {
     return null;
   }
   return {
