@@ -9,6 +9,7 @@ export interface ProofLtlDemoQaProfile {
   allowed_customer_id: typeof LTL_DEMO_CUSTOMER_ID;
   allowed_order_numbers: string[];
   all_ltl_demo_orders: boolean;
+  persistent: boolean;
   activation_expires_at: string | null;
   grant_creation_enabled: boolean;
   public_read_enabled: boolean;
@@ -59,10 +60,12 @@ export function getProofLtlDemoQaProfile(
     packedGrantCreation,
     packedPublicRead,
     packedCustomerApproval,
-    packedAssetUpload
+    packedAssetUpload,
+    packedPersistent
   ] =
     (env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE ?? "").split("|");
   const configured = enabled(packedEnabled);
+  const persistent = enabled(packedPersistent);
   const activationExpiresAt = timestamp(packedExpiry);
   const allowedOrderNumbers = orderNumbers(packedOrders);
   const allLtlDemoOrders = (packedOrders ?? "")
@@ -73,9 +76,7 @@ export function getProofLtlDemoQaProfile(
   const active = Boolean(
     configured &&
     (allLtlDemoOrders || allowedOrderNumbers.length > 0) &&
-    Number.isFinite(expiry) &&
-    expiry > now.getTime() &&
-    expiry <= now.getTime() + MAXIMUM_PROFILE_WINDOW_MS
+    (persistent || (Number.isFinite(expiry) && expiry > now.getTime() && expiry <= now.getTime() + MAXIMUM_PROFILE_WINDOW_MS))
   );
 
   const grantCreationEnabled = active && enabled(packedGrantCreation);
@@ -89,6 +90,7 @@ export function getProofLtlDemoQaProfile(
     allowed_customer_id: LTL_DEMO_CUSTOMER_ID,
     allowed_order_numbers: allLtlDemoOrders ? [LTL_DEMO_ALL_ORDERS] : allowedOrderNumbers,
     all_ltl_demo_orders: allLtlDemoOrders,
+    persistent,
     activation_expires_at: activationExpiresAt,
     grant_creation_enabled: grantCreationEnabled,
     public_read_enabled: publicReadEnabled,

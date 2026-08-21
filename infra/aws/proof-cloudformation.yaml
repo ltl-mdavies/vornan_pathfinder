@@ -83,13 +83,18 @@ Parameters:
   LtlDemoQaAllowedOrders:
     Type: String
     Default: ""
-    AllowedPattern: "^$|^A[0-9]{7,8}(,A[0-9]{7,8}){0,19}$"
+    AllowedPattern: "^$|^LTL_DEMO_ALL$|^A[0-9]{7,8}(,A[0-9]{7,8}){0,19}$"
     Description: Exact LTL Demo orders available to the unified QA profile.
   LtlDemoQaExpiresAt:
     Type: String
     Default: ""
     AllowedPattern: "^$|^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$"
     Description: Shared bounded UTC expiry for the unified QA profile.
+  LtlDemoQaPersistentEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Persistent LTL Demo 1249-only customer QA lane; all other customer and broad capability boundaries remain disabled.
   LtlDemoQaGrantCreationEnabled:
     Type: String
     Default: "false"
@@ -371,8 +376,10 @@ Rules:
         AssertDescription: The unified LTL Demo QA profile is restricted to the isolated dev stack.
       - Assert: !Not [!Equals [!Ref LtlDemoQaAllowedOrders, ""]]
         AssertDescription: LTL Demo Proof QA requires exact allowlisted demo orders.
-      - Assert: !Not [!Equals [!Ref LtlDemoQaExpiresAt, ""]]
-        AssertDescription: LTL Demo Proof QA requires one bounded UTC expiry.
+      - Assert: !Or
+          - !Equals [!Ref LtlDemoQaPersistentEnabled, "true"]
+          - !Not [!Equals [!Ref LtlDemoQaExpiresAt, ""]]
+        AssertDescription: LTL Demo Proof QA requires a persistent LTL-only lane or one bounded UTC expiry.
       - Assert: !Equals [!Ref ReadOnlyQaConfirmed, "true"]
         AssertDescription: LTL Demo Proof QA requires the reviewed read-only boundary.
       - Assert: !Not [!Equals [!Ref EdgeSharedSecret, ""]]
@@ -996,6 +1003,7 @@ Resources:
               - !Ref LtlDemoQaSessionReadEnabled
               - !Ref LtlDemoQaCustomerApprovalEnabled
               - !Ref LtlDemoQaRevisionUploadEnabled
+              - !Ref LtlDemoQaPersistentEnabled
           PATHFINDER_PROOF_CUSTOMER_REVIEW_SCOPE: !Join
             - "|"
             - - !Ref PublicReadEnabled
