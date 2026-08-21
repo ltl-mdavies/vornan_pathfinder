@@ -240,6 +240,10 @@ test("deduplicates physical packages across lines and builds only known carrier 
     buildCarrierTrackingUrl("1Z60V157P299088946", "UPS Ground"),
     "https://www.ups.com/track?loc=en_US&tracknum=1Z60V157P299088946"
   );
+  assert.equal(
+    buildCarrierTrackingUrl("123456789012", "PRIORITY_OVERNIGHT"),
+    "https://www.fedex.com/fedextrack/?trknbr=123456789012"
+  );
   assert.equal(buildCarrierTrackingUrl("not a safe value", "Unknown"), null);
 });
 

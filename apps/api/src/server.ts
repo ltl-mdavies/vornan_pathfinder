@@ -1047,7 +1047,17 @@ function redactPackageDetailRecord(record: Record<string, unknown>) {
   return safeRecord;
 }
 
-function normalizePackageDetailsPayload(payload: unknown) {
+function normalizeLiftTrackingNumber(value: unknown) {
+  if (typeof value === "string") {
+    return value.trim() || null;
+  }
+  if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value >= 0) {
+    return String(value);
+  }
+  return null;
+}
+
+export function normalizePackageDetailsPayload(payload: unknown) {
   const rows = packageDetailRows(payload);
   const packageGroups = new Map<string, {
     header_id: string | number | null;
@@ -1110,7 +1120,7 @@ function normalizePackageDetailsPayload(payload: unknown) {
       quantity: (record.QUANTITY as string | number | null | undefined) ?? null,
       box_number: (record.BOX_NUMBER as string | number | null | undefined) ?? null,
       package_type: typeof record.PACKAGE_TYPE === "string" ? record.PACKAGE_TYPE : null,
-      tracking_number: typeof record.PACKAGE_TRACKING_NUMBER === "string" ? record.PACKAGE_TRACKING_NUMBER : null,
+      tracking_number: normalizeLiftTrackingNumber(record.PACKAGE_TRACKING_NUMBER),
       dimensions: {
         length: (record.BOX_LENGTH as string | number | null | undefined) ?? null,
         width: (record.BOX_WIDTH as string | number | null | undefined) ?? null,
@@ -1231,7 +1241,7 @@ export function normalizeShippingReportPayload(payload: unknown): ShippingReport
     return [{
       order_number: record.ORDER_NUMBER == null ? null : String(record.ORDER_NUMBER),
       order_line_id: (record.ORDER_LINE_ID as string | number | null | undefined) ?? null,
-      tracking_number: typeof record.TRACKING_NUMBER === "string" ? record.TRACKING_NUMBER.trim() || null : null,
+      tracking_number: normalizeLiftTrackingNumber(record.TRACKING_NUMBER),
       tracker_message:
         typeof record.TRACKER_MESSAGE === "string"
           ? record.TRACKER_MESSAGE.trim() || null
