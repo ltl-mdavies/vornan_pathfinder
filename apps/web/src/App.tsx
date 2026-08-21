@@ -139,7 +139,8 @@ import {
 } from "./job-operational-times";
 import {
   ArtworkCatalogInternalPilot,
-  isArtworkCatalogInternalPilotAvailable
+  isArtworkCatalogInternalPilotAvailable,
+  shouldUseArtworkCatalogFocusedShell
 } from "./artwork-catalog/ArtworkCatalogInternalPilot";
 import "./artwork-catalog/artwork-catalog.css";
 import "./artwork-catalog/artwork-inspection-results.css";
@@ -6787,6 +6788,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const visibleCustomerNavItems = customerNavItems.filter(
     (item) => item.label !== "Artwork Catalog" || artworkCatalogInternalPilotAvailable
   );
+  const artworkCatalogFocusedShell = shouldUseArtworkCatalogFocusedShell({
+    activeGlobalView,
+    activeCustomerView,
+    pilotAvailable: artworkCatalogInternalPilotAvailable
+  });
   const statusAccessPolicy = statusPolicyDraft ?? workspace?.status_access_policy ?? createStatusAccessPolicyFallback(selectedCustomer);
   const statusAccessDomains = statusAccessPolicy.approved_email_domains ?? [];
   const approvedStatusDomainCount = statusAccessDomains.filter((domain) => domain.status === "Approved").length;
@@ -6797,6 +6803,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       void loadWorkspace(selectedCustomerId);
     }
   }, [selectedCustomerId]);
+
+  useEffect(() => {
+    if (artworkCatalogFocusedShell) {
+      setOpenTopbarMenu(null);
+    }
+  }, [artworkCatalogFocusedShell]);
 
   useEffect(() => {
     setManualPreviewProductKeyColumn("");
@@ -10821,10 +10833,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         </div>
       </aside>
 
-      <section className="workspace">
+      <section className={artworkCatalogFocusedShell ? "workspace workspace-feature-focus" : "workspace"}>
         {activeGlobalView === "Customers" ? (
           <>
-            <header className="topbar">
+            {!artworkCatalogFocusedShell ? <header className="topbar">
               <div className="title-block">
                 <div className="headline-row">
                   <h1>{selectedCustomer.customer_name}</h1>
@@ -10950,7 +10962,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   ) : null}
                 </div>
               </div>
-            </header>
+            </header> : null}
 
             {activeCustomerView === "Overview" ? (
               <>
