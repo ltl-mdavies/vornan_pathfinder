@@ -6,9 +6,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   ArtworkCatalogInternalPilot,
   isArtworkCatalogInternalPilotAvailable,
+  localInspectionSpecForProduct,
   resolveArtworkInspectionResult,
   shouldUseArtworkCatalogFocusedShell
 } from "../src/artwork-catalog/ArtworkCatalogInternalPilot";
+import { artworkCatalogFixture } from "../src/artwork-catalog/fixtures";
 
 test("keeps the internal pilot default-dark and restricted to exact customer 1249", async () => {
   assert.equal(isArtworkCatalogInternalPilotAvailable(false, "1249"), false);
@@ -64,6 +66,8 @@ test("renders the approved fixture-only catalog composition for LTL Demo", () =>
   assert.match(markup, /Artwork catalog/);
   assert.match(markup, /LTL Demo · 1249/);
   assert.match(markup, /Pump Topper Chevron/);
+  assert.match(markup, /Check new artwork/);
+  assert.doesNotMatch(markup, /Upload new version/);
   assert.match(markup, /Product specification/);
   assert.match(markup, /Technical inspection/);
   assert.match(markup, /View results/);
@@ -79,6 +83,22 @@ test("renders nothing outside the exact pilot customer boundary", () => {
   );
 
   assert.equal(markup, "");
+});
+
+test("binds local analysis to the selected product specification without changing the current version", () => {
+  const product = artworkCatalogFixture[0];
+  const inspectionSpec = localInspectionSpecForProduct("1249", product);
+  assert.deepEqual(inspectionSpec, {
+    customerId: "1249",
+    productId: "product_1249_pump_topper_chevron",
+    productName: "Pump Topper Chevron",
+    proposedVersion: 8,
+    finishedWidthInches: 144,
+    finishedHeightInches: 30,
+    targetDpi: 150,
+    expectedColorSpace: "CMYK"
+  });
+  assert.equal(product.versions.find((version) => version.isCurrent)?.version, 7);
 });
 
 test("resolves only the exact immutable product, version, and inspection identity", () => {
@@ -123,7 +143,12 @@ test("keeps the pilot local, provider-neutral, and free of runtime or annotation
   assert.doesNotMatch(combined, /api-client|@aws-sdk|process\.env|import\.meta\.env/);
   assert.doesNotMatch(combined, /PixelGuard|Durst|Vornan Proof|Lift|Wrike/);
   assert.doesNotMatch(combined, /annotation|markup/i);
-  assert.match(pilotSource, /onBack: \(\) => setView\(\{ kind: "catalog", selectedProductId: view\.productId \}\)/);
+  assert.match(pilotSource, /setView\(\{ kind: "catalog", selectedProductId: view\.productId \}\)/);
+  assert.match(pilotSource, /analyzeArtworkUpload/);
+  assert.match(pilotSource, /localInspectionSpecForProduct/);
+  assert.match(pilotSource, /item\.customerId !== INTERNAL_PILOT_CUSTOMER_ID/);
+  assert.match(pilotSource, /artworkCatalogFixture\.find\(\(candidate\) => candidate\.id === item\.productId\)/);
+  assert.match(pilotSource, /Browser-local|localAnalysis/);
   assert.match(pilotSource, /if \(!result\) return/);
   assert.match(workspaceSource, /onOpenTechnicalInspection && current\.inspection\.checkedAt/);
 });

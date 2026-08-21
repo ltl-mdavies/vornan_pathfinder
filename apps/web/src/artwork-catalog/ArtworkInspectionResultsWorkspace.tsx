@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import React, { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -37,7 +37,7 @@ export type InspectionFinding = Readonly<{
   regionLabel: string;
   affectedArea: string;
   recommendation: string;
-  marker: Readonly<{ xPercent: number; yPercent: number }>;
+  marker?: Readonly<{ xPercent: number; yPercent: number }>;
 }>;
 
 export type InspectionPage = Readonly<{
@@ -50,6 +50,7 @@ export type InspectionPage = Readonly<{
   originalPreviewAlt: string;
   heatmapPreviewUrl: string;
   heatmapPreviewAlt: string;
+  mediaType?: "image" | "pdf";
 }>;
 
 export type ArtworkInspectionResultViewModel = Readonly<{
@@ -69,6 +70,14 @@ export type ArtworkInspectionResultViewModel = Readonly<{
   metrics: ReadonlyArray<InspectionMetric>;
   pages: ReadonlyArray<InspectionPage>;
   findings: ReadonlyArray<InspectionFinding>;
+  availableModes?: ReadonlyArray<InspectionViewMode>;
+  localAnalysis?: Readonly<{
+    filename: string;
+    format: string;
+    sha256: string;
+    byteSize: number;
+    persistence: string;
+  }>;
 }>;
 
 export type ArtworkInspectionResultsActions = Readonly<{
@@ -152,12 +161,12 @@ function PreviewMarkers({
 }>) {
   return (
     <div className="inspection-preview-markers" aria-label="Finding locations">
-      {findings.map((finding) => (
+      {findings.filter((finding) => finding.marker).map((finding) => (
         <button
           type="button"
           key={finding.id}
           className={finding.id === selectedFindingId ? "inspection-preview-marker inspection-preview-marker-selected" : "inspection-preview-marker"}
-          style={{ left: `${finding.marker.xPercent}%`, top: `${finding.marker.yPercent}%` }}
+          style={{ left: `${finding.marker?.xPercent}%`, top: `${finding.marker?.yPercent}%` }}
           onClick={() => onSelectFinding(finding.id)}
           aria-label={`Finding ${finding.number}: ${finding.title}, ${finding.regionLabel}`}
           aria-pressed={finding.id === selectedFindingId}
@@ -224,7 +233,11 @@ function ArtworkPreview({
       data-fit-zoom={zoom}
     >
       <div className="inspection-preview-content" style={style}>
-        <img src={imageUrl} alt={imageAlt} />
+        {page.mediaType === "pdf" ? (
+          <object data={imageUrl} type="application/pdf" aria-label={imageAlt}>
+            <p>PDF preview is unavailable in this browser. The file analysis results remain available below.</p>
+          </object>
+        ) : <img src={imageUrl} alt={imageAlt} />}
         {markersVisible ? (
           <PreviewMarkers findings={findings} selectedFindingId={selectedFindingId} onSelectFinding={onSelectFinding} />
         ) : null}
@@ -245,7 +258,8 @@ export function ArtworkInspectionResultsWorkspace({
     throw new Error("Every inspection finding must reference a supplied page.");
   }
 
-  const [mode, setMode] = useState<InspectionViewMode>(initialMode);
+  const availableModes = result.availableModes ?? (["original", "heatmap", "findings", "compare"] as const);
+  const [mode, setMode] = useState<InspectionViewMode>(availableModes.includes(initialMode) ? initialMode : availableModes[0] ?? "original");
   const [selectedPageNumber, setSelectedPageNumber] = useState(result.pages[0].pageNumber);
   const [selectedFindingId, setSelectedFindingId] = useState(result.findings[0]?.id ?? "");
   const [findingsExpanded, setFindingsExpanded] = useState(true);
@@ -282,6 +296,7 @@ export function ArtworkInspectionResultsWorkspace({
   };
 
   const setPreviewMode = (nextMode: InspectionViewMode) => {
+    if (!availableModes.includes(nextMode)) return;
     setMode(nextMode);
     if (nextMode === "findings") setFindingsExpanded(true);
   };
@@ -312,13 +327,20 @@ export function ArtworkInspectionResultsWorkspace({
         </div>
       </header>
 
+      {result.localAnalysis ? (
+        <aside className="inspection-local-analysis-notice" aria-label="Local analysis scope">
+          <Info size={16} aria-hidden="true" />
+          <div><strong>Local analysis only</strong><span>{result.localAnalysis.persistence}. The current catalog artwork is unchanged.</span></div>
+        </aside>
+      ) : null}
+
       <section className="inspection-viewer" aria-label="Analyzed artwork">
         <div className="inspection-viewer-toolbar">
           <div className="inspection-mode-control" role="group" aria-label="Artwork analysis view">
-            <button type="button" aria-pressed={mode === "original"} onClick={() => setPreviewMode("original")}>Original</button>
-            <button type="button" aria-pressed={mode === "heatmap"} onClick={() => setPreviewMode("heatmap")}>Heatmap</button>
-            <button type="button" aria-pressed={mode === "findings"} onClick={() => setPreviewMode("findings")}>Findings <span>{result.findings.length}</span></button>
-            <button type="button" aria-pressed={mode === "compare"} onClick={() => setPreviewMode("compare")}>Compare</button>
+            <button type="button" aria-pressed={mode === "original"} disabled={!availableModes.includes("original")} onClick={() => setPreviewMode("original")}>Original</button>
+            <button type="button" aria-pressed={mode === "heatmap"} disabled={!availableModes.includes("heatmap")} onClick={() => setPreviewMode("heatmap")} title={!availableModes.includes("heatmap") ? "Heatmap requires a connected inspection provider" : undefined}>Heatmap</button>
+            <button type="button" aria-pressed={mode === "findings"} disabled={!availableModes.includes("findings")} onClick={() => setPreviewMode("findings")}>Findings <span>{result.findings.length}</span></button>
+            <button type="button" aria-pressed={mode === "compare"} disabled={!availableModes.includes("compare")} onClick={() => setPreviewMode("compare")} title={!availableModes.includes("compare") ? "Comparison requires an analysis overlay" : undefined}>Compare</button>
           </div>
           <div className="inspection-zoom-control" role="group" aria-label="Artwork zoom">
             <button type="button" onClick={() => setZoom((current) => clampInspectionZoom(current - ZOOM_STEP))} disabled={zoom === MIN_ZOOM} aria-label="Zoom out"><Minus size={15} aria-hidden="true" /></button>
@@ -386,7 +408,7 @@ export function ArtworkInspectionResultsWorkspace({
           <div className={`inspection-verdict-title inspection-verdict-${result.verdict}`}>{verdictIcon(result.verdict)}<strong>{result.verdictLabel}</strong></div>
           <p>{result.verdictSummary}</p>
         </article>
-        <dl className="inspection-key-metrics">
+        <dl className={result.localAnalysis ? "inspection-key-metrics inspection-key-metrics-local" : "inspection-key-metrics"}>
           <div className="inspection-metrics-label">Key metrics</div>
           {result.metrics.map((metric) => (
             <div key={metric.label} className={metric.emphasis === "warning" ? "inspection-metric-warning" : ""}>
@@ -395,6 +417,17 @@ export function ArtworkInspectionResultsWorkspace({
           ))}
         </dl>
       </section>
+
+      {result.localAnalysis && !theaterMode ? (
+        <details className="inspection-local-evidence">
+          <summary>File evidence</summary>
+          <dl>
+            <div><dt>Filename</dt><dd>{result.localAnalysis.filename}</dd></div>
+            <div><dt>Detected format</dt><dd>{result.localAnalysis.format}</dd></div>
+            <div><dt>SHA-256</dt><dd><code>{result.localAnalysis.sha256}</code></dd></div>
+          </dl>
+        </details>
+      ) : null}
 
       {theaterMode ? null : findingsExpanded ? (
         <section className="inspection-findings" aria-labelledby="inspection-findings-title">

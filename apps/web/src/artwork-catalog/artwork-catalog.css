@@ -262,6 +262,11 @@
 .artwork-catalog-upload-confirm ul { margin: 18px 0 0; padding: 14px 16px 14px 32px; color: var(--catalog-secondary); background: #f4f7f2; border-radius: 8px; font-size: 10px; line-height: 1.7; text-align: left; }
 .artwork-catalog-upload-success > span { color: #31583a; background: #e5f1e5; }
 .artwork-catalog-upload-error { margin-top: 16px !important; padding: 10px 12px; color: #863c36 !important; background: #fff0ee; border-radius: 7px; }
+.artwork-catalog-file-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.artwork-catalog-batch-summary { width: 100%; margin: 18px 0 0; padding: 12px; display: grid; gap: 8px; color: var(--catalog-secondary); background: #f4f7f2; border-radius: 8px; text-align: left; }
+.artwork-catalog-batch-summary div { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 8px; }
+.artwork-catalog-batch-summary dt { font-size: 9px; font-weight: 850; }
+.artwork-catalog-batch-summary dd { min-width: 0; margin: 0; font-size: 9px; overflow-wrap: anywhere; text-transform: none; }
 .artwork-catalog-processing-note { color: var(--catalog-muted); font-size: 10px; }
 .artwork-catalog-spinner { animation: artwork-catalog-spin .8s linear infinite; }
 @keyframes artwork-catalog-spin { to { transform: rotate(360deg); } }
