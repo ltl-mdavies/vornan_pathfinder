@@ -353,9 +353,26 @@ export async function analyzeArtworkUpload(
   const parsed = detectAndParse(bytes);
   const findings = buildFindings(parsed, spec);
   const verdict = verdictFor(findings);
-  const objectUrl = options.createObjectUrl?.(file) ?? (typeof URL !== "undefined" && "createObjectURL" in URL ? URL.createObjectURL(file) : "");
-  const previewWidth = parsed.pixelWidth ?? Math.max(1, Math.round((parsed.pageWidthInches ?? spec.finishedWidthInches) * 72));
-  const previewHeight = parsed.pixelHeight ?? Math.max(1, Math.round((parsed.pageHeightInches ?? spec.finishedHeightInches) * 72));
+  const createObjectUrl = options.createObjectUrl ?? ((blob: Blob) => typeof URL !== "undefined" && "createObjectURL" in URL ? URL.createObjectURL(blob) : "");
+  let objectUrl = parsed.mediaType === "pdf" ? "" : createObjectUrl(file);
+  let previewWidth = parsed.pixelWidth ?? Math.max(1, Math.round((parsed.pageWidthInches ?? spec.finishedWidthInches) * 72));
+  let previewHeight = parsed.pixelHeight ?? Math.max(1, Math.round((parsed.pageHeightInches ?? spec.finishedHeightInches) * 72));
+  let previewMediaType: InspectionPage["mediaType"] = parsed.mediaType === "pdf" ? "pdf" : "image";
+  if (parsed.mediaType === "pdf" && typeof document !== "undefined") {
+    progress("inspecting", "Rendering PDF preview");
+    try {
+      const { renderPdfFirstPagePreview } = await import("./artwork-pdf-preview");
+      const rendered = await renderPdfFirstPagePreview(bytes, createObjectUrl);
+      objectUrl = rendered.url;
+      previewWidth = rendered.pixelWidth;
+      previewHeight = rendered.pixelHeight;
+      previewMediaType = "image";
+      parsed.pageCount = rendered.pageCount;
+    } catch {
+      // The inspection evidence remains available even when this browser cannot render the PDF page.
+    }
+  }
+  if (!objectUrl) objectUrl = createObjectUrl(file);
   const page: InspectionPage = {
     pageNumber: 1,
     label: "Page 1",
@@ -368,7 +385,7 @@ export async function analyzeArtworkUpload(
     originalPreviewAlt: `Local preview of ${file.name}`,
     heatmapPreviewUrl: objectUrl,
     heatmapPreviewAlt: `No heatmap is available for the local analysis of ${file.name}`,
-    mediaType: parsed.mediaType === "pdf" ? "pdf" : "image"
+    mediaType: previewMediaType
   };
   const inspectionId = `local_inspection_${createId()}`;
   const result: ArtworkInspectionResultViewModel = {

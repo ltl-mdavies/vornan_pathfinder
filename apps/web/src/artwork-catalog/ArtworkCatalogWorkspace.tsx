@@ -36,7 +36,7 @@ import type {
 } from "./fixtures";
 import type { ArtworkUploadBatch, ArtworkUploadProgress } from "./artwork-upload-analysis";
 
-export type UploadStage = "select" | "review" | "confirm" | "processing" | "success";
+export type UploadStage = "select" | "review" | "processing";
 
 export type CatalogFilterSelection = {
   lifecycles: ReadonlyArray<CatalogLifecycle>;
@@ -54,10 +54,11 @@ export type ProductSpecificationDraft = {
 
 export function nextUploadStage(stage: UploadStage): UploadStage {
   if (stage === "select") return "review";
-  if (stage === "review") return "confirm";
-  if (stage === "confirm") return "processing";
-  if (stage === "processing") return "success";
-  return "success";
+  return "processing";
+}
+
+export function firstDroppedArtwork(files: ArrayLike<File>): File | undefined {
+  return files.length > 0 ? files[0] : undefined;
 }
 
 export function currentArtworkVersion(product: CatalogProduct): ArtworkVersion {
@@ -222,6 +223,7 @@ export function ArtworkCatalogWorkspace({
   const [specificationError, setSpecificationError] = useState("");
   const [pendingLifecycle, setPendingLifecycle] = useState<{ productId: string; next: "Active" | "Inactive" } | null>(null);
   const [viewer, setViewer] = useState<ViewerState>({ kind: "closed" });
+  const [uploadDragActive, setUploadDragActive] = useState(false);
   const [activityMessage, setActivityMessage] = useState("");
   const filterPanelRef = useRef<HTMLDivElement>(null);
   const modalCloseRef = useRef<HTMLButtonElement>(null);
@@ -273,7 +275,9 @@ export function ArtworkCatalogWorkspace({
   }, [filterPanelOpen]);
 
   const closeViewer = () => {
+    if (viewer.kind === "upload" && viewer.stage === "processing") return;
     setViewer({ kind: "closed" });
+    setUploadDragActive(false);
     setSpecificationDraft(null);
     setSpecificationError("");
     window.requestAnimationFrame(() => lastModalTriggerRef.current?.focus());
@@ -290,7 +294,7 @@ export function ArtworkCatalogWorkspace({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [viewer.kind]);
+  }, [viewer]);
 
   const openHistory = (trigger: HTMLElement) => {
     if (!selectedProduct) return;
@@ -346,7 +350,13 @@ export function ArtworkCatalogWorkspace({
     });
   };
 
-  const confirmUpload = async () => {
+  const dropLocalArtwork = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setUploadDragActive(false);
+    selectLocalArtwork(firstDroppedArtwork(event.dataTransfer.files));
+  };
+
+  const runInspection = async () => {
     if (!selectedProduct || viewer.kind !== "upload" || !viewer.candidate) return;
     const candidate = viewer.candidate;
     setViewer({ kind: "upload", stage: "processing", candidate, batch: null, progressLabel: "Starting local analysis", error: null });
@@ -359,15 +369,19 @@ export function ArtworkCatalogWorkspace({
             ? { ...current, stage: "processing", progressLabel: progress.label }
             : current)
         });
-        setViewer({ kind: "upload", stage: "success", candidate, batch, progressLabel: "Technical inspection ready", error: null });
         setActivityMessage(`${candidate.name} was analyzed locally. The file was not uploaded and the current artwork remains Version ${currentArtworkVersion(selectedProduct).version}.`);
+        if (onOpenLocalInspection) {
+          onOpenLocalInspection(batch);
+          return;
+        }
+        setViewer({ kind: "upload", stage: "review", candidate, batch, progressLabel: "Technical inspection ready", error: "The inspection finished, but the results workspace is unavailable." });
         return;
       }
       await actions.onConfirmUpload({ productId: selectedProduct.id, candidate });
-      setViewer({ kind: "upload", stage: "success", candidate, batch: null, progressLabel: "", error: null });
       setActivityMessage(`${candidate.name} completed the fixture upload flow. The current artwork was not replaced.`);
+      closeViewer();
     } catch {
-      setViewer({ kind: "upload", stage: "confirm", candidate, batch: null, progressLabel: "", error: "The file could not be analyzed. The current artwork is unchanged." });
+      setViewer({ kind: "upload", stage: "review", candidate, batch: null, progressLabel: "", error: "The file could not be analyzed. The current artwork is unchanged." });
     }
   };
 
@@ -611,11 +625,11 @@ export function ArtworkCatalogWorkspace({
       ) : null}
 
       {selectedProduct && viewer.kind !== "closed" && selectedViewerVersion ? (
-        <div className="artwork-catalog-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeViewer(); }}>
-          <section className={`artwork-catalog-modal ${viewer.kind === "specification" ? "artwork-catalog-specification-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="artwork-viewer-title">
+        <div className="artwork-catalog-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !(viewer.kind === "upload" && viewer.stage === "processing")) closeViewer(); }}>
+          <section className={`artwork-catalog-modal ${viewer.kind === "specification" ? "artwork-catalog-specification-modal" : viewer.kind === "upload" ? "artwork-catalog-upload-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="artwork-viewer-title">
             <header className="artwork-catalog-modal-header">
               <div><span>{selectedProduct.name}</span><h2 id="artwork-viewer-title">{viewer.kind === "history" ? "Artwork viewer" : viewer.kind === "specification" ? "Product configuration" : onAnalyzeLocalArtwork ? "Check new artwork" : "Upload new version"}</h2><p>{viewer.kind === "history" ? `Review ${selectedProduct.versions.length} immutable artwork versions.` : viewer.kind === "specification" ? "Set the finished artwork requirements for this catalog item." : onAnalyzeLocalArtwork ? "Analyze a local file without uploading, storing, or replacing the current artwork." : "Select, review, and confirm without replacing the current artwork."}</p></div>
-              <button ref={modalCloseRef} type="button" className="artwork-catalog-icon-button" onClick={closeViewer} aria-label="Close dialog"><X size={19} aria-hidden="true" /></button>
+              <button ref={modalCloseRef} type="button" className="artwork-catalog-icon-button" onClick={closeViewer} aria-label="Close dialog" disabled={viewer.kind === "upload" && viewer.stage === "processing"}><X size={19} aria-hidden="true" /></button>
             </header>
 
             {viewer.kind === "history" ? (
@@ -651,29 +665,21 @@ export function ArtworkCatalogWorkspace({
               </form> : <div className="artwork-catalog-specification-body"><p className="artwork-catalog-form-error" role="alert">Product configuration could not be loaded.</p></div>
             ) : (
               <div className="artwork-catalog-upload-body">
-                <ol className="artwork-catalog-upload-steps" aria-label="Upload progress">{(["Select", "Review", "Confirm", "Processing", "Success"] as const).map((label, index) => {
-                  const activeIndex = ["select", "review", "confirm", "processing", "success"].indexOf(viewer.stage);
-                  return <li key={label} className={index <= activeIndex ? "artwork-catalog-upload-step-active" : ""} aria-current={index === activeIndex ? "step" : undefined}><span>{index < activeIndex ? <Check size={12} aria-hidden="true" /> : index + 1}</span>{label}</li>;
-                })}</ol>
                 <div className="artwork-catalog-upload-content">
-                  {viewer.stage === "select" ? <div className="artwork-catalog-upload-select"><span><Upload size={28} aria-hidden="true" /></span><h3>Select artwork to inspect</h3><p>{onAnalyzeLocalArtwork ? "Choose one PDF, PNG, or JPEG for real browser-local analysis. The file is not uploaded or retained." : "The fixture action returns local file metadata only. Nothing is uploaded or stored in this slice."}</p><input ref={uploadInputRef} className="artwork-catalog-file-input" type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" onChange={(event) => { selectLocalArtwork(event.target.files?.[0]); event.currentTarget.value = ""; }} /></div> : null}
-                  {viewer.stage === "review" && viewer.candidate ? <div className="artwork-catalog-upload-review"><span><FileImage size={22} aria-hidden="true" /></span><div><h3>{viewer.candidate.name}</h3><p>{viewer.candidate.fileType} · {viewer.candidate.fileSize} · Proposed version {viewer.candidate.expectedVersion}</p></div><StatusBadge label="Ready to review" tone="neutral" /></div> : null}
-                  {viewer.stage === "confirm" && viewer.candidate ? <div className="artwork-catalog-upload-confirm"><ShieldCheck size={30} aria-hidden="true" /><h3>{onAnalyzeLocalArtwork ? "Confirm local technical inspection" : "Confirm fixture processing"}</h3><p><strong>{viewer.candidate.name}</strong> will be read in this browser. Version {currentArtworkVersion(selectedProduct).version} remains current throughout this flow.</p><ul><li>The file is processed locally and is not uploaded or retained.</li><li>Technical inspection remains separate from Proof approval.</li><li>No version is stored or activated by this demo.</li></ul></div> : null}
+                  {viewer.stage === "select" ? <div className="artwork-catalog-upload-select"><button type="button" className="artwork-catalog-drop-zone" data-drag-active={uploadDragActive ? "true" : "false"} onClick={chooseUpload} onDragEnter={(event) => { event.preventDefault(); setUploadDragActive(true); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setUploadDragActive(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setUploadDragActive(false); }} onDrop={dropLocalArtwork}><span><Upload size={28} aria-hidden="true" /></span><h3>Drop artwork here</h3><p>{onAnalyzeLocalArtwork ? "PDF, PNG, or JPEG · analyzed securely in this browser" : "Choose one file for the fixture inspection flow."}</p><strong>Choose a file</strong></button><p className="artwork-catalog-upload-scope">The file is not uploaded, stored, or used to replace the current catalog artwork.</p><input ref={uploadInputRef} className="artwork-catalog-file-input" type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" onChange={(event) => { selectLocalArtwork(event.target.files?.[0]); event.currentTarget.value = ""; }} /></div> : null}
+                  {viewer.stage === "review" && viewer.candidate ? <div className="artwork-catalog-upload-review-layout"><div><span className="artwork-catalog-upload-kicker">Ready to inspect</span><h3>Review selected artwork</h3><p>Run the technical inspection when the file and intended product look correct.</p></div><div className="artwork-catalog-upload-review"><span><FileImage size={22} aria-hidden="true" /></span><div><h3>{viewer.candidate.name}</h3><p>{viewer.candidate.fileType} · {viewer.candidate.fileSize}</p><small>Checking against {selectedProduct.name} · Proposed version {viewer.candidate.expectedVersion}</small></div><StatusBadge label="Ready" tone="neutral" /></div><div className="artwork-catalog-upload-review-note"><ShieldCheck size={18} aria-hidden="true" /><p>Inspection reads the real file locally. The current artwork stays unchanged, and technical findings remain separate from Proof approval.</p></div><button type="button" className="artwork-catalog-text-button" onClick={chooseUpload}>Choose a different file</button></div> : null}
                   {viewer.stage === "processing" ? <div className="artwork-catalog-upload-select"><span><LoaderCircle className="artwork-catalog-spinner" size={28} aria-hidden="true" /></span><h3>{viewer.progressLabel || "Inspecting artwork"}</h3><p>The existing current artwork remains available while checks are incomplete.</p></div> : null}
-                  {viewer.stage === "success" && viewer.candidate ? <div className="artwork-catalog-upload-success"><span><CheckCircle2 size={28} aria-hidden="true" /></span><h3>{viewer.batch ? "Technical inspection ready" : "Fixture flow complete"}</h3><p>{viewer.candidate.name} {viewer.batch ? "was analyzed from its real file bytes in this browser" : "completed the demo path"}. It has not been uploaded, retained, activated, or given Proof approval.</p>{viewer.batch ? <dl className="artwork-catalog-batch-summary"><div><dt>Batch</dt><dd>{viewer.batch.batchId}</dd></div><div><dt>Item status</dt><dd>{viewer.batch.items[0]?.status}</dd></div><div><dt>SHA-256</dt><dd><code>{viewer.batch.items[0]?.sha256}</code></dd></div></dl> : null}</div> : null}
                   {viewer.error ? <p className="artwork-catalog-upload-error" role="alert">{viewer.error}</p> : null}
                 </div>
               </div>
             )}
 
             <footer className="artwork-catalog-modal-footer">
-              {viewer.kind === "history" || (viewer.kind === "upload" && viewer.stage === "success") ? <button type="button" className="artwork-catalog-secondary" onClick={closeViewer}>Close</button> : null}
+              {viewer.kind === "history" ? <button type="button" className="artwork-catalog-secondary" onClick={closeViewer}>Close</button> : null}
               {viewer.kind === "specification" ? <><span className="artwork-catalog-modal-note">Prototype only · no catalog data is saved</span><button type="button" className="artwork-catalog-secondary" onClick={closeViewer}>Cancel</button><button type="button" className="artwork-catalog-primary" onClick={applySpecificationChange}>Apply to prototype</button></> : null}
-              {viewer.kind === "upload" && viewer.stage === "select" ? <button type="button" className="artwork-catalog-primary" onClick={chooseUpload}>Choose artwork</button> : null}
-              {viewer.kind === "upload" && viewer.stage === "review" ? <><button type="button" className="artwork-catalog-secondary" onClick={() => setViewer({ ...viewer, stage: "select", candidate: null, batch: null })}>Back</button><button type="button" className="artwork-catalog-primary" onClick={() => setViewer({ ...viewer, stage: "confirm" })}>Review analysis safeguards</button></> : null}
-              {viewer.kind === "upload" && viewer.stage === "confirm" ? <><button type="button" className="artwork-catalog-secondary" onClick={() => setViewer({ ...viewer, stage: "review" })}>Back</button><button type="button" className="artwork-catalog-primary" onClick={confirmUpload}>{onAnalyzeLocalArtwork ? "Analyze file locally" : "Confirm fixture upload"}</button></> : null}
+              {viewer.kind === "upload" && viewer.stage === "select" ? <><button type="button" className="artwork-catalog-secondary" onClick={closeViewer}>Cancel</button><button type="button" className="artwork-catalog-primary" onClick={chooseUpload}>Choose file</button></> : null}
+              {viewer.kind === "upload" && viewer.stage === "review" ? <><button type="button" className="artwork-catalog-secondary" onClick={closeViewer}>Cancel</button><button type="button" className="artwork-catalog-primary" onClick={runInspection}>Run inspection</button></> : null}
               {viewer.kind === "upload" && viewer.stage === "processing" ? <span className="artwork-catalog-processing-note">Please keep this dialog open.</span> : null}
-              {viewer.kind === "upload" && viewer.stage === "success" && viewer.batch && onOpenLocalInspection ? <button type="button" className="artwork-catalog-primary" onClick={() => onOpenLocalInspection(viewer.batch!)}>View technical inspection</button> : null}
             </footer>
           </section>
         </div>

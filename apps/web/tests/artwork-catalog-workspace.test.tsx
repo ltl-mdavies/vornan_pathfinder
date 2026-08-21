@@ -8,6 +8,7 @@ import {
   applyProductSpecificationDraft,
   currentArtworkVersion,
   effectiveCatalogLifecycle,
+  firstDroppedArtwork,
   filterCatalogProducts,
   nextUploadStage,
   productSpecificationDraft
@@ -121,12 +122,28 @@ test("fails closed when a catalog product does not have exactly one current vers
   assert.throws(() => currentArtworkVersion(invalid), /exactly one current artwork version/);
 });
 
-test("upload progression is explicit and never implies activation, inspection, or approval", () => {
+test("upload progression moves directly from review into inspection processing", () => {
   assert.equal(nextUploadStage("select"), "review");
-  assert.equal(nextUploadStage("review"), "confirm");
-  assert.equal(nextUploadStage("confirm"), "processing");
-  assert.equal(nextUploadStage("processing"), "success");
-  assert.equal(nextUploadStage("success"), "success");
+  assert.equal(nextUploadStage("review"), "processing");
+  assert.equal(nextUploadStage("processing"), "processing");
+});
+
+test("accepts the first dropped artwork file without requiring the native picker", () => {
+  const first = new File(["first"], "first.pdf", { type: "application/pdf" });
+  const second = new File(["second"], "second.png", { type: "image/png" });
+
+  assert.equal(firstDroppedArtwork({ 0: first, 1: second, length: 2 }), first);
+  assert.equal(firstDroppedArtwork({ length: 0 }), undefined);
+});
+
+test("local artwork uses drag and drop and opens results as soon as inspection completes", async () => {
+  const source = await readFile(new URL("../src/artwork-catalog/ArtworkCatalogWorkspace.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /onDrop=\{dropLocalArtwork\}/);
+  assert.match(source, /Run inspection/);
+  assert.match(source, /onOpenLocalInspection\(batch\)/);
+  assert.doesNotMatch(source, /Review analysis safeguards|Confirm analysis|View technical inspection/);
+  assert.doesNotMatch(source, /upload-stepper|Success<\/span>/);
 });
 
 test("slice remains unmounted, injected, provider neutral, and free of runtime clients", async () => {

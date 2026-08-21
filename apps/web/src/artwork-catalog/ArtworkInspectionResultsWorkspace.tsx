@@ -8,6 +8,7 @@ import {
   ChevronUp,
   Download,
   ExternalLink,
+  FileText,
   Info,
   Maximize2,
   Minus,
@@ -90,6 +91,7 @@ export type ArtworkInspectionResultsWorkspaceProps = Readonly<{
   result: ArtworkInspectionResultViewModel;
   actions: ArtworkInspectionResultsActions;
   initialMode?: InspectionViewMode;
+  initialFocusMode?: boolean;
 }>;
 
 const MIN_ZOOM = 50;
@@ -234,9 +236,11 @@ function ArtworkPreview({
     >
       <div className="inspection-preview-content" style={style}>
         {page.mediaType === "pdf" ? (
-          <object data={imageUrl} type="application/pdf" aria-label={imageAlt}>
-            <p>PDF preview is unavailable in this browser. The file analysis results remain available below.</p>
-          </object>
+          <div className="inspection-pdf-fallback" role="img" aria-label={imageAlt}>
+            <FileText size={34} aria-hidden="true" />
+            <strong>PDF preview unavailable</strong>
+            <span>The technical inspection results remain available without opening the browser PDF viewer.</span>
+          </div>
         ) : <img src={imageUrl} alt={imageAlt} />}
         {markersVisible ? (
           <PreviewMarkers findings={findings} selectedFindingId={selectedFindingId} onSelectFinding={onSelectFinding} />
@@ -249,7 +253,8 @@ function ArtworkPreview({
 export function ArtworkInspectionResultsWorkspace({
   result,
   actions,
-  initialMode = "heatmap"
+  initialMode = "heatmap",
+  initialFocusMode = false
 }: ArtworkInspectionResultsWorkspaceProps) {
   if (result.pages.length === 0) {
     throw new Error("Artwork inspection results require at least one page.");
@@ -264,7 +269,7 @@ export function ArtworkInspectionResultsWorkspace({
   const [selectedFindingId, setSelectedFindingId] = useState(result.findings[0]?.id ?? "");
   const [findingsExpanded, setFindingsExpanded] = useState(true);
   const [zoom, setZoom] = useState(100);
-  const [focusMode, setFocusMode] = useState(false);
+  const [focusMode, setFocusMode] = useState(initialFocusMode);
 
   useEffect(() => {
     if (!focusMode) return undefined;
@@ -509,7 +514,11 @@ export function ArtworkInspectionResultsWorkspace({
         </button>
         <div>
           <button type="button" className="inspection-secondary-action" onClick={() => actions.onDownloadReport(result.inspectionId)}><Download size={15} aria-hidden="true" /> Download report</button>
-          <button type="button" className="inspection-primary-action" onClick={() => actions.onOpenAnalyzedArtwork(result.inspectionId)}>Open analyzed artwork <ExternalLink size={15} aria-hidden="true" /></button>
+          {result.localAnalysis ? (
+            <button type="button" className="inspection-primary-action" onClick={() => actions.onBack(result.inspectionId)}>Close inspection <ArrowLeft size={15} aria-hidden="true" /></button>
+          ) : (
+            <button type="button" className="inspection-primary-action" onClick={() => actions.onOpenAnalyzedArtwork(result.inspectionId)}>Open analyzed artwork <ExternalLink size={15} aria-hidden="true" /></button>
+          )}
         </div>
       </div>
 
