@@ -16,7 +16,7 @@ import {
   artworkInspectionResultFixture
 } from "../src/artwork-catalog/inspection-results-fixtures";
 
-test("renders the approved single-page heatmap results workspace with separate technical and approval language", () => {
+test("renders the approved single-page results workspace with a default inspection-details rail", () => {
   const markup = renderToStaticMarkup(
     <ArtworkInspectionResultsWorkspace result={artworkInspectionResultFixture} actions={artworkInspectionFixtureActions} />
   );
@@ -29,18 +29,22 @@ test("renders the approved single-page heatmap results workspace with separate t
   assert.match(markup, /data-source-width="1200"/);
   assert.match(markup, /data-source-height="675"/);
   assert.match(markup, /data-fit-zoom="100"/);
-  assert.match(markup, /Findings <span>4/);
-  assert.match(markup, /Overall verdict/);
-  assert.match(markup, /Needs work/);
-  assert.match(markup, /Effective PPI/);
-  assert.match(markup, /Problem area/);
-  assert.match(markup, /Finding 1 of 4/);
-  assert.match(markup, /Effective resolution 118 DPI/);
-  assert.match(markup, /Focus view/);
-  assert.doesNotMatch(markup, /Theater/);
+  assert.match(markup, /Findings overlay <span>4/);
+  assert.match(markup, /Inspection result/);
+  assert.match(markup, /WARNING/);
+  assert.match(markup, /Effective DPI/);
+  assert.match(markup, /role="tab" id="inspection-details-tab"[^>]*aria-selected="true"/);
+  assert.match(markup, /role="tab" id="inspection-findings-tab"[^>]*aria-selected="false"/);
+  assert.match(markup, /Product fit/);
+  assert.match(markup, /Resolution &amp; print size/);
+  assert.match(markup, /File construction/);
+  assert.match(markup, /Quality signals/);
+  assert.doesNotMatch(markup, /Focus view|Theater/);
   assert.doesNotMatch(markup, /Learn about effective resolution/);
+  assert.doesNotMatch(markup, /Local analysis only/);
+  assert.match(markup, /Report details/);
   assert.match(markup, /Download report/);
-  assert.match(markup, /Open analyzed artwork/);
+  assert.match(markup, /Close inspection/);
   assert.match(markup, /Technical findings do not change Proof approval/);
   assert.doesNotMatch(markup, /Pages \(/);
 });
@@ -104,7 +108,7 @@ test("keeps original, heatmap, and callouts in the same source coordinate system
   }
 });
 
-test("keeps Focus view local, accessible, viewport-bound, and free of unsupported education actions", async () => {
+test("keeps the unified workspace viewport-bound with one scrollable rail and persistent actions", async () => {
   const source = await readFile(new URL("../src/artwork-catalog/ArtworkInspectionResultsWorkspace.tsx", import.meta.url), "utf8");
   const fixtureSource = await readFile(new URL("../src/artwork-catalog/inspection-results-fixtures.ts", import.meta.url), "utf8");
   const styleSource = await readFile(new URL("../src/artwork-catalog/artwork-inspection-results.css", import.meta.url), "utf8");
@@ -112,23 +116,29 @@ test("keeps Focus view local, accessible, viewport-bound, and free of unsupporte
   assert.doesNotMatch(source, /learnMoreLabel|onLearnMore/);
   assert.doesNotMatch(fixtureSource, /Learn about effective resolution|onLearnMore/);
   assert.doesNotMatch(styleSource, /inspection-learn-more/);
-  assert.match(source, /aria-pressed=\{focusMode\}/);
-  assert.match(source, /event\.key === "Escape"/);
-  assert.match(source, /Artwork is enlarged while the inspection summary, actions, and report details remain available/);
-  assert.doesNotMatch(source, /hidden=\{focusMode\}/);
-  assert.doesNotMatch(source, /theaterMode|Theater view|Exit theater/);
-  assert.match(source, /inspection-focus-findings/);
-  assert.match(source, /Show full details/);
-  assert.match(styleSource, /artwork-inspection-results-focus[^}]*height:\s*100dvh/);
+  assert.doesNotMatch(source, /focusMode|Focus view|theaterMode|Theater view|Exit theater/);
+  assert.match(source, /useState<InspectionRailTab>\("details"\)/);
+  assert.match(source, /role="tablist"/);
+  assert.match(source, /Inspection details/);
+  assert.match(source, /Findings \(\{result\.findings\.length\}\)/);
+  assert.match(source, /inspection-report-details/);
+  assert.match(source, /Report details/);
+  assert.match(source, /localAnalysis\.sha256/);
+  assert.doesNotMatch(source, /inspection-local-analysis-notice|File evidence|Show full details/);
+  assert.match(styleSource, /artwork-inspection-results[^}]*height:\s*100dvh/);
   assert.match(styleSource, /artwork-inspection-results[^}]*box-sizing:\s*border-box/);
-  assert.match(styleSource, /artwork-inspection-results-focus[^}]*overflow:\s*hidden/);
-  assert.match(styleSource, /artwork-inspection-results-focus \.inspection-viewer[^}]*flex:\s*1 1 auto/);
-  assert.match(styleSource, /artwork-inspection-results-focus \.inspection-results-actions[^}]*flex:\s*0 0 auto/);
-  assert.match(styleSource, /artwork-inspection-results-focus \.inspection-results-footer[^}]*flex:\s*0 0 auto/);
-  assert.match(styleSource, /artwork-inspection-results-focus \.inspection-key-metrics-local dd[^}]*text-overflow:\s*ellipsis/);
+  assert.match(styleSource, /artwork-inspection-results[^}]*overflow:\s*hidden/);
+  assert.match(styleSource, /inspection-workspace-grid[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 330px/);
+  assert.match(styleSource, /inspection-rail-scroll[^}]*overflow-y:\s*auto/);
+  assert.match(styleSource, /inspection-preview[^}]*flex:\s*1 1 auto/);
+  assert.match(styleSource, /inspection-key-metrics[^}]*repeat\(5/);
+  assert.match(styleSource, /inspection-results-actions[^}]*min-height:\s*48px/);
+  assert.match(styleSource, /inspection-results-footer[^}]*min-height:\s*24px/);
+  assert.match(styleSource, /inspection-overall-verdict[^}]*flex-direction:\s*column/);
+  assert.match(source, /setRailTab\("findings"\)/);
+  assert.match(source, /findingCardRefs\.current\.get\(selectedFindingId\)\?\.scrollIntoView\(\{ block: "nearest" \}\)/);
   assert.doesNotMatch(styleSource, /theater/);
-  assert.match(styleSource, /inspection-overall-verdict[^}]*justify-content:\s*center/);
-  assert.match(styleSource, /inspection-key-metrics > div:not\(\.inspection-metrics-label\)[^}]*justify-content:\s*center/);
+  assert.match(styleSource, /inspection-key-metrics > div[^}]*justify-content:\s*center/);
 });
 
 test("fails closed when a finding references a page that was not supplied", () => {

@@ -126,9 +126,10 @@ test("renders local evidence without presenting a fabricated heatmap or persiste
       actions={{ onBack: () => undefined, onDownloadReport: () => undefined, onOpenAnalyzedArtwork: () => undefined }}
     />
   );
-  assert.match(markup, /Local analysis only/);
+  assert.match(markup, /Browser-local only — not uploaded or retained/);
   assert.match(markup, /not uploaded or retained/);
-  assert.match(markup, /SHA-256/);
+  assert.match(markup, /File identity/);
+  assert.match(markup, new RegExp(result.localAnalysis?.sha256 ?? "missing-file-identity"));
   assert.match(markup, /PDF preview unavailable/);
   assert.match(markup, /Close inspection/);
   assert.doesNotMatch(markup, /<(object|embed|iframe)\b/);
