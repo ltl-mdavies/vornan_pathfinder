@@ -98,8 +98,8 @@ test("keeps original, heatmap, and callouts in the same source coordinate system
   assert.deepEqual(pngDimensions(original), { width: fixturePage.pixelWidth, height: fixturePage.pixelHeight });
   assert.deepEqual(pngDimensions(heatmap), { width: fixturePage.pixelWidth, height: fixturePage.pixelHeight });
   for (const finding of artworkInspectionResultFixture.findings) {
-    assert.ok(finding.marker.xPercent >= 0 && finding.marker.xPercent <= 100);
-    assert.ok(finding.marker.yPercent >= 0 && finding.marker.yPercent <= 100);
+    assert.ok(finding.marker && finding.marker.xPercent >= 0 && finding.marker.xPercent <= 100);
+    assert.ok(finding.marker && finding.marker.yPercent >= 0 && finding.marker.yPercent <= 100);
   }
 });
 
@@ -148,8 +148,9 @@ test("keeps the slice unmounted, injected, provider-neutral, and free of runtime
   assert.match(styleSource, /object-fit:\s*contain/);
   assert.match(source, /ResizeObserver/);
   assert.match(source, /fitInspectionPreview/);
-  assert.match(source, /left: `\$\{finding\.marker\.xPercent\}%`/);
-  assert.match(source, /top: `\$\{finding\.marker\.yPercent\}%`/);
+  assert.match(source, /findings\.filter\(\(finding\) => finding\.marker\)/);
+  assert.match(source, /left: `\$\{finding\.marker\?\.xPercent\}%`/);
+  assert.match(source, /top: `\$\{finding\.marker\?\.yPercent\}%`/);
   assert.match(source, /actions: ArtworkInspectionResultsActions/);
   assert.match(source, /onDownloadReport: \(inspectionId: string\)/);
   assert.match(source, /onOpenAnalyzedArtwork: \(inspectionId: string\)/);
