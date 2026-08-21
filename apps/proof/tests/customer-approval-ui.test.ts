@@ -16,6 +16,16 @@ test("keeps customer approval inside the current Proof portal and limits it to o
   assert.doesNotMatch(apiSource, /decisions\/revision/);
 });
 
+test("keeps an accepted-but-unconfirmed approval visibly locked while Lift reconciliation runs", () => {
+  assert.match(appSource, /singleApprovalState.*"verifying"/);
+  assert.match(appSource, /Approval submitted\. Vornan is checking the latest Lift proof status\. Do not submit it again\./);
+  assert.match(appSource, /singleApprovalState === "verifying" \? "Checking Lift…"/);
+  assert.match(appSource, /result\.decision\.outcome === "confirmed"/);
+  assert.match(appSource, /authoritative per-line ProofReport/);
+  assert.match(appSource, /const refreshed = await bootstrap\(\);/);
+  assert.doesNotMatch(appSource, /Lift received the approval, but the refreshed proof state still needs review/);
+});
+
 test("keeps revised artwork in its upload lifecycle with an accessible customer file picker", () => {
   assert.match(apiSource, /revised-assets\/uploads\/prepare/);
   assert.match(apiSource, /revised-assets\/uploads\/finalize/);

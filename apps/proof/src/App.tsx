@@ -410,7 +410,7 @@ type ActionTransportProps = {
   reviewExperience: "simple" | "advanced";
   revisionUploadEnabled: boolean;
   participantIdentified: boolean;
-  onApproveSingle: (task: ProofTask, note: string) => Promise<void>;
+  onApproveSingle: (task: ProofTask, note: string) => Promise<"confirmed" | "reconciling" | "submission_uncertain" | "failed">;
   onRequestRevision: (task: ProofTask) => void;
   mobile?: boolean;
 };
@@ -427,7 +427,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   const [processingIndex, setProcessingIndex] = useState(0);
   const [transformationSummary, setTransformationSummary] = useState<QuantityTransformationSummary | null>(null);
   const [decisionMessage, setDecisionMessage] = useState("");
-  const [singleApprovalState, setSingleApprovalState] = useState<"idle" | "submitting" | "complete" | "error">("idle");
+  const [singleApprovalState, setSingleApprovalState] = useState<"idle" | "submitting" | "verifying" | "complete" | "error">("idle");
   const [singleApprovalMessage, setSingleApprovalMessage] = useState<string | null>(null);
   const assignmentOpener = useRef<HTMLButtonElement>(null);
   const summary = summarizeQuantityAssignment(lineQuantity, stagedTasks.map((task) => task.task_id), values);
@@ -494,9 +494,17 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
     setSingleApprovalState("submitting");
     setSingleApprovalMessage(null);
     try {
-      await onApproveSingle(selectedTask, decisionMessage);
-      setSingleApprovalState("complete");
-      setSingleApprovalMessage("Approval recorded. The latest Lift proof state is now shown.");
+      const outcome = await onApproveSingle(selectedTask, decisionMessage);
+      if (outcome === "confirmed") {
+        setSingleApprovalState("complete");
+        setSingleApprovalMessage("Approval recorded. The latest Lift proof state is now shown.");
+      } else if (outcome === "reconciling" || outcome === "submission_uncertain") {
+        setSingleApprovalState("verifying");
+        setSingleApprovalMessage("Approval submitted. Vornan is checking the latest Lift proof status. Do not submit it again.");
+      } else {
+        setSingleApprovalState("error");
+        setSingleApprovalMessage("Lift did not accept this approval. Refresh the proof before taking another action.");
+      }
     } catch (error) {
       setSingleApprovalState("error");
       setSingleApprovalMessage(error instanceof Error ? error.message : "This proof could not be approved.");
@@ -570,8 +578,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
             />
           </label>
           <div className="transport-buttons">
-            <button type="button" disabled={Boolean(singleApprovalBlocked) || singleApprovalState === "submitting" || singleApprovalState === "complete"} onClick={() => void submitSingleApproval()}>
-              <ShieldCheck aria-hidden="true" /> {singleApprovalState === "submitting" ? "Approving…" : singleApprovalState === "complete" ? "Approved" : "Approve"}
+            <button type="button" disabled={Boolean(singleApprovalBlocked) || singleApprovalState === "submitting" || singleApprovalState === "verifying" || singleApprovalState === "complete"} onClick={() => void submitSingleApproval()}>
+              <ShieldCheck aria-hidden="true" /> {singleApprovalState === "submitting" ? "Approving…" : singleApprovalState === "verifying" ? "Checking Lift…" : singleApprovalState === "complete" ? "Approved" : "Approve"}
             </button>
             <button type="button" disabled={Boolean(revisionUploadBlocked)} title={revisionUploadBlocked ?? "Provide revised artwork"} onClick={() => onRequestRevision(selectedTask)}><Upload aria-hidden="true" /> Provide revised artwork</button>
           </div>
@@ -900,10 +908,12 @@ export function App() {
         idempotency_key: idempotencyKey,
         note: note.trim() || null
       });
-      if (result.decision.outcome !== "confirmed") {
-        throw new Error("Lift received the approval, but the refreshed proof state still needs review. The action will not be retried automatically.");
+      if (result.decision.outcome === "confirmed") {
+        approvalIdempotencyKeys.current.delete(identity);
       }
-      approvalIdempotencyKeys.current.delete(identity);
+      // The server already completed the authoritative per-line ProofReport
+      // reconciliation before returning this outcome. Reflect that new packet
+      // immediately, even when Lift has not yet confirmed the decision.
       bootstrapPromise = null;
       const refreshed = await bootstrap();
       setLoadState({
@@ -913,6 +923,7 @@ export function App() {
         activity: refreshed.activity,
         session_expires_at: refreshed.session_expires_at
       });
+      return result.decision.outcome;
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) terminateSession();
       throw error;
