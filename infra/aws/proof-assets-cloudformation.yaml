@@ -412,7 +412,7 @@ Resources:
         - |
           function handler(event) {
             var uri = event.request.uri || "";
-            if (!/^\/a\/plocator_[a-f0-9]{64}$/.test(uri)) {
+            if (!/^\/a\/plocator_[a-f0-9]{64}\/[A-Za-z0-9][A-Za-z0-9._() -]{0,239}$/.test(uri)) {
               return {
                 statusCode: 404,
                 statusDescription: "Not Found",
