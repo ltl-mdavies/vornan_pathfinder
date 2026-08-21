@@ -216,6 +216,11 @@ test("keeps delivery fail-closed and grants only the exact distribution read acc
   assert.match(template, /CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad/);
   assert.match(template, /statusCode: 404/);
   assert.match(template, /EventType: viewer-request/);
+  assert.match(
+    template,
+    /\^\\\/a\\\/plocator_\[a-f0-9\]\{64\}\\\/\[A-Za-z0-9\]\[A-Za-z0-9\._\(\) -\]\{0,239\}\$/
+  );
+  assert.doesNotMatch(template, /\^\\\/a\\\/plocator_\[a-f0-9\]\{64\}\$/);
   assert.match(template, /Sid: AllowExactCloudFrontDistributionRead/);
   assert.match(template, /Action:\n\s+- s3:GetObject/);
   assert.match(
