@@ -1683,6 +1683,12 @@ button:disabled {
   overscroll-behavior: contain;
 }
 
+.workspace.workspace-feature-focus {
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;

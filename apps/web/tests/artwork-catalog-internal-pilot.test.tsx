@@ -6,7 +6,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   ArtworkCatalogInternalPilot,
   isArtworkCatalogInternalPilotAvailable,
-  resolveArtworkInspectionResult
+  resolveArtworkInspectionResult,
+  shouldUseArtworkCatalogFocusedShell
 } from "../src/artwork-catalog/ArtworkCatalogInternalPilot";
 
 test("keeps the internal pilot default-dark and restricted to exact customer 1249", async () => {
@@ -24,6 +25,35 @@ test("keeps the internal pilot default-dark and restricted to exact customer 124
   assert.match(appSource, /artworkCatalogInternalPilotEnabled,\s*selectedCustomerId/);
   assert.match(appSource, /item\.label !== "Artwork Catalog" \|\| artworkCatalogInternalPilotAvailable/);
   assert.match(appSource, /activeCustomerView === "Artwork Catalog" && artworkCatalogInternalPilotAvailable/);
+});
+
+test("uses the focused workspace shell only for the available Artwork Catalog experience", async () => {
+  assert.equal(shouldUseArtworkCatalogFocusedShell({
+    activeGlobalView: "Customers",
+    activeCustomerView: "Artwork Catalog",
+    pilotAvailable: true
+  }), true);
+  assert.equal(shouldUseArtworkCatalogFocusedShell({
+    activeGlobalView: "Customers",
+    activeCustomerView: "Artwork Catalog",
+    pilotAvailable: false
+  }), false);
+  assert.equal(shouldUseArtworkCatalogFocusedShell({
+    activeGlobalView: "Customers",
+    activeCustomerView: "Overview",
+    pilotAvailable: true
+  }), false);
+  assert.equal(shouldUseArtworkCatalogFocusedShell({
+    activeGlobalView: "Dashboard",
+    activeCustomerView: "Artwork Catalog",
+    pilotAvailable: true
+  }), false);
+
+  const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
+  const stylesSource = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
+  assert.match(appSource, /artworkCatalogFocusedShell \? "workspace workspace-feature-focus" : "workspace"/);
+  assert.match(appSource, /!artworkCatalogFocusedShell \? <header className="topbar">/);
+  assert.match(stylesSource, /\.workspace\.workspace-feature-focus\s*\{[\s\S]*?padding:\s*0;/);
 });
 
 test("renders the approved fixture-only catalog composition for LTL Demo", () => {

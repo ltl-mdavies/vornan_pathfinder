@@ -16,6 +16,18 @@ export function isArtworkCatalogInternalPilotAvailable(enabled: boolean, custome
   return enabled && customerId === INTERNAL_PILOT_CUSTOMER_ID;
 }
 
+export function shouldUseArtworkCatalogFocusedShell(input: {
+  activeGlobalView: string;
+  activeCustomerView: string;
+  pilotAvailable: boolean;
+}): boolean {
+  return (
+    input.activeGlobalView === "Customers" &&
+    input.activeCustomerView === "Artwork Catalog" &&
+    input.pilotAvailable
+  );
+}
+
 export function resolveArtworkInspectionResult(input: {
   customerId: string;
   productId: string;
