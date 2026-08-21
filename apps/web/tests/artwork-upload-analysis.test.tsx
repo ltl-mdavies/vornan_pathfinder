@@ -129,7 +129,9 @@ test("renders local evidence without presenting a fabricated heatmap or persiste
   assert.match(markup, /Local analysis only/);
   assert.match(markup, /not uploaded or retained/);
   assert.match(markup, /SHA-256/);
-  assert.match(markup, /type="application\/pdf"/);
+  assert.match(markup, /PDF preview unavailable/);
+  assert.match(markup, /Close inspection/);
+  assert.doesNotMatch(markup, /<(object|embed|iframe)\b/);
   assert.match(markup, /Heatmap requires a connected inspection provider/);
   assert.match(markup, /disabled=""[^>]*>Heatmap/);
   assert.doesNotMatch(markup, /inspection-preview-marker/);

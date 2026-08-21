@@ -125,6 +125,7 @@ export function ArtworkCatalogInternalPilot({ customerId, customerLabel }: Artwo
     return (
       <ArtworkInspectionResultsWorkspace
         result={view.result}
+        initialFocusMode={isLocal}
         actions={{
           onBack: () => {
             setView({ kind: "catalog", selectedProductId: view.productId });

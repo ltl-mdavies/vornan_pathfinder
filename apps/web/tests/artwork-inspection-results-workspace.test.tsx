@@ -120,10 +120,12 @@ test("keeps Focus view local, accessible, viewport-bound, and free of unsupporte
   assert.match(source, /inspection-focus-findings/);
   assert.match(source, /Show full details/);
   assert.match(styleSource, /artwork-inspection-results-focus[^}]*height:\s*100dvh/);
+  assert.match(styleSource, /artwork-inspection-results[^}]*box-sizing:\s*border-box/);
   assert.match(styleSource, /artwork-inspection-results-focus[^}]*overflow:\s*hidden/);
   assert.match(styleSource, /artwork-inspection-results-focus \.inspection-viewer[^}]*flex:\s*1 1 auto/);
   assert.match(styleSource, /artwork-inspection-results-focus \.inspection-results-actions[^}]*flex:\s*0 0 auto/);
   assert.match(styleSource, /artwork-inspection-results-focus \.inspection-results-footer[^}]*flex:\s*0 0 auto/);
+  assert.match(styleSource, /artwork-inspection-results-focus \.inspection-key-metrics-local dd[^}]*text-overflow:\s*ellipsis/);
   assert.doesNotMatch(styleSource, /theater/);
   assert.match(styleSource, /inspection-overall-verdict[^}]*justify-content:\s*center/);
   assert.match(styleSource, /inspection-key-metrics > div:not\(\.inspection-metrics-label\)[^}]*justify-content:\s*center/);
