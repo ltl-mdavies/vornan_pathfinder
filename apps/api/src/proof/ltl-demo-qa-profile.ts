@@ -1,4 +1,5 @@
 const LTL_DEMO_CUSTOMER_ID = "1249" as const;
+export const LTL_DEMO_ALL_ORDERS = "LTL_DEMO_ALL" as const;
 const PROFILE_SESSION_TTL_MINUTES = 12 * 60;
 const MAXIMUM_PROFILE_WINDOW_MS = 24 * 60 * 60 * 1_000;
 
@@ -7,6 +8,7 @@ export interface ProofLtlDemoQaProfile {
   active: boolean;
   allowed_customer_id: typeof LTL_DEMO_CUSTOMER_ID;
   allowed_order_numbers: string[];
+  all_ltl_demo_orders: boolean;
   activation_expires_at: string | null;
   grant_creation_enabled: boolean;
   public_read_enabled: boolean;
@@ -34,6 +36,14 @@ function orderNumbers(value: string | undefined) {
     .slice(0, 25);
 }
 
+export function ltlDemoQaOrderAllowed(profile: ProofLtlDemoQaProfile, orderNumber: string) {
+  return Boolean(
+    profile.active &&
+    /^A\d{7,8}$/.test(orderNumber) &&
+    (profile.all_ltl_demo_orders || profile.allowed_order_numbers.includes(orderNumber))
+  );
+}
+
 /**
  * One packed, default-off QA profile. The profile never enables publication,
  * scan processing, operator Lift actions, email, or automatic retry.
@@ -55,10 +65,14 @@ export function getProofLtlDemoQaProfile(
   const configured = enabled(packedEnabled);
   const activationExpiresAt = timestamp(packedExpiry);
   const allowedOrderNumbers = orderNumbers(packedOrders);
+  const allLtlDemoOrders = (packedOrders ?? "")
+    .split(",")
+    .map((candidate) => candidate.trim().toUpperCase())
+    .includes(LTL_DEMO_ALL_ORDERS);
   const expiry = activationExpiresAt ? Date.parse(activationExpiresAt) : Number.NaN;
   const active = Boolean(
     configured &&
-    allowedOrderNumbers.length > 0 &&
+    (allLtlDemoOrders || allowedOrderNumbers.length > 0) &&
     Number.isFinite(expiry) &&
     expiry > now.getTime() &&
     expiry <= now.getTime() + MAXIMUM_PROFILE_WINDOW_MS
@@ -73,7 +87,8 @@ export function getProofLtlDemoQaProfile(
     configured,
     active,
     allowed_customer_id: LTL_DEMO_CUSTOMER_ID,
-    allowed_order_numbers: allowedOrderNumbers,
+    allowed_order_numbers: allLtlDemoOrders ? [LTL_DEMO_ALL_ORDERS] : allowedOrderNumbers,
+    all_ltl_demo_orders: allLtlDemoOrders,
     activation_expires_at: activationExpiresAt,
     grant_creation_enabled: grantCreationEnabled,
     public_read_enabled: publicReadEnabled,

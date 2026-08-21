@@ -1,5 +1,5 @@
 export interface ProofIntegrationHealth {
-  phase: "tokenized_customer_read_foundation" | "single_proof_customer_approval_foundation";
+  phase: "tokenized_customer_read_foundation" | "single_proof_customer_approval_foundation" | "ltl_demo_customer_qa";
   storage_driver: "disabled" | "local" | "dynamodb";
   core_table_configured: boolean;
   audit_table_configured: boolean;
@@ -36,6 +36,18 @@ export interface ProofIntegrationHealth {
     approval_cycle_confirmed: boolean;
     revision_cycle_confirmed: boolean;
     lift_writes_enabled: false;
+  };
+  ltl_demo_qa: {
+    active: boolean;
+    allowed_customer_id: "1249";
+    allowed_order_numbers: string[];
+    all_ltl_demo_orders: boolean;
+    activation_expires_at: string | null;
+    grant_creation_enabled: boolean;
+    public_read_enabled: boolean;
+    customer_approval_enabled: boolean;
+    asset_upload_enabled: boolean;
+    automatic_retry: false;
   };
   operator_action_qa: {
     enabled: boolean;
