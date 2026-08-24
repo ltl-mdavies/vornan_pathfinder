@@ -133,6 +133,7 @@ function handlePublicError(error: unknown, res: Parameters<Parameters<Router["ge
 interface ProofPublicRouterDependencies {
   queueSync?: typeof queueProofSync;
   approveProof?: typeof proofCustomerApprovalService.approve;
+  requestProofChanges?: typeof proofCustomerApprovalService.requestChanges;
   prepareRevisionAsset?: ReturnType<typeof createProofAssetUploadService>["prepare"];
   revisionAssetStatus?: ReturnType<typeof createProofAssetUploadService>["status"];
   finalizeRevisionAsset?: ReturnType<typeof createProofAssetUploadService>["finalize"];
@@ -143,6 +144,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   const router = Router();
   const enqueueSync = dependencies.queueSync ?? queueProofSync;
   const approveProof = dependencies.approveProof ?? proofCustomerApprovalService.approve;
+  const requestProofChanges = dependencies.requestProofChanges ?? proofCustomerApprovalService.requestChanges;
   const revisionAssets = createProofAssetUploadService();
   const prepareRevisionAsset = dependencies.prepareRevisionAsset ?? revisionAssets.prepare;
   const revisionAssetStatus = dependencies.revisionAssetStatus ?? revisionAssets.status;
@@ -364,6 +366,29 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       res.status(result.status === "new" ? 201 : 200).json({ decision: result });
     } catch (error) {
       handlePublicError(error, res, "Proof approval could not be completed.");
+    }
+  });
+
+  router.post("/tasks/:taskId/decisions/request-changes", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
+      requireCsrf(req, session);
+      const result = await requestProofChanges({
+        session,
+        request: {
+          task_id: req.params.taskId,
+          attachment_id: req.body?.attachment_id,
+          expected_task_version: req.body?.expected_task_version,
+          expected_version_id: req.body?.expected_version_id,
+          idempotency_key: req.body?.idempotency_key,
+          note: req.body?.note
+        },
+        correlation_id: req.get("x-request-id") ?? `proof-customer-${session.session_id}`
+      });
+      res.status(result.status === "new" ? 201 : 200).json({ decision: result });
+    } catch (error) {
+      handlePublicError(error, res, "Proof change request could not be completed.");
     }
   });
 

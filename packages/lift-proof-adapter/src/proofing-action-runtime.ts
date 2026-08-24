@@ -127,6 +127,11 @@ export function buildLiftProofingRuntimePlan(
   const companyId = boundedIdentifier(input.company_id, "Lift company ID");
   const proofingId = boundedIdentifier(input.proofing_id, "Lift proofing ID");
   const comment = boundedComment(input.comment);
+  if (input.action === "SEND_BACK_TO_ARTIST" && !comment) {
+    throw new LiftProofingActionRuntimeError(
+      "Send back to artist requires instructions for the prepress team."
+    );
+  }
   const requestedApproveQuantity = approveQuantity(
     input.action,
     input.approve_quantity ?? null

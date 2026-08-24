@@ -335,6 +335,9 @@ export function buildProofActionDraft(input: {
   }
   const comment = input.comment.trim();
   if (comment.length > 2_000) throw new Error("The production-team message is too long.");
+  if (input.action === "SEND_BACK_TO_ARTIST" && !comment) {
+    throw new Error("Tell the prepress team what changes are needed.");
+  }
   return {
     order_number: input.order.order_number,
     task_id: task.task_id,
@@ -1485,9 +1488,16 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
                 </div>
               ) : null}
               <label className="proof-action-comment">
-                Message to production team
-                <textarea value={proofComment} maxLength={2000} onChange={(event) => setProofComment(event.target.value)} placeholder="Optional line-specific message" />
-                <small>This appears in the Lift order history and references the order line. It is separate from Prepress team feedback attached to the proof.</small>
+                Message to production team{proofAction === "SEND_BACK_TO_ARTIST" ? " (required)" : ""}
+                <textarea
+                  value={proofComment}
+                  maxLength={2000}
+                  required={proofAction === "SEND_BACK_TO_ARTIST"}
+                  aria-required={proofAction === "SEND_BACK_TO_ARTIST"}
+                  onChange={(event) => setProofComment(event.target.value)}
+                  placeholder={proofAction === "SEND_BACK_TO_ARTIST" ? "Describe exactly what the artist should change" : "Optional line-specific message"}
+                />
+                <small>{proofAction === "SEND_BACK_TO_ARTIST" ? "Required: prepress needs clear instructions before this proof can be sent back to the artist." : "This appears in the Lift order history and references the order line. It is separate from Prepress team feedback attached to the proof."}</small>
               </label>
               {proofAction === "REVISED_ART_WILL_BE_SENT" ? (
                 <div className="proof-action-art-url proof-revised-art-upload" role="group" aria-labelledby="proof-revised-art-upload-title">

@@ -202,6 +202,13 @@ function normalizedRequest(input: ProofOperatorActionRequest) {
     throw new ProofOperatorActionError("invalid", "Proof action request is invalid.");
   }
   const revisionAssetId = boundedText(input.revision_asset_id, 80);
+  const comment = boundedText(input.comment, 2_000);
+  if (input.action === "SEND_BACK_TO_ARTIST" && !comment) {
+    throw new ProofOperatorActionError(
+      "invalid",
+      "Tell the prepress team what changes are needed."
+    );
+  }
   if (
     (input.action === "REVISED_ART_WILL_BE_SENT" &&
       !/^passet_[a-f0-9]{64}$/.test(revisionAssetId ?? "")) ||
@@ -303,7 +310,7 @@ function normalizedRequest(input: ProofOperatorActionRequest) {
     attachment_id: input.attachment_id.trim(),
     action: input.action,
     idempotency_key: input.idempotency_key,
-    comment: boundedText(input.comment, 2_000),
+    comment,
     revision_asset_id: revisionAssetId,
     approval_mode: approvalMode,
     approve_quantity: approveQuantity,

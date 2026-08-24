@@ -428,15 +428,25 @@ test("uses one generic denial and keeps unsupported public decision routes absen
     .expect(401);
 });
 
-test("exposes the one supported approval route only to a review-scoped session", async () => {
+test("exposes approval and comment-required change requests only to a review-scoped session", async () => {
   process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS = "true";
   try {
     const approvalCalls: Array<Record<string, unknown>> = [];
+    const changeRequestCalls: Array<Record<string, unknown>> = [];
     const approvalApp = express();
     approvalApp.use(express.json());
     approvalApp.use("/api/public/proof", createPublicRouter({
       approveProof: async (input) => {
         approvalCalls.push(input as unknown as Record<string, unknown>);
+        return {
+          status: "new",
+          outcome: "confirmed",
+          automatic_retry: false,
+          authoritative_refresh_completed: true
+        };
+      },
+      requestProofChanges: async (input) => {
+        changeRequestCalls.push(input as unknown as Record<string, unknown>);
         return {
           status: "new",
           outcome: "confirmed",
@@ -502,6 +512,29 @@ test("exposes the one supported approval route only to a review-scoped session",
     assert.ok(call.session.participant_id);
     assert.equal(call.request.task_id, order.tasks[0]!.task_id);
     assert.equal(call.request.idempotency_key, "approval-route-qa-0001");
+
+    await request(approvalApp)
+      .post(`/api/public/proof/tasks/${order.tasks[0]!.task_id}/decisions/request-changes`)
+      .set("Cookie", cookie)
+      .set("X-Vornan-Proof-Csrf", csrf)
+      .send({
+        attachment_id: order.tasks[0]!.attachment_id,
+        expected_task_version: order.tasks[0]!.version,
+        expected_version_id: order.tasks[0]!.current_version!.version_id,
+        idempotency_key: "change-request-route-0001",
+        note: "Move the logo above the legal copy."
+      })
+      .expect(201);
+    assert.equal(changeRequestCalls.length, 1);
+    const changeCall = changeRequestCalls[0] as {
+      session: { scope: string; participant_id: string | null };
+      request: { task_id: string; idempotency_key: string; note: string };
+    };
+    assert.equal(changeCall.session.scope, "review");
+    assert.ok(changeCall.session.participant_id);
+    assert.equal(changeCall.request.task_id, order.tasks[0]!.task_id);
+    assert.equal(changeCall.request.idempotency_key, "change-request-route-0001");
+    assert.equal(changeCall.request.note, "Move the logo above the legal copy.");
   } finally {
     delete process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS;
   }

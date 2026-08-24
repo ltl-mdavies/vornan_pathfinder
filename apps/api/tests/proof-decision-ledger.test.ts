@@ -48,8 +48,13 @@ function hash(intent: ProofDecisionCanonicalIntent) {
 function contract(options: {
   key?: string;
   note?: string | null;
+  decision?: ProofDecisionCanonicalIntent["decision"];
 } = {}): ProofDecisionIntegrityContract {
-  const intent = { ...baselineIntent, note: options.note === undefined ? baselineIntent.note : options.note };
+  const intent = {
+    ...baselineIntent,
+    decision: options.decision ?? baselineIntent.decision,
+    note: options.note === undefined ? baselineIntent.note : options.note
+  };
   return {
     idempotency_key: options.key ?? "approval-ledger-0001",
     canonical_body_hash: hash(intent),
@@ -195,6 +200,27 @@ test("reserves one minimal sanitized record with an exact fixed 30-day TTL", asy
     cursor: pageOne.next_cursor
   });
   assert.equal(pageTwo.events[0]?.event_id, "paudit_cursor-older");
+});
+
+test("accepts a comment-bound send-back intent and rejects it without instructions", async () => {
+  const ledger = createProofDecisionLedger();
+  const prepared = contract({
+    key: "change-request-ledger-0001",
+    decision: "send_back_to_artist",
+    note: "Move the logo above the legal copy."
+  });
+  const reservation = await ledger.reserve(prepared, auditContext, new Date("2026-07-23T12:01:00.000Z"));
+  assert.equal(reservation.status, "new");
+  assert.equal(reservation.record.intent.decision, "send_back_to_artist");
+
+  await assert.rejects(
+    () => ledger.reserve(contract({
+      key: "change-request-ledger-0002",
+      decision: "send_back_to_artist",
+      note: null
+    }), auditContext, new Date("2026-07-23T12:02:00.000Z")),
+    expectLedgerFailure("contract_invalid")
+  );
 });
 
 test("returns an exact replay, rejects a changed body, and never extends the initial TTL", async () => {

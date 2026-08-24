@@ -132,6 +132,33 @@ export async function approveProof(input: {
   }, true);
 }
 
+export async function requestProofChanges(input: {
+  task_id: string;
+  attachment_id: string;
+  expected_task_version: number;
+  expected_version_id: string;
+  idempotency_key: string;
+  note: string;
+}) {
+  return api<{
+    decision: {
+      status: "new" | "replay";
+      outcome: "submission_uncertain" | "reconciling" | "confirmed" | "failed";
+      automatic_retry: false;
+      authoritative_refresh_completed: boolean;
+    };
+  }>(`/api/public/proof/tasks/${encodeURIComponent(input.task_id)}/decisions/request-changes`, {
+    method: "POST",
+    body: JSON.stringify({
+      attachment_id: input.attachment_id,
+      expected_task_version: input.expected_task_version,
+      expected_version_id: input.expected_version_id,
+      idempotency_key: input.idempotency_key,
+      note: input.note
+    })
+  }, true);
+}
+
 export async function prepareRevisionUpload(input: {
   task_id: string;
   attachment_id: string;

@@ -4,7 +4,13 @@ import {
   sendLiftProofingRuntimeAction,
   type LiftProofingRuntimeObservation
 } from "@pathfinder/lift-proof-adapter/proofing-action-runtime";
-import type { ProofAccessSession, ProofOrder, ProofTask } from "@pathfinder/proof-domain";
+import {
+  recordProofTaskDecisionContext,
+  type ProofAccessSession,
+  type ProofDecisionKind,
+  type ProofOrder,
+  type ProofTask
+} from "@pathfinder/proof-domain";
 import {
   readTargetEnvironmentProofingApiRuntimeCredentials,
   type TargetProofingApiRuntimeCredentials
@@ -13,13 +19,17 @@ import {
   readProofActionTargetConfig,
   type ProofActionTargetConfig
 } from "./action-target-store.js";
-import { prepareProofApprovalDecision } from "./decision-contract.js";
+import {
+  prepareProofApprovalDecision,
+  prepareProofChangeRequestDecision
+} from "./decision-contract.js";
 import { ProofDecisionLedgerError, proofDecisionLedger } from "./decision-ledger.js";
 import { getProofRuntimeConfig, type ProofRuntimeConfig } from "./runtime-config.js";
 import { syncProofOrder } from "./service.js";
 import {
   getProofFeedbackAcknowledgement,
-  getProofParticipant
+  getProofParticipant,
+  persistProofOrder
 } from "./store.js";
 import { recordProofAuditEvent } from "./audit-service.js";
 
@@ -64,6 +74,7 @@ export interface ProofCustomerApprovalDependencies {
   getFeedbackAcknowledgement?: typeof getProofFeedbackAcknowledgement;
   send?: typeof sendLiftProofingRuntimeAction;
   audit?: typeof recordProofAuditEvent;
+  persistOrder?: typeof persistProofOrder;
   now?: () => Date;
 }
 
@@ -72,7 +83,7 @@ function targetEnvironment(target: ProofActionTargetConfig | null) {
     (candidate) => candidate.environment_id === ENVIRONMENT_ID && candidate.role === "PROD" && candidate.status === "Active"
   );
   if (!target || !environment) {
-    throw new ProofCustomerApprovalError("not_allowed", "The Proof approval destination is not active.");
+    throw new ProofCustomerApprovalError("not_allowed", "The Proof decision destination is not active.");
   }
   return environment;
 }
@@ -114,7 +125,8 @@ function currentSingleProof(order: ProofOrder, request: ProofCustomerApprovalReq
     task.version !== request.expected_task_version ||
     !task.current_version?.current ||
     task.current_version.version_id !== request.expected_version_id ||
-    task.current_version.attachment_id !== request.attachment_id
+    task.current_version.attachment_id !== request.attachment_id ||
+    task.decision_context
   ) {
     throw new ProofCustomerApprovalError("stale", "The selected proof is no longer current and actionable.");
   }
@@ -129,7 +141,7 @@ function currentSingleProof(order: ProofOrder, request: ProofCustomerApprovalReq
   if (!task.order_line_id || lineProofs.length !== 1 || lineProofs[0]?.task_id !== task.task_id) {
     throw new ProofCustomerApprovalError(
       "not_allowed",
-      "Lines with multiple current proofs require the Advanced approval workflow."
+      "Lines with multiple current proofs require the Advanced decision workflow."
     );
   }
   const sharedLines = new Set(
@@ -141,7 +153,7 @@ function currentSingleProof(order: ProofOrder, request: ProofCustomerApprovalReq
   if (sharedLines.size !== 1) {
     throw new ProofCustomerApprovalError(
       "not_allowed",
-      "This proof is shared across multiple Lift lines and cannot use single-line approval."
+      "This proof is shared across multiple Lift lines and cannot use the single-line decision workflow."
     );
   }
   return task;
@@ -166,17 +178,17 @@ export function createProofCustomerApprovalService(
   const getFeedbackAcknowledgement = dependencies.getFeedbackAcknowledgement ?? getProofFeedbackAcknowledgement;
   const send = dependencies.send ?? sendLiftProofingRuntimeAction;
   const audit = dependencies.audit ?? recordProofAuditEvent;
+  const persistOrder = dependencies.persistOrder ?? persistProofOrder;
   const now = dependencies.now ?? (() => new Date());
 
-  return {
-    async approve(input: {
+  async function decide(input: {
       session: ProofAccessSession;
       request: ProofCustomerApprovalRequest;
       correlation_id: string;
-    }) {
+    }, decision: ProofDecisionKind) {
       const config = runtimeConfig();
       if (!config.feature_flags.approve || !config.feature_flags.public_read) {
-        throw new ProofCustomerApprovalError("disabled", "Customer Proof approval is not enabled.");
+        throw new ProofCustomerApprovalError("disabled", "Customer Proof decisions are not enabled.");
       }
       if (
         input.session.scope !== "review" ||
@@ -204,7 +216,10 @@ export function createProofCustomerApprovalService(
         input.session.participant_id,
         task.task_id
       );
-      const contract = prepareProofApprovalDecision({
+      const prepareDecision = decision === "approve"
+        ? prepareProofApprovalDecision
+        : prepareProofChangeRequestDecision;
+      const contract = prepareDecision({
         order,
         binding: {
           order_number: order.order_number,
@@ -225,7 +240,7 @@ export function createProofCustomerApprovalService(
         order_line_id: task.order_line_id
       }, now());
       if (reservation.status === "conflict") {
-        throw new ProofCustomerApprovalError("conflict", "This approval key was already used for a different decision.");
+        throw new ProofCustomerApprovalError("conflict", "This decision key was already used for a different decision.");
       }
       if (reservation.record.outcome !== "prepared") {
         return {
@@ -237,7 +252,7 @@ export function createProofCustomerApprovalService(
       }
 
       const plan = buildLiftProofingRuntimePlan({
-        action: "APPROVE",
+        action: decision === "approve" ? "APPROVE" : "SEND_BACK_TO_ARTIST",
         company_id: COMPANY_ID,
         proofing_id: task.attachment_id!,
         comment: contract.intent.note,
@@ -274,7 +289,7 @@ export function createProofCustomerApprovalService(
         }, now());
       } catch (error) {
         if (error instanceof ProofDecisionLedgerError && error.code === "concurrent_update") {
-          throw new ProofCustomerApprovalError("already_attempted", "This approval already entered the no-retry boundary.");
+          throw new ProofCustomerApprovalError("already_attempted", "This decision already entered the no-retry boundary.");
         }
         throw error;
       }
@@ -286,7 +301,7 @@ export function createProofCustomerApprovalService(
         attachment_id: task.attachment_id,
         grant_id: input.session.grant_id,
         participant_id: input.session.participant_id,
-        metadata: { decision_kind: "approve", decision_outcome: "submission_uncertain" },
+        metadata: { decision_kind: decision, decision_outcome: "submission_uncertain" },
         context: auditContext,
         occurred_at: uncertain.updated_at
       });
@@ -317,7 +332,33 @@ export function createProofCustomerApprovalService(
       } catch {
         // The durable state remains uncertain and must never be replayed automatically.
       }
-      const confirmed = Boolean(reconciled && approvalObserved(reconciled, task));
+      let confirmed = Boolean(reconciled && decision === "approve" && approvalObserved(reconciled, task));
+      if (
+        reconciled &&
+        decision === "send_back_to_artist" &&
+        observation.status !== null &&
+        observation.status >= 200 &&
+        observation.status < 300
+      ) {
+        const currentTask = reconciled.tasks.find((candidate) => candidate.task_id === task.task_id);
+        if (!currentTask || currentTask.attachment_id !== task.attachment_id || currentTask.state !== "pending") {
+          confirmed = true;
+        } else {
+          try {
+            reconciled = await persistOrder(recordProofTaskDecisionContext(reconciled, {
+              task_id: task.task_id,
+              attachment_id: task.attachment_id!,
+              action: "SEND_BACK_TO_ARTIST",
+              recorded_at: now().toISOString(),
+              source: "pathfinder_customer_decision"
+            }));
+            confirmed = true;
+          } catch {
+            // Leave the one-shot result reconciling if the current proof changed
+            // before the accepted request could be projected durably.
+          }
+        }
+      }
       const finalOutcome = confirmed ? "confirmed" : "reconciling";
       const finalRecord = await transition({
         order_number: order.order_number,
@@ -335,7 +376,7 @@ export function createProofCustomerApprovalService(
         grant_id: input.session.grant_id,
         participant_id: input.session.participant_id,
         metadata: {
-          decision_kind: "approve",
+          decision_kind: decision,
           decision_outcome: finalOutcome,
           response_classification: observation.classification.classification
         },
@@ -348,6 +389,22 @@ export function createProofCustomerApprovalService(
         automatic_retry: false,
         authoritative_refresh_completed: Boolean(reconciled)
       };
+  }
+
+  return {
+    approve(input: {
+      session: ProofAccessSession;
+      request: ProofCustomerApprovalRequest;
+      correlation_id: string;
+    }) {
+      return decide(input, "approve");
+    },
+    requestChanges(input: {
+      session: ProofAccessSession;
+      request: ProofCustomerApprovalRequest;
+      correlation_id: string;
+    }) {
+      return decide(input, "send_back_to_artist");
     }
   };
 }

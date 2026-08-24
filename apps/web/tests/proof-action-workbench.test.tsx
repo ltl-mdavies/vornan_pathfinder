@@ -154,6 +154,31 @@ test("prepares a locked approval draft without transport or automatic retry", ()
   });
 });
 
+test("requires production instructions before sending a proof back to the artist", () => {
+  assert.throws(
+    () => buildProofActionDraft({
+      order,
+      taskId: "ptask_synthetic_001",
+      action: "SEND_BACK_TO_ARTIST",
+      approvalMode: "simple",
+      allocationPlan: [],
+      comment: "   ",
+      revisionAssetId: ""
+    }),
+    /Tell the prepress team what changes are needed/
+  );
+  const draft = buildProofActionDraft({
+    order,
+    taskId: "ptask_synthetic_001",
+    action: "SEND_BACK_TO_ARTIST",
+    approvalMode: "simple",
+    allocationPlan: [],
+    comment: "Move the logo above the legal copy.",
+    revisionAssetId: ""
+  });
+  assert.equal(draft.comment, "Move the logo above the legal copy.");
+});
+
 test("requires a complete multi-proof allocation and binds only the selected quantity", () => {
   const secondTask = {
     ...order.tasks[0],
