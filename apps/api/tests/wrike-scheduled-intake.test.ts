@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildWrikeScheduledCandidatePreparationError,
+  filterPreviouslyConfirmedWrikeScheduledCandidates,
   findWrikeSourceTaskSiblingJobs,
   getWrikeScheduledIntakeConfig,
   runWrikeScheduledIntake,
@@ -10,6 +11,52 @@ import {
   WrikeScheduledCandidatePreparationError,
   wrikeMappingReevaluationBlockReason
 } from "../src/wrike-scheduled-intake.js";
+
+test("scheduled intake removes only already-confirmed tasks before applying its bounded budget", () => {
+  const candidates = [
+    { task_id: "TASK-CONFIRMED", contract_number: "C1", trigger_status_id: "READY" },
+    { task_id: "TASK-UNRESOLVED", contract_number: "C2", trigger_status_id: "READY" },
+    { task_id: "TASK-NEW", contract_number: "C3", trigger_status_id: "READY" }
+  ];
+  const completed = {
+    customer_id: "284619",
+    job_id: "confirmed-job",
+    import_method_id: "method-1",
+    target_order_number: "A0229999",
+    source_evidence: { provider: "wrike", task_id: "TASK-CONFIRMED" },
+    scheduled_wrike_intake: {
+      source: "scheduled_polling",
+      task_id: "TASK-CONFIRMED",
+      import_method_id: "method-1"
+    }
+  };
+  const unresolved = {
+    ...completed,
+    job_id: "unresolved-job",
+    target_order_number: null,
+    source_evidence: { provider: "wrike", task_id: "TASK-UNRESOLVED" },
+    scheduled_wrike_intake: {
+      source: "scheduled_polling" as const,
+      task_id: "TASK-UNRESOLVED",
+      import_method_id: "method-1"
+    }
+  };
+  const otherMethod = {
+    ...completed,
+    job_id: "other-method-job",
+    import_method_id: "method-2"
+  };
+
+  assert.deepEqual(
+    filterPreviouslyConfirmedWrikeScheduledCandidates({
+      candidates,
+      jobs: [completed, unresolved, otherMethod],
+      customer_id: "284619",
+      import_method_id: "method-1"
+    }).map((candidate) => candidate.task_id),
+    ["TASK-UNRESOLVED", "TASK-NEW"]
+  );
+});
 
 test("scheduled submit finds an earlier manual job for the same Wrike task", () => {
   const current = {

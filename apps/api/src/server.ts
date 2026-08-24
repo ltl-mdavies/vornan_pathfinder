@@ -126,6 +126,7 @@ import {
 } from "./wrike-order-rehearsal.js";
 import {
   buildWrikeScheduledCandidatePreparationError,
+  filterPreviouslyConfirmedWrikeScheduledCandidates,
   findWrikeSourceTaskSiblingJobs,
   getWrikeScheduledIntakeConfig,
   runWrikeScheduledIntake,
@@ -6305,11 +6306,16 @@ async function runConfiguredWrikeIntakeCore(args: {
         }
       );
       existingSecrets = { ...existingSecrets, oauth: discovery.credentials };
-      return discovery.order_candidates.map((candidate) => ({
-        task_id: candidate.task_id,
-        contract_number: candidate.contract_number,
-        trigger_status_id: candidate.custom_status_id
-      }));
+      return filterPreviouslyConfirmedWrikeScheduledCandidates({
+        candidates: discovery.order_candidates.map((candidate) => ({
+          task_id: candidate.task_id,
+          contract_number: candidate.contract_number,
+          trigger_status_id: candidate.custom_status_id
+        })),
+        jobs: await listJobs(),
+        customer_id: args.config.customer_id,
+        import_method_id: args.config.import_method_id
+      });
     },
     prepare: async (candidate: WrikeScheduledOrderCandidate) => {
       const result = await prepareWrikeOrderForTask({
