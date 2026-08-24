@@ -4,6 +4,7 @@ import {
   filterProofTasks,
   groupProofTasksByLine,
   lineGroupForTask,
+  proofLineQueueSummary,
   queueEmptyMessage,
   queueNavigationTarget,
   searchProofTasks,
@@ -96,4 +97,59 @@ test("groups sibling proofs into stable line-level review units", () => {
   assert.equal(grouped[0]?.reviewed_count, 1);
   assert.equal(lineGroupForTask(grouped, "line-1-proof-2")?.group_id, "line-1");
   assert.equal(lineGroupForTask(grouped, "missing")?.group_id, "line-1");
+});
+
+test("distinguishes lines awaiting a new proof from proofs awaiting review", () => {
+  const waitingWithHistory = groupProofTasksByLine([
+    {
+      ...task("line-1-waiting", "waiting"),
+      line_number: "1",
+      quantity: 1,
+      versions: [{
+        version_id: "line-1-old-proof",
+        created_at: null,
+        filename: "line-1-old.pdf",
+        content_type: "application/pdf",
+        preview_kind: "pdf",
+        preview_url: null,
+        download_url: null,
+        approval_status: "REJECTED",
+        approved_at: null,
+        comments: [],
+        current: false
+      }]
+    }
+  ])[0]!;
+  const waitingWithoutHistory = groupProofTasksByLine([{ ...task("line-2-waiting", "waiting"), line_number: "2", quantity: 1 }])[0]!;
+  const reviewable = groupProofTasksByLine([{
+    ...task("line-3-pending", "pending"),
+    line_number: "3",
+    quantity: 1,
+    current_version: {
+      version_id: "line-3-proof",
+      created_at: null,
+      filename: "line-3.pdf",
+      content_type: "application/pdf",
+      preview_kind: "pdf",
+      preview_url: null,
+      download_url: null,
+      approval_status: "PENDING",
+      approved_at: null,
+      comments: [],
+      current: true
+    }
+  }])[0]!;
+
+  assert.deepEqual(proofLineQueueSummary(waitingWithHistory), {
+    review_label: "awaiting new proof",
+    proof_count_label: "1 prior proof"
+  });
+  assert.deepEqual(proofLineQueueSummary(waitingWithoutHistory), {
+    review_label: "awaiting proof",
+    proof_count_label: "Proof pending"
+  });
+  assert.deepEqual(proofLineQueueSummary(reviewable), {
+    review_label: "1 awaiting review",
+    proof_count_label: "1 proof"
+  });
 });

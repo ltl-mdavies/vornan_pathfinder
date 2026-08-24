@@ -14,6 +14,30 @@ export interface ProofLineGroup {
   reviewed_count: number;
 }
 
+export interface ProofLineQueueSummary {
+  review_label: string;
+  proof_count_label: string;
+}
+
+export function proofLineQueueSummary(group: ProofLineGroup): ProofLineQueueSummary {
+  const versionIds = new Set<string>();
+  for (const task of group.tasks) {
+    for (const version of task.versions) versionIds.add(version.version_id);
+    if (task.current_version) versionIds.add(task.current_version.version_id);
+  }
+  const proofCount = versionIds.size;
+  const awaitingProof = group.tasks.some((task) => task.state === "waiting");
+  const reviewLabel = awaitingProof
+    ? proofCount > 0 ? "awaiting new proof" : "awaiting proof"
+    : group.open_count
+      ? `${group.open_count} awaiting review`
+      : `${group.reviewed_count} reviewed`;
+  const proofCountLabel = awaitingProof
+    ? proofCount > 0 ? `${proofCount} prior ${proofCount === 1 ? "proof" : "proofs"}` : "Proof pending"
+    : `${proofCount} ${proofCount === 1 ? "proof" : "proofs"}`;
+  return { review_label: reviewLabel, proof_count_label: proofCountLabel };
+}
+
 export function groupProofTasksByLine(tasks: ProofTask[]): ProofLineGroup[] {
   const groups = new Map<string, ProofLineGroup>();
   for (const task of tasks) {

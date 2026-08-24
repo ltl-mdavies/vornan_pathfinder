@@ -31,6 +31,7 @@ import {
   filterProofTasks,
   groupProofTasksByLine,
   lineGroupForTask,
+  proofLineQueueSummary,
   queueEmptyMessage,
   searchProofTasks,
   selectedVisibleTask,
@@ -66,15 +67,19 @@ type ProofLoad = {
 };
 type DetailDialog = { kind: "feedback" | "history"; task_id: string };
 type HistoryState = { status: "loading" | "ready" | "error"; versions: ProofVersion[]; message?: string };
+type DecisionRequestState = "idle" | "submitting" | "verifying" | "complete" | "error";
 
 const demoEnabled = import.meta.env.DEV && import.meta.env.VITE_PROOF_DEMO === "true";
 let bootstrapPromise: Promise<ProofLoad> | null = null;
 
 async function bootstrap() {
   if (demoEnabled) {
+    const decisionFlowQa = window.location.hash === "#/proof/decision-flow-qa";
     return {
       order: demoOrderForHash(window.location.hash),
-      participant: null,
+      participant: decisionFlowQa
+        ? { participant_id: "demo-reviewer", display_name: "Marcus Davies", email: "mdavies@ltlco.com" }
+        : null,
       activity: demoActivityForHash(window.location.hash),
       refresh_queued: false,
       session_expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString()
@@ -416,6 +421,114 @@ type ActionTransportProps = {
   mobile?: boolean;
 };
 
+type ChangeRequestDialogProps = {
+  open: boolean;
+  task: ProofTask;
+  note: string;
+  productionBlocked: string | null;
+  uploadBlocked: string | null;
+  state: DecisionRequestState;
+  message: string | null;
+  onNoteChange: (note: string) => void;
+  onSubmitProductionRequest: () => void;
+  onUploadReplacement: () => void;
+  onClose: () => void;
+};
+
+function ChangeRequestDialog({ open, task, note, productionBlocked, uploadBlocked, state, message, onNoteChange, onSubmitProductionRequest, onUploadReplacement, onClose }: ChangeRequestDialogProps) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const [path, setPath] = useState<"production" | null>(null);
+
+  useEffect(() => {
+    if (open && dialog.current && !dialog.current.open) {
+      setPath(null);
+      dialog.current.showModal();
+      window.requestAnimationFrame(() => closeButton.current?.focus({ preventScroll: true }));
+    } else if (!open && dialog.current?.open) {
+      dialog.current.close();
+    }
+  }, [open, task.task_id]);
+
+  return (
+    <dialog
+      ref={dialog}
+      className="proof-dialog change-request-dialog"
+      aria-labelledby="change-request-title"
+      aria-describedby="change-request-description"
+      onCancel={(event) => {
+        if (state === "submitting" || state === "verifying") event.preventDefault();
+      }}
+      onClose={() => {
+        setPath(null);
+        onClose();
+      }}
+    >
+      <div className="dialog-heading change-request-heading">
+        <div>
+          <span className="eyebrow">Line {task.line_number} · {task.product_name ?? "Artwork proof"}</span>
+          <h2 id="change-request-title">Request changes</h2>
+          <p id="change-request-description">Choose how this proof should be corrected.</p>
+        </div>
+        <button ref={closeButton} className="icon-button subtle" type="button" aria-label="Close request changes" disabled={state === "submitting" || state === "verifying"} onClick={() => dialog.current?.close()}><X aria-hidden="true" /></button>
+      </div>
+      <div className="dialog-content change-request-content">
+        {path === null ? (
+          <div className="change-request-paths" aria-label="Change request options">
+            <button type="button" disabled={Boolean(productionBlocked)} onClick={() => setPath("production")}>
+              <span className="change-request-path-icon"><MessageSquareText aria-hidden="true" /></span>
+              <span>
+                <strong>Ask production to revise this proof</strong>
+                <small>Send instructions to the production team and request a new proof.</small>
+                {productionBlocked ? <em>{productionBlocked}</em> : null}
+              </span>
+            </button>
+            <button type="button" disabled={Boolean(uploadBlocked)} onClick={() => {
+              dialog.current?.close();
+              onUploadReplacement();
+            }}>
+              <span className="change-request-path-icon"><Upload aria-hidden="true" /></span>
+              <span>
+                <strong>Upload replacement artwork</strong>
+                <small>Provide a revised file for this line and have Vornan check it.</small>
+                {uploadBlocked ? <em>{uploadBlocked}</em> : null}
+              </span>
+            </button>
+          </div>
+        ) : (
+          <div className="production-change-request">
+            <button className="change-request-back" type="button" disabled={state === "submitting" || state === "verifying"} onClick={() => setPath(null)}>Choose a different option</button>
+            <div>
+              <strong>Tell production what needs to change</strong>
+              <p>Your note will be added to the order and sent with the request for a new proof.</p>
+            </div>
+            <label>
+              <span>Message to the production team <em>Required</em></span>
+              <textarea
+                value={note}
+                onChange={(event) => onNoteChange(event.target.value)}
+                placeholder="Describe the exact artwork changes needed"
+                maxLength={2000}
+                required
+                aria-invalid={!note.trim()}
+                aria-describedby="change-request-note-guidance"
+              />
+            </label>
+            <small id="change-request-note-guidance">Be specific enough for the production team to prepare the next proof without additional clarification.</small>
+            {message && state === "error" ? <p className="change-request-error" role="alert">{message}</p> : null}
+            <div className="change-request-actions">
+              <button className="button secondary" type="button" disabled={state === "submitting" || state === "verifying"} onClick={() => dialog.current?.close()}>Cancel</button>
+              <button className="button primary" type="button" disabled={Boolean(productionBlocked) || !note.trim() || state === "submitting" || state === "verifying"} onClick={onSubmitProductionRequest}>
+                <MessageSquareText aria-hidden="true" /> {state === "submitting" ? "Sending…" : state === "verifying" ? "Checking Lift…" : "Send change request"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </dialog>
+  );
+}
+
 function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, reviewExperience, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestChanges, onRequestRevision, mobile = false }: ActionTransportProps) {
   const multiProof = usesAdvancedQuantityAllocation(tasks.length, reviewExperience);
   const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
@@ -428,10 +541,12 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   const [processingIndex, setProcessingIndex] = useState(0);
   const [transformationSummary, setTransformationSummary] = useState<QuantityTransformationSummary | null>(null);
   const [decisionMessage, setDecisionMessage] = useState("");
-  const [singleApprovalState, setSingleApprovalState] = useState<"idle" | "submitting" | "verifying" | "complete" | "error">("idle");
+  const [singleApprovalState, setSingleApprovalState] = useState<DecisionRequestState>("idle");
   const [singleApprovalMessage, setSingleApprovalMessage] = useState<string | null>(null);
-  const [changeRequestState, setChangeRequestState] = useState<"idle" | "submitting" | "verifying" | "complete" | "error">("idle");
+  const [changeRequestState, setChangeRequestState] = useState<DecisionRequestState>("idle");
   const [changeRequestMessage, setChangeRequestMessage] = useState<string | null>(null);
+  const [changeRequestOpen, setChangeRequestOpen] = useState(false);
+  const changeRequestOpener = useRef<HTMLButtonElement>(null);
   const assignmentOpener = useRef<HTMLButtonElement>(null);
   const summary = summarizeQuantityAssignment(lineQuantity, stagedTasks.map((task) => task.task_id), values);
   const saved = quantityDraftMatches(draft, stagedTasks, values);
@@ -483,7 +598,15 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
           : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
             ? "This proof is not currently available for approval."
             : null;
-  const changeRequestBlocked = !decisionsEnabled
+  useEffect(() => {
+    setDecisionMessage("");
+    setSingleApprovalState("idle");
+    setSingleApprovalMessage(null);
+    setChangeRequestState("idle");
+    setChangeRequestMessage(null);
+    setChangeRequestOpen(false);
+  }, [selectedTask.task_id]);
+  const productionChangeRequestBlocked = !decisionsEnabled
     ? "Change requests are not enabled for this review link."
     : !participantIdentified
       ? "Identify the reviewer before requesting changes."
@@ -497,9 +620,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         ? "A production action has already been requested for this proof."
       : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
         ? "This proof is not currently available for a change request."
-      : !decisionMessage.trim()
-        ? "Describe the changes the prepress team should make."
-        : null;
+      : null;
+  const changeRequestBlocked = productionChangeRequestBlocked ?? (!decisionMessage.trim() ? "Describe the changes the prepress team should make." : null);
   const revisionUploadBlocked = !revisionUploadEnabled
     ? "Revised artwork upload is not enabled for this review link."
     : !participantIdentified
@@ -511,6 +633,20 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
           ? "This proof is not currently available for replacement artwork."
           : null;
+  const changeRequestEntryBlocked = productionChangeRequestBlocked && revisionUploadBlocked
+    ? "This proof is not currently available for a change request."
+    : null;
+  const completedDecision = singleApprovalState === "complete"
+    ? { title: "Proof approved", detail: singleApprovalMessage ?? "Approval recorded." }
+    : changeRequestState === "complete"
+      ? { title: "Changes requested", detail: changeRequestMessage ?? "The production team received your instructions." }
+      : selectedTask.decision_state === "sent_back_to_artist"
+        ? { title: "Changes requested", detail: "Waiting for the production team to prepare a new proof." }
+        : selectedTask.decision_state === "revised_art_pending"
+          ? { title: "Revised artwork received", detail: "Vornan will show the replacement proof when it is ready." }
+          : selectedTask.decision_state === "cancel_requested"
+            ? { title: "Cancellation requested", detail: "The production team has received this line request." }
+            : null;
   const submitSingleApproval = async () => {
     if (singleApprovalBlocked || singleApprovalState === "submitting") return;
     setSingleApprovalState("submitting");
@@ -541,9 +677,11 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
       if (outcome === "confirmed") {
         setChangeRequestState("complete");
         setChangeRequestMessage("Changes requested. The production team received your instructions.");
+        setChangeRequestOpen(false);
       } else if (outcome === "reconciling" || outcome === "submission_uncertain") {
         setChangeRequestState("verifying");
         setChangeRequestMessage("Change request submitted. Vornan is checking the latest Lift proof status. Do not submit it again.");
+        setChangeRequestOpen(false);
       } else {
         setChangeRequestState("error");
         setChangeRequestMessage("Lift did not accept this change request. Refresh the proof before taking another action.");
@@ -611,28 +749,42 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
       ) : null}
       {!multiProof ? (
         <div className="single-decision-controls">
-          <label className="single-decision-note">
-            <span>Message to the production team</span>
-            <textarea
-              value={decisionMessage}
-              onChange={(event) => setDecisionMessage(event.target.value)}
-              placeholder="Required for change requests; optional for approval"
-              maxLength={2000}
-            />
-          </label>
-          <div className="transport-buttons">
-            <button type="button" disabled={Boolean(singleApprovalBlocked) || singleApprovalState === "submitting" || singleApprovalState === "verifying" || singleApprovalState === "complete"} onClick={() => void submitSingleApproval()}>
-              <ShieldCheck aria-hidden="true" /> {singleApprovalState === "submitting" ? "Approving…" : singleApprovalState === "verifying" ? "Checking Lift…" : singleApprovalState === "complete" ? "Approved" : "Approve"}
-            </button>
-            <button className="request-changes" type="button" disabled={Boolean(changeRequestBlocked) || changeRequestState === "submitting" || changeRequestState === "verifying" || changeRequestState === "complete"} title={changeRequestBlocked ?? "Request changes"} onClick={() => void submitChangeRequest()}>
-              <MessageSquareText aria-hidden="true" /> {changeRequestState === "submitting" ? "Sending…" : changeRequestState === "verifying" ? "Checking Lift…" : changeRequestState === "complete" ? "Changes requested" : "Request changes"}
-            </button>
-            <button type="button" disabled={Boolean(revisionUploadBlocked)} title={revisionUploadBlocked ?? "Provide revised artwork"} onClick={() => onRequestRevision(selectedTask)}><Upload aria-hidden="true" /> Provide revised artwork</button>
-          </div>
-          {singleApprovalBlocked ? <small className="decision-guidance">{singleApprovalBlocked}</small> : null}
-          {!singleApprovalBlocked && revisionUploadBlocked ? <small className="decision-guidance revision-guidance">{revisionUploadBlocked}</small> : null}
-          {singleApprovalMessage ? <p className={`decision-result ${singleApprovalState}`} role="status">{singleApprovalMessage}</p> : null}
-          {changeRequestMessage ? <p className={`decision-result ${changeRequestState}`} role="status">{changeRequestMessage}</p> : null}
+          {completedDecision ? (
+            <div className="decision-status-card" role="status">
+              <span><CheckCircle2 aria-hidden="true" /></span>
+              <span><strong>{completedDecision.title}</strong><small>{completedDecision.detail}</small></span>
+            </div>
+          ) : (
+            <>
+              <div className="transport-buttons">
+                <button type="button" disabled={Boolean(singleApprovalBlocked) || singleApprovalState === "submitting" || singleApprovalState === "verifying"} onClick={() => void submitSingleApproval()}>
+                  <ShieldCheck aria-hidden="true" /> {singleApprovalState === "submitting" ? "Approving…" : singleApprovalState === "verifying" ? "Checking Lift…" : "Approve"}
+                </button>
+                <button ref={changeRequestOpener} className="request-changes" type="button" disabled={Boolean(changeRequestEntryBlocked) || changeRequestState === "submitting" || changeRequestState === "verifying"} title={changeRequestEntryBlocked ?? "Request changes"} onClick={() => setChangeRequestOpen(true)}>
+                  <MessageSquareText aria-hidden="true" /> Request changes
+                </button>
+              </div>
+              {singleApprovalBlocked ? <small className="decision-guidance">{singleApprovalBlocked}</small> : null}
+              {singleApprovalMessage ? <p className={`decision-result ${singleApprovalState}`} role="status">{singleApprovalMessage}</p> : null}
+              {changeRequestMessage ? <p className={`decision-result ${changeRequestState}`} role="status">{changeRequestMessage}</p> : null}
+            </>
+          )}
+          <ChangeRequestDialog
+            open={changeRequestOpen}
+            task={selectedTask}
+            note={decisionMessage}
+            productionBlocked={productionChangeRequestBlocked}
+            uploadBlocked={revisionUploadBlocked}
+            state={changeRequestState}
+            message={changeRequestMessage}
+            onNoteChange={setDecisionMessage}
+            onSubmitProductionRequest={() => void submitChangeRequest()}
+            onUploadReplacement={() => onRequestRevision(selectedTask)}
+            onClose={() => {
+              setChangeRequestOpen(false);
+              window.requestAnimationFrame(() => changeRequestOpener.current?.focus({ preventScroll: true }));
+            }}
+          />
         </div>
       ) : null}
       {multiProof ? (
@@ -1307,9 +1459,7 @@ export function App() {
             {visibleGroups.map((group) => {
               const selected = selectedGroup?.group_id === group.group_id;
               const representativeTask = group.tasks[0]!;
-              const reviewLabel = group.open_count
-                ? `${group.open_count} awaiting review`
-                : `${group.reviewed_count} reviewed`;
+              const queueSummary = proofLineQueueSummary(group);
               return (
                 <section className={`line-group-card ${selected ? "selected" : ""}`} key={group.group_id} role="listitem" aria-label={`Line ${group.line_number ?? "unassigned"}, ${group.tasks.length} proofs`}>
                   <button className="line-group-summary" type="button" aria-pressed={selected} onClick={() => setSelectedTaskId(group.tasks[0]!.task_id)}>
@@ -1320,10 +1470,10 @@ export function App() {
                     <span className="line-group-copy">
                       <span className="eyebrow">Line {group.line_number ?? "—"}</span>
                       <strong title={group.product_name ?? "Artwork proof"}>{group.product_name ?? "Artwork proof"}</strong>
-                      <small>Qty {formatQuantity(group.quantity) ?? "—"} · {reviewLabel}</small>
+                      <small>Qty {formatQuantity(group.quantity) ?? "—"} · {queueSummary.review_label}</small>
                       {sharedProofLines(representativeTask).length > 1 ? <span className="shared-proof-queue"><Link2 aria-hidden="true" /> Shared proof</span> : null}
                     </span>
-                    <span className="line-group-count">{group.tasks.length === 1 ? <FileImage aria-hidden="true" /> : <Layers3 aria-hidden="true" />}{group.tasks.length} {group.tasks.length === 1 ? "proof" : "proofs"}</span>
+                    <span className="line-group-count">{group.tasks.length === 1 ? <FileImage aria-hidden="true" /> : <Layers3 aria-hidden="true" />}{queueSummary.proof_count_label}</span>
                   </button>
                 </section>
               );

@@ -9,13 +9,21 @@ const revisionDialogSource = readFileSync(new URL("../src/revision-upload-dialog
 test("keeps customer decisions inside the current Proof portal and exposes only supported customer actions", () => {
   assert.match(appSource, /One current, unshared proof can be approved/);
   assert.match(appSource, /Advanced approval remains unavailable/);
-  assert.match(appSource, /Provide revised artwork<\/button>/);
+  assert.match(appSource, /Upload replacement artwork/);
+  assert.match(appSource, /Choose how this proof should be corrected/);
+  assert.match(appSource, /Ask production to revise this proof/);
+  assert.match(appSource, /Send change request/);
+  assert.match(appSource, /Message to the production team <em>Required<\/em>/);
+  assert.match(appSource, /aria-labelledby="change-request-title"/);
+  assert.match(appSource, /aria-describedby="change-request-description"/);
+  assert.match(appSource, /role="status"/);
   assert.match(appSource, /revisionUploadEnabled=\{Boolean\(order!\.access\.revision_upload_enabled\)\}/);
   assert.match(apiSource, /tasks\/\$\{encodeURIComponent\(input\.task_id\)\}\/decisions\/approve/);
   assert.match(apiSource, /tasks\/\$\{encodeURIComponent\(input\.task_id\)\}\/decisions\/request-changes/);
   assert.match(appSource, />Request changes<\/button>|"Request changes"/);
   assert.match(appSource, /Describe the changes the prepress team should make/);
   assert.match(appSource, /Tell the prepress team what changes are needed/);
+  assert.doesNotMatch(appSource, /> Provide revised artwork<\/button>/);
   assert.doesNotMatch(apiSource, /decisions\/reject/);
   assert.doesNotMatch(apiSource, /decisions\/revision/);
 });
