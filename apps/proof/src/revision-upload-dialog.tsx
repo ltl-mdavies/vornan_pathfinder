@@ -14,6 +14,7 @@ import {
   sha256File,
   validateRevisionFile
 } from "./revision-upload-state";
+import { isLiftProofUpdatedError } from "./proof-update-state";
 import type { ProofTask } from "./types";
 
 type LocalStage = "select" | "hashing" | "uploading" | "finalizing" | "processing" | "error";
@@ -26,6 +27,7 @@ interface RevisionUploadDialogProps {
   participantIdentified: boolean;
   onClose: () => void;
   onSessionExpired: () => void;
+  onProofUpdated: (task: ProofTask) => Promise<void>;
 }
 
 function stageCopy(stage: LocalStage) {
@@ -51,7 +53,8 @@ export function RevisionUploadDialog({
   enabled,
   participantIdentified,
   onClose,
-  onSessionExpired
+  onSessionExpired,
+  onProofUpdated
 }: RevisionUploadDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -200,6 +203,11 @@ export function RevisionUploadDialog({
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
         onSessionExpired();
+        return;
+      }
+      if (isLiftProofUpdatedError(error)) {
+        await onProofUpdated(task);
+        onClose();
         return;
       }
       setStage("error");

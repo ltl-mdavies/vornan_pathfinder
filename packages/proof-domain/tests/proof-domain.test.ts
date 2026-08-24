@@ -593,6 +593,45 @@ test("archives disappeared attachments and retains cached history when Lift repo
   assert.deepEqual(missing.archived_tasks, second.archived_tasks);
 });
 
+test("accepts an operator-swapped Lift attachment as the new actionable proof", () => {
+  const first = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    synced_at: syncedAt
+  });
+  const swappedPayload = {
+    rowset: (proofPayload.rowset as Array<Record<string, unknown>>)
+      .filter((row) => row.ATTACHMENT_ID !== 25435041)
+      .concat({
+        ORDER_NUMBER: "A0221132",
+        ORDER_LINE_ID: 9301338,
+        LINE_NUMBER: 10,
+        ATTACHMENT_ID: 25435999,
+        CREATION_DATE: "2026-07-20T12:10:00Z",
+        PROOF_FILENAME: "north-c-corrected.pdf",
+        PROOF_MIME_TYPE: "application/pdf",
+        PROOF_LINK_HIGH: "https://files.example/north-c-corrected.pdf",
+        PROOF_APPROVAL_STATUS: "PENDING"
+      })
+  };
+  const second = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [swappedPayload],
+    previous: first,
+    synced_at: "2026-07-20T12:15:00.000Z"
+  });
+  const replacement = second.tasks.find((task) => task.attachment_id === "25435999");
+
+  assert.equal(replacement?.state, "pending");
+  assert.equal(replacement?.actionable, true);
+  assert.equal(replacement?.current_version?.filename, "north-c-corrected.pdf");
+  assert.equal(second.tasks.some((task) => task.attachment_id === "25435041"), false);
+  assert.equal(second.archived_tasks.some((task) => task.attachment_id === "25435041"), true);
+  assert.equal(second.warnings.some((warning) => warning.attachment_id === "25435999"), false);
+});
+
 test("maps completed line status to read-only reference state", () => {
   const completedPayload = {
     rowset: [
