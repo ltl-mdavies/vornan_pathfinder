@@ -69,6 +69,16 @@ test("Proof presents change resolution paths only after Request changes is selec
   await expect(transport.getByRole("button", { name: "Request changes" })).toBeEnabled();
   await expect(page.getByRole("button", { name: "Upload replacement artwork" })).toHaveCount(0);
 
+  await transport.getByRole("button", { name: "Approve" }).click();
+  const approvalDialog = page.getByRole("dialog", { name: "Approve this proof?" });
+  await expect(approvalDialog).toBeVisible();
+  const approvalNote = approvalDialog.getByRole("textbox", { name: /Add a note/ });
+  await expect(approvalNote).not.toHaveAttribute("required", "");
+  await expect(approvalDialog.getByRole("button", { name: "Approve proof" })).toBeEnabled();
+  await approvalNote.fill("Approved with the final color correction.");
+  await approvalDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(approvalDialog).toBeHidden();
+
   await transport.getByRole("button", { name: "Request changes" }).click();
   const dialog = page.getByRole("dialog", { name: "Request changes" });
   await expect(dialog).toBeVisible();
@@ -89,6 +99,20 @@ test("Proof presents change resolution paths only after Request changes is selec
   await mobileTransport.getByRole("button", { name: "Request changes" }).click();
   await expect(page.getByRole("dialog", { name: "Request changes" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
+  expect(blocked).toEqual([]);
+});
+
+test("Proof highlights new Prepress feedback until it is acknowledged", async ({ page, context }) => {
+  const blocked = await isolateNetwork(context);
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.goto("/proof#/proof");
+  await waitForProofWorkspace(page);
+
+  const feedback = page.getByRole("button", { name: "Prepress team feedback, new feedback" }).first();
+  await expect(feedback).toBeVisible();
+  await expect(feedback).toHaveClass(/unread/);
+  await expect(feedback.locator(".feedback-badge")).toHaveText("New");
+  await expect(feedback).toHaveCSS("background-color", "rgb(255, 248, 231)");
   expect(blocked).toEqual([]);
 });
 

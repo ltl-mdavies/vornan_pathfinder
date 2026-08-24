@@ -5,6 +5,7 @@ import test from "node:test";
 const appSource = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
 const apiSource = readFileSync(new URL("../src/api.ts", import.meta.url), "utf8");
 const revisionDialogSource = readFileSync(new URL("../src/revision-upload-dialog.tsx", import.meta.url), "utf8");
+const proofUpdateSource = readFileSync(new URL("../src/proof-update-state.ts", import.meta.url), "utf8");
 
 test("keeps customer decisions inside the current Proof portal and exposes only supported customer actions", () => {
   assert.match(appSource, /One current, unshared proof can be approved/);
@@ -14,6 +15,10 @@ test("keeps customer decisions inside the current Proof portal and exposes only 
   assert.match(appSource, /Ask production to revise this proof/);
   assert.match(appSource, /Send change request/);
   assert.match(appSource, /Message to the production team <em>Required<\/em>/);
+  assert.match(appSource, /Approve this proof\?/);
+  assert.match(appSource, /Add a note <em>Optional<\/em>/);
+  assert.match(appSource, /Approve proof/);
+  assert.match(appSource, /aria-labelledby="approval-dialog-title"/);
   assert.match(appSource, /aria-labelledby="change-request-title"/);
   assert.match(appSource, /aria-describedby="change-request-description"/);
   assert.match(appSource, /role="status"/);
@@ -26,6 +31,23 @@ test("keeps customer decisions inside the current Proof portal and exposes only 
   assert.doesNotMatch(appSource, /> Provide revised artwork<\/button>/);
   assert.doesNotMatch(apiSource, /decisions\/reject/);
   assert.doesNotMatch(apiSource, /decisions\/revision/);
+});
+
+test("recovers from an operator-swapped Lift proof without presenting a failed customer action", () => {
+  assert.match(proofUpdateSource, /This proof was updated in Lift\. The latest file is now ready for review\./);
+  assert.match(proofUpdateSource, /replacementProofTaskId/);
+  assert.match(appSource, /isLiftProofUpdatedError\(error\)/);
+  assert.match(appSource, /return "proof_updated" as const/);
+  assert.match(appSource, /setSelectedTaskId\(replacementProofTaskId\(refreshed\.order, task\)\)/);
+  assert.match(revisionDialogSource, /isLiftProofUpdatedError\(error\)/);
+  assert.match(revisionDialogSource, /await onProofUpdated\(task\)/);
+});
+
+test("surfaces unreviewed Prepress feedback without changing acknowledged feedback controls", () => {
+  assert.match(appSource, /feedback_required && !task\.feedback_acknowledged/);
+  assert.match(appSource, /feedback-button\$\{unread \? " unread" : ""\}/);
+  assert.match(appSource, /feedback-badge/);
+  assert.match(appSource, /Prepress team feedback\$\{unread \? ", new feedback" : ""\}/);
 });
 
 test("keeps an accepted-but-unconfirmed approval visibly locked while Lift reconciliation runs", () => {
