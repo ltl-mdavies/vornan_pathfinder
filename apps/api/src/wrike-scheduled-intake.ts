@@ -54,6 +54,51 @@ export function findWrikeSourceTaskSiblingJobs<T extends WrikeSourceTaskJob>(arg
   );
 }
 
+export interface WrikeScheduledCompletedTaskJob extends WrikeSourceTaskJob {
+  target_order_number?: string | null;
+  scheduled_wrike_intake?: {
+    source?: string | null;
+    task_id?: string | null;
+    import_method_id?: string | null;
+  } | null;
+}
+
+/**
+ * Do not spend the bounded scheduled-intake budget on a source task that has
+ * already reached a durable Lift order.  The task may remain in Wrike at its
+ * ready status, but it must never be prepared or submitted again by the
+ * scheduler.  Unresolved source tasks deliberately remain eligible.
+ */
+export function filterPreviouslyConfirmedWrikeScheduledCandidates<
+  T extends WrikeScheduledOrderCandidate,
+  J extends WrikeScheduledCompletedTaskJob
+>(args: {
+  candidates: T[];
+  jobs: J[];
+  customer_id: string;
+  import_method_id: string;
+}): T[] {
+  const confirmedTaskIds = new Set(
+    args.jobs
+      .filter((job) => {
+        const marker = job.scheduled_wrike_intake;
+        const taskId = job.source_evidence?.task_id?.trim() ?? "";
+        return (
+          job.customer_id === args.customer_id &&
+          job.import_method_id === args.import_method_id &&
+          job.source_evidence?.provider === "wrike" &&
+          marker?.source === "scheduled_polling" &&
+          marker.import_method_id === args.import_method_id &&
+          marker.task_id?.trim() === taskId &&
+          Boolean(job.target_order_number?.trim())
+        );
+      })
+      .map((job) => job.scheduled_wrike_intake?.task_id?.trim() ?? "")
+      .filter(Boolean)
+  );
+  return args.candidates.filter((candidate) => !confirmedTaskIds.has(candidate.task_id));
+}
+
 export interface WrikeMappingReevaluationJob extends WrikeSourceTaskJob {
   state?: string | null;
   target_order_number?: string | null;
