@@ -57,6 +57,41 @@ async function waitForProofWorkspace(page: Page) {
   await expect(page.getByRole("heading", { name: "Summer retail rollout" })).toBeVisible();
 }
 
+test("Proof presents change resolution paths only after Request changes is selected", async ({ page, context }) => {
+  const blocked = await isolateNetwork(context);
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.goto("/proof#/proof/decision-flow-qa");
+  await waitForProofWorkspace(page);
+
+  const transport = page.locator(".action-transport:visible").first();
+  await expect(transport.locator(".transport-buttons > button")).toHaveCount(2);
+  await expect(transport.getByRole("button", { name: "Approve" })).toBeEnabled();
+  await expect(transport.getByRole("button", { name: "Request changes" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Upload replacement artwork" })).toHaveCount(0);
+
+  await transport.getByRole("button", { name: "Request changes" }).click();
+  const dialog = page.getByRole("dialog", { name: "Request changes" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /Ask production to revise this proof/ })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: /Upload replacement artwork/ })).toBeEnabled();
+
+  await dialog.getByRole("button", { name: /Ask production to revise this proof/ }).click();
+  const note = dialog.getByRole("textbox", { name: /Message to the production team/ });
+  const submit = dialog.getByRole("button", { name: "Send change request" });
+  await expect(note).toHaveAttribute("required", "");
+  await expect(submit).toBeDisabled();
+  await note.fill("Move the logo above the legal copy and return a new proof.");
+  await expect(submit).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileTransport = page.locator(".action-transport:visible").first();
+  await mobileTransport.getByRole("button", { name: "Request changes" }).click();
+  await expect(page.getByRole("dialog", { name: "Request changes" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  expect(blocked).toEqual([]);
+});
+
 for (const viewport of viewports) {
   test(`Proof remains contained at ${viewport.name} (${viewport.width}x${viewport.height})`, async ({ page, context }) => {
     const blocked = await isolateNetwork(context);

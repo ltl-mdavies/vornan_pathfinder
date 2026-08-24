@@ -22,3 +22,16 @@ test("keeps the revised-art upload visual QA fixture scoped to one current attac
   assert.equal(order.tasks.length, 1);
   assert.equal(order.tasks[0]?.sibling_count, 1);
 });
+
+test("keeps the decision-flow visual QA fixture scoped to one reviewable proof", () => {
+  const order = demoOrderForHash("#/proof/decision-flow-qa");
+  assert.deepEqual(order.access, {
+    scope: "review",
+    decisions_enabled: true,
+    review_experience: "simple",
+    revision_upload_enabled: true
+  });
+  assert.equal(order.tasks.length, 1);
+  assert.equal(order.tasks[0]?.attachment_id, "27085010");
+  assert.equal(order.tasks[0]?.feedback_required, false);
+});

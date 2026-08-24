@@ -140,6 +140,21 @@ export function demoActivityForHash(hash: string): ProofActivity {
 }
 
 export function demoOrderForHash(hash: string): ProofOrder {
+  if (hash === "#/proof/decision-flow-qa") {
+    const selectedTask = {
+      ...demoOrder.tasks[0]!,
+      attachment_id: "27085010",
+      sibling_count: 1,
+      feedback_required: false,
+      feedback_acknowledged: true
+    };
+    return {
+      ...demoOrder,
+      access: { scope: "review", decisions_enabled: true, review_experience: "simple", revision_upload_enabled: true },
+      tasks: [selectedTask],
+      counts: proofTaskCounts([selectedTask])
+    };
+  }
   if (hash === "#/proof/revision-upload-qa") {
     const selectedTask = { ...demoOrder.tasks[0]!, attachment_id: "27085010", sibling_count: 1 };
     return {
