@@ -126,7 +126,7 @@ function validIntent(value: unknown): value is ProofDecisionCanonicalIntent {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const intent = value as Record<string, unknown>;
   return exactKeys(intent, INTENT_KEYS) &&
-    intent.decision === "approve" &&
+    (intent.decision === "approve" || intent.decision === "send_back_to_artist") &&
     typeof intent.order_number === "string" &&
     /^A\d{7,8}$/.test(intent.order_number) &&
     typeof intent.task_id === "string" &&
@@ -149,7 +149,8 @@ function validIntent(value: unknown): value is ProofDecisionCanonicalIntent {
       intent.note.length <= 2_000 &&
       intent.note === intent.note.trim() &&
       !/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/.test(intent.note)
-    ));
+    )) &&
+    (intent.decision !== "send_back_to_artist" || typeof intent.note === "string");
 }
 
 function validRecord(value: unknown): value is ProofDecisionLedgerRecord {

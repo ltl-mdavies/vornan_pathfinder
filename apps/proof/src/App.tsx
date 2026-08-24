@@ -22,7 +22,7 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofRefresh } from "./api";
+import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh } from "./api";
 import { proofAsset } from "./asset-state";
 import { demoActivityForHash, demoOrderForHash } from "./demo";
 import { restoreProofDialogFocus } from "./dialog-state";
@@ -411,11 +411,12 @@ type ActionTransportProps = {
   revisionUploadEnabled: boolean;
   participantIdentified: boolean;
   onApproveSingle: (task: ProofTask, note: string) => Promise<"confirmed" | "reconciling" | "submission_uncertain" | "failed">;
+  onRequestChanges: (task: ProofTask, note: string) => Promise<"confirmed" | "reconciling" | "submission_uncertain" | "failed">;
   onRequestRevision: (task: ProofTask) => void;
   mobile?: boolean;
 };
 
-function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, reviewExperience, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestRevision, mobile = false }: ActionTransportProps) {
+function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, reviewExperience, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestChanges, onRequestRevision, mobile = false }: ActionTransportProps) {
   const multiProof = usesAdvancedQuantityAllocation(tasks.length, reviewExperience);
   const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
   const selectedCreativeNumber = tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1;
@@ -429,6 +430,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   const [decisionMessage, setDecisionMessage] = useState("");
   const [singleApprovalState, setSingleApprovalState] = useState<"idle" | "submitting" | "verifying" | "complete" | "error">("idle");
   const [singleApprovalMessage, setSingleApprovalMessage] = useState<string | null>(null);
+  const [changeRequestState, setChangeRequestState] = useState<"idle" | "submitting" | "verifying" | "complete" | "error">("idle");
+  const [changeRequestMessage, setChangeRequestMessage] = useState<string | null>(null);
   const assignmentOpener = useRef<HTMLButtonElement>(null);
   const summary = summarizeQuantityAssignment(lineQuantity, stagedTasks.map((task) => task.task_id), values);
   const saved = quantityDraftMatches(draft, stagedTasks, values);
@@ -475,9 +478,28 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         ? "Review and acknowledge the prepress team feedback before approving."
         : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
           ? "This proof is shared by multiple lines and requires a coordinated approval."
+          : selectedTask.decision_state
+            ? "A production action has already been requested for this proof."
           : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
             ? "This proof is not currently available for approval."
             : null;
+  const changeRequestBlocked = !decisionsEnabled
+    ? "Change requests are not enabled for this review link."
+    : !participantIdentified
+      ? "Identify the reviewer before requesting changes."
+      : tasks.length > 1 && reviewExperience === "simple"
+        ? "This line has multiple current proofs and requires coordinated support."
+      : selectedTask.feedback_required && !selectedTask.feedback_acknowledged
+        ? "Review and acknowledge the prepress team feedback before requesting changes."
+      : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
+        ? "This proof is shared by multiple lines and requires coordinated support."
+      : selectedTask.decision_state
+        ? "A production action has already been requested for this proof."
+      : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
+        ? "This proof is not currently available for a change request."
+      : !decisionMessage.trim()
+        ? "Describe the changes the prepress team should make."
+        : null;
   const revisionUploadBlocked = !revisionUploadEnabled
     ? "Revised artwork upload is not enabled for this review link."
     : !participantIdentified
@@ -508,6 +530,27 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
     } catch (error) {
       setSingleApprovalState("error");
       setSingleApprovalMessage(error instanceof Error ? error.message : "This proof could not be approved.");
+    }
+  };
+  const submitChangeRequest = async () => {
+    if (changeRequestBlocked || changeRequestState === "submitting") return;
+    setChangeRequestState("submitting");
+    setChangeRequestMessage(null);
+    try {
+      const outcome = await onRequestChanges(selectedTask, decisionMessage.trim());
+      if (outcome === "confirmed") {
+        setChangeRequestState("complete");
+        setChangeRequestMessage("Changes requested. The production team received your instructions.");
+      } else if (outcome === "reconciling" || outcome === "submission_uncertain") {
+        setChangeRequestState("verifying");
+        setChangeRequestMessage("Change request submitted. Vornan is checking the latest Lift proof status. Do not submit it again.");
+      } else {
+        setChangeRequestState("error");
+        setChangeRequestMessage("Lift did not accept this change request. Refresh the proof before taking another action.");
+      }
+    } catch (error) {
+      setChangeRequestState("error");
+      setChangeRequestMessage(error instanceof Error ? error.message : "Changes could not be requested for this proof.");
     }
   };
   return (
@@ -569,11 +612,11 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
       {!multiProof ? (
         <div className="single-decision-controls">
           <label className="single-decision-note">
-            <span>Message with decision (optional)</span>
+            <span>Message to the production team</span>
             <textarea
               value={decisionMessage}
               onChange={(event) => setDecisionMessage(event.target.value)}
-              placeholder="Add context for the production team with your approval"
+              placeholder="Required for change requests; optional for approval"
               maxLength={2000}
             />
           </label>
@@ -581,11 +624,15 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
             <button type="button" disabled={Boolean(singleApprovalBlocked) || singleApprovalState === "submitting" || singleApprovalState === "verifying" || singleApprovalState === "complete"} onClick={() => void submitSingleApproval()}>
               <ShieldCheck aria-hidden="true" /> {singleApprovalState === "submitting" ? "Approving…" : singleApprovalState === "verifying" ? "Checking Lift…" : singleApprovalState === "complete" ? "Approved" : "Approve"}
             </button>
+            <button className="request-changes" type="button" disabled={Boolean(changeRequestBlocked) || changeRequestState === "submitting" || changeRequestState === "verifying" || changeRequestState === "complete"} title={changeRequestBlocked ?? "Request changes"} onClick={() => void submitChangeRequest()}>
+              <MessageSquareText aria-hidden="true" /> {changeRequestState === "submitting" ? "Sending…" : changeRequestState === "verifying" ? "Checking Lift…" : changeRequestState === "complete" ? "Changes requested" : "Request changes"}
+            </button>
             <button type="button" disabled={Boolean(revisionUploadBlocked)} title={revisionUploadBlocked ?? "Provide revised artwork"} onClick={() => onRequestRevision(selectedTask)}><Upload aria-hidden="true" /> Provide revised artwork</button>
           </div>
           {singleApprovalBlocked ? <small className="decision-guidance">{singleApprovalBlocked}</small> : null}
           {!singleApprovalBlocked && revisionUploadBlocked ? <small className="decision-guidance revision-guidance">{revisionUploadBlocked}</small> : null}
           {singleApprovalMessage ? <p className={`decision-result ${singleApprovalState}`} role="status">{singleApprovalMessage}</p> : null}
+          {changeRequestMessage ? <p className={`decision-result ${changeRequestState}`} role="status">{changeRequestMessage}</p> : null}
         </div>
       ) : null}
       {multiProof ? (
@@ -692,6 +739,7 @@ export function App() {
   const refreshPollTimer = useRef<number | null>(null);
   const refreshPollAttempts = useRef(0);
   const approvalIdempotencyKeys = useRef(new Map<string, string>());
+  const changeRequestIdempotencyKeys = useRef(new Map<string, string>());
 
   const endLocalSession = () => {
     bootstrapPromise = null;
@@ -914,6 +962,46 @@ export function App() {
       // The server already completed the authoritative per-line ProofReport
       // reconciliation before returning this outcome. Reflect that new packet
       // immediately, even when Lift has not yet confirmed the decision.
+      bootstrapPromise = null;
+      const refreshed = await bootstrap();
+      setLoadState({
+        status: "ready",
+        order: refreshed.order,
+        participant: refreshed.participant,
+        activity: refreshed.activity,
+        session_expires_at: refreshed.session_expires_at
+      });
+      return result.decision.outcome;
+    } catch (error) {
+      if (error instanceof ProofApiError && error.status === 401) terminateSession();
+      throw error;
+    }
+  };
+
+  const requestSingleProofChanges = async (task: ProofTask, note: string) => {
+    if (loadState.status !== "ready" || !task.attachment_id || !task.current_version?.version_id) {
+      throw new Error("The selected proof is no longer current.");
+    }
+    const instructions = note.trim();
+    if (!instructions) {
+      throw new Error("Tell the prepress team what changes are needed.");
+    }
+    const identity = `${task.task_id}:${task.version ?? 0}:${task.current_version.version_id}`;
+    const idempotencyKey = changeRequestIdempotencyKeys.current.get(identity)
+      ?? `pdec_${crypto.randomUUID().replaceAll("-", "")}`;
+    changeRequestIdempotencyKeys.current.set(identity, idempotencyKey);
+    try {
+      const result = await requestProofChanges({
+        task_id: task.task_id,
+        attachment_id: task.attachment_id,
+        expected_task_version: task.version ?? 0,
+        expected_version_id: task.current_version.version_id,
+        idempotency_key: idempotencyKey,
+        note: instructions
+      });
+      if (result.decision.outcome === "confirmed") {
+        changeRequestIdempotencyKeys.current.delete(identity);
+      }
       bootstrapPromise = null;
       const refreshed = await bootstrap();
       setLoadState({
@@ -1312,6 +1400,7 @@ export function App() {
                 revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                 participantIdentified={Boolean(participant)}
                 onApproveSingle={approveSingleProof}
+                onRequestChanges={requestSingleProofChanges}
                 onRequestRevision={(task) => setRevisionUploadTaskId(task.task_id)}
               />
             </>
@@ -1396,6 +1485,7 @@ export function App() {
                   revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                   participantIdentified={Boolean(participant)}
                   onApproveSingle={approveSingleProof}
+                  onRequestChanges={requestSingleProofChanges}
                   onRequestRevision={(task) => setRevisionUploadTaskId(task.task_id)}
                   mobile
                 />

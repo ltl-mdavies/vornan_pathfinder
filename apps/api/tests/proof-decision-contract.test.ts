@@ -9,6 +9,7 @@ import {
 } from "@pathfinder/proof-domain";
 import {
   prepareProofApprovalDecision,
+  prepareProofChangeRequestDecision,
   ProofDecisionIntegrityError,
   type PrepareProofApprovalDecisionInput,
   type ProofDecisionIntegrityFailureCode
@@ -142,6 +143,23 @@ test("prepares a canonical approval intent without executing or persisting it", 
   });
   assert.equal(prepared.outcome, "prepared");
   assert.match(prepared.canonical_body_hash, /^[a-f0-9]{64}$/);
+});
+
+test("prepares a send-back intent only with meaningful prepress instructions", () => {
+  const input = validInput();
+  input.note = "  Increase the logo size and move it above the legal copy.  ";
+  const prepared = prepareProofChangeRequestDecision(input);
+  assert.equal(prepared.intent.decision, "send_back_to_artist");
+  assert.equal(prepared.intent.note, "Increase the logo size and move it above the legal copy.");
+
+  for (const note of [null, "", "   "]) {
+    const missing = validInput();
+    missing.note = note;
+    assert.throws(
+      () => prepareProofChangeRequestDecision(missing),
+      (error) => error instanceof ProofDecisionIntegrityError && error.code === "note_required"
+    );
+  }
 });
 
 test("hashes the canonical intent deterministically and excludes the idempotency key", () => {

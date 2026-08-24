@@ -14,7 +14,7 @@ test("builds the five exact runtime action bodies and omits quantity for simple 
     ["REJECT", { approve: false, rejectReason: "REJECT", userName: "VORNAN_PROOF" }],
     [
       "SEND_BACK_TO_ARTIST",
-      { approve: false, rejectReason: "SEND_BACK_TO_ARTIST", userName: "VORNAN_PROOF" }
+      { approve: false, rejectReason: "SEND_BACK_TO_ARTIST", userName: "VORNAN_PROOF", comment: "Move the logo above the legal copy." }
     ],
     [
       "CANCEL_LINE",
@@ -37,7 +37,7 @@ test("builds the five exact runtime action bodies and omits quantity for simple 
       action,
       company_id: "91",
       proofing_id: "proofing-synthetic-0001",
-      comment: null,
+      comment: action === "SEND_BACK_TO_ARTIST" ? "Move the logo above the legal copy." : null,
       revised_art_url:
         action === "REVISED_ART_WILL_BE_SENT"
           ? "https://files.example.invalid/revised-art.pdf"
@@ -47,6 +47,21 @@ test("builds the five exact runtime action bodies and omits quantity for simple 
     assert.deepEqual(plan.body, expectedBody);
     assert.match(plan.path, /91/);
     assert.match(plan.path, /proofing-synthetic-0001/);
+  }
+});
+
+test("requires meaningful prepress instructions for send back to artist", () => {
+  for (const comment of [null, "", "   "]) {
+    assert.throws(
+      () => buildLiftProofingRuntimePlan({
+        action: "SEND_BACK_TO_ARTIST",
+        company_id: "91",
+        proofing_id: "proofing-synthetic-0001",
+        comment,
+        revised_art_url: null
+      }),
+      /requires instructions for the prepress team/
+    );
   }
 });
 

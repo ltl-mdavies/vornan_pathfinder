@@ -31,7 +31,7 @@ export interface ProofTaskDecisionContext {
     | "CANCEL_LINE";
   attachment_id: string;
   recorded_at: string;
-  source: "pathfinder_operator_action";
+  source: "pathfinder_operator_action" | "pathfinder_customer_decision";
 }
 
 export type ProofOrderHealth = "active" | "complete" | "missing" | "stale" | "error";
@@ -220,7 +220,7 @@ export interface ProofFeedbackAcknowledgement {
   acknowledged_at: string;
 }
 
-export type ProofDecisionKind = "approve";
+export type ProofDecisionKind = "approve" | "send_back_to_artist";
 
 export interface ProofDecisionCanonicalIntent {
   decision: ProofDecisionKind;
@@ -1450,6 +1450,7 @@ export function recordProofTaskDecisionContext(
     attachment_id: string;
     action: ProofTaskDecisionContext["action"];
     recorded_at: string;
+    source?: ProofTaskDecisionContext["source"];
   }
 ) {
   const recordedAtEpoch = Date.parse(input.recorded_at);
@@ -1483,7 +1484,7 @@ export function recordProofTaskDecisionContext(
         action: input.action,
         attachment_id: input.attachment_id,
         recorded_at: input.recorded_at,
-        source: "pathfinder_operator_action" as const
+        source: input.source ?? "pathfinder_operator_action"
       },
       version: task.version + 1,
       updated_at: input.recorded_at

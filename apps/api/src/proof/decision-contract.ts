@@ -21,6 +21,7 @@ export type ProofDecisionIntegrityFailureCode =
   | "feedback_acknowledgement_required"
   | "feedback_acknowledgement_stale"
   | "idempotency_key_invalid"
+  | "note_required"
   | "note_invalid";
 
 export class ProofDecisionIntegrityError extends Error {
@@ -66,8 +67,9 @@ function canonicalBodyHash(intent: ProofDecisionCanonicalIntent) {
   return createHash("sha256").update(JSON.stringify(intent)).digest("hex");
 }
 
-export function prepareProofApprovalDecision(
-  input: PrepareProofApprovalDecisionInput
+function prepareProofDecision(
+  input: PrepareProofApprovalDecisionInput,
+  decision: ProofDecisionCanonicalIntent["decision"]
 ): ProofDecisionIntegrityContract {
   let requestedOrderNumber: string;
   try {
@@ -137,8 +139,12 @@ export function prepareProofApprovalDecision(
     fail("idempotency_key_invalid", "Proof decision idempotency key is invalid.");
   }
 
+  const note = normalizedNote(input.note);
+  if (decision === "send_back_to_artist" && !note) {
+    fail("note_required", "Tell the prepress team what changes are needed.");
+  }
   const intent: ProofDecisionCanonicalIntent = {
-    decision: "approve",
+    decision,
     order_number: input.order.order_number,
     task_id: task.task_id,
     attachment_id: task.attachment_id,
@@ -147,7 +153,7 @@ export function prepareProofApprovalDecision(
     expected_task_version: task.version,
     expected_version_id: version.version_id,
     feedback_fingerprint: version.feedback_fingerprint,
-    note: normalizedNote(input.note)
+    note
   };
 
   return {
@@ -156,4 +162,16 @@ export function prepareProofApprovalDecision(
     intent,
     outcome: "prepared"
   };
+}
+
+export function prepareProofApprovalDecision(
+  input: PrepareProofApprovalDecisionInput
+): ProofDecisionIntegrityContract {
+  return prepareProofDecision(input, "approve");
+}
+
+export function prepareProofChangeRequestDecision(
+  input: PrepareProofApprovalDecisionInput
+): ProofDecisionIntegrityContract {
+  return prepareProofDecision(input, "send_back_to_artist");
 }
