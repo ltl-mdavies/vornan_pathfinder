@@ -288,7 +288,11 @@ test("fails closed on orphaned or mismatched prepared audit records", async () =
     replace: async () => false
   });
   await assert.rejects(
-    () => orphaned.read(pair.record.intent.order_number, pair.record.idempotency_key),
+    () => orphaned.read(
+      pair.record.intent.order_number,
+      pair.record.idempotency_key,
+      new Date(pair.record.created_at)
+    ),
     expectLedgerFailure("prepared_audit_missing")
   );
 
@@ -304,7 +308,11 @@ test("fails closed on orphaned or mismatched prepared audit records", async () =
       replace: async () => false
     });
     await assert.rejects(
-      () => mismatched.read(pair.record.intent.order_number, pair.record.idempotency_key),
+      () => mismatched.read(
+        pair.record.intent.order_number,
+        pair.record.idempotency_key,
+        new Date(pair.record.created_at)
+      ),
       expectLedgerFailure("prepared_audit_mismatch")
     );
   }

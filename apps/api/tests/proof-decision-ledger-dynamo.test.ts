@@ -270,7 +270,11 @@ test("fails closed on an orphaned or mismatched Dynamo audit record", async () =
 
   storedAuditItem = undefined;
   await assert.rejects(
-    () => ledger.read(intent.order_number, prepared.idempotency_key),
+    () => ledger.read(
+      intent.order_number,
+      prepared.idempotency_key,
+      new Date("2026-07-23T18:30:00.000Z")
+    ),
     (error) => error instanceof ProofDecisionLedgerError && error.code === "prepared_audit_missing"
   );
 
@@ -284,7 +288,11 @@ test("fails closed on an orphaned or mismatched Dynamo audit record", async () =
     data: { S: JSON.stringify({ ...audit, actor_id: "unsafe@example.invalid" }) }
   };
   await assert.rejects(
-    () => ledger.read(intent.order_number, prepared.idempotency_key),
+    () => ledger.read(
+      intent.order_number,
+      prepared.idempotency_key,
+      new Date("2026-07-23T18:30:00.000Z")
+    ),
     (error) => error instanceof ProofDecisionLedgerError && error.code === "prepared_audit_mismatch"
   );
 });
