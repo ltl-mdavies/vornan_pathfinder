@@ -350,6 +350,88 @@ test("caps grants and sessions at the configured read-only activation deadline",
   }
 });
 
+test("uses grant and session TTLs for the persistent LTL Demo profile without an activation deadline", async () => {
+  const previousScope = process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+  const previousDeadline = process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT;
+  process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE =
+    "true||LTL_DEMO_ALL|true|true|true|true|true";
+  delete process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT;
+  const now = new Date("2026-08-24T19:00:00.000Z");
+  try {
+    const created = await access.createProofGrant({
+      order_number: order.order_number,
+      scope: "review",
+      capability: {
+        pathfinder_customer_id: "1249",
+        proof_customer_id: "1249",
+        identity_verified_at: "2026-08-13T15:59:00.000Z",
+        access_mode: "review",
+        review_experience: "simple",
+        source: "order_override",
+        policy_updated_at: "2026-08-13T16:00:00.000Z"
+      },
+      now
+    });
+    assert.equal(created.grant.expires_at, "2026-09-07T19:00:00.000Z");
+
+    const exchanged = await access.exchangeProofToken(
+      created.access_url.split("/").at(-1)!,
+      now,
+      async () => ({
+        customer: { lift_customer_id: "1249" },
+        proof_capability_policy: {
+          access_mode: "disabled",
+          review_experience: "simple",
+          customer_identity: {
+            proof_customer_id: "1249",
+            verified_order_number: "A0221132",
+            verified_at: "2026-08-13T15:59:00.000Z"
+          },
+          order_overrides: [{
+            order_number: "A0221132",
+            access_mode: "review",
+            review_experience: "simple",
+            updated_at: "2026-08-13T16:00:00.000Z"
+          }],
+          updated_at: "2026-08-13T16:00:00.000Z"
+        }
+      })
+    );
+    assert.equal(exchanged.session.expires_at, "2026-08-25T07:00:00.000Z");
+    assert.equal(
+      (await access.validateProofSession(
+        exchanged.raw_session,
+        new Date("2026-08-24T20:00:00.000Z"),
+        async () => ({
+          customer: { lift_customer_id: "1249" },
+          proof_capability_policy: {
+            access_mode: "disabled",
+            review_experience: "simple",
+            customer_identity: {
+              proof_customer_id: "1249",
+              verified_order_number: "A0221132",
+              verified_at: "2026-08-13T15:59:00.000Z"
+            },
+            order_overrides: [{
+              order_number: "A0221132",
+              access_mode: "review",
+              review_experience: "simple",
+              updated_at: "2026-08-13T16:00:00.000Z"
+            }],
+            updated_at: "2026-08-13T16:00:00.000Z"
+          }
+        })
+      )).session.session_id,
+      exchanged.session.session_id
+    );
+  } finally {
+    if (previousScope === undefined) delete process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+    else process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE = previousScope;
+    if (previousDeadline === undefined) delete process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT;
+    else process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = previousDeadline;
+  }
+});
+
 test("rejects an explicit grant expiry beyond the activation deadline", async () => {
   const previous = process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT;
   process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = "2026-07-21T12:00:00.000Z";
