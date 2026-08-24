@@ -103,7 +103,11 @@ function addMilliseconds(now: Date, milliseconds: number) {
 }
 
 function activationDeadline(now: Date, publicRequest = false) {
-  const configured = getProofRuntimeConfig().access.read_only_activation_expires_at;
+  const runtime = getProofRuntimeConfig();
+  if (runtime.ltl_demo_qa.active && runtime.ltl_demo_qa.persistent) {
+    return null;
+  }
+  const configured = runtime.access.read_only_activation_expires_at;
   const deadline = configured ? new Date(configured) : null;
   if (!deadline || !Number.isFinite(deadline.getTime()) || deadline.getTime() <= now.getTime()) {
     if (publicRequest) throw new ProofAccessDeniedError();
@@ -245,10 +249,10 @@ export async function createProofGrant(input: {
   if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) {
     throw new ProofAccessValidationError("Proof access expiry must be a valid future timestamp.");
   }
-  if (input.expires_at && expiresAt.getTime() > deadline.getTime()) {
+  if (input.expires_at && deadline && expiresAt.getTime() > deadline.getTime()) {
     throw new ProofAccessValidationError("Proof access expiry cannot exceed the read-only activation window.");
   }
-  const boundedExpiresAt = expiresAt.getTime() > deadline.getTime() ? deadline : expiresAt;
+  const boundedExpiresAt = deadline && expiresAt.getTime() > deadline.getTime() ? deadline : expiresAt;
   const rawToken = randomBytes(32).toString("base64url");
   const grant: ProofAccessGrant = {
     grant_id: `pgrant_${randomUUID()}`,
@@ -399,7 +403,7 @@ export async function updateProofGrant(
     if (!Number.isFinite(parsed.getTime()) || parsed.getTime() <= now.getTime()) {
       throw new ProofAccessValidationError("Proof access expiry must be a valid future timestamp.");
     }
-    if (parsed.getTime() > deadline.getTime()) {
+    if (deadline && parsed.getTime() > deadline.getTime()) {
       throw new ProofAccessValidationError("Proof access expiry cannot exceed the read-only activation window.");
     }
     expiresAt = parsed.toISOString();
@@ -457,7 +461,7 @@ export async function exchangeProofToken(
   const requestedSessionExpiry = addMilliseconds(now, config.access.session_ttl_minutes * 60 * 1000);
   const expiresAt = new Date(Math.min(
     requestedSessionExpiry.getTime(),
-    deadline.getTime(),
+    deadline?.getTime() ?? Number.POSITIVE_INFINITY,
     Date.parse(claimed.expires_at)
   ));
   const session: ProofAccessSession = {
@@ -544,7 +548,7 @@ export async function extendProofSession(rawSession: string, now = new Date()) {
   const deadline = activationDeadline(now, true);
   const expiresAt = new Date(Math.min(
     addMilliseconds(now, config.access.session_ttl_minutes * 60 * 1000).getTime(),
-    deadline.getTime(),
+    deadline?.getTime() ?? Number.POSITIVE_INFINITY,
     Date.parse(grant.expires_at)
   ));
   if (expiresAt.getTime() <= now.getTime()) {
