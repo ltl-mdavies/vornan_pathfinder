@@ -155,6 +155,115 @@ test("reports a redacted operator integration-health posture without exposing se
   }
 });
 
+test("lists source-neutral LTL Demo orders only through the persistent customer-1249 boundary", async () => {
+  const previousScope = process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+  const previousOrderUrl = process.env.PATHFINDER_PROOF_LIFT_ORDER_READ_URL;
+  process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE =
+    "true||LTL_DEMO_ALL|true|true|true|true|true";
+  process.env.PATHFINDER_PROOF_LIFT_ORDER_READ_URL =
+    "https://lift.example/AS360Orders/N?offset=0&token=server-only";
+  try {
+    let receivedBaseUrl = "";
+    let receivedInput: Record<string, unknown> | null = null;
+    const response = await request(appWith({
+      readCustomerOrders: async (baseUrl, input) => {
+        receivedBaseUrl = baseUrl;
+        receivedInput = input as unknown as Record<string, unknown>;
+        return {
+          adapter_version: "as360_orders_v2",
+          customer_id: "1249",
+          query: { order_number: null, days_back: 30 },
+          total_count: 1,
+          returned_count: 1,
+          truncated: false,
+          orders: [{
+            source: "as360_orders_v2",
+            source_order_reference: "A0229276",
+            order_number: "A0229276",
+            customer_id: "1249",
+            customer_name: "LTL Demo",
+            order_title: "Proof QA clone",
+            po_number: "LTL1249-HEW-002",
+            creation_date: "2026-08-24",
+            created_by: "PATHFINDER",
+            order_type_name: "Premium Graphics",
+            order_status: "Pending Art Approval",
+            order_step_id: "1037",
+            header_step_number: 7.02,
+            line_count: 3,
+            proof_availability: "not_checked",
+            lines: []
+          }]
+        };
+      }
+    }))
+      .get("/api/proof/customer-orders?days_back=30")
+      .expect(200);
+
+    assert.equal(receivedBaseUrl.includes("token=server-only"), true);
+    assert.equal(receivedInput?.verified_customer_id, "1249");
+    assert.equal(receivedInput?.days_back, 30);
+    assert.equal(receivedInput?.result_limit, 100);
+    assert.equal(response.headers["cache-control"], "private, no-store, max-age=0");
+    assert.equal(response.body.orders[0].order_number, "A0229276");
+    assert.equal(JSON.stringify(response.body).includes("token=server-only"), false);
+  } finally {
+    if (previousScope === undefined) delete process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+    else process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE = previousScope;
+    if (previousOrderUrl === undefined) delete process.env.PATHFINDER_PROOF_LIFT_ORDER_READ_URL;
+    else process.env.PATHFINDER_PROOF_LIFT_ORDER_READ_URL = previousOrderUrl;
+  }
+});
+
+test("keeps customer order discovery default-dark outside persistent LTL Demo QA", async () => {
+  const previousScope = process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+  delete process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+  let readAttempted = false;
+  try {
+    const response = await request(appWith({
+      readCustomerOrders: async () => {
+        readAttempted = true;
+        throw new Error("must not read");
+      }
+    }))
+      .get("/api/proof/customer-orders?days_back=30")
+      .expect(503);
+    assert.equal(readAttempted, false);
+    assert.equal(response.body.error, "LTL Demo order discovery is disabled.");
+  } finally {
+    if (previousScope === undefined) delete process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+    else process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE = previousScope;
+  }
+});
+
+test("syncs a discovered order with the exact verified customer boundary", async () => {
+  const previousScope = process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+  process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE =
+    "true||LTL_DEMO_ALL|true|true|true|true|true";
+  try {
+    const lifecycle: string[] = [];
+    const discoveredOrder = { ...cachedOrder, order_number: "A0229276" };
+    const response = await request(appWith({
+      syncOrderForGrant: async (orderNumber, options) => {
+        lifecycle.push(orderNumber);
+        assert.deepEqual(options.allowed_customer_ids, ["1249"]);
+        assert.equal(options.audit_context?.actor_id, "operator-route-qa");
+        return successfulSync(discoveredOrder);
+      }
+    }))
+      .post("/api/proof/customer-orders/A0229276/sync")
+      .set("X-Request-Id", "source-neutral-sync-1")
+      .send({})
+      .expect(200);
+    assert.deepEqual(lifecycle, ["A0229276"]);
+    assert.equal(response.body.order.order_number, "A0229276");
+    assert.equal(response.body.customer_capability.proof_customer_id, "1249");
+  } finally {
+    if (previousScope === undefined) delete process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+    else process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE = previousScope;
+  }
+});
+
 test("performs no cache lookup or Lift sync while grant creation is disabled", async () => {
   const lifecycle: string[] = [];
   process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "false";
