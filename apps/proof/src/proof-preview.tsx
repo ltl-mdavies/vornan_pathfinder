@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ExternalLink, FileText, Minus, Plus, RefreshCw } from "lucide-react";
-import { proofAsset } from "./asset-state";
+import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
 import type { ProofVersion } from "./types";
 
 type ProofPreviewProps = {
@@ -37,8 +37,27 @@ export function ProofPreview({ version, refreshing = false, quality = "high" }: 
   const asset = proofAsset(version);
   const source = quality === "high" ? asset.display : asset.preview;
   const sourceKind = quality === "high" ? asset.display_kind : asset.kind;
-  const sourceIdentity = [version?.version_id ?? "none", source ?? "none", asset.preview ?? "none", sourceKind].join("|");
+  const sourceIdentity = proofPreviewSourceIdentity({
+    version_id: version?.version_id ?? null,
+    source,
+    preview_source: asset.preview,
+    source_kind: sourceKind
+  });
   return <ProofPreviewSource key={sourceIdentity} version={version} refreshing={refreshing} quality={quality} asset={asset} source={source} sourceKind={sourceKind} />;
+}
+
+export function proofPreviewSourceIdentity(input: {
+  version_id: string | null;
+  source: string | null;
+  preview_source: string | null;
+  source_kind: string;
+}) {
+  return [
+    input.version_id ?? "none",
+    stableProofAssetUrlIdentity(input.source) ?? input.source ?? "none",
+    stableProofAssetUrlIdentity(input.preview_source) ?? input.preview_source ?? "none",
+    input.source_kind
+  ].join("|");
 }
 
 type ProofPreviewSourceProps = ProofPreviewProps & {
