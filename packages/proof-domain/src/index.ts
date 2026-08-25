@@ -149,7 +149,7 @@ export interface ProofGrantCapabilityBinding {
   identity_verified_at: string;
   access_mode: "view_only" | "review";
   review_experience: ProofReviewExperience;
-  source: "customer_default" | "order_override";
+  source: "customer_default" | "order_override" | "ltl_demo_qa";
   policy_updated_at: string;
 }
 
@@ -365,7 +365,7 @@ export interface ProofAuditMetadata {
   grant_status?: ProofGrantStatus;
   customer_proof_access_mode?: "view_only" | "review";
   customer_proof_review_experience?: ProofReviewExperience;
-  customer_proof_policy_source?: "customer_default" | "order_override";
+  customer_proof_policy_source?: "customer_default" | "order_override" | "ltl_demo_qa";
   customer_proof_policy_updated_at?: string;
   delivery_mode?: "log" | "ses";
   delivery_status?: "logged" | "sent" | "failed";

@@ -253,7 +253,7 @@ export interface ResolvedCustomerProofCapability {
   customer_name: string | null;
   access_mode: CustomerProofAccessMode;
   review_experience: CustomerProofReviewExperience;
-  source: "customer_default" | "order_override" | "safe_default";
+  source: "customer_default" | "order_override" | "ltl_demo_qa" | "safe_default";
   policy_updated_at: string | null;
 }
 

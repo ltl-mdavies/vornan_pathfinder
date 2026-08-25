@@ -160,6 +160,36 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
     return config;
   };
 
+  const resolveSourceNeutralLtlDemoCapability = async (
+    config: NonNullable<ReturnType<typeof ltlDemoDiscoveryConfig>>,
+    orderNumber: string
+  ) => {
+    const capability = await resolveCustomerCapabilityForCustomerOrder(
+      config.ltl_demo_qa.allowed_customer_id,
+      orderNumber
+    );
+    if (capability.access_mode === "review") return capability;
+    if (
+      capability.association_status !== "associated" ||
+      capability.pathfinder_customer_id !== config.ltl_demo_qa.allowed_customer_id ||
+      capability.proof_customer_id !== config.ltl_demo_qa.allowed_customer_id ||
+      !capability.identity_verified_at ||
+      !capability.policy_updated_at ||
+      !config.ltl_demo_qa.grant_creation_enabled ||
+      !config.ltl_demo_qa.public_read_enabled ||
+      (!config.ltl_demo_qa.customer_approval_enabled &&
+        !config.ltl_demo_qa.asset_upload_enabled)
+    ) {
+      return capability;
+    }
+    return {
+      ...capability,
+      access_mode: "review" as const,
+      review_experience: "simple" as const,
+      source: "ltl_demo_qa" as const
+    };
+  };
+
   router.get("/health/lift", (_req, res) => {
     assertLiftProofWritesDisabled();
     const config = getProofRuntimeConfig();
@@ -277,8 +307,8 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
       });
       res.json({
         ...result,
-        customer_capability: await resolveCustomerCapabilityForCustomerOrder(
-          config.ltl_demo_qa.allowed_customer_id,
+        customer_capability: await resolveSourceNeutralLtlDemoCapability(
+          config,
           result.order.order_number
         )
       });
@@ -525,8 +555,8 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
       ) {
         cached = await getOrderForGrant(orderNumber);
         if (cached?.customer_id === sourceNeutralConfig.ltl_demo_qa.allowed_customer_id) {
-          customerCapability = await resolveCustomerCapabilityForCustomerOrder(
-            sourceNeutralConfig.ltl_demo_qa.allowed_customer_id,
+          customerCapability = await resolveSourceNeutralLtlDemoCapability(
+            sourceNeutralConfig,
             orderNumber
           );
         }
