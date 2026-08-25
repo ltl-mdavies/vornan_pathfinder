@@ -83,7 +83,7 @@ test("a newly selected proof render never contains the prior proof URL", () => {
   assert.doesNotMatch(nextMarkup, /north-wall-(?:full|preview)\.jpg/);
 });
 
-test("keeps the safe image preview available beside a high-resolution PDF", () => {
+test("embeds a high-resolution PDF without blocking Chrome's native viewer and keeps the safe image fallback", () => {
   const markup = renderToStaticMarkup(createElement(ProofPreview, {
     version: imageVersion({
       filename: "north-wall-final.pdf",
@@ -94,7 +94,10 @@ test("keeps the safe image preview available beside a high-resolution PDF", () =
     })
   }));
 
+  assert.match(markup, /<iframe/);
   assert.match(markup, /src="https:\/\/files\.example\/north-wall-full\.pdf"/);
+  assert.match(markup, /referrerPolicy="no-referrer"/);
+  assert.doesNotMatch(markup, /sandbox=/);
   assert.match(markup, /class="proof-document-help"/);
   assert.match(markup, />Use preview image<\/button>/);
 });

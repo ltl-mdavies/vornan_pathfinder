@@ -253,7 +253,6 @@ function ProofPreviewSource({ version, refreshing = false, quality = "high", ass
           className={`proof-frame ${loaded ? "loaded" : "loading"}`}
           src={activeSource}
           referrerPolicy="no-referrer"
-          sandbox="allow-same-origin"
           loading={quality === "high" ? "eager" : "lazy"}
           title={`PDF proof preview for ${version?.filename ?? "selected artwork"}`}
           aria-describedby={helpId}
