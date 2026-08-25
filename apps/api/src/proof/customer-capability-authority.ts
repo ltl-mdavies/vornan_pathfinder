@@ -1,5 +1,7 @@
 import { DynamoDBClient, GetItemCommand } from "@aws-sdk/client-dynamodb";
 import type { ProofAccessGrant, ProofAccessSession, ProofGrantCapabilityBinding } from "@pathfinder/proof-domain";
+import { ltlDemoQaOrderAllowed } from "./ltl-demo-qa-profile.js";
+import { getProofRuntimeConfig } from "./runtime-config.js";
 
 type WorkspacePolicyRecord = {
   customer?: { lift_customer_id?: unknown };
@@ -76,6 +78,41 @@ export function proofCapabilityBindingMatchesWorkspace(
   );
 }
 
+export function proofLtlDemoQaBindingMatchesWorkspace(
+  binding: ProofGrantCapabilityBinding,
+  orderNumber: string,
+  scope: ProofAccessGrant["scope"],
+  workspace: WorkspacePolicyRecord | null
+) {
+  const profile = getProofRuntimeConfig().ltl_demo_qa;
+  const policy = workspace?.proof_capability_policy;
+  const identity = policy?.customer_identity;
+  const override = (policy?.order_overrides ?? []).find(
+    (candidate) => candidate?.order_number === orderNumber
+  );
+  const policyUpdatedAt = exactTimestamp(override?.updated_at ?? policy?.updated_at);
+  return Boolean(
+    binding.source === "ltl_demo_qa" &&
+    profile.active &&
+    profile.persistent &&
+    profile.grant_creation_enabled &&
+    profile.public_read_enabled &&
+    ltlDemoQaOrderAllowed(profile, orderNumber) &&
+    workspace?.customer?.lift_customer_id === profile.allowed_customer_id &&
+    binding.pathfinder_customer_id === profile.allowed_customer_id &&
+    binding.proof_customer_id === profile.allowed_customer_id &&
+    identity?.proof_customer_id === binding.proof_customer_id &&
+    exactTimestamp(identity?.verified_at) === binding.identity_verified_at &&
+    /^A\d{7,8}$/.test(String(identity?.verified_order_number ?? "")) &&
+    policyUpdatedAt === binding.policy_updated_at &&
+    binding.review_experience === "simple" &&
+    (scope === "view" || (
+      binding.access_mode === "review" &&
+      (profile.customer_approval_enabled || profile.asset_upload_enabled)
+    ))
+  );
+}
+
 async function readDynamoWorkspace(pathfinderCustomerId: string) {
   const tableName = process.env.PATHFINDER_PROOF_CUSTOMER_WORKSPACES_TABLE?.trim();
   if (!tableName || !/^[A-Za-z0-9_.-]{3,255}$/.test(tableName)) return null;
@@ -109,6 +146,14 @@ export async function revalidateProofCustomerCapability(
   }
   try {
     const workspace = await readWorkspace(binding.pathfinder_customer_id);
+    if (binding.source === "ltl_demo_qa") {
+      return proofLtlDemoQaBindingMatchesWorkspace(
+        binding,
+        subject.order_number,
+        subject.scope,
+        workspace
+      );
+    }
     return proofCapabilityBindingMatchesWorkspace(
       binding,
       subject.order_number,
