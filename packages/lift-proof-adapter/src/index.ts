@@ -1,5 +1,7 @@
 import { liftOrderLines, liftRows, normalizeLiftOrderNumber } from "@pathfinder/proof-domain";
 
+export * from "./as360-orders-v2.js";
+
 export const DEFAULT_LIFT_PROOF_ORDER_READ_URL =
   "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360Orders/N?offset=0";
 export const DEFAULT_LIFT_PROOF_REPORT_READ_URL =
@@ -72,9 +74,20 @@ function configuredBaseUrl(value: string, label: string) {
   }
 }
 
-export function buildLiftProofOrderReadUrl(baseUrl: string, orderNumber: string) {
+export function buildLiftProofOrderReadUrl(
+  baseUrl: string,
+  orderNumber: string,
+  verifiedCustomerId?: string | null
+) {
   const url = configuredBaseUrl(baseUrl, "Lift proof order read URL");
   url.searchParams.set("p0", normalizeLiftOrderNumber(orderNumber));
+  if (verifiedCustomerId?.trim()) {
+    if (!/^\d{1,20}$/.test(verifiedCustomerId.trim())) {
+      throw new Error("Verified Lift customer ID must be numeric.");
+    }
+    url.searchParams.set("p1", verifiedCustomerId.trim());
+  }
+  url.searchParams.delete("p2");
   return url.toString();
 }
 
@@ -155,6 +168,7 @@ export async function readLiftProofOrder(
     config?: Partial<LiftProofReadConfig>;
     fetcher?: LiftProofFetch;
     fetched_at?: string;
+    verified_customer_id?: string | null;
     isProofReadableOrderRow?: (row: Record<string, unknown>) => boolean;
     validateOrderPayload?: (payload: unknown) => void;
   } = {}
@@ -162,7 +176,11 @@ export async function readLiftProofOrder(
   const normalizedOrderNumber = normalizeLiftOrderNumber(orderNumber);
   const config = { ...getDefaultLiftProofReadConfig(), ...(options.config ?? {}) };
   const fetcher = options.fetcher ?? fetch;
-  const orderUrl = buildLiftProofOrderReadUrl(config.order_read_url, normalizedOrderNumber);
+  const orderUrl = buildLiftProofOrderReadUrl(
+    config.order_read_url,
+    normalizedOrderNumber,
+    options.verified_customer_id
+  );
   const orderPayload = await readJson(fetcher, orderUrl, config.timeout_ms);
   options.validateOrderPayload?.(orderPayload);
   const configuredEligibility =

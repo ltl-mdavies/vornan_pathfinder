@@ -6,10 +6,42 @@ import {
   buildProofActionDraft,
   canBindDeliveredRevisionAsset,
   canCreateProofReviewGrant,
+  canOpenDiscoveredProofOrder,
   canPublishClearedRevisedArt,
   isProofAssetId,
   type ProofAssetUploadSummary
 } from "../src/ProofOpsPanel";
+
+const discoveredOrder = {
+  source: "as360_orders_v2" as const,
+  source_order_reference: "A0229276",
+  order_number: "A0229276",
+  customer_id: "1249",
+  customer_name: "LTL Demo",
+  order_title: "Proof QA clone",
+  po_number: "LTL1249-HEW-002",
+  creation_date: "2026-08-24",
+  order_type_name: "Premium Graphics",
+  order_status: "Pending Art Approval",
+  line_count: 3,
+  proof_availability: "not_checked" as const
+};
+
+test("opens only exact non-cancelled customer-1249 orders from the versioned discovery adapter", () => {
+  assert.equal(canOpenDiscoveredProofOrder(discoveredOrder), true);
+  assert.equal(canOpenDiscoveredProofOrder({ ...discoveredOrder, customer_id: "3201" }), false);
+  assert.equal(canOpenDiscoveredProofOrder({ ...discoveredOrder, order_number: "C316945" }), false);
+  assert.equal(canOpenDiscoveredProofOrder({ ...discoveredOrder, order_status: "Canceled" }), false);
+});
+
+test("renders the customer-bound Lift order browser without implying proof availability", async () => {
+  const source = await readFile(new URL("../src/ProofOpsPanel.tsx", import.meta.url), "utf8");
+  assert.match(source, /LTL Demo · Lift orders/);
+  assert.match(source, /\/api\/proof\/customer-orders\?days_back=/);
+  assert.match(source, /\/api\/proof\/customer-orders\/\$\{discovered\.order_number\}\/sync/);
+  assert.match(source, /Proofs checked when opened/);
+  assert.match(source, /health\?\.ltl_demo_qa\.active && health\.ltl_demo_qa\.all_ltl_demo_orders/);
+});
 
 const clearedRevisionAsset: ProofAssetUploadSummary = {
   asset_id: `passet_${"a".repeat(64)}`,

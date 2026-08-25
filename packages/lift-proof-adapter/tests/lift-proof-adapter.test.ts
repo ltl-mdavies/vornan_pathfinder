@@ -15,16 +15,45 @@ function jsonResponse(payload: unknown, status = 200) {
   });
 }
 
-test("builds the documented p0 and p1/p2 Lift read queries", () => {
-  const orderUrl = new URL(buildLiftProofOrderReadUrl("https://admin.example/AS360Orders?offset=0", "a0221132"));
+test("builds tenant-bound p0+p1 order reads and p1/p2 proof-report reads", () => {
+  const orderUrl = new URL(
+    buildLiftProofOrderReadUrl(
+      "https://admin.example/AS360Orders?offset=0&p2=30",
+      "a0221132",
+      "1249"
+    )
+  );
   const proofUrl = new URL(
     buildLiftProofReportReadUrl("https://admin.example/AS360ProofReport?offset=0", "A0221132", "9301338")
   );
 
   assert.equal(orderUrl.searchParams.get("p0"), "A0221132");
+  assert.equal(orderUrl.searchParams.get("p1"), "1249");
+  assert.equal(orderUrl.searchParams.has("p2"), false);
   assert.equal(proofUrl.searchParams.get("p1"), "A0221132");
   assert.equal(proofUrl.searchParams.get("p2"), "9301338");
   assert.equal(LIFT_PROOF_WRITE_CAPABILITY, "not_implemented");
+});
+
+test("includes the verified customer boundary on exact Proof order reads", async () => {
+  let orderUrl = "";
+  await readLiftProofOrder("A0229276", {
+    verified_customer_id: "1249",
+    fetcher: async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.includes("orders")) {
+        orderUrl = url.toString();
+        return jsonResponse({ rowset: [] });
+      }
+      return jsonResponse({ rowset: [] });
+    },
+    config: {
+      order_read_url: "https://admin.example/orders",
+      proof_report_read_url: "https://admin.example/proofs"
+    }
+  });
+  assert.equal(new URL(orderUrl).searchParams.get("p0"), "A0229276");
+  assert.equal(new URL(orderUrl).searchParams.get("p1"), "1249");
 });
 
 test("performs line-scoped report reads with bounded concurrency", async () => {

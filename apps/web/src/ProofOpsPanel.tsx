@@ -49,6 +49,42 @@ interface ProofOrderSummary {
   } | null;
 }
 
+interface DiscoveredCustomerOrder {
+  source: "as360_orders_v2";
+  source_order_reference: string;
+  order_number: string;
+  customer_id: string;
+  customer_name: string | null;
+  order_title: string | null;
+  po_number: string | null;
+  creation_date: string;
+  order_type_name: string | null;
+  order_status: string | null;
+  line_count: number;
+  proof_availability: "not_checked";
+}
+
+interface CustomerOrderDiscoveryResult {
+  adapter_version: "as360_orders_v2";
+  customer_id: string;
+  query: { order_number: string | null; days_back: number | null };
+  total_count: number;
+  returned_count: number;
+  truncated: boolean;
+  orders: DiscoveredCustomerOrder[];
+}
+
+const ORDER_HISTORY_DAY_OPTIONS = [1, 7, 30, 90, 180, 360] as const;
+
+export function canOpenDiscoveredProofOrder(order: DiscoveredCustomerOrder) {
+  return Boolean(
+    order.source === "as360_orders_v2" &&
+      order.customer_id === "1249" &&
+      /^A\d{7,8}$/.test(order.order_number) &&
+      !/cancel/i.test(order.order_status ?? "")
+  );
+}
+
 export interface ProofTaskSummary {
   task_id: string;
   order_line_id: string | null;
@@ -412,6 +448,9 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
   const [reviewerGrantId, setReviewerGrantId] = useState<string | null>(null);
   const [reviewers, setReviewers] = useState<Record<string, ProofParticipant[]>>({});
   const [qaOrders, setQaOrders] = useState<string[]>(initialQaOrders);
+  const [orderHistoryDays, setOrderHistoryDays] = useState<(typeof ORDER_HISTORY_DAY_OPTIONS)[number]>(30);
+  const [discoveredOrders, setDiscoveredOrders] = useState<CustomerOrderDiscoveryResult | null>(null);
+  const [orderDiscoveryLoading, setOrderDiscoveryLoading] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [proofAction, setProofAction] = useState<ProofActionDraftKind>("APPROVE");
   const [allocationQuantities, setAllocationQuantities] = useState<Record<string, number>>({});
@@ -564,6 +603,59 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
       setMessage(`Proof order ${payload.order.order_number} synchronized.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Proof order synchronization failed.");
+    } finally {
+      setState("idle");
+    }
+  }
+
+  async function loadCustomerOrders() {
+    setOrderDiscoveryLoading(true);
+    setMessage(null);
+    try {
+      const payload = await responseJson<CustomerOrderDiscoveryResult>(
+        await request(`/api/proof/customer-orders?days_back=${orderHistoryDays}`)
+      );
+      setDiscoveredOrders(payload);
+      setMessage(
+        payload.orders.length
+          ? `Loaded ${payload.orders.length} LTL Demo order${payload.orders.length === 1 ? "" : "s"} directly from Lift.`
+          : "No LTL Demo orders were created during this period."
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "LTL Demo orders could not be loaded.");
+    } finally {
+      setOrderDiscoveryLoading(false);
+    }
+  }
+
+  async function openDiscoveredOrder(discovered: DiscoveredCustomerOrder) {
+    if (!canOpenDiscoveredProofOrder(discovered)) {
+      setMessage("This Lift order is not eligible for the LTL Demo Proof workspace.");
+      return;
+    }
+    setState("loading");
+    setMessage(null);
+    setOneTimeAccess(null);
+    setOrderNumber(discovered.order_number);
+    try {
+      const payload = await responseJson<{
+        order: ProofOrderSummary;
+        customer_capability: ResolvedCustomerProofCapability;
+      }>(
+        await request(`/api/proof/customer-orders/${discovered.order_number}/sync`, {
+          method: "POST",
+          body: "{}"
+        })
+      );
+      setOrder(payload.order);
+      setCustomerCapability(payload.customer_capability);
+      setActionRequiresFreshSync(false);
+      addQaOrder(payload.order.order_number);
+      await loadGrants(payload.order.order_number);
+      await loadAudit(payload.order.order_number).catch(() => undefined);
+      setMessage(`Opened ${payload.order.order_number} from the customer-bound Lift order source.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The selected Lift order could not be opened in Proof.");
     } finally {
       setState("idle");
     }
@@ -1151,6 +1243,75 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
           <Plus size={16} /> Add to test set
         </button>
       </div>
+
+      {health?.ltl_demo_qa.active && health.ltl_demo_qa.all_ltl_demo_orders ? (
+        <section className="proof-order-discovery" aria-labelledby="proof-order-discovery-title">
+          <div className="proof-order-discovery-heading">
+            <div>
+              <span className="eyebrow">LTL Demo · Lift orders</span>
+              <h4 id="proof-order-discovery-title">Open Proof directly from the customer order history.</h4>
+              <p>Orders come from Lift through the verified customer 1249 boundary. Proof availability is checked only after you open an order.</p>
+            </div>
+            <div className="proof-order-discovery-controls">
+              <label>
+                Created within
+                <select
+                  value={orderHistoryDays}
+                  onChange={(event) => setOrderHistoryDays(Number(event.target.value) as (typeof ORDER_HISTORY_DAY_OPTIONS)[number])}
+                >
+                  {ORDER_HISTORY_DAY_OPTIONS.map((days) => (
+                    <option value={days} key={days}>{days === 1 ? "Today" : `${days} days`}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={orderDiscoveryLoading || state === "loading"}
+                onClick={() => void loadCustomerOrders()}
+              >
+                <RefreshCw size={16} /> {orderDiscoveryLoading ? "Loading" : "Load Lift orders"}
+              </button>
+            </div>
+          </div>
+          {discoveredOrders ? (
+            <div className="proof-order-discovery-results">
+              <div className="proof-order-discovery-count">
+                <strong>{discoveredOrders.returned_count} order{discoveredOrders.returned_count === 1 ? "" : "s"}</strong>
+                <span>{discoveredOrders.truncated ? `Showing the first ${discoveredOrders.returned_count} of ${discoveredOrders.total_count}` : "Source-neutral Lift results"}</span>
+              </div>
+              {discoveredOrders.orders.length ? (
+                <div className="proof-order-discovery-list">
+                  {discoveredOrders.orders.map((discovered) => {
+                    const canOpen = canOpenDiscoveredProofOrder(discovered);
+                    return (
+                      <article key={discovered.order_number}>
+                        <div>
+                          <span>{discovered.creation_date}</span>
+                          <strong>{discovered.order_title ?? discovered.order_number}</strong>
+                          <small>{discovered.order_number} · {discovered.po_number ?? "No PO"}</small>
+                        </div>
+                        <div className="proof-order-discovery-meta">
+                          <span>{discovered.order_status ?? "Status unavailable"}</span>
+                          <small>{discovered.line_count} line{discovered.line_count === 1 ? "" : "s"} · Proofs checked when opened</small>
+                        </div>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={!canOpen || state === "loading"}
+                          onClick={() => void openDiscoveredOrder(discovered)}
+                        >
+                          {canOpen ? "Open Proofs" : "Unavailable"}
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       {qaOrders.length ? (
         <div className="proof-qa-order-set" aria-label="Proof action test order set">

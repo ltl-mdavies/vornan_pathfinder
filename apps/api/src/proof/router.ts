@@ -1,7 +1,12 @@
 import { Router, type Request, type Response } from "express";
 import { InvalidLiftOrderNumberError, LiftOrderNotFoundError, normalizeLiftOrderNumber } from "@pathfinder/proof-domain";
-import { LiftProofReadError } from "@pathfinder/lift-proof-adapter";
+import {
+  As360OrdersV2Error,
+  LiftProofReadError,
+  readAs360OrdersV2
+} from "@pathfinder/lift-proof-adapter";
 import { assertLiftProofWritesDisabled, getProofRuntimeConfig } from "./runtime-config.js";
+import { ltlDemoQaOrderAllowed } from "./ltl-demo-qa-profile.js";
 import { getProofOperatorActionQaConfig } from "./operator-action-config.js";
 import { getProofGrantById, getProofOrder, listProofAuditEvents, listProofParticipants } from "./store.js";
 import { syncProofOrder } from "./service.js";
@@ -58,6 +63,9 @@ function errorStatus(error: unknown) {
   if (error instanceof LiftProofReadError) {
     return error.status === 404 ? 404 : 502;
   }
+  if (error instanceof As360OrdersV2Error) {
+    return error.code === "invalid_request" ? 400 : 502;
+  }
   if (error instanceof ProofAccessFeatureDisabledError) {
     return 503;
   }
@@ -113,6 +121,7 @@ export interface ProofAdminRouterDependencies {
   resolveCustomerCapability?: (
     orderNumber: string
   ) => Promise<ResolvedCustomerProofCapability>;
+  readCustomerOrders?: typeof readAs360OrdersV2;
 }
 
 export function createProofAdminRouter(dependencies: ProofAdminRouterDependencies = {}) {
@@ -129,6 +138,19 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
     dependencies.assetPublicationService ?? createProofAssetPublicationService();
   const resolveCustomerCapability =
     dependencies.resolveCustomerCapability ?? resolveCustomerProofCapabilityForOrder;
+  const readCustomerOrders = dependencies.readCustomerOrders ?? readAs360OrdersV2;
+
+  const ltlDemoDiscoveryConfig = () => {
+    const config = getProofRuntimeConfig();
+    if (
+      !config.ltl_demo_qa.active ||
+      !config.ltl_demo_qa.all_ltl_demo_orders ||
+      config.ltl_demo_qa.allowed_customer_id !== "1249"
+    ) {
+      return null;
+    }
+    return config;
+  };
 
   router.get("/health/lift", (_req, res) => {
     assertLiftProofWritesDisabled();
@@ -200,6 +222,60 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
           operatorActionQa.enabled && assetPublication.enabled
       }
     });
+  });
+
+  router.get("/customer-orders", async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    try {
+      assertLiftProofWritesDisabled();
+      const config = ltlDemoDiscoveryConfig();
+      if (!config) {
+        res.status(503).json({ error: "LTL Demo order discovery is disabled." });
+        return;
+      }
+      const daysBack = Number(req.query.days_back ?? 30);
+      const orderNumber =
+        typeof req.query.order_number === "string" && req.query.order_number.trim()
+          ? normalizeLiftOrderNumber(req.query.order_number)
+          : null;
+      const result = await readCustomerOrders(config.read.order_read_url, {
+        verified_customer_id: config.ltl_demo_qa.allowed_customer_id,
+        order_number: orderNumber,
+        days_back: orderNumber ? null : daysBack,
+        result_limit: 100,
+        timeout_ms: config.read.timeout_ms
+      });
+      res.json(result);
+    } catch (error) {
+      res.status(errorStatus(error)).json({
+        error: error instanceof Error ? error.message : "LTL Demo orders could not be read."
+      });
+    }
+  });
+
+  router.post("/customer-orders/:orderNumber/sync", async (req, res) => {
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
+    try {
+      assertLiftProofWritesDisabled();
+      const config = ltlDemoDiscoveryConfig();
+      const orderNumber = normalizeLiftOrderNumber(req.params.orderNumber);
+      if (!config || !ltlDemoQaOrderAllowed(config.ltl_demo_qa, orderNumber)) {
+        res.status(403).json({ error: "Proof order is outside the active LTL Demo discovery boundary." });
+        return;
+      }
+      const result = await syncOrderForGrant(orderNumber, {
+        audit_context: operatorAuditContext(req, res),
+        allowed_customer_ids: [config.ltl_demo_qa.allowed_customer_id]
+      });
+      res.json({
+        ...result,
+        customer_capability: await resolveCustomerCapability(result.order.order_number)
+      });
+    } catch (error) {
+      res.status(errorStatus(error)).json({
+        error: error instanceof Error ? error.message : "LTL Demo Proof sync failed."
+      });
+    }
   });
 
   const operatorUid = (res: Response) => {

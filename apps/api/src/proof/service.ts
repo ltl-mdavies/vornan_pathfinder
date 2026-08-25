@@ -176,10 +176,15 @@ export async function syncProofOrder(
   try {
     const previous = await getProofOrder(orderNumber);
     const config = getProofRuntimeConfig();
+    const verifiedCustomerId =
+      options.allowed_customer_ids?.length === 1
+        ? options.allowed_customer_ids[0]
+        : null;
     const readSnapshot = () => readLiftProofOrder(orderNumber, {
       config: config.read,
       fetcher: options.fetcher,
       fetched_at: options.synced_at,
+      verified_customer_id: verifiedCustomerId,
       validateOrderPayload: (payload) => {
             assertRequestedLiftOrder(payload, orderNumber);
             if (!options.allowed_customer_ids) return;
