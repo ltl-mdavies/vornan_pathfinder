@@ -255,6 +255,17 @@ test("syncs a discovered order with the exact verified customer boundary", async
     const lifecycle: string[] = [];
     const discoveredOrder = { ...cachedOrder, order_number: "A0229276" };
     const response = await request(appWith({
+      resolveCustomerCapabilityForCustomerOrder: async () => ({
+        association_status: "associated",
+        pathfinder_customer_id: "1249",
+        proof_customer_id: "1249",
+        identity_verified_at: "2026-08-13T15:59:00.000Z",
+        customer_name: "LTL Demo",
+        access_mode: "disabled",
+        review_experience: "simple",
+        source: "customer_default",
+        policy_updated_at: "2026-08-08T15:30:00.000Z"
+      }),
       syncOrderForGrant: async (orderNumber, options) => {
         lifecycle.push(orderNumber);
         assert.deepEqual(options.allowed_customer_ids, ["1249"]);
@@ -270,6 +281,7 @@ test("syncs a discovered order with the exact verified customer boundary", async
     assert.equal(response.body.order.order_number, "A0229276");
     assert.equal(response.body.customer_capability.proof_customer_id, "1249");
     assert.equal(response.body.customer_capability.access_mode, "review");
+    assert.equal(response.body.customer_capability.source, "ltl_demo_qa");
   } finally {
     if (previousScope === undefined) delete process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
     else process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE = previousScope;
@@ -311,7 +323,7 @@ test("creates review access for a verified source-neutral LTL Demo order without
           proof_customer_id: "1249",
           identity_verified_at: "2026-08-13T15:59:00.000Z",
           customer_name: "LTL Demo",
-          access_mode: "review",
+          access_mode: "disabled",
           review_experience: "simple",
           source: "customer_default",
           policy_updated_at: "2026-08-08T15:30:00.000Z"
@@ -322,6 +334,7 @@ test("creates review access for a verified source-neutral LTL Demo order without
         assert.equal(input.capability.pathfinder_customer_id, "1249");
         assert.equal(input.capability.proof_customer_id, "1249");
         assert.equal(input.capability.access_mode, "review");
+        assert.equal(input.capability.source, "ltl_demo_qa");
         return grantResult;
       }
     }))
