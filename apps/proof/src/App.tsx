@@ -24,6 +24,13 @@ import {
 } from "lucide-react";
 import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh } from "./api";
 import { proofAsset } from "./asset-state";
+import {
+  PROOF_BACKGROUND_CHECK_INTERVAL_MS,
+  PROOF_BACKGROUND_POLL_INTERVAL_MS,
+  PROOF_BACKGROUND_POLL_LIMIT,
+  proofBackgroundCheckAllowed,
+  proofBackgroundLiftRefreshDue
+} from "./background-refresh-state";
 import { demoActivityForHash, demoOrderForHash } from "./demo";
 import { restoreProofDialogFocus } from "./dialog-state";
 import { proofOrderDisplayStatus, proofOrderDisplayTitle } from "./display-state";
@@ -1007,8 +1014,17 @@ export function App() {
   const deferDetailFocusReturn = useRef(false);
   const refreshPollTimer = useRef<number | null>(null);
   const refreshPollAttempts = useRef(0);
+  const backgroundCheckInFlight = useRef(false);
+  const backgroundPollTimer = useRef<number | null>(null);
+  const backgroundLastRequestedAt = useRef(0);
   const approvalIdempotencyKeys = useRef(new Map<string, string>());
   const changeRequestIdempotencyKeys = useRef(new Map<string, string>());
+  const loadStateRef = useRef(loadState);
+  const refreshStateRef = useRef(refreshState);
+  const selectedTaskIdRef = useRef(selectedTaskId);
+  loadStateRef.current = loadState;
+  refreshStateRef.current = refreshState;
+  selectedTaskIdRef.current = selectedTaskId;
 
   const endLocalSession = () => {
     bootstrapPromise = null;
@@ -1023,6 +1039,25 @@ export function App() {
     );
     void sessionTerminator.current();
   };
+
+  function applyProofLoad(result: ProofLoad) {
+    const previous = loadStateRef.current.status === "ready"
+      ? loadStateRef.current.order.tasks.find((task) => task.task_id === selectedTaskIdRef.current) ?? null
+      : null;
+    const nextState: LoadState = {
+      status: "ready",
+      order: result.order,
+      participant: result.participant,
+      activity: result.activity,
+      session_expires_at: result.session_expires_at
+    };
+    loadStateRef.current = nextState;
+    setLoadState(nextState);
+    setSelectedTaskId((current) => {
+      if (current && result.order.tasks.some((task) => task.task_id === current)) return current;
+      return previous ? replacementProofTaskId(result.order, previous) : result.order.tasks[0]?.task_id ?? null;
+    });
+  }
 
   function scheduleRefreshReload() {
     if (refreshPollTimer.current !== null) return;
@@ -1051,9 +1086,9 @@ export function App() {
     if (!silent) setLoadState({ status: "loading" });
     bootstrapPromise ??= bootstrap();
     bootstrapPromise.then(
-      ({ order, participant, activity, refresh_queued: refreshQueued, session_expires_at: sessionExpiresAt }) => {
-        setLoadState({ status: "ready", order, participant, activity, session_expires_at: sessionExpiresAt });
-        setSelectedTaskId((current) => current ?? order.tasks[0]?.task_id ?? null);
+      (result) => {
+        applyProofLoad(result);
+        const { refresh_queued: refreshQueued } = result;
         if (refreshQueued) {
           setRefreshState("queued");
           setRefreshMessage("Getting fresh artwork links from Lift. This page will update automatically.");
@@ -1086,6 +1121,68 @@ export function App() {
     );
   };
 
+  async function loadProofInBackground() {
+    bootstrapPromise = null;
+    const result = await bootstrap();
+    applyProofLoad(result);
+    return result;
+  }
+
+  function scheduleBackgroundReload(previousSyncedAt: string, attempt = 0) {
+    if (backgroundPollTimer.current !== null || attempt >= PROOF_BACKGROUND_POLL_LIMIT) return;
+    backgroundPollTimer.current = window.setTimeout(async () => {
+      backgroundPollTimer.current = null;
+      if (!proofBackgroundCheckAllowed({
+        visible: document.visibilityState === "visible",
+        ready: loadStateRef.current.status === "ready",
+        in_flight: backgroundCheckInFlight.current,
+        refresh_state: refreshStateRef.current
+      })) return;
+      backgroundCheckInFlight.current = true;
+      try {
+        const result = await loadProofInBackground();
+        if (result.order.last_synced_at === previousSyncedAt) {
+          scheduleBackgroundReload(previousSyncedAt, attempt + 1);
+        }
+      } catch (error) {
+        if (error instanceof ProofApiError && error.status === 401) terminateSession();
+      } finally {
+        backgroundCheckInFlight.current = false;
+      }
+    }, PROOF_BACKGROUND_POLL_INTERVAL_MS);
+  }
+
+  async function runBackgroundCheck() {
+    const current = loadStateRef.current;
+    if (demoEnabled || !proofBackgroundCheckAllowed({
+      visible: document.visibilityState === "visible",
+      ready: current.status === "ready",
+      in_flight: backgroundCheckInFlight.current,
+      refresh_state: refreshStateRef.current
+    }) || current.status !== "ready") return;
+
+    backgroundCheckInFlight.current = true;
+    try {
+      const now = Date.now();
+      if (proofBackgroundLiftRefreshDue({
+        last_synced_at: current.order.last_synced_at,
+        last_requested_at: backgroundLastRequestedAt.current,
+        now
+      })) {
+        await requestProofRefresh();
+        backgroundLastRequestedAt.current = now;
+        scheduleBackgroundReload(current.order.last_synced_at);
+        return;
+      }
+      const result = await loadProofInBackground();
+      if (result.refresh_queued) scheduleBackgroundReload(current.order.last_synced_at);
+    } catch (error) {
+      if (error instanceof ProofApiError && error.status === 401) terminateSession();
+    } finally {
+      backgroundCheckInFlight.current = false;
+    }
+  }
+
   const refresh = async () => {
     if (refreshState === "requesting" || refreshState === "queued") return;
     setRefreshState("requesting");
@@ -1110,7 +1207,22 @@ export function App() {
 
   useEffect(() => () => {
     if (refreshPollTimer.current !== null) window.clearTimeout(refreshPollTimer.current);
+    if (backgroundPollTimer.current !== null) window.clearTimeout(backgroundPollTimer.current);
   }, []);
+
+  useEffect(() => {
+    if (loadState.status !== "ready" || demoEnabled) return;
+    const check = () => void runBackgroundCheck();
+    const timer = window.setInterval(check, PROOF_BACKGROUND_CHECK_INTERVAL_MS);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadState.status]);
 
   useEffect(() => {
     if (loadState.status !== "ready") return;

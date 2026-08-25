@@ -153,3 +153,30 @@ test("distinguishes lines awaiting a new proof from proofs awaiting review", () 
     proof_count_label: "1 proof"
   });
 });
+
+test("counts current proofs on reviewable cards rather than comment-only history snapshots", () => {
+  const current = {
+    version_id: "line-1-current",
+    created_at: null,
+    filename: "line-1.pdf",
+    content_type: "application/pdf",
+    preview_kind: "pdf" as const,
+    preview_url: null,
+    download_url: null,
+    approval_status: "PENDING",
+    approved_at: null,
+    comments: [{ text: "Please confirm trim.", created_at: null, attachments: [] }],
+    current: true
+  };
+  const group = groupProofTasksByLine([{
+    ...task("line-1-pending", "pending"),
+    line_number: "1",
+    current_version: current,
+    versions: [current, { ...current, version_id: "line-1-pre-comment", comments: [], current: false }]
+  }])[0]!;
+
+  assert.deepEqual(proofLineQueueSummary(group), {
+    review_label: "1 awaiting review",
+    proof_count_label: "1 proof"
+  });
+});
