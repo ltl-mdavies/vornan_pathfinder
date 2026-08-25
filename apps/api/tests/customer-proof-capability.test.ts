@@ -18,6 +18,7 @@ test("customer Proof settings are safe by default, audited, order-aware, and per
         getOrCreateWorkspace,
         persistJobSnapshot,
         removeCustomerProofOrderOverride,
+        resolveCustomerProofCapabilityForCustomerOrder,
         resolveCustomerProofCapabilityForOrder,
         updateCustomerProofCapabilityPolicy,
         upsertCustomerProofOrderOverride,
@@ -75,6 +76,25 @@ test("customer Proof settings are safe by default, audited, order-aware, and per
       assert.equal(inherited.access_mode, "review");
       assert.equal(inherited.review_experience, "advanced");
       assert.equal(inherited.proof_customer_id, "1249");
+
+      const sourceNeutral = await resolveCustomerProofCapabilityForCustomerOrder(
+        customer.lift_customer_id,
+        "A0228667"
+      );
+      assert.equal(sourceNeutral.association_status, "associated");
+      assert.equal(sourceNeutral.source, "customer_default");
+      assert.equal(sourceNeutral.pathfinder_customer_id, customer.lift_customer_id);
+      assert.equal(sourceNeutral.proof_customer_id, "1249");
+      assert.equal(sourceNeutral.access_mode, "review");
+      assert.equal(sourceNeutral.review_experience, "advanced");
+
+      const unknownCustomer = await resolveCustomerProofCapabilityForCustomerOrder(
+        "999999",
+        "A0228667"
+      );
+      assert.equal(unknownCustomer.association_status, "unassociated");
+      assert.equal(unknownCustomer.source, "safe_default");
+      assert.equal(unknownCustomer.access_mode, "view_only");
 
       const simpleOverride = await upsertCustomerProofOrderOverride(customer, "a0226753", {
         access_mode: "review",

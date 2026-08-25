@@ -76,6 +76,17 @@ function appWith(dependencies: ProofAdminRouterDependencies) {
       source: "customer_default",
       policy_updated_at: "2026-08-08T15:30:00.000Z"
     }),
+    resolveCustomerCapabilityForCustomerOrder: async () => ({
+      association_status: "associated",
+      pathfinder_customer_id: "1249",
+      proof_customer_id: "1249",
+      identity_verified_at: "2026-08-13T15:59:00.000Z",
+      customer_name: "LTL Demo",
+      access_mode: "review",
+      review_experience: "simple",
+      source: "customer_default",
+      policy_updated_at: "2026-08-08T15:30:00.000Z"
+    }),
     ...dependencies
   }));
   return app;
@@ -258,6 +269,73 @@ test("syncs a discovered order with the exact verified customer boundary", async
     assert.deepEqual(lifecycle, ["A0229276"]);
     assert.equal(response.body.order.order_number, "A0229276");
     assert.equal(response.body.customer_capability.proof_customer_id, "1249");
+    assert.equal(response.body.customer_capability.access_mode, "review");
+  } finally {
+    if (previousScope === undefined) delete process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+    else process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE = previousScope;
+  }
+});
+
+test("creates review access for a verified source-neutral LTL Demo order without a Pathfinder job", async () => {
+  const previousScope = process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
+  process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE =
+    "true||LTL_DEMO_ALL|true|true|true|true|true";
+  const lifecycle: string[] = [];
+  const sourceNeutralOrder = { ...cachedOrder, order_number: "A0228667" };
+  try {
+    const response = await request(appWith({
+      getOrderForGrant: async (orderNumber) => {
+        lifecycle.push(`get:${orderNumber}`);
+        return sourceNeutralOrder;
+      },
+      orderIsStale: () => false,
+      resolveCustomerCapability: async (orderNumber) => {
+        lifecycle.push(`legacy:${orderNumber}`);
+        return {
+          association_status: "unassociated",
+          pathfinder_customer_id: null,
+          proof_customer_id: null,
+          identity_verified_at: null,
+          customer_name: null,
+          access_mode: "view_only",
+          review_experience: "simple",
+          source: "safe_default",
+          policy_updated_at: null
+        };
+      },
+      resolveCustomerCapabilityForCustomerOrder: async (customerId, orderNumber) => {
+        lifecycle.push(`customer:${customerId}:${orderNumber}`);
+        return {
+          association_status: "associated",
+          pathfinder_customer_id: "1249",
+          proof_customer_id: "1249",
+          identity_verified_at: "2026-08-13T15:59:00.000Z",
+          customer_name: "LTL Demo",
+          access_mode: "review",
+          review_experience: "simple",
+          source: "customer_default",
+          policy_updated_at: "2026-08-08T15:30:00.000Z"
+        };
+      },
+      createGrant: async (input) => {
+        lifecycle.push(`grant:${input.order_number}:${input.scope}`);
+        assert.equal(input.capability.pathfinder_customer_id, "1249");
+        assert.equal(input.capability.proof_customer_id, "1249");
+        assert.equal(input.capability.access_mode, "review");
+        return grantResult;
+      }
+    }))
+      .post("/api/proof/orders/A0228667/grants")
+      .send({ scope: "review", label: "LTL Demo customer QA" })
+      .expect(201);
+
+    assert.deepEqual(lifecycle, [
+      "legacy:A0228667",
+      "get:A0228667",
+      "customer:1249:A0228667",
+      "grant:A0228667:review"
+    ]);
+    assert.equal(response.body.grant.grant_id, grantResult.grant.grant_id);
   } finally {
     if (previousScope === undefined) delete process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE;
     else process.env.PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE = previousScope;
