@@ -479,6 +479,40 @@ test("refreshes rotating signed proof URLs without creating false file versions"
   assert.ok(second.tasks.some((task) => task.versions[0]?.download_url?.includes("rotated-high")));
 });
 
+test("updates Lift comments on the current proof without creating a second proof version", () => {
+  const first = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    synced_at: syncedAt
+  });
+  const commentedPayload = {
+    rowset: [
+      ...(proofPayload.rowset as Array<Record<string, unknown>>),
+      {
+        ...(proofPayload.rowset[0] as Record<string, unknown>),
+        PROOF_COMMENT: "Use the updated legal line.",
+        COMMENT_TS: "2026-07-20T12:14:00.000Z"
+      }
+    ]
+  };
+  const second = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [commentedPayload],
+    previous: first,
+    synced_at: "2026-07-20T12:15:00.000Z"
+  });
+  const before = first.tasks.find((task) => task.attachment_id === "25435041")!;
+  const after = second.tasks.find((task) => task.attachment_id === "25435041")!;
+
+  assert.equal(after.current_version?.version_id, before.current_version?.version_id);
+  assert.equal(after.current_version?.comments.length, 3);
+  assert.equal(after.versions.length, 1);
+  assert.equal(after.versions[0]?.current, true);
+  assert.equal(after.version, before.version + 1);
+});
+
 test("creates a new proof version when the asset path changes", () => {
   const first = normalizeProofOrder({
     order_number: "A0221132",

@@ -760,6 +760,17 @@ function comparableProofVersion(version: ProofVersion | null) {
   };
 }
 
+function comparableProofVersionWithoutFeedback(version: ProofVersion | null) {
+  const comparable = comparableProofVersion(version);
+  if (!comparable) return null;
+  const { comments: _comments, feedback_fingerprint: _feedbackFingerprint, ...content } = comparable;
+  return content;
+}
+
+function isSameProofVersionApartFromFeedback(left: ProofVersion | null, right: ProofVersion | null) {
+  return Boolean(left && right) && fingerprint(comparableProofVersionWithoutFeedback(left)) === fingerprint(comparableProofVersionWithoutFeedback(right));
+}
+
 function taskContentFingerprint(task: ProofTask) {
   return fingerprint({
     order_line_id: task.order_line_id,
@@ -814,6 +825,31 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
       versions: refreshedVersions,
       created_at: previous.created_at,
       updated_at: previous.updated_at
+    };
+  }
+
+  if (isSameProofVersionApartFromFeedback(previous.current_version, incoming.current_version)) {
+    const refreshedCurrentVersion = {
+      ...incoming.current_version!,
+      version_id: previous.current_version!.version_id,
+      current: true,
+      archived_at: null
+    };
+    return {
+      ...incoming,
+      decision_context:
+        incoming.state === "pending" && previous.attachment_id === incoming.attachment_id
+          ? previous.decision_context ?? null
+          : null,
+      task_id: previous.task_id,
+      version: previous.version + 1,
+      current_version: refreshedCurrentVersion,
+      versions: [
+        refreshedCurrentVersion,
+        ...previous.versions.filter((version) => !isSameProofVersionApartFromFeedback(version, refreshedCurrentVersion))
+      ],
+      created_at: previous.created_at,
+      updated_at: syncedAt
     };
   }
 
