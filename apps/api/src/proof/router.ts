@@ -39,6 +39,7 @@ import { getProofAssetPublicationRuntimeConfig } from "./asset-publication-confi
 import { createProofAssetPublicationService } from "./asset-publication-service.js";
 import { ProofAssetVerificationPublicationError } from "./asset-verification-publication.js";
 import {
+  resolveCustomerProofCapabilityForCustomerOrder,
   resolveCustomerProofCapabilityForOrder,
   type ResolvedCustomerProofCapability
 } from "../store.js";
@@ -121,6 +122,10 @@ export interface ProofAdminRouterDependencies {
   resolveCustomerCapability?: (
     orderNumber: string
   ) => Promise<ResolvedCustomerProofCapability>;
+  resolveCustomerCapabilityForCustomerOrder?: (
+    customerId: string,
+    orderNumber: string
+  ) => Promise<ResolvedCustomerProofCapability>;
   readCustomerOrders?: typeof readAs360OrdersV2;
 }
 
@@ -138,6 +143,9 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
     dependencies.assetPublicationService ?? createProofAssetPublicationService();
   const resolveCustomerCapability =
     dependencies.resolveCustomerCapability ?? resolveCustomerProofCapabilityForOrder;
+  const resolveCustomerCapabilityForCustomerOrder =
+    dependencies.resolveCustomerCapabilityForCustomerOrder ??
+    resolveCustomerProofCapabilityForCustomerOrder;
   const readCustomerOrders = dependencies.readCustomerOrders ?? readAs360OrdersV2;
 
   const ltlDemoDiscoveryConfig = () => {
@@ -269,7 +277,10 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
       });
       res.json({
         ...result,
-        customer_capability: await resolveCustomerCapability(result.order.order_number)
+        customer_capability: await resolveCustomerCapabilityForCustomerOrder(
+          config.ltl_demo_qa.allowed_customer_id,
+          result.order.order_number
+        )
       });
     } catch (error) {
       res.status(errorStatus(error)).json({
@@ -503,7 +514,23 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
         throw new ProofAccessFeatureDisabledError("grant creation");
       }
       const orderNumber = normalizeLiftOrderNumber(req.params.orderNumber);
-      const customerCapability = await resolveCustomerCapability(orderNumber);
+      let customerCapability = await resolveCustomerCapability(orderNumber);
+      const sourceNeutralConfig = ltlDemoDiscoveryConfig();
+      let cached: Awaited<ReturnType<typeof getProofOrder>> = null;
+      if (
+        customerCapability.source === "safe_default" &&
+        customerCapability.association_status === "unassociated" &&
+        sourceNeutralConfig !== null &&
+        ltlDemoQaOrderAllowed(sourceNeutralConfig.ltl_demo_qa, orderNumber)
+      ) {
+        cached = await getOrderForGrant(orderNumber);
+        if (cached?.customer_id === sourceNeutralConfig.ltl_demo_qa.allowed_customer_id) {
+          customerCapability = await resolveCustomerCapabilityForCustomerOrder(
+            sourceNeutralConfig.ltl_demo_qa.allowed_customer_id,
+            orderNumber
+          );
+        }
+      }
       if (
         customerCapability.association_status !== "associated" ||
         !customerCapability.pathfinder_customer_id ||
@@ -515,7 +542,7 @@ export function createProofAdminRouter(dependencies: ProofAdminRouterDependencie
       ) {
         throw new ProofGrantCohortDeniedError();
       }
-      const cached = await getOrderForGrant(orderNumber);
+      cached ??= await getOrderForGrant(orderNumber);
       let eligibleOrder = cached;
       if (!cached || !cached.customer_id || orderIsStale(cached.last_synced_at)) {
         eligibleOrder = (await syncOrderForGrant(orderNumber, {

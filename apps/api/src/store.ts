@@ -5880,6 +5880,70 @@ export async function removeCustomerProofOrderOverride(
   );
 }
 
+function unresolvedCustomerProofCapability(
+  associationStatus: "unassociated" | "ambiguous"
+): ResolvedCustomerProofCapability {
+  return {
+    association_status: associationStatus,
+    pathfinder_customer_id: null,
+    proof_customer_id: null,
+    identity_verified_at: null,
+    customer_name: null,
+    access_mode: "view_only",
+    review_experience: "simple",
+    source: "safe_default",
+    policy_updated_at: null
+  };
+}
+
+function resolvedCustomerProofCapabilityFromWorkspace(
+  workspace: PathfinderCustomerWorkspace,
+  orderNumber: string
+): ResolvedCustomerProofCapability {
+  const normalized = normalizeWorkspace(workspace);
+  const policy = normalized.proof_capability_policy;
+  const override = policy.order_overrides.find(
+    (candidate) => candidate.order_number === orderNumber
+  );
+  return {
+    association_status: "associated",
+    pathfinder_customer_id: normalized.customer.lift_customer_id,
+    proof_customer_id: policy.customer_identity?.proof_customer_id ?? null,
+    identity_verified_at: policy.customer_identity?.verified_at ?? null,
+    customer_name: normalized.customer.customer_name,
+    access_mode: override?.access_mode ?? policy.access_mode,
+    review_experience: override?.review_experience ?? policy.review_experience,
+    source: override ? "order_override" : "customer_default",
+    policy_updated_at: override?.updated_at ?? policy.updated_at
+  };
+}
+
+export async function resolveCustomerProofCapabilityForCustomerOrder(
+  customerIdValue: string,
+  orderNumberValue: string
+): Promise<ResolvedCustomerProofCapability> {
+  const customerId = customerIdValue.trim();
+  const orderNumber = orderNumberValue.trim().toUpperCase();
+  if (!/^\d{1,20}$/.test(customerId)) {
+    throw new CustomerProofCapabilityValidationError(
+      "A valid verified customer ID is required to resolve Proof capability."
+    );
+  }
+  if (!/^A\d{7,8}$/.test(orderNumber)) {
+    throw new CustomerProofCapabilityValidationError(
+      "A valid Lift order number is required to resolve Proof capability."
+    );
+  }
+  const store = await readStore();
+  const workspace = store.workspaces[customerId];
+  if (!workspace) return unresolvedCustomerProofCapability("unassociated");
+  const normalized = normalizeWorkspace(workspace);
+  if (normalized.customer.lift_customer_id !== customerId) {
+    return unresolvedCustomerProofCapability("unassociated");
+  }
+  return resolvedCustomerProofCapabilityFromWorkspace(normalized, orderNumber);
+}
+
 export async function resolveCustomerProofCapabilityForOrder(
   orderNumberValue: string
 ): Promise<ResolvedCustomerProofCapability> {
@@ -5897,48 +5961,13 @@ export async function resolveCustomerProofCapabilityForOrder(
       .filter(Boolean)
   )];
   if (customerIds.length !== 1) {
-    return {
-      association_status: customerIds.length ? "ambiguous" : "unassociated",
-      pathfinder_customer_id: null,
-      proof_customer_id: null,
-      identity_verified_at: null,
-      customer_name: null,
-      access_mode: "view_only",
-      review_experience: "simple",
-      source: "safe_default",
-      policy_updated_at: null
-    };
+    return unresolvedCustomerProofCapability(
+      customerIds.length ? "ambiguous" : "unassociated"
+    );
   }
   const workspace = store.workspaces[customerIds[0]!];
-  if (!workspace) {
-    return {
-      association_status: "unassociated",
-      pathfinder_customer_id: null,
-      proof_customer_id: null,
-      identity_verified_at: null,
-      customer_name: null,
-      access_mode: "view_only",
-      review_experience: "simple",
-      source: "safe_default",
-      policy_updated_at: null
-    };
-  }
-  const normalized = normalizeWorkspace(workspace);
-  const policy = normalized.proof_capability_policy;
-  const override = policy.order_overrides.find(
-    (candidate) => candidate.order_number === orderNumber
-  );
-  return {
-    association_status: "associated",
-    pathfinder_customer_id: normalized.customer.lift_customer_id,
-    proof_customer_id: policy.customer_identity?.proof_customer_id ?? null,
-    identity_verified_at: policy.customer_identity?.verified_at ?? null,
-    customer_name: normalized.customer.customer_name,
-    access_mode: override?.access_mode ?? policy.access_mode,
-    review_experience: override?.review_experience ?? policy.review_experience,
-    source: override ? "order_override" : "customer_default",
-    policy_updated_at: override?.updated_at ?? policy.updated_at
-  };
+  if (!workspace) return unresolvedCustomerProofCapability("unassociated");
+  return resolvedCustomerProofCapabilityFromWorkspace(workspace, orderNumber);
 }
 
 export async function listJobs() {
