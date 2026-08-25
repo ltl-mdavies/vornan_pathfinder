@@ -304,7 +304,10 @@ test("Proof renders PDF and non-preview fallbacks deterministically", async ({ p
   await page.goto("/proof#/proof/assets-qa");
   await waitForProofWorkspace(page);
 
-  await expect(page.locator(".preview-stage iframe[title^='PDF proof preview']")).toBeVisible();
+  const pdfFrame = page.locator(".preview-stage iframe[title^='PDF proof preview']");
+  await expect(pdfFrame).toBeVisible();
+  await expect(pdfFrame).not.toHaveAttribute("sandbox", /.+/);
+  await expect(pdfFrame).toHaveAttribute("referrerpolicy", "no-referrer");
   await page.getByRole("button", { name: "Creative 2: north-wall-layered-production-artwork-with-linked-assets.psd; Pending", exact: true }).click();
   await expect(page.locator(".preview-stage").getByText("Full-resolution file", { exact: true })).toBeVisible();
   await expect(page.locator(".preview-stage").getByRole("link", { name: /Open north-wall-layered-production-artwork/ })).toHaveAttribute("target", "_blank");
