@@ -23,7 +23,7 @@ import {
   X
 } from "lucide-react";
 import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh } from "./api";
-import { proofAsset } from "./asset-state";
+import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
   PROOF_BACKGROUND_POLL_INTERVAL_MS,
@@ -170,11 +170,20 @@ function technicalCheckState(status: string | null) {
 function TaskThumbnail({ task, refreshing = false }: { task: ProofTask; refreshing?: boolean }) {
   const asset = proofAsset(task.current_version);
   const [failedPreview, setFailedPreview] = useState<string | null>(null);
-  const previewAvailable = asset.preview && asset.kind === "image" && failedPreview !== asset.preview;
+  const stablePreview = useRef<{ identity: string | null; url: string | null }>({ identity: null, url: null });
+  const nextIdentity = stableProofAssetUrlIdentity(asset.preview);
+  if (
+    stablePreview.current.identity !== nextIdentity ||
+    (failedPreview === stablePreview.current.url && stablePreview.current.url !== asset.preview)
+  ) {
+    stablePreview.current = { identity: nextIdentity, url: asset.preview };
+  }
+  const preview = stablePreview.current.url;
+  const previewAvailable = preview && asset.kind === "image" && failedPreview !== preview;
   return (
     <span className="task-thumbnail" aria-hidden="true">
       {previewAvailable
-        ? <img src={asset.preview!} referrerPolicy="no-referrer" alt="" onError={() => setFailedPreview(asset.preview)} />
+        ? <img src={preview} referrerPolicy="no-referrer" alt="" onError={() => setFailedPreview(preview)} />
         : refreshing ? <RefreshCw className="thumbnail-refreshing" /> : <FileText />}
     </span>
   );

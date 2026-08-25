@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { proofAsset, safeProofAssetUrl } from "../src/asset-state.ts";
+import { proofAsset, safeProofAssetUrl, stableProofAssetUrlIdentity } from "../src/asset-state.ts";
 import type { ProofVersion } from "../src/types.ts";
 
 function version(overrides: Partial<ProofVersion>): ProofVersion {
@@ -28,6 +28,19 @@ test("allows same-origin relative assets and credential-free HTTPS assets only",
   assert.equal(safeProofAssetUrl("javascript:alert(1)", "https://proof.vornan.co"), null);
   assert.equal(safeProofAssetUrl("https://user:password@files.example/proof.pdf", "https://proof.vornan.co"), null);
   assert.equal(safeProofAssetUrl("//files.example/proof.pdf", "https://proof.vornan.co"), null);
+});
+
+test("treats refreshed AWS signatures as the same proof asset without collapsing meaningful query parameters", () => {
+  const first = "https://lifterp-graphics-prod-c.s3.amazonaws.com/originals/91/27310321/proof.pdf?X-Amz-Date=20260825T180000Z&X-Amz-Signature=first";
+  const refreshed = "https://lifterp-graphics-prod-c.s3.amazonaws.com/originals/91/27310321/proof.pdf?X-Amz-Date=20260825T190000Z&X-Amz-Signature=second";
+  const replacement = "https://lifterp-graphics-prod-c.s3.amazonaws.com/originals/91/27310322/proof.pdf?X-Amz-Date=20260825T190000Z&X-Amz-Signature=second";
+
+  assert.equal(stableProofAssetUrlIdentity(first), stableProofAssetUrlIdentity(refreshed));
+  assert.notEqual(stableProofAssetUrlIdentity(first), stableProofAssetUrlIdentity(replacement));
+  assert.notEqual(
+    stableProofAssetUrlIdentity("https://files.example/proof?id=one"),
+    stableProofAssetUrlIdentity("https://files.example/proof?id=two")
+  );
 });
 
 test("keeps the low-resolution preview while selecting the high-resolution display kind", () => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { previewImageFallback, ProofPreview } from "../src/proof-preview.tsx";
+import { previewImageFallback, proofPreviewSourceIdentity, ProofPreview } from "../src/proof-preview.tsx";
 import type { ProofVersion } from "../src/types.ts";
 
 function imageVersion(overrides: Partial<ProofVersion> = {}): ProofVersion {
@@ -81,6 +81,30 @@ test("a newly selected proof render never contains the prior proof URL", () => {
   assert.match(priorMarkup, /north-wall-full\.jpg/);
   assert.match(nextMarkup, /south-wall-full\.jpg/);
   assert.doesNotMatch(nextMarkup, /north-wall-(?:full|preview)\.jpg/);
+});
+
+test("keeps the mounted viewer identity across signed-URL rotation but changes it for a replacement proof", () => {
+  const first = proofPreviewSourceIdentity({
+    version_id: "pversion-one",
+    source: "https://lifterp-graphics-prod-c.s3.amazonaws.com/originals/91/27310321/proof.pdf?X-Amz-Date=one&X-Amz-Signature=one",
+    preview_source: "https://lifterp-graphics-prod-c.s3.amazonaws.com/thumbs/91/27310321/800/proof.jpg?X-Amz-Date=one&X-Amz-Signature=one",
+    source_kind: "pdf"
+  });
+  const refreshed = proofPreviewSourceIdentity({
+    version_id: "pversion-one",
+    source: "https://lifterp-graphics-prod-c.s3.amazonaws.com/originals/91/27310321/proof.pdf?X-Amz-Date=two&X-Amz-Signature=two",
+    preview_source: "https://lifterp-graphics-prod-c.s3.amazonaws.com/thumbs/91/27310321/800/proof.jpg?X-Amz-Date=two&X-Amz-Signature=two",
+    source_kind: "pdf"
+  });
+  const replacement = proofPreviewSourceIdentity({
+    version_id: "pversion-two",
+    source: "https://lifterp-graphics-prod-c.s3.amazonaws.com/originals/91/27310322/proof.pdf?X-Amz-Date=two&X-Amz-Signature=two",
+    preview_source: "https://lifterp-graphics-prod-c.s3.amazonaws.com/thumbs/91/27310322/800/proof.jpg?X-Amz-Date=two&X-Amz-Signature=two",
+    source_kind: "pdf"
+  });
+
+  assert.equal(first, refreshed);
+  assert.notEqual(first, replacement);
 });
 
 test("embeds a high-resolution PDF without blocking Chrome's native viewer and keeps the safe image fallback", () => {

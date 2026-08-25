@@ -17,6 +17,24 @@ export function safeProofAssetUrl(value: string | null | undefined, origin = typ
   }
 }
 
+export function stableProofAssetUrlIdentity(
+  value: string | null | undefined,
+  origin = typeof window === "undefined" ? null : window.location.origin
+) {
+  const safe = safeProofAssetUrl(value, origin);
+  if (!safe) return null;
+  try {
+    const url = new URL(safe, origin ?? undefined);
+    for (const key of [...url.searchParams.keys()]) {
+      if (key.toLowerCase().startsWith("x-amz-")) url.searchParams.delete(key);
+    }
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return safe;
+  }
+}
+
 function proofAssetKindForUrl(value: string | null, fallback: ProofAssetKind, origin: string | null): ProofAssetKind {
   if (!value) return fallback;
   try {
