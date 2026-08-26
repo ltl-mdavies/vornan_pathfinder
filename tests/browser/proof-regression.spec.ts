@@ -113,6 +113,9 @@ test("Proof highlights new Prepress feedback until it is acknowledged", async ({
   await expect(feedback).toHaveClass(/unread/);
   await expect(feedback.locator(".feedback-badge")).toHaveText("New");
   await expect(feedback).toHaveCSS("background-color", "rgb(255, 248, 231)");
+  await feedback.click();
+  const dialog = page.getByRole("dialog", { name: "Prepress team feedback" });
+  await expect(dialog.locator(".comment.unread").first()).toHaveCSS("background-color", "rgb(255, 248, 231)");
   expect(blocked).toEqual([]);
 });
 

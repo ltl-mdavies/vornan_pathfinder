@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent } from "react";
 import {
   AlertTriangle,
+  ChevronLeft,
   CheckCircle2,
   Clock3,
   Download,
@@ -77,6 +78,7 @@ type DetailDialog = { kind: "feedback" | "history"; task_id: string };
 type HistoryState = { status: "loading" | "ready" | "error"; versions: ProofVersion[]; message?: string };
 type DecisionRequestState = "idle" | "submitting" | "verifying" | "complete" | "error";
 type DecisionOutcome = "confirmed" | "reconciling" | "submission_uncertain" | "failed" | "proof_updated";
+type ActionOutcomeNotice = { title: string; detail: string };
 
 const demoEnabled = import.meta.env.DEV && import.meta.env.VITE_PROOF_DEMO === "true";
 let bootstrapPromise: Promise<ProofLoad> | null = null;
@@ -581,7 +583,7 @@ function ChangeRequestDialog({ open, task, note, productionBlocked, uploadBlocke
           </div>
         ) : (
           <div className="production-change-request">
-            <button className="change-request-back" type="button" disabled={state === "submitting" || state === "verifying"} onClick={() => setPath(null)}>Choose a different option</button>
+            <button className="change-request-back" type="button" disabled={state === "submitting" || state === "verifying"} onClick={() => setPath(null)}><ChevronLeft aria-hidden="true" /> Choose a different option</button>
             <div>
               <strong>Tell production what needs to change</strong>
               <p>Your note will be added to the order and sent with the request for a new proof.</p>
@@ -720,6 +722,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
       ? "Identify the reviewer before providing revised artwork."
       : actionableTasks.length > 1 && reviewExperience === "simple"
         ? "This line has multiple current proofs and requires coordinated support."
+      : selectedTask.feedback_required && !selectedTask.feedback_acknowledged
+        ? "Review and acknowledge the prepress team feedback before providing revised artwork."
       : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
         ? "This proof is shared by multiple lines and needs coordinated support before replacement artwork can be accepted."
         : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
@@ -1009,6 +1013,7 @@ export function App() {
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [actionOutcome, setActionOutcome] = useState<ActionOutcomeNotice | null>(null);
   const [clockMs, setClockMs] = useState(() => Date.now());
   const [sessionExtending, setSessionExtending] = useState(false);
   const [sessionExtendError, setSessionExtendError] = useState<string | null>(null);
@@ -1066,6 +1071,29 @@ export function App() {
       if (current && result.order.tasks.some((task) => task.task_id === current)) return current;
       return previous ? replacementProofTaskId(result.order, previous) : result.order.tasks[0]?.task_id ?? null;
     });
+  }
+
+  function applyCompletedAction(result: ProofLoad, task: ProofTask, outcome: ActionOutcomeNotice) {
+    const nextTaskId = replacementProofTaskId(result.order, task);
+    const remainsInOpenQueue = Boolean(
+      nextTaskId && filterProofTasks(result.order.tasks, "open").some((candidate) => candidate.task_id === nextTaskId)
+    );
+    const nextState: LoadState = {
+      status: "ready",
+      order: result.order,
+      participant: result.participant,
+      activity: result.activity,
+      session_expires_at: result.session_expires_at
+    };
+    loadStateRef.current = nextState;
+    setLoadState(nextState);
+    setSelectedTaskId(nextTaskId);
+    setSelectedVersionId(null);
+    if (!remainsInOpenQueue) {
+      setFilter("all");
+      setSearchQuery("");
+    }
+    setActionOutcome(outcome);
   }
 
   function scheduleRefreshReload() {
@@ -1370,13 +1398,14 @@ export function App() {
       // immediately, even when Lift has not yet confirmed the decision.
       bootstrapPromise = null;
       const refreshed = await bootstrap();
-      setLoadState({
-        status: "ready",
-        order: refreshed.order,
-        participant: refreshed.participant,
-        activity: refreshed.activity,
-        session_expires_at: refreshed.session_expires_at
-      });
+      if (result.decision.outcome === "confirmed") {
+        applyCompletedAction(refreshed, task, {
+          title: `Line ${task.line_number ?? "—"} approved`,
+          detail: "This proof is no longer open, so it has moved to All proofs."
+        });
+      } else {
+        applyProofLoad(refreshed);
+      }
       return result.decision.outcome;
     } catch (error) {
       if (isLiftProofUpdatedError(error)) {
@@ -1415,13 +1444,14 @@ export function App() {
       }
       bootstrapPromise = null;
       const refreshed = await bootstrap();
-      setLoadState({
-        status: "ready",
-        order: refreshed.order,
-        participant: refreshed.participant,
-        activity: refreshed.activity,
-        session_expires_at: refreshed.session_expires_at
-      });
+      if (result.decision.outcome === "confirmed") {
+        applyCompletedAction(refreshed, task, {
+          title: `Line ${task.line_number ?? "—"} change request sent`,
+          detail: "This proof is no longer open while the production team prepares a replacement."
+        });
+      } else {
+        applyProofLoad(refreshed);
+      }
       return result.decision.outcome;
     } catch (error) {
       if (isLiftProofUpdatedError(error)) {
@@ -1693,6 +1723,13 @@ export function App() {
             <span><strong>{completion.title}.</strong> {completion.detail}</span>
           </div>
         ) : null}
+        {actionOutcome ? (
+          <div className="action-outcome-notice" role="status" aria-live="polite">
+            <CheckCircle2 aria-hidden="true" />
+            <span><strong>{actionOutcome.title}.</strong> {actionOutcome.detail}</span>
+            <button type="button" aria-label="Dismiss action update" onClick={() => setActionOutcome(null)}><X aria-hidden="true" /></button>
+          </div>
+        ) : null}
       </div>
 
       <main className="workspace">
@@ -1945,7 +1982,7 @@ export function App() {
           {detailDialog.kind === "feedback" ? (
             <div className="dialog-content comments-list">
               {dialogVersion?.comments.length ? dialogVersion.comments.map((comment, index) => (
-                <article className="comment" key={`${comment.created_at}-${index}`}>
+                <article className={`comment${dialogTask.feedback_acknowledged ? "" : " unread"}`} key={`${comment.created_at}-${index}`}>
                   <p>{comment.text ?? "Prepress team feedback attached"}</p>
                   {comment.attachments.length ? (
                     <ul className="comment-attachments" aria-label="Prepress team feedback attachments">
@@ -2048,9 +2085,14 @@ export function App() {
         task={revisionUploadTask}
         enabled={Boolean(order?.access.revision_upload_enabled)}
         participantIdentified={Boolean(participant)}
+        feedbackAcknowledged={Boolean(revisionUploadTask?.feedback_acknowledged)}
         onClose={() => setRevisionUploadTaskId(null)}
         onSessionExpired={terminateSession}
         onProofUpdated={refreshAfterLiftProofUpdate}
+        onUploadAccepted={(task) => setActionOutcome({
+          title: `Line ${task.line_number ?? "—"} revised artwork received`,
+          detail: "The current proof will leave Open proofs while Vornan prepares the replacement."
+        })}
       />
 
       {identityOpen ? (

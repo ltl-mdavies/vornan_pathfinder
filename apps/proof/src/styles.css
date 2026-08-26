@@ -78,6 +78,11 @@ h1, h2, h3, p { margin-top: 0; }
 .order-health-notice svg { width: 17px; flex: none; }
 .completion-notice { min-height: 42px; padding: 9px 14px; border: 1px solid #b9cda9; border-radius: 11px; background: #f1f7e9; color: var(--forest); display: flex; align-items: center; gap: 10px; font-size: 11px; line-height: 1.4; }
 .completion-notice svg { width: 17px; flex: none; }
+.action-outcome-notice { max-width: min(900px, calc(100vw - 32px)); margin: 0 auto; padding: 10px 13px; border: 1px solid #b9cda9; border-radius: 11px; background: #f1f7e9; color: var(--forest); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; font-size: 11px; line-height: 1.4; }
+.action-outcome-notice > svg { width: 17px; flex: none; }
+.action-outcome-notice button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--forest); display: grid; place-items: center; cursor: pointer; }
+.action-outcome-notice button:hover { background: #e2ecd8; }
+.action-outcome-notice button svg { width: 14px; }
 
 .workspace { min-width: 0; min-height: 0; margin: 0 clamp(12px, 2vw, 30px) clamp(12px, 2vw, 24px); display: grid; grid-template-columns: clamp(310px, 24vw, 390px) minmax(0, 1fr); overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); box-shadow: 0 16px 44px rgba(38,62,42,.08); }
 .queue-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--line); background: #f8f8f3; }
@@ -361,6 +366,7 @@ h1, h2, h3, p { margin-top: 0; }
 .dialog-content { max-height: min(540px, calc(100dvh - 145px)); padding: 18px; overflow-y: auto; }
 .comments-list { display: grid; gap: 10px; }
 .comment { padding: 14px; border-radius: 10px; background: var(--soft); }
+.comment.unread { border: 1px solid #d7bb72; background: #fff8e7; box-shadow: inset 3px 0 0 #b67b18; }
 .comment p { margin-bottom: 8px; font-size: 12px; line-height: 1.55; }
 .comment time, .version-list time { color: var(--muted); font-size: 10px; }
 .comment-attachments { margin: 0 0 9px; padding: 0; display: grid; gap: 6px; list-style: none; }
@@ -441,7 +447,8 @@ h1, h2, h3, p { margin-top: 0; }
 .change-request-paths small { color: var(--muted); font-size: 9px; line-height: 1.45; }
 .change-request-paths em { color: var(--warning); font-size: 8px; font-style: normal; line-height: 1.4; }
 .production-change-request { display: grid; gap: 13px; }
-.change-request-back { justify-self: start; padding: 0; border: 0; background: transparent; color: var(--forest); font-size: 9px; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.change-request-back { justify-self: start; padding: 0; border: 0; background: transparent; color: var(--forest); display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.change-request-back svg { width: 13px; height: 13px; }
 .production-change-request > div:nth-of-type(1) { display: grid; gap: 4px; }
 .production-change-request > div:nth-of-type(1) strong { font-size: 13px; }
 .production-change-request > div:nth-of-type(1) p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }

@@ -25,9 +25,11 @@ interface RevisionUploadDialogProps {
   task: ProofTask | null;
   enabled: boolean;
   participantIdentified: boolean;
+  feedbackAcknowledged: boolean;
   onClose: () => void;
   onSessionExpired: () => void;
   onProofUpdated: (task: ProofTask) => Promise<void>;
+  onUploadAccepted: (task: ProofTask) => void;
 }
 
 function stageCopy(stage: LocalStage) {
@@ -52,9 +54,11 @@ export function RevisionUploadDialog({
   task,
   enabled,
   participantIdentified,
+  feedbackAcknowledged,
   onClose,
   onSessionExpired,
-  onProofUpdated
+  onProofUpdated,
+  onUploadAccepted
 }: RevisionUploadDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -73,6 +77,8 @@ export function RevisionUploadDialog({
     ? "Revised artwork upload is not available in this review window."
     : !participantIdentified
       ? "Identify the reviewer before uploading revised artwork."
+      : task?.feedback_required && !feedbackAcknowledged
+        ? "Review and acknowledge the prepress team feedback before uploading revised artwork."
       : !task?.attachment_id || !task.current_version
         ? "The current proof is not available for a revision upload."
         : null;
@@ -200,6 +206,7 @@ export function RevisionUploadDialog({
       setAsset(finalized.asset);
       setStage("processing");
       setPollCount(0);
+      onUploadAccepted(task);
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
         onSessionExpired();

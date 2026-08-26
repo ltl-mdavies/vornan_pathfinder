@@ -154,6 +154,64 @@ test("dark upload gate denies before Lift read, persistence, or S3", async () =>
   assert.deepEqual(calls, []);
 });
 
+test("customer revised-art upload requires current feedback acknowledgement before any upload mutation", async () => {
+  const orderWithFeedback: ProofOrder = {
+    ...order,
+    tasks: [{
+      ...order.tasks[0]!,
+      current_version: {
+        ...order.tasks[0]!.current_version!,
+        comments: [{
+          text: "Confirm the production feedback before replacing this artwork.",
+          created_at: "2026-08-01T11:30:00.000Z",
+          attachments: []
+        }]
+      }
+    }]
+  };
+  const calls: string[] = [];
+  const service = createProofAssetUploadService({
+    runtimeConfig: () => config(),
+    now: () => now,
+    syncOrder: async () => {
+      calls.push("sync");
+      return { order: orderWithFeedback, diagnostics: null } as never;
+    },
+    getFeedbackAcknowledgement: async () => {
+      calls.push("acknowledgement");
+      return null;
+    },
+    reserve: async () => {
+      calls.push("reserve");
+      throw new Error("must not reserve an upload");
+    },
+    createPost: async () => {
+      calls.push("post");
+      throw new Error("must not issue an upload ticket");
+    }
+  });
+
+  await assert.rejects(
+    () => service.prepare({
+      request,
+      actor_context: {
+        actor_type: "customer_session",
+        actor_id: "psession_00000000-0000-4000-8000-000000000001",
+        source: "public_api",
+        grant_id: "pgrant_00000000-0000-4000-8000-000000000001",
+        participant_id: "pparticipant_00000000-0000-4000-8000-000000000001",
+        proof_customer_id: "1249"
+      },
+      correlation_id: "customer-feedback-required"
+    }),
+    (error: unknown) =>
+      error instanceof ProofAssetUploadServiceError &&
+      error.code === "not_allowed" &&
+      /acknowledge the current prepress team feedback/i.test(error.message)
+  );
+  assert.deepEqual(calls, ["sync", "acknowledgement"]);
+});
+
 test("inspects only sanitized metadata inside the same bounded upload window", async () => {
   const assetId = `passet_${"b".repeat(64)}`;
   const record = {
