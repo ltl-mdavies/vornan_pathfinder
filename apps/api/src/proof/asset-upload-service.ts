@@ -31,6 +31,7 @@ import {
   reserveProofAssetUpload,
   transitionProofAssetUpload
 } from "./asset-upload-store.js";
+import { getProofFeedbackAcknowledgement } from "./store.js";
 import { LTL_DEMO_ALL_ORDERS } from "./ltl-demo-qa-profile.js";
 
 const LTL_DEMO_CUSTOMER_ID = "1249";
@@ -85,6 +86,7 @@ export interface ProofAssetUploadServiceDependencies {
   getRecord?: typeof getProofAssetUploadRecord;
   reserve?: typeof reserveProofAssetUpload;
   transition?: typeof transitionProofAssetUpload;
+  getFeedbackAcknowledgement?: typeof getProofFeedbackAcknowledgement;
   runtimeConfig?: () => ProofAssetUploadRuntimeConfig;
   operatorActionConfig?: () => ProofOperatorActionQaConfig;
   createPost?: typeof createPresignedPost;
@@ -308,6 +310,38 @@ function currentTask(
   return task;
 }
 
+async function requireCurrentFeedbackAcknowledgement(input: {
+  task: ReturnType<typeof currentTask>;
+  order_number: string;
+  actor: ProofAssetUploadActorContext;
+  getFeedbackAcknowledgement: typeof getProofFeedbackAcknowledgement;
+}) {
+  // Operator preparation is intentionally outside the customer-review flow.
+  // A customer upload, however, is a proof-changing action and must honour
+  // the same per-participant acknowledgement contract as approve/send-back.
+  if (input.actor.actor_type !== "customer_session" || !input.task.current_version?.comments.length) {
+    return;
+  }
+  const acknowledgement = await input.getFeedbackAcknowledgement(
+    input.actor.grant_id!,
+    input.actor.participant_id!,
+    input.task.task_id
+  );
+  if (
+    !acknowledgement ||
+    acknowledgement.grant_id !== input.actor.grant_id ||
+    acknowledgement.participant_id !== input.actor.participant_id ||
+    acknowledgement.order_number !== input.order_number ||
+    acknowledgement.task_id !== input.task.task_id ||
+    acknowledgement.feedback_fingerprint !== input.task.current_version.feedback_fingerprint
+  ) {
+    throw new ProofAssetUploadServiceError(
+      "not_allowed",
+      "Review and acknowledge the current prepress team feedback before uploading revised artwork."
+    );
+  }
+}
+
 function identities(request: ReturnType<typeof normalizedPrepare>) {
   const identity = sha256(
     "vornan-proof-revised-art-upload-v1",
@@ -445,6 +479,7 @@ export function createProofAssetUploadService(
   const operatorActionConfig =
     dependencies.operatorActionConfig ?? getProofOperatorActionQaConfig;
   const createPost = dependencies.createPost ?? createPresignedPost;
+  const getFeedbackAcknowledgement = dependencies.getFeedbackAcknowledgement ?? getProofFeedbackAcknowledgement;
   const s3 = dependencies.s3 ?? defaultS3();
   const now = dependencies.now ?? (() => new Date());
 
@@ -516,6 +551,12 @@ export function createProofAssetUploadService(
         }
       });
       const task = currentTask(order, request, expectedProofCustomerId);
+      await requireCurrentFeedbackAcknowledgement({
+        task,
+        order_number: order.order_number,
+        actor,
+        getFeedbackAcknowledgement
+      });
       const ids = identities(request);
       // A fresh Lift sync authors last_synced_at after this request's initial
       // gate timestamp. Anchor the durable upload record at the later server

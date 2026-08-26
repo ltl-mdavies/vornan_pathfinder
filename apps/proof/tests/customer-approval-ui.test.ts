@@ -48,6 +48,24 @@ test("surfaces unreviewed Prepress feedback without changing acknowledged feedba
   assert.match(appSource, /feedback-button\$\{unread \? " unread" : ""\}/);
   assert.match(appSource, /feedback-badge/);
   assert.match(appSource, /Prepress team feedback\$\{unread \? ", new feedback" : ""\}/);
+  assert.match(appSource, /comment\$\{dialogTask\.feedback_acknowledged \? "" : " unread"\}/);
+  assert.match(appSource, /Review and acknowledge the prepress team feedback before providing revised artwork\./);
+  assert.match(revisionDialogSource, /feedbackAcknowledged/);
+  assert.match(revisionDialogSource, /Review and acknowledge the prepress team feedback before uploading revised artwork\./);
+});
+
+test("keeps an acted-on line in context and explains why it moved out of Open proofs", () => {
+  assert.match(appSource, /function applyCompletedAction/);
+  assert.match(appSource, /setFilter\("all"\)/);
+  assert.match(appSource, /Line \$\{task\.line_number \?\? "—"\} approved/);
+  assert.match(appSource, /change request sent/);
+  assert.match(appSource, /action-outcome-notice/);
+  assert.match(appSource, /The current proof will leave Open proofs while Vornan prepares the replacement/);
+});
+
+test("makes the change-request return control read as a backward navigation affordance", () => {
+  assert.match(appSource, /ChevronLeft aria-hidden/);
+  assert.match(appSource, /Choose a different option/);
 });
 
 test("keeps an accepted-but-unconfirmed approval visibly locked while Lift reconciliation runs", () => {
