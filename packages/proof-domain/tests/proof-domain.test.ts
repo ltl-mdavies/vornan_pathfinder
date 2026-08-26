@@ -882,6 +882,7 @@ test("projects only customer-safe HTTPS feedback attachments", () => {
       { filename: "operator-note.txt", content_type: "text/plain", private_note: "not for customer" },
       { filename: "unsafe.html", url: "javascript:alert(1)" },
       { filename: "credentials.pdf", url: "https://user:password@files.example/credentials.pdf" },
+      { LINK_TO_ATTACHMENT: "https://files.example/lift-comment-preview.jpg?X-Amz-Signature=signed" },
       "raw internal attachment blob"
     ],
     internal_thread_id: "private-thread-id"
@@ -890,7 +891,8 @@ test("projects only customer-safe HTTPS feedback attachments", () => {
   assert.deepEqual(publicVersion.comments[0]?.attachments, [
     { filename: "markup.pdf", url: "https://files.example/markup.pdf?X-Amz-Signature=signed", content_type: "application/pdf" },
     { filename: "reference.png", url: "https://files.example/reference.png", content_type: "image/png" },
-    { filename: "operator-note.txt", url: null, content_type: "text/plain" }
+    { filename: "operator-note.txt", url: null, content_type: "text/plain" },
+    { filename: "lift-comment-preview.jpg", url: "https://files.example/lift-comment-preview.jpg?X-Amz-Signature=signed", content_type: null }
   ]);
   const serialized = JSON.stringify(publicVersion);
   assert.equal(serialized.includes("private-comment-id"), false);

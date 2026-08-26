@@ -1295,6 +1295,7 @@ function publicCommentAttachments(attachment: unknown): PublicProofCommentAttach
     if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
     const row = candidate as Record<string, unknown>;
     const rawUrl = row.url ?? row.URL ?? row.href ?? row.HREF ?? row.link ?? row.LINK
+      ?? row.link_to_attachment ?? row.LINK_TO_ATTACHMENT
       ?? row.download_url ?? row.DOWNLOAD_URL ?? row.attachment_url ?? row.ATTACHMENT_URL;
     const url = publicAttachmentUrl(rawUrl);
     if (rawUrl != null && !url) return [];

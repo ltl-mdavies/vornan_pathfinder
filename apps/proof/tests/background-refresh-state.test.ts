@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
+  PROOF_FEEDBACK_CHECK_INTERVAL_MS,
   PROOF_BACKGROUND_LIFT_REFRESH_INTERVAL_MS,
   proofBackgroundCheckAllowed,
   proofBackgroundLiftRefreshDue
@@ -9,6 +10,7 @@ import {
 
 test("runs background checks only for an idle visible review", () => {
   assert.equal(PROOF_BACKGROUND_CHECK_INTERVAL_MS, 60_000);
+  assert.equal(PROOF_FEEDBACK_CHECK_INTERVAL_MS, 15_000);
   assert.equal(proofBackgroundCheckAllowed({ visible: true, ready: true, in_flight: false, refresh_state: "idle" }), true);
   assert.equal(proofBackgroundCheckAllowed({ visible: false, ready: true, in_flight: false, refresh_state: "idle" }), false);
   assert.equal(proofBackgroundCheckAllowed({ visible: true, ready: true, in_flight: true, refresh_state: "idle" }), false);

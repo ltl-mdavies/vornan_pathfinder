@@ -27,6 +27,7 @@ import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSes
 import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
+  PROOF_FEEDBACK_CHECK_INTERVAL_MS,
   PROOF_BACKGROUND_POLL_INTERVAL_MS,
   PROOF_BACKGROUND_POLL_LIMIT,
   proofBackgroundCheckAllowed,
@@ -79,9 +80,19 @@ type HistoryState = { status: "loading" | "ready" | "error"; versions: ProofVers
 type DecisionRequestState = "idle" | "submitting" | "verifying" | "complete" | "error";
 type DecisionOutcome = "confirmed" | "reconciling" | "submission_uncertain" | "failed" | "proof_updated";
 type ActionOutcomeNotice = { title: string; detail: string };
+type FeedbackImagePreview = { filename: string; url: string };
 
 const demoEnabled = import.meta.env.DEV && import.meta.env.VITE_PROOF_DEMO === "true";
 let bootstrapPromise: Promise<ProofLoad> | null = null;
+
+function isImageFeedbackAttachment(filename: string, contentType: string | null) {
+  if (["image/png", "image/jpeg", "image/gif", "image/webp"].includes(contentType?.toLowerCase() ?? "")) return true;
+  return /\.(png|jpe?g|gif|webp)$/i.test(filename);
+}
+
+function commentCountLabel(count: number) {
+  return `${count} ${count === 1 ? "comment" : "comments"}`;
+}
 
 async function bootstrap() {
   if (demoEnabled) {
@@ -979,16 +990,17 @@ function QueueSearch({ value, onChange }: { value: string; onChange: (value: str
 
 function FeedbackButton({ task, onClick, compact = false }: { task: ProofTask; onClick: (event: MouseEvent<HTMLButtonElement>) => void; compact?: boolean }) {
   const unread = task.feedback_required && !task.feedback_acknowledged;
+  const commentCount = task.current_version?.comments.length ?? 0;
   return (
     <button
       className={`${compact ? "button secondary compact " : ""}feedback-button${unread ? " unread" : ""}`}
       type="button"
-      aria-label={`Prepress team feedback${unread ? ", new feedback" : ""}`}
+      aria-label={`Prepress team feedback${unread ? `, new feedback, ${commentCountLabel(commentCount)}` : ""}`}
       onClick={onClick}
     >
       <MessageSquareText aria-hidden="true" />
       <span>Prepress team feedback</span>
-      {unread ? <span className="feedback-badge" aria-hidden="true">New</span> : null}
+      {unread ? <span className="feedback-badge" aria-hidden="true">New · {commentCount}</span> : null}
     </button>
   );
 }
@@ -1013,6 +1025,7 @@ export function App() {
   const [identityError, setIdentityError] = useState<string | null>(null);
   const [feedbackSaving, setFeedbackSaving] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackImagePreview, setFeedbackImagePreview] = useState<FeedbackImagePreview | null>(null);
   const [actionOutcome, setActionOutcome] = useState<ActionOutcomeNotice | null>(null);
   const [clockMs, setClockMs] = useState(() => Date.now());
   const [sessionExtending, setSessionExtending] = useState(false);
@@ -1250,7 +1263,10 @@ export function App() {
   useEffect(() => {
     if (loadState.status !== "ready" || demoEnabled) return;
     const check = () => void runBackgroundCheck();
-    const timer = window.setInterval(check, PROOF_BACKGROUND_CHECK_INTERVAL_MS);
+    const interval = detailDialog?.kind === "feedback"
+      ? PROOF_FEEDBACK_CHECK_INTERVAL_MS
+      : PROOF_BACKGROUND_CHECK_INTERVAL_MS;
+    const timer = window.setInterval(check, interval);
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") check();
     };
@@ -1259,7 +1275,16 @@ export function App() {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [loadState.status]);
+  }, [detailDialog?.kind, loadState.status]);
+
+  useEffect(() => {
+    if (!feedbackImagePreview) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFeedbackImagePreview(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [feedbackImagePreview]);
 
   useEffect(() => {
     if (loadState.status !== "ready") return;
@@ -1336,6 +1361,7 @@ export function App() {
   const dialogVersion = detailDialog?.kind === "feedback"
     ? dialogTask?.current_version ?? null
     : dialogVersions.find((version) => version.version_id === selectedVersionId) ?? dialogTask?.current_version ?? dialogVersions[0] ?? null;
+  const feedbackCommentCount = dialogVersion?.comments.length ?? 0;
 
   const changeFilter = (nextFilter: QueueFilter) => {
     const nextTasks = order ? searchProofTasks(filterProofTasks(order.tasks, nextFilter), searchQuery) : [];
@@ -1494,6 +1520,7 @@ export function App() {
     dialogOpener.current = event.currentTarget;
     setSelectedTaskId(taskId);
     setFeedbackError(null);
+    setFeedbackImagePreview(null);
     setDetailDialog({ kind, task_id: taskId });
     if (kind === "history") void loadHistory(taskId);
   };
@@ -1506,7 +1533,10 @@ export function App() {
     });
   };
 
-  const closeDetailDialog = () => dialogElement.current?.close();
+  const closeDetailDialog = () => {
+    setFeedbackImagePreview(null);
+    dialogElement.current?.close();
+  };
 
   const openIdentityDialog = (opener: HTMLElement | null) => {
     identityDialogOpener.current = opener;
@@ -1975,6 +2005,7 @@ export function App() {
             <div>
               <span className="eyebrow">{dialogTask.product_name ?? "Artwork proof"}</span>
               <h2 id="proof-dialog-title">{detailDialog.kind === "feedback" ? "Prepress team feedback" : "File history"}</h2>
+              {detailDialog.kind === "feedback" && feedbackCommentCount ? <small className="feedback-comment-count">{commentCountLabel(feedbackCommentCount)}</small> : null}
               <p className="sr-only" id="proof-dialog-description">{detailDialog.kind === "feedback" ? "Review Prepress team feedback and its available attachments for this proof." : "Review the current and previous customer-safe versions of this proof."}</p>
             </div>
             <button ref={detailDialogCloseButton} className="icon-button subtle" type="button" aria-label="Close dialog" onClick={closeDetailDialog}><X aria-hidden="true" /></button>
@@ -1988,7 +2019,13 @@ export function App() {
                     <ul className="comment-attachments" aria-label="Prepress team feedback attachments">
                       {comment.attachments.map((attachment, attachmentIndex) => (
                         <li key={`${attachment.filename}-${attachmentIndex}`}>
-                          {attachment.url ? (
+                          {attachment.url && isImageFeedbackAttachment(attachment.filename, attachment.content_type) ? (
+                            <button className="comment-image-attachment" type="button" onClick={() => setFeedbackImagePreview({ filename: attachment.filename, url: attachment.url! })} aria-label={`Preview feedback image ${attachment.filename}`}>
+                              <img src={attachment.url} alt={`Prepress attachment: ${attachment.filename}`} />
+                              <span><strong>{attachment.filename}</strong><small>Preview image</small></span>
+                              <ExternalLink aria-hidden="true" />
+                            </button>
+                          ) : attachment.url ? (
                             <a href={attachment.url} target="_blank" rel="noreferrer" aria-label={`Open feedback attachment ${attachment.filename}`}>
                               <Paperclip aria-hidden="true" />
                               <span><strong>{attachment.filename}</strong><small>{attachment.content_type ?? "Prepress feedback file"}</small></span>
@@ -2077,6 +2114,20 @@ export function App() {
               ) : null}
             </div>
           )}
+          {feedbackImagePreview ? (
+            <div className="feedback-image-lightbox" role="dialog" aria-modal="true" aria-label={`Feedback image preview: ${feedbackImagePreview.filename}`} onMouseDown={(event) => {
+              if (event.target === event.currentTarget) setFeedbackImagePreview(null);
+            }}>
+              <div className="feedback-image-lightbox-card">
+                <div>
+                  <strong>{feedbackImagePreview.filename}</strong>
+                  <button className="icon-button subtle" type="button" aria-label="Close feedback image preview" onClick={() => setFeedbackImagePreview(null)}><X aria-hidden="true" /></button>
+                </div>
+                <img src={feedbackImagePreview.url} alt={`Prepress attachment: ${feedbackImagePreview.filename}`} />
+                <a className="button secondary" href={feedbackImagePreview.url} target="_blank" rel="noreferrer"><ExternalLink aria-hidden="true" /> Open full size</a>
+              </div>
+            </div>
+          ) : null}
         </dialog>
       ) : null}
 

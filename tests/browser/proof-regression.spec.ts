@@ -108,10 +108,10 @@ test("Proof highlights new Prepress feedback until it is acknowledged", async ({
   await page.goto("/proof#/proof");
   await waitForProofWorkspace(page);
 
-  const feedback = page.getByRole("button", { name: "Prepress team feedback, new feedback" }).first();
+  const feedback = page.getByRole("button", { name: "Prepress team feedback, new feedback, 1 comment" }).first();
   await expect(feedback).toBeVisible();
   await expect(feedback).toHaveClass(/unread/);
-  await expect(feedback.locator(".feedback-badge")).toHaveText("New");
+  await expect(feedback.locator(".feedback-badge")).toHaveText("New · 1");
   await expect(feedback).toHaveCSS("background-color", "rgb(255, 248, 231)");
   await feedback.click();
   const dialog = page.getByRole("dialog", { name: "Prepress team feedback" });
