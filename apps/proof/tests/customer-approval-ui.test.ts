@@ -47,7 +47,12 @@ test("surfaces unreviewed Prepress feedback without changing acknowledged feedba
   assert.match(appSource, /feedback_required && !task\.feedback_acknowledged/);
   assert.match(appSource, /feedback-button\$\{unread \? " unread" : ""\}/);
   assert.match(appSource, /feedback-badge/);
-  assert.match(appSource, /Prepress team feedback\$\{unread \? ", new feedback" : ""\}/);
+  assert.match(appSource, /New · \{commentCount\}/);
+  assert.match(appSource, /isImageFeedbackAttachment/);
+  assert.match(appSource, /PROOF_FEEDBACK_CHECK_INTERVAL_MS/);
+  assert.match(appSource, /feedback-image-lightbox/);
+  assert.match(appSource, /Preview feedback image/);
+  assert.match(appSource, /Prepress team feedback\$\{unread \? `, new feedback, \$\{commentCountLabel\(commentCount\)\}` : ""\}/);
   assert.match(appSource, /comment\$\{dialogTask\.feedback_acknowledged \? "" : " unread"\}/);
   assert.match(appSource, /Review and acknowledge the prepress team feedback before providing revised artwork\./);
   assert.match(revisionDialogSource, /feedbackAcknowledged/);
