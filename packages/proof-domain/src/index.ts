@@ -1142,6 +1142,34 @@ function publicProofTimestamp(value: unknown) {
   return candidate && Number.isFinite(Date.parse(candidate)) ? candidate : null;
 }
 
+function publicProofComments(comments: ProofComment[], includeAssetUrls: boolean): PublicProofComment[] {
+  return comments
+    .map(({ text, created_at, attachment }, index) => {
+      const createdAt = publicProofTimestamp(created_at);
+      return {
+        comment: {
+          text: publicProofDisplayText(text, 8_000),
+          created_at: createdAt,
+          attachments: publicCommentAttachments(attachment).map((item) => ({
+            ...item,
+            url: includeAssetUrls ? item.url : null
+          }))
+        },
+        index,
+        timestamp: createdAt ? Date.parse(createdAt) : null
+      };
+    })
+    .sort((left, right) => {
+      if (left.timestamp !== null && right.timestamp !== null && left.timestamp !== right.timestamp) {
+        return right.timestamp - left.timestamp;
+      }
+      if (left.timestamp !== null && right.timestamp === null) return -1;
+      if (left.timestamp === null && right.timestamp !== null) return 1;
+      return left.index - right.index;
+    })
+    .map(({ comment }) => comment);
+}
+
 function publicTechnicalChecks(report: unknown): PublicProofTechnicalCheck[] {
   let parsed = report;
   if (typeof report === "string") {
@@ -1343,14 +1371,7 @@ export function toPublicProofVersion(
     download_url: includeAssetUrls ? downloadUrl : null,
     approval_status: publicProofDisplayText(version.approval_status, 40),
     approved_at: publicProofTimestamp(version.approved_at),
-    comments: version.comments.slice(0, 100).map(({ text, created_at, attachment }) => ({
-      text: publicProofDisplayText(text, 8_000),
-      created_at: publicProofTimestamp(created_at),
-      attachments: publicCommentAttachments(attachment).map((item) => ({
-        ...item,
-        url: includeAssetUrls ? item.url : null
-      }))
-    })),
+    comments: publicProofComments(version.comments.slice(0, 100), includeAssetUrls),
     technical_checks: publicTechnicalChecks(version.detailed_report),
     current: version.current
   };
