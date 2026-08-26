@@ -262,9 +262,13 @@ test("operational alarms observe failures without changing submit behavior", () 
     template,
     /WrikeScheduledCandidateFailuresAlarm:[\s\S]*?Condition: WrikeScheduledIntakeActive[\s\S]*?Type: AWS::CloudWatch::Alarm[\s\S]*?AlarmName: !Sub "\$\{LambdaFunctionName\}-\$\{EnvironmentName\}-wrike-scheduled-candidate-failures"[\s\S]*?Namespace: Pathfinder\/WrikeScheduledIntake[\s\S]*?MetricName: candidate_failures[\s\S]*?Statistic: Sum[\s\S]*?Threshold: 0[\s\S]*?ComparisonOperator: GreaterThanThreshold[\s\S]*?TreatMissingData: notBreaching/
   );
+  assert.match(
+    template,
+    /WrikeScheduledSubmissionInhibitedAlarm:[\s\S]*?Condition: WrikeScheduledIntakeActive[\s\S]*?Type: AWS::CloudWatch::Alarm[\s\S]*?AlarmName: !Sub "\$\{LambdaFunctionName\}-\$\{EnvironmentName\}-wrike-scheduled-submission-inhibited"[\s\S]*?Namespace: Pathfinder\/WrikeScheduledIntake[\s\S]*?MetricName: submission_inhibited_ready[\s\S]*?Statistic: Maximum[\s\S]*?Period: 900[\s\S]*?Threshold: 0[\s\S]*?ComparisonOperator: GreaterThanThreshold[\s\S]*?TreatMissingData: notBreaching/
+  );
 
-  const alarmBlocks = template.match(/\n  (?:PathfinderApiErrorsAlarm|PathfinderApiThrottlesAlarm|WrikeScheduledIntakeFailedInvocationsAlarm|WrikeScheduledCandidateFailuresAlarm):[\s\S]*?(?=\n  [A-Z][A-Za-z0-9]+:|\nOutputs:)/g) ?? [];
-  assert.equal(alarmBlocks.length, 4);
+  const alarmBlocks = template.match(/\n  (?:PathfinderApiErrorsAlarm|PathfinderApiThrottlesAlarm|WrikeScheduledIntakeFailedInvocationsAlarm|WrikeScheduledCandidateFailuresAlarm|WrikeScheduledSubmissionInhibitedAlarm):[\s\S]*?(?=\n  [A-Z][A-Za-z0-9]+:|\nOutputs:)/g) ?? [];
+  assert.equal(alarmBlocks.length, 5);
   assert.equal(alarmBlocks.some((block) => /AlarmActions|OKActions|InsufficientDataActions/.test(block)), false);
   assert.match(
     template,

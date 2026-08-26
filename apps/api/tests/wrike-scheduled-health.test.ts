@@ -6,7 +6,8 @@ const config = { enabled: true, lift_submit_enabled: false, customer_id: "284619
 const readyJob = {
   customer_id: "284619", import_method_id: "method-1784901795973", state: "Ready", target_order_number: null,
   created_at: "2026-08-26T14:00:00.000Z",
-  scheduled_wrike_intake: { source: "scheduled_polling" as const, import_method_id: "method-1784901795973", discovered_at: "2026-08-26T13:45:00.000Z" }
+  source_evidence: { provider: "wrike", task_id: "task-ready-1" },
+  scheduled_wrike_intake: { source: "scheduled_polling" as const, task_id: "task-ready-1", import_method_id: "method-1784901795973", discovered_at: "2026-08-26T13:45:00.000Z" }
 };
 
 test("reports only aggregate inhibited scheduled-submit backlog", () => {
@@ -29,6 +30,17 @@ test("fails closed for unrelated or already-confirmed jobs and surfaces failed c
   assert.equal(health.state, "unhealthy");
   assert.equal(health.last_cycle_at, "2026-08-26T14:42:54.000Z");
   assert.equal(health.last_cycle_prepared_count, 1);
+});
+
+test("excludes jobs without the exact durable Wrike source identity", () => {
+  const mismatches = [
+    { ...readyJob, source_evidence: { provider: "manual", task_id: "task-ready-1" } },
+    { ...readyJob, source_evidence: { provider: "wrike", task_id: "" } },
+    { ...readyJob, scheduled_wrike_intake: { ...readyJob.scheduled_wrike_intake, task_id: "task-other" } }
+  ];
+  for (const job of mismatches) {
+    assert.equal(buildScheduledSubmissionHealth(config, [job]).ready_count, 0);
+  }
 });
 
 test("marks the scheduler unhealthy when a scheduled cycle is overdue", () => {

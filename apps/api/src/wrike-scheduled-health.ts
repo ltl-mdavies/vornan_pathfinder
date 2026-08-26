@@ -11,8 +11,13 @@ export interface ScheduledSubmissionHealthJob {
   state: string;
   target_order_number?: string | null;
   created_at: string;
+  source_evidence?: {
+    provider?: string | null;
+    task_id?: string | null;
+  } | null;
   scheduled_wrike_intake?: {
     source: "scheduled_polling";
+    task_id?: string | null;
     import_method_id: string;
     discovered_at: string;
   } | null;
@@ -64,8 +69,11 @@ export function buildScheduledSubmissionHealth(
     job.import_method_id === config.import_method_id &&
     job.state === "Ready" &&
     !job.target_order_number?.trim() &&
+    job.source_evidence?.provider === "wrike" &&
+    Boolean(job.source_evidence.task_id?.trim()) &&
     job.scheduled_wrike_intake?.source === "scheduled_polling" &&
-    job.scheduled_wrike_intake.import_method_id === config.import_method_id
+    job.scheduled_wrike_intake.import_method_id === config.import_method_id &&
+    job.scheduled_wrike_intake.task_id?.trim() === job.source_evidence.task_id?.trim()
   );
   const oldestReadyAt = ready
     .map((job) => job.scheduled_wrike_intake?.discovered_at ?? job.created_at)
