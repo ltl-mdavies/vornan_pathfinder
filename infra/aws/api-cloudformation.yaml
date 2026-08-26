@@ -1396,6 +1396,21 @@ Resources:
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
 
+  WrikeScheduledSubmissionInhibitedAlarm:
+    Condition: WrikeScheduledIntakeActive
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${LambdaFunctionName}-${EnvironmentName}-wrike-scheduled-submission-inhibited"
+      AlarmDescription: Scheduled intake is running while exact scoped Ready jobs are blocked because scheduled Lift submission is disabled.
+      Namespace: Pathfinder/WrikeScheduledIntake
+      MetricName: submission_inhibited_ready
+      Statistic: Maximum
+      Period: 900
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
   PathfinderCustomersTable:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Retain

@@ -139,6 +139,7 @@ import {
   buildCandidateFailureDetails,
   type WrikeScheduledIntakeCompletionResult
 } from "./wrike-scheduled-telemetry.js";
+import { buildScheduledSubmissionHealth } from "./wrike-scheduled-health.js";
 import {
   groupWrikeSourceOrders,
   selectWrikeSourceOrderAnchor,
@@ -6389,6 +6390,10 @@ export async function runConfiguredWrikeScheduledIntake() {
     markScheduled: true
   });
   const { customer, intakeResult } = core;
+  const scheduledSubmissionHealth = buildScheduledSubmissionHealth(
+    wrikeScheduledIntakeConfig,
+    await listJobs()
+  );
 
   const scheduledSubmit = wrikeScheduledIntakeConfig.lift_submit_enabled
     ? await runWrikeScheduledSubmits({
@@ -6474,6 +6479,10 @@ export async function runConfiguredWrikeScheduledIntake() {
       shipping_status_id_count: 0
     },
     scheduled_submit: scheduledSubmit,
+    submission_inhibited_ready_count:
+      scheduledSubmissionHealth.state === "submission_inhibited"
+        ? scheduledSubmissionHealth.ready_count
+        : 0,
     status_writeback: statusWriteback,
     capabilities: {
       ...intakeResult.capabilities,
@@ -6507,6 +6516,62 @@ export async function runConfiguredWrikeScheduledIntake() {
   }
 
   return result;
+}
+
+/**
+ * Records one aggregate-only durable failure marker before the scheduled Lambda
+ * rethrows. The existing snapshot slot is intentionally reused: no source task,
+ * job, provider payload, or error text is retained.
+ */
+export async function recordConfiguredWrikeScheduledIntakeFailure() {
+  if (!wrikeScheduledIntakeConfig.enabled) return false;
+  const checkedAt = new Date().toISOString();
+  const customer = await findLiftCustomer(wrikeScheduledIntakeConfig.customer_id);
+  const snapshot: WrikeOperationsSnapshot = {
+    version: 1,
+    run_id: `wrike_scheduled_failure_${checkedAt.replace(/[-:.TZ]/g, "")}`,
+    source: "scheduled",
+    customer_id: wrikeScheduledIntakeConfig.customer_id,
+    import_method_id: wrikeScheduledIntakeConfig.import_method_id,
+    checked_at: checkedAt,
+    discovery_summary: {
+      task_count: 0,
+      scoped_task_count: 0,
+      eligible_order_count: 0,
+      pending_order_count: 0,
+      placard_order_pending_count: 0,
+      likely_pending_order_count: 0
+    },
+    root_scopes: [],
+    pending_intake: [],
+    prepared_count: 0,
+    replayed_count: 0,
+    failed_count: 1,
+    candidate_failures: [],
+    scheduled_submit: {
+      eligible_count: 0,
+      submitted_count: 0,
+      replayed_count: 0,
+      failed_count: 0
+    },
+    status_writeback: {
+      eligible_count: 0,
+      posted_count: 0,
+      replayed_count: 0,
+      failed_count: 0
+    },
+    safety: {
+      lift_order_submitted: false,
+      wrike_status_changed: false,
+      uncertain_lift_retry_allowed: false
+    }
+  };
+  await persistWrikeOperationsSnapshot(
+    customer,
+    wrikeScheduledIntakeConfig.import_method_id,
+    snapshot
+  );
+  return true;
 }
 
 function buildWrikeOperationsSnapshot(args: {
@@ -8824,9 +8889,32 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
 
 app.get("/api/jobs", async (_req, res) => {
   const jobs = await listJobs();
+  const snapshots = await listWrikeOperationsSnapshots();
+  const latestSchedulerSnapshot = snapshots.find(
+    (entry) =>
+      entry.customer_id === wrikeScheduledIntakeConfig.customer_id &&
+      entry.import_method_id === wrikeScheduledIntakeConfig.import_method_id &&
+      entry.snapshot.source === "scheduled"
+  )?.snapshot;
+  const latestCycle = latestSchedulerSnapshot
+    ? {
+        checked_at: latestSchedulerSnapshot.checked_at,
+        prepared_count: latestSchedulerSnapshot.prepared_count,
+        submitted_count: latestSchedulerSnapshot.scheduled_submit.submitted_count,
+        candidate_failure_count: latestSchedulerSnapshot.candidate_failures.length,
+        failed_count: latestSchedulerSnapshot.failed_count,
+        scheduled_submit_failed_count: latestSchedulerSnapshot.scheduled_submit.failed_count
+      }
+    : null;
   res.json({
     jobs: await sourceOrderJobProjectionWithStatus(jobs),
-    wrike_operations_snapshots: await listWrikeOperationsSnapshots()
+    wrike_operations_snapshots: snapshots,
+    scheduled_submission_health: buildScheduledSubmissionHealth(
+      wrikeScheduledIntakeConfig,
+      jobs,
+      latestCycle,
+      new Date().toISOString()
+    )
   });
 });
 

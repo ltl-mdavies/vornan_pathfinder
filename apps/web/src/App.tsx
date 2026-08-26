@@ -514,6 +514,18 @@ type CustomerWrikeOperationsSnapshot = {
   snapshot: WrikeOperationsSnapshot;
 };
 
+type ScheduledSubmissionHealth = {
+  configured: boolean;
+  submission_enabled: boolean;
+  state: "healthy" | "submission_inhibited" | "unhealthy" | "inactive";
+  ready_count: number;
+  oldest_ready_at: string | null;
+  last_cycle_at: string | null;
+  last_cycle_prepared_count: number | null;
+  last_cycle_submitted_count: number | null;
+  cycle_overdue: boolean;
+};
+
 type SubmitRuntimeStatus = {
   external_submit_enabled: boolean;
   transport_mode: SubmitAttemptTransportMode;
@@ -2908,6 +2920,34 @@ function OperationsTriageStrip({
   );
 }
 
+function ScheduledSubmissionHealthNotice({ health }: { health: ScheduledSubmissionHealth | null }) {
+  if (!health || health.state === "inactive") return null;
+  const cycleDetail = health.last_cycle_at
+    ? ` Last completed cycle ${displayTimestamp(health.last_cycle_at)}${health.last_cycle_prepared_count !== null ? ` · ${health.last_cycle_prepared_count} prepared` : ""}${health.last_cycle_submitted_count !== null ? ` · ${health.last_cycle_submitted_count} submitted` : ""}.`
+    : " No completed scheduler cycle has been recorded yet.";
+  if (health.state === "healthy") {
+    return (
+      <div className="import-success" role="status">
+        <strong>Scheduled intake is healthy.</strong>{cycleDetail}
+      </div>
+    );
+  }
+  if (health.state === "submission_inhibited") {
+    return (
+      <div className="import-warning" role="alert">
+        <strong>Scheduled Lift submission is inhibited.</strong>{" "}
+        {health.ready_count} exact scheduled-Wrike {health.ready_count === 1 ? "job is" : "jobs are"} Ready without a Lift order.
+        {health.oldest_ready_at ? ` Oldest ready ${displayTimestamp(health.oldest_ready_at)}.` : ""}{cycleDetail} No submission was attempted from this dashboard.
+      </div>
+    );
+  }
+  return (
+    <div className="import-error" role="alert">
+      <strong>Scheduled intake needs attention.</strong> The latest scheduler cycle failed, has candidate errors, or is overdue.{cycleDetail} No recovery action is available from this dashboard.
+    </div>
+  );
+}
+
 function WrikeIntakeReview({ snapshots }: { snapshots: CustomerWrikeOperationsSnapshot[] }) {
   const latest = [...snapshots].sort(
     (first, second) => Date.parse(second.snapshot.checked_at) - Date.parse(first.snapshot.checked_at)
@@ -4582,6 +4622,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [activeOutputTemplateId, setActiveOutputTemplateId] = useState<string | null>(null);
   const [globalJobs, setGlobalJobs] = useState<ProcessingJobPreview[]>([]);
   const [wrikeOperationsSnapshots, setWrikeOperationsSnapshots] = useState<CustomerWrikeOperationsSnapshot[]>([]);
+  const [scheduledSubmissionHealth, setScheduledSubmissionHealth] = useState<ScheduledSubmissionHealth | null>(null);
   const [jobsLastRefreshedAt, setJobsLastRefreshedAt] = useState<string | null>(null);
   const [activeMethodId, setActiveMethodId] = useState("manual-xlsx");
   const [manualImportMethodId, setManualImportMethodId] = useState("manual-xlsx");
@@ -5097,11 +5138,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const jobsPayload = await readJsonResponse<{
         jobs: ProcessingJobPreview[];
         wrike_operations_snapshots?: CustomerWrikeOperationsSnapshot[];
+        scheduled_submission_health?: ScheduledSubmissionHealth;
       }>(jobsResponse);
       setTargets(targetsPayload.targets);
       setLocalDraftTargetIds([]);
       setGlobalJobs(jobsPayload.jobs);
       setWrikeOperationsSnapshots(jobsPayload.wrike_operations_snapshots ?? []);
+      setScheduledSubmissionHealth(jobsPayload.scheduled_submission_health ?? null);
       setJobsLastRefreshedAt(new Date().toISOString());
       setTargetsAndJobsState("idle");
     } catch (error) {
@@ -5115,9 +5158,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     const payload = await readJsonResponse<{
       jobs: ProcessingJobPreview[];
       wrike_operations_snapshots?: CustomerWrikeOperationsSnapshot[];
+      scheduled_submission_health?: ScheduledSubmissionHealth;
     }>(response);
     setGlobalJobs(payload.jobs);
     setWrikeOperationsSnapshots(payload.wrike_operations_snapshots ?? []);
+    setScheduledSubmissionHealth(payload.scheduled_submission_health ?? null);
     setWorkspace((current) =>
       current
         ? {
@@ -16658,6 +16703,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </label>
               </div>
             </header>
+            <ScheduledSubmissionHealthNotice health={scheduledSubmissionHealth} />
             <section className="dashboard-kpi-grid" aria-label="Pathfinder operating metrics">
               {[
                 {
@@ -18150,6 +18196,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               {jobsLastRefreshedAt ? ` · Updated ${displayTimestamp(jobsLastRefreshedAt)}` : ""}
             </div>
             <ProofOpsPanel apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} />
+            <ScheduledSubmissionHealthNotice health={scheduledSubmissionHealth} />
             <OperationsTriageStrip
               jobs={allJobsUnfiltered.filter((job) => !job.archived_at)}
               snapshots={wrikeOperationsSnapshots}

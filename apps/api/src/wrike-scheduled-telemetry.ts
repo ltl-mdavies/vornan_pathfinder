@@ -54,6 +54,7 @@ export interface WrikeScheduledIntakeCompletionResult {
   discovery_summary: ScheduledDiscoverySummary;
   scheduled_submit: ScheduledSubmitSummary;
   status_writeback: ScheduledWritebackSummary;
+  submission_inhibited_ready_count?: number;
 }
 
 function safeTelemetryToken(value: unknown, fallback: string) {
@@ -140,7 +141,8 @@ export function buildWrikeScheduledIntakeCompletionLog(
             { Name: "prepared_count", Unit: "Count" },
             { Name: "scheduled_submits_submitted", Unit: "Count" },
             { Name: "status_comments_posted", Unit: "Count" },
-            { Name: "candidate_failures", Unit: "Count" }
+            { Name: "candidate_failures", Unit: "Count" },
+            { Name: "submission_inhibited_ready", Unit: "Count" }
           ]
         }
       ]
@@ -170,6 +172,7 @@ export function buildWrikeScheduledIntakeCompletionLog(
     status_comments_replayed: result.status_writeback.replayed_count,
     status_comments_failed: result.status_writeback.failed_count,
     candidate_failures: candidateFailures,
+    submission_inhibited_ready: result.submission_inhibited_ready_count ?? 0,
     candidate_failure_detail_count: candidateFailureDetails.length,
     candidate_failure_details: candidateFailureDetails
   };
