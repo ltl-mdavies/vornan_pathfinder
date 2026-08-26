@@ -1405,7 +1405,7 @@ Resources:
       Namespace: Pathfinder/WrikeScheduledIntake
       MetricName: submission_inhibited_ready
       Statistic: Maximum
-      Period: 300
+      Period: 900
       EvaluationPeriods: 1
       Threshold: 0
       ComparisonOperator: GreaterThanThreshold
