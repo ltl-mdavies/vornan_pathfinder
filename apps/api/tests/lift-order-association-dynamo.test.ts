@@ -3,11 +3,12 @@ import {
   DynamoDBClient,
   GetItemCommand,
   PutItemCommand,
+  TransactWriteItemsCommand,
   type AttributeValue
 } from "@aws-sdk/client-dynamodb";
 import test, { after, before, beforeEach } from "node:test";
 
-type DynamoCommand = GetItemCommand | PutItemCommand;
+type DynamoCommand = GetItemCommand | PutItemCommand | TransactWriteItemsCommand;
 const commands: DynamoCommand[] = [];
 let rejectWrite = false;
 const clientPrototype = DynamoDBClient.prototype as unknown as {
@@ -131,6 +132,51 @@ test("conditionally replaces the exact current DynamoDB job version", async () =
   assert.equal(write.input.ExpressionAttributeValues?.[":expected_updated_at"]?.S, "2026-08-03T18:00:00.000Z");
   assert.equal(write.input.Item?.target_order_number?.S, "A0227641");
   assert.equal(write.input.Item?.data?.S?.includes("operator@vornan.co"), true);
+});
+
+test("atomically preserves the exact uncertain attempt while associating its verified Lift order", async () => {
+  const result = await associateJobWithLiftOrder(customer, {
+    job_id: job.job_id,
+    order_number: verification.order_number,
+    expected_current_order_number: null,
+    linked_by_email: "operator@vornan.co",
+    reason: "Reconcile the one exact timeout without another submit.",
+    verification: {
+      ...verification,
+      external_order_id: "PFMTAC7UY1272E",
+      company_id: "91",
+      submit_attempt_id: "submit_b5d039",
+      request_fingerprint: "request-fingerprint"
+    },
+    source: "scheduled_uncertain_reconciliation",
+    expected_uncertain_attempt: {
+      attempt_id: "submit_b5d039",
+      idempotency_key: "job:route:profile:request-fingerprint",
+      request_fingerprint: "request-fingerprint"
+    }
+  });
+
+  assert.equal(result?.association?.source, "scheduled_uncertain_reconciliation");
+  assert.equal(result?.association?.automatic_wrike_status_writeback_suppressed, true);
+  assert.deepEqual(
+    commands.map((command) => command.constructor.name),
+    ["GetItemCommand", "GetItemCommand", "TransactWriteItemsCommand"]
+  );
+  const transaction = commands[2] as TransactWriteItemsCommand;
+  const check = transaction.input.TransactItems?.[0]?.ConditionCheck;
+  const write = transaction.input.TransactItems?.[1]?.Put;
+  assert.equal(check?.TableName, "Pathfinder-SUBMIT_ATTEMPTS-association-contract");
+  assert.equal(check?.Key?.attempt_id?.S, "submit_b5d039");
+  assert.match(check?.ConditionExpression ?? "", /#state = :uncertain/);
+  assert.equal(check?.ExpressionAttributeValues?.[":uncertain"]?.S, "Submission Uncertain");
+  assert.equal(
+    check?.ExpressionAttributeValues?.[":idempotency_key"]?.S,
+    "job:route:profile:request-fingerprint"
+  );
+  assert.equal(write?.TableName, "Pathfinder-JOBS-association-contract");
+  assert.equal(write?.ConditionExpression, "updated_at = :expected_updated_at");
+  assert.equal(write?.Item?.target_order_number?.S, "A0227641");
+  assert.equal(write?.Item?.data?.S?.includes("submit_b5d039"), true);
 });
 
 test("fails closed when another operator changes the job before the conditional write", async () => {

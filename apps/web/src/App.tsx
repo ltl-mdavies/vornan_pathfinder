@@ -1124,7 +1124,7 @@ interface LiftOrderAssociationVerification {
 
 interface LiftOrderAssociationHistoryEntry {
   association_id: string;
-  source: "manual_verified";
+  source: "manual_verified" | "scheduled_uncertain_reconciliation";
   action: "linked" | "replaced";
   previous_order_number: string | null;
   order_number: string;
@@ -1132,6 +1132,7 @@ interface LiftOrderAssociationHistoryEntry {
   linked_by_email: string | null;
   reason: string;
   verification: LiftOrderAssociationVerification;
+  automatic_wrike_status_writeback_suppressed?: boolean;
 }
 
 interface LiftOrderAssociationVerificationResponse {
@@ -1141,6 +1142,8 @@ interface LiftOrderAssociationVerificationResponse {
   replacing_existing_order: boolean;
   already_linked: boolean;
   required_confirmation: string;
+  reconciliation_attempt_id: string | null;
+  association_mode: "manual_verified" | "scheduled_uncertain_reconciliation";
 }
 
 interface NormalizedLiftSubmitResponse {
@@ -5988,7 +5991,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             order_number: liftOrderAssociationVerification.verification.order_number,
             expected_current_order_number: liftOrderAssociationVerification.current_order_number,
             confirmation: liftOrderAssociationConfirmation,
-            reason: liftOrderAssociationReason.trim()
+            reason: liftOrderAssociationReason.trim(),
+            reconciliation_attempt_id:
+              liftOrderAssociationVerification.reconciliation_attempt_id
           })
         }
       );

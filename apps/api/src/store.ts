@@ -568,6 +568,8 @@ export interface WrikeOperationsSnapshot {
     eligible_count: number;
     submitted_count: number;
     replayed_count: number;
+    reconciliation_needed_count?: number;
+    reconciled_count?: number;
     failed_count: number;
   };
   status_writeback: {
@@ -916,11 +918,18 @@ export interface LiftOrderAssociationVerification {
   order_status: string | null;
   line_count: number;
   fetched_at: string;
+  external_order_id?: string | null;
+  company_id?: string | null;
+  po_number?: string | null;
+  order_type?: string | null;
+  line_fingerprint?: string | null;
+  submit_attempt_id?: string | null;
+  request_fingerprint?: string | null;
 }
 
 export interface LiftOrderAssociationHistoryEntry {
   association_id: string;
-  source: "manual_verified";
+  source: "manual_verified" | "scheduled_uncertain_reconciliation";
   action: "linked" | "replaced";
   previous_order_number: string | null;
   order_number: string;
@@ -928,6 +937,7 @@ export interface LiftOrderAssociationHistoryEntry {
   linked_by_email: string | null;
   reason: string;
   verification: LiftOrderAssociationVerification;
+  automatic_wrike_status_writeback_suppressed?: boolean;
 }
 
 export interface NormalizedLiftSubmitResponse {
@@ -6204,6 +6214,7 @@ function buildLiftOrderAssociationEntry(args: {
   linked_by_email?: string | null;
   reason: string;
   verification: LiftOrderAssociationVerification;
+  source?: LiftOrderAssociationHistoryEntry["source"];
 }): LiftOrderAssociationHistoryEntry {
   const previousOrderNumber = normalizedLiftOrderNumber(args.job.target_order_number);
   return {
@@ -6220,14 +6231,16 @@ function buildLiftOrderAssociationEntry(args: {
       .update("\0")
       .update(args.linked_at)
       .digest("hex")}`,
-    source: "manual_verified",
+    source: args.source ?? "manual_verified",
     action: previousOrderNumber ? "replaced" : "linked",
     previous_order_number: previousOrderNumber,
     order_number: args.order_number,
     linked_at: args.linked_at,
     linked_by_email: args.linked_by_email?.trim().toLowerCase() || null,
     reason: args.reason,
-    verification: args.verification
+    verification: args.verification,
+    automatic_wrike_status_writeback_suppressed:
+      args.source === "scheduled_uncertain_reconciliation" ? true : undefined
   };
 }
 
@@ -6239,6 +6252,7 @@ function nextLiftOrderAssociatedJob(args: {
   linked_by_email?: string | null;
   reason: string;
   verification: LiftOrderAssociationVerification;
+  source?: LiftOrderAssociationHistoryEntry["source"];
 }) {
   const association = buildLiftOrderAssociationEntry(args);
   const job: ProcessingJobPreview = {
@@ -6265,6 +6279,12 @@ export async function associateJobWithLiftOrder(
     linked_by_email?: string | null;
     reason: string;
     verification: LiftOrderAssociationVerification;
+    source?: LiftOrderAssociationHistoryEntry["source"];
+    expected_uncertain_attempt?: {
+      attempt_id: string;
+      idempotency_key: string;
+      request_fingerprint: string | null;
+    } | null;
   }
 ) {
   const orderNumber = normalizedLiftOrderNumber(args.order_number);
@@ -6312,14 +6332,15 @@ export async function associateJobWithLiftOrder(
       linked_at: linkedAt,
       linked_by_email: args.linked_by_email,
       reason,
-      verification: args.verification
+      verification: args.verification,
+      source: args.source
     });
     const expectedUpdatedAt = item?.updated_at?.S;
     if (!expectedUpdatedAt) {
       throw new LiftOrderAssociationConflictError("The current job version could not be verified safely.");
     }
     try {
-      await getDynamoClient().send(new PutItemCommand({
+      const jobPut = {
         TableName: tables.jobs,
         Item: {
           ...dynamoItem(
@@ -6333,9 +6354,41 @@ export async function associateJobWithLiftOrder(
         ExpressionAttributeValues: {
           ":expected_updated_at": dynamoString(expectedUpdatedAt)
         }
-      }));
+      };
+      if (args.expected_uncertain_attempt) {
+        await getDynamoClient().send(new TransactWriteItemsCommand({
+          TransactItems: [
+            {
+              ConditionCheck: {
+                TableName: tables.submit_attempts,
+                Key: {
+                  customer_id: dynamoString(customer.lift_customer_id),
+                  attempt_id: dynamoString(args.expected_uncertain_attempt.attempt_id)
+                },
+                ConditionExpression:
+                  "#state = :uncertain AND idempotency_key = :idempotency_key",
+                ExpressionAttributeNames: { "#state": "state" },
+                ExpressionAttributeValues: {
+                  ":uncertain": dynamoString("Submission Uncertain"),
+                  ":idempotency_key": dynamoString(args.expected_uncertain_attempt.idempotency_key)
+                }
+              }
+            },
+            { Put: jobPut }
+          ]
+        }));
+      } else {
+        await getDynamoClient().send(new PutItemCommand(jobPut));
+      }
     } catch (error) {
-      if (!isConditionalCheckFailure(error)) throw error;
+      const transactionConditionFailed = Boolean(
+        args.expected_uncertain_attempt &&
+        error &&
+        typeof error === "object" &&
+        "name" in error &&
+        (error as { name?: unknown }).name === "TransactionCanceledException"
+      );
+      if (!isConditionalCheckFailure(error) && !transactionConditionFailed) throw error;
       throw new LiftOrderAssociationConflictError(
         "The job changed while the Lift order association was being saved. Refresh and verify it again."
       );
@@ -6367,8 +6420,27 @@ export async function associateJobWithLiftOrder(
       linked_at: now(),
       linked_by_email: args.linked_by_email,
       reason,
-      verification: args.verification
+      verification: args.verification,
+      source: args.source
     });
+    if (args.expected_uncertain_attempt) {
+      const attempt = store.submit_attempts.find(
+        (candidate) =>
+          candidate.customer_id === customer.lift_customer_id &&
+          candidate.attempt_id === args.expected_uncertain_attempt?.attempt_id
+      );
+      if (
+        !attempt ||
+        attempt.state !== "Submission Uncertain" ||
+        attempt.idempotency_key !== args.expected_uncertain_attempt.idempotency_key ||
+        (attempt.request_fingerprint?.trim() || null) !==
+          args.expected_uncertain_attempt.request_fingerprint
+      ) {
+        throw new LiftOrderAssociationConflictError(
+          "The uncertain submit attempt changed after verification. Refresh and verify it again."
+        );
+      }
+    }
     store.jobs = store.jobs.map((candidate) =>
       candidate.customer_id === customer.lift_customer_id && candidate.job_id === args.job_id
         ? next.job

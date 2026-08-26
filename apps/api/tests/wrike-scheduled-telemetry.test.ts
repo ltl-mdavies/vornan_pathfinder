@@ -69,6 +69,8 @@ test("emits complete scheduler counters and one aggregate failure metric", () =>
           { Name: "discovered_count", Unit: "Count" },
           { Name: "prepared_count", Unit: "Count" },
           { Name: "scheduled_submits_submitted", Unit: "Count" },
+          { Name: "scheduled_submits_reconciliation_needed", Unit: "Count" },
+          { Name: "scheduled_submits_reconciled", Unit: "Count" },
           { Name: "status_comments_posted", Unit: "Count" },
           { Name: "candidate_failures", Unit: "Count" },
           { Name: "submission_inhibited_ready", Unit: "Count" }
@@ -79,6 +81,8 @@ test("emits complete scheduler counters and one aggregate failure metric", () =>
   assert.equal(event.scheduled_submits_eligible, 3);
   assert.equal(event.scheduled_submits_submitted, 1);
   assert.equal(event.scheduled_submits_replayed, 1);
+  assert.equal(event.scheduled_submits_reconciliation_needed, 0);
+  assert.equal(event.scheduled_submits_reconciled, 0);
   assert.equal(event.scheduled_submits_failed, 1);
   assert.equal(event.status_comments_eligible, 2);
   assert.equal(event.status_comments_posted, 1);
@@ -110,6 +114,49 @@ test("emits complete scheduler counters and one aggregate failure metric", () =>
       job_ids: ["job-writeback"]
     }
   ]);
+});
+
+test("reports uncertain submit reconciliation separately from candidate failures", () => {
+  const event = buildWrikeScheduledIntakeCompletionLog({
+    status: "completed",
+    checked_at: "2026-08-26T17:12:00.000Z",
+    discovered_count: 1,
+    prepared_count: 0,
+    replayed_count: 1,
+    failed_count: 0,
+    discovery_summary: {
+      task_count: 1,
+      scoped_task_count: 1,
+      order_identity_match_count: 1,
+      order_status_match_count: 1,
+      order_status_and_identity_match_count: 1,
+      order_vendor_match_count: 1,
+      order_contract_ready_count: 1,
+      order_status_id_count: 1
+    },
+    scheduled_submit: {
+      eligible_count: 1,
+      submitted_count: 0,
+      replayed_count: 0,
+      reconciliation_needed_count: 1,
+      reconciled_count: 0,
+      failed_count: 0,
+      outcomes: [{
+        job_id: "job_20260826165801_4e2284",
+        outcome: "reconciliation_needed",
+        failure_category: null
+      }]
+    },
+    status_writeback: {
+      eligible_count: 0,
+      posted_count: 0,
+      replayed_count: 0,
+      failed_count: 0
+    }
+  });
+  assert.equal(event.scheduled_submits_reconciliation_needed, 1);
+  assert.equal(event.candidate_failures, 0);
+  assert.deepEqual(event.candidate_failure_details, []);
 });
 
 test("reports a healthy replay-only cycle without false failures", () => {
