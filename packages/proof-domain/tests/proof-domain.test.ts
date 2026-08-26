@@ -760,7 +760,7 @@ test("creates a customer-safe DTO without Lift identities or internal proof meta
   assert.equal(publicOrder.tasks[0]?.product_name, "North wall panel");
   assert.equal(publicOrder.tasks[0]?.current_version?.approval_status, "PENDING REVIEW");
   assert.equal(publicOrder.tasks[0]?.current_version?.approved_at, null);
-  assert.equal(publicOrder.tasks[0]?.current_version?.comments[0]?.text, "Increase the logo clear space.");
+  assert.equal(publicOrder.tasks[0]?.current_version?.comments[0]?.text, "Confirm final trim.");
   assert.equal(publicOrder.tasks[1]?.product_name, null);
   for (const [quantity, expected] of [
     [0, 0],
@@ -888,7 +888,7 @@ test("projects only customer-safe HTTPS feedback attachments", () => {
     internal_thread_id: "private-thread-id"
   });
   const publicVersion = toPublicProofVersion(version);
-  assert.deepEqual(publicVersion.comments[0]?.attachments, [
+  assert.deepEqual(publicVersion.comments.find((comment) => comment.text === "Increase the logo clear space.")?.attachments, [
     { filename: "markup.pdf", url: "https://files.example/markup.pdf?X-Amz-Signature=signed", content_type: "application/pdf" },
     { filename: "reference.png", url: "https://files.example/reference.png", content_type: "image/png" },
     { filename: "operator-note.txt", url: null, content_type: "text/plain" },
@@ -901,6 +901,43 @@ test("projects only customer-safe HTTPS feedback attachments", () => {
   assert.equal(serialized.includes("javascript:"), false);
   assert.equal(serialized.includes("user:password"), false);
   assert.equal(serialized.includes("raw internal attachment blob"), false);
+});
+
+test("orders public feedback newest-first while preserving undated provider order", () => {
+  const normalized = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    synced_at: "2026-07-20T12:00:00.000Z"
+  });
+  const version = normalized.tasks[0]!.current_version!;
+  version.comments = [
+    { text: "second", created_at: "26-AUG-2026 04:24:20 PM", attachment: null },
+    { text: "undated first", created_at: "not-a-timestamp", attachment: null },
+    {
+      text: "third with image",
+      created_at: "26-AUG-2026 04:27:34 PM",
+      attachment: [{ LINK_TO_ATTACHMENT: "https://files.example/comment-image.jpg?X-Amz-Signature=signed" }]
+    },
+    { text: "original", created_at: "24-AUG-2026 08:19:32 PM", attachment: null },
+    { text: "undated second", created_at: null, attachment: null }
+  ];
+
+  const comments = toPublicProofVersion(version).comments;
+  assert.deepEqual(comments.map((comment) => comment.text), [
+    "third with image",
+    "second",
+    "original",
+    "undated first",
+    "undated second"
+  ]);
+  assert.deepEqual(comments[0]?.attachments, [{
+    filename: "comment-image.jpg",
+    url: "https://files.example/comment-image.jpg?X-Amz-Signature=signed",
+    content_type: null
+  }]);
+  assert.equal(comments[3]?.created_at, null);
+  assert.equal(comments[4]?.created_at, null);
 });
 
 test("projects customer-safe proof assets with deterministic preview behavior", () => {
@@ -926,7 +963,9 @@ test("projects customer-safe proof assets with deterministic preview behavior", 
     download_url: "https://files.example/final-proof.pdf?X-Amz-Signature=signed",
     approval_status: version.approval_status,
     approved_at: version.approved_at,
-    comments: version.comments.map((comment) => ({ text: comment.text, created_at: comment.created_at, attachments: [] })),
+    comments: [...version.comments]
+      .sort((left, right) => Date.parse(right.created_at ?? "") - Date.parse(left.created_at ?? ""))
+      .map((comment) => ({ text: comment.text, created_at: comment.created_at, attachments: [] })),
     technical_checks: [],
     current: true
   });
