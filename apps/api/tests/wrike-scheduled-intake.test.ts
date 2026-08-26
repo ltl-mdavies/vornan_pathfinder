@@ -377,8 +377,24 @@ test("scheduled submit processes each certified job independently with replay sa
   assert.deepEqual(calls, ["JOB-A", "JOB-B", "JOB-C"]);
   assert.equal(result.submitted_count, 1);
   assert.equal(result.replayed_count, 1);
+  assert.equal(result.reconciliation_needed_count, 0);
+  assert.equal(result.reconciled_count, 0);
   assert.equal(result.failed_count, 1);
   assert.equal(result.outcomes[2]?.failure_category, "TypeError");
+});
+
+test("scheduled submit classifies an uncertain attempt as reconciliation-needed, not failed", async () => {
+  const result = await runWrikeScheduledSubmits({
+    candidates: [{ job_id: "JOB-UNCERTAIN" }],
+    submit: async () => ({ outcome: "reconciliation_needed" })
+  });
+  assert.equal(result.reconciliation_needed_count, 1);
+  assert.equal(result.failed_count, 0);
+  assert.deepEqual(result.outcomes, [{
+    job_id: "JOB-UNCERTAIN",
+    outcome: "reconciliation_needed",
+    failure_category: null
+  }]);
 });
 
 test("scheduled status writeback posts each confirmed job independently and replays safely", async () => {

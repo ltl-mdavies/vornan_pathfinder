@@ -141,6 +141,11 @@ import {
 } from "./wrike-scheduled-telemetry.js";
 import { buildScheduledSubmissionHealth } from "./wrike-scheduled-health.js";
 import {
+  ScheduledUncertainReconciliationError,
+  selectScheduledUncertainAttempt,
+  verifyScheduledUncertainProviderOrder
+} from "./wrike-scheduled-reconciliation.js";
+import {
   groupWrikeSourceOrders,
   selectWrikeSourceOrderAnchor,
   wrikeSourceOrderHasPossibleTransport,
@@ -6182,6 +6187,9 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
     if (existingAttempt.state === "Submitted" && existingAttempt.response.lift_order_id) {
       return { reused: true };
     }
+    if (existingAttempt.state === "Submission Uncertain") {
+      return { outcome: "reconciliation_needed" as const };
+    }
     throw new Error("WrikeScheduledSubmitAlreadyAttempted");
   }
 
@@ -6210,6 +6218,9 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
     ) {
       return { reused: true };
     }
+    if (reservation.attempt.state === "Submission Uncertain") {
+      return { outcome: "reconciliation_needed" as const };
+    }
     throw new Error("WrikeScheduledSubmitReservationExists");
   }
 
@@ -6224,6 +6235,9 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
     response: transportResult,
     updated_at: new Date().toISOString()
   });
+  if (attemptState === "Submission Uncertain") {
+    return { outcome: "reconciliation_needed" as const };
+  }
   if (attemptState !== "Submitted" || !transportResult.lift_order_id) {
     throw new Error("WrikeScheduledSubmitNeedsReconciliation");
   }
@@ -6406,6 +6420,8 @@ export async function runConfiguredWrikeScheduledIntake() {
         eligible_count: 0,
         submitted_count: 0,
         replayed_count: 0,
+        reconciliation_needed_count: 0,
+        reconciled_count: 0,
         failed_count: 0,
         outcomes: []
       };
@@ -6423,6 +6439,12 @@ export async function runConfiguredWrikeScheduledIntake() {
               marker.task_id !== job.source_evidence?.task_id ||
               job.source_evidence?.provider !== "wrike" ||
               !valueAsString(job.target_order_number).trim()
+            ) {
+              return false;
+            }
+            if (
+              job.target_order_association_history?.at(-1)
+                ?.automatic_wrike_status_writeback_suppressed
             ) {
               return false;
             }
@@ -6552,6 +6574,8 @@ export async function recordConfiguredWrikeScheduledIntakeFailure() {
       eligible_count: 0,
       submitted_count: 0,
       replayed_count: 0,
+      reconciliation_needed_count: 0,
+      reconciled_count: 0,
       failed_count: 0
     },
     status_writeback: {
@@ -6611,6 +6635,9 @@ function buildWrikeOperationsSnapshot(args: {
       eligible_count: args.result.scheduled_submit.eligible_count,
       submitted_count: args.result.scheduled_submit.submitted_count,
       replayed_count: args.result.scheduled_submit.replayed_count,
+      reconciliation_needed_count:
+        args.result.scheduled_submit.reconciliation_needed_count ?? 0,
+      reconciled_count: args.result.scheduled_submit.reconciled_count ?? 0,
       failed_count: args.result.scheduled_submit.failed_count
     },
     status_writeback: {
@@ -6669,6 +6696,8 @@ app.post(
           eligible_count: 0,
           submitted_count: 0,
           replayed_count: 0,
+          reconciliation_needed_count: 0,
+          reconciled_count: 0,
           failed_count: 0,
           outcomes: []
         },
@@ -9303,6 +9332,66 @@ function liftOrderAssociationConfirmation(currentOrderNumber: string | null, nex
     : `LINK ${nextOrderNumber}`;
 }
 
+async function scheduledUncertainAssociationVerification(args: {
+  context: Exclude<Awaited<ReturnType<typeof liftOrderAssociationContext>>, { error: string }>;
+  orderNumber: string;
+  verified: Awaited<ReturnType<typeof verifyLiftOrderAssociation>>;
+  expectedAttemptId?: string | null;
+}) {
+  if (
+    args.context.job.target_order_number?.trim() ||
+    args.context.job.scheduled_wrike_intake?.source !== "scheduled_polling"
+  ) {
+    return null;
+  }
+  const attempts = await listSubmitAttemptsForJob(args.context.customer, args.context.job.job_id);
+  const transportAttempts = attempts.filter(
+    (attempt) => !["Blocked", "Gate Locked"].includes(attempt.state)
+  );
+  if (!transportAttempts.length) return null;
+  const attempt = selectScheduledUncertainAttempt({
+    job: args.context.job,
+    attempts,
+    expected_attempt_id: args.expectedAttemptId
+  });
+  const providerCompanyId =
+    args.context.route.company_id ??
+    routeEnvironmentForTarget(args.context.target, args.context.route)?.headers.Company ??
+    args.context.target.lift.headers.Company;
+  const strict = verifyScheduledUncertainProviderOrder({
+    job: args.context.job,
+    attempt,
+    order_number: args.orderNumber,
+    provider_payload: args.verified.lookup.payload,
+    provider_company_id: providerCompanyId,
+    expected_order_type: args.context.route.output_template.replace(/^Lift\s+/i, ""),
+    fetched_at: args.verified.lookup.fetched_at
+  });
+  const verification: LiftOrderAssociationVerification = {
+    order_number: strict.order_number,
+    customer_id: strict.customer_id,
+    customer_name: strict.customer_name,
+    order_title: strict.order_title,
+    contract_number: strict.contract_number,
+    created_by: strict.created_by,
+    order_status: strict.order_status,
+    line_count: strict.line_count,
+    fetched_at: strict.fetched_at,
+    external_order_id: strict.external_order_id,
+    company_id: strict.company_id,
+    po_number: strict.po_number,
+    order_type: strict.order_type,
+    line_fingerprint: strict.line_fingerprint,
+    submit_attempt_id: strict.submit_attempt_id,
+    request_fingerprint: strict.request_fingerprint
+  };
+  return { attempt, verification };
+}
+
+function uncertainReconciliationConfirmation(attemptId: string, orderNumber: string) {
+  return `RECONCILE ${attemptId} TO ${orderNumber}`;
+}
+
 app.post("/api/customers/:liftCustomerId/jobs/:jobId/lift-order-association/verify", async (req, res) => {
   try {
     const context = await liftOrderAssociationContext(req.params.liftCustomerId, req.params.jobId);
@@ -9321,17 +9410,28 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/lift-order-association/veri
       route: context.route,
       orderNumber
     });
+    const scheduledReconciliation = await scheduledUncertainAssociationVerification({
+      context,
+      orderNumber,
+      verified
+    });
     const currentOrderNumber = normalizeLiftAssociationOrderNumber(context.job.target_order_number);
     res.json({
-      verification: verified.verification,
-      warnings: verified.warnings,
+      verification: scheduledReconciliation?.verification ?? verified.verification,
+      warnings: scheduledReconciliation ? [] : verified.warnings,
       current_order_number: currentOrderNumber,
       replacing_existing_order: Boolean(currentOrderNumber && currentOrderNumber !== orderNumber),
       already_linked: currentOrderNumber === orderNumber,
-      required_confirmation: liftOrderAssociationConfirmation(currentOrderNumber, orderNumber)
+      required_confirmation: scheduledReconciliation
+        ? uncertainReconciliationConfirmation(scheduledReconciliation.attempt.attempt_id, orderNumber)
+        : liftOrderAssociationConfirmation(currentOrderNumber, orderNumber),
+      reconciliation_attempt_id: scheduledReconciliation?.attempt.attempt_id ?? null,
+      association_mode: scheduledReconciliation
+        ? "scheduled_uncertain_reconciliation"
+        : "manual_verified"
     });
   } catch (error) {
-    res.status(502).json({
+    res.status(error instanceof ScheduledUncertainReconciliationError ? 409 : 502).json({
       error: error instanceof Error ? error.message : "Lift order verification failed."
     });
   }
@@ -9356,23 +9456,52 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/lift-order-association", as
       return;
     }
     const requiredConfirmation = liftOrderAssociationConfirmation(currentOrderNumber, orderNumber);
-    if (valueAsString(req.body?.confirmation).trim().toUpperCase() !== requiredConfirmation) {
-      res.status(400).json({ error: `Enter ${requiredConfirmation} to confirm this association.` });
-      return;
-    }
+    const expectedReconciliationAttemptId = valueAsString(
+      req.body?.reconciliation_attempt_id
+    ).trim();
     const verified = await verifyLiftOrderAssociation({
       job: context.job,
       target: context.target,
       route: context.route,
       orderNumber
     });
+    const scheduledReconciliation = await scheduledUncertainAssociationVerification({
+      context,
+      orderNumber,
+      verified,
+      expectedAttemptId: expectedReconciliationAttemptId || null
+    });
+    if (scheduledReconciliation && !expectedReconciliationAttemptId) {
+      res.status(409).json({
+        error: "The exact uncertain submit attempt must be verified again before association."
+      });
+      return;
+    }
+    const exactRequiredConfirmation = scheduledReconciliation
+      ? uncertainReconciliationConfirmation(scheduledReconciliation.attempt.attempt_id, orderNumber)
+      : requiredConfirmation;
+    if (valueAsString(req.body?.confirmation).trim().toUpperCase() !== exactRequiredConfirmation) {
+      res.status(400).json({ error: `Enter ${exactRequiredConfirmation} to confirm this association.` });
+      return;
+    }
     const result = await associateJobWithLiftOrder(context.customer, {
       job_id: context.job.job_id,
       order_number: orderNumber,
       expected_current_order_number: currentOrderNumber,
       linked_by_email: typeof res.locals.authUser?.email === "string" ? res.locals.authUser.email : null,
       reason: valueAsString(req.body?.reason),
-      verification: verified.verification
+      verification: scheduledReconciliation?.verification ?? verified.verification,
+      source: scheduledReconciliation
+        ? "scheduled_uncertain_reconciliation"
+        : "manual_verified",
+      expected_uncertain_attempt: scheduledReconciliation
+        ? {
+            attempt_id: scheduledReconciliation.attempt.attempt_id,
+            idempotency_key: scheduledReconciliation.attempt.idempotency_key,
+            request_fingerprint:
+              scheduledReconciliation.attempt.request_fingerprint?.trim() || null
+          }
+        : null
     });
     if (!result) {
       res.status(404).json({ error: "Preview job not found." });
@@ -9381,47 +9510,62 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/lift-order-association", as
 
     orderSnapshotResponseCache.delete(`${context.customer.lift_customer_id}:${context.job.job_id}`);
     const attempts = await listSubmitAttemptsForJob(context.customer, context.job.job_id);
-    const internalSnapshot = buildOrderSnapshot({
-      customer: context.customer,
-      job: result.job,
-      route: context.route,
-      target: context.target,
-      attempts,
-      orderNumber,
-      orderLookup: verified.lookup,
-      proofReport: null,
-      proofOrder: null,
-      packageDetails: null,
-      issues: [{
-        source: "manual_order_association",
-        severity: "warning",
-        message: "Proof and shipment details will refresh from Lift on the next synchronized order snapshot."
-      }]
-    });
-    orderSnapshotResponseCache.set(`${context.customer.lift_customer_id}:${context.job.job_id}`, internalSnapshot);
-    const publicSnapshot = publicOrderStatusSnapshotFromInternal(
-      internalSnapshot,
-      context.workspace.status_access_policy.proof_visibility
-    );
-    await persistPublicOrderStatusSnapshot(publicSnapshot);
-    const statusLinksRebound = await rebindActiveOrderStatusTokensForJob({
-      customer_id: context.customer.lift_customer_id,
-      job_id: context.job.job_id,
-      order_number: orderNumber,
-      order_key: publicSnapshot.order_key
-    });
+    let statusLinksRebound = 0;
+    if (!scheduledReconciliation) {
+      const internalSnapshot = buildOrderSnapshot({
+        customer: context.customer,
+        job: result.job,
+        route: context.route,
+        target: context.target,
+        attempts,
+        orderNumber,
+        orderLookup: verified.lookup,
+        proofReport: null,
+        proofOrder: null,
+        packageDetails: null,
+        issues: [{
+          source: "manual_order_association",
+          severity: "warning",
+          message: "Proof and shipment details will refresh from Lift on the next synchronized order snapshot."
+        }]
+      });
+      orderSnapshotResponseCache.set(
+        `${context.customer.lift_customer_id}:${context.job.job_id}`,
+        internalSnapshot
+      );
+      const publicSnapshot = publicOrderStatusSnapshotFromInternal(
+        internalSnapshot,
+        context.workspace.status_access_policy.proof_visibility
+      );
+      await persistPublicOrderStatusSnapshot(publicSnapshot);
+      statusLinksRebound = await rebindActiveOrderStatusTokensForJob({
+        customer_id: context.customer.lift_customer_id,
+        job_id: context.job.job_id,
+        order_number: orderNumber,
+        order_key: publicSnapshot.order_key
+      });
+    }
 
     res.json({
       job: result.job,
       association: result.association,
       reused: result.reused,
-      verification: verified.verification,
-      warnings: verified.warnings,
+      verification: scheduledReconciliation?.verification ?? verified.verification,
+      warnings: scheduledReconciliation ? [] : verified.warnings,
       status_links_rebound: statusLinksRebound,
-      proof_refresh_required: true
+      proof_refresh_required: true,
+      association_mode: scheduledReconciliation
+        ? "scheduled_uncertain_reconciliation"
+        : "manual_verified",
+      submit_attempt_preserved: Boolean(scheduledReconciliation),
+      wrike_write_performed: false
     });
   } catch (error) {
-    const status = error instanceof LiftOrderAssociationConflictError ? 409 : 502;
+    const status =
+      error instanceof LiftOrderAssociationConflictError ||
+      error instanceof ScheduledUncertainReconciliationError
+        ? 409
+        : 502;
     res.status(status).json({
       error: error instanceof Error ? error.message : "Lift order association failed."
     });

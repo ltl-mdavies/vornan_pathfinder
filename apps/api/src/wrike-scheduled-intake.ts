@@ -256,17 +256,22 @@ export interface WrikeScheduledSubmitResult {
   eligible_count: number;
   submitted_count: number;
   replayed_count: number;
+  reconciliation_needed_count: number;
+  reconciled_count: number;
   failed_count: number;
   outcomes: Array<{
     job_id: string;
-    outcome: "submitted" | "replayed" | "failed";
+    outcome: "submitted" | "replayed" | "reconciliation_needed" | "reconciled" | "failed";
     failure_category: string | null;
   }>;
 }
 
 export async function runWrikeScheduledSubmits(args: {
   candidates: Array<{ job_id: string }>;
-  submit: (candidate: { job_id: string }) => Promise<{ reused: boolean }>;
+  submit: (candidate: { job_id: string }) => Promise<{
+    outcome?: "submitted" | "replayed" | "reconciliation_needed" | "reconciled";
+    reused?: boolean;
+  }>;
 }): Promise<WrikeScheduledSubmitResult> {
   const candidates = [...args.candidates].sort((left, right) =>
     left.job_id.localeCompare(right.job_id)
@@ -277,7 +282,7 @@ export async function runWrikeScheduledSubmits(args: {
       const result = await args.submit(candidate);
       outcomes.push({
         job_id: candidate.job_id,
-        outcome: result.reused ? "replayed" : "submitted",
+        outcome: result.outcome ?? (result.reused ? "replayed" : "submitted"),
         failure_category: null
       });
     } catch (error) {
@@ -292,6 +297,9 @@ export async function runWrikeScheduledSubmits(args: {
     eligible_count: candidates.length,
     submitted_count: outcomes.filter((entry) => entry.outcome === "submitted").length,
     replayed_count: outcomes.filter((entry) => entry.outcome === "replayed").length,
+    reconciliation_needed_count:
+      outcomes.filter((entry) => entry.outcome === "reconciliation_needed").length,
+    reconciled_count: outcomes.filter((entry) => entry.outcome === "reconciled").length,
     failed_count: outcomes.filter((entry) => entry.outcome === "failed").length,
     outcomes
   };

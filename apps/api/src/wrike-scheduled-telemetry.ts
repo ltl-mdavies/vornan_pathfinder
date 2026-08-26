@@ -13,10 +13,12 @@ interface ScheduledSubmitSummary {
   eligible_count: number;
   submitted_count: number;
   replayed_count: number;
+  reconciliation_needed_count?: number;
+  reconciled_count?: number;
   failed_count: number;
   outcomes?: Array<{
     job_id: string;
-    outcome: "submitted" | "replayed" | "failed";
+    outcome: "submitted" | "replayed" | "reconciliation_needed" | "reconciled" | "failed";
     failure_category: string | null;
   }>;
 }
@@ -140,6 +142,8 @@ export function buildWrikeScheduledIntakeCompletionLog(
             { Name: "discovered_count", Unit: "Count" },
             { Name: "prepared_count", Unit: "Count" },
             { Name: "scheduled_submits_submitted", Unit: "Count" },
+            { Name: "scheduled_submits_reconciliation_needed", Unit: "Count" },
+            { Name: "scheduled_submits_reconciled", Unit: "Count" },
             { Name: "status_comments_posted", Unit: "Count" },
             { Name: "candidate_failures", Unit: "Count" },
             { Name: "submission_inhibited_ready", Unit: "Count" }
@@ -166,6 +170,9 @@ export function buildWrikeScheduledIntakeCompletionLog(
     scheduled_submits_eligible: result.scheduled_submit.eligible_count,
     scheduled_submits_submitted: result.scheduled_submit.submitted_count,
     scheduled_submits_replayed: result.scheduled_submit.replayed_count,
+    scheduled_submits_reconciliation_needed:
+      result.scheduled_submit.reconciliation_needed_count ?? 0,
+    scheduled_submits_reconciled: result.scheduled_submit.reconciled_count ?? 0,
     scheduled_submits_failed: result.scheduled_submit.failed_count,
     status_comments_eligible: result.status_writeback.eligible_count,
     status_comments_posted: result.status_writeback.posted_count,
