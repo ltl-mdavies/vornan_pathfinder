@@ -139,6 +139,7 @@ import {
   buildCandidateFailureDetails,
   type WrikeScheduledIntakeCompletionResult
 } from "./wrike-scheduled-telemetry.js";
+import { buildScheduledSubmissionHealth } from "./wrike-scheduled-health.js";
 import {
   groupWrikeSourceOrders,
   selectWrikeSourceOrderAnchor,
@@ -6389,6 +6390,10 @@ export async function runConfiguredWrikeScheduledIntake() {
     markScheduled: true
   });
   const { customer, intakeResult } = core;
+  const scheduledSubmissionHealth = buildScheduledSubmissionHealth(
+    wrikeScheduledIntakeConfig,
+    await listJobs()
+  );
 
   const scheduledSubmit = wrikeScheduledIntakeConfig.lift_submit_enabled
     ? await runWrikeScheduledSubmits({
@@ -6474,6 +6479,10 @@ export async function runConfiguredWrikeScheduledIntake() {
       shipping_status_id_count: 0
     },
     scheduled_submit: scheduledSubmit,
+    submission_inhibited_ready_count:
+      scheduledSubmissionHealth.state === "submission_inhibited"
+        ? scheduledSubmissionHealth.ready_count
+        : 0,
     status_writeback: statusWriteback,
     capabilities: {
       ...intakeResult.capabilities,
@@ -8824,9 +8833,32 @@ app.post("/api/customers/:liftCustomerId/jobs/preview", async (req, res) => {
 
 app.get("/api/jobs", async (_req, res) => {
   const jobs = await listJobs();
+  const snapshots = await listWrikeOperationsSnapshots();
+  const latestSchedulerSnapshot = snapshots.find(
+    (entry) =>
+      entry.customer_id === wrikeScheduledIntakeConfig.customer_id &&
+      entry.import_method_id === wrikeScheduledIntakeConfig.import_method_id &&
+      entry.snapshot.source === "scheduled"
+  )?.snapshot;
+  const latestCycle = latestSchedulerSnapshot
+    ? {
+        checked_at: latestSchedulerSnapshot.checked_at,
+        prepared_count: latestSchedulerSnapshot.prepared_count,
+        submitted_count: latestSchedulerSnapshot.scheduled_submit.submitted_count,
+        candidate_failure_count: latestSchedulerSnapshot.candidate_failures.length,
+        failed_count: latestSchedulerSnapshot.failed_count,
+        scheduled_submit_failed_count: latestSchedulerSnapshot.scheduled_submit.failed_count
+      }
+    : null;
   res.json({
     jobs: await sourceOrderJobProjectionWithStatus(jobs),
-    wrike_operations_snapshots: await listWrikeOperationsSnapshots()
+    wrike_operations_snapshots: snapshots,
+    scheduled_submission_health: buildScheduledSubmissionHealth(
+      wrikeScheduledIntakeConfig,
+      jobs,
+      latestCycle,
+      new Date().toISOString()
+    )
   });
 });
 

@@ -81,6 +81,16 @@ test("Jobs exposes compact triage signals and durable Wrike candidate review", (
   assert.match(source, /wrike_operations_snapshots/);
 });
 
+test("Jobs exposes aggregate-only scheduler inhibition and failure health without a submit control", () => {
+  assert.match(source, /ScheduledSubmissionHealthNotice/);
+  assert.match(source, /scheduled_submission_health/);
+  assert.match(source, /Scheduled Lift submission is inhibited/);
+  assert.match(source, /No submission was attempted from this dashboard/);
+  assert.match(source, /Scheduled intake needs attention/);
+  assert.match(source, /Scheduled intake is healthy/);
+  assert.match(source, /Last completed cycle/);
+});
+
 test("confirmed jobs compare source, prepared, and current Lift lines without retrying", () => {
   assert.match(source, /Compare order lines/);
   assert.match(source, /Input order/);

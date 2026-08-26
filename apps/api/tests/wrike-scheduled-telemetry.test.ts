@@ -70,7 +70,8 @@ test("emits complete scheduler counters and one aggregate failure metric", () =>
           { Name: "prepared_count", Unit: "Count" },
           { Name: "scheduled_submits_submitted", Unit: "Count" },
           { Name: "status_comments_posted", Unit: "Count" },
-          { Name: "candidate_failures", Unit: "Count" }
+          { Name: "candidate_failures", Unit: "Count" },
+          { Name: "submission_inhibited_ready", Unit: "Count" }
         ]
       }
     ]
@@ -84,6 +85,7 @@ test("emits complete scheduler counters and one aggregate failure metric", () =>
   assert.equal(event.status_comments_replayed, 0);
   assert.equal(event.status_comments_failed, 1);
   assert.equal(event.candidate_failures, 3);
+  assert.equal(event.submission_inhibited_ready, 0);
   assert.equal(event.candidate_failure_detail_count, 3);
   assert.deepEqual(event.candidate_failure_details, [
     {
