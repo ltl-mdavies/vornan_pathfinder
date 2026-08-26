@@ -122,6 +122,25 @@ test("strictly verifies the exact C316981 incident order and Lift's contract-tit
   assert.match(verified.line_fingerprint, /^[a-f0-9]{64}$/);
 });
 
+test("accepts the live AS360Orders shape only when its visible identities exactly bind the attempt", () => {
+  const payload = providerOrder();
+  delete (payload.rowset[0] as Record<string, unknown>).EXT_ID;
+  delete (payload.rowset[0] as Record<string, unknown>).COMPANY_ID;
+  delete (payload.rowset[0] as Record<string, unknown>).CONTRACT_NUMBER;
+  const verified = verifyScheduledUncertainProviderOrder({
+    job: job(),
+    attempt: attempt(),
+    order_number: "A0229496",
+    provider_payload: payload,
+    provider_company_id: "91",
+    expected_order_type: "High End Work",
+    fetched_at: "2026-08-26T23:50:00.000Z"
+  });
+  assert.equal(verified.external_order_id, "PFMTAC7UY1272E");
+  assert.equal(verified.company_id, "91");
+  assert.equal(verified.contract_number, "C316981");
+});
+
 test("supports the exact C317014 six-line fixture without weakening its identity", () => {
   const secondJob = {
     ...job("C317014", 6),

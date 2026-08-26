@@ -223,8 +223,10 @@ export function verifyScheduledUncertainProviderOrder(args: {
   const actualOrderTitle = normalizedText(firstValue(header, ["ORDER_TITLE"]));
   const actualExternalId = normalizedText(firstValue(header, ["EXT_ID", "EXTERNAL_ORDER_ID", "ORDER_EXT_ID"]));
   const actualCompanyId = normalizedText(firstValue(header, ["COMPANY_ID", "COMPANY"])) || normalizedText(args.provider_company_id);
+  const actualPo = normalizedText(firstValue(header, ["PO_NUMBER", "PO_NO"]));
+  const actualContract = normalizedText(firstValue(header, ["CONTRACT_NUMBER", "CONTRACT_NO"]));
   const checks: Array<[boolean, string, string]> = [
-    [actualExternalId === normalizedText(args.attempt.ext_id), "external_id_mismatch", "Lift Ext_ID does not match the uncertain submit attempt."],
+    [!actualExternalId || actualExternalId === normalizedText(args.attempt.ext_id), "external_id_mismatch", "Lift Ext_ID does not match the uncertain submit attempt."],
     [actualCompanyId === normalizedText(args.attempt.company_id), "company_mismatch", "Lift company does not match the uncertain submit attempt."],
     [normalizedText(firstValue(header, ["CUSTOMER_ID"])) === normalizedText(args.job.submit_customer_id), "customer_mismatch", "Lift customer does not match the scheduled submit customer."],
     [
@@ -233,8 +235,12 @@ export function verifyScheduledUncertainProviderOrder(args: {
       "order_title_mismatch",
       "Lift order title does not match the prepared order identity."
     ],
-    [normalizedText(firstValue(header, ["PO_NUMBER", "PO_NO"])) === expectedPo, "po_mismatch", "Lift PO does not match the prepared order."],
-    [normalizedText(firstValue(header, ["CONTRACT_NUMBER", "CONTRACT_NO"])) === expectedContract, "contract_mismatch", "Lift contract does not match the prepared order."],
+    [actualPo === expectedPo, "po_mismatch", "Lift PO does not match the prepared order."],
+    [
+      actualContract ? actualContract === expectedContract : actualPo === expectedContract && expectedPo === expectedContract,
+      "contract_mismatch",
+      "Lift contract does not match the prepared order."
+    ],
     [normalizedText(firstValue(header, ["CREATED_BY"])) === "PATHFINDER", "creator_mismatch", "Lift does not identify Pathfinder as the order creator."],
     [Boolean(expectedOrderType) && normalizedText(firstValue(header, ["ORDER_TYPE_NAME", "ORDER_TYPE"])) === expectedOrderType, "order_type_mismatch", "Lift order type does not match the prepared order."],
     [expectedLines.length > 0 && actualLines.length === expectedLines.length && actualFingerprint === expectedFingerprint, "line_identity_mismatch", "Lift line identities do not match the prepared order."]
@@ -245,13 +251,18 @@ export function verifyScheduledUncertainProviderOrder(args: {
   }
   return {
     order_number: requestedOrder,
-    external_order_id: actualExternalId,
+    // AS360Orders currently omits Ext_ID. The exact uncertain attempt remains
+    // the authoritative Ext_ID binding when every provider-visible identity
+    // above matches; a provider-supplied Ext_ID still must match exactly.
+    external_order_id: actualExternalId || normalizedText(args.attempt.ext_id),
     company_id: actualCompanyId,
     customer_id: normalizedText(firstValue(header, ["CUSTOMER_ID"])),
     customer_name: safeText(firstValue(header, ["CUSTOMER_NAME"])) || null,
     order_title: safeText(firstValue(header, ["ORDER_TITLE"])),
     po_number: safeText(firstValue(header, ["PO_NUMBER", "PO_NO"])),
-    contract_number: safeText(firstValue(header, ["CONTRACT_NUMBER", "CONTRACT_NO"])),
+    contract_number:
+      safeText(firstValue(header, ["CONTRACT_NUMBER", "CONTRACT_NO"])) ||
+      safeText(firstValue(header, ["PO_NUMBER", "PO_NO"])),
     order_type: safeText(firstValue(header, ["ORDER_TYPE_NAME", "ORDER_TYPE"])),
     created_by: safeText(firstValue(header, ["CREATED_BY"])),
     order_status: safeText(firstValue(header, ["ORDER_STATUS"])) || null,

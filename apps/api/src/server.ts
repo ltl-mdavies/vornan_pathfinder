@@ -6138,6 +6138,20 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
     return { reused: true };
   }
 
+  // An earlier Lift request may have timed out after Lift created the order.
+  // Classify that exact durable state before certification refresh so the
+  // scheduler neither retries transport nor reports a recurring submit
+  // failure while an operator performs the strict association workflow.
+  const existingTransportAttempts = (await listSubmitAttemptsForJob(customer, existingJob.job_id))
+    .filter((attempt) => !["Blocked", "Gate Locked"].includes(attempt.state));
+  if (existingTransportAttempts.some((attempt) => attempt.state === "Submission Uncertain")) {
+    selectScheduledUncertainAttempt({
+      job: existingJob,
+      attempts: existingTransportAttempts
+    });
+    return { outcome: "reconciliation_needed" as const };
+  }
+
   // A source task can acquire a newer preview job when its workbook or Import Method
   // fingerprint changes. Never treat that new preview identity as permission to submit
   // the same Wrike task again after any sibling job has reached transport.
