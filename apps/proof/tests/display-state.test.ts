@@ -13,6 +13,6 @@ test("uses Lift display metadata when present and deterministic order fallbacks 
 test("distinguishes Prepress feedback from line-associated production messages", async () => {
   const source = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   assert.match(source, /Prepress team feedback/);
-  assert.match(source, /This proof is awaiting review/);
+  assert.match(source, /function decisionStateDetail\(task: ProofTask\) \{\n  return proofStatePresentation\(task\.state\)\.detail;/);
   assert.equal(source.includes("> Feedback<"), false);
 });
