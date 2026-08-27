@@ -13,6 +13,8 @@ test("classifies every read-only public route without using customer identifiers
     proofPublicOperation("POST", "/api/public/proof/participants"),
     proofPublicOperation("GET", "/api/public/proof/tasks/private-task-id/history"),
     proofPublicOperation("POST", "/api/public/proof/tasks/private-task-id/feedback-acknowledgements"),
+    proofPublicOperation("POST", "/api/public/proof/tasks/private-task-id/detailed-reports/private-definition-id"),
+    proofPublicOperation("GET", "/api/public/proof/tasks/private-task-id/detailed-reports/private-definition-id"),
     proofPublicOperation("GET", "/api/public/proof/health")
   ], [
     "token_exchange",
@@ -23,6 +25,8 @@ test("classifies every read-only public route without using customer identifiers
     "participant_identity",
     "task_history",
     "feedback_acknowledgement",
+    "detailed_report_start",
+    "detailed_report_status",
     "health_read"
   ]);
   assert.equal(proofPublicOperation("POST", "/api/public/proof/tasks/private-task-id/approve"), "unknown_public_route");

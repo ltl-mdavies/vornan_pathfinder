@@ -1,6 +1,7 @@
 import { liftOrderLines, liftRows, normalizeLiftOrderNumber } from "@pathfinder/proof-domain";
 
 export * from "./as360-orders-v2.js";
+export * from "./proof-detailed-report-runtime.js";
 
 export const DEFAULT_LIFT_PROOF_ORDER_READ_URL =
   "https://admin.lifterp.com/ords/lifterp/lift/erp/flush/ondemand/91/AS360Orders/N?offset=0";
@@ -100,6 +101,38 @@ export function buildLiftProofReportReadUrl(baseUrl: string, orderNumber: string
     url.searchParams.delete("p2");
   }
   return url.toString();
+}
+
+/**
+ * Reads the current proof record for one known Lift line.  This is deliberately
+ * distinct from the order-oriented sync URL: Lift's focused report lookup uses
+ * only p2 and must never accidentally refresh another line on the order.
+ */
+export function buildLiftFocusedProofReportReadUrl(baseUrl: string, orderLineId: string) {
+  const normalizedLineId = orderLineId.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(normalizedLineId)) {
+    throw new Error("Lift proof order line ID is invalid.");
+  }
+  const url = configuredBaseUrl(baseUrl, "Lift focused proof report read URL");
+  url.searchParams.delete("p1");
+  url.searchParams.set("p2", normalizedLineId);
+  return url.toString();
+}
+
+/** A narrow, one-line read for features that must refresh the authoritative current proof. */
+export async function readLiftFocusedProofReport(
+  orderLineId: string,
+  options: {
+    config?: Partial<LiftProofReadConfig>;
+    fetcher?: LiftProofFetch;
+  } = {}
+) {
+  const config = { ...getDefaultLiftProofReadConfig(), ...(options.config ?? {}) };
+  const url = buildLiftFocusedProofReportReadUrl(config.proof_report_read_url, orderLineId);
+  return {
+    order_line_id: orderLineId.trim(),
+    payload: await readJson(options.fetcher ?? fetch, url, config.timeout_ms)
+  };
 }
 
 async function readJson(fetcher: LiftProofFetch, url: string, timeoutMs: number) {
