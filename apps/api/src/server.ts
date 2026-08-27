@@ -9380,6 +9380,9 @@ async function scheduledUncertainAssociationVerification(args: {
     provider_company_id: providerCompanyId,
     expected_order_type:
       valueAsString(args.context.job.lift_payload.order.order_type).trim() ||
+      args.context.target.output_templates
+        .find((candidate) => candidate.output_template_id === args.context.route.output_template_id)
+        ?.name.replace(/^Lift\s+/i, "").trim() ||
       args.context.route.output_template.replace(/^Lift\s+/i, ""),
     fetched_at: args.verified.lookup.fetched_at
   });
