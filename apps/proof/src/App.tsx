@@ -149,9 +149,6 @@ function statusLabel(task: ProofTask) {
 }
 
 function decisionStateDetail(task: ProofTask) {
-  if (task.action_reconciliation_pending) {
-    return "This proof is awaiting review.";
-  }
   return proofStatePresentation(task.state).detail;
 }
 
