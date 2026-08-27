@@ -30,6 +30,7 @@ export interface ProofTask {
   quantity: number | null;
   state: ProofState;
   decision_state?: ProofDecisionState | null;
+  action_reconciliation_pending?: boolean;
   sibling_index: number;
   sibling_count: number;
   feedback_required: boolean;
