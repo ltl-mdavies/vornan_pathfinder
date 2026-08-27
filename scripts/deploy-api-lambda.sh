@@ -7,6 +7,18 @@ artifact_key="${PATHFINDER_API_ARTIFACT_KEY:-api/pathfinder-api-lambda-$(date +%
 template_file="infra/aws/api-cloudformation.yaml"
 zip_path="outputs/pathfinder-api-lambda.zip"
 
+scan_worker_artifact_key="${PATHFINDER_PROOF_ASSET_SCAN_WORKER_CODE_S3_KEY:-}"
+if [[ -z "${scan_worker_artifact_key}" ]]; then
+  scan_worker_artifact_key="$(aws cloudformation describe-stacks \
+    --stack-name "${stack_name}" \
+    --query "Stacks[0].Parameters[?ParameterKey=='ProofAssetScanWorkerCodeS3Key'].ParameterValue | [0]" \
+    --output text)"
+fi
+if [[ -z "${scan_worker_artifact_key}" || "${scan_worker_artifact_key}" == "None" ]]; then
+  echo "Set PATHFINDER_PROOF_ASSET_SCAN_WORKER_CODE_S3_KEY for the initial split-artifact deployment."
+  exit 1
+fi
+
 scripts/package-api-lambda.sh
 
 echo "Uploading ${zip_path} to s3://${artifact_bucket}/${artifact_key}"
@@ -23,6 +35,7 @@ aws cloudformation deploy \
     LambdaFunctionName="${PATHFINDER_API_LAMBDA_NAME:-vornan-pathfinder-api}" \
     LambdaCodeS3Bucket="${artifact_bucket}" \
     LambdaCodeS3Key="${artifact_key}" \
+    ProofAssetScanWorkerCodeS3Key="${scan_worker_artifact_key}" \
     AllowedOrigins="${PATHFINDER_ALLOWED_ORIGINS:-https://pathfinder.vornan.co,https://status.vornan.co}" \
     PublicStatusBaseUrl="${PATHFINDER_PUBLIC_STATUS_BASE_URL:-https://status.vornan.co}" \
     PublicStatusTokenDays="${PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS:-30}" \
