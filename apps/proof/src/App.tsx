@@ -618,6 +618,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   const actionableTasks = tasks.filter((task) => task.state === "pending" && task.current_version?.current);
   const multiProof = usesAdvancedQuantityAllocation(actionableTasks.length, reviewExperience);
   const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
+  const approvedProof = !multiProof && selectedTask.state === "approved";
   const selectedCreativeNumber = tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1;
   const stagedTasks = tasks.filter((task) => stagedTaskIds.includes(task.task_id));
   const selectedIsStaged = stagedTaskIds.includes(selectedTask.task_id);
@@ -793,7 +794,13 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
     }
   };
   return (
-    <section className={`action-transport ${mobile ? "mobile" : ""} ${multiProof ? "distribution" : "simple"}`} aria-label="Proof decision actions" aria-describedby={mobile ? undefined : "action-lock-message"}>
+    <section className={`action-transport ${mobile ? "mobile" : ""} ${multiProof ? "distribution" : "simple"} ${approvedProof ? "approved" : ""}`} aria-label={approvedProof ? "Proof approval status" : "Proof decision actions"} aria-describedby={approvedProof || mobile ? undefined : "action-lock-message"}>
+      {approvedProof ? (
+        <div className="decision-status-card approved-decision" role="status">
+          <span><CheckCircle2 aria-hidden="true" /></span>
+          <span><strong>Approved</strong><small>This proof has been approved.</small></span>
+        </div>
+      ) : <>
       <div className="decision-heading">
         <strong>{multiProof ? "Creative decision" : "Review decision"}</strong>
         <small className="decision-lock-status" id={mobile ? undefined : "action-lock-message"}>
@@ -919,6 +926,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         />
       ) : null}
       {multiProof ? <BatchApprovalDialog tasks={stagedTasks} values={values} message={decisionMessage} stage={batchStage} currentIndex={processingIndex} summary={transformationSummary} onMessageChange={setDecisionMessage} onCancel={() => setBatchStage(null)} onConfirm={() => void beginProcessing()} onClose={() => setBatchStage(null)} /> : null}
+      </>}
     </section>
   );
 }

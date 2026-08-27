@@ -28,6 +28,7 @@ test("keeps customer decisions inside the current Proof portal and exposes only 
   assert.match(appSource, />Request changes<\/button>|"Request changes"/);
   assert.match(appSource, /Describe the changes the prepress team should make/);
   assert.match(appSource, /Tell the prepress team what changes are needed/);
+  assert.match(appSource, /This proof has been approved/);
   assert.doesNotMatch(appSource, /> Provide revised artwork<\/button>/);
   assert.doesNotMatch(apiSource, /decisions\/reject/);
   assert.doesNotMatch(apiSource, /decisions\/revision/);
