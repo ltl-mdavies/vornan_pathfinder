@@ -112,6 +112,15 @@ test("snaps reconciliation intervals to the operator-visible presets", () => {
   assert.equal(normalizeWrikeSourceConfig({ poll_interval_minutes: 58 }).poll_interval_minutes, 60);
 });
 
+test("normalizes the explicit numbered Placard Order title mode", () => {
+  assert.equal(
+    normalizeWrikeSourceConfig({
+      order_task_identity_mode: "exact_title_with_numbered_follow_ons"
+    }).order_task_identity_mode,
+    "exact_title_with_numbered_follow_ons"
+  );
+});
+
 test("normalizes only an explicit, safe multi-proof ZIP naming contract", () => {
   const configured = normalizeWrikeSourceConfig({
     reference_proof_intake: {
@@ -1610,6 +1619,76 @@ test("discovers eligible Placard Orders across configured campaign descendants a
   ]);
   assert.equal(folderUrl.searchParams.get("pageSize"), "1000");
   assert.equal(folderUrl.searchParams.has("customStatuses"), false);
+});
+
+test("discovers standard Placard Order tasks with exact two-digit follow-on titles", async () => {
+  const titles = [
+    "Placard Order",
+    "Placard Order 02",
+    "Placard Order 03",
+    "Placard Order 01",
+    "Placard Order 2",
+    "Placard Order 100"
+  ];
+  const result = await discoverScopedWrikeIntakeTasks(
+    {
+      client_id: "client-id",
+      client_secret: "client-secret",
+      refresh_token: "refresh-token",
+      host: "www.wrike.com"
+    },
+    normalizeWrikeSourceConfig({
+      folder_id: "IEIBACAMPAIGNS",
+      trigger_status_id: "IESENTTOPRINT",
+      contract_number_custom_field_id: "IECONTRACT",
+      print_vendor_custom_field_id: "IEVENDOR",
+      order_task_identity_mode: "exact_title_with_numbered_follow_ons",
+      order_task_title: "Placard Order",
+      required_print_vendor_value: "Larger Than Life"
+    }),
+    {
+      now: () => new Date("2026-08-27T16:00:00.000Z"),
+      fetch_impl: async (input) => {
+        const url = String(input);
+        if (url.endsWith("/oauth2/token")) {
+          return new Response(
+            JSON.stringify({
+              access_token: "access-token",
+              refresh_token: "rotated-refresh-token",
+              host: "app-us2.wrike.com"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            data: titles.map((title, index) => ({
+              id: `IETASK${index}`,
+              accountId: "IEACCOUNT",
+              parentIds: ["IETESTCAMPAIGN"],
+              superParentIds: ["IEIBACAMPAIGNS"],
+              customStatusId: "IESENTTOPRINT",
+              attachmentCount: 1,
+              title,
+              customFields: [
+                { id: "IECONTRACT", value: "C234567" },
+                { id: "IEVENDOR", value: "Larger Than Life" }
+              ]
+            }))
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+  );
+
+  assert.equal(result.summary.task_count, 6);
+  assert.equal(result.summary.order_identity_match_count, 3);
+  assert.equal(result.summary.eligible_order_count, 3);
+  assert.deepEqual(
+    result.order_candidates.map((candidate) => candidate.task_title),
+    ["Placard Order", "Placard Order 02", "Placard Order 03"]
+  );
 });
 
 test("returns the true pending count and prioritizes likely Placard Order candidates beyond 100 tasks", async () => {

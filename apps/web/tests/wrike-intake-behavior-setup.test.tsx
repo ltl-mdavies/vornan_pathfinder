@@ -21,9 +21,10 @@ test("renders separate configurable order discovery and inactive shipping behavi
   );
 
   assert.match(markup, /Order task rules/);
-  assert.match(markup, /GPA Campaigns/);
+  assert.match(markup, /Configured campaign folders/);
   assert.match(markup, /Find Placard Order tasks across every campaign/);
   assert.match(markup, /Order task title/);
+  assert.match(markup, /Primary title plus numbered follow-ons/);
   assert.match(markup, /Larger Than Life/);
   assert.match(markup, /QA task ID.*safe verification tools/i);
   assert.match(markup, /Reference proof/);
@@ -44,6 +45,18 @@ test("renders separate configurable order discovery and inactive shipping behavi
   assert.match(markup, /type="checkbox" disabled=""/);
   assert.match(markup, /<details class="wrike-intake-behavior wrike-inactive-details">/);
   assert.match(markup, /wrike-intake-behavior/);
+});
+
+test("explains the bounded numbered Placard Order naming contract", () => {
+  const config = {
+    ...createDefaultWrikeSourceConfig(),
+    order_task_identity_mode: "exact_title_with_numbered_follow_ons" as const
+  };
+  const markup = renderToStaticMarkup(
+    <WrikeIntakeBehaviorSetup config={config} onChange={() => undefined} />
+  );
+
+  assert.match(markup, /two-digit follow-ons beginning at 02/i);
 });
 
 test("normalization preserves configurable shipping metadata rules while keeping them inactive by default", () => {
