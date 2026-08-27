@@ -95,7 +95,8 @@ export function WrikeIntakeBehaviorSetup({
               />
               {config.order_task_identity_mode === "exact_title_with_numbered_follow_ons" ? (
                 <small>
-                  Accepts the primary title plus two-digit follow-ons beginning at 02.
+                  Accepts the primary title plus two-digit follow-ons beginning at 02,
+                  with or without a #.
                 </small>
               ) : null}
             </label>

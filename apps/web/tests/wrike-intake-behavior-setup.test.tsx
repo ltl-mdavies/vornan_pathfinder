@@ -56,7 +56,7 @@ test("explains the bounded numbered Placard Order naming contract", () => {
     <WrikeIntakeBehaviorSetup config={config} onChange={() => undefined} />
   );
 
-  assert.match(markup, /two-digit follow-ons beginning at 02/i);
+  assert.match(markup, /two-digit follow-ons beginning at 02.*with or without a #/i);
 });
 
 test("normalization preserves configurable shipping metadata rules while keeping them inactive by default", () => {

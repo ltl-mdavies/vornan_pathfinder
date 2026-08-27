@@ -702,7 +702,8 @@ function taskIdentityMatches(
 
   const numberedPrefix = `${configuredTitle} `;
   if (!candidateTitle.startsWith(numberedPrefix)) return false;
-  const sequence = candidateTitle.slice(numberedPrefix.length);
+  const suffix = candidateTitle.slice(numberedPrefix.length);
+  const sequence = suffix.startsWith("#") ? suffix.slice(1) : suffix;
   return /^\d{2}$/.test(sequence) && Number(sequence) >= 2;
 }
 
