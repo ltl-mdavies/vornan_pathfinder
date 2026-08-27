@@ -1801,7 +1801,7 @@ export function App() {
               const representativeTask = group.tasks[0]!;
               const queueSummary = proofLineQueueSummary(group);
               return (
-                <section className={`line-group-card status-${queueSummary.tone} ${selected ? "selected" : ""}`} key={group.group_id} role="listitem" aria-label={`Line ${group.line_number ?? "unassigned"}, ${group.tasks.length} proofs, ${queueSummary.review_label}`}>
+                <section className={`line-group-card ${selected ? "selected" : ""}`} key={group.group_id} role="listitem" aria-label={`Line ${group.line_number ?? "unassigned"}, ${group.tasks.length} proofs, ${queueSummary.review_label}`}>
                   <button className="line-group-summary" type="button" aria-pressed={selected} onClick={() => setSelectedTaskId(group.tasks[0]!.task_id)}>
                     <span className="line-group-thumbnail" aria-hidden="true">
                       <TaskThumbnail task={representativeTask} refreshing={artworkRefreshing} />
@@ -1810,7 +1810,12 @@ export function App() {
                     <span className="line-group-copy">
                       <span className="eyebrow">Line {group.line_number ?? "—"}</span>
                       <strong title={group.product_name ?? "Artwork proof"}>{group.product_name ?? "Artwork proof"}</strong>
-                      <small>Qty {formatQuantity(group.quantity) ?? "—"} · {queueSummary.review_label}</small>
+                      <small>
+                        <span>Qty {formatQuantity(group.quantity) ?? "—"} · </span>
+                        <span className="line-group-statuses">
+                          {queueSummary.status_segments.map((status) => <span className={`line-group-status ${status.tone}`} key={`${status.tone}-${status.label}`}>{status.label}</span>)}
+                        </span>
+                      </small>
                       {sharedProofLines(representativeTask).length > 1 ? <span className="shared-proof-queue"><Link2 aria-hidden="true" /> Shared proof</span> : null}
                     </span>
                     <span className="line-group-count">{group.tasks.length === 1 ? <FileImage aria-hidden="true" /> : <Layers3 aria-hidden="true" />}{queueSummary.proof_count_label}</span>
