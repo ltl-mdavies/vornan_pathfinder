@@ -1,6 +1,7 @@
 import React from "react";
 
 import type {
+  WrikeOrderTaskIdentityMode,
   WrikeSourceConfig,
   WrikeTaskIdentityMode,
   WrikeWorkbookExtension
@@ -46,7 +47,7 @@ export function WrikeIntakeBehaviorSetup({
         <legend>Order task rules</legend>
         <div className="wrike-contract-heading">
           <div>
-            <span className="section-eyebrow">GPA Campaigns</span>
+            <span className="section-eyebrow">Configured campaign folders</span>
             <strong>Find Placard Order tasks across every campaign</strong>
             <small>
               A task must match the saved title, ready status, Contract Number, and
@@ -62,11 +63,14 @@ export function WrikeIntakeBehaviorSetup({
               value={config.order_task_identity_mode}
               onChange={(event) =>
                 onChange({
-                  order_task_identity_mode: event.target.value as WrikeTaskIdentityMode
+                  order_task_identity_mode: event.target.value as WrikeOrderTaskIdentityMode
                 })
               }
             >
               <option value="exact_title">By task title (recommended)</option>
+              <option value="exact_title_with_numbered_follow_ons">
+                Primary title plus numbered follow-ons
+              </option>
               <option value="custom_item_type">By custom item type (advanced)</option>
             </select>
           </label>
@@ -89,6 +93,12 @@ export function WrikeIntakeBehaviorSetup({
                 placeholder="Placard Order"
                 onChange={(event) => onChange({ order_task_title: event.target.value })}
               />
+              {config.order_task_identity_mode === "exact_title_with_numbered_follow_ons" ? (
+                <small>
+                  Accepts the primary title plus numbered follow-ons 2 through 99,
+                  with optional # and zero-padding.
+                </small>
+              ) : null}
             </label>
           )}
           <label className="setup-control">
@@ -105,7 +115,7 @@ export function WrikeIntakeBehaviorSetup({
         </div>
         <div className="wrike-contract-note">
           The QA task ID in Advanced Wrike identifiers is used only by the safe verification
-          tools. Saved discovery uses the GPA Campaigns folder and the rules above.
+          tools. Saved discovery uses every configured campaign folder and the rules above.
         </div>
       </fieldset>
 

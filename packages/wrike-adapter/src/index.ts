@@ -10,6 +10,9 @@ export type WrikeWorkbookNameRule = "contract_order_ooh";
 export type WrikeAttachmentSelectionPolicy = "all_matching_current_workbooks";
 export type WrikeIdempotencyStrategy = "task_attachment_version";
 export type WrikeTaskIdentityMode = "exact_title" | "custom_item_type";
+export type WrikeOrderTaskIdentityMode =
+  | WrikeTaskIdentityMode
+  | "exact_title_with_numbered_follow_ons";
 
 export interface WrikeShippingIntakeConfig {
   enabled: boolean;
@@ -121,7 +124,7 @@ export interface WrikeSourceConfig {
   artwork_folder_custom_field_id: string;
   ltl_exception_custom_field_id: string;
   print_vendor_custom_field_id: string;
-  order_task_identity_mode: WrikeTaskIdentityMode;
+  order_task_identity_mode: WrikeOrderTaskIdentityMode;
   order_task_title: string;
   order_task_custom_item_type_id: string;
   required_print_vendor_value: string;
@@ -684,14 +687,27 @@ function resolvedWrikeComparableCustomField(
 
 function taskIdentityMatches(
   task: Record<string, unknown>,
-  mode: WrikeTaskIdentityMode,
+  mode: WrikeOrderTaskIdentityMode,
   title: string,
   customItemTypeId: string
 ) {
   if (mode === "custom_item_type") {
     return Boolean(customItemTypeId) && providerIdentifier(task.customItemTypeId) === customItemTypeId;
   }
-  return Boolean(title) && normalizedComparableText(task.title) === normalizedComparableText(title);
+  const candidateTitle = normalizedComparableText(task.title);
+  const configuredTitle = normalizedComparableText(title);
+  if (!configuredTitle || !candidateTitle) return false;
+  if (candidateTitle === configuredTitle) return true;
+  if (mode !== "exact_title_with_numbered_follow_ons") return false;
+
+  const numberedPrefix = `${configuredTitle} `;
+  if (!candidateTitle.startsWith(numberedPrefix)) return false;
+  const suffix = candidateTitle.slice(numberedPrefix.length);
+  const hashPrefixed = suffix.startsWith("#");
+  const sequence = hashPrefixed ? suffix.slice(1) : suffix;
+  const hasSupportedFormat = /^\d{1,2}$/.test(sequence);
+  const sequenceNumber = Number(sequence);
+  return hasSupportedFormat && sequenceNumber >= 2 && sequenceNumber <= 99;
 }
 
 export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
@@ -761,7 +777,9 @@ export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
     order_task_identity_mode:
       source.order_task_identity_mode === "custom_item_type"
         ? "custom_item_type"
-        : "exact_title",
+        : source.order_task_identity_mode === "exact_title_with_numbered_follow_ons"
+          ? "exact_title_with_numbered_follow_ons"
+          : "exact_title",
     order_task_title:
       typeof source.order_task_title === "string"
         ? source.order_task_title.trim().replace(/\s+/g, " ").slice(0, 160)
