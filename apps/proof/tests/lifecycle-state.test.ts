@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isOpenProofState, isReviewedProofState, proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation, proofTaskCounts } from "../src/lifecycle-state.ts";
+import { isApprovedProofState, isOpenProofState, isReviewedProofState, proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation, proofTaskCounts } from "../src/lifecycle-state.ts";
 import type { ProofOrder, ProofTask } from "../src/types.ts";
 
 function task(task_id: string, state: ProofTask["state"]): ProofTask {
@@ -58,6 +58,12 @@ test("presents revised proofs as regenerating and keeps them in the open queue",
   });
 });
 
+test("distinguishes customer approvals from retained production references", () => {
+  assert.equal(isApprovedProofState("approved"), true);
+  assert.equal(isApprovedProofState("reference"), false);
+  assert.equal(isReviewedProofState("reference"), true);
+});
+
 test("provides customer-safe cached packet explanations for degraded order health", () => {
   assert.match(proofOrderHealthMessage("stale") ?? "", /last synchronized proof packet/i);
   assert.match(proofOrderHealthMessage("missing") ?? "", /previously synchronized proof files remain visible/i);
@@ -68,12 +74,12 @@ test("provides customer-safe cached packet explanations for degraded order healt
 
 test("presents a success state only when every available proof is reviewed", () => {
   assert.deepEqual(proofOrderCompletion(order("active", [task("approved", "approved")])), {
-    title: "All proofs reviewed",
-    detail: "There are no proofs awaiting review. Approved files remain available in Reviewed."
+    title: "All proofs approved",
+    detail: "There are no proofs awaiting review. Approved files remain available in the Approved queue."
   });
   assert.deepEqual(proofOrderCompletion(order("complete", [task("approved", "approved"), task("reference", "reference")])), {
     title: "Proof packet complete",
-    detail: "This order’s proof review is complete. Approved and reference files remain available in Reviewed."
+    detail: "No proofs are waiting for review. Approved files and production references remain available in All."
   });
   assert.equal(proofOrderCompletion(order("active", [task("approved", "approved"), task("pending", "pending")])), null);
   assert.equal(proofOrderCompletion(order("active", [task("approved", "approved"), task("error", "error")])), null);

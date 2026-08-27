@@ -8,6 +8,10 @@ export function isReviewedProofState(state: ProofState) {
   return state === "approved" || state === "reference";
 }
 
+export function isApprovedProofState(state: ProofState) {
+  return state === "approved";
+}
+
 export function proofTaskCounts(tasks: ProofOrder["tasks"]): ProofOrder["counts"] {
   return {
     pending: tasks.filter((task) => task.state === "pending").length,
@@ -63,10 +67,10 @@ export function proofOrderCompletion(order: ProofOrder) {
   return order.health === "complete" || reviewed.every((task) => task.state === "reference")
     ? {
         title: "Proof packet complete",
-        detail: "This order’s proof review is complete. Approved and reference files remain available in Reviewed."
+        detail: "No proofs are waiting for review. Approved files and production references remain available in All."
       }
     : {
-        title: "All proofs reviewed",
-        detail: "There are no proofs awaiting review. Approved files remain available in Reviewed."
+        title: "All proofs approved",
+        detail: "There are no proofs awaiting review. Approved files remain available in the Approved queue."
       };
 }

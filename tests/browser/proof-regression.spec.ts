@@ -219,7 +219,11 @@ test("Proof saves, reviews, processes, and summarizes a multi-proof allocation w
 
   const proofQueue = page.getByRole("complementary", { name: "Proof queue" });
   await expect(proofQueue.getByRole("button", { name: "Line 1 North wall graphic Qty 20 · 4 awaiting review 4 proofs" })).toBeVisible();
-  await expect(proofQueue.getByRole("button", { name: "Line 2 Register counter decal Qty 2 · 1 awaiting review 1 proof" })).toBeVisible();
+  await expect(proofQueue.getByRole("button", { name: "Line 2 Register counter decal Qty 2 · awaiting review 1 proof" })).toBeVisible();
+  await expect(proofQueue.getByRole("button", { name: "Open" })).toBeVisible();
+  await expect(proofQueue.getByRole("button", { name: "Approved" })).toBeVisible();
+  await expect(page.getByLabel("Proof counts")).toContainText("Open");
+  await expect(page.getByLabel("Proof counts")).toContainText("Approved");
   await expect(proofQueue.getByRole("button", { name: "Creative 1 north-wall-v2.jpg Pending" })).toHaveCount(0);
   await expect(proofQueue.locator(".line-group-thumbnail")).toHaveCount(2);
   await expect(page.locator(".preview-filebar")).toContainText("north-wall-v2.jpg");
