@@ -240,6 +240,7 @@ h1, h2, h3, p { margin-top: 0; }
 .action-transport.simple { grid-template-columns: 1fr; grid-template-rows: auto auto; gap: 10px; }
 .action-transport.simple .decision-heading { grid-column: 1; }
 .action-transport.simple .transport-buttons { width: 100%; justify-self: center; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.action-transport.approved { min-height: 72px; grid-template-columns: 1fr; grid-template-rows: auto; }
 .single-decision-controls { width: min(520px, 100%); justify-self: center; display: grid; grid-template-columns: 1fr; gap: 9px; align-items: center; }
 .single-decision-controls .transport-buttons { width: 100%; }
 .decision-guidance, .decision-result { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 8px; line-height: 1.4; text-align: center; }
@@ -251,6 +252,7 @@ h1, h2, h3, p { margin-top: 0; }
 .decision-status-card > span:last-child { min-width: 0; display: grid; gap: 3px; }
 .decision-status-card strong { color: var(--forest); font-size: 11px; }
 .decision-status-card small { color: var(--muted); font-size: 9px; line-height: 1.4; }
+.approved-decision { width: min(520px, 100%); justify-self: center; }
 .action-transport.distribution { min-height: 174px; grid-template-columns: minmax(0,1fr); grid-template-rows: auto auto auto; align-items: stretch; gap: 9px; }
 .action-transport.distribution .decision-heading { grid-column: 1 / -1; grid-row: 1; }
 .action-transport.distribution .creative-stage-entry { grid-column: 1 / -1; grid-row: 2; }
