@@ -9378,7 +9378,9 @@ async function scheduledUncertainAssociationVerification(args: {
     order_number: args.orderNumber,
     provider_payload: args.verified.lookup.payload,
     provider_company_id: providerCompanyId,
-    expected_order_type: args.context.route.output_template.replace(/^Lift\s+/i, ""),
+    expected_order_type:
+      valueAsString(args.context.job.lift_payload.order.order_type).trim() ||
+      args.context.route.output_template.replace(/^Lift\s+/i, ""),
     fetched_at: args.verified.lookup.fetched_at
   });
   const verification: LiftOrderAssociationVerification = {
