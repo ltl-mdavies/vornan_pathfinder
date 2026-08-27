@@ -23,7 +23,9 @@ const SAFE_OPERATIONS = new Map([
 ]);
 const SAFE_TASK_OPERATIONS = [
   { method: "GET", suffix: "/history", operation: "task_history" },
-  { method: "POST", suffix: "/feedback-acknowledgements", operation: "feedback_acknowledgement" }
+  { method: "POST", suffix: "/feedback-acknowledgements", operation: "feedback_acknowledgement" },
+  { method: "POST", suffix: "/detailed-reports", operation: "detailed_report_start" },
+  { method: "GET", suffix: "/detailed-reports", operation: "detailed_report_status" }
 ] as const;
 
 interface MetricEnvelopeInput {
@@ -89,9 +91,7 @@ export function proofPublicOperation(method: string, path: string) {
     if (
       normalizedMethod === route.method
       && path.startsWith("/api/public/proof/tasks/")
-      && path.endsWith(route.suffix)
-      && path.slice("/api/public/proof/tasks/".length, -route.suffix.length).length > 0
-      && !path.slice("/api/public/proof/tasks/".length, -route.suffix.length).includes("/")
+      && (path.endsWith(route.suffix) || path.includes(`${route.suffix}/`))
     ) {
       return route.operation;
     }

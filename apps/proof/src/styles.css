@@ -170,6 +170,8 @@ h1, h2, h3, p { margin-top: 0; }
 .shared-proof-scope strong { color: var(--forest); }
 .shared-proof-scope.compact { margin-top: 8px; }
 .detail-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+.detailed-report-control { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.detailed-report-control small, .detailed-report-progress { color: var(--muted); font-size: 9px; }
 .feedback-button { position: relative; }
 .button.secondary.feedback-button.unread { border-color: #d7bb72; background: #fff8e7; color: #77581d; box-shadow: 0 0 0 2px rgba(197,153,55,.08); }
 .button.secondary.feedback-button.unread:hover { background: #fff3d4; }

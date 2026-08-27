@@ -23,7 +23,7 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh } from "./api";
+import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadDetailedReport, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh, startDetailedReport } from "./api";
 import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
@@ -61,7 +61,7 @@ import {
 } from "./quantity-review-state";
 import { summarizeQuantityAssignment } from "./quantity-assignment";
 import { createFailClosedSessionTerminator, focusProofTerminalState, proofEntryState, sessionExpiryDelay, sessionSecondsRemaining, sessionWarningVisible } from "./session-state";
-import type { ProofActivity, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
+import type { ProofActivity, ProofDetailedReport, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
 
 type TerminalState = "link_unavailable" | "session_ended";
 type LoadState =
@@ -992,6 +992,40 @@ function FeedbackButton({ task, onClick, compact = false }: { task: ProofTask; o
   );
 }
 
+function DetailedReportButton({ task, version }: { task: ProofTask; version: ProofVersion | null }) {
+  const definition = version?.current ? (version.report_definitions ?? [])[0] ?? null : null;
+  const [report, setReport] = useState<ProofDetailedReport | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => { setReport(null); setMessage(null); }, [task.task_id, version?.version_id]);
+  useEffect(() => {
+    if (!definition || !report || !["generation_started", "running"].includes(report.state)) return;
+    const timer = window.setInterval(() => {
+      void loadDetailedReport(task.task_id, definition.definition_id)
+        .then(({ report: next }) => {
+          setReport(next);
+          if (next.state === "ready" && next.view_url) window.open(next.view_url, "_blank", "noopener,noreferrer");
+        })
+        .catch(() => setMessage("We’re still preparing your report. Try again shortly."));
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [definition?.definition_id, report?.state, task.task_id]);
+  if (!definition) return null;
+  const state = report?.state ?? (definition.ready ? "ready" : "unavailable");
+  if (state === "ready" && report?.view_url) {
+    return <a className="button secondary compact" href={report.view_url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" /> View detailed report</a>;
+  }
+  if (["generation_started", "running"].includes(state)) return <span className="detailed-report-progress" role="status">Generating detailed report…</span>;
+  return <span className="detailed-report-control"><button className="button secondary compact" type="button" onClick={() => {
+    setMessage(null);
+    void startDetailedReport(task.task_id, definition.definition_id)
+      .then(({ report: next }) => {
+        setReport(next);
+        if (next.state === "ready" && next.view_url) window.open(next.view_url, "_blank", "noopener,noreferrer");
+      })
+      .catch(() => setMessage("We’re still preparing your report. Try again shortly."));
+  }}><FileText aria-hidden="true" /> {definition.ready ? "View detailed report" : "Generate detailed report"}</button>{message ? <small role="status">{message}</small> : null}</span>;
+}
+
 export function App() {
   const [loadState, setLoadState] = useState<LoadState>({ status: "loading" });
   const [filter, setFilter] = useState<QueueFilter>("open");
@@ -1842,6 +1876,7 @@ export function App() {
                   <button className="button secondary compact" type="button" onClick={(event) => openDetailDialog("history", selectedTask.task_id, event)}>
                     <History aria-hidden="true" /> File history
                   </button>
+                  <DetailedReportButton task={selectedTask} version={selectedVersion} />
                   {selectedAsset.download && <a className="button secondary" href={selectedAsset.download} target="_blank" rel="noreferrer"><Download aria-hidden="true" /> Download</a>}
                   {selectedAsset.open && <a className="icon-button subtle" href={selectedAsset.open} target="_blank" rel="noreferrer" aria-label="Open proof in a new tab"><ExternalLink aria-hidden="true" /></a>}
                 </div>

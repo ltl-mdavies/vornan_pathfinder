@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildLiftProofOrderReadUrl,
+  buildLiftFocusedProofReportReadUrl,
   buildLiftProofReportReadUrl,
   LIFT_PROOF_WRITE_CAPABILITY,
   readLiftProofOrder,
@@ -33,6 +34,15 @@ test("builds tenant-bound p0+p1 order reads and p1/p2 proof-report reads", () =>
   assert.equal(proofUrl.searchParams.get("p1"), "A0221132");
   assert.equal(proofUrl.searchParams.get("p2"), "9301338");
   assert.equal(LIFT_PROOF_WRITE_CAPABILITY, "not_implemented");
+});
+
+test("builds a focused Proof Report read with p2 only", () => {
+  const url = new URL(buildLiftFocusedProofReportReadUrl(
+    "https://admin.example/AS360ProofReport?offset=0&p1=A0221132",
+    "9301338"
+  ));
+  assert.equal(url.searchParams.get("p2"), "9301338");
+  assert.equal(url.searchParams.has("p1"), false);
 });
 
 test("includes the verified customer boundary on exact Proof order reads", async () => {

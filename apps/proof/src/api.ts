@@ -1,4 +1,4 @@
-import type { ProofActivity, ProofOrder, ProofParticipant, ProofVersion } from "./types";
+import type { ProofActivity, ProofDetailedReport, ProofOrder, ProofParticipant, ProofVersion } from "./types";
 
 export type ProofRevisionAssetState =
   | "initialized"
@@ -211,6 +211,20 @@ export async function finalizeRevisionUpload(assetId: string) {
 export async function loadRevisionUploadStatus(assetId: string) {
   return api<{ asset: ProofRevisionAsset }>(
     `/api/public/proof/revised-assets/uploads/${encodeURIComponent(assetId)}`
+  );
+}
+
+export async function startDetailedReport(taskId: string, definitionId: string) {
+  return api<{ report: ProofDetailedReport }>(
+    `/api/public/proof/tasks/${encodeURIComponent(taskId)}/detailed-reports/${encodeURIComponent(definitionId)}`,
+    { method: "POST" },
+    true
+  );
+}
+
+export async function loadDetailedReport(taskId: string, definitionId: string) {
+  return api<{ report: ProofDetailedReport }>(
+    `/api/public/proof/tasks/${encodeURIComponent(taskId)}/detailed-reports/${encodeURIComponent(definitionId)}`
   );
 }
 
