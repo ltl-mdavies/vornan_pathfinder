@@ -97,6 +97,15 @@ jobs:
           key="api/pathfinder-api-lambda-${GITHUB_SHA}.zip"
           aws s3 cp outputs/pathfinder-api-lambda.zip "s3://${{ vars.PATHFINDER_API_ARTIFACT_BUCKET }}/${key}"
           echo "key=${key}" >> "${GITHUB_OUTPUT}"
+          scan_worker_key="$(aws cloudformation describe-stacks \
+            --stack-name "${{ vars.PATHFINDER_API_STACK_NAME || 'vornan-pathfinder-api-prod' }}" \
+            --query "Stacks[0].Parameters[?ParameterKey=='ProofAssetScanWorkerCodeS3Key'].ParameterValue | [0]" \
+            --output text)"
+          if [[ -z "${scan_worker_key}" || "${scan_worker_key}" == "None" ]]; then
+            echo "The Proof scan worker artifact key is not initialized; use the dedicated first-split release."
+            exit 1
+          fi
+          echo "scan_worker_key=${scan_worker_key}" >> "${GITHUB_OUTPUT}"
 
       - name: Deploy API stack
         run: |
@@ -111,6 +120,7 @@ jobs:
               LambdaFunctionName="${{ vars.PATHFINDER_API_LAMBDA_NAME || 'vornan-pathfinder-api' }}" \
               LambdaCodeS3Bucket="${{ vars.PATHFINDER_API_ARTIFACT_BUCKET }}" \
               LambdaCodeS3Key="${{ steps.artifact.outputs.key }}" \
+              ProofAssetScanWorkerCodeS3Key="${{ steps.artifact.outputs.scan_worker_key }}" \
               AllowedOrigins="${{ inputs.allowed_origins }}" \
               PublicStatusBaseUrl="${{ inputs.public_status_base_url }}" \
               PublicStatusTokenDays="${{ vars.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS || '30' }}" \

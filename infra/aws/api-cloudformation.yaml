@@ -16,6 +16,9 @@ Parameters:
     Type: String
   LambdaCodeS3Key:
     Type: String
+  ProofAssetScanWorkerCodeS3Key:
+    Type: String
+    Description: Immutable artifact key retained by the default-dark Proof asset scan worker.
   AllowedOrigins:
     Type: String
     Default: "https://pathfinder.vornan.co,https://status.vornan.co"
@@ -894,7 +897,7 @@ Resources:
       Role: !GetAtt ProofAssetScanWorkerRole.Arn
       Code:
         S3Bucket: !Ref LambdaCodeS3Bucket
-        S3Key: !Ref LambdaCodeS3Key
+        S3Key: !Ref ProofAssetScanWorkerCodeS3Key
       MemorySize: 512
       Timeout: 60
       Environment:
