@@ -104,9 +104,15 @@ h1, h2, h3, p { margin-top: 0; }
 .queue-search button:hover { background: var(--soft); }
 .queue-search button svg { width: 14px; }
 .task-list { min-height: 0; padding: 0 10px 14px; flex: 1 1 auto; display: grid; grid-auto-rows: max-content; align-content: start; gap: 8px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.line-group-card { min-height: 82px; overflow: hidden; border: 1px solid transparent; border-radius: 13px; background: transparent; transition: background .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.line-group-card { --line-status-accent: #c4912f; min-height: 82px; overflow: hidden; border: 1px solid transparent; border-radius: 13px; background: transparent; box-shadow: inset 3px 0 var(--line-status-accent); transition: background .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.line-group-card.status-approved { --line-status-accent: #49864e; }
+.line-group-card.status-reference { --line-status-accent: #6b7e89; }
+.line-group-card.status-waiting { --line-status-accent: #c4912f; }
+.line-group-card.status-updating { --line-status-accent: #6f5d98; }
+.line-group-card.status-attention { --line-status-accent: #b34d45; }
+.line-group-card.status-mixed { --line-status-accent: #87925f; }
 .line-group-card:hover { background: #f0f3e9; }
-.line-group-card.selected { border-color: #b9ca9f; background: var(--paper); box-shadow: 0 7px 22px rgba(38,62,42,.09); }
+.line-group-card.selected { border-color: #b9ca9f; background: var(--paper); box-shadow: inset 3px 0 var(--line-status-accent), 0 7px 22px rgba(38,62,42,.09); }
 .line-group-summary { width: 100%; min-height: 82px; padding: 11px 12px; border: 0; background: transparent; display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: center; gap: 11px; text-align: left; cursor: pointer; }
 .line-group-thumbnail { position: relative; width: 54px; height: 54px; }
 .line-group-thumbnail .task-thumbnail { width: 54px; height: 54px; border-radius: 8px; }
@@ -152,6 +158,11 @@ h1, h2, h3, p { margin-top: 0; }
 .detail-heading { min-width: 0; min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .detail-heading > div:first-child { min-width: 0; }
 .detail-heading h2 { margin: 4px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(19px, 2vw, 27px); letter-spacing: -.045em; }
+.proof-status-label { width: fit-content; max-width: 100%; margin-top: 7px; display: inline-flex; align-items: center; gap: 5px; color: #9a6d18; font-size: 9px; font-weight: 850; line-height: 1.25; }
+.proof-status-label.approved, .proof-status-label.reference { color: #39723f; }
+.proof-status-label.revised { color: #5d4c83; }
+.proof-status-label.error, .proof-status-label.missing, .proof-status-label.cancelled { color: #8a3d36; }
+.proof-status-label svg { width: 13px; height: 13px; flex: none; }
 .task-state-copy { max-width: 650px; margin: 5px 0 0; color: var(--muted); font-size: 9px; line-height: 1.4; }
 .task-state-copy.revised { color: #5d4c83; }
 .task-state-copy.error, .task-state-copy.missing, .task-state-copy.cancelled { color: #8a3d36; }
@@ -187,6 +198,10 @@ h1, h2, h3, p { margin-top: 0; }
 .filmstrip-meta { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
 .filmstrip-meta strong { color: var(--forest); font-size: 9px; }
 .filmstrip-meta small { overflow: hidden; color: var(--muted); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+.filmstrip-meta .filmstrip-status { color: #9a6d18; font-weight: 800; }
+.filmstrip-meta .filmstrip-status.approved, .filmstrip-meta .filmstrip-status.reference { color: #39723f; }
+.filmstrip-meta .filmstrip-status.revised { color: #5d4c83; }
+.filmstrip-meta .filmstrip-status.error, .filmstrip-meta .filmstrip-status.missing, .filmstrip-meta .filmstrip-status.cancelled { color: #8a3d36; }
 .preview-stage { min-width: 0; min-height: 0; height: 100%; display: grid; place-items: center; overflow: hidden; border: 1px solid #dfe2d6; border-radius: 13px; background: #e9ecdf; }
 .proof-image-link { width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; place-items: center; overflow: hidden; border-radius: inherit; cursor: zoom-in; }
 .proof-image-link:hover .proof-image { filter: brightness(.97); transform: scale(1.002); }

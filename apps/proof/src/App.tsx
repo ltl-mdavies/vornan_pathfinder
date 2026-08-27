@@ -41,12 +41,13 @@ import {
   groupProofTasksByLine,
   lineGroupForTask,
   proofLineQueueSummary,
+  queueFilterLabel,
   queueEmptyMessage,
   searchProofTasks,
   selectedVisibleTask,
   type QueueFilter
 } from "./queue-state";
-import { proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation } from "./lifecycle-state";
+import { isOpenProofState, proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation } from "./lifecycle-state";
 import { ProofPreview } from "./proof-preview";
 import { isLiftProofUpdatedError, PROOF_UPDATED_MESSAGE, replacementProofTaskId } from "./proof-update-state";
 import { RevisionUploadDialog } from "./revision-upload-dialog";
@@ -962,7 +963,7 @@ function ProofFilmstrip({ tasks, selectedTaskId, assignments = {}, stagedTaskIds
             >
               <TaskThumbnail task={task} />
               <span className="filmstrip-filename" title={filename}>{filename}</span>
-              <span className="filmstrip-meta"><strong>{index + 1}</strong><small>{taskStatus}</small></span>
+              <span className="filmstrip-meta"><strong>{index + 1}</strong><small className={`filmstrip-status ${task.state}`}>{taskStatus}</small></span>
             </button>
           );
         })}
@@ -1349,6 +1350,14 @@ export function App() {
   const completionEmpty = Boolean(completion && filter === "open" && !searchQuery.trim());
   const emptyState = completionEmpty ? completion : order ? queueEmptyMessage(filter, order.tasks, searchQuery) : null;
   const proofCounts = order?.counts ?? { pending: 0, regenerating: 0, waiting: 0, reviewed: 0, total: 0 };
+  const customerProofCounts = order
+    ? {
+        open: order.tasks.filter((task) => isOpenProofState(task.state)).length,
+        approved: order.tasks.filter((task) => task.state === "approved").length,
+        awaitingProof: order.tasks.filter((task) => task.state === "waiting").length,
+        updatingProof: order.tasks.filter((task) => task.state === "revised").length
+      }
+    : { open: 0, approved: 0, awaitingProof: 0, updatingProof: 0 };
   const orderHealthMessage = order ? proofOrderHealthMessage(order.health) : null;
   const sessionRemaining = loadState.status === "ready" ? sessionSecondsRemaining(loadState.session_expires_at, clockMs) : 0;
   const showSessionWarning = loadState.status === "ready" && sessionWarningVisible(loadState.session_expires_at, clockMs);
@@ -1725,10 +1734,10 @@ export function App() {
         </div>
         <div className="order-actions">
           <dl className="order-stats" aria-label="Proof counts">
-            <div><dt>Pending</dt><dd>{proofCounts.pending}</dd></div>
-            <div><dt>Regenerating</dt><dd>{proofCounts.regenerating}</dd></div>
-            <div><dt>Waiting</dt><dd>{proofCounts.waiting}</dd></div>
-            <div><dt>Reviewed</dt><dd>{proofCounts.reviewed}/{proofCounts.total}</dd></div>
+            <div><dt>Open</dt><dd>{customerProofCounts.open}</dd></div>
+            <div><dt>Approved</dt><dd>{customerProofCounts.approved}/{proofCounts.total}</dd></div>
+            {customerProofCounts.awaitingProof ? <div><dt>Awaiting proof</dt><dd>{customerProofCounts.awaitingProof}</dd></div> : null}
+            {customerProofCounts.updatingProof ? <div><dt>Updating proof</dt><dd>{customerProofCounts.updatingProof}</dd></div> : null}
           </dl>
           <div className="view-only-badge"><ShieldCheck aria-hidden="true" /> {order!.access.decisions_enabled ? "Secure review access" : "Secure view-only access"}</div>
         </div>
@@ -1781,8 +1790,8 @@ export function App() {
           </div>
           {refreshMessage ? <p className={`refresh-status ${refreshState}`} role="status">{refreshMessage}</p> : null}
           <div className="segmented" role="group" aria-label="Filter proof queue">
-            {(["open", "all", "history"] as QueueFilter[]).map((value) => (
-              <button key={value} type="button" aria-pressed={filter === value} onClick={() => changeFilter(value)}>{value}</button>
+            {(["open", "all", "approved"] as QueueFilter[]).map((value) => (
+              <button key={value} type="button" aria-pressed={filter === value} onClick={() => changeFilter(value)}>{queueFilterLabel(value)}</button>
             ))}
           </div>
           <QueueSearch value={searchQuery} onChange={changeSearch} />
@@ -1792,7 +1801,7 @@ export function App() {
               const representativeTask = group.tasks[0]!;
               const queueSummary = proofLineQueueSummary(group);
               return (
-                <section className={`line-group-card ${selected ? "selected" : ""}`} key={group.group_id} role="listitem" aria-label={`Line ${group.line_number ?? "unassigned"}, ${group.tasks.length} proofs`}>
+                <section className={`line-group-card status-${queueSummary.tone} ${selected ? "selected" : ""}`} key={group.group_id} role="listitem" aria-label={`Line ${group.line_number ?? "unassigned"}, ${group.tasks.length} proofs, ${queueSummary.review_label}`}>
                   <button className="line-group-summary" type="button" aria-pressed={selected} onClick={() => setSelectedTaskId(group.tasks[0]!.task_id)}>
                     <span className="line-group-thumbnail" aria-hidden="true">
                       <TaskThumbnail task={representativeTask} refreshing={artworkRefreshing} />
@@ -1813,7 +1822,7 @@ export function App() {
               <div className="empty-list" role={completionEmpty ? "region" : "status"} aria-label={completionEmpty ? "Proof review complete" : undefined}>
                 <strong>{emptyState.title}</strong>
                 <span>{emptyState.detail}</span>
-                {completionEmpty ? <button className="button secondary completion-button" type="button" onClick={() => changeFilter("history")}>View reviewed proofs</button> : null}
+                {completionEmpty ? <button className="button secondary completion-button" type="button" onClick={() => changeFilter("approved")}>View approved proofs</button> : null}
               </div>
             ) : null}
           </div>
@@ -1833,6 +1842,7 @@ export function App() {
                 <div>
                   <span className="eyebrow">Line {selectedTask.line_number ?? "—"}{formatQuantity(selectedTask.quantity) !== null ? ` · Qty ${formatQuantity(selectedTask.quantity)}` : ""}</span>
                   <h2 title={selectedTask.product_name ?? "Artwork proof"}>{selectedTask.product_name ?? "Artwork proof"}</h2>
+                  <span className={`proof-status-label ${selectedTask.state}`}><TaskStateIcon state={selectedTask.state} /> {statusLabel(selectedTask)}</span>
                   {decisionStateDetail(selectedTask) ? <p className={`task-state-copy ${selectedTask.state}`}>{decisionStateDetail(selectedTask)}</p> : null}
                   <SharedProofScope task={selectedTask} />
                 </div>
@@ -1888,7 +1898,7 @@ export function App() {
               {filter === "open" && order!.tasks.length ? <CheckCircle2 aria-hidden="true" /> : <FileText aria-hidden="true" />}
               <strong>{emptyState?.title ?? "Select a proof"}</strong>
               {emptyState ? <span>{emptyState.detail}</span> : null}
-              {completionEmpty ? <button className="button secondary completion-button" type="button" onClick={() => changeFilter("history")}>View reviewed proofs</button> : null}
+              {completionEmpty ? <button className="button secondary completion-button" type="button" onClick={() => changeFilter("approved")}>View approved proofs</button> : null}
             </div>
           )}
         </section>
@@ -1909,8 +1919,8 @@ export function App() {
             </button>
           </div>
           <div className="segmented" role="group" aria-label="Filter mobile proof feed">
-            {(["open", "all", "history"] as QueueFilter[]).map((value) => (
-              <button key={value} type="button" aria-pressed={filter === value} onClick={() => changeFilter(value)}>{value}</button>
+            {(["open", "all", "approved"] as QueueFilter[]).map((value) => (
+              <button key={value} type="button" aria-pressed={filter === value} onClick={() => changeFilter(value)}>{queueFilterLabel(value)}</button>
             ))}
           </div>
           <QueueSearch value={searchQuery} onChange={changeSearch} />
@@ -1976,7 +1986,7 @@ export function App() {
               <CheckCircle2 aria-hidden="true" />
               <strong>{emptyState.title}</strong>
               <span>{emptyState.detail}</span>
-              {completionEmpty ? <button className="button secondary completion-button" type="button" onClick={() => changeFilter("history")}>View reviewed proofs</button> : null}
+              {completionEmpty ? <button className="button secondary completion-button" type="button" onClick={() => changeFilter("approved")}>View approved proofs</button> : null}
             </div>
           ) : null}
         </div>

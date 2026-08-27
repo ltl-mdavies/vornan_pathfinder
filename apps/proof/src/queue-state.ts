@@ -1,7 +1,7 @@
 import type { ProofTask } from "./types";
-import { isOpenProofState, isReviewedProofState, proofStatePresentation } from "./lifecycle-state";
+import { isApprovedProofState, isOpenProofState, isReviewedProofState, proofStatePresentation } from "./lifecycle-state";
 
-export type QueueFilter = "open" | "all" | "history";
+export type QueueFilter = "open" | "all" | "approved";
 export type QueueNavigationKey = "ArrowDown" | "ArrowUp" | "ArrowRight" | "ArrowLeft" | "Home" | "End";
 
 export interface ProofLineGroup {
@@ -17,6 +17,7 @@ export interface ProofLineGroup {
 export interface ProofLineQueueSummary {
   review_label: string;
   proof_count_label: string;
+  tone: "open" | "approved" | "reference" | "waiting" | "updating" | "attention" | "mixed";
 }
 
 export function proofLineQueueSummary(group: ProofLineGroup): ProofLineQueueSummary {
@@ -25,19 +26,44 @@ export function proofLineQueueSummary(group: ProofLineGroup): ProofLineQueueSumm
     for (const version of task.versions) versionIds.add(version.version_id);
     if (task.current_version) versionIds.add(task.current_version.version_id);
   }
-  const awaitingProof = group.tasks.some((task) => task.state === "waiting");
+  const waitingCount = group.tasks.filter((task) => task.state === "waiting").length;
+  const updatingCount = group.tasks.filter((task) => task.state === "revised").length;
+  const awaitingReviewCount = group.tasks.filter((task) => task.state === "pending").length;
+  const approvedCount = group.tasks.filter((task) => isApprovedProofState(task.state)).length;
+  const referenceCount = group.tasks.filter((task) => task.state === "reference").length;
+  const attentionCount = group.tasks.filter((task) => ["cancelled", "missing", "error"].includes(task.state)).length;
+  const awaitingProof = waitingCount > 0;
   const proofCount = awaitingProof
     ? versionIds.size
     : group.tasks.filter((task) => Boolean(task.current_version)).length;
-  const reviewLabel = awaitingProof
-    ? proofCount > 0 ? "awaiting new proof" : "awaiting proof"
-    : group.open_count
-      ? `${group.open_count} awaiting review`
-      : `${group.reviewed_count} reviewed`;
+  const statuses = [
+    awaitingReviewCount ? `${awaitingReviewCount} awaiting review` : null,
+    updatingCount ? `${updatingCount} awaiting updated proof` : null,
+    waitingCount ? `${waitingCount} ${proofCount > 0 ? "awaiting new proof" : "awaiting proof"}` : null,
+    approvedCount ? `${approvedCount} approved` : null,
+    referenceCount ? `${referenceCount} reference` : null,
+    attentionCount ? `${attentionCount} needs attention` : null
+  ].filter((label): label is string => Boolean(label));
+  const reviewLabel = statuses.length === 1
+    ? statuses[0]!.replace(/^1 /, "")
+    : statuses.join(" · ");
+  const tone = statuses.length > 1
+    ? "mixed"
+    : approvedCount
+      ? "approved"
+      : referenceCount
+        ? "reference"
+        : updatingCount
+          ? "updating"
+          : waitingCount
+            ? "waiting"
+            : attentionCount
+              ? "attention"
+              : "open";
   const proofCountLabel = awaitingProof
     ? proofCount > 0 ? `${proofCount} prior ${proofCount === 1 ? "proof" : "proofs"}` : "Proof pending"
     : `${proofCount} ${proofCount === 1 ? "proof" : "proofs"}`;
-  return { review_label: reviewLabel, proof_count_label: proofCountLabel };
+  return { review_label: reviewLabel, proof_count_label: proofCountLabel, tone };
 }
 
 export function groupProofTasksByLine(tasks: ProofTask[]): ProofLineGroup[] {
@@ -75,10 +101,21 @@ export function filterProofTasks(tasks: ProofTask[], filter: QueueFilter) {
   if (filter === "open") {
     return tasks.filter((task) => isOpenProofState(task.state));
   }
-  if (filter === "history") {
-    return tasks.filter((task) => isReviewedProofState(task.state));
+  if (filter === "approved") {
+    return tasks.filter((task) => isApprovedProofState(task.state));
   }
   return tasks;
+}
+
+export function queueFilterLabel(filter: QueueFilter) {
+  switch (filter) {
+    case "approved":
+      return "Approved";
+    case "all":
+      return "All";
+    default:
+      return "Open";
+  }
 }
 
 export function searchProofTasks(tasks: ProofTask[], query: string) {

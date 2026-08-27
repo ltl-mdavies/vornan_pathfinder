@@ -5,6 +5,7 @@ import {
   groupProofTasksByLine,
   lineGroupForTask,
   proofLineQueueSummary,
+  queueFilterLabel,
   queueEmptyMessage,
   queueNavigationTarget,
   searchProofTasks,
@@ -30,9 +31,9 @@ const tasks = [task("pending", "pending"), task("waiting", "waiting"), task("rev
 
 test("filters the read-only queue without leaking a hidden selection into detail", () => {
   assert.deepEqual(filterProofTasks(tasks, "open").map((item) => item.task_id), ["pending", "waiting", "revised"]);
-  const history = filterProofTasks(tasks, "history");
-  assert.deepEqual(history.map((item) => item.task_id), ["approved"]);
-  assert.equal(selectedVisibleTask(history, "pending")?.task_id, "approved");
+  const approved = filterProofTasks(tasks, "approved");
+  assert.deepEqual(approved.map((item) => item.task_id), ["approved"]);
+  assert.equal(selectedVisibleTask(approved, "pending")?.task_id, "approved");
   assert.equal(selectedVisibleTask([], "pending"), null);
 });
 
@@ -79,7 +80,7 @@ test("searches the filtered queue by product, line, filename, and state", () => 
 test("distinguishes no-proof, no-open-proof, and filter-empty states", () => {
   assert.equal(queueEmptyMessage("all", []).title, "No proofs are available yet");
   assert.equal(queueEmptyMessage("open", tasks).title, "No open proofs");
-  assert.equal(queueEmptyMessage("history", tasks).title, "No proofs match this view");
+  assert.equal(queueEmptyMessage("approved", tasks).title, "No proofs match this view");
   assert.equal(queueEmptyMessage("all", tasks, "missing artwork").title, "No proofs match your search");
 });
 
@@ -142,15 +143,18 @@ test("distinguishes lines awaiting a new proof from proofs awaiting review", () 
 
   assert.deepEqual(proofLineQueueSummary(waitingWithHistory), {
     review_label: "awaiting new proof",
-    proof_count_label: "1 prior proof"
+    proof_count_label: "1 prior proof",
+    tone: "waiting"
   });
   assert.deepEqual(proofLineQueueSummary(waitingWithoutHistory), {
     review_label: "awaiting proof",
-    proof_count_label: "Proof pending"
+    proof_count_label: "Proof pending",
+    tone: "waiting"
   });
   assert.deepEqual(proofLineQueueSummary(reviewable), {
-    review_label: "1 awaiting review",
-    proof_count_label: "1 proof"
+    review_label: "awaiting review",
+    proof_count_label: "1 proof",
+    tone: "open"
   });
 });
 
@@ -176,7 +180,23 @@ test("counts current proofs on reviewable cards rather than comment-only history
   }])[0]!;
 
   assert.deepEqual(proofLineQueueSummary(group), {
-    review_label: "1 awaiting review",
-    proof_count_label: "1 proof"
+    review_label: "awaiting review",
+    proof_count_label: "1 proof",
+    tone: "open"
   });
+});
+
+test("summarizes mixed proof states without relying on a card full of status chips", () => {
+  const group = groupProofTasksByLine([
+    { ...task("line-1-pending", "pending"), line_number: "1" },
+    { ...task("line-1-approved", "approved"), line_number: "1", sibling_index: 2, sibling_count: 2 }
+  ])[0]!;
+
+  assert.deepEqual(proofLineQueueSummary(group), {
+    review_label: "1 awaiting review · 1 approved",
+    proof_count_label: "0 proofs",
+    tone: "mixed"
+  });
+  assert.equal(queueFilterLabel("open"), "Open");
+  assert.equal(queueFilterLabel("approved"), "Approved");
 });
