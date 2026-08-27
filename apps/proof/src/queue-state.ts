@@ -38,12 +38,12 @@ export function proofLineQueueSummary(group: ProofLineGroup): ProofLineQueueSumm
     ? versionIds.size
     : group.tasks.filter((task) => Boolean(task.current_version)).length;
   const rawSegments = [
-    awaitingReviewCount ? { label: `${awaitingReviewCount} awaiting review`, tone: "open" as const } : null,
-    updatingCount ? { label: `${updatingCount} awaiting updated proof`, tone: "updating" as const } : null,
-    waitingCount ? { label: `${waitingCount} ${proofCount > 0 ? "awaiting new proof" : "awaiting proof"}`, tone: "waiting" as const } : null,
-    approvedCount ? { label: `${approvedCount} approved`, tone: "approved" as const } : null,
-    referenceCount ? { label: `${referenceCount} reference`, tone: "reference" as const } : null,
-    attentionCount ? { label: `${attentionCount} needs attention`, tone: "attention" as const } : null
+    awaitingReviewCount ? { label: `${awaitingReviewCount} Awaiting review`, tone: "open" as const } : null,
+    updatingCount ? { label: `${updatingCount} Awaiting updated proof`, tone: "updating" as const } : null,
+    waitingCount ? { label: `${waitingCount} ${proofCount > 0 ? "Awaiting new proof" : "Awaiting proof"}`, tone: "waiting" as const } : null,
+    approvedCount ? { label: `${approvedCount} Approved`, tone: "approved" as const } : null,
+    referenceCount ? { label: `${referenceCount} Reference`, tone: "reference" as const } : null,
+    attentionCount ? { label: `${attentionCount} Needs attention`, tone: "attention" as const } : null
   ].filter((segment): segment is NonNullable<typeof segment> => Boolean(segment));
   const statusSegments = rawSegments.length === 1
     ? [{ ...rawSegments[0]!, label: rawSegments[0]!.label.replace(/^1 /, "") }]
