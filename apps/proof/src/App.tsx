@@ -145,25 +145,12 @@ function formatQuantity(value: number | null) {
 }
 
 function statusLabel(task: ProofTask) {
-  if (task.decision_state === "rejected_pending_action") return "Rejected — action needed";
-  if (task.decision_state === "sent_back_to_artist") return "Sent back to artist";
-  if (task.decision_state === "revised_art_pending") return "Revised art pending";
-  if (task.decision_state === "cancel_requested") return "Cancellation requested";
   return proofStatePresentation(task.state).label;
 }
 
 function decisionStateDetail(task: ProofTask) {
-  if (task.decision_state === "rejected_pending_action") {
-    return "This proof was rejected. Choose whether the line should be cancelled, sent back to the artist, or receive revised artwork.";
-  }
-  if (task.decision_state === "sent_back_to_artist") {
-    return "The production team was asked to return this line to the artist. The rejected proof remains available for reference.";
-  }
-  if (task.decision_state === "revised_art_pending") {
-    return "Revised artwork is expected. Review resumes when Lift publishes a new current proof.";
-  }
-  if (task.decision_state === "cancel_requested") {
-    return "Cancellation was requested for this order line.";
+  if (task.action_reconciliation_pending) {
+    return "Lift currently shows this proof as awaiting review. A prior request is being reconciled, so Vornan will not send a duplicate action.";
   }
   return proofStatePresentation(task.state).detail;
 }
@@ -696,8 +683,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         ? "Review and acknowledge the prepress team feedback before approving."
         : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
           ? "This proof is shared by multiple lines and requires a coordinated approval."
-          : selectedTask.decision_state
-            ? "A production action has already been requested for this proof."
+          : selectedTask.action_reconciliation_pending
+            ? "A prior request is awaiting confirmation from Lift. To prevent a duplicate request, actions are unavailable until it is reconciled."
           : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
             ? "This proof is not currently available for approval."
             : null;
@@ -722,8 +709,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         ? "Review and acknowledge the prepress team feedback before requesting changes."
       : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
         ? "This proof is shared by multiple lines and requires coordinated support."
-      : selectedTask.decision_state
-        ? "A production action has already been requested for this proof."
+      : selectedTask.action_reconciliation_pending
+        ? "A prior request is awaiting confirmation from Lift. To prevent a duplicate request, actions are unavailable until it is reconciled."
       : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
         ? "This proof is not currently available for a change request."
       : null;
@@ -748,13 +735,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
     ? { title: "Proof approved", detail: singleApprovalMessage ?? "Approval recorded." }
     : changeRequestState === "complete"
       ? { title: "Changes requested", detail: changeRequestMessage ?? "The production team received your instructions." }
-      : selectedTask.decision_state === "sent_back_to_artist"
-        ? { title: "Changes requested", detail: "Waiting for the production team to prepare a new proof." }
-        : selectedTask.decision_state === "revised_art_pending"
-          ? { title: "Revised artwork received", detail: "Vornan will show the replacement proof when it is ready." }
-          : selectedTask.decision_state === "cancel_requested"
-            ? { title: "Cancellation requested", detail: "The production team has received this line request." }
-            : null;
+      : null;
   const submitSingleApproval = async () => {
     if (singleApprovalBlocked || singleApprovalState === "submitting") return;
     setSingleApprovalState("submitting");

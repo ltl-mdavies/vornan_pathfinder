@@ -453,6 +453,7 @@ export interface PublicProofTask {
   quantity: number | null;
   state: ProofTaskState;
   decision_state: ProofTaskDecisionState | null;
+  action_reconciliation_pending: boolean;
   sibling_index: number;
   sibling_count: number;
   feedback_required: boolean;
@@ -651,6 +652,52 @@ function commentFromRow(row: Record<string, unknown>): ProofComment | null {
   return comment.text || comment.created_at || comment.attachment ? comment : null;
 }
 
+function feedbackAttachmentIdentity(attachment: unknown) {
+  return publicCommentAttachments(attachment)
+    .map((item) => {
+      let path: string | null = null;
+      if (item.url) {
+        try {
+          path = new URL(item.url).pathname || null;
+        } catch {
+          path = null;
+        }
+      }
+      return { filename: item.filename, content_type: item.content_type, path };
+    })
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)));
+}
+
+function comparableFeedbackComment(comment: ProofComment) {
+  return {
+    text: comment.text,
+    created_at: comment.created_at,
+    attachments: feedbackAttachmentIdentity(comment.attachment)
+  };
+}
+
+function compareFeedbackComments(left: ProofComment, right: ProofComment) {
+  const leftTime = left.created_at ? Date.parse(left.created_at) : Number.NaN;
+  const rightTime = right.created_at ? Date.parse(right.created_at) : Number.NaN;
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return leftTime - rightTime;
+  if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) return Number.isFinite(leftTime) ? -1 : 1;
+  return fingerprint(comparableFeedbackComment(left)).localeCompare(fingerprint(comparableFeedbackComment(right)));
+}
+
+function canonicalFeedbackComments(rows: Record<string, unknown>[]) {
+  const seen = new Set<string>();
+  return rows
+    .map(commentFromRow)
+    .filter((comment): comment is ProofComment => Boolean(comment))
+    .filter((comment) => {
+      const key = fingerprint(comparableFeedbackComment(comment));
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort(compareFeedbackComments);
+}
+
 function proofVersionFromRows(rows: Record<string, unknown>[]): ProofVersion {
   const row = rows[0] ?? {};
   const attachmentId = text(row, "ATTACHMENT_ID", "attachment_id");
@@ -667,10 +714,7 @@ function proofVersionFromRows(rows: Record<string, unknown>[]): ProofVersion {
     "content_type",
     "mime_type"
   );
-  const comments = rows
-    .map(commentFromRow)
-    .filter((comment): comment is ProofComment => Boolean(comment))
-    .filter((comment, index, all) => all.findIndex((candidate) => fingerprint(candidate) === fingerprint(comment)) === index);
+  const comments = canonicalFeedbackComments(rows);
   const previewUrl = text(row, "PROOF_LINK_LOW", "PROOF_URL_LOW", "proof_link_low", "proof_url_low");
   const downloadUrl =
     text(row, "PROOF_LINK_HIGH", "PROOF_URL_HIGH", "proof_link_high", "proof_url_high") ?? previewUrl;
@@ -703,7 +747,7 @@ function proofVersionFromRows(rows: Record<string, unknown>[]): ProofVersion {
     approved_at: approvedAt,
     comments,
     detailed_report: detailedReport,
-    feedback_fingerprint: fingerprint(comments),
+    feedback_fingerprint: fingerprint(comments.map(comparableFeedbackComment)),
     current: true,
     archived_at: null
   };
@@ -1481,7 +1525,11 @@ export function toPublicProofOrder(
       product_name: publicProofDisplayText(task.product_name, 160),
       quantity: publicProofQuantity(task.quantity),
       state: task.state,
-      decision_state: task.decision_context?.state ?? null,
+      // Lift's Proof Report is authoritative for the customer-visible proof
+      // state. A local, unconfirmed write may prevent a duplicate action, but
+      // must never relabel a pending Lift proof as rejected, revised, or sent.
+      decision_state: null,
+      action_reconciliation_pending: task.state === "pending" && Boolean(task.decision_context),
       sibling_index: task.sibling_index,
       sibling_count: task.sibling_count,
       feedback_required: Boolean(task.current_version?.comments.length),

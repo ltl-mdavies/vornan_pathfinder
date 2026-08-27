@@ -275,7 +275,7 @@ test("emits read-derived review lifecycle transitions only when the normalized s
   assert.deepEqual(proofReviewLifecycleTransitions(reviewed, degraded), []);
 });
 
-test("retains a Pathfinder-observed rejection only for the same pending attachment", () => {
+test("keeps a local unconfirmed action out of Lift-authoritative public proof status", () => {
   const initial = normalizeProofOrder({
     order_number: "A0221132",
     order_payload: orderPayload,
@@ -291,7 +291,9 @@ test("retains a Pathfinder-observed rejection only for the same pending attachme
   });
 
   assert.equal(rejected.tasks.find((task) => task.task_id === pending.task_id)?.decision_context?.state, "rejected_pending_action");
-  assert.equal(toPublicProofOrder(rejected).tasks.find((task) => task.task_id === pending.task_id)?.decision_state, "rejected_pending_action");
+  const publicTask = toPublicProofOrder(rejected).tasks.find((task) => task.task_id === pending.task_id);
+  assert.equal(publicTask?.decision_state, null);
+  assert.equal(publicTask?.action_reconciliation_pending, true);
   assert.equal(JSON.stringify(toPublicProofOrder(rejected)).includes("pathfinder_operator_action"), false);
 
   const refreshed = normalizeProofOrder({
@@ -318,6 +320,51 @@ test("retains a Pathfinder-observed rejection only for the same pending attachme
     synced_at: "2026-07-20T12:03:00.000Z"
   });
   assert.equal(approved.tasks.find((task) => task.task_id === pending.task_id)?.decision_context, null);
+});
+
+test("canonicalizes Lift feedback order and rotating attachment URLs without hiding real changes", () => {
+  const firstPayload = {
+    rowset: [
+      {
+        ...proofPayload.rowset[0],
+        PROOF_COMMENT: "Later feedback.",
+        COMMENT_TS: "2026-07-19T11:10:00Z",
+        COMMENT_ATTACHMENT: [{ LINK_TO_ATTACHMENT: "https://files.example/notes.pdf?signature=first" }]
+      },
+      {
+        ...proofPayload.rowset[0],
+        PROOF_COMMENT: "Earlier feedback.",
+        COMMENT_TS: "2026-07-19T11:00:00Z",
+        COMMENT_ATTACHMENT: [{ LINK_TO_ATTACHMENT: "https://files.example/trim.pdf?signature=first" }]
+      }
+    ]
+  };
+  const reorderedPayload = {
+    rowset: [...firstPayload.rowset].reverse().map((row) => ({
+      ...row,
+      COMMENT_ATTACHMENT: Array.isArray(row.COMMENT_ATTACHMENT)
+        ? row.COMMENT_ATTACHMENT.map((attachment) => ({
+            ...attachment,
+            LINK_TO_ATTACHMENT: String(attachment.LINK_TO_ATTACHMENT).replace("signature=first", "signature=rotated")
+          }))
+        : row.COMMENT_ATTACHMENT
+    }))
+  };
+  const first = normalizeProofOrder({ order_number: "A0221132", order_payload: orderPayload, proof_payloads: [firstPayload], synced_at: syncedAt });
+  const reordered = normalizeProofOrder({ order_number: "A0221132", order_payload: orderPayload, proof_payloads: [reorderedPayload], synced_at: "2026-07-20T12:01:00.000Z" });
+  const firstVersion = first.tasks.find((task) => task.state === "pending")!.current_version!;
+  const reorderedVersion = reordered.tasks.find((task) => task.state === "pending")!.current_version!;
+
+  assert.deepEqual(firstVersion.comments.map((comment) => comment.text), ["Earlier feedback.", "Later feedback."]);
+  assert.equal(reorderedVersion.feedback_fingerprint, firstVersion.feedback_fingerprint);
+
+  const changed = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [{ rowset: [...reorderedPayload.rowset, { ...proofPayload.rowset[0], PROOF_COMMENT: "New feedback.", COMMENT_TS: "2026-07-19T11:15:00Z" }] }],
+    synced_at: "2026-07-20T12:02:00.000Z"
+  });
+  assert.notEqual(changed.tasks.find((task) => task.state === "pending")!.current_version!.feedback_fingerprint, firstVersion.feedback_fingerprint);
 });
 
 test("rejects malformed Proof decision context timestamps", () => {
