@@ -142,22 +142,22 @@ test("distinguishes lines awaiting a new proof from proofs awaiting review", () 
   }])[0]!;
 
   assert.deepEqual(proofLineQueueSummary(waitingWithHistory), {
-    review_label: "awaiting new proof",
+    review_label: "Awaiting new proof",
     proof_count_label: "1 prior proof",
     tone: "waiting",
-    status_segments: [{ label: "awaiting new proof", tone: "waiting" }]
+    status_segments: [{ label: "Awaiting new proof", tone: "waiting" }]
   });
   assert.deepEqual(proofLineQueueSummary(waitingWithoutHistory), {
-    review_label: "awaiting proof",
+    review_label: "Awaiting proof",
     proof_count_label: "Proof pending",
     tone: "waiting",
-    status_segments: [{ label: "awaiting proof", tone: "waiting" }]
+    status_segments: [{ label: "Awaiting proof", tone: "waiting" }]
   });
   assert.deepEqual(proofLineQueueSummary(reviewable), {
-    review_label: "awaiting review",
+    review_label: "Awaiting review",
     proof_count_label: "1 proof",
     tone: "open",
-    status_segments: [{ label: "awaiting review", tone: "open" }]
+    status_segments: [{ label: "Awaiting review", tone: "open" }]
   });
 });
 
@@ -183,10 +183,10 @@ test("counts current proofs on reviewable cards rather than comment-only history
   }])[0]!;
 
   assert.deepEqual(proofLineQueueSummary(group), {
-    review_label: "awaiting review",
+    review_label: "Awaiting review",
     proof_count_label: "1 proof",
     tone: "open",
-    status_segments: [{ label: "awaiting review", tone: "open" }]
+    status_segments: [{ label: "Awaiting review", tone: "open" }]
   });
 });
 
@@ -197,12 +197,12 @@ test("summarizes mixed proof states without relying on a card full of status chi
   ])[0]!;
 
   assert.deepEqual(proofLineQueueSummary(group), {
-    review_label: "1 awaiting review · 1 approved",
+    review_label: "1 Awaiting review · 1 Approved",
     proof_count_label: "0 proofs",
     tone: "mixed",
     status_segments: [
-      { label: "1 awaiting review", tone: "open" },
-      { label: "1 approved", tone: "approved" }
+      { label: "1 Awaiting review", tone: "open" },
+      { label: "1 Approved", tone: "approved" }
     ]
   });
   assert.equal(queueFilterLabel("open"), "Open");

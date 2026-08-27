@@ -150,7 +150,7 @@ function statusLabel(task: ProofTask) {
 
 function decisionStateDetail(task: ProofTask) {
   if (task.action_reconciliation_pending) {
-    return "Lift currently shows this proof as awaiting review. A prior request is being reconciled, so Vornan will not send a duplicate action.";
+    return "This proof is awaiting review.";
   }
   return proofStatePresentation(task.state).detail;
 }
@@ -684,7 +684,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
           ? "This proof is shared by multiple lines and requires a coordinated approval."
           : selectedTask.action_reconciliation_pending
-            ? "A prior request is awaiting confirmation from Lift. To prevent a duplicate request, actions are unavailable until it is reconciled."
+            ? "This proof is awaiting review."
           : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
             ? "This proof is not currently available for approval."
             : null;
@@ -710,7 +710,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
       : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
         ? "This proof is shared by multiple lines and requires coordinated support."
       : selectedTask.action_reconciliation_pending
-        ? "A prior request is awaiting confirmation from Lift. To prevent a duplicate request, actions are unavailable until it is reconciled."
+        ? "This proof is awaiting review."
       : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
         ? "This proof is not currently available for a change request."
       : null;
