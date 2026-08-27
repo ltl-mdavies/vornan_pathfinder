@@ -838,6 +838,25 @@ function comparableStoredTask(task: ProofTask) {
   };
 }
 
+const proofDecisionReconciliationWindowMs = 15 * 60 * 1000;
+
+function retainedDecisionContext(previous: ProofTask, incoming: ProofTask, syncedAt: string) {
+  const context = previous.decision_context ?? null;
+  if (
+    !context ||
+    incoming.state !== "pending" ||
+    previous.attachment_id !== incoming.attachment_id
+  ) {
+    return null;
+  }
+  const recordedAt = Date.parse(context.recorded_at);
+  const observedAt = Date.parse(syncedAt);
+  if (!Number.isFinite(recordedAt) || !Number.isFinite(observedAt) || observedAt < recordedAt) {
+    return context;
+  }
+  return observedAt - recordedAt < proofDecisionReconciliationWindowMs ? context : null;
+}
+
 function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedAt: string) {
   if (!previous) {
     return incoming;
@@ -859,10 +878,7 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
       : previous.versions;
     return {
       ...incoming,
-      decision_context:
-        incoming.state === "pending" && previous.attachment_id === incoming.attachment_id
-          ? previous.decision_context ?? null
-          : null,
+      decision_context: retainedDecisionContext(previous, incoming, syncedAt),
       task_id: previous.task_id,
       version: previous.version,
       current_version: refreshedCurrentVersion,
@@ -881,10 +897,7 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
     };
     return {
       ...incoming,
-      decision_context:
-        incoming.state === "pending" && previous.attachment_id === incoming.attachment_id
-          ? previous.decision_context ?? null
-          : null,
+      decision_context: retainedDecisionContext(previous, incoming, syncedAt),
       task_id: previous.task_id,
       version: previous.version + 1,
       current_version: refreshedCurrentVersion,
@@ -908,10 +921,7 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
     : priorVersions;
   return {
     ...incoming,
-    decision_context:
-      incoming.state === "pending" && previous.attachment_id === incoming.attachment_id
-        ? previous.decision_context ?? null
-        : null,
+    decision_context: retainedDecisionContext(previous, incoming, syncedAt),
     task_id: previous.task_id,
     version: previous.version + 1,
     versions,
