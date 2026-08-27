@@ -305,6 +305,18 @@ test("keeps a local unconfirmed action out of Lift-authoritative public proof st
   });
   assert.equal(refreshed.tasks.find((task) => task.task_id === pending.task_id)?.decision_context?.state, "rejected_pending_action");
 
+  const settled = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    previous: refreshed,
+    synced_at: "2026-07-20T12:16:00.000Z"
+  });
+  const settledTask = settled.tasks.find((task) => task.task_id === pending.task_id);
+  assert.equal(settledTask?.state, "pending");
+  assert.equal(settledTask?.decision_context, null);
+  assert.equal(toPublicProofOrder(settled).tasks.find((task) => task.task_id === pending.task_id)?.action_reconciliation_pending, false);
+
   const approvedPayload = {
     rowset: proofPayload.rowset.map((row) =>
       row.ATTACHMENT_ID === Number(pending.attachment_id)
@@ -316,8 +328,8 @@ test("keeps a local unconfirmed action out of Lift-authoritative public proof st
     order_number: "A0221132",
     order_payload: orderPayload,
     proof_payloads: [approvedPayload],
-    previous: refreshed,
-    synced_at: "2026-07-20T12:03:00.000Z"
+    previous: settled,
+    synced_at: "2026-07-20T12:17:00.000Z"
   });
   assert.equal(approved.tasks.find((task) => task.task_id === pending.task_id)?.decision_context, null);
 });
