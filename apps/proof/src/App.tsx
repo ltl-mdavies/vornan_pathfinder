@@ -23,7 +23,7 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh } from "./api";
+import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadDetailedReport, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh, startDetailedReport } from "./api";
 import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
@@ -61,7 +61,7 @@ import {
 } from "./quantity-review-state";
 import { summarizeQuantityAssignment } from "./quantity-assignment";
 import { createFailClosedSessionTerminator, focusProofTerminalState, proofEntryState, sessionExpiryDelay, sessionSecondsRemaining, sessionWarningVisible } from "./session-state";
-import type { ProofActivity, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
+import type { ProofActivity, ProofDetailedReport, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
 
 type TerminalState = "link_unavailable" | "session_ended";
 type LoadState =
@@ -149,9 +149,6 @@ function statusLabel(task: ProofTask) {
 }
 
 function decisionStateDetail(task: ProofTask) {
-  if (task.action_reconciliation_pending) {
-    return "This proof is awaiting review.";
-  }
   return proofStatePresentation(task.state).detail;
 }
 
@@ -618,6 +615,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   const actionableTasks = tasks.filter((task) => task.state === "pending" && task.current_version?.current);
   const multiProof = usesAdvancedQuantityAllocation(actionableTasks.length, reviewExperience);
   const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
+  const approvedProof = !multiProof && selectedTask.state === "approved";
   const selectedCreativeNumber = tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1;
   const stagedTasks = tasks.filter((task) => stagedTaskIds.includes(task.task_id));
   const selectedIsStaged = stagedTaskIds.includes(selectedTask.task_id);
@@ -793,7 +791,13 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
     }
   };
   return (
-    <section className={`action-transport ${mobile ? "mobile" : ""} ${multiProof ? "distribution" : "simple"}`} aria-label="Proof decision actions" aria-describedby={mobile ? undefined : "action-lock-message"}>
+    <section className={`action-transport ${mobile ? "mobile" : ""} ${multiProof ? "distribution" : "simple"} ${approvedProof ? "approved" : ""}`} aria-label={approvedProof ? "Proof approval status" : "Proof decision actions"} aria-describedby={approvedProof || mobile ? undefined : "action-lock-message"}>
+      {approvedProof ? (
+        <div className="decision-status-card approved-decision" role="status">
+          <span><CheckCircle2 aria-hidden="true" /></span>
+          <span><strong>Approved</strong><small>This proof has been approved.</small></span>
+        </div>
+      ) : <>
       <div className="decision-heading">
         <strong>{multiProof ? "Creative decision" : "Review decision"}</strong>
         <small className="decision-lock-status" id={mobile ? undefined : "action-lock-message"}>
@@ -919,6 +923,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         />
       ) : null}
       {multiProof ? <BatchApprovalDialog tasks={stagedTasks} values={values} message={decisionMessage} stage={batchStage} currentIndex={processingIndex} summary={transformationSummary} onMessageChange={setDecisionMessage} onCancel={() => setBatchStage(null)} onConfirm={() => void beginProcessing()} onClose={() => setBatchStage(null)} /> : null}
+      </>}
     </section>
   );
 }
@@ -985,6 +990,51 @@ function FeedbackButton({ task, onClick, compact = false }: { task: ProofTask; o
       {unread ? <span className="feedback-badge" aria-hidden="true">New · {commentCount}</span> : null}
     </button>
   );
+}
+
+function DetailedReportButton({ task, version }: { task: ProofTask; version: ProofVersion | null }) {
+  const definitions = version?.current ? version.report_definitions ?? [] : [];
+  const [selectedDefinitionId, setSelectedDefinitionId] = useState<string | null>(null);
+  const definition = definitions.find((candidate) => candidate.definition_id === selectedDefinitionId) ?? definitions[0] ?? null;
+  const [report, setReport] = useState<ProofDetailedReport | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  useEffect(() => { setReport(null); setMessage(null); }, [task.task_id, version?.version_id, definition?.definition_id]);
+  useEffect(() => {
+    if (!definition || !report || !["generation_started", "running"].includes(report.state)) return;
+    const timer = window.setInterval(() => {
+      void loadDetailedReport(task.task_id, definition.definition_id)
+        .then(({ report: next }) => {
+          setReport(next);
+          if (next.state === "ready" && next.view_url) window.open(next.view_url, "_blank", "noopener,noreferrer");
+        })
+        .catch(() => setMessage("We’re still preparing your report. Try again shortly."));
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [definition?.definition_id, report?.state, task.task_id]);
+  if (!definition) return null;
+  const state = report?.state ?? (definition.ready ? "ready" : "unavailable");
+  const choice = definitions.length > 1 ? (
+    <label className="detailed-report-choice">Report type<select value={definition.definition_id} onChange={(event) => {
+      setSelectedDefinitionId(event.target.value);
+      setReport(null);
+      setMessage(null);
+    }}>
+      {definitions.map((candidate) => <option key={candidate.definition_id} value={candidate.definition_id}>{candidate.label ?? "Detailed report"}</option>)}
+    </select></label>
+  ) : null;
+  if (state === "ready" && report?.view_url) {
+    return <span className="detailed-report-control">{choice}<a className="button secondary compact" href={report.view_url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" /> View detailed report</a></span>;
+  }
+  if (["generation_started", "running"].includes(state)) return <span className="detailed-report-progress" role="status">Generating detailed report…</span>;
+  return <span className="detailed-report-control">{choice}<button className="button secondary compact" type="button" onClick={() => {
+    setMessage(null);
+    void startDetailedReport(task.task_id, definition.definition_id)
+      .then(({ report: next }) => {
+        setReport(next);
+        if (next.state === "ready" && next.view_url) window.open(next.view_url, "_blank", "noopener,noreferrer");
+      })
+      .catch(() => setMessage("We’re still preparing your report. Try again shortly."));
+  }}><FileText aria-hidden="true" /> {definition.ready ? "View detailed report" : "Generate detailed report"}</button>{message ? <small role="status">{message}</small> : null}</span>;
 }
 
 export function App() {
@@ -1837,6 +1887,7 @@ export function App() {
                   <button className="button secondary compact" type="button" onClick={(event) => openDetailDialog("history", selectedTask.task_id, event)}>
                     <History aria-hidden="true" /> File history
                   </button>
+                  <DetailedReportButton task={selectedTask} version={selectedVersion} />
                   {selectedAsset.download && <a className="button secondary" href={selectedAsset.download} target="_blank" rel="noreferrer"><Download aria-hidden="true" /> Download</a>}
                   {selectedAsset.open && <a className="icon-button subtle" href={selectedAsset.open} target="_blank" rel="noreferrer" aria-label="Open proof in a new tab"><ExternalLink aria-hidden="true" /></a>}
                 </div>

@@ -344,7 +344,12 @@ export type ProofAuditAction =
   | "proof.asset_scan_started"
   | "proof.asset_scan_completed"
   | "proof.asset_published"
-  | "proof.asset_delivery_verified";
+  | "proof.asset_delivery_verified"
+  | "proof.detailed_report_generation_started"
+  | "proof.detailed_report_status_observed"
+  | "proof.detailed_report_ready"
+  | "proof.detailed_report_timed_out"
+  | "proof.detailed_report_view_redirected";
 
 export type ProofAuditActorType = "operator" | "customer_session" | "system";
 export type ProofAuditOutcome = "succeeded" | "failed";
@@ -386,6 +391,13 @@ export interface ProofAuditMetadata {
     | "verifying"
     | "scan_pending"
     | "ready_for_lift";
+  detailed_report_state?:
+    | "unavailable"
+    | "ready"
+    | "generation_started"
+    | "running"
+    | "failed"
+    | "timed_out";
   failure_class?: string;
 }
 
@@ -428,6 +440,13 @@ export interface PublicProofTechnicalCheck {
   status: string | null;
 }
 
+/** Customer-safe report availability. Provider links and response bodies remain private. */
+export interface PublicProofDetailedReportDefinition {
+  definition_id: string;
+  label: string | null;
+  ready: boolean;
+}
+
 export interface PublicProofVersion {
   version_id: string;
   created_at: string | null;
@@ -440,6 +459,7 @@ export interface PublicProofVersion {
   approved_at: string | null;
   comments: PublicProofComment[];
   technical_checks: PublicProofTechnicalCheck[];
+  report_definitions?: PublicProofDetailedReportDefinition[];
   current: boolean;
 }
 
@@ -838,6 +858,25 @@ function comparableStoredTask(task: ProofTask) {
   };
 }
 
+const proofDecisionReconciliationWindowMs = 15 * 60 * 1000;
+
+function retainedDecisionContext(previous: ProofTask, incoming: ProofTask, syncedAt: string) {
+  const context = previous.decision_context ?? null;
+  if (
+    !context ||
+    incoming.state !== "pending" ||
+    previous.attachment_id !== incoming.attachment_id
+  ) {
+    return null;
+  }
+  const recordedAt = Date.parse(context.recorded_at);
+  const observedAt = Date.parse(syncedAt);
+  if (!Number.isFinite(recordedAt) || !Number.isFinite(observedAt) || observedAt < recordedAt) {
+    return context;
+  }
+  return observedAt - recordedAt < proofDecisionReconciliationWindowMs ? context : null;
+}
+
 function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedAt: string) {
   if (!previous) {
     return incoming;
@@ -859,10 +898,7 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
       : previous.versions;
     return {
       ...incoming,
-      decision_context:
-        incoming.state === "pending" && previous.attachment_id === incoming.attachment_id
-          ? previous.decision_context ?? null
-          : null,
+      decision_context: retainedDecisionContext(previous, incoming, syncedAt),
       task_id: previous.task_id,
       version: previous.version,
       current_version: refreshedCurrentVersion,
@@ -881,10 +917,7 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
     };
     return {
       ...incoming,
-      decision_context:
-        incoming.state === "pending" && previous.attachment_id === incoming.attachment_id
-          ? previous.decision_context ?? null
-          : null,
+      decision_context: retainedDecisionContext(previous, incoming, syncedAt),
       task_id: previous.task_id,
       version: previous.version + 1,
       current_version: refreshedCurrentVersion,
@@ -908,10 +941,7 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
     : priorVersions;
   return {
     ...incoming,
-    decision_context:
-      incoming.state === "pending" && previous.attachment_id === incoming.attachment_id
-        ? previous.decision_context ?? null
-        : null,
+    decision_context: retainedDecisionContext(previous, incoming, syncedAt),
     task_id: previous.task_id,
     version: previous.version + 1,
     versions,
@@ -1385,6 +1415,39 @@ function publicCommentAttachments(attachment: unknown): PublicProofCommentAttach
   ) === index).slice(0, 20);
 }
 
+function publicDetailedReportDefinitions(report: unknown): PublicProofDetailedReportDefinition[] {
+  let parsed = report;
+  if (typeof report === "string") {
+    try {
+      parsed = JSON.parse(report);
+    } catch {
+      return [];
+    }
+  }
+  const container = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as Record<string, unknown>
+    : null;
+  const rows = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(container?.DETAILED_REPORT)
+      ? container.DETAILED_REPORT
+      : Array.isArray(container?.detailed_report)
+        ? container.detailed_report
+        : [];
+  return rows.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return [];
+    const row = candidate as Record<string, unknown>;
+    const definitionId = publicProofDisplayText(row.DEFINITION_ID ?? row.definition_id, 120);
+    if (!definitionId || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(definitionId)) return [];
+    const label = publicProofDisplayText(row.DEFINITION_LABEL ?? row.definition_label, 160);
+    const reportId = publicProofDisplayText(row.REPORT_ID ?? row.report_id, 160);
+    const reportUrl = publicAttachmentUrl(row.REPORT_URL ?? row.report_url);
+    return [{ definition_id: definitionId, label, ready: Boolean(reportId && reportUrl) }];
+  }).filter((definition, index, all) =>
+    all.findIndex((candidate) => candidate.definition_id === definition.definition_id) === index
+  ).slice(0, 10);
+}
+
 export function toPublicProofVersion(
   version: ProofVersion,
   options: { include_asset_urls?: boolean } = {}
@@ -1417,6 +1480,9 @@ export function toPublicProofVersion(
     approved_at: publicProofTimestamp(version.approved_at),
     comments: publicProofComments(version.comments.slice(0, 100), includeAssetUrls),
     technical_checks: publicTechnicalChecks(version.detailed_report),
+    ...(publicDetailedReportDefinitions(version.detailed_report).length
+      ? { report_definitions: publicDetailedReportDefinitions(version.detailed_report) }
+      : {}),
     current: version.current
   };
 }

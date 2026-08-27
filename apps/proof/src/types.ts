@@ -17,7 +17,28 @@ export interface ProofVersion {
     attachments: { filename: string; url: string | null; content_type: string | null }[];
   }[];
   technical_checks: { name: string; status: string | null }[];
+  report_definitions?: Array<{
+    definition_id: string;
+    label: string | null;
+    ready: boolean;
+  }>;
   current: boolean;
+}
+
+export type ProofDetailedReportState =
+  | "unavailable"
+  | "ready"
+  | "generation_started"
+  | "running"
+  | "failed"
+  | "timed_out";
+
+export interface ProofDetailedReport {
+  record_id: string;
+  definition_id: string;
+  label: string | null;
+  state: ProofDetailedReportState;
+  view_url: string | null;
 }
 
 export interface ProofTask {

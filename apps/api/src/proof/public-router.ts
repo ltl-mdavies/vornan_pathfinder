@@ -31,6 +31,7 @@ import {
   type ProofAssetUploadStatusRequest
 } from "./asset-upload-service.js";
 import type { ProofCustomerCapabilityAuthorityReader } from "./customer-capability-authority.js";
+import { ProofDetailedReportError, proofDetailedReportService } from "./detailed-report-service.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
 export const PROOF_SESSION_COOKIE_PATH = "/api/public/proof";
@@ -122,6 +123,12 @@ function handlePublicError(error: unknown, res: Parameters<Parameters<Router["ge
     res.status(status).json({ error: error.message });
     return;
   }
+  if (error instanceof ProofDetailedReportError) {
+    const status = error.code === "not_allowed" ? 403 : error.code === "stale" ? 409 : error.code === "provider_failed" ? 502 : 400;
+    if (status === 403) res.locals[PROOF_EXPECTED_DENIAL_LOCAL] = true;
+    res.status(status).json({ error: error.message });
+    return;
+  }
   if (error instanceof ProofAccessFeatureDisabledError) {
     res.locals[PROOF_EXPECTED_DENIAL_LOCAL] = true;
     res.status(503).json({ error: "Proof access is not available." });
@@ -137,6 +144,9 @@ interface ProofPublicRouterDependencies {
   prepareRevisionAsset?: ReturnType<typeof createProofAssetUploadService>["prepare"];
   revisionAssetStatus?: ReturnType<typeof createProofAssetUploadService>["status"];
   finalizeRevisionAsset?: ReturnType<typeof createProofAssetUploadService>["finalize"];
+  detailedReportBegin?: typeof proofDetailedReportService.begin;
+  detailedReportCheck?: typeof proofDetailedReportService.check;
+  detailedReportView?: typeof proofDetailedReportService.viewByRecord;
   readCustomerCapabilityWorkspace?: ProofCustomerCapabilityAuthorityReader;
 }
 
@@ -149,6 +159,9 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   const prepareRevisionAsset = dependencies.prepareRevisionAsset ?? revisionAssets.prepare;
   const revisionAssetStatus = dependencies.revisionAssetStatus ?? revisionAssets.status;
   const finalizeRevisionAsset = dependencies.finalizeRevisionAsset ?? revisionAssets.finalize;
+  const detailedReportBegin = dependencies.detailedReportBegin ?? proofDetailedReportService.begin;
+  const detailedReportCheck = dependencies.detailedReportCheck ?? proofDetailedReportService.check;
+  const detailedReportView = dependencies.detailedReportView ?? proofDetailedReportService.viewByRecord;
   const readCustomerCapabilityWorkspace = dependencies.readCustomerCapabilityWorkspace;
 
   function revisionActor(session: Awaited<ReturnType<typeof validateProofSession>>["session"]) {
@@ -343,6 +356,49 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       });
     } catch (error) {
       handlePublicError(error, res, "Proof feedback could not be acknowledged.");
+    }
+  });
+
+  router.post("/tasks/:taskId/detailed-reports/:definitionId", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
+      requireCsrf(req, session);
+      const report = await detailedReportBegin({
+        session, task_id: req.params.taskId, definition_id: req.params.definitionId,
+        correlation_id: req.get("x-request-id") ?? `proof-detailed-report-${session.session_id}`
+      });
+      res.status(report.state === "generation_started" ? 201 : 200).json({ report });
+    } catch (error) {
+      handlePublicError(error, res, "Detailed report generation could not be started.");
+    }
+  });
+
+  router.get("/tasks/:taskId/detailed-reports/:definitionId", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
+      const report = await detailedReportCheck({
+        session, task_id: req.params.taskId, definition_id: req.params.definitionId,
+        correlation_id: req.get("x-request-id") ?? `proof-detailed-report-${session.session_id}`
+      });
+      res.json({ report });
+    } catch (error) {
+      handlePublicError(error, res, "Detailed report status could not be loaded.");
+    }
+  });
+
+  router.get("/detailed-reports/:recordId/view", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
+      const location = await detailedReportView({
+        session, record_id: req.params.recordId,
+        correlation_id: req.get("x-request-id") ?? `proof-detailed-report-${session.session_id}`
+      });
+      res.redirect(302, location);
+    } catch (error) {
+      handlePublicError(error, res, "Detailed report could not be opened.");
     }
   });
 
