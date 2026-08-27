@@ -18,6 +18,7 @@ export interface ProofLineQueueSummary {
   review_label: string;
   proof_count_label: string;
   tone: "open" | "approved" | "reference" | "waiting" | "updating" | "attention" | "mixed";
+  status_segments: { label: string; tone: Exclude<ProofLineQueueSummary["tone"], "mixed"> }[];
 }
 
 export function proofLineQueueSummary(group: ProofLineGroup): ProofLineQueueSummary {
@@ -36,18 +37,19 @@ export function proofLineQueueSummary(group: ProofLineGroup): ProofLineQueueSumm
   const proofCount = awaitingProof
     ? versionIds.size
     : group.tasks.filter((task) => Boolean(task.current_version)).length;
-  const statuses = [
-    awaitingReviewCount ? `${awaitingReviewCount} awaiting review` : null,
-    updatingCount ? `${updatingCount} awaiting updated proof` : null,
-    waitingCount ? `${waitingCount} ${proofCount > 0 ? "awaiting new proof" : "awaiting proof"}` : null,
-    approvedCount ? `${approvedCount} approved` : null,
-    referenceCount ? `${referenceCount} reference` : null,
-    attentionCount ? `${attentionCount} needs attention` : null
-  ].filter((label): label is string => Boolean(label));
-  const reviewLabel = statuses.length === 1
-    ? statuses[0]!.replace(/^1 /, "")
-    : statuses.join(" · ");
-  const tone = statuses.length > 1
+  const rawSegments = [
+    awaitingReviewCount ? { label: `${awaitingReviewCount} awaiting review`, tone: "open" as const } : null,
+    updatingCount ? { label: `${updatingCount} awaiting updated proof`, tone: "updating" as const } : null,
+    waitingCount ? { label: `${waitingCount} ${proofCount > 0 ? "awaiting new proof" : "awaiting proof"}`, tone: "waiting" as const } : null,
+    approvedCount ? { label: `${approvedCount} approved`, tone: "approved" as const } : null,
+    referenceCount ? { label: `${referenceCount} reference`, tone: "reference" as const } : null,
+    attentionCount ? { label: `${attentionCount} needs attention`, tone: "attention" as const } : null
+  ].filter((segment): segment is NonNullable<typeof segment> => Boolean(segment));
+  const statusSegments = rawSegments.length === 1
+    ? [{ ...rawSegments[0]!, label: rawSegments[0]!.label.replace(/^1 /, "") }]
+    : rawSegments;
+  const reviewLabel = statusSegments.map((segment) => segment.label).join(" · ");
+  const tone = statusSegments.length > 1
     ? "mixed"
     : approvedCount
       ? "approved"
@@ -63,7 +65,7 @@ export function proofLineQueueSummary(group: ProofLineGroup): ProofLineQueueSumm
   const proofCountLabel = awaitingProof
     ? proofCount > 0 ? `${proofCount} prior ${proofCount === 1 ? "proof" : "proofs"}` : "Proof pending"
     : `${proofCount} ${proofCount === 1 ? "proof" : "proofs"}`;
-  return { review_label: reviewLabel, proof_count_label: proofCountLabel, tone };
+  return { review_label: reviewLabel, proof_count_label: proofCountLabel, tone, status_segments: statusSegments };
 }
 
 export function groupProofTasksByLine(tasks: ProofTask[]): ProofLineGroup[] {

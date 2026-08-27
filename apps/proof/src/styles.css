@@ -104,15 +104,9 @@ h1, h2, h3, p { margin-top: 0; }
 .queue-search button:hover { background: var(--soft); }
 .queue-search button svg { width: 14px; }
 .task-list { min-height: 0; padding: 0 10px 14px; flex: 1 1 auto; display: grid; grid-auto-rows: max-content; align-content: start; gap: 8px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.line-group-card { --line-status-accent: #c4912f; min-height: 82px; overflow: hidden; border: 1px solid transparent; border-radius: 13px; background: transparent; box-shadow: inset 3px 0 var(--line-status-accent); transition: background .18s ease, border-color .18s ease, box-shadow .18s ease; }
-.line-group-card.status-approved { --line-status-accent: #49864e; }
-.line-group-card.status-reference { --line-status-accent: #6b7e89; }
-.line-group-card.status-waiting { --line-status-accent: #c4912f; }
-.line-group-card.status-updating { --line-status-accent: #6f5d98; }
-.line-group-card.status-attention { --line-status-accent: #b34d45; }
-.line-group-card.status-mixed { --line-status-accent: #87925f; }
+.line-group-card { min-height: 82px; overflow: hidden; border: 1px solid transparent; border-radius: 13px; background: transparent; transition: background .18s ease, border-color .18s ease, box-shadow .18s ease; }
 .line-group-card:hover { background: #f0f3e9; }
-.line-group-card.selected { border-color: #b9ca9f; background: var(--paper); box-shadow: inset 3px 0 var(--line-status-accent), 0 7px 22px rgba(38,62,42,.09); }
+.line-group-card.selected { border-color: #b9ca9f; background: var(--paper); box-shadow: 0 7px 22px rgba(38,62,42,.09); }
 .line-group-summary { width: 100%; min-height: 82px; padding: 11px 12px; border: 0; background: transparent; display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; align-items: center; gap: 11px; text-align: left; cursor: pointer; }
 .line-group-thumbnail { position: relative; width: 54px; height: 54px; }
 .line-group-thumbnail .task-thumbnail { width: 54px; height: 54px; border-radius: 8px; }
@@ -120,6 +114,11 @@ h1, h2, h3, p { margin-top: 0; }
 .line-group-copy { min-width: 0; display: grid; gap: 4px; }
 .line-group-summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
 .line-group-summary small { overflow: hidden; color: var(--muted); font-size: 9px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.line-group-status { color: #9a6d18; font-weight: 850; }
+.line-group-status + .line-group-status::before { content: " · "; color: var(--muted); font-weight: 500; }
+.line-group-status.approved, .line-group-status.reference { color: #39723f; }
+.line-group-status.updating { color: #5d4c83; }
+.line-group-status.attention { color: #8a3d36; }
 .shared-proof-queue { display: inline-flex; align-items: center; gap: 4px; color: var(--forest); font-size: 8px; font-weight: 800; }
 .shared-proof-queue svg { width: 11px; height: 11px; }
 .line-group-count { flex: none; display: inline-flex; align-items: center; gap: 5px; color: var(--forest); font-size: 9px; font-weight: 800; white-space: nowrap; }

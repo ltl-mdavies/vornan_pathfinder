@@ -144,17 +144,20 @@ test("distinguishes lines awaiting a new proof from proofs awaiting review", () 
   assert.deepEqual(proofLineQueueSummary(waitingWithHistory), {
     review_label: "awaiting new proof",
     proof_count_label: "1 prior proof",
-    tone: "waiting"
+    tone: "waiting",
+    status_segments: [{ label: "awaiting new proof", tone: "waiting" }]
   });
   assert.deepEqual(proofLineQueueSummary(waitingWithoutHistory), {
     review_label: "awaiting proof",
     proof_count_label: "Proof pending",
-    tone: "waiting"
+    tone: "waiting",
+    status_segments: [{ label: "awaiting proof", tone: "waiting" }]
   });
   assert.deepEqual(proofLineQueueSummary(reviewable), {
     review_label: "awaiting review",
     proof_count_label: "1 proof",
-    tone: "open"
+    tone: "open",
+    status_segments: [{ label: "awaiting review", tone: "open" }]
   });
 });
 
@@ -182,7 +185,8 @@ test("counts current proofs on reviewable cards rather than comment-only history
   assert.deepEqual(proofLineQueueSummary(group), {
     review_label: "awaiting review",
     proof_count_label: "1 proof",
-    tone: "open"
+    tone: "open",
+    status_segments: [{ label: "awaiting review", tone: "open" }]
   });
 });
 
@@ -195,7 +199,11 @@ test("summarizes mixed proof states without relying on a card full of status chi
   assert.deepEqual(proofLineQueueSummary(group), {
     review_label: "1 awaiting review · 1 approved",
     proof_count_label: "0 proofs",
-    tone: "mixed"
+    tone: "mixed",
+    status_segments: [
+      { label: "1 awaiting review", tone: "open" },
+      { label: "1 approved", tone: "approved" }
+    ]
   });
   assert.equal(queueFilterLabel("open"), "Open");
   assert.equal(queueFilterLabel("approved"), "Approved");
