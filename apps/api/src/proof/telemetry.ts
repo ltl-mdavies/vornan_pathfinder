@@ -21,12 +21,7 @@ const SAFE_OPERATIONS = new Map([
   ["POST /api/public/proof/participants", "participant_identity"],
   ["GET /api/public/proof/health", "health_read"]
 ]);
-const SAFE_TASK_OPERATIONS = [
-  { method: "GET", suffix: "/history", operation: "task_history" },
-  { method: "POST", suffix: "/feedback-acknowledgements", operation: "feedback_acknowledgement" },
-  { method: "POST", suffix: "/detailed-reports", operation: "detailed_report_start" },
-  { method: "GET", suffix: "/detailed-reports", operation: "detailed_report_status" }
-] as const;
+const PUBLIC_PROOF_TASK_PREFIX = "/api/public/proof/tasks/";
 
 interface MetricEnvelopeInput {
   service: "public-api" | "sync-worker" | "operator-admin" | "asset-worker";
@@ -87,14 +82,19 @@ export function proofPublicOperation(method: string, path: string) {
   const normalizedMethod = method.toUpperCase();
   const exact = SAFE_OPERATIONS.get(`${normalizedMethod} ${path}`);
   if (exact) return exact;
-  for (const route of SAFE_TASK_OPERATIONS) {
-    if (
-      normalizedMethod === route.method
-      && path.startsWith("/api/public/proof/tasks/")
-      && (path.endsWith(route.suffix) || path.includes(`${route.suffix}/`))
-    ) {
-      return route.operation;
-    }
+  if (!path.startsWith(PUBLIC_PROOF_TASK_PREFIX)) return "unknown_public_route";
+
+  const segments = path.slice(PUBLIC_PROOF_TASK_PREFIX.length).split("/");
+  if (!segments[0] || segments.some((segment) => !segment)) return "unknown_public_route";
+  if (normalizedMethod === "GET" && segments.length === 2 && segments[1] === "history") {
+    return "task_history";
+  }
+  if (normalizedMethod === "POST" && segments.length === 2 && segments[1] === "feedback-acknowledgements") {
+    return "feedback_acknowledgement";
+  }
+  if (segments.length === 3 && segments[1] === "detailed-reports") {
+    if (normalizedMethod === "POST") return "detailed_report_start";
+    if (normalizedMethod === "GET") return "detailed_report_status";
   }
   return "unknown_public_route";
 }

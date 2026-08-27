@@ -993,10 +993,12 @@ function FeedbackButton({ task, onClick, compact = false }: { task: ProofTask; o
 }
 
 function DetailedReportButton({ task, version }: { task: ProofTask; version: ProofVersion | null }) {
-  const definition = version?.current ? (version.report_definitions ?? [])[0] ?? null : null;
+  const definitions = version?.current ? version.report_definitions ?? [] : [];
+  const [selectedDefinitionId, setSelectedDefinitionId] = useState<string | null>(null);
+  const definition = definitions.find((candidate) => candidate.definition_id === selectedDefinitionId) ?? definitions[0] ?? null;
   const [report, setReport] = useState<ProofDetailedReport | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  useEffect(() => { setReport(null); setMessage(null); }, [task.task_id, version?.version_id]);
+  useEffect(() => { setReport(null); setMessage(null); }, [task.task_id, version?.version_id, definition?.definition_id]);
   useEffect(() => {
     if (!definition || !report || !["generation_started", "running"].includes(report.state)) return;
     const timer = window.setInterval(() => {
@@ -1011,11 +1013,20 @@ function DetailedReportButton({ task, version }: { task: ProofTask; version: Pro
   }, [definition?.definition_id, report?.state, task.task_id]);
   if (!definition) return null;
   const state = report?.state ?? (definition.ready ? "ready" : "unavailable");
+  const choice = definitions.length > 1 ? (
+    <label className="detailed-report-choice">Report type<select value={definition.definition_id} onChange={(event) => {
+      setSelectedDefinitionId(event.target.value);
+      setReport(null);
+      setMessage(null);
+    }}>
+      {definitions.map((candidate) => <option key={candidate.definition_id} value={candidate.definition_id}>{candidate.label ?? "Detailed report"}</option>)}
+    </select></label>
+  ) : null;
   if (state === "ready" && report?.view_url) {
-    return <a className="button secondary compact" href={report.view_url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" /> View detailed report</a>;
+    return <span className="detailed-report-control">{choice}<a className="button secondary compact" href={report.view_url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" /> View detailed report</a></span>;
   }
   if (["generation_started", "running"].includes(state)) return <span className="detailed-report-progress" role="status">Generating detailed report…</span>;
-  return <span className="detailed-report-control"><button className="button secondary compact" type="button" onClick={() => {
+  return <span className="detailed-report-control">{choice}<button className="button secondary compact" type="button" onClick={() => {
     setMessage(null);
     void startDetailedReport(task.task_id, definition.definition_id)
       .then(({ report: next }) => {
