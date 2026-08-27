@@ -1628,10 +1628,13 @@ test("discovers standard Placard Order tasks with exact two-digit follow-on titl
     "Placard Order 03",
     "Placard Order #02",
     "Placard Order #03",
+    "Placard Order #2",
+    "Placard Order #9",
     "Placard Order 01",
     "Placard Order #01",
     "Placard Order 2",
-    "Placard Order #2",
+    "Placard Order #1",
+    "Placard Order #0",
     "Placard Order # 02",
     "Placard Order 100"
   ];
@@ -1687,9 +1690,9 @@ test("discovers standard Placard Order tasks with exact two-digit follow-on titl
     }
   );
 
-  assert.equal(result.summary.task_count, 11);
-  assert.equal(result.summary.order_identity_match_count, 5);
-  assert.equal(result.summary.eligible_order_count, 5);
+  assert.equal(result.summary.task_count, 14);
+  assert.equal(result.summary.order_identity_match_count, 7);
+  assert.equal(result.summary.eligible_order_count, 7);
   assert.deepEqual(
     result.order_candidates.map((candidate) => candidate.task_title),
     [
@@ -1697,7 +1700,9 @@ test("discovers standard Placard Order tasks with exact two-digit follow-on titl
       "Placard Order 02",
       "Placard Order 03",
       "Placard Order #02",
-      "Placard Order #03"
+      "Placard Order #03",
+      "Placard Order #2",
+      "Placard Order #9"
     ]
   );
 });

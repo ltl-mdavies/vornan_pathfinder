@@ -703,8 +703,11 @@ function taskIdentityMatches(
   const numberedPrefix = `${configuredTitle} `;
   if (!candidateTitle.startsWith(numberedPrefix)) return false;
   const suffix = candidateTitle.slice(numberedPrefix.length);
-  const sequence = suffix.startsWith("#") ? suffix.slice(1) : suffix;
-  return /^\d{2}$/.test(sequence) && Number(sequence) >= 2;
+  const hashPrefixed = suffix.startsWith("#");
+  const sequence = hashPrefixed ? suffix.slice(1) : suffix;
+  const hasSupportedFormat = hashPrefixed ? /^\d{1,2}$/.test(sequence) : /^\d{2}$/.test(sequence);
+  const sequenceNumber = Number(sequence);
+  return hasSupportedFormat && sequenceNumber >= 2 && sequenceNumber <= 99;
 }
 
 export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {
