@@ -9408,7 +9408,7 @@ async function scheduledUncertainAssociationVerification(args: {
 }
 
 function uncertainReconciliationConfirmation(attemptId: string, orderNumber: string) {
-  return `RECONCILE ${attemptId} TO ${orderNumber}`;
+  return `RECONCILE ${attemptId} TO ${orderNumber}`.toUpperCase();
 }
 
 app.post("/api/customers/:liftCustomerId/jobs/:jobId/lift-order-association/verify", async (req, res) => {
