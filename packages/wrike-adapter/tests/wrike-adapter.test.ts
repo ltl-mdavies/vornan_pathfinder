@@ -819,7 +819,7 @@ test("keeps rotated OAuth credentials non-enumerable on provider errors", () => 
   assert.equal(serialized.includes("must-not-serialize"), false);
 });
 
-test("previews one qualified task and counts every matching workbook without returning provider content", async () => {
+test("reconciles equivalent task and workbook sequence formats without returning provider content", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const config = normalizeWrikeSourceConfig({
     folder_id: "IEAPPROVEDFOLDER",
@@ -827,6 +827,7 @@ test("previews one qualified task and counts every matching workbook without ret
     trigger_status_id: "IEORDEREDSTATUS",
     contract_number_custom_field_id: "IECONTRACT",
     artwork_folder_custom_field_id: "IEARTWORKFOLDER",
+    order_task_identity_mode: "exact_title_with_numbered_follow_ons",
     attachment_extensions: ["xlsx"]
   });
   const result = await discoverApprovedWrikeTask(
@@ -868,7 +869,7 @@ test("previews one qualified task and counts every matching workbook without ret
                 {
                   id: "IEATTACHMENT0002",
                   version: 1,
-                  name: "C123456 - Private Airport Placards - OOH Order.xlsx"
+                  name: "C123456 - Private Airport Placards - OOH Order 02.xlsx"
                 },
                 {
                   id: "IEATTACHMENT0003",
@@ -916,7 +917,7 @@ test("previews one qualified task and counts every matching workbook without ret
                 superParentIds: ["IEAPPROVEDFOLDER"],
                 customStatusId: "IEORDEREDSTATUS",
                 attachmentCount: 4,
-                title: "Placard Order",
+                title: "Placard Order #2",
                 customFields: [
                   {
                     id: "IECONTRACT",
@@ -1621,7 +1622,7 @@ test("discovers eligible Placard Orders across configured campaign descendants a
   assert.equal(folderUrl.searchParams.has("customStatuses"), false);
 });
 
-test("discovers standard Placard Order tasks with exact two-digit follow-on titles", async () => {
+test("discovers bounded numbered Placard Order title variants", async () => {
   const titles = [
     "Placard Order",
     "Placard Order 02",
@@ -1630,9 +1631,10 @@ test("discovers standard Placard Order tasks with exact two-digit follow-on titl
     "Placard Order #03",
     "Placard Order #2",
     "Placard Order #9",
+    "Placard Order 2",
+    "Placard Order 9",
     "Placard Order 01",
     "Placard Order #01",
-    "Placard Order 2",
     "Placard Order #1",
     "Placard Order #0",
     "Placard Order # 02",
@@ -1690,9 +1692,9 @@ test("discovers standard Placard Order tasks with exact two-digit follow-on titl
     }
   );
 
-  assert.equal(result.summary.task_count, 14);
-  assert.equal(result.summary.order_identity_match_count, 7);
-  assert.equal(result.summary.eligible_order_count, 7);
+  assert.equal(result.summary.task_count, 15);
+  assert.equal(result.summary.order_identity_match_count, 9);
+  assert.equal(result.summary.eligible_order_count, 9);
   assert.deepEqual(
     result.order_candidates.map((candidate) => candidate.task_title),
     [
@@ -1702,7 +1704,9 @@ test("discovers standard Placard Order tasks with exact two-digit follow-on titl
       "Placard Order #02",
       "Placard Order #03",
       "Placard Order #2",
-      "Placard Order #9"
+      "Placard Order #9",
+      "Placard Order 2",
+      "Placard Order 9"
     ]
   );
 });

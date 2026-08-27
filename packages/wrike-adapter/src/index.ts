@@ -705,7 +705,7 @@ function taskIdentityMatches(
   const suffix = candidateTitle.slice(numberedPrefix.length);
   const hashPrefixed = suffix.startsWith("#");
   const sequence = hashPrefixed ? suffix.slice(1) : suffix;
-  const hasSupportedFormat = hashPrefixed ? /^\d{1,2}$/.test(sequence) : /^\d{2}$/.test(sequence);
+  const hasSupportedFormat = /^\d{1,2}$/.test(sequence);
   const sequenceNumber = Number(sequence);
   return hasSupportedFormat && sequenceNumber >= 2 && sequenceNumber <= 99;
 }
