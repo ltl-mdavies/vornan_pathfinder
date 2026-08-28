@@ -70,6 +70,35 @@ test("uses the exact Lift Detailed Report API base URL and target Basic credenti
   assert.equal(result.state, "running");
 });
 
+test("retries a failed report only after the customer explicitly starts it again", async () => {
+  const records = new Map<string, any>();
+  const recordId = proofDetailedReportRecordId({ customer_id: "1249", order_number: order.order_number, order_line_id: "line_2", attachment_id: "attachment_2", definition_id: "4441" });
+  records.set(recordId, {
+    record_id: recordId, customer_id: "1249", order_number: order.order_number, task_id: "ptask_1", order_line_id: "line_2", attachment_id: "attachment_2",
+    version_id: "pversion_1", definition_id: "4441", definition_label: "Detailed Report", report_id: null, state: "failed",
+    created_at: "2026-08-28T00:00:00.000Z", updated_at: "2026-08-28T00:00:00.000Z", generation_deadline_at: null
+  });
+  let started = 0;
+  let created = 0;
+  const service = createProofDetailedReportService({
+    getOrder: async () => order,
+    focusedRead: async () => ({ order_line_id: "line_2", payload: { rowset: [{ ORDER_LINE_ID: "line_2", ATTACHMENT_ID: "attachment_2", DETAILED_REPORT: [{ DEFINITION_ID: 4441, DEFINITION_LABEL: "Detailed Report" }] }] } }),
+    readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://lift.example/order-import" }] }),
+    readCredentials: async () => ({ username: "PATHFINDER", password: "secret" }),
+    getRecord: async (_order, id) => records.get(id) ?? null,
+    saveRecord: async (record) => { records.set(record.record_id, record); return record; },
+    createRecord: async () => { created += 1; throw new Error("a retry must reuse the existing record"); },
+    start: async () => { started += 1; return { report_id: "report_retry", status: "RUNNING", report_url: null }; },
+    audit: async () => undefined
+  });
+
+  const result = await service.begin({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
+  assert.equal(started, 1);
+  assert.equal(created, 0);
+  assert.equal(result.state, "running");
+  assert.equal(records.get(recordId)?.report_id, "report_retry");
+});
+
 test("uses the exact Lift Detailed Report API base URL when polling a generated report", async () => {
   const records = new Map<string, any>();
   let statusBaseUrl = "";

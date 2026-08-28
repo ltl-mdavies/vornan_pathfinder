@@ -217,12 +217,19 @@ export function createProofDetailedReportService(dependencies: ProofDetailedRepo
     const reserved: ProofDetailedReportRecord = {
       record_id: proofDetailedReportRecordId({ customer_id: CUSTOMER_ID, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, definition_id: current.definition.definition_id }),
       customer_id: CUSTOMER_ID, order_number: current.order.order_number, task_id: current.task.task_id, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, version_id: current.task.current_version!.version_id,
-      definition_id: current.definition.definition_id, definition_label: current.definition.label, report_id: null, state: "generation_started", created_at: timestamp.toISOString(), updated_at: timestamp.toISOString(), generation_deadline_at: new Date(timestamp.getTime() + POLL_WINDOW_MS).toISOString()
+      definition_id: current.definition.definition_id, definition_label: current.definition.label, report_id: null, state: "generation_started", created_at: existingOrReady?.created_at ?? timestamp.toISOString(), updated_at: timestamp.toISOString(), generation_deadline_at: new Date(timestamp.getTime() + POLL_WINDOW_MS).toISOString()
     };
-    try { await createRecord(reserved); } catch (error) {
-      const replay = await getRecord(current.order.order_number, reserved.record_id);
-      if (replay) return publicRecord(replay);
-      throw error;
+    if (existingOrReady) {
+      // A customer explicitly chose to try again after Lift did not start a
+      // report. Reuse the stable record instead of treating that retry as a
+      // duplicate action.
+      await saveRecord(reserved);
+    } else {
+      try { await createRecord(reserved); } catch (error) {
+        const replay = await getRecord(current.order.order_number, reserved.record_id);
+        if (replay) return publicRecord(replay);
+        throw error;
+      }
     }
     await audit({ action: "proof.detailed_report_generation_started", order_number: current.order.order_number, task_id: current.task.task_id, order_line_id: current.task.order_line_id, attachment_id: current.task.attachment_id, grant_id: input.session.grant_id, participant_id: input.session.participant_id, metadata: { detailed_report_state: "generation_started" }, context: auditContext(input.session, input.correlation_id) });
     try {

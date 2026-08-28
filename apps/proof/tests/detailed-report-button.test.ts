@@ -58,4 +58,8 @@ test("shows an immediate busy state for the selected report type", () => {
     description: "Ready to view",
     action: "View"
   });
+  assert.deepEqual(detailedReportOptionStatus(false, false, true), {
+    description: "Couldn’t generate report",
+    action: "Try again"
+  });
 });
