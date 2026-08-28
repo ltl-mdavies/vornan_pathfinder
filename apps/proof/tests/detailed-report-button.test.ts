@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DetailedReportButton } from "../src/detailed-report-button.tsx";
+import { DetailedReportButton, detailedReportOptionStatus } from "../src/detailed-report-button.tsx";
 import type { ProofTask, ProofVersion } from "../src/types.ts";
 
 const version: ProofVersion = {
@@ -47,4 +47,15 @@ test("moves detailed report selection into a modal without changing the toolbar 
   assert.match(markup, /New Report TEST/);
   assert.doesNotMatch(markup, /<select/);
   assert.doesNotMatch(markup, /We’re still preparing your report/);
+});
+
+test("shows an immediate busy state for the selected report type", () => {
+  assert.deepEqual(detailedReportOptionStatus(false, true), {
+    description: "Generating report…",
+    action: "Generating…"
+  });
+  assert.deepEqual(detailedReportOptionStatus(true, false), {
+    description: "Ready to view",
+    action: "View"
+  });
 });
