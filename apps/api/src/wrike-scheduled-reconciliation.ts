@@ -5,6 +5,13 @@ const safeText = (value: unknown) =>
 
 const normalizedText = (value: unknown) => safeText(value).replace(/\s+/g, " ").toUpperCase();
 
+// AS360Orders renders a product's dimensions as a trailing name suffix even
+// though the create-order payload and reconciliation contract carry width and
+// height as separate fields. Compare the stable product name here and continue
+// to compare both dimensions independently below.
+const normalizedProductName = (value: unknown) =>
+  normalizedText(value).replace(/-\s*\d+(?:\.\d+)?\s*[X×]\s*\d+(?:\.\d+)?$/, "").trim();
+
 const normalizedNumber = (value: unknown) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? String(Number(parsed.toFixed(6))) : "";
@@ -147,7 +154,7 @@ function expectedLineIdentity(job: ScheduledUncertainReconciliationJob) {
     .map((line) => ({
       line_number: normalizedNumber(line.line_number),
       quantity: normalizedNumber(line.quantity),
-      product_name: normalizedText(line.product_name),
+      product_name: normalizedProductName(line.product_name),
       final_height: normalizedNumber(line.dimensions.final_height),
       final_width: normalizedNumber(line.dimensions.final_width)
     }));
@@ -161,7 +168,7 @@ function providerLineIdentity(header: Record<string, unknown>) {
     return [{
       line_number: normalizedNumber(firstValue(line, ["LINE_NUMBER"]) ?? index + 1),
       quantity: normalizedNumber(firstValue(line, ["QUANTITY", "QTY"])),
-      product_name: normalizedText(firstValue(line, ["PRODUCT_NAME", "PRODUCT"])),
+      product_name: normalizedProductName(firstValue(line, ["PRODUCT_NAME", "PRODUCT"])),
       final_height: normalizedNumber(firstValue(line, ["PRINT_H_IN", "FINAL_HEIGHT", "HEIGHT"])),
       final_width: normalizedNumber(firstValue(line, ["PRINT_W_IN", "FINAL_WIDTH", "WIDTH"]))
     }];
