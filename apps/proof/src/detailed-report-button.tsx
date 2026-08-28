@@ -3,12 +3,20 @@ import { FileText, X } from "lucide-react";
 import { loadDetailedReport, startDetailedReport } from "./api";
 import type { ProofDetailedReport, ProofTask, ProofVersion } from "./types";
 
+export function detailedReportOptionStatus(ready: boolean, generating: boolean) {
+  if (generating) return { description: "Generating report…", action: "Generating…" };
+  return ready
+    ? { description: "Ready to view", action: "View" }
+    : { description: "Generate report", action: "Generate" };
+}
+
 export function DetailedReportButton({ task, version }: { task: ProofTask; version: ProofVersion | null }) {
   const definitions = version?.current ? version.report_definitions ?? [] : [];
   const [selectedDefinitionId, setSelectedDefinitionId] = useState<string | null>(null);
   const definition = definitions.find((candidate) => candidate.definition_id === selectedDefinitionId) ?? definitions[0] ?? null;
   const [report, setReport] = useState<ProofDetailedReport | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [startingDefinitionId, setStartingDefinitionId] = useState<string | null>(null);
   const [selectionOpen, setSelectionOpen] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const selectionDialog = useRef<HTMLDialogElement | null>(null);
@@ -17,6 +25,7 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
   useEffect(() => {
     setReport(null);
     setMessage(null);
+    setStartingDefinitionId(null);
     setSelectedDefinitionId(null);
     setSelectionOpen(false);
     setViewerOpen(false);
@@ -54,7 +63,10 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
   if (!definition) return null;
 
   const state = report?.state ?? (definition.ready ? "ready" : "unavailable");
-  const generating = ["generation_started", "running"].includes(state);
+  const generatingDefinitionId = startingDefinitionId ?? (
+    ["generation_started", "running"].includes(state) ? report?.definition_id ?? null : null
+  );
+  const generating = Boolean(generatingDefinitionId);
   const label = generating ? "Generating detailed report…" : state === "ready" ? "View detailed report" : "Generate detailed report";
 
   function openReport(next: ProofDetailedReport) {
@@ -66,11 +78,14 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
   }
 
   function chooseDefinition(candidate: NonNullable<typeof definition>) {
+    if (startingDefinitionId) return;
     setSelectedDefinitionId(candidate.definition_id);
     setMessage(null);
+    setStartingDefinitionId(candidate.definition_id);
     void startDetailedReport(task.task_id, candidate.definition_id)
       .then(({ report: next }) => openReport(next))
-      .catch(() => setMessage("We’re still preparing your report. Try again shortly."));
+      .catch(() => setMessage("We couldn’t start this report. Please try again shortly."))
+      .finally(() => setStartingDefinitionId(null));
   }
 
   return (
@@ -96,14 +111,17 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
           </div>
           <button className="icon-button subtle" type="button" aria-label="Close detailed report selection" onClick={() => setSelectionOpen(false)}><X aria-hidden="true" /></button>
         </div>
-        <div className="detailed-report-options">
-          {definitions.map((candidate) => (
-            <button key={candidate.definition_id} className="detailed-report-option" type="button" onClick={() => chooseDefinition(candidate)}>
-              <FileText aria-hidden="true" />
-              <span><strong>{candidate.label ?? "Detailed report"}</strong><small>{candidate.ready ? "Ready to view" : "Generate report"}</small></span>
-              <span className="detailed-report-option-action">{candidate.ready ? "View" : "Generate"}</span>
-            </button>
-          ))}
+        <div className="detailed-report-options" aria-busy={generating}>
+          {definitions.map((candidate) => {
+            const optionStatus = detailedReportOptionStatus(candidate.ready, generatingDefinitionId === candidate.definition_id);
+            return (
+              <button key={candidate.definition_id} className="detailed-report-option" type="button" disabled={generating} onClick={() => chooseDefinition(candidate)}>
+                <FileText aria-hidden="true" />
+                <span><strong>{candidate.label ?? "Detailed report"}</strong><small>{optionStatus.description}</small></span>
+                <span className="detailed-report-option-action">{optionStatus.action}</span>
+              </button>
+            );
+          })}
           {message ? <p className="detailed-report-message" role="status">{message}</p> : null}
         </div>
       </dialog>
