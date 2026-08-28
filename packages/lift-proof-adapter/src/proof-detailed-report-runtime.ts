@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { isIP } from "node:net";
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
@@ -16,11 +15,20 @@ function requiredIdentifier(value: string, label: string) {
   return normalized;
 }
 
+function detailedReportOrderId(orderNumber: string) {
+  const normalized = requiredIdentifier(orderNumber, "Lift order number");
+  const match = /^A(\d{7,8})$/i.exec(normalized);
+  if (!match) {
+    throw new LiftProofDetailedReportRuntimeError("Lift detailed-report order number must be an A-number.");
+  }
+  return match[1]!;
+}
+
 function reportPath(input: { order_number: string; order_line_id: string; attachment_id: string; report_id?: string }) {
-  const orderNumber = requiredIdentifier(input.order_number, "Lift order number");
+  const orderId = detailedReportOrderId(input.order_number);
   const orderLineId = requiredIdentifier(input.order_line_id, "Lift order line ID");
   const attachmentId = requiredIdentifier(input.attachment_id, "Lift proof attachment ID");
-  const root = `/orders/${encodeURIComponent(orderNumber)}/lines/${encodeURIComponent(orderLineId)}/proofs/${encodeURIComponent(attachmentId)}/reports`;
+  const root = `/orders/${encodeURIComponent(orderId)}/lines/${encodeURIComponent(orderLineId)}/proofs/${encodeURIComponent(attachmentId)}/reports`;
   return input.report_id ? `${root}/${encodeURIComponent(requiredIdentifier(input.report_id, "Lift report ID"))}` : root;
 }
 
@@ -35,34 +43,17 @@ function requestUrl(baseUrl: string, path: string) {
   return url.toString();
 }
 
-export function buildLiftProofingBearerHeaders(input: {
-  client_id: string;
-  client_secret: string;
-  issued_at_epoch: number;
-  expires_at_epoch: number;
+export function buildLiftDetailedReportBasicHeaders(input: {
+  username: string;
+  password: string;
 }) {
-  const clientId = requiredIdentifier(input.client_id, "Lift Proofing API client ID");
-  if (typeof input.client_secret !== "string" || input.client_secret.length < 32 || input.client_secret.length > 4_096) {
-    throw new LiftProofDetailedReportRuntimeError("Lift Proofing API signing secret is invalid.");
+  const username = requiredIdentifier(input.username, "Lift detailed-report user");
+  if (typeof input.password !== "string" || !input.password || input.password.length > 4_096 || /[\u0000-\u001f\u007f]/.test(input.password)) {
+    throw new LiftProofDetailedReportRuntimeError("Lift detailed-report password is invalid.");
   }
-  if (!Number.isSafeInteger(input.issued_at_epoch) || !Number.isSafeInteger(input.expires_at_epoch) || input.expires_at_epoch <= input.issued_at_epoch) {
-    throw new LiftProofDetailedReportRuntimeError("Lift Proofing JWT timestamps are invalid.");
-  }
-  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
-  const claims = Buffer.from(JSON.stringify({
-    iss: clientId,
-    aud: "https://www.lifterp.com",
-    iat: input.issued_at_epoch,
-    exp: input.expires_at_epoch
-  })).toString("base64url");
-  const signingInput = `${header}.${claims}`;
-  const key = Buffer.from(input.client_secret, "utf8");
-  let signature: string;
-  try { signature = createHmac("sha256", key).update(signingInput).digest("base64url"); } finally { key.fill(0); }
   return {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${signingInput}.${signature}`,
-    "Lift-ERP-Client-Id": clientId
+    Authorization: `Basic ${Buffer.from(`${username}:${input.password}`).toString("base64")}`
   } as const;
 }
 
@@ -105,7 +96,7 @@ async function call(input: {
   base_url: string;
   method: "POST" | "GET";
   path: string;
-  headers: ReturnType<typeof buildLiftProofingBearerHeaders>;
+  headers: ReturnType<typeof buildLiftDetailedReportBasicHeaders>;
   body?: string;
   timeout_ms: number;
   fetcher?: typeof fetch;
@@ -124,22 +115,15 @@ async function call(input: {
 
 export async function startLiftProofDetailedReport(input: {
   base_url: string;
-  credentials: { client_id: string; client_secret: string };
+  credentials: { username: string; password: string };
   order_number: string;
   order_line_id: string;
   attachment_id: string;
   definition_id: string;
   timeout_ms: number;
-  now?: Date;
   fetcher?: typeof fetch;
 }) {
-  const now = input.now ?? new Date();
-  const headers = buildLiftProofingBearerHeaders({
-    client_id: input.credentials.client_id,
-    client_secret: input.credentials.client_secret,
-    issued_at_epoch: Math.floor(now.getTime() / 1_000),
-    expires_at_epoch: Math.floor(now.getTime() / 1_000) + 60
-  });
+  const headers = buildLiftDetailedReportBasicHeaders(input.credentials);
   const definitionId = requiredIdentifier(input.definition_id, "Lift report definition ID");
   return call({
     base_url: input.base_url,
@@ -154,22 +138,15 @@ export async function startLiftProofDetailedReport(input: {
 
 export async function readLiftProofDetailedReportStatus(input: {
   base_url: string;
-  credentials: { client_id: string; client_secret: string };
+  credentials: { username: string; password: string };
   order_number: string;
   order_line_id: string;
   attachment_id: string;
   report_id: string;
   timeout_ms: number;
-  now?: Date;
   fetcher?: typeof fetch;
 }) {
-  const now = input.now ?? new Date();
-  const headers = buildLiftProofingBearerHeaders({
-    client_id: input.credentials.client_id,
-    client_secret: input.credentials.client_secret,
-    issued_at_epoch: Math.floor(now.getTime() / 1_000),
-    expires_at_epoch: Math.floor(now.getTime() / 1_000) + 60
-  });
+  const headers = buildLiftDetailedReportBasicHeaders(input.credentials);
   return call({
     base_url: input.base_url,
     method: "GET",
