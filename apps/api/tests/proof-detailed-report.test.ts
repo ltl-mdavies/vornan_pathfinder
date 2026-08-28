@@ -48,33 +48,35 @@ test("reuses an authoritative ready report without a generation POST or provider
   assert.match(result.view_url ?? "", /^\/api\/public\/proof\/detailed-reports\//);
 });
 
-test("uses the bounded Proofing API base URL instead of the generic order endpoint", async () => {
+test("uses the exact Lift Detailed Report API base URL and target Basic credentials", async () => {
   const records = new Map<string, any>();
   let calledBaseUrl = "";
+  let calledCredentials: unknown = null;
   const service = createProofDetailedReportService({
     getOrder: async () => order,
     focusedRead: async () => ({ order_line_id: "line_2", payload: { rowset: [{ ORDER_LINE_ID: "line_2", ATTACHMENT_ID: "attachment_2", DETAILED_REPORT: [{ DEFINITION_ID: 4441, DEFINITION_LABEL: "Detailed Report" }] }] } }),
     readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://lift.example/order-import" }] }),
-    readCredentials: async () => ({ base_url: "https://lift.example/proofing", company_id: "91", action_user_name: "VORNAN_PROOF", client_id: "client_1", client_secret: "a".repeat(32) }),
+    readCredentials: async () => ({ username: "PATHFINDER", password: "secret" }),
     getRecord: async (_order, id) => records.get(id) ?? null,
     saveRecord: async (record) => { records.set(record.record_id, record); return record; },
     createRecord: async (record) => { records.set(record.record_id, record); return record; },
-    start: async (input) => { calledBaseUrl = input.base_url; return { report_id: "report_1", status: "running", report_url: null }; },
+    start: async (input) => { calledBaseUrl = input.base_url; calledCredentials = input.credentials; return { report_id: "report_1", status: "running", report_url: null }; },
     audit: async () => undefined
   });
   const result = await service.begin({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
-  assert.equal(calledBaseUrl, "https://lift.example/proofing");
+  assert.equal(calledBaseUrl, "https://lift.example/ords/lifterp/lift/erp/api/v1");
+  assert.deepEqual(calledCredentials, { username: "PATHFINDER", password: "secret" });
   assert.equal(result.state, "running");
 });
 
-test("uses the bounded Proofing API base URL when polling a generated report", async () => {
+test("uses the exact Lift Detailed Report API base URL when polling a generated report", async () => {
   const records = new Map<string, any>();
   let statusBaseUrl = "";
   const service = createProofDetailedReportService({
     getOrder: async () => order,
     focusedRead: async () => ({ order_line_id: "line_2", payload: { rowset: [{ ORDER_LINE_ID: "line_2", ATTACHMENT_ID: "attachment_2", DETAILED_REPORT: [{ DEFINITION_ID: 4441, DEFINITION_LABEL: "Detailed Report" }] }] } }),
     readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://lift.example/order-import" }] }),
-    readCredentials: async () => ({ base_url: "https://lift.example/proofing", company_id: "91", action_user_name: "VORNAN_PROOF", client_id: "client_1", client_secret: "a".repeat(32) }),
+    readCredentials: async () => ({ username: "PATHFINDER", password: "secret" }),
     getRecord: async (_order, id) => records.get(id) ?? null,
     saveRecord: async (record) => { records.set(record.record_id, record); return record; },
     createRecord: async (record) => { records.set(record.record_id, record); return record; },
@@ -84,18 +86,38 @@ test("uses the bounded Proofing API base URL when polling a generated report", a
   });
   await service.begin({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
   const result = await service.check({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
-  assert.equal(statusBaseUrl, "https://lift.example/proofing");
+  assert.equal(statusBaseUrl, "https://lift.example/ords/lifterp/lift/erp/api/v1");
   assert.equal(result.state, "ready");
 });
 
-test("fails closed when the configured Proofing API origin differs from the active production target", async () => {
+test("uses a report URL returned by Lift's initial POST without an immediate status read", async () => {
+  const records = new Map<string, any>();
+  let statusReads = 0;
+  const service = createProofDetailedReportService({
+    getOrder: async () => order,
+    focusedRead: async () => ({ order_line_id: "line_2", payload: { rowset: [{ ORDER_LINE_ID: "line_2", ATTACHMENT_ID: "attachment_2", DETAILED_REPORT: [{ DEFINITION_ID: 4441, DEFINITION_LABEL: "Detailed Report" }] }] } }),
+    readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://lift.example/order-import" }] }),
+    readCredentials: async () => ({ username: "PATHFINDER", password: "secret" }),
+    getRecord: async (_order, id) => records.get(id) ?? null,
+    saveRecord: async (record) => { records.set(record.record_id, record); return record; },
+    createRecord: async (record) => { records.set(record.record_id, record); return record; },
+    start: async () => ({ report_id: "report_1", status: "RUNNING", report_url: "https://lift.example/report.pdf?token=private" }),
+    status: async () => { statusReads += 1; throw new Error("must not poll during begin"); },
+    audit: async () => undefined
+  });
+  const result = await service.begin({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
+  assert.equal(result.state, "ready");
+  assert.equal(statusReads, 0);
+});
+
+test("fails closed when the active production target endpoint is malformed", async () => {
   const records = new Map<string, any>();
   let started = 0;
   const service = createProofDetailedReportService({
     getOrder: async () => order,
     focusedRead: async () => ({ order_line_id: "line_2", payload: { rowset: [{ ORDER_LINE_ID: "line_2", ATTACHMENT_ID: "attachment_2", DETAILED_REPORT: [{ DEFINITION_ID: 4441, DEFINITION_LABEL: "Detailed Report" }] }] } }),
-    readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://lift.example/order-import" }] }),
-    readCredentials: async () => ({ base_url: "https://other.example/proofing", company_id: "91", action_user_name: "VORNAN_PROOF", client_id: "client_1", client_secret: "a".repeat(32) }),
+    readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "not-a-url" }] }),
+    readCredentials: async () => ({ username: "PATHFINDER", password: "secret" }),
     getRecord: async (_order, id) => records.get(id) ?? null,
     saveRecord: async (record) => { records.set(record.record_id, record); return record; },
     createRecord: async (record) => { records.set(record.record_id, record); return record; },
