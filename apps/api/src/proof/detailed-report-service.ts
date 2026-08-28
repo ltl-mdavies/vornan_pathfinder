@@ -263,7 +263,10 @@ export function createProofDetailedReportService(dependencies: ProofDetailedRepo
   async function view(input: { session: ProofAccessSession; task_id: string; definition_id: string; record_id: string; correlation_id: string }) {
     const current = await binding(input.session, input.task_id, input.definition_id);
     const record = await getRecord(current.order.order_number, input.record_id);
-    if (!record || record.task_id !== current.task.task_id || record.version_id !== current.task.current_version?.version_id || record.state !== "ready" || !record.report_id) {
+    // Lift's current proof attachment is the durable identity. Its surrounding
+    // normalized version can legitimately change during a resync (for example,
+    // when Lift adds the report metadata) without replacing the proof itself.
+    if (!record || record.task_id !== current.task.task_id || record.order_line_id !== current.task.order_line_id || record.attachment_id !== current.task.attachment_id || record.state !== "ready" || !record.report_id) {
       throw new ProofDetailedReportError("stale", "This detailed report is no longer available.");
     }
     const runtime = await detailedReportRuntime();
