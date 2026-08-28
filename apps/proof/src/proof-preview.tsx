@@ -83,7 +83,6 @@ function ProofPreviewSource({ version, refreshing = false, quality = "high", ass
   const lowResolutionPlaceholder = quality === "high" && activeSource !== asset.preview && asset.preview && asset.kind === "image"
     ? asset.preview
     : null;
-  const helpId = `pdf-preview-help-${version?.version_id.replace(/[^a-z0-9_-]/gi, "-") ?? "unknown"}`;
 
   function usePreviewFallbackOrFail() {
     const fallbackSource = previewImageFallback({
@@ -260,12 +259,6 @@ function ProofPreviewSource({ version, refreshing = false, quality = "high", ass
   }
 
   if (activeKind === "pdf") {
-    const previewFallback = previewImageFallback({
-      quality,
-      active_source: activeSource,
-      preview_source: asset.preview,
-      preview_kind: asset.kind
-    });
     return (
       <div className="preview-document" aria-busy={!loaded}>
         <iframe
@@ -274,15 +267,10 @@ function ProofPreviewSource({ version, refreshing = false, quality = "high", ass
           referrerPolicy="no-referrer"
           loading={quality === "high" ? "eager" : "lazy"}
           title={`PDF proof preview for ${version?.filename ?? "selected artwork"}`}
-          aria-describedby={helpId}
           onLoad={() => setLoadedSource(activeSource)}
           onError={usePreviewFallbackOrFail}
         />
         {!loaded ? <div className="proof-resolution-status proof-resolution-status--document" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><strong>{quality === "high" ? "Loading full-resolution proof…" : "Loading proof…"}</strong></div> : null}
-        <div className="proof-document-help" id={helpId}>
-          <span>Use the PDF controls to page or zoom. Open or Download remains available for the full-resolution file.</span>
-          {previewFallback ? <button type="button" onClick={usePreviewFallbackOrFail}>Use preview image</button> : null}
-        </div>
       </div>
     );
   }

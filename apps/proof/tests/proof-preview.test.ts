@@ -107,7 +107,7 @@ test("keeps the mounted viewer identity across signed-URL rotation but changes i
   assert.notEqual(first, replacement);
 });
 
-test("embeds a high-resolution PDF without blocking Chrome's native viewer and keeps the safe image fallback", () => {
+test("embeds a high-resolution PDF without adding a second viewer toolbar or manual fallback control", () => {
   const markup = renderToStaticMarkup(createElement(ProofPreview, {
     version: imageVersion({
       filename: "north-wall-final.pdf",
@@ -122,8 +122,8 @@ test("embeds a high-resolution PDF without blocking Chrome's native viewer and k
   assert.match(markup, /src="https:\/\/files\.example\/north-wall-full\.pdf"/);
   assert.match(markup, /referrerPolicy="no-referrer"/);
   assert.doesNotMatch(markup, /sandbox=/);
-  assert.match(markup, /class="proof-document-help"/);
-  assert.match(markup, />Use preview image<\/button>/);
+  assert.doesNotMatch(markup, /proof-document-help/);
+  assert.doesNotMatch(markup, /Use preview image/);
 });
 
 test("does not make an image preview interactive when no safe open target is available", () => {

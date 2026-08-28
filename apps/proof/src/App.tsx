@@ -23,7 +23,7 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadDetailedReport, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh, startDetailedReport } from "./api";
+import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh } from "./api";
 import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
@@ -49,6 +49,7 @@ import {
 } from "./queue-state";
 import { isOpenProofState, proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation } from "./lifecycle-state";
 import { ProofPreview } from "./proof-preview";
+import { DetailedReportButton } from "./detailed-report-button";
 import { isLiftProofUpdatedError, PROOF_UPDATED_MESSAGE, replacementProofTaskId } from "./proof-update-state";
 import { RevisionUploadDialog } from "./revision-upload-dialog";
 import { usesAdvancedQuantityAllocation } from "./review-experience";
@@ -61,7 +62,7 @@ import {
 } from "./quantity-review-state";
 import { summarizeQuantityAssignment } from "./quantity-assignment";
 import { createFailClosedSessionTerminator, focusProofTerminalState, proofEntryState, sessionExpiryDelay, sessionSecondsRemaining, sessionWarningVisible } from "./session-state";
-import type { ProofActivity, ProofDetailedReport, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
+import type { ProofActivity, ProofOrder, ProofParticipant, ProofTask, ProofVersion } from "./types";
 
 type TerminalState = "link_unavailable" | "session_ended";
 type LoadState =
@@ -990,51 +991,6 @@ function FeedbackButton({ task, onClick, compact = false }: { task: ProofTask; o
       {unread ? <span className="feedback-badge" aria-hidden="true">New · {commentCount}</span> : null}
     </button>
   );
-}
-
-function DetailedReportButton({ task, version }: { task: ProofTask; version: ProofVersion | null }) {
-  const definitions = version?.current ? version.report_definitions ?? [] : [];
-  const [selectedDefinitionId, setSelectedDefinitionId] = useState<string | null>(null);
-  const definition = definitions.find((candidate) => candidate.definition_id === selectedDefinitionId) ?? definitions[0] ?? null;
-  const [report, setReport] = useState<ProofDetailedReport | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  useEffect(() => { setReport(null); setMessage(null); }, [task.task_id, version?.version_id, definition?.definition_id]);
-  useEffect(() => {
-    if (!definition || !report || !["generation_started", "running"].includes(report.state)) return;
-    const timer = window.setInterval(() => {
-      void loadDetailedReport(task.task_id, definition.definition_id)
-        .then(({ report: next }) => {
-          setReport(next);
-          if (next.state === "ready" && next.view_url) window.open(next.view_url, "_blank", "noopener,noreferrer");
-        })
-        .catch(() => setMessage("We’re still preparing your report. Try again shortly."));
-    }, 5_000);
-    return () => window.clearInterval(timer);
-  }, [definition?.definition_id, report?.state, task.task_id]);
-  if (!definition) return null;
-  const state = report?.state ?? (definition.ready ? "ready" : "unavailable");
-  const choice = definitions.length > 1 ? (
-    <label className="detailed-report-choice">Report type<select value={definition.definition_id} onChange={(event) => {
-      setSelectedDefinitionId(event.target.value);
-      setReport(null);
-      setMessage(null);
-    }}>
-      {definitions.map((candidate) => <option key={candidate.definition_id} value={candidate.definition_id}>{candidate.label ?? "Detailed report"}</option>)}
-    </select></label>
-  ) : null;
-  if (state === "ready" && report?.view_url) {
-    return <span className="detailed-report-control">{choice}<a className="button secondary compact" href={report.view_url} target="_blank" rel="noreferrer"><FileText aria-hidden="true" /> View detailed report</a></span>;
-  }
-  if (["generation_started", "running"].includes(state)) return <span className="detailed-report-progress" role="status">Generating detailed report…</span>;
-  return <span className="detailed-report-control">{choice}<button className="button secondary compact" type="button" onClick={() => {
-    setMessage(null);
-    void startDetailedReport(task.task_id, definition.definition_id)
-      .then(({ report: next }) => {
-        setReport(next);
-        if (next.state === "ready" && next.view_url) window.open(next.view_url, "_blank", "noopener,noreferrer");
-      })
-      .catch(() => setMessage("We’re still preparing your report. Try again shortly."));
-  }}><FileText aria-hidden="true" /> {definition.ready ? "View detailed report" : "Generate detailed report"}</button>{message ? <small role="status">{message}</small> : null}</span>;
 }
 
 export function App() {
