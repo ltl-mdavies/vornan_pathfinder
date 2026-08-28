@@ -306,7 +306,13 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       }
       const automaticRefresh = proofAutomaticRefreshState(order);
       res.json(toPublicProofTaskHistory(task, {
-        include_asset_urls: !automaticRefresh.stale
+        include_asset_urls: !automaticRefresh.stale,
+        // A replacement proof receives a new Lift attachment ID and the old
+        // attachment becomes archived. Keep that same-line sequence together
+        // without conflating proofs that are concurrently active on the line.
+        prior_tasks: task.order_line_id
+          ? order.archived_tasks.filter((candidate) => candidate.order_line_id === task.order_line_id)
+          : []
       }));
     } catch (error) {
       handlePublicError(error, res, "Proof file history could not be loaded.");
