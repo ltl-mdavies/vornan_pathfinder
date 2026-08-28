@@ -31,6 +31,10 @@ test("distinguishes duplicate order names from duplicate Ext_ID failures", () =>
     "duplicate_order_name"
   );
   assert.equal(
+    translateLiftSubmitError({ message: "GENERIC.ERROR.ORDER_TITLE_ALREADY_EXISTS" }).category,
+    "duplicate_order_name"
+  );
+  assert.equal(
     translateLiftSubmitError({ message: "Order with Ext_ID ABC123 already exists." }).category,
     "duplicate_ext_id"
   );

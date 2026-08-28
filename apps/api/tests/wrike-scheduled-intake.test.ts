@@ -9,8 +9,78 @@ import {
   runWrikeScheduledSubmits,
   runWrikeScheduledStatusWritebacks,
   WrikeScheduledCandidatePreparationError,
+  wrikeScheduledDuplicateNameRecoveryTitle,
+  wrikeScheduledOrderTitleForTask,
   wrikeMappingReevaluationBlockReason
 } from "../src/wrike-scheduled-intake.js";
+
+test("numbered follow-on tasks receive distinct deterministic Lift order titles", () => {
+  const base = "C234567 - Momentara Web Order - 20260828";
+  assert.equal(wrikeScheduledOrderTitleForTask({
+    order_title: base,
+    task_title: "Placard Order"
+  }), base);
+  for (const taskTitle of ["Placard Order 2", "Placard Order 02", "Placard Order #2", "Placard Order #02"]) {
+    assert.equal(wrikeScheduledOrderTitleForTask({
+      order_title: base,
+      task_title: taskTitle
+    }), "C234567 - Momentara Web Order 02 - 20260828");
+  }
+  assert.equal(wrikeScheduledOrderTitleForTask({
+    order_title: "C234567 - Momentara Web Order 02 - 20260828",
+    task_title: "Placard Order #2"
+  }), "C234567 - Momentara Web Order 02 - 20260828");
+  assert.equal(wrikeScheduledOrderTitleForTask({
+    order_title: base,
+    task_title: "Placard Order 01"
+  }), base);
+});
+
+test("only a deterministic duplicate-name rejection can recover a numbered scheduled title", () => {
+  const input = {
+    order_title: "C234567 - Momentara Web Order - 20260828",
+    task_title: "Placard Order #2",
+    attempts: [{
+      state: "Failed",
+      response: { error_translation: { category: "duplicate_order_name" } }
+    }]
+  };
+  assert.equal(
+    wrikeScheduledDuplicateNameRecoveryTitle(input),
+    "C234567 - Momentara Web Order 02 - 20260828"
+  );
+  assert.equal(wrikeScheduledDuplicateNameRecoveryTitle({
+    ...input,
+    attempts: [{
+      state: "Failed",
+      response: {
+        error_translation: {
+          category: "unknown",
+          source_message: "GENERIC.ERROR.ORDER_TITLE_ALREADY_EXISTS"
+        }
+      }
+    }]
+  }), "C234567 - Momentara Web Order 02 - 20260828");
+  assert.equal(wrikeScheduledDuplicateNameRecoveryTitle({
+    ...input,
+    target_order_number: "A0229686"
+  }), null);
+  assert.equal(wrikeScheduledDuplicateNameRecoveryTitle({
+    ...input,
+    attempts: [{ state: "Submission Uncertain", response: null }]
+  }), null);
+  assert.equal(wrikeScheduledDuplicateNameRecoveryTitle({
+    ...input,
+    attempts: [{
+      state: "Failed",
+      response: { error_translation: { category: "validation_error" } }
+    }]
+  }), null);
+  assert.equal(wrikeScheduledDuplicateNameRecoveryTitle({
+    ...input,
+    task_title: "Placard Order"
+  }), null);
+});
 
 test("scheduled intake removes only already-confirmed tasks before applying its bounded budget", () => {
   const candidates = [

@@ -928,6 +928,7 @@ export function translateLiftSubmitError(args: {
 }): LiftSubmitErrorTranslation {
   const sourceMessage = (args.message || rawTextFromBody(args.rawBody) || "Unknown Lift submit failure").slice(0, 1000);
   const text = sourceMessage.toLowerCase();
+  const comparableText = text.replace(/[._/-]+/g, " ").replace(/\s+/g, " ");
   const httpStatus = args.httpStatus ?? null;
 
   if (httpStatus === 401 || httpStatus === 403 || /auth|unauthori[sz]ed|credential|password|user\b|forbidden/.test(text)) {
@@ -952,7 +953,7 @@ export function translateLiftSubmitError(args: {
 
   if (
     /(duplicate|already exists|unique).*(order[_ -]?(name|title)|order name|order title)|(order[_ -]?(name|title)|order name|order title).*(duplicate|already exists|unique)/.test(
-      text
+      comparableText
     )
   ) {
     return {
@@ -966,7 +967,7 @@ export function translateLiftSubmitError(args: {
 
   if (
     /(duplicate|already exists|unique).*(ext[_ -]?id|external id)|(ext[_ -]?id|external id).*(duplicate|already exists|unique)/.test(
-      text
+      comparableText
     )
   ) {
     return {
