@@ -18,7 +18,13 @@ test("keeps both horizontal edges reachable while a proof is zoomed", () => {
 });
 
 test("uses the available viewport for detailed report viewing", () => {
-  assert.match(styles, /\.detailed-report-viewer-dialog\s*\{[^}]*width:\s*min\(1600px, calc\(100vw - 48px\)\);/s);
-  assert.match(styles, /\.detailed-report-viewer-dialog\s*\{[^}]*height:\s*min\(92dvh, 1180px\);/s);
-  assert.match(styles, /\.detailed-report-viewer-dialog\s*\{[^}]*max-height:\s*calc\(100dvh - 48px\);/s);
+  assert.match(styles, /\.proof-dialog\.detailed-report-viewer-dialog\s*\{[^}]*width:\s*min\(1600px, calc\(100vw - 48px\)\);/s);
+  assert.match(styles, /\.proof-dialog\.detailed-report-viewer-dialog\s*\{[^}]*height:\s*min\(92dvh, 1180px\);/s);
+  assert.match(styles, /\.proof-dialog\.detailed-report-viewer-dialog\s*\{[^}]*max-height:\s*calc\(100dvh - 48px\);/s);
+});
+
+test("reserves green status treatment for approved proofs", () => {
+  assert.match(styles, /\.line-group-status\.approved\s*\{\s*color:\s*#39723f;/);
+  assert.match(styles, /\.line-group-status\.reference\s*\{\s*color:\s*var\(--muted\);/);
+  assert.doesNotMatch(styles, /\.line-group-status\.approved,\s*\.line-group-status\.reference/);
 });
