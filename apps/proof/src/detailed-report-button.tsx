@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FileText, X } from "lucide-react";
+import { ArrowLeft, FileText, X } from "lucide-react";
 import { loadDetailedReport, startDetailedReport } from "./api";
 import type { ProofDetailedReport, ProofTask, ProofVersion } from "./types";
 
@@ -147,7 +147,10 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
               <span className="eyebrow">{task.product_name ?? "Artwork proof"}</span>
               <h2 id="detailed-report-viewer-title">{report.label ?? "Detailed report"}</h2>
             </div>
-            <button className="icon-button subtle" type="button" aria-label="Close detailed report" onClick={() => setViewerOpen(false)}><X aria-hidden="true" /></button>
+            <div className="detailed-report-viewer-actions">
+              <button className="button secondary compact" type="button" onClick={() => { setViewerOpen(false); setSelectionOpen(true); }}><ArrowLeft aria-hidden="true" /> Back</button>
+              <button className="icon-button subtle" type="button" aria-label="Close detailed report" onClick={() => setViewerOpen(false)}><X aria-hidden="true" /></button>
+            </div>
           </div>
           <div className="detailed-report-frame-wrap"><iframe className="detailed-report-frame" src={report.view_url} title={`${report.label ?? "Detailed"} report`} /></div>
         </dialog>
