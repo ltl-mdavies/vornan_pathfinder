@@ -3,8 +3,9 @@ import { FileText, X } from "lucide-react";
 import { loadDetailedReport, startDetailedReport } from "./api";
 import type { ProofDetailedReport, ProofTask, ProofVersion } from "./types";
 
-export function detailedReportOptionStatus(ready: boolean, generating: boolean) {
+export function detailedReportOptionStatus(ready: boolean, generating: boolean, failed = false) {
   if (generating) return { description: "Generating report…", action: "Generating…" };
+  if (failed) return { description: "Couldn’t generate report", action: "Try again" };
   return ready
     ? { description: "Ready to view", action: "View" }
     : { description: "Generate report", action: "Generate" };
@@ -71,6 +72,9 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
 
   function openReport(next: ProofDetailedReport) {
     setReport(next);
+    if (["failed", "timed_out"].includes(next.state)) {
+      setMessage("This report couldn’t be generated. Try again.");
+    }
     if (next.state === "ready" && next.view_url) {
       setSelectionOpen(false);
       setViewerOpen(true);
@@ -84,7 +88,10 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
     setStartingDefinitionId(candidate.definition_id);
     void startDetailedReport(task.task_id, candidate.definition_id)
       .then(({ report: next }) => openReport(next))
-      .catch(() => setMessage("We couldn’t start this report. Please try again shortly."))
+      .catch(() => {
+        setReport({ record_id: "", definition_id: candidate.definition_id, label: candidate.label, state: "failed", view_url: null });
+        setMessage("This report couldn’t be generated. Try again.");
+      })
       .finally(() => setStartingDefinitionId(null));
   }
 
@@ -113,7 +120,8 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
         </div>
         <div className="detailed-report-options" aria-busy={generating}>
           {definitions.map((candidate) => {
-            const optionStatus = detailedReportOptionStatus(candidate.ready, generatingDefinitionId === candidate.definition_id);
+            const failed = report?.definition_id === candidate.definition_id && ["failed", "timed_out"].includes(report.state);
+            const optionStatus = detailedReportOptionStatus(candidate.ready, generatingDefinitionId === candidate.definition_id, failed);
             return (
               <button key={candidate.definition_id} className="detailed-report-option" type="button" disabled={generating} onClick={() => chooseDefinition(candidate)}>
                 <FileText aria-hidden="true" />
