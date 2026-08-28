@@ -67,6 +67,8 @@ test("shows an immediate busy state for the selected report type", () => {
 
 test("returns from a report viewer to the report-type choices", () => {
   const source = readFileSync(new URL("../src/detailed-report-button.tsx", import.meta.url), "utf8");
+  assert.match(source, /const hasMultipleDefinitions = definitions\.length > 1/);
+  assert.match(source, /if \(hasMultipleDefinitions\) setSelectionOpen\(true\)/);
   assert.match(source, /setViewerOpen\(false\); setSelectionOpen\(true\)/);
-  assert.match(source, /> Back<\/button>/);
+  assert.match(source, /hasMultipleDefinitions \? <button[\s\S]*> Back<\/button> : null/);
 });

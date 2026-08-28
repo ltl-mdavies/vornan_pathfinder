@@ -13,6 +13,7 @@ export function detailedReportOptionStatus(ready: boolean, generating: boolean, 
 
 export function DetailedReportButton({ task, version }: { task: ProofTask; version: ProofVersion | null }) {
   const definitions = version?.current ? version.report_definitions ?? [] : [];
+  const hasMultipleDefinitions = definitions.length > 1;
   const [selectedDefinitionId, setSelectedDefinitionId] = useState<string | null>(null);
   const definition = definitions.find((candidate) => candidate.definition_id === selectedDefinitionId) ?? definitions[0] ?? null;
   const [report, setReport] = useState<ProofDetailedReport | null>(null);
@@ -68,7 +69,11 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
     ["generation_started", "running"].includes(state) ? report?.definition_id ?? null : null
   );
   const generating = Boolean(generatingDefinitionId);
-  const label = generating ? "Generating detailed report…" : state === "ready" ? "View detailed report" : "Generate detailed report";
+  const label = generating
+    ? "Generating detailed report…"
+    : hasMultipleDefinitions
+      ? definitions.some((candidate) => candidate.ready) ? "View detailed reports" : "Generate detailed reports"
+      : state === "ready" ? "View detailed report" : "Generate detailed report";
 
   function openReport(next: ProofDetailedReport) {
     setReport(next);
@@ -99,7 +104,8 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
     <>
       <button className="button secondary compact detailed-report-trigger" type="button" disabled={generating} onClick={() => {
         setMessage(null);
-        if (report?.state === "ready" && report.view_url) setViewerOpen(true);
+        if (hasMultipleDefinitions) setSelectionOpen(true);
+        else if (report?.state === "ready" && report.view_url) setViewerOpen(true);
         else setSelectionOpen(true);
       }}><FileText aria-hidden="true" /> {label}</button>
 
@@ -148,7 +154,7 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
               <h2 id="detailed-report-viewer-title">{report.label ?? "Detailed report"}</h2>
             </div>
             <div className="detailed-report-viewer-actions">
-              <button className="button secondary compact" type="button" onClick={() => { setViewerOpen(false); setSelectionOpen(true); }}><ArrowLeft aria-hidden="true" /> Back</button>
+              {hasMultipleDefinitions ? <button className="button secondary compact" type="button" onClick={() => { setViewerOpen(false); setSelectionOpen(true); }}><ArrowLeft aria-hidden="true" /> Back</button> : null}
               <button className="icon-button subtle" type="button" aria-label="Close detailed report" onClick={() => setViewerOpen(false)}><X aria-hidden="true" /></button>
             </div>
           </div>
