@@ -5,7 +5,10 @@ import {
   startLiftProofDetailedReport
 } from "@pathfinder/lift-proof-adapter";
 import type { ProofAccessSession, ProofOrder, ProofTask } from "@pathfinder/proof-domain";
-import { readTargetEnvironmentProofingApiRuntimeCredentials } from "../lift-proofing-credentials.js";
+import {
+  readTargetEnvironmentProofingApiRuntimeCredentials,
+  type TargetProofingApiRuntimeCredentials
+} from "../lift-proofing-credentials.js";
 import { recordProofAuditEvent, type ProofAuditContext } from "./audit-service.js";
 import { readProofActionTargetConfig } from "./action-target-store.js";
 import { getProofRuntimeConfig, type ProofRuntimeConfig } from "./runtime-config.js";
@@ -21,6 +24,8 @@ import {
 const TARGET_ID = "lift-standard-graphics";
 const ENVIRONMENT_ID = "env-lift-prod";
 const CUSTOMER_ID = "1249";
+const COMPANY_ID = "91";
+const ACTION_USER = "VORNAN_PROOF";
 const POLL_WINDOW_MS = 60_000;
 
 export class ProofDetailedReportError extends Error {
@@ -121,6 +126,32 @@ function activeEnvironment(target: Awaited<ReturnType<typeof readProofActionTarg
   return environment;
 }
 
+function assertCredentialBoundary(
+  credentials: TargetProofingApiRuntimeCredentials,
+  environmentEndpointUrl: string
+) {
+  let environmentOrigin = "";
+  let proofingOrigin = "";
+  try {
+    environmentOrigin = new URL(environmentEndpointUrl).origin;
+    proofingOrigin = new URL(credentials.base_url).origin;
+  } catch {
+    // The credential and target validators normally prevent malformed URLs.
+  }
+  if (
+    credentials.company_id !== COMPANY_ID ||
+    credentials.action_user_name !== ACTION_USER ||
+    !environmentOrigin ||
+    proofingOrigin !== environmentOrigin
+  ) {
+    throw new ProofDetailedReportError(
+      "not_allowed",
+      "Detailed reports are temporarily unavailable."
+    );
+  }
+  return credentials;
+}
+
 export interface ProofDetailedReportServiceDependencies {
   runtimeConfig?: () => ProofRuntimeConfig;
   getOrder?: typeof getProofOrder;
@@ -149,6 +180,14 @@ export function createProofDetailedReportService(dependencies: ProofDetailedRepo
   const saveRecord = dependencies.saveRecord ?? saveProofDetailedReportRecord;
   const audit = dependencies.audit ?? recordProofAuditEvent;
   const now = dependencies.now ?? (() => new Date());
+
+  async function proofingRuntime() {
+    const environment = activeEnvironment(await readTarget(TARGET_ID));
+    return assertCredentialBoundary(
+      await readCredentials(TARGET_ID, ENVIRONMENT_ID),
+      environment.endpoint_url
+    );
+  }
 
   async function binding(session: ProofAccessSession, taskId: string, definitionId: string) {
     const order = await getOrder(session.order_number);
@@ -199,9 +238,8 @@ export function createProofDetailedReportService(dependencies: ProofDetailedRepo
     }
     await audit({ action: "proof.detailed_report_generation_started", order_number: current.order.order_number, task_id: current.task.task_id, order_line_id: current.task.order_line_id, attachment_id: current.task.attachment_id, grant_id: input.session.grant_id, participant_id: input.session.participant_id, metadata: { detailed_report_state: "generation_started" }, context: auditContext(input.session, input.correlation_id) });
     try {
-      const environment = activeEnvironment(await readTarget(TARGET_ID));
-      const credentials = await readCredentials(TARGET_ID, ENVIRONMENT_ID);
-      const result = await start({ base_url: environment.endpoint_url, credentials, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, definition_id: current.definition.definition_id, timeout_ms: runtimeConfig().read.timeout_ms, now: timestamp });
+      const credentials = await proofingRuntime();
+      const result = await start({ base_url: credentials.base_url, credentials, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, definition_id: current.definition.definition_id, timeout_ms: runtimeConfig().read.timeout_ms, now: timestamp });
       const next: ProofDetailedReportRecord = { ...reserved, report_id: result.report_id, state: result.report_url ? "ready" : "running", updated_at: now().toISOString(), generation_deadline_at: result.report_url ? null : reserved.generation_deadline_at };
       await saveRecord(next);
       return publicRecord(next);
@@ -225,9 +263,8 @@ export function createProofDetailedReportService(dependencies: ProofDetailedRepo
       return publicRecord(timedOut);
     }
     try {
-      const environment = activeEnvironment(await readTarget(TARGET_ID));
-      const credentials = await readCredentials(TARGET_ID, ENVIRONMENT_ID);
-      const result = await status({ base_url: environment.endpoint_url, credentials, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, report_id: record.report_id, timeout_ms: runtimeConfig().read.timeout_ms });
+      const credentials = await proofingRuntime();
+      const result = await status({ base_url: credentials.base_url, credentials, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, report_id: record.report_id, timeout_ms: runtimeConfig().read.timeout_ms });
       const next = { ...record, state: result.report_url ? "ready" as const : "running" as const, updated_at: now().toISOString(), generation_deadline_at: result.report_url ? null : record.generation_deadline_at };
       await saveRecord(next);
       await audit({ action: next.state === "ready" ? "proof.detailed_report_ready" : "proof.detailed_report_status_observed", order_number: current.order.order_number, task_id: current.task.task_id, order_line_id: current.task.order_line_id, attachment_id: current.task.attachment_id, grant_id: input.session.grant_id, participant_id: input.session.participant_id, metadata: { detailed_report_state: next.state }, context: auditContext(input.session, input.correlation_id) });
@@ -241,9 +278,8 @@ export function createProofDetailedReportService(dependencies: ProofDetailedRepo
     if (!record || record.task_id !== current.task.task_id || record.version_id !== current.task.current_version?.version_id || record.state !== "ready" || !record.report_id) {
       throw new ProofDetailedReportError("stale", "This detailed report is no longer available.");
     }
-    const environment = activeEnvironment(await readTarget(TARGET_ID));
-    const credentials = await readCredentials(TARGET_ID, ENVIRONMENT_ID);
-    const result = await status({ base_url: environment.endpoint_url, credentials, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, report_id: record.report_id, timeout_ms: runtimeConfig().read.timeout_ms });
+    const credentials = await proofingRuntime();
+    const result = await status({ base_url: credentials.base_url, credentials, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, report_id: record.report_id, timeout_ms: runtimeConfig().read.timeout_ms });
     if (!result.report_url) throw new ProofDetailedReportError("provider_failed", "We’re still preparing your report. Try again shortly.");
     await audit({ action: "proof.detailed_report_view_redirected", order_number: current.order.order_number, task_id: current.task.task_id, order_line_id: current.task.order_line_id, attachment_id: current.task.attachment_id, grant_id: input.session.grant_id, participant_id: input.session.participant_id, metadata: { detailed_report_state: "ready" }, context: auditContext(input.session, input.correlation_id) });
     return result.report_url;
