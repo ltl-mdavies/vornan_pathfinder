@@ -777,6 +777,23 @@ function taskState(line: ProofLine | null, version: ProofVersion | null, policy:
   if (line?.cancelled) {
     return "cancelled" as const;
   }
+  // Lift's proof status is authoritative whenever it is present. A line can have
+  // reached a production step while its proof record still carries the customer
+  // approval outcome that the Proof experience must display.
+  if (version) {
+    if (/APPROV/i.test(version.approval_status ?? "")) {
+      return "approved" as const;
+    }
+    if (/REVIS|REJECT|REGENERAT|CHANGE.*REQUEST/i.test(version.approval_status ?? "")) {
+      return "revised" as const;
+    }
+    if ((version.approval_status ?? "").trim()) {
+      if (!version.preview_url && !version.download_url) {
+        return "error" as const;
+      }
+      return "pending" as const;
+    }
+  }
   if (
     line &&
     (policy.isReferenceLine
@@ -787,12 +804,6 @@ function taskState(line: ProofLine | null, version: ProofVersion | null, policy:
   }
   if (!version) {
     return "waiting" as const;
-  }
-  if (/APPROV/i.test(version.approval_status ?? "")) {
-    return "approved" as const;
-  }
-  if (/REVIS|REJECT|REGENERAT|CHANGE.*REQUEST/i.test(version.approval_status ?? "")) {
-    return "revised" as const;
   }
   if (!version.preview_url && !version.download_url) {
     return "error" as const;

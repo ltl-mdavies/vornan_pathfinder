@@ -725,7 +725,7 @@ test("accepts an operator-swapped Lift attachment as the new actionable proof", 
   assert.equal(second.warnings.some((warning) => warning.attachment_id === "25435999"), false);
 });
 
-test("maps completed line status to read-only reference state", () => {
+test("keeps explicit Lift proof statuses authoritative over a completed line fallback", () => {
   const completedPayload = {
     rowset: [
       {
@@ -741,8 +741,32 @@ test("maps completed line status to read-only reference state", () => {
     synced_at: syncedAt
   });
 
-  assert.ok(order.tasks.every((task) => task.state === "reference" || task.order_line_id !== "9301338"));
-  assert.ok(order.tasks.filter((task) => task.order_line_id === "9301338").every((task) => !task.actionable));
+  assert.deepEqual(
+    order.tasks.filter((task) => task.order_line_id === "9301338").map((task) => task.state),
+    ["pending", "approved"]
+  );
+  assert.equal(order.tasks.find((task) => task.attachment_id === "25435041")?.actionable, true);
+});
+
+test("uses the neutral production fallback only when Lift provides no proof status", () => {
+  const completedPayload = {
+    rowset: [{ ...(orderPayload.rowset[0] as Record<string, unknown>), LINE_STATUS: "COMPLETE" }]
+  };
+  const unstatedProof = {
+    rowset: [{
+      ...(proofPayload.rowset[0] as Record<string, unknown>),
+      PROOF_APPROVAL_STATUS: null
+    }]
+  };
+  const order = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: completedPayload,
+    proof_payloads: [unstatedProof],
+    synced_at: syncedAt
+  });
+
+  assert.equal(order.tasks[0]?.state, "reference");
+  assert.equal(order.tasks[0]?.actionable, false);
 });
 
 test("normalizes the redacted live sibling fixture as four distinct pending attachments", async () => {
@@ -767,14 +791,14 @@ test("normalizes the redacted live sibling fixture as four distinct pending atta
   assert.equal(order.warnings.some((warning) => warning.code === "line_number_fallback"), false);
 });
 
-test("normalizes the redacted live invoiced fixture as an approved read-only reference", async () => {
+test("normalizes the redacted live invoiced fixture as approved when Lift says approved", async () => {
   const captured = await fixture("lift-completed-A0219609.redacted.json");
   const order = normalizeProofOrder({ ...captured, synced_at: syncedAt });
 
   assert.equal(order.order_status, "Invoiced");
   assert.equal(order.health, "complete");
   assert.equal(order.tasks.length, 1);
-  assert.equal(order.tasks[0]?.state, "reference");
+  assert.equal(order.tasks[0]?.state, "approved");
   assert.equal(order.tasks[0]?.actionable, false);
   assert.equal(order.tasks[0]?.current_version?.approval_status, "APPROVED");
 });
