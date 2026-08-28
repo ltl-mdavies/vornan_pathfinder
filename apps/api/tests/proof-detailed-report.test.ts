@@ -47,3 +47,64 @@ test("reuses an authoritative ready report without a generation POST or provider
   assert.equal(JSON.stringify(result).includes("lift.example"), false);
   assert.match(result.view_url ?? "", /^\/api\/public\/proof\/detailed-reports\//);
 });
+
+test("uses the bounded Proofing API base URL instead of the generic order endpoint", async () => {
+  const records = new Map<string, any>();
+  let calledBaseUrl = "";
+  const service = createProofDetailedReportService({
+    getOrder: async () => order,
+    focusedRead: async () => ({ order_line_id: "line_2", payload: { rowset: [{ ORDER_LINE_ID: "line_2", ATTACHMENT_ID: "attachment_2", DETAILED_REPORT: [{ DEFINITION_ID: 4441, DEFINITION_LABEL: "Detailed Report" }] }] } }),
+    readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://lift.example/order-import" }] }),
+    readCredentials: async () => ({ base_url: "https://lift.example/proofing", company_id: "91", action_user_name: "VORNAN_PROOF", client_id: "client_1", client_secret: "a".repeat(32) }),
+    getRecord: async (_order, id) => records.get(id) ?? null,
+    saveRecord: async (record) => { records.set(record.record_id, record); return record; },
+    createRecord: async (record) => { records.set(record.record_id, record); return record; },
+    start: async (input) => { calledBaseUrl = input.base_url; return { report_id: "report_1", status: "running", report_url: null }; },
+    audit: async () => undefined
+  });
+  const result = await service.begin({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
+  assert.equal(calledBaseUrl, "https://lift.example/proofing");
+  assert.equal(result.state, "running");
+});
+
+test("uses the bounded Proofing API base URL when polling a generated report", async () => {
+  const records = new Map<string, any>();
+  let statusBaseUrl = "";
+  const service = createProofDetailedReportService({
+    getOrder: async () => order,
+    focusedRead: async () => ({ order_line_id: "line_2", payload: { rowset: [{ ORDER_LINE_ID: "line_2", ATTACHMENT_ID: "attachment_2", DETAILED_REPORT: [{ DEFINITION_ID: 4441, DEFINITION_LABEL: "Detailed Report" }] }] } }),
+    readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://lift.example/order-import" }] }),
+    readCredentials: async () => ({ base_url: "https://lift.example/proofing", company_id: "91", action_user_name: "VORNAN_PROOF", client_id: "client_1", client_secret: "a".repeat(32) }),
+    getRecord: async (_order, id) => records.get(id) ?? null,
+    saveRecord: async (record) => { records.set(record.record_id, record); return record; },
+    createRecord: async (record) => { records.set(record.record_id, record); return record; },
+    start: async () => ({ report_id: "report_1", status: "running", report_url: null }),
+    status: async (input) => { statusBaseUrl = input.base_url; return { report_id: "report_1", status: "ready", report_url: "https://lift.example/report.pdf" }; },
+    audit: async () => undefined
+  });
+  await service.begin({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
+  const result = await service.check({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
+  assert.equal(statusBaseUrl, "https://lift.example/proofing");
+  assert.equal(result.state, "ready");
+});
+
+test("fails closed when the configured Proofing API origin differs from the active production target", async () => {
+  const records = new Map<string, any>();
+  let started = 0;
+  const service = createProofDetailedReportService({
+    getOrder: async () => order,
+    focusedRead: async () => ({ order_line_id: "line_2", payload: { rowset: [{ ORDER_LINE_ID: "line_2", ATTACHMENT_ID: "attachment_2", DETAILED_REPORT: [{ DEFINITION_ID: 4441, DEFINITION_LABEL: "Detailed Report" }] }] } }),
+    readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://lift.example/order-import" }] }),
+    readCredentials: async () => ({ base_url: "https://other.example/proofing", company_id: "91", action_user_name: "VORNAN_PROOF", client_id: "client_1", client_secret: "a".repeat(32) }),
+    getRecord: async (_order, id) => records.get(id) ?? null,
+    saveRecord: async (record) => { records.set(record.record_id, record); return record; },
+    createRecord: async (record) => { records.set(record.record_id, record); return record; },
+    start: async () => { started += 1; return { report_id: "report_1", status: "running", report_url: null }; },
+    audit: async () => undefined
+  });
+  await assert.rejects(
+    () => service.begin({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" }),
+    /preparing your report/
+  );
+  assert.equal(started, 0);
+});
