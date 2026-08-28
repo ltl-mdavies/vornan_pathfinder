@@ -660,6 +660,32 @@ Resources:
               Value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
               Override: true
 
+  ProofDetailedReportViewerResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: !Sub "vornan-proof-${EnvironmentName}-detailed-report-viewer-security"
+        Comment: Session-bound Detailed Report viewer security headers
+        SecurityHeadersConfig:
+          ContentSecurityPolicy:
+            ContentSecurityPolicy: "default-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
+            Override: true
+          ContentTypeOptions:
+            Override: true
+          ReferrerPolicy:
+            ReferrerPolicy: no-referrer
+            Override: true
+          StrictTransportSecurity:
+            AccessControlMaxAgeSec: 63072000
+            IncludeSubdomains: true
+            Preload: true
+            Override: true
+        CustomHeadersConfig:
+          Items:
+            - Header: Permissions-Policy
+              Value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+              Override: true
+
   ProofSpaRewriteFunction:
     Type: AWS::CloudFront::Function
     Properties:
@@ -1197,6 +1223,18 @@ Resources:
             - EventType: viewer-request
               FunctionARN: !GetAtt ProofSpaRewriteFunction.FunctionARN
         CacheBehaviors:
+          - !If
+            - HasPublicLambdaCode
+            - PathPattern: "/api/public/proof/detailed-reports/*/view"
+              TargetOriginId: proof-public-api-origin
+              ViewerProtocolPolicy: https-only
+              AllowedMethods: [GET, HEAD, OPTIONS]
+              CachedMethods: [GET, HEAD]
+              Compress: true
+              CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+              OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+              ResponseHeadersPolicyId: !Ref ProofDetailedReportViewerResponseHeadersPolicy
+            - !Ref AWS::NoValue
           - !If
             - HasPublicLambdaCode
             - PathPattern: "/api/public/proof/*"

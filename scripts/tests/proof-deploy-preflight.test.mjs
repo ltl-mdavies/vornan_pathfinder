@@ -225,6 +225,24 @@ test("allows browser uploads only to the exact private asset bucket during the b
   assert.doesNotMatch(webHeaders, /connect-src 'self' \*;/);
 });
 
+test("allows framing only for the session-bound Detailed Report viewer route", () => {
+  const template = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
+  const viewerHeaders = template.slice(
+    template.indexOf("  ProofDetailedReportViewerResponseHeadersPolicy:"),
+    template.indexOf("  ProofSpaRewriteFunction:")
+  );
+  assert.match(viewerHeaders, /frame-ancestors 'self'/);
+  assert.doesNotMatch(viewerHeaders, /FrameOptions:/);
+  const behaviors = template.slice(
+    template.indexOf("        CacheBehaviors:"),
+    template.indexOf("        ViewerCertificate:")
+  );
+  assert.match(
+    behaviors,
+    /PathPattern: "\/api\/public\/proof\/detailed-reports\/\*\/view"[\s\S]*?ResponseHeadersPolicyId: !Ref ProofDetailedReportViewerResponseHeadersPolicy[\s\S]*?PathPattern: "\/api\/public\/proof\/\*"/
+  );
+});
+
 test("accepts only the bounded allowlisted LTL Demo QA profile", () => {
   const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
   const profile = {
