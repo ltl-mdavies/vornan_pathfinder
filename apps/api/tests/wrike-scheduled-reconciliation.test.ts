@@ -141,6 +141,23 @@ test("accepts the live AS360Orders shape only when its visible identities exactl
   assert.equal(verified.contract_number, "C316981");
 });
 
+test("reconciles AS360Orders product names with their rendered dimension suffix", () => {
+  const payload = providerOrder();
+  for (const line of payload.rowset[0]!.LINES) {
+    line.PRODUCT_NAME = `${line.PRODUCT_NAME}-${line.PRINT_W_IN}x${line.PRINT_H_IN}`;
+  }
+  const verified = verifyScheduledUncertainProviderOrder({
+    job: job(),
+    attempt: attempt(),
+    order_number: "A0229496",
+    provider_payload: payload,
+    provider_company_id: "91",
+    expected_order_type: "High End Work",
+    fetched_at: "2026-08-28T18:35:00.000Z"
+  });
+  assert.equal(verified.line_count, 11);
+});
+
 test("supports the exact C317014 six-line fixture without weakening its identity", () => {
   const secondJob = {
     ...job("C317014", 6),
@@ -187,6 +204,7 @@ test("fails closed for Ext_ID, customer, contract, line, missing, and ambiguous 
     ["customer_mismatch", (payload) => { payload.rowset[0]!.CUSTOMER_ID = "1249"; }],
     ["order_title_mismatch", (payload) => { payload.rowset[0]!.ORDER_TITLE = "OTHER"; }],
     ["contract_mismatch", (payload) => { payload.rowset[0]!.CONTRACT_NUMBER = "C000000"; }],
+    ["line_identity_mismatch", (payload) => { payload.rowset[0]!.LINES[0]!.PRODUCT_NAME = "Different product-20x10"; }],
     ["line_identity_mismatch", (payload) => { payload.rowset[0]!.LINES[0]!.QUANTITY = 999; }]
   ];
   for (const [code, mutate] of cases) {
