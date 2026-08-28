@@ -6238,9 +6238,7 @@ function buildLiftOrderAssociationEntry(args: {
     linked_at: args.linked_at,
     linked_by_email: args.linked_by_email?.trim().toLowerCase() || null,
     reason: args.reason,
-    verification: args.verification,
-    automatic_wrike_status_writeback_suppressed:
-      args.source === "scheduled_uncertain_reconciliation" ? true : undefined
+    verification: args.verification
   };
 }
 

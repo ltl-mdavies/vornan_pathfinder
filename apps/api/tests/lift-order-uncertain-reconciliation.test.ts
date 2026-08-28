@@ -70,7 +70,7 @@ test("conditionally associates one uncertain attempt without modifying or duplic
       });
       assert.equal(result.job.target_order_number, "A0229496");
       assert.equal(result.association.source, "scheduled_uncertain_reconciliation");
-      assert.equal(result.association.automatic_wrike_status_writeback_suppressed, true);
+      assert.equal(result.association.automatic_wrike_status_writeback_suppressed, undefined);
       const attempts = await listSubmitAttemptsForJob(customer, job.job_id);
       assert.equal(attempts.length, 1);
       assert.equal(attempts[0].state, "Submission Uncertain");
