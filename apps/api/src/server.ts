@@ -97,6 +97,7 @@ import {
   type WrikeLiftDocumentPublication,
   type WrikeLiftSourceEvidenceBinding,
   type WrikeOAuthCredentials,
+  type WrikePrequalifiedTaskScope,
   type WrikeScopedIntakeDiscoveryResult,
   type WrikeWorkbookExtension
 } from "@pathfinder/wrike-adapter";
@@ -5037,6 +5038,7 @@ async function captureWrikeWorkbookEvidenceForMethod(
     expectedTaskId?: string;
     taskIdOverride?: string;
     triggerStatusIdOverride?: string;
+    prequalifiedScope?: WrikePrequalifiedTaskScope;
   } = {}
 ) {
   let customerId = "";
@@ -5102,7 +5104,9 @@ async function captureWrikeWorkbookEvidenceForMethod(
       throw new WrikeConnectionError("invalid_configuration", "Wrike OAuth credentials are not configured.");
     }
 
-    const result = await fetchQualifiedWrikeWorkbookSources(oauth, config);
+    const result = await fetchQualifiedWrikeWorkbookSources(oauth, config, {
+      prequalified_scope: options.prequalifiedScope
+    });
     if (options.expectedTaskId && result.task_id !== options.expectedTaskId) {
       throw new WrikeIntakeRequestError(
         409,
@@ -5945,6 +5949,7 @@ async function prepareWrikeOrderForTask(args: {
   methodId: string;
   taskId: string;
   triggerStatusId?: string;
+  prequalifiedScope?: WrikePrequalifiedTaskScope;
 }) {
   let orderContext:
     | {
@@ -5970,7 +5975,8 @@ async function prepareWrikeOrderForTask(args: {
           requireActive: true,
           expectedTaskId: args.taskId,
           taskIdOverride: args.taskId,
-          triggerStatusIdOverride: args.triggerStatusId
+          triggerStatusIdOverride: args.triggerStatusId,
+          prequalifiedScope: args.prequalifiedScope
         }
       );
       orderContext = captured.order_context;
@@ -6322,24 +6328,39 @@ async function runConfiguredWrikeIntakeCore(args: {
           "Wrike OAuth credentials are not configured."
         );
       }
-      discovery = await discoverScopedWrikeIntakeTasks(oauth, config, {
+      const scopedDiscovery = await discoverScopedWrikeIntakeTasks(oauth, config, {
         max_pages: 10,
         max_tasks: 10_000
       });
+      discovery = scopedDiscovery;
       await writeCustomerSourceConnectionSecrets(
         customer.lift_customer_id,
         connection.connection_id,
         {
           provider: "wrike",
-          wrike: { ...existingSecrets, oauth: discovery.credentials }
+          wrike: { ...existingSecrets, oauth: scopedDiscovery.credentials }
         }
       );
-      existingSecrets = { ...existingSecrets, oauth: discovery.credentials };
+      existingSecrets = { ...existingSecrets, oauth: scopedDiscovery.credentials };
+      const resolvedRootFolderByConfiguredId = new Map(
+        scopedDiscovery.root_scopes.map((scope) => [
+          scope.configured_folder_id,
+          scope.resolved_folder_id
+        ])
+      );
       return filterPreviouslyConfirmedWrikeScheduledCandidates({
-        candidates: discovery.order_candidates.map((candidate) => ({
+        candidates: scopedDiscovery.order_candidates.map((candidate) => ({
           task_id: candidate.task_id,
           contract_number: candidate.contract_number,
-          trigger_status_id: candidate.custom_status_id
+          trigger_status_id: candidate.custom_status_id,
+          prequalified_scope: {
+            task_id: candidate.task_id,
+            checked_at: scopedDiscovery.checked_at,
+            resolved_root_folder_ids: candidate.root_folder_ids
+              .map((folderId) => resolvedRootFolderByConfiguredId.get(folderId) ?? "")
+              .filter(Boolean),
+            parent_ids: candidate.parent_ids
+          }
         })),
         jobs: await listJobs(),
         customer_id: args.config.customer_id,
@@ -6351,7 +6372,8 @@ async function runConfiguredWrikeIntakeCore(args: {
         liftCustomerId: args.config.customer_id,
         methodId: args.config.import_method_id,
         taskId: candidate.task_id,
-        triggerStatusId: candidate.trigger_status_id
+        triggerStatusId: candidate.trigger_status_id,
+        prequalifiedScope: candidate.prequalified_scope
       });
       if (result.summary.blocked_count > 0) {
         throw buildWrikeScheduledCandidatePreparationError(result.workbooks);

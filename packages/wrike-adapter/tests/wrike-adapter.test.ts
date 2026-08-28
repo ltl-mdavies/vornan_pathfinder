@@ -1220,6 +1220,157 @@ test("requalifies and downloads only current matching workbooks without forwardi
   assert.equal(JSON.stringify(result).includes("files.example.test"), false);
 });
 
+test("scheduled preparation reuses fresh provider-scoped ancestry without repeated root conversion or folder walking", async () => {
+  const calls: string[] = [];
+  const now = new Date("2026-08-28T16:57:53.202Z");
+  const result = await fetchQualifiedWrikeWorkbookSources(
+    {
+      access_token: "current-access-token",
+      access_token_expires_at: "2026-08-28T17:57:53.202Z",
+      host: "www.wrike.com"
+    },
+    normalizeWrikeSourceConfig({
+      folder_ids: ["34000804", "49405755"],
+      folder_id: "34000804",
+      approved_discovery_task_id: "IETASK02",
+      trigger_status_id: "IEREADY",
+      contract_number_custom_field_id: "IECONTRACT",
+      order_task_identity_mode: "exact_title_with_numbered_follow_ons",
+      order_task_title: "Placard Order",
+      attachment_extensions: ["xlsx"]
+    }),
+    {
+      now: () => now,
+      prequalified_scope: {
+        task_id: "IETASK02",
+        checked_at: now.toISOString(),
+        resolved_root_folder_ids: ["IEIBACAMPAIGNS"],
+        parent_ids: ["IETESTCAMPAIGN"]
+      },
+      fetch_impl: async (input) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith("/tasks/IETASK02")) {
+          return new Response(JSON.stringify({
+            data: [{
+              id: "IETASK02",
+              accountId: "IEACCOUNT",
+              parentIds: ["IETESTCAMPAIGN"],
+              superParentIds: [],
+              customStatusId: "IEREADY",
+              attachmentCount: 1,
+              title: "Placard Order 02",
+              customFields: [{ id: "IECONTRACT", value: "C234567" }]
+            }]
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.includes("/attachments?versions=false&withUrls=false")) {
+          return new Response(JSON.stringify({
+            data: [{ id: "IEGRID", name: "C234567 - Test - OOH Order 02.xlsx" }]
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.includes("/attachments?versions=false&withUrls=true")) {
+          return new Response(JSON.stringify({
+            data: [{
+              id: "IEGRID",
+              currentAttachmentId: "IEGRIDV1",
+              name: "C234567 - Test - OOH Order 02.xlsx",
+              updatedDate: "2026-08-28T16:55:00.000Z",
+              url: "https://files.example.test/order-02"
+            }]
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url.endsWith("/folders/IETESTCAMPAIGN")) {
+          return new Response(JSON.stringify({
+            data: [{ id: "IETESTCAMPAIGN", title: "IBA Multi-Placard Test" }]
+          }), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+        if (url === "https://files.example.test/order-02") {
+          return new Response(new TextEncoder().encode("bounded-workbook"), {
+            status: 200,
+            headers: { "Content-Type": "application/octet-stream" }
+          });
+        }
+        throw new Error(`Unexpected provider request: ${url}`);
+      }
+    }
+  );
+
+  assert.equal(result.task_id, "IETASK02");
+  assert.equal(result.order_context.root_folder_id, "IEIBACAMPAIGNS");
+  assert.equal(result.order_context.campaign_folder_id, "IETESTCAMPAIGN");
+  assert.equal(result.workbooks.length, 1);
+  assert.equal(calls.some((url) => url.includes("/api/v4/ids")), false);
+  assert.deepEqual(
+    calls.filter((url) => url.includes("/api/v4/folders/")),
+    ["https://www.wrike.com/api/v4/folders/IETESTCAMPAIGN"]
+  );
+});
+
+test("scheduled preparation rejects stale or changed scope evidence without widening provider reads", async () => {
+  const config = normalizeWrikeSourceConfig({
+    folder_id: "49405755",
+    approved_discovery_task_id: "IETASK02",
+    trigger_status_id: "IEREADY",
+    contract_number_custom_field_id: "IECONTRACT",
+    attachment_extensions: ["xlsx"]
+  });
+  const credentials = {
+    access_token: "current-access-token",
+    access_token_expires_at: "2026-08-28T17:57:53.202Z",
+    host: "www.wrike.com"
+  };
+  let staleReads = 0;
+  await assert.rejects(
+    () => fetchQualifiedWrikeWorkbookSources(credentials, config, {
+      now: () => new Date("2026-08-28T16:57:53.202Z"),
+      prequalified_scope: {
+        task_id: "IETASK02",
+        checked_at: "2026-08-28T16:50:00.000Z",
+        resolved_root_folder_ids: ["IEIBACAMPAIGNS"],
+        parent_ids: ["IETESTCAMPAIGN"]
+      },
+      fetch_impl: async () => {
+        staleReads += 1;
+        throw new Error("Provider should not be read for stale scope evidence.");
+      }
+    }),
+    (error: unknown) => error instanceof WrikeConnectionError && error.code === "invalid_configuration"
+  );
+  assert.equal(staleReads, 0);
+
+  const changedCalls: string[] = [];
+  await assert.rejects(
+    () => fetchQualifiedWrikeWorkbookSources(credentials, config, {
+      now: () => new Date("2026-08-28T16:57:53.202Z"),
+      prequalified_scope: {
+        task_id: "IETASK02",
+        checked_at: "2026-08-28T16:57:53.202Z",
+        resolved_root_folder_ids: ["IEIBACAMPAIGNS"],
+        parent_ids: ["IETESTCAMPAIGN"]
+      },
+      fetch_impl: async (input) => {
+        const url = String(input);
+        changedCalls.push(url);
+        return new Response(JSON.stringify({
+          data: [{
+            id: "IETASK02",
+            accountId: "IEACCOUNT",
+            parentIds: ["IEMOVEDCAMPAIGN"],
+            superParentIds: [],
+            customStatusId: "IEREADY",
+            attachmentCount: 1,
+            title: "Placard Order 02",
+            customFields: [{ id: "IECONTRACT", value: "C234567" }]
+          }]
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+    }),
+    (error: unknown) => error instanceof WrikeConnectionError && error.code === "attachment_validation_failed"
+  );
+  assert.deepEqual(changedCalls, ["https://www.wrike.com/api/v4/tasks/IETASK02"]);
+});
+
 test("rejects unsafe workbook URLs and oversized content before retaining bytes", async () => {
   async function run(downloadUrl: string, contentLength = "10") {
     return fetchQualifiedWrikeWorkbookSources(

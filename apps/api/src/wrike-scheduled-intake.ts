@@ -26,6 +26,12 @@ export interface WrikeScheduledOrderCandidate {
   task_id: string;
   contract_number: string;
   trigger_status_id: string;
+  prequalified_scope?: {
+    task_id: string;
+    checked_at: string;
+    resolved_root_folder_ids: string[];
+    parent_ids: string[];
+  };
 }
 
 export interface WrikeSourceTaskJob {

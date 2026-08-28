@@ -268,6 +268,20 @@ export interface WrikeQualifiedWorkbookSourceResult {
   reference_proof: WrikeQualifiedReferenceProofSource | null;
 }
 
+/**
+ * Short-lived scope evidence produced by the scheduled descendants query and
+ * consumed immediately by exact-task preparation in the same scheduler run.
+ * It avoids repeating legacy-ID conversion and a deep folder walk for every
+ * candidate while still requiring an exact task re-read and unchanged direct
+ * parent binding before any attachment is downloaded.
+ */
+export interface WrikePrequalifiedTaskScope {
+  task_id: string;
+  checked_at: string;
+  resolved_root_folder_ids: string[];
+  parent_ids: string[];
+}
+
 export interface WrikeQualifiedReferenceProofSource {
   account_id: string;
   task_id: string;
@@ -2299,6 +2313,7 @@ async function discoverApprovedWrikeTaskWithContext(
   options: {
     fetch_impl?: typeof fetch;
     now?: () => Date;
+    prequalified_scope?: WrikePrequalifiedTaskScope;
   } = {}
 ): Promise<{
   discovery: WrikeTaskDiscoveryResult;
@@ -2325,17 +2340,41 @@ async function discoverApprovedWrikeTaskWithContext(
   const rotatedCredentials = refreshed.credentials;
   const host = rotatedCredentials.host;
   const accessToken = rotatedCredentials.access_token ?? "";
-  const folderIds: string[] = [];
-  for (const configuredFolderId of configuredFolderIds) {
-    folderIds.push(
-      await resolveWrikeFolderId(
-        configuredFolderId,
-        host,
-        accessToken,
-        fetchImpl,
-        rotatedCredentials
-      )
+  const prequalifiedScope = options.prequalified_scope;
+  let folderIds: string[] = [];
+  if (prequalifiedScope) {
+    const checkedAt = Date.parse(prequalifiedScope.checked_at);
+    const nowEpoch = (options.now ?? (() => new Date()))().getTime();
+    const resolvedRootFolderIds = Array.from(
+      new Set(prequalifiedScope.resolved_root_folder_ids.map(providerIdentifier).filter(Boolean))
     );
+    if (
+      providerIdentifier(prequalifiedScope.task_id) !== taskId ||
+      !Number.isFinite(checkedAt) ||
+      checkedAt > nowEpoch + 5_000 ||
+      nowEpoch - checkedAt > 2 * 60 * 1000 ||
+      resolvedRootFolderIds.length === 0 ||
+      resolvedRootFolderIds.length > configuredFolderIds.length
+    ) {
+      throw new WrikeConnectionError(
+        "invalid_configuration",
+        "The scheduled Wrike scope evidence is missing, stale, or outside the configured campaign roots.",
+        rotatedCredentials
+      );
+    }
+    folderIds = resolvedRootFolderIds;
+  } else {
+    for (const configuredFolderId of configuredFolderIds) {
+      folderIds.push(
+        await resolveWrikeFolderId(
+          configuredFolderId,
+          host,
+          accessToken,
+          fetchImpl,
+          rotatedCredentials
+        )
+      );
+    }
   }
   const taskUrl = new URL(`https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}`);
   // Keep the exact-task read on Wrike's default response contract. Production
@@ -2378,19 +2417,33 @@ async function discoverApprovedWrikeTaskWithContext(
   const contractNumber = resolveWrikeContractNumber(task, config.contract_number_custom_field_id);
   const artworkFolder = resolveWrikeArtworkFolderUrl(task, config.artwork_folder_custom_field_id);
   let matchedFolderId = "";
-  for (const folderId of folderIds) {
+  if (prequalifiedScope) {
+    const expectedParentIds = Array.from(
+      new Set(prequalifiedScope.parent_ids.map(providerIdentifier).filter(Boolean))
+    ).sort();
+    const observedParentIds = [...parentIds].sort();
     if (
-      await taskBelongsToWrikeFolderScope(
-        task,
-        folderId,
-        host,
-        accessToken,
-        fetchImpl,
-        rotatedCredentials
-      )
+      expectedParentIds.length > 0 &&
+      expectedParentIds.length === observedParentIds.length &&
+      expectedParentIds.every((parentId, index) => parentId === observedParentIds[index])
     ) {
-      matchedFolderId = folderId;
-      break;
+      matchedFolderId = folderIds[0] ?? "";
+    }
+  } else {
+    for (const folderId of folderIds) {
+      if (
+        await taskBelongsToWrikeFolderScope(
+          task,
+          folderId,
+          host,
+          accessToken,
+          fetchImpl,
+          rotatedCredentials
+        )
+      ) {
+        matchedFolderId = folderId;
+        break;
+      }
     }
   }
   const folderMatches = Boolean(matchedFolderId);
@@ -2739,6 +2792,7 @@ export async function fetchQualifiedWrikeWorkbookSources(
   options: {
     fetch_impl?: typeof fetch;
     now?: () => Date;
+    prequalified_scope?: WrikePrequalifiedTaskScope;
     max_workbook_bytes?: number;
     max_reference_proof_bytes?: number;
     max_total_bytes?: number;
