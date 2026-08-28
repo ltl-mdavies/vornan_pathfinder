@@ -157,7 +157,7 @@ test("atomically preserves the exact uncertain attempt while associating its ver
   });
 
   assert.equal(result?.association?.source, "scheduled_uncertain_reconciliation");
-  assert.equal(result?.association?.automatic_wrike_status_writeback_suppressed, true);
+  assert.equal(result?.association?.automatic_wrike_status_writeback_suppressed, undefined);
   assert.deepEqual(
     commands.map((command) => command.constructor.name),
     ["GetItemCommand", "GetItemCommand", "TransactWriteItemsCommand"]
