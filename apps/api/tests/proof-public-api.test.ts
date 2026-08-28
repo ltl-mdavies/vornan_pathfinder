@@ -215,6 +215,35 @@ test("exchanges a fragment token for a narrow hardened cookie and returns only i
   assert.equal(serialized.includes("javascript:"), false);
 });
 
+test("allows the authenticated detailed-report view redirect to load inside the Proof viewer", async () => {
+  const viewerApp = express();
+  viewerApp.use(express.json());
+  viewerApp.use((_req, res, next) => {
+    res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+    res.setHeader("X-Frame-Options", "DENY");
+    next();
+  });
+  viewerApp.use("/api/public/proof", createPublicRouter({
+    detailedReportView: async () => "https://lift.example/reports/current.pdf"
+  }));
+  const created = await access.createProofGrant({ order_number: order.order_number, scope: "view", capability: reviewCapability });
+  const exchange = await request(viewerApp)
+    .post("/api/public/proof/sessions")
+    .send({ token: created.access_url.split("/").at(-1)! })
+    .expect(201);
+  const credentials = exchangeCredentials(exchange);
+
+  const response = await request(viewerApp)
+    .get("/api/public/proof/detailed-reports/preport_test/view")
+    .set("Cookie", credentials.cookie)
+    .redirects(0)
+    .expect(302);
+
+  assert.equal(response.headers.location, "https://lift.example/reports/current.pdf");
+  assert.equal(response.headers["x-frame-options"], undefined);
+  assert.equal(response.headers["content-security-policy"], "default-src 'none'; frame-ancestors 'self'");
+});
+
 test("continues a valid session only with its matching CSRF proof", async () => {
   const created = await access.createProofGrant({ order_number: order.order_number });
   const exchange = await request(app)

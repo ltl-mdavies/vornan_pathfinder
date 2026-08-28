@@ -392,6 +392,10 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
     try {
       const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
       const { session } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
+      // This is the only public API response intentionally loaded in the Proof UI.
+      // It remains session-bound and redirects only to the report URL resolved by Lift.
+      res.removeHeader("X-Frame-Options");
+      res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'self'");
       const location = await detailedReportView({
         session, record_id: req.params.recordId,
         correlation_id: req.get("x-request-id") ?? `proof-detailed-report-${session.session_id}`
