@@ -572,7 +572,7 @@ test("updates Lift comments on the current proof without creating a second proof
   assert.equal(after.version, before.version + 1);
 });
 
-test("creates a new proof version when the asset path changes", () => {
+test("keeps one file-history entry when a same-attachment asset URL changes", () => {
   const first = normalizeProofOrder({
     order_number: "A0221132",
     order_payload: orderPayload,
@@ -597,10 +597,12 @@ test("creates a new proof version when the asset path changes", () => {
 
   assert.equal(second.version, first.version + 1);
   assert.equal(changed?.version, 2);
-  assert.equal(changed?.versions.length, 2);
+  assert.equal(changed?.versions.length, 1);
+  assert.equal(changed?.versions[0]?.current, true);
+  assert.equal(changed?.versions[0]?.download_url, "https://files.example/north-b-replacement.pdf?X-Amz-Signature=fresh");
 });
 
-test("preserves the prior proof version when approval metadata changes on the same attachment", () => {
+test("updates approval metadata on the same attachment without adding a file version", () => {
   const first = normalizeProofOrder({
     order_number: "A0221132",
     order_payload: orderPayload,
@@ -630,9 +632,38 @@ test("preserves the prior proof version when approval metadata changes on the sa
 
   assert.equal(task?.state, "approved");
   assert.equal(task?.version, 2);
-  assert.equal(task?.versions.length, 2);
+  assert.equal(task?.versions.length, 1);
   assert.equal(task?.versions.filter((version) => version.current).length, 1);
-  assert.equal(task?.versions.some((version) => version.approval_status === "PENDING" && !version.current), true);
+  assert.equal(task?.versions[0]?.approval_status, "APPROVED");
+});
+
+test("collapses legacy duplicate snapshots for one Lift attachment on the next sync", () => {
+  const first = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    synced_at: syncedAt
+  });
+  const legacy = structuredClone(first);
+  const legacyTask = legacy.tasks.find((task) => task.attachment_id === "25435041")!;
+  const legacyVersion = legacyTask.current_version!;
+  legacyTask.versions = Array.from({ length: 9 }, (_, index) => ({
+    ...legacyVersion,
+    version_id: `pversion_legacy_${index}`,
+    current: index === 0
+  }));
+
+  const second = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    previous: legacy,
+    synced_at: "2026-07-20T12:15:00.000Z"
+  });
+  const refreshedTask = second.tasks.find((task) => task.attachment_id === "25435041");
+
+  assert.equal(refreshedTask?.versions.length, 1);
+  assert.equal(refreshedTask?.versions[0]?.attachment_id, "25435041");
 });
 
 test("maps Lift revision statuses to a non-actionable regenerating cycle", () => {
@@ -723,6 +754,48 @@ test("accepts an operator-swapped Lift attachment as the new actionable proof", 
   assert.equal(second.tasks.some((task) => task.attachment_id === "25435041"), false);
   assert.equal(second.archived_tasks.some((task) => task.attachment_id === "25435041"), true);
   assert.equal(second.warnings.some((warning) => warning.attachment_id === "25435999"), false);
+});
+
+test("shows an archived same-line attachment as the prior file version of a replacement proof", () => {
+  const first = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [proofPayload],
+    synced_at: syncedAt
+  });
+  const replacementPayload = {
+    rowset: (proofPayload.rowset as Array<Record<string, unknown>>)
+      .filter((row) => row.ATTACHMENT_ID !== 25435041)
+      .concat({
+        ORDER_NUMBER: "A0221132",
+        ORDER_LINE_ID: 9301338,
+        LINE_NUMBER: 10,
+        ATTACHMENT_ID: 25435999,
+        CREATION_DATE: "2026-07-20T12:10:00Z",
+        PROOF_FILENAME: "north-c-corrected.pdf",
+        PROOF_MIME_TYPE: "application/pdf",
+        PROOF_LINK_HIGH: "https://files.example/north-c-corrected.pdf",
+        PROOF_APPROVAL_STATUS: "PENDING"
+      })
+  };
+  const second = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: orderPayload,
+    proof_payloads: [replacementPayload],
+    previous: first,
+    synced_at: "2026-07-20T12:15:00.000Z"
+  });
+  const replacement = second.tasks.find((task) => task.attachment_id === "25435999")!;
+  const history = toPublicProofTaskHistory(replacement, {
+    prior_tasks: second.archived_tasks.filter((task) => task.order_line_id === replacement.order_line_id)
+  });
+
+  assert.equal(history.versions.length, 2);
+  assert.equal(history.versions[0]?.filename, "north-c-corrected.pdf");
+  assert.equal(history.versions[0]?.current, true);
+  assert.equal(history.versions[1]?.filename, "north-a.pdf");
+  assert.equal(history.versions[1]?.current, false);
+  assert.equal(JSON.stringify(history).includes("attachment_id"), false);
 });
 
 test("keeps explicit Lift proof statuses authoritative over a completed line fallback", () => {

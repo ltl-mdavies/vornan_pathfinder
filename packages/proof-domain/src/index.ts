@@ -634,6 +634,22 @@ function stableVersionId(valueToHash: unknown) {
   return `pversion_${stableHash(JSON.stringify(valueToHash))}`;
 }
 
+function proofFileIdentity(version: Pick<ProofVersion, "attachment_id" | "version_id">) {
+  // Lift assigns a new attachment ID whenever a new proof file is created.
+  // Everything else on a proof row can legitimately change while the file remains the same.
+  return version.attachment_id ? `attachment:${version.attachment_id}` : `version:${version.version_id}`;
+}
+
+function dedupeProofVersions(versions: ProofVersion[]) {
+  const seen = new Set<string>();
+  return versions.filter((version) => {
+    const identity = proofFileIdentity(version);
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
+
 function fingerprint(valueToHash: unknown) {
   return stableHash(JSON.stringify(valueToHash));
 }
@@ -743,18 +759,14 @@ function proofVersionFromRows(rows: Record<string, unknown>[]): ProofVersion {
   const approvedAt = text(row, "PROOF_APPROVED_DATE", "APPROVED_DATE", "proof_approved_date", "approved_date");
   const detailedReport = value(row, "DETAILED_REPORT", "detailed_report");
   return {
-    version_id: stableVersionId({
-      attachmentId,
+    // Attachment ID is Lift's durable file identity. Do not create a new
+    // customer-visible version for a refreshed URL, comment, approval, or report.
+    version_id: stableVersionId(attachmentId ? { attachmentId } : {
       createdAt,
       filename,
       contentType,
       previewUrl,
-      downloadUrl,
-      approvalStatus,
-      approvedBy,
-      approvedAt,
-      comments,
-      detailedReport
+      downloadUrl
     }),
     attachment_id: attachmentId,
     created_at: createdAt,
@@ -902,10 +914,10 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
         }
       : incoming.current_version;
     const refreshedVersions = refreshedCurrentVersion
-      ? [
+      ? dedupeProofVersions([
           refreshedCurrentVersion,
           ...previous.versions.filter((version) => version.version_id !== previous.current_version?.version_id)
-        ]
+        ])
       : previous.versions;
     return {
       ...incoming,
@@ -932,10 +944,10 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
       task_id: previous.task_id,
       version: previous.version + 1,
       current_version: refreshedCurrentVersion,
-      versions: [
+      versions: dedupeProofVersions([
         refreshedCurrentVersion,
         ...previous.versions.filter((version) => !isSameProofVersionApartFromFeedback(version, refreshedCurrentVersion))
-      ],
+      ]),
       created_at: previous.created_at,
       updated_at: syncedAt
     };
@@ -948,7 +960,7 @@ function mergeTask(previous: ProofTask | undefined, incoming: ProofTask, syncedA
   );
   const currentVersion = incoming.current_version;
   const versions = currentVersion
-    ? [currentVersion, ...priorVersions.filter((version) => version.version_id !== currentVersion.version_id)]
+    ? dedupeProofVersions([currentVersion, ...priorVersions.filter((version) => version.version_id !== currentVersion.version_id)])
     : priorVersions;
   return {
     ...incoming,
@@ -1500,12 +1512,27 @@ export function toPublicProofVersion(
 
 export function toPublicProofTaskHistory(
   task: ProofTask,
-  options: { include_asset_urls?: boolean } = {}
+  options: { include_asset_urls?: boolean; prior_tasks?: ProofTask[] } = {}
 ): PublicProofTaskHistory {
+  const selectedVersionId = task.current_version?.version_id ?? null;
+  const priorTasks = (options.prior_tasks ?? [])
+    .filter((candidate) => candidate.task_id !== task.task_id)
+    .sort((left, right) => (right.archived_at ?? right.updated_at).localeCompare(left.archived_at ?? left.updated_at));
+  const versions = dedupeProofVersions([
+    ...(task.versions.length ? task.versions : task.current_version ? [task.current_version] : []),
+    ...priorTasks.flatMap((priorTask) => priorTask.versions.length
+      ? priorTask.versions
+      : priorTask.current_version
+        ? [priorTask.current_version]
+        : [])
+  ]).map((version) => ({
+    ...version,
+    // The selected file is the only current entry in this file's lineage.
+    current: version.version_id === selectedVersionId
+  }));
   return {
     task_id: task.task_id,
-    versions: (task.versions.length ? task.versions : task.current_version ? [task.current_version] : [])
-      .map((version) => toPublicProofVersion(version, options))
+    versions: versions.map((version) => toPublicProofVersion(version, options))
   };
 }
 
