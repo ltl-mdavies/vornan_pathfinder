@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { readFileSync } from "node:fs";
 import { DetailedReportButton, detailedReportOptionStatus } from "../src/detailed-report-button.tsx";
 import type { ProofTask, ProofVersion } from "../src/types.ts";
 
@@ -62,4 +63,10 @@ test("shows an immediate busy state for the selected report type", () => {
     description: "Couldn’t generate report",
     action: "Try again"
   });
+});
+
+test("returns from a report viewer to the report-type choices", () => {
+  const source = readFileSync(new URL("../src/detailed-report-button.tsx", import.meta.url), "utf8");
+  assert.match(source, /setViewerOpen\(false\); setSelectionOpen\(true\)/);
+  assert.match(source, /> Back<\/button>/);
 });

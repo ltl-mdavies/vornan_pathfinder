@@ -34,6 +34,7 @@ export class ProofDetailedReportError extends Error {
 }
 
 type Definition = { definition_id: string; label: string | null; report_id: string | null; report_url: string | null };
+type ReportObservation = { report_id: string | null; status: string | null; report_url: string | null };
 
 function recordObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -57,6 +58,17 @@ function safeUrl(value: unknown) {
     const url = new URL(candidate);
     return url.protocol === "https:" && !url.username && !url.password ? url.toString() : null;
   } catch { return null; }
+}
+
+function reportState(observation: ReportObservation): ProofDetailedReportRecord["state"] {
+  const status = observation.status?.trim().toUpperCase() ?? "";
+  if (observation.report_url && /^(SUCCESS|COMPLETE|COMPLETED|READY)$/.test(status)) return "ready";
+  if (/^(FAILED|ERROR|CANCELLED|CANCELED)$/.test(status)) return "failed";
+  return "running";
+}
+
+function nextDeadline(state: ProofDetailedReportRecord["state"], timestamp: Date) {
+  return state === "ready" || state === "failed" ? null : new Date(timestamp.getTime() + POLL_WINDOW_MS).toISOString();
 }
 
 function detailedReportDefinitions(raw: unknown): Definition[] {
@@ -212,7 +224,25 @@ export function createProofDetailedReportService(dependencies: ProofDetailedRepo
   async function begin(input: { session: ProofAccessSession; task_id: string; definition_id: string; correlation_id: string }) {
     const current = await binding(input.session, input.task_id, input.definition_id);
     const existingOrReady = await getOrCreateReadyRecord({ ...current, session: input.session, correlation_id: input.correlation_id });
-    if (existingOrReady?.state === "ready" || (existingOrReady && ["generation_started", "running"].includes(existingOrReady.state))) return publicRecord(existingOrReady);
+    const authoritativeReady = Boolean(current.definition.report_id && current.definition.report_url);
+    if (existingOrReady?.state === "ready" && authoritativeReady) return publicRecord(existingOrReady);
+    if (existingOrReady?.state === "ready" && existingOrReady.report_id) {
+      try {
+        const runtime = await detailedReportRuntime();
+        const observed = await status({ ...runtime, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, report_id: existingOrReady.report_id, timeout_ms: runtimeConfig().read.timeout_ms });
+        const timestamp = now();
+        const state = reportState(observed);
+        const refreshed = { ...existingOrReady, state, updated_at: timestamp.toISOString(), generation_deadline_at: nextDeadline(state, timestamp) };
+        await saveRecord(refreshed);
+        return publicRecord(refreshed);
+      } catch {
+        const timestamp = now();
+        const waiting = { ...existingOrReady, state: "running" as const, updated_at: timestamp.toISOString(), generation_deadline_at: nextDeadline("running", timestamp) };
+        await saveRecord(waiting);
+        return publicRecord(waiting);
+      }
+    }
+    if (existingOrReady && ["generation_started", "running"].includes(existingOrReady.state)) return publicRecord(existingOrReady);
     const timestamp = now();
     const reserved: ProofDetailedReportRecord = {
       record_id: proofDetailedReportRecordId({ customer_id: CUSTOMER_ID, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, definition_id: current.definition.definition_id }),
@@ -235,7 +265,9 @@ export function createProofDetailedReportService(dependencies: ProofDetailedRepo
     try {
       const runtime = await detailedReportRuntime();
       const result = await start({ ...runtime, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, definition_id: current.definition.definition_id, timeout_ms: runtimeConfig().read.timeout_ms });
-      const next: ProofDetailedReportRecord = { ...reserved, report_id: result.report_id, state: result.report_url ? "ready" : "running", updated_at: now().toISOString(), generation_deadline_at: result.report_url ? null : reserved.generation_deadline_at };
+      const completedState = reportState(result);
+      const completedAt = now();
+      const next: ProofDetailedReportRecord = { ...reserved, report_id: result.report_id, state: completedState, updated_at: completedAt.toISOString(), generation_deadline_at: nextDeadline(completedState, completedAt) };
       await saveRecord(next);
       return publicRecord(next);
     } catch {
@@ -260,7 +292,9 @@ export function createProofDetailedReportService(dependencies: ProofDetailedRepo
     try {
       const runtime = await detailedReportRuntime();
       const result = await status({ ...runtime, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, report_id: record.report_id, timeout_ms: runtimeConfig().read.timeout_ms });
-      const next = { ...record, state: result.report_url ? "ready" as const : "running" as const, updated_at: now().toISOString(), generation_deadline_at: result.report_url ? null : record.generation_deadline_at };
+      const observedState = reportState(result);
+      const observedAt = now();
+      const next = { ...record, state: observedState, updated_at: observedAt.toISOString(), generation_deadline_at: nextDeadline(observedState, observedAt) };
       await saveRecord(next);
       await audit({ action: next.state === "ready" ? "proof.detailed_report_ready" : "proof.detailed_report_status_observed", order_number: current.order.order_number, task_id: current.task.task_id, order_line_id: current.task.order_line_id, attachment_id: current.task.attachment_id, grant_id: input.session.grant_id, participant_id: input.session.participant_id, metadata: { detailed_report_state: next.state }, context: auditContext(input.session, input.correlation_id) });
       return publicRecord(next);
@@ -278,9 +312,14 @@ export function createProofDetailedReportService(dependencies: ProofDetailedRepo
     }
     const runtime = await detailedReportRuntime();
     const result = await status({ ...runtime, order_number: current.order.order_number, order_line_id: current.task.order_line_id!, attachment_id: current.task.attachment_id!, report_id: record.report_id, timeout_ms: runtimeConfig().read.timeout_ms });
-    if (!result.report_url) throw new ProofDetailedReportError("provider_failed", "We’re still preparing your report. Try again shortly.");
+    if (reportState(result) !== "ready") {
+      const observedAt = now();
+      const observedState = reportState(result);
+      await saveRecord({ ...record, state: observedState, updated_at: observedAt.toISOString(), generation_deadline_at: nextDeadline(observedState, observedAt) });
+      throw new ProofDetailedReportError("provider_failed", observedState === "failed" ? "This report couldn’t be generated. Try again." : "Your detailed report is still being prepared.");
+    }
     await audit({ action: "proof.detailed_report_view_redirected", order_number: current.order.order_number, task_id: current.task.task_id, order_line_id: current.task.order_line_id, attachment_id: current.task.attachment_id, grant_id: input.session.grant_id, participant_id: input.session.participant_id, metadata: { detailed_report_state: "ready" }, context: auditContext(input.session, input.correlation_id) });
-    return result.report_url;
+    return result.report_url!;
   }
   async function viewByRecord(input: { session: ProofAccessSession; record_id: string; correlation_id: string }) {
     const order = await getOrder(input.session.order_number);

@@ -120,7 +120,7 @@ test("uses the exact Lift Detailed Report API base URL when polling a generated 
   assert.equal(result.state, "ready");
 });
 
-test("uses a report URL returned by Lift's initial POST without an immediate status read", async () => {
+test("keeps an initial Lift report URL in progress until the workflow reports success", async () => {
   const records = new Map<string, any>();
   let statusReads = 0;
   const service = createProofDetailedReportService({
@@ -136,8 +136,30 @@ test("uses a report URL returned by Lift's initial POST without an immediate sta
     audit: async () => undefined
   });
   const result = await service.begin({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
-  assert.equal(result.state, "ready");
+  assert.equal(result.state, "running");
+  assert.equal(result.view_url, null);
   assert.equal(statusReads, 0);
+});
+
+test("promotes a generated report to viewable only after Lift reports success", async () => {
+  const records = new Map<string, any>();
+  const service = createProofDetailedReportService({
+    getOrder: async () => order,
+    focusedRead: async () => ({ order_line_id: "line_2", payload: { rowset: [{ ORDER_LINE_ID: "line_2", ATTACHMENT_ID: "attachment_2", DETAILED_REPORT: [{ DEFINITION_ID: 4441, DEFINITION_LABEL: "Detailed Report" }] }] } }),
+    readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://lift.example/order-import" }] }),
+    readCredentials: async () => ({ username: "PATHFINDER", password: "secret" }),
+    getRecord: async (_order, id) => records.get(id) ?? null,
+    saveRecord: async (record) => { records.set(record.record_id, record); return record; },
+    createRecord: async (record) => { records.set(record.record_id, record); return record; },
+    start: async () => ({ report_id: "report_1", status: "RUNNING", report_url: "https://lift.example/report.pdf" }),
+    status: async () => ({ report_id: "report_1", status: "SUCCESS", report_url: "https://lift.example/report.pdf" }),
+    audit: async () => undefined
+  });
+  const started = await service.begin({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
+  assert.equal(started.state, "running");
+  const ready = await service.check({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
+  assert.equal(ready.state, "ready");
+  assert.match(ready.view_url ?? "", /^\/api\/public\/proof\/detailed-reports\//);
 });
 
 test("keeps a ready report viewable when Lift resyncs the same attachment into a new normalized version", async () => {
