@@ -133,6 +133,8 @@ import {
   runWrikeScheduledIntake,
   runWrikeScheduledSubmits,
   runWrikeScheduledStatusWritebacks,
+  wrikeScheduledDuplicateNameRecoveryTitle,
+  wrikeScheduledOrderTitleForTask,
   wrikeMappingReevaluationBlockReason,
   type WrikeScheduledOrderCandidate
 } from "./wrike-scheduled-intake.js";
@@ -6128,7 +6130,7 @@ async function prepareWrikeOrderForTask(args: {
 
 async function submitScheduledWrikeJobOnce(jobId: string) {
   const customer = await findLiftCustomer(wrikeScheduledIntakeConfig.customer_id);
-  const existingJob = await getJob(customer, jobId);
+  let existingJob = await getJob(customer, jobId);
   if (!existingJob) throw new Error("WrikeScheduledSubmitJobMissing");
   const marker = existingJob.scheduled_wrike_intake;
   if (
@@ -6158,6 +6160,52 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
     return { outcome: "reconciliation_needed" as const };
   }
 
+  const existingImportMethodId = existingJob.import_method_id;
+  const workspace = await getOrCreateWorkspace(customer);
+  const method = workspace.import_methods.find(
+    (candidate) => candidate.import_method_id === existingImportMethodId
+  );
+  const recoveredOrderTitle = wrikeScheduledDuplicateNameRecoveryTitle({
+    order_title: existingJob.lift_payload.order.order_title ?? "",
+    task_title: existingJob.source_evidence?.task_title,
+    configured_task_title:
+      method?.source === "Wrike"
+        ? normalizeWrikeSourceConfig(method.source_config.wrike).order_task_title
+        : undefined,
+    target_order_number: existingJob.target_order_number,
+    attempts: existingTransportAttempts
+  });
+  if (recoveredOrderTitle) {
+    existingJob = await persistJobSnapshot(customer, {
+      ...existingJob,
+      state: "Ready",
+      canonical_order: {
+        ...existingJob.canonical_order,
+        order: {
+          ...existingJob.canonical_order.order,
+          order_title: recoveredOrderTitle
+        }
+      },
+      order_name_resolution_result: existingJob.order_name_resolution_result
+        ? { ...existingJob.order_name_resolution_result, value: recoveredOrderTitle }
+        : undefined,
+      lift_payload: {
+        ...existingJob.lift_payload,
+        order: { ...existingJob.lift_payload.order, order_title: recoveredOrderTitle }
+      },
+      submit_request_masked: {
+        ...existingJob.submit_request_masked,
+        body: {
+          ...existingJob.submit_request_masked.body,
+          order: {
+            ...existingJob.submit_request_masked.body.order,
+            order_title: recoveredOrderTitle
+          }
+        }
+      }
+    });
+  }
+
   // A source task can acquire a newer preview job when its workbook or Import Method
   // fingerprint changes. Never treat that new preview identity as permission to submit
   // the same Wrike task again after any sibling job has reached transport.
@@ -6176,7 +6224,6 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
   }
 
   const job = await refreshJobSubmitCertification(customer, existingJob);
-  const workspace = await getOrCreateWorkspace(customer);
   const outputRoute = workspace.output_routes.find(
     (route) => route.output_route_id === job.output_route_id
   );
@@ -8655,6 +8702,15 @@ async function createPreviewJobForRequest(
       method.order_name_resolution_config
     );
     const canonicalOrder = orderNameResolution.canonical_order;
+    if (options?.wrikeOrderContext?.task_title && canonicalOrder.order.order_title) {
+      const distinctOrderTitle = wrikeScheduledOrderTitleForTask({
+        order_title: canonicalOrder.order.order_title,
+        task_title: options.wrikeOrderContext.task_title,
+        configured_task_title: normalizeWrikeSourceConfig(method.source_config.wrike).order_task_title
+      });
+      canonicalOrder.order.order_title = distinctOrderTitle;
+      orderNameResolution.result.value = distinctOrderTitle;
+    }
     canonicalOrder.lines = canonicalOrder.lines.map((line, index) => ({
       ...line,
       line_kind: orderRows[index]?.line_kind ?? "print",

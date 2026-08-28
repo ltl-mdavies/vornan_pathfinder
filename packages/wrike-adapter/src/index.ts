@@ -699,6 +699,23 @@ function resolvedWrikeComparableCustomField(
   return resolved || null;
 }
 
+export function parseWrikeOrderTaskSequence(candidate: unknown, configured: unknown) {
+  const candidateTitle = normalizedComparableText(candidate);
+  const configuredTitle = normalizedComparableText(configured);
+  if (!configuredTitle || !candidateTitle) return null;
+  if (candidateTitle === configuredTitle) return 1;
+  const numberedPrefix = `${configuredTitle} `;
+  if (!candidateTitle.startsWith(numberedPrefix)) return null;
+  const suffix = candidateTitle.slice(numberedPrefix.length);
+  const hashPrefixed = suffix.startsWith("#");
+  const sequence = hashPrefixed ? suffix.slice(1) : suffix;
+  const hasSupportedFormat = /^\d{1,2}$/.test(sequence);
+  const sequenceNumber = Number(sequence);
+  return hasSupportedFormat && sequenceNumber >= 2 && sequenceNumber <= 99
+    ? sequenceNumber
+    : null;
+}
+
 function taskIdentityMatches(
   task: Record<string, unknown>,
   mode: WrikeOrderTaskIdentityMode,
@@ -708,20 +725,9 @@ function taskIdentityMatches(
   if (mode === "custom_item_type") {
     return Boolean(customItemTypeId) && providerIdentifier(task.customItemTypeId) === customItemTypeId;
   }
-  const candidateTitle = normalizedComparableText(task.title);
-  const configuredTitle = normalizedComparableText(title);
-  if (!configuredTitle || !candidateTitle) return false;
-  if (candidateTitle === configuredTitle) return true;
-  if (mode !== "exact_title_with_numbered_follow_ons") return false;
-
-  const numberedPrefix = `${configuredTitle} `;
-  if (!candidateTitle.startsWith(numberedPrefix)) return false;
-  const suffix = candidateTitle.slice(numberedPrefix.length);
-  const hashPrefixed = suffix.startsWith("#");
-  const sequence = hashPrefixed ? suffix.slice(1) : suffix;
-  const hasSupportedFormat = /^\d{1,2}$/.test(sequence);
-  const sequenceNumber = Number(sequence);
-  return hasSupportedFormat && sequenceNumber >= 2 && sequenceNumber <= 99;
+  const sequence = parseWrikeOrderTaskSequence(task.title, title);
+  if (mode === "exact_title") return sequence === 1;
+  return mode === "exact_title_with_numbered_follow_ons" && sequence !== null;
 }
 
 export function normalizeWrikeSourceConfig(value: unknown): WrikeSourceConfig {

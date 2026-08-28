@@ -15,6 +15,7 @@ import {
   normalizeWrikeHost,
   normalizeWrikeSourceConfig,
   parseWrikeOrderNameContract,
+  parseWrikeOrderTaskSequence,
   postWrikeTaskComment,
   resolveWrikeArtworkFolderUrl,
   resolveWrikeContractNumber,
@@ -119,6 +120,16 @@ test("normalizes the explicit numbered Placard Order title mode", () => {
     }).order_task_identity_mode,
     "exact_title_with_numbered_follow_ons"
   );
+});
+
+test("returns the canonical sequence for every supported numbered task variant", () => {
+  assert.equal(parseWrikeOrderTaskSequence("Placard Order", "Placard Order"), 1);
+  for (const title of ["Placard Order 2", "Placard Order 02", "Placard Order #2", "Placard Order #02"]) {
+    assert.equal(parseWrikeOrderTaskSequence(title, "Placard Order"), 2);
+  }
+  assert.equal(parseWrikeOrderTaskSequence("Placard Order 01", "Placard Order"), null);
+  assert.equal(parseWrikeOrderTaskSequence("Placard Order # 02", "Placard Order"), null);
+  assert.equal(parseWrikeOrderTaskSequence("Other Order 02", "Placard Order"), null);
 });
 
 test("normalizes only an explicit, safe multi-proof ZIP naming contract", () => {

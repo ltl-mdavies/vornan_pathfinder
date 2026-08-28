@@ -1,3 +1,5 @@
+import { parseWrikeOrderTaskSequence } from "@pathfinder/wrike-adapter";
+
 export interface WrikeScheduledIntakeConfig {
   enabled: boolean;
   lift_submit_enabled: boolean;
@@ -32,6 +34,67 @@ export interface WrikeScheduledOrderCandidate {
     resolved_root_folder_ids: string[];
     parent_ids: string[];
   };
+}
+
+export function wrikeScheduledOrderTitleForTask(args: {
+  order_title: string;
+  task_title: string | null | undefined;
+  configured_task_title?: string;
+}) {
+  const orderTitle = args.order_title.trim();
+  const sequence = parseWrikeOrderTaskSequence(
+    args.task_title,
+    args.configured_task_title ?? "Placard Order"
+  );
+  if (!orderTitle || sequence === null || sequence === 1) return orderTitle;
+
+  const sequenceLabel = String(sequence).padStart(2, "0");
+  const datedTitle = orderTitle.match(/^(.*?)(\s+-\s+\d{8})$/);
+  if (datedTitle) {
+    const prefix = datedTitle[1]!.trimEnd();
+    const suffix = datedTitle[2]!;
+    if (prefix.endsWith(` ${sequenceLabel}`)) return orderTitle;
+    return `${prefix} ${sequenceLabel}${suffix}`;
+  }
+  if (orderTitle.endsWith(` ${sequenceLabel}`) || orderTitle.endsWith(` - ${sequenceLabel}`)) {
+    return orderTitle;
+  }
+  return `${orderTitle} - ${sequenceLabel}`;
+}
+
+export function wrikeScheduledDuplicateNameRecoveryTitle(args: {
+  order_title: string;
+  task_title: string | null | undefined;
+  configured_task_title?: string;
+  target_order_number?: string | null;
+  attempts: Array<{
+    state: string;
+    response?: {
+      error_translation?: {
+        category?: string | null;
+        source_message?: string | null;
+      } | null;
+    } | null;
+  }>;
+}) {
+  if (args.target_order_number?.trim()) return null;
+  const transportAttempts = args.attempts.filter(
+    (attempt) => !["Blocked", "Gate Locked"].includes(attempt.state)
+  );
+  if (
+    transportAttempts.length === 0 ||
+    transportAttempts.some((attempt) => {
+      const translation = attempt.response?.error_translation;
+      const exactLiftCode = translation?.source_message?.trim().toUpperCase() ===
+        "GENERIC.ERROR.ORDER_TITLE_ALREADY_EXISTS";
+      return attempt.state !== "Failed" ||
+        (translation?.category !== "duplicate_order_name" && !exactLiftCode);
+    })
+  ) {
+    return null;
+  }
+  const nextTitle = wrikeScheduledOrderTitleForTask(args);
+  return nextTitle && nextTitle !== args.order_title.trim() ? nextTitle : null;
 }
 
 export interface WrikeSourceTaskJob {
