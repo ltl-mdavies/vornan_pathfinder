@@ -158,6 +158,23 @@ test("reconciles AS360Orders product names with their rendered dimension suffix"
   assert.equal(verified.line_count, 11);
 });
 
+test("normalizes only spacing around Lift product-name hyphens", () => {
+  const spacedJob = job();
+  spacedJob.lift_payload.lines[0]!.product_name = "Ice Box - SL 40 Right Side (Aligned)";
+  const payload = providerOrder();
+  payload.rowset[0]!.LINES[0]!.PRODUCT_NAME = "Ice Box- SL 40 Right Side (Aligned)-20x10";
+  const verified = verifyScheduledUncertainProviderOrder({
+    job: spacedJob,
+    attempt: attempt(),
+    order_number: "A0229496",
+    provider_payload: payload,
+    provider_company_id: "91",
+    expected_order_type: "High End Work",
+    fetched_at: "2026-08-28T18:48:00.000Z"
+  });
+  assert.equal(verified.line_count, 11);
+});
+
 test("supports the exact C317014 six-line fixture without weakening its identity", () => {
   const secondJob = {
     ...job("C317014", 6),

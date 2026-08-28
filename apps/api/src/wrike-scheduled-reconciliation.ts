@@ -10,7 +10,10 @@ const normalizedText = (value: unknown) => safeText(value).replace(/\s+/g, " ").
 // height as separate fields. Compare the stable product name here and continue
 // to compare both dimensions independently below.
 const normalizedProductName = (value: unknown) =>
-  normalizedText(value).replace(/-\s*\d+(?:\.\d+)?\s*[X×]\s*\d+(?:\.\d+)?$/, "").trim();
+  normalizedText(value)
+    .replace(/-\s*\d+(?:\.\d+)?\s*[X×]\s*\d+(?:\.\d+)?$/, "")
+    .replace(/\s*-\s*/g, "-")
+    .trim();
 
 const normalizedNumber = (value: unknown) => {
   const parsed = Number(value);
