@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createProofDetailedReportService } from "../src/proof/detailed-report-service.ts";
+import { proofDetailedReportRecordId } from "../src/proof/detailed-report-store.ts";
 
 const order = {
   order_number: "A0229507",
@@ -108,6 +109,36 @@ test("uses a report URL returned by Lift's initial POST without an immediate sta
   const result = await service.begin({ session, task_id: "ptask_1", definition_id: "4441", correlation_id: "test" });
   assert.equal(result.state, "ready");
   assert.equal(statusReads, 0);
+});
+
+test("keeps a ready report viewable when Lift resyncs the same attachment into a new normalized version", async () => {
+  const records = new Map<string, any>();
+  const resyncedOrder = structuredClone(order);
+  const task = resyncedOrder.tasks[0]!;
+  task.current_version.version_id = "pversion_resynced";
+  task.current_version.detailed_report = [{ DEFINITION_ID: 4441, DEFINITION_LABEL: "Detailed Report", REPORT_ID: "report_1", REPORT_URL: "https://lift.example/report.pdf" }];
+  const recordId = proofDetailedReportRecordId({
+    customer_id: "1249", order_number: order.order_number, order_line_id: task.order_line_id,
+    attachment_id: task.attachment_id, definition_id: "4441"
+  });
+  records.set(recordId, {
+    record_id: recordId, customer_id: "1249", order_number: order.order_number, task_id: task.task_id,
+    order_line_id: task.order_line_id, attachment_id: task.attachment_id, version_id: "pversion_prior",
+    definition_id: "4441", definition_label: "Detailed Report", report_id: "report_1", state: "ready",
+    created_at: "2026-08-28T00:00:00.000Z", updated_at: "2026-08-28T00:00:00.000Z", generation_deadline_at: null
+  });
+  const service = createProofDetailedReportService({
+    getOrder: async () => resyncedOrder,
+    focusedRead: async () => ({ order_line_id: task.order_line_id, payload: { rowset: [{ ORDER_LINE_ID: task.order_line_id, ATTACHMENT_ID: task.attachment_id, DETAILED_REPORT: task.current_version.detailed_report }] } }),
+    readTarget: async () => ({ target_id: "lift-standard-graphics", adapter: "lift-standard-graphics", environments: [{ environment_id: "env-lift-prod", role: "PROD", status: "Active", endpoint_url: "https://lift.example/order-import" }] }),
+    readCredentials: async () => ({ username: "PATHFINDER", password: "secret" }),
+    getRecord: async (_order, id) => records.get(id) ?? null,
+    status: async () => ({ report_id: "report_1", status: "SUCCESS", report_url: "https://lift.example/report.pdf" }),
+    audit: async () => undefined
+  });
+
+  const result = await service.viewByRecord({ session, record_id: recordId, correlation_id: "test" });
+  assert.equal(result, "https://lift.example/report.pdf");
 });
 
 test("fails closed when the active production target endpoint is malformed", async () => {
