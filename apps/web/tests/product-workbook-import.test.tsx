@@ -65,6 +65,30 @@ test("combines standard product tabs and a PS SKU hardware tab into one canonica
   assert.ok(grid.columns.includes("Item SKU"));
 });
 
+test("prefers mapped final-size dimensions over earlier generic width and height columns", () => {
+  const profile = inferProductWorkbookProfile(sheet(
+    "Sheet 1",
+    ["DESCRIPTION", "Height", "Width", "Final Size Width", "Final Size Length"],
+    [
+      {
+        DESCRIPTION: "Fat Head (17x11)",
+        Height: "17.5",
+        Width: "11.5",
+        "Final Size Width": "17",
+        "Final Size Length": "11"
+      }
+    ]
+  ));
+  const grid = productWorkbookProfileGrid([profile]);
+
+  assert.equal(profile.width_column, "Final Size Width");
+  assert.equal(profile.height_column, "Final Size Length");
+  assert.equal(grid.rows[0]?.["Final Size Width"], "17");
+  assert.equal(grid.rows[0]?.["Final Size Length"], "11");
+  assert.equal(grid.rows[0]?.Width, "11.5");
+  assert.equal(grid.rows[0]?.Height, "17.5");
+});
+
 test("retains unknown populated sheets for manual setup and excludes explicitly disabled tabs", () => {
   const unknown = inferProductWorkbookProfile(sheet("Notes", ["Comment"], [{ Comment: "Reference only" }]));
   const standard = inferProductWorkbookProfile(sheet("Ice Boxes", ["DESCRIPTION"], [{ DESCRIPTION: "Ice Box Door" }]));
