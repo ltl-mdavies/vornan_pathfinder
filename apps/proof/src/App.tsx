@@ -437,6 +437,7 @@ type ActionTransportProps = {
   onApproveSingle: (task: ProofTask, note: string) => Promise<DecisionOutcome>;
   onRequestChanges: (task: ProofTask, note: string) => Promise<DecisionOutcome>;
   onRequestRevision: (task: ProofTask) => void;
+  onReviewFeedback: (task: ProofTask, event: MouseEvent<HTMLButtonElement>) => void;
   mobile?: boolean;
 };
 
@@ -614,11 +615,12 @@ function ChangeRequestDialog({ open, task, note, productionBlocked, uploadBlocke
   );
 }
 
-function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, reviewExperience, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestChanges, onRequestRevision, mobile = false }: ActionTransportProps) {
+function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, reviewExperience, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestChanges, onRequestRevision, onReviewFeedback, mobile = false }: ActionTransportProps) {
   const actionableTasks = tasks.filter((task) => task.state === "pending" && task.current_version?.current);
   const multiProof = usesAdvancedQuantityAllocation(actionableTasks.length, reviewExperience);
   const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
   const approvedProof = !multiProof && selectedTask.state === "approved";
+  const feedbackAcknowledgementRequired = !multiProof && selectedTask.feedback_required && !selectedTask.feedback_acknowledged;
   const selectedCreativeNumber = tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1;
   const stagedTasks = tasks.filter((task) => stagedTaskIds.includes(task.task_id));
   const selectedIsStaged = stagedTaskIds.includes(selectedTask.task_id);
@@ -794,11 +796,17 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
     }
   };
   return (
-    <section className={`action-transport ${mobile ? "mobile" : ""} ${multiProof ? "distribution" : "simple"} ${approvedProof ? "approved" : ""}`} aria-label={approvedProof ? "Proof approval status" : "Proof decision actions"} aria-describedby={approvedProof || mobile ? undefined : "action-lock-message"}>
+    <section className={`action-transport ${mobile ? "mobile" : ""} ${multiProof ? "distribution" : "simple"} ${approvedProof ? "approved" : ""} ${feedbackAcknowledgementRequired ? "feedback-gate" : ""}`} aria-label={approvedProof ? "Proof approval status" : feedbackAcknowledgementRequired ? "Feedback review required" : "Proof decision actions"} aria-describedby={approvedProof || feedbackAcknowledgementRequired || mobile ? undefined : "action-lock-message"}>
       {approvedProof ? (
         <div className="decision-status-card approved-decision" role="status">
           <span><CheckCircle2 aria-hidden="true" /></span>
           <span><strong>Approved</strong><small>This proof has been approved.</small></span>
+        </div>
+      ) : feedbackAcknowledgementRequired ? (
+        <div className="decision-status-card feedback-decision" role="status">
+          <span><MessageSquareText aria-hidden="true" /></span>
+          <span><strong>Feedback needs review</strong><small>Review and acknowledge the Prepress team feedback before choosing an action.</small></span>
+          <button className="button feedback-review-action" type="button" onClick={(event) => onReviewFeedback(selectedTask, event)}><MessageSquareText aria-hidden="true" /> Review feedback</button>
         </div>
       ) : <>
       <div className="decision-heading">
@@ -1898,6 +1906,7 @@ export function App() {
                 onApproveSingle={approveSingleProof}
                 onRequestChanges={requestSingleProofChanges}
                 onRequestRevision={(task) => setRevisionUploadTaskId(task.task_id)}
+                onReviewFeedback={(task, event) => openDetailDialog("feedback", task.task_id, event)}
               />
             </>
           ) : (
@@ -1983,6 +1992,7 @@ export function App() {
                   onApproveSingle={approveSingleProof}
                   onRequestChanges={requestSingleProofChanges}
                   onRequestRevision={(task) => setRevisionUploadTaskId(task.task_id)}
+                  onReviewFeedback={(task, event) => openDetailDialog("feedback", task.task_id, event)}
                   mobile
                 />
               </article>
