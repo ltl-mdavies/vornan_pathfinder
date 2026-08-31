@@ -19,6 +19,8 @@ const SAFE_OPERATIONS = new Map([
   ["POST /api/public/proof/sessions/current/extend", "session_extend"],
   ["DELETE /api/public/proof/sessions/current", "session_logout"],
   ["POST /api/public/proof/participants", "participant_identity"],
+  ["GET /api/public/proof/shares", "shared_link_list"],
+  ["POST /api/public/proof/shares", "shared_link_create"],
   ["GET /api/public/proof/health", "health_read"]
 ]);
 const PUBLIC_PROOF_TASK_PREFIX = "/api/public/proof/tasks/";
@@ -80,6 +82,9 @@ export function emitProofMetric(input: MetricEnvelopeInput) {
 
 export function proofPublicOperation(method: string, path: string) {
   const normalizedMethod = method.toUpperCase();
+  if (normalizedMethod === "DELETE" && /^\/api\/public\/proof\/shares\/[^/]+$/.test(path)) {
+    return "shared_link_revoke";
+  }
   const exact = SAFE_OPERATIONS.get(`${normalizedMethod} ${path}`);
   if (exact) return exact;
   if (!path.startsWith(PUBLIC_PROOF_TASK_PREFIX)) return "unknown_public_route";

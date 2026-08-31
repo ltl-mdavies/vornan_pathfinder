@@ -1,4 +1,4 @@
-import type { ProofActivity, ProofDetailedReport, ProofOrder, ProofParticipant, ProofVersion } from "./types";
+import type { ProofActivity, ProofDetailedReport, ProofOrder, ProofParticipant, ProofSharedLink, ProofVersion } from "./types";
 
 export type ProofRevisionAssetState =
   | "initialized"
@@ -94,6 +94,26 @@ export async function identifyParticipant(displayName: string, email: string) {
   return api<{ participant: ProofParticipant }>("/api/public/proof/participants", {
     method: "POST",
     body: JSON.stringify({ display_name: displayName, email })
+  }, true);
+}
+
+export async function loadSharedLinks() {
+  return api<{ shares: ProofSharedLink[] }>("/api/public/proof/shares");
+}
+
+export async function createSharedLink(input: {
+  scope: "view" | "review";
+  expires_in_hours: 24 | 72 | 168 | 336;
+}) {
+  return api<{ share: ProofSharedLink; access_url: string }>("/api/public/proof/shares", {
+    method: "POST",
+    body: JSON.stringify(input)
+  }, true);
+}
+
+export async function revokeSharedLink(grantId: string) {
+  return api<{ share: ProofSharedLink }>(`/api/public/proof/shares/${encodeURIComponent(grantId)}`, {
+    method: "DELETE"
   }, true);
 }
 

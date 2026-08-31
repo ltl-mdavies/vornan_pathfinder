@@ -131,6 +131,7 @@ before(async () => {
   process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "true";
   process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = "1249";
   process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ = "true";
+  process.env.PATHFINDER_PROOF_ENABLE_SHARED_ACCESS = "false";
   process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = "2099-07-28T21:49:50.000Z";
   process.env.PATHFINDER_PROOF_SYNC_QUEUE_URL = "";
   process.env.PATHFINDER_PROOF_TELEMETRY_MODE = "off";
@@ -181,6 +182,7 @@ test("exchanges a fragment token for a narrow hardened cookie and returns only i
   assert.equal(response.body.order.order_status, "Pending Art Approval");
   assert.equal(response.body.order.access.decisions_enabled, false);
   assert.equal(response.body.order.access.revision_upload_enabled, false);
+  assert.equal(response.body.order.access.share_access_enabled, false);
   assert.equal(response.body.session_expires_at, exchange.body.expires_at);
   assert.equal(response.body.participant, null);
   assert.deepEqual(response.body.activity, {
@@ -922,6 +924,97 @@ test("binds optional reviewer identity to the session with CSRF and redacted aud
     first_seen_at: restricted.body.participants[0].first_seen_at,
     last_seen_at: restricted.body.participants[0].last_seen_at
   }]);
+});
+
+test("creates revocable delegated links without weakening the original owner link", async () => {
+  process.env.PATHFINDER_PROOF_ENABLE_SHARED_ACCESS = "true";
+  process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS = "true";
+  const shareApp = express();
+  shareApp.use(express.json());
+  shareApp.use("/api/public/proof", createPublicRouter());
+
+  try {
+    const owner = await access.createProofGrant({
+      order_number: order.order_number,
+      scope: "review",
+      capability: reviewCapability
+    });
+    const ownerExchange = await request(shareApp)
+      .post("/api/public/proof/sessions")
+      .send({ token: owner.access_url.split("/").at(-1)! })
+      .expect(201);
+    const ownerCredentials = exchangeCredentials(ownerExchange);
+
+    await request(shareApp)
+      .post("/api/public/proof/participants")
+      .set("Cookie", ownerCredentials.cookie)
+      .set("X-Vornan-Proof-Csrf", ownerCredentials.csrf)
+      .send({ display_name: "Morgan Owner", email: "morgan.owner@example.com" })
+      .expect(201);
+
+    const ownerOrder = await request(shareApp)
+      .get("/api/public/proof/order")
+      .set("Cookie", ownerCredentials.cookie)
+      .expect(200);
+    assert.equal(ownerOrder.body.order.access.share_access_enabled, true);
+
+    const created = await request(shareApp)
+      .post("/api/public/proof/shares")
+      .set("Cookie", ownerCredentials.cookie)
+      .set("X-Vornan-Proof-Csrf", ownerCredentials.csrf)
+      .send({ scope: "review", expires_in_hours: 168 })
+      .expect(201);
+    assert.equal(created.body.share.scope, "review");
+    assert.match(created.body.access_url, /#\/access\/[A-Za-z0-9_-]{43}$/);
+
+    const childToken = created.body.access_url.split("/").at(-1)!;
+    const firstChild = await request(shareApp)
+      .post("/api/public/proof/sessions")
+      .send({ token: childToken })
+      .expect(201);
+    const firstChildCredentials = exchangeCredentials(firstChild);
+    await request(shareApp)
+      .post("/api/public/proof/sessions")
+      .send({ token: childToken })
+      .expect(201);
+
+    const shares = await request(shareApp)
+      .get("/api/public/proof/shares")
+      .set("Cookie", ownerCredentials.cookie)
+      .expect(200);
+    assert.deepEqual(shares.body.shares.map((share: { grant_id: string }) => share.grant_id), [created.body.share.grant_id]);
+
+    await request(shareApp)
+      .delete(`/api/public/proof/shares/${created.body.share.grant_id}`)
+      .set("Cookie", ownerCredentials.cookie)
+      .set("X-Vornan-Proof-Csrf", ownerCredentials.csrf)
+      .expect(200);
+    await request(shareApp)
+      .get("/api/public/proof/order")
+      .set("Cookie", firstChildCredentials.cookie)
+      .expect(401);
+
+    const replacement = await request(shareApp)
+      .post("/api/public/proof/shares")
+      .set("Cookie", ownerCredentials.cookie)
+      .set("X-Vornan-Proof-Csrf", ownerCredentials.csrf)
+      .send({ scope: "view", expires_in_hours: 24 })
+      .expect(201);
+    const replacementExchange = await request(shareApp)
+      .post("/api/public/proof/sessions")
+      .send({ token: replacement.body.access_url.split("/").at(-1)! })
+      .expect(201);
+    const replacementCredentials = exchangeCredentials(replacementExchange);
+
+    await access.revokeProofGrant(owner.grant.grant_id);
+    await request(shareApp)
+      .get("/api/public/proof/order")
+      .set("Cookie", replacementCredentials.cookie)
+      .expect(401);
+  } finally {
+    process.env.PATHFINDER_PROOF_ENABLE_SHARED_ACCESS = "false";
+    process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS = "false";
+  }
 });
 
 test("binds feedback acknowledgement to the participant and current feedback fingerprint", async () => {

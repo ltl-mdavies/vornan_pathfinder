@@ -68,6 +68,7 @@ before(async () => {
   process.env.PATHFINDER_PROOF_ENABLE_GRANT_CREATION = "true";
   process.env.PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS = "1249";
   process.env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ = "true";
+  process.env.PATHFINDER_PROOF_ENABLE_SHARED_ACCESS = "false";
   process.env.PATHFINDER_PROOF_PUBLIC_BASE_URL = "https://proof.vornan.co";
   process.env.PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT = "2099-07-28T21:49:50.000Z";
   access = await import("../src/proof/access-service.ts");
@@ -105,6 +106,41 @@ test("revalidates the grant on each request so revocation ends an existing sessi
   const exchanged = await access.exchangeProofToken(rawToken);
   await access.revokeProofGrant(created.grant.grant_id);
   await assert.rejects(() => access.validateProofSession(exchanged.raw_session), access.ProofAccessDeniedError);
+});
+
+test("creates a reusable delegated link without relaxing the original single-use grant", async () => {
+  process.env.PATHFINDER_PROOF_ENABLE_SHARED_ACCESS = "true";
+  try {
+    const owner = await access.createProofGrant({ order_number: order.order_number });
+    const ownerExchange = await access.exchangeProofToken(owner.access_url.split("/").at(-1)!);
+    const shared = await access.createProofShare({
+      parent_grant: await store.getProofGrantById(owner.grant.grant_id) as NonNullable<Awaited<ReturnType<typeof store.getProofGrantById>>>,
+      parent_session: { ...ownerExchange.session, participant_id: "pparticipant_owner" },
+      scope: "view",
+      expires_in_hours: 168
+    });
+    const rawToken = shared.access_url.split("/").at(-1)!;
+    assert.match(rawToken, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal((await readFile(storePath, "utf8")).includes(rawToken), false);
+
+    const first = await access.exchangeProofToken(rawToken);
+    const second = await access.exchangeProofToken(rawToken);
+    assert.notEqual(first.session.session_id, second.session.session_id);
+    await assert.rejects(() => access.exchangeProofToken(owner.access_url.split("/").at(-1)!), access.ProofAccessDeniedError);
+
+    const sharedGrant = await store.getProofGrantById(shared.share.grant_id);
+    assert.equal(sharedGrant?.kind, "shared");
+    assert.equal(sharedGrant?.parent_grant_id, owner.grant.grant_id);
+    assert.equal(access.mayManageProofShares(sharedGrant!), false);
+    await access.revokeProofShare({
+      parent_grant: await store.getProofGrantById(owner.grant.grant_id) as NonNullable<Awaited<ReturnType<typeof store.getProofGrantById>>>,
+      grant_id: shared.share.grant_id
+    });
+    await assert.rejects(() => access.validateProofSession(first.raw_session), access.ProofAccessDeniedError);
+    await assert.rejects(() => access.exchangeProofToken(rawToken), access.ProofAccessDeniedError);
+  } finally {
+    process.env.PATHFINDER_PROOF_ENABLE_SHARED_ACCESS = "false";
+  }
 });
 
 test("extends an active session without exceeding its grant or activation window", async () => {

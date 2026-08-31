@@ -202,6 +202,7 @@ export function validateProofDeployment(env = process.env) {
   const operatorGrantCreationEnabled = enabled(env.PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED);
   const legacyCustomerApprovalEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS);
   const legacyCustomerRevisionUploadEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS);
+  const sharedAccessEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_SHARED_ACCESS);
   const legacyProofAssetUploadEnabled = enabled(env.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD);
   const ltlDemoQaEnabled = enabled(env.PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED);
   const ltlDemoQaAllowedOrders = ltlDemoQaEnabled
@@ -215,6 +216,9 @@ export function validateProofDeployment(env = process.env) {
   const grantAllowedCustomerIds = ltlDemoQaEnabled ? ["1249"] : configuredGrantAllowedCustomerIds;
   const managedWafEnabled = enabled(env.PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED);
   const sharedWebAclConfigured = Boolean(env.PATHFINDER_PROOF_WEB_ACL_ARN?.trim());
+  if (sharedAccessEnabled && !publicReadEnabled) {
+    throw new Error("PATHFINDER_PROOF_ENABLE_SHARED_ACCESS=true requires an enabled customer Proof session boundary.");
+  }
   let readOnlyActivationExpiresAt = null;
   if (ltlDemoQaEnabled) {
     if (
@@ -361,6 +365,7 @@ export function validateProofDeployment(env = process.env) {
     ltl_demo_qa_session_ttl_minutes: ltlDemoQaEnabled ? 720 : null,
     customer_approval_enabled: customerApprovalEnabled,
     customer_revision_upload_enabled: customerRevisionUploadEnabled,
+    shared_access_enabled: sharedAccessEnabled,
     proof_asset_upload_enabled: proofAssetUploadEnabled,
     lift_writes_enabled: false
   };

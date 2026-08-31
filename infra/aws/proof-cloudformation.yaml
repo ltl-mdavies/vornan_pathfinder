@@ -62,6 +62,11 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: Default-disabled customer revised-art upload boundary for existing review sessions.
+  SharedAccessEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Default-disabled delegated Proof links; shared links inherit the owner session's available access.
   ProofAssetUploadEnabled:
     Type: String
     Default: "false"
@@ -369,6 +374,13 @@ Rules:
         AssertDescription: Customer revised-art upload requires exact target, secret, private bucket, order allowlist, and expiry bindings.
       - Assert: !Equals [!Ref SyntheticQaEnabled, "false"]
         AssertDescription: Customer revised-art upload cannot overlap synthetic QA.
+  SharedAccessRequiresPublicSession:
+    RuleCondition: !Equals [!Ref SharedAccessEnabled, "true"]
+    Assertions:
+      - Assert: !Or
+          - !Equals [!Ref PublicReadEnabled, "true"]
+          - !Equals [!Ref LtlDemoQaSessionReadEnabled, "true"]
+        AssertDescription: Shared Proof links require an enabled customer Proof session boundary.
   LtlDemoQaRequiresIsolatedBoundary:
     RuleCondition: !Equals [!Ref LtlDemoQaEnabled, "true"]
     Assertions:
@@ -1020,6 +1032,7 @@ Resources:
           PATHFINDER_PROOF_CORE_TABLE: !Ref ProofCoreTable
           PATHFINDER_PROOF_AUDIT_TABLE: !Ref ProofAuditTable
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: !Ref PublicReadEnabled
+          PATHFINDER_PROOF_ENABLE_SHARED_ACCESS: !Ref SharedAccessEnabled
           PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: !Join
             - "|"
             - - !Ref LtlDemoQaEnabled

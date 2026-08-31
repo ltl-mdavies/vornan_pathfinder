@@ -3,6 +3,7 @@ import {
   normalizeLiftOrderNumber,
   type ProofAccessGrant,
   type ProofAccessSession,
+  type ProofAuditAction,
   type ProofGrantCapabilityBinding,
   type ProofGrantScope
 } from "@pathfinder/proof-domain";
@@ -34,7 +35,7 @@ export class ProofAccessDeniedError extends Error {
 }
 
 export class ProofAccessFeatureDisabledError extends Error {
-  constructor(feature: "grant creation" | "proof link email" | "public read") {
+  constructor(feature: "grant creation" | "proof link email" | "public read" | "shared access") {
     super(`Vornan Proof ${feature} is disabled.`);
     this.name = "ProofAccessFeatureDisabledError";
   }
@@ -74,6 +75,18 @@ export interface PublicProofGrant {
   last_used_at: string | null;
   participant_count: number;
 }
+
+export interface PublicProofShare {
+  grant_id: string;
+  scope: ProofGrantScope;
+  label: string | null;
+  status: ProofAccessGrant["status"];
+  created_at: string;
+  expires_at: string;
+  participant_count: number;
+}
+
+const SHARED_ACCESS_EXPIRY_HOURS = new Set([24, 72, 168, 336]);
 
 function hashSecret(value: string) {
   return createHash("sha256").update(value).digest("hex");
@@ -184,6 +197,159 @@ export function publicProofGrant(grant: ProofAccessGrant, participantCount = 0):
     ...safe
   } = grant;
   return { ...safe, participant_count: participantCount };
+}
+
+function isSharedGrant(grant: ProofAccessGrant) {
+  return grant.kind === "shared" && Boolean(grant.parent_grant_id);
+}
+
+function isOwnerGrant(grant: ProofAccessGrant) {
+  // Legacy grants predate delegated sharing and are original owner links.
+  return !isSharedGrant(grant);
+}
+
+async function sharedGrantHasActiveParent(grant: ProofAccessGrant, now: Date) {
+  if (!isSharedGrant(grant)) return true;
+  const parent = await getProofGrantById(grant.parent_grant_id!);
+  return Boolean(
+    parent &&
+    isOwnerGrant(parent) &&
+    activeGrant(parent, now) &&
+    parent.order_number === grant.order_number &&
+    (grant.scope === "view" || parent.scope === "review") &&
+    JSON.stringify(parent.capability ?? null) === JSON.stringify(grant.capability ?? null)
+  );
+}
+
+export function mayManageProofShares(grant: ProofAccessGrant) {
+  const config = getProofRuntimeConfig();
+  return config.feature_flags.shared_access && config.feature_flags.public_read && isOwnerGrant(grant);
+}
+
+function publicProofShare(grant: ProofAccessGrant, participantCount = 0): PublicProofShare {
+  return {
+    grant_id: grant.grant_id,
+    scope: grant.scope,
+    label: grant.label,
+    status: grant.status,
+    created_at: grant.created_at,
+    expires_at: grant.expires_at,
+    participant_count: participantCount
+  };
+}
+
+export async function listProofShares(parentGrant: ProofAccessGrant) {
+  if (!mayManageProofShares(parentGrant)) {
+    throw new ProofAccessFeatureDisabledError("shared access");
+  }
+  const grants = (await listProofGrants(parentGrant.order_number))
+    .filter((grant) => isSharedGrant(grant) && grant.parent_grant_id === parentGrant.grant_id)
+    .sort((left, right) => right.created_at.localeCompare(left.created_at));
+  return Promise.all(grants.map(async (grant) =>
+    publicProofShare(grant, (await listProofParticipants(grant.grant_id)).length)
+  ));
+}
+
+export async function createProofShare(input: {
+  parent_grant: ProofAccessGrant;
+  parent_session: ProofAccessSession;
+  scope: ProofGrantScope;
+  expires_in_hours: number;
+  label?: string | null;
+  now?: Date;
+  audit_context?: ProofAuditContext;
+}) {
+  const config = getProofRuntimeConfig();
+  if (!mayManageProofShares(input.parent_grant)) {
+    throw new ProofAccessFeatureDisabledError("shared access");
+  }
+  if (!input.parent_session.participant_id) {
+    throw new ProofAccessValidationError("Identify yourself before creating a shared link.");
+  }
+  if (input.scope !== "view" && input.scope !== "review") {
+    throw new ProofAccessValidationError("Shared access must be view or review.");
+  }
+  if (!SHARED_ACCESS_EXPIRY_HOURS.has(input.expires_in_hours)) {
+    throw new ProofAccessValidationError("Choose a 24-hour, 3-day, 7-day, or 14-day link expiry.");
+  }
+  if (input.scope === "review" && input.parent_grant.scope !== "review") {
+    throw new ProofAccessValidationError("This Proof session can create view links only.");
+  }
+  if (
+    input.scope === "review" &&
+    (!input.parent_grant.capability || input.parent_grant.capability.access_mode !== "review")
+  ) {
+    throw new ProofAccessValidationError("This Proof session can create view links only.");
+  }
+  if (input.scope === "review" && !config.feature_flags.approve && !config.feature_flags.revision_upload) {
+    throw new ProofAccessValidationError("Review access is not available for this Proof session.");
+  }
+  const now = input.now ?? new Date();
+  const deadline = activationDeadline(now);
+  const requestedExpiry = addMilliseconds(now, input.expires_in_hours * 60 * 60 * 1000);
+  const parentExpiry = new Date(input.parent_grant.expires_at);
+  const expiresAt = new Date(Math.min(
+    requestedExpiry.getTime(),
+    parentExpiry.getTime(),
+    deadline?.getTime() ?? Number.POSITIVE_INFINITY
+  ));
+  if (!Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= now.getTime()) {
+    throw new ProofAccessValidationError("This Proof access session has ended.");
+  }
+  const rawToken = randomBytes(32).toString("base64url");
+  const grant: ProofAccessGrant = {
+    grant_id: `pgrant_${randomUUID()}`,
+    order_number: input.parent_grant.order_number,
+    scope: input.scope,
+    kind: "shared",
+    parent_grant_id: input.parent_grant.grant_id,
+    created_by_participant_id: input.parent_session.participant_id,
+    label: input.label?.trim() || null,
+    status: "active",
+    token_hash: hashSecret(rawToken),
+    created_at: now.toISOString(),
+    expires_at: expiresAt.toISOString(),
+    expires_at_epoch: Math.floor(expiresAt.getTime() / 1000),
+    exchanged_at: null,
+    revoked_at: null,
+    last_used_at: null,
+    capability: input.parent_grant.capability ?? null
+  };
+  await persistProofGrant(grant);
+  await recordProofAuditEvent({
+    action: "proof.share_created",
+    order_number: grant.order_number,
+    grant_id: grant.grant_id,
+    participant_id: input.parent_session.participant_id,
+    metadata: { grant_scope: grant.scope, grant_status: grant.status },
+    context: input.audit_context,
+    occurred_at: now.toISOString()
+  });
+  return {
+    share: publicProofShare(grant),
+    access_url: `${config.access.public_base_url}/#/access/${rawToken}`
+  };
+}
+
+export async function revokeProofShare(input: {
+  parent_grant: ProofAccessGrant;
+  grant_id: string;
+  now?: Date;
+  audit_context?: ProofAuditContext;
+}) {
+  if (!mayManageProofShares(input.parent_grant)) {
+    throw new ProofAccessFeatureDisabledError("shared access");
+  }
+  const grant = await getProofGrantById(input.grant_id);
+  if (!grant || !isSharedGrant(grant) || grant.parent_grant_id !== input.parent_grant.grant_id) {
+    return null;
+  }
+  return persistProofGrantRevocation(
+    grant.grant_id,
+    input.now ?? new Date(),
+    input.audit_context,
+    "proof.share_revoked"
+  );
 }
 
 export async function createProofGrant(input: {
@@ -316,7 +482,8 @@ export async function listCustomerCapabilityProofGrants(pathfinderCustomerId: st
 async function persistProofGrantRevocation(
   grantId: string,
   now: Date,
-  auditContext?: ProofAuditContext
+  auditContext?: ProofAuditContext,
+  auditAction: ProofAuditAction = "proof.grant_revoked"
 ) {
   const grant = await getProofGrantById(grantId);
   if (!grant) {
@@ -329,7 +496,7 @@ async function persistProofGrantRevocation(
   };
   await persistProofGrant(revoked);
   await recordProofAuditEvent({
-    action: "proof.grant_revoked",
+    action: auditAction,
     order_number: revoked.order_number,
     grant_id: revoked.grant_id,
     metadata: { grant_scope: revoked.scope, grant_status: revoked.status },
@@ -444,7 +611,8 @@ export async function exchangeProofToken(
   if (
     !grant ||
     !activeGrant(grant, now) ||
-    grant.exchanged_at ||
+    (!isSharedGrant(grant) && grant.exchanged_at) ||
+    !(await sharedGrantHasActiveParent(grant, now)) ||
     !ltlDemoOrderAllowed(config, grant.order_number)
   ) {
     throw new ProofAccessDeniedError();
@@ -452,9 +620,16 @@ export async function exchangeProofToken(
   if (!(await revalidateProofCustomerCapability(grant, readWorkspace))) {
     throw new ProofAccessDeniedError();
   }
-  const claimed = await claimProofGrant(grant, now.toISOString());
+  const claimed = isSharedGrant(grant)
+    ? { ...grant, last_used_at: now.toISOString() }
+    : await claimProofGrant(grant, now.toISOString());
   if (!claimed) {
     throw new ProofAccessDeniedError();
+  }
+  if (isSharedGrant(grant)) {
+    // Shared bearer links are intentionally reusable. Persist only the last
+    // access time; their secret remains hash-only and never leaves this flow.
+    await persistProofGrant(claimed);
   }
   const rawSession = randomBytes(32).toString("base64url");
   const rawCsrf = randomBytes(32).toString("base64url");
@@ -532,7 +707,8 @@ export async function validateProofSession(
     grant.order_number !== session.order_number ||
     grant.scope !== session.scope ||
     !capabilityAllowsScope(grant.capability, grant.scope) ||
-    JSON.stringify(session.capability ?? null) !== JSON.stringify(grant.capability ?? null)
+    JSON.stringify(session.capability ?? null) !== JSON.stringify(grant.capability ?? null) ||
+    !(await sharedGrantHasActiveParent(grant, now))
   ) {
     throw new ProofAccessDeniedError();
   }

@@ -18,6 +18,7 @@ import {
   Paperclip,
   RefreshCw,
   Search,
+  Share2,
   ShieldCheck,
   Upload,
   UserRound,
@@ -52,6 +53,7 @@ import { ProofPreview } from "./proof-preview";
 import { DetailedReportButton } from "./detailed-report-button";
 import { isLiftProofUpdatedError, PROOF_UPDATED_MESSAGE, replacementProofTaskId } from "./proof-update-state";
 import { RevisionUploadDialog } from "./revision-upload-dialog";
+import { ShareDialog } from "./share-dialog";
 import { usesAdvancedQuantityAllocation } from "./review-experience";
 import {
   quantityDraftMatches,
@@ -1007,6 +1009,7 @@ export function App() {
   const [detailDialog, setDetailDialog] = useState<DetailDialog | null>(null);
   const [revisionUploadTaskId, setRevisionUploadTaskId] = useState<string | null>(null);
   const [identityOpen, setIdentityOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [identityName, setIdentityName] = useState("");
   const [identityEmail, setIdentityEmail] = useState("");
   const [identitySaving, setIdentitySaving] = useState(false);
@@ -1023,6 +1026,7 @@ export function App() {
   const identityDialogElement = useRef<HTMLDialogElement>(null);
   const dialogOpener = useRef<HTMLElement | null>(null);
   const identityDialogOpener = useRef<HTMLElement | null>(null);
+  const shareDialogOpener = useRef<HTMLElement | null>(null);
   const detailDialogCloseButton = useRef<HTMLButtonElement>(null);
   const identityNameInput = useRef<HTMLInputElement>(null);
   const terminalStateElement = useRef<HTMLElement>(null);
@@ -1542,6 +1546,11 @@ export function App() {
     setIdentityOpen(true);
   };
 
+  const openShareDialog = (opener: HTMLElement) => {
+    shareDialogOpener.current = opener;
+    setShareOpen(true);
+  };
+
   const saveIdentity = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (loadState.status !== "ready" || identitySaving) return;
@@ -1551,17 +1560,23 @@ export function App() {
       const saved = demoEnabled
         ? { participant: { participant_id: participant?.participant_id ?? "demo-participant", display_name: identityName.trim(), email: identityEmail.trim().toLowerCase() } }
         : await identifyParticipant(identityName, identityEmail);
-      setLoadState({
-        ...loadState,
-        participant: saved.participant,
-        activity: {
-          identified_reviewers: loadState.participant
-            ? loadState.activity.identified_reviewers
-            : loadState.activity.identified_reviewers + 1,
-          last_activity_at: new Date().toISOString(),
-          reviewer_names_visible: false
-        }
-      });
+      if (demoEnabled) {
+        setLoadState({
+          ...loadState,
+          participant: saved.participant,
+          activity: {
+            identified_reviewers: loadState.participant
+              ? loadState.activity.identified_reviewers
+              : loadState.activity.identified_reviewers + 1,
+            last_activity_at: new Date().toISOString(),
+            reviewer_names_visible: false
+          }
+        });
+      } else {
+        // The server derives sharing authority from the active owner grant.
+        // Re-read it after identity is saved instead of inferring client-side.
+        applyProofLoad(await loadProofOrder());
+      }
       identityDialogElement.current?.close();
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
@@ -1726,6 +1741,12 @@ export function App() {
             {customerProofCounts.awaitingProof ? <div><dt>Awaiting proof</dt><dd>{customerProofCounts.awaitingProof}</dd></div> : null}
             {customerProofCounts.updatingProof ? <div><dt>Updating proof</dt><dd>{customerProofCounts.updatingProof}</dd></div> : null}
           </dl>
+          {order!.access.share_access_enabled ? (
+            <button className="share-proof-button" type="button" onClick={(event) => openShareDialog(event.currentTarget)}>
+              <Share2 aria-hidden="true" />
+              <span>Share</span>
+            </button>
+          ) : null}
         </div>
       </section>
 
@@ -2140,6 +2161,16 @@ export function App() {
           title: `Line ${task.line_number ?? "—"} revised artwork received`,
           detail: "The current proof will leave Open proofs while Vornan prepares the replacement."
         })}
+      />
+
+      <ShareDialog
+        open={shareOpen}
+        orderTitle={proofOrderDisplayTitle(order!)}
+        reviewAvailable={order!.access.scope === "review" && (order!.access.decisions_enabled || Boolean(order!.access.revision_upload_enabled))}
+        onClose={() => {
+          setShareOpen(false);
+          restoreDialogFocus(shareDialogOpener.current);
+        }}
       />
 
       {identityOpen ? (

@@ -77,6 +77,7 @@ export interface ProofOrder {
   access: {
     scope: "view" | "review";
     decisions_enabled: boolean;
+    share_access_enabled?: boolean;
     review_experience: "simple" | "advanced";
     revision_upload_enabled?: boolean;
   };
@@ -92,4 +93,14 @@ export interface ProofActivity {
   identified_reviewers: number;
   last_activity_at: string | null;
   reviewer_names_visible: false;
+}
+
+export interface ProofSharedLink {
+  grant_id: string;
+  scope: "view" | "review";
+  label: string | null;
+  status: "active" | "revoked";
+  created_at: string;
+  expires_at: string;
+  participant_count: number;
 }

@@ -41,6 +41,7 @@ aws cloudformation deploy \
     GrantAllowedCustomerIds="${PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS:-}" \
     CustomerApprovalEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:-false}" \
     CustomerRevisionUploadEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS:-false}" \
+    SharedAccessEnabled="${PATHFINDER_PROOF_ENABLE_SHARED_ACCESS:-false}" \
     ProofAssetUploadEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD:-false}" \
     ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \
     ProofAssetUploadExpiresAt="${PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT:-}" \

@@ -25,6 +25,30 @@ test("accepts an isolated default-off QA deployment", () => {
   assert.equal(result.synthetic_qa_enabled, false);
   assert.equal(result.operator_grant_creation_enabled, false);
   assert.equal(result.operator_cohort_size, 0);
+  assert.equal(result.shared_access_enabled, false);
+});
+
+test("keeps delegated Proof sharing default-off and requires a customer session boundary", () => {
+  const template = readFileSync(new URL("../../infra/aws/proof-cloudformation.yaml", import.meta.url), "utf8");
+  assert.match(template, /SharedAccessEnabled:[\s\S]*?Default: "false"/);
+  assert.match(
+    template,
+    /SharedAccessRequiresPublicSession:[\s\S]*?!Ref PublicReadEnabled[\s\S]*?!Ref LtlDemoQaSessionReadEnabled/
+  );
+  assert.throws(
+    () => validateProofDeployment({ ...qaEnvironment, PATHFINDER_PROOF_ENABLE_SHARED_ACCESS: "true" }),
+    /requires an enabled customer Proof session boundary/
+  );
+  assert.equal(
+    validateProofDeployment({
+      ...qaEnvironment,
+      PATHFINDER_PROOF_ENABLE_PUBLIC_READ: "true",
+      PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: "true",
+      PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED: "true",
+      PATHFINDER_PROOF_ENABLE_SHARED_ACCESS: "true"
+    }).shared_access_enabled,
+    true
+  );
 });
 
 test("accepts only a bounded IAM operator window on the dark dev stack", () => {

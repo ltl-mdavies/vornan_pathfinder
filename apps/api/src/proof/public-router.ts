@@ -1,13 +1,17 @@
 import { Router, type Request } from "express";
 import { toPublicProofOrder, toPublicProofTaskHistory } from "@pathfinder/proof-domain";
 import {
+  createProofShare,
   endProofSession,
   exchangeProofToken,
   extendProofSession,
   getProofSessionForLogout,
+  listProofShares,
+  mayManageProofShares,
   ProofAccessDeniedError,
   ProofAccessFeatureDisabledError,
   ProofAccessValidationError,
+  revokeProofShare,
   validateProofCsrf,
   validateProofSession
 } from "./access-service.js";
@@ -195,6 +199,25 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
     };
   }
 
+  function shareActor(
+    session: Awaited<ReturnType<typeof validateProofSession>>["session"],
+    grant: Awaited<ReturnType<typeof validateProofSession>>["grant"]
+  ) {
+    if (!mayManageProofShares(grant)) {
+      throw new ProofAccessFeatureDisabledError("shared access");
+    }
+    if (!session.participant_id) {
+      throw new ProofAccessValidationError("Identify yourself before managing shared links.");
+    }
+    return {
+      actor_type: "customer_session" as const,
+      actor_id: session.session_id,
+      participant_id: session.participant_id,
+      correlation_id: undefined,
+      source: "public_api" as const
+    };
+  }
+
   router.use((_req, res, next) => {
     assertLiftProofWritesDisabled();
     res.setHeader("Cache-Control", "private, no-store, max-age=0");
@@ -262,6 +285,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
           proofRuntime.feature_flags.public_read &&
           grant.capability?.access_mode === "review",
         revision_action_enabled: revisionUploadEnabled,
+        share_access_enabled: mayManageProofShares(grant) && Boolean(participant),
         review_experience: grant.capability?.review_experience ?? "simple"
       });
       const feedbackStates = new Map(
@@ -334,6 +358,58 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
       res.status(existingParticipant ? 200 : 201).json({ participant: publicProofParticipant(participant) });
     } catch (error) {
       handlePublicError(error, res, "Reviewer identity could not be saved.");
+    }
+  });
+
+  router.get("/shares", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session, grant } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
+      shareActor(session, grant);
+      res.json({ shares: await listProofShares(grant) });
+    } catch (error) {
+      handlePublicError(error, res, "Shared links could not be loaded.");
+    }
+  });
+
+  router.post("/shares", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session, grant } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
+      requireCsrf(req, session);
+      const auditContext = shareActor(session, grant);
+      const created = await createProofShare({
+        parent_grant: grant,
+        parent_session: session,
+        scope: req.body?.scope,
+        expires_in_hours: req.body?.expires_in_hours,
+        label: req.body?.label,
+        audit_context: { ...auditContext, correlation_id: req.get("x-request-id") ?? undefined }
+      });
+      res.status(201).json(created);
+    } catch (error) {
+      handlePublicError(error, res, "Shared link could not be created.");
+    }
+  });
+
+  router.delete("/shares/:grantId", async (req, res) => {
+    try {
+      const rawSession = cookieValue(req, PROOF_SESSION_COOKIE) ?? "";
+      const { session, grant } = await validateProofSession(rawSession, new Date(), readCustomerCapabilityWorkspace);
+      requireCsrf(req, session);
+      const auditContext = shareActor(session, grant);
+      const revoked = await revokeProofShare({
+        parent_grant: grant,
+        grant_id: req.params.grantId,
+        audit_context: { ...auditContext, correlation_id: req.get("x-request-id") ?? undefined }
+      });
+      if (!revoked) {
+        res.status(404).json({ error: "This shared link is not available." });
+        return;
+      }
+      res.json({ share: revoked });
+    } catch (error) {
+      handlePublicError(error, res, "Shared link could not be turned off.");
     }
   });
 

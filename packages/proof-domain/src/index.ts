@@ -142,6 +142,7 @@ export interface ProofSyncDiagnosticsSummary {
 export type ProofGrantScope = "view" | "review";
 export type ProofGrantStatus = "active" | "revoked";
 export type ProofReviewExperience = "simple" | "advanced";
+export type ProofGrantKind = "owner" | "shared";
 
 export interface ProofGrantCapabilityBinding {
   pathfinder_customer_id: string;
@@ -157,6 +158,13 @@ export interface ProofAccessGrant {
   grant_id: string;
   order_number: string;
   scope: ProofGrantScope;
+  /**
+   * Owner grants are the original customer access links and remain single-use.
+   * Shared grants are explicitly delegated, reusable bearer links.
+   */
+  kind?: ProofGrantKind;
+  parent_grant_id?: string | null;
+  created_by_participant_id?: string | null;
   label: string | null;
   status: ProofGrantStatus;
   token_hash: string;
@@ -323,6 +331,8 @@ export type ProofAuditAction =
   | "proof.grant_updated"
   | "proof.grant_revoked"
   | "proof.grant_regenerated"
+  | "proof.share_created"
+  | "proof.share_revoked"
   | "proof.link_email_sent"
   | "proof.link_email_failed"
   | "proof.participant_identified"
@@ -506,6 +516,7 @@ export interface PublicProofOrder {
   access: {
     scope: ProofGrantScope;
     decisions_enabled: boolean;
+    share_access_enabled: boolean;
     review_experience: ProofReviewExperience;
   };
 }
@@ -1594,6 +1605,7 @@ export function toPublicProofOrder(
     include_asset_urls?: boolean;
     decisions_enabled?: boolean;
     revision_action_enabled?: boolean;
+    share_access_enabled?: boolean;
     review_experience?: ProofReviewExperience;
   } = {}
 ): PublicProofOrder {
@@ -1646,6 +1658,7 @@ export function toPublicProofOrder(
     access: {
       scope,
       decisions_enabled: decisionsEnabled,
+      share_access_enabled: options.share_access_enabled === true,
       review_experience: decisionsEnabled && options.review_experience === "advanced"
         ? "advanced"
         : "simple"

@@ -40,6 +40,7 @@ test("keeps every opt-in Proof capability dark by default", () => {
     grant_creation: false,
     proof_link_email: false,
     public_read: false,
+    shared_access: false,
     approve: false,
     revision_upload: false,
     revision: false,

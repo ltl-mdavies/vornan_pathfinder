@@ -17,6 +17,7 @@ export interface ProofRuntimeConfig {
     grant_creation: boolean;
     proof_link_email: boolean;
     public_read: boolean;
+    shared_access: boolean;
     approve: boolean;
     revision_upload: boolean;
     revision: false;
@@ -110,6 +111,7 @@ export function getProofRuntimeConfig(
         packedPublicRead === "true" ||
         env.PATHFINDER_PROOF_ENABLE_PUBLIC_READ === "true" ||
         ltlDemoQa.public_read_enabled,
+      shared_access: env.PATHFINDER_PROOF_ENABLE_SHARED_ACCESS === "true",
       approve:
         packedCustomerApproval === "true" ||
         env.PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS === "true" ||

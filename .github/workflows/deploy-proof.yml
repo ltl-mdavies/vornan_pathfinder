@@ -181,6 +181,7 @@ jobs:
           LTL_DEMO_QA_SESSION_READ_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_SESSION_READ_ENABLED || 'false' }}
           LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED || 'false' }}
           LTL_DEMO_QA_REVISION_UPLOAD_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_REVISION_UPLOAD_ENABLED || 'false' }}
+          SHARED_ACCESS_ENABLED: ${{ vars.PATHFINDER_PROOF_ENABLE_SHARED_ACCESS || 'false' }}
           PROOF_ASSET_UPLOAD_ENABLED: ${{ vars.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD || 'false' }}
           PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: ${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS || '' }}
           PROOF_ASSET_UPLOAD_EXPIRES_AT: ${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT || '' }}
@@ -227,6 +228,7 @@ jobs:
               GrantAllowedCustomerIds="${GRANT_ALLOWED_CUSTOMER_IDS}" \
               CustomerApprovalEnabled="${CUSTOMER_APPROVAL_ENABLED}" \
               CustomerRevisionUploadEnabled="${CUSTOMER_REVISION_UPLOAD_ENABLED}" \
+              SharedAccessEnabled="${SHARED_ACCESS_ENABLED}" \
               ProofAssetUploadEnabled="${PROOF_ASSET_UPLOAD_ENABLED}" \
               ProofAssetUploadAllowedOrders="${PROOF_ASSET_UPLOAD_ALLOWED_ORDERS}" \
               ProofAssetUploadExpiresAt="${PROOF_ASSET_UPLOAD_EXPIRES_AT}" \
