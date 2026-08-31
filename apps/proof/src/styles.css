@@ -275,6 +275,7 @@ h1, h2, h3, p { margin-top: 0; }
 .approved-decision { width: min(520px, 100%); justify-self: center; }
 .feedback-decision { width: min(640px, 100%); justify-self: center; border-color: #e7c878; background: #fff9eb; color: #a46e13; }
 .feedback-decision > span:first-child { background: #f8e8bd; color: #a46e13; }
+.feedback-decision-copy { min-width: 0; flex: 1; display: grid; gap: 4px; }
 .feedback-decision strong { color: #805609; }
 .feedback-decision small { color: #796b51; }
 .feedback-review-action { margin-left: auto; flex: none; min-height: 36px; padding: 0 13px; border: 1px solid #d9ad45; border-radius: 8px; background: #fffdf7; color: #805609; font: inherit; font-size: 10px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; }

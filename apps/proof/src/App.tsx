@@ -805,7 +805,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
       ) : feedbackAcknowledgementRequired ? (
         <div className="decision-status-card feedback-decision" role="status">
           <span><MessageSquareText aria-hidden="true" /></span>
-          <span><strong>Feedback needs review</strong><small>Review and acknowledge the Prepress team feedback before choosing an action.</small></span>
+          <span className="feedback-decision-copy"><strong>Feedback needs review</strong><small>Review and acknowledge the Prepress team feedback before choosing an action.</small></span>
           <button className="button feedback-review-action" type="button" onClick={(event) => onReviewFeedback(selectedTask, event)}><MessageSquareText aria-hidden="true" /> Review feedback</button>
         </div>
       ) : <>
