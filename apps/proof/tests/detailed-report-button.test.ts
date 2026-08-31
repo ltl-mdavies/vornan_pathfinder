@@ -72,3 +72,9 @@ test("returns from a report viewer to the report-type choices", () => {
   assert.match(source, /setViewerOpen\(false\); setSelectionOpen\(true\)/);
   assert.match(source, /hasMultipleDefinitions \? <button[\s\S]*> Back<\/button> : null/);
 });
+
+test("can open report choices from a related proof interaction", () => {
+  const source = readFileSync(new URL("../src/detailed-report-button.tsx", import.meta.url), "utf8");
+  assert.match(source, /openRequest = 0/);
+  assert.match(source, /setSelectionOpen\(true\);/);
+});

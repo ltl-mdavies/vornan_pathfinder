@@ -39,7 +39,7 @@ export function proofStatePresentation(state: ProofState) {
     case "approved":
       return { label: "Approved", detail: null };
     default:
-      return { label: "Pending", detail: null };
+      return { label: "Awaiting review", detail: null };
   }
 }
 

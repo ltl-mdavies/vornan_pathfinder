@@ -58,6 +58,13 @@ test("presents revised proofs as regenerating and keeps them in the open queue",
   });
 });
 
+test("uses the same awaiting-review wording in the selected proof and queue", () => {
+  assert.deepEqual(proofStatePresentation("pending"), {
+    label: "Awaiting review",
+    detail: null
+  });
+});
+
 test("distinguishes customer approvals from retained production references", () => {
   assert.equal(isApprovedProofState("approved"), true);
   assert.equal(isApprovedProofState("reference"), false);

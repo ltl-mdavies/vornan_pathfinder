@@ -56,6 +56,8 @@ test("surfaces unreviewed Prepress feedback without changing acknowledged feedba
   assert.match(appSource, /Prepress team feedback\$\{unread \? `, new feedback, \$\{commentCountLabel\(commentCount\)\}` : ""\}/);
   assert.match(appSource, /comment\$\{dialogTask\.feedback_acknowledged \? "" : " unread"\}/);
   assert.match(appSource, /Review and acknowledge the prepress team feedback before providing revised artwork\./);
+  assert.match(appSource, /openDetailedReportFromFeedback/);
+  assert.match(appSource, /View detailed report\{dialogVersion\.report_definitions\.length === 1 \? "" : "s"\}/);
   assert.match(revisionDialogSource, /feedbackAcknowledged/);
   assert.match(revisionDialogSource, /Review and acknowledge the prepress team feedback before uploading revised artwork\./);
 });

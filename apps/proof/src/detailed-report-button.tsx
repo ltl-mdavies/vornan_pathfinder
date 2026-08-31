@@ -11,7 +11,16 @@ export function detailedReportOptionStatus(ready: boolean, generating: boolean, 
     : { description: "Generate report", action: "Generate" };
 }
 
-export function DetailedReportButton({ task, version }: { task: ProofTask; version: ProofVersion | null }) {
+export function DetailedReportButton({
+  task,
+  version,
+  openRequest = 0
+}: {
+  task: ProofTask;
+  version: ProofVersion | null;
+  /** Opens the report-type chooser from a related proof interaction. */
+  openRequest?: number;
+}) {
   const definitions = version?.current ? version.report_definitions ?? [] : [];
   const hasMultipleDefinitions = definitions.length > 1;
   const [selectedDefinitionId, setSelectedDefinitionId] = useState<string | null>(null);
@@ -23,6 +32,7 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
   const [viewerOpen, setViewerOpen] = useState(false);
   const selectionDialog = useRef<HTMLDialogElement | null>(null);
   const viewerDialog = useRef<HTMLDialogElement | null>(null);
+  const handledOpenRequest = useRef(openRequest);
 
   useEffect(() => {
     setReport(null);
@@ -32,6 +42,13 @@ export function DetailedReportButton({ task, version }: { task: ProofTask; versi
     setSelectionOpen(false);
     setViewerOpen(false);
   }, [task.task_id, version?.version_id]);
+  useEffect(() => {
+    if (!openRequest || openRequest === handledOpenRequest.current) return;
+    handledOpenRequest.current = openRequest;
+    setMessage(null);
+    setViewerOpen(false);
+    setSelectionOpen(true);
+  }, [openRequest]);
   useEffect(() => {
     const dialog = selectionDialog.current;
     if (!dialog) return;

@@ -1015,6 +1015,7 @@ export function App() {
   const [refreshState, setRefreshState] = useState<RefreshState>("idle");
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [detailDialog, setDetailDialog] = useState<DetailDialog | null>(null);
+  const [detailedReportOpenRequest, setDetailedReportOpenRequest] = useState(0);
   const [revisionUploadTaskId, setRevisionUploadTaskId] = useState<string | null>(null);
   const [identityOpen, setIdentityOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -1546,6 +1547,15 @@ export function App() {
     dialogElement.current?.close();
   };
 
+  const openDetailedReportFromFeedback = () => {
+    if (!dialogVersion?.report_definitions?.length) return;
+    deferDetailFocusReturn.current = true;
+    closeDetailDialog();
+    window.requestAnimationFrame(() => {
+      setDetailedReportOpenRequest((current) => current + 1);
+    });
+  };
+
   const openIdentityDialog = (opener: HTMLElement | null) => {
     identityDialogOpener.current = opener;
     setIdentityName(participant?.display_name ?? "");
@@ -1865,7 +1875,7 @@ export function App() {
                   <button className="button secondary compact" type="button" onClick={(event) => openDetailDialog("history", selectedTask.task_id, event)}>
                     <History aria-hidden="true" /> File history
                   </button>
-                  <DetailedReportButton task={selectedTask} version={selectedVersion} />
+                  <DetailedReportButton task={selectedTask} version={selectedVersion} openRequest={detailedReportOpenRequest} />
                   {selectedAsset.download && <a className="button secondary" href={selectedAsset.download} target="_blank" rel="noreferrer"><Download aria-hidden="true" /> Download</a>}
                   {selectedAsset.open && <a className="icon-button subtle" href={selectedAsset.open} target="_blank" rel="noreferrer" aria-label="Open proof in a new tab"><ExternalLink aria-hidden="true" /></a>}
                 </div>
@@ -2080,13 +2090,20 @@ export function App() {
                       <small>This acknowledgement is a review record only. It does not approve the proof or submit a revision.</small>
                     </span>
                   </div>
-                  {dialogTask.feedback_acknowledged ? null : participant ? (
-                    <button className="button primary" type="button" disabled={feedbackSaving} onClick={() => void acknowledgeCurrentFeedback()}>
-                      {feedbackSaving ? "Saving…" : "Mark as reviewed"}
-                    </button>
-                  ) : (
-                    <button className="button secondary" type="button" onClick={identifyFromFeedback}>Identify reviewer first</button>
-                  )}
+                  <div className="feedback-ack-actions">
+                    {dialogVersion?.report_definitions?.length ? (
+                      <button className="button secondary" type="button" onClick={openDetailedReportFromFeedback}>
+                        <FileText aria-hidden="true" /> View detailed report{dialogVersion.report_definitions.length === 1 ? "" : "s"}
+                      </button>
+                    ) : null}
+                    {dialogTask.feedback_acknowledged ? null : participant ? (
+                      <button className="button primary" type="button" disabled={feedbackSaving} onClick={() => void acknowledgeCurrentFeedback()}>
+                        {feedbackSaving ? "Saving…" : "Mark as reviewed"}
+                      </button>
+                    ) : (
+                      <button className="button secondary" type="button" onClick={identifyFromFeedback}>Identify reviewer first</button>
+                    )}
+                  </div>
                   {feedbackError ? <p className="form-error" role="alert">{feedbackError}</p> : null}
                 </div>
               ) : null}

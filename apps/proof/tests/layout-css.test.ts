@@ -28,3 +28,9 @@ test("reserves green status treatment for approved proofs", () => {
   assert.match(styles, /\.line-group-status\.reference\s*\{\s*color:\s*var\(--muted\);/);
   assert.doesNotMatch(styles, /\.line-group-status\.approved,\s*\.line-group-status\.reference/);
 });
+
+test("keeps small operational text legible without changing the visual hierarchy", () => {
+  assert.match(styles, /\.proof-status-label\s*\{[^}]*font-size:\s*11px;/s);
+  assert.match(styles, /\.decision-guidance, \.decision-result\s*\{[^}]*font-size:\s*10px;/s);
+  assert.match(styles, /\.share-description > span\s*\{[^}]*display:\s*inline-flex;[^}]*gap:\s*6px;/s);
+});
