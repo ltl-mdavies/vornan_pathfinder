@@ -117,7 +117,8 @@ test("creates a reusable delegated link without relaxing the original single-use
       parent_grant: await store.getProofGrantById(owner.grant.grant_id) as NonNullable<Awaited<ReturnType<typeof store.getProofGrantById>>>,
       parent_session: { ...ownerExchange.session, participant_id: "pparticipant_owner" },
       scope: "view",
-      expires_in_hours: 168
+      expires_in_hours: 168,
+      description: "Client design review"
     });
     const rawToken = shared.access_url.split("/").at(-1)!;
     assert.match(rawToken, /^[A-Za-z0-9_-]{43}$/);
@@ -131,6 +132,7 @@ test("creates a reusable delegated link without relaxing the original single-use
     const sharedGrant = await store.getProofGrantById(shared.share.grant_id);
     assert.equal(sharedGrant?.kind, "shared");
     assert.equal(sharedGrant?.parent_grant_id, owner.grant.grant_id);
+    assert.equal(sharedGrant?.description, "Client design review");
     assert.equal(access.mayManageProofShares(sharedGrant!), false);
     await access.revokeProofShare({
       parent_grant: await store.getProofGrantById(owner.grant.grant_id) as NonNullable<Awaited<ReturnType<typeof store.getProofGrantById>>>,

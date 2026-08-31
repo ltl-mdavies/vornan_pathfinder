@@ -104,6 +104,7 @@ export async function loadSharedLinks() {
 export async function createSharedLink(input: {
   scope: "view" | "review";
   expires_in_hours: 24 | 72 | 168 | 336;
+  description?: string;
 }) {
   return api<{ share: ProofSharedLink; access_url: string }>("/api/public/proof/shares", {
     method: "POST",

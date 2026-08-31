@@ -166,6 +166,8 @@ export interface ProofAccessGrant {
   parent_grant_id?: string | null;
   created_by_participant_id?: string | null;
   label: string | null;
+  /** Optional owner-only note describing the purpose of a delegated link. */
+  description?: string | null;
   status: ProofGrantStatus;
   token_hash: string;
   created_at: string;

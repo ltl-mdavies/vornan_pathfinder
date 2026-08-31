@@ -962,9 +962,10 @@ test("creates revocable delegated links without weakening the original owner lin
       .post("/api/public/proof/shares")
       .set("Cookie", ownerCredentials.cookie)
       .set("X-Vornan-Proof-Csrf", ownerCredentials.csrf)
-      .send({ scope: "review", expires_in_hours: 168 })
+      .send({ scope: "review", expires_in_hours: 168, description: "Client review" })
       .expect(201);
     assert.equal(created.body.share.scope, "review");
+    assert.equal(created.body.share.description, "Client review");
     assert.match(created.body.access_url, /#\/access\/[A-Za-z0-9_-]{43}$/);
 
     const childToken = created.body.access_url.split("/").at(-1)!;

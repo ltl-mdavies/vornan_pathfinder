@@ -384,6 +384,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         scope: req.body?.scope,
         expires_in_hours: req.body?.expires_in_hours,
         label: req.body?.label,
+        description: req.body?.description,
         audit_context: { ...auditContext, correlation_id: req.get("x-request-id") ?? undefined }
       });
       res.status(201).json(created);

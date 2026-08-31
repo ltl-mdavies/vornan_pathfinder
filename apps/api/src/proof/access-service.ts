@@ -80,6 +80,7 @@ export interface PublicProofShare {
   grant_id: string;
   scope: ProofGrantScope;
   label: string | null;
+  description: string | null;
   status: ProofAccessGrant["status"];
   created_at: string;
   expires_at: string;
@@ -231,6 +232,7 @@ function publicProofShare(grant: ProofAccessGrant, participantCount = 0): Public
     grant_id: grant.grant_id,
     scope: grant.scope,
     label: grant.label,
+    description: grant.description ?? null,
     status: grant.status,
     created_at: grant.created_at,
     expires_at: grant.expires_at,
@@ -256,6 +258,7 @@ export async function createProofShare(input: {
   scope: ProofGrantScope;
   expires_in_hours: number;
   label?: string | null;
+  description?: string | null;
   now?: Date;
   audit_context?: ProofAuditContext;
 }) {
@@ -271,6 +274,10 @@ export async function createProofShare(input: {
   }
   if (!SHARED_ACCESS_EXPIRY_HOURS.has(input.expires_in_hours)) {
     throw new ProofAccessValidationError("Choose a 24-hour, 3-day, 7-day, or 14-day link expiry.");
+  }
+  const description = input.description?.trim() || null;
+  if (description && description.length > 120) {
+    throw new ProofAccessValidationError("Keep the link description to 120 characters or fewer.");
   }
   if (input.scope === "review" && input.parent_grant.scope !== "review") {
     throw new ProofAccessValidationError("This Proof session can create view links only.");
@@ -305,6 +312,7 @@ export async function createProofShare(input: {
     parent_grant_id: input.parent_grant.grant_id,
     created_by_participant_id: input.parent_session.participant_id,
     label: input.label?.trim() || null,
+    description,
     status: "active",
     token_hash: hashSecret(rawToken),
     created_at: now.toISOString(),

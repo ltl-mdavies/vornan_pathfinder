@@ -51,6 +51,7 @@ export function ShareDialog({
   const closeButton = useRef<HTMLButtonElement>(null);
   const [scope, setScope] = useState<ShareScope>("view");
   const [expiry, setExpiry] = useState<ExpiryHours>(168);
+  const [description, setDescription] = useState("");
   const [shares, setShares] = useState<ProofSharedLink[]>([]);
   const [accessUrl, setAccessUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -86,9 +87,10 @@ export function ShareDialog({
     setSaving(true);
     setError(null);
     try {
-      const result = await createSharedLink({ scope, expires_in_hours: expiry });
+      const result = await createSharedLink({ scope, expires_in_hours: expiry, description });
       setAccessUrl(result.access_url);
       setShares((current) => [result.share, ...current]);
+      setDescription("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Shared link could not be created.");
     } finally {
@@ -134,9 +136,9 @@ export function ShareDialog({
       <div className="dialog-heading share-dialog-heading">
         <div>
           <span className="eyebrow">{orderTitle}</span>
-          <h2 id="share-dialog-title">Share proof</h2>
+          <h2 id="share-dialog-title">Share order</h2>
         </div>
-        <button ref={closeButton} className="icon-button subtle" type="button" aria-label="Close share proof" onClick={() => dialog.current?.close()}><X aria-hidden="true" /></button>
+        <button ref={closeButton} className="icon-button subtle" type="button" aria-label="Close share order" onClick={() => dialog.current?.close()}><X aria-hidden="true" /></button>
       </div>
       <div className="dialog-content share-dialog-content">
         {accessUrl ? (
@@ -173,6 +175,15 @@ export function ShareDialog({
                 {EXPIRIES.map((option) => <option key={option.hours} value={option.hours}>{option.label}</option>)}
               </select>
             </label>
+            <label className="share-description">
+              <span>Description <em>Optional</em></span>
+              <input
+                value={description}
+                maxLength={120}
+                placeholder="Who is this for?"
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </label>
             {error ? <p className="form-error" role="alert">{error}</p> : null}
             <div className="share-dialog-actions">
               <button className="button secondary" type="button" onClick={() => dialog.current?.close()}>Cancel</button>
@@ -187,7 +198,7 @@ export function ShareDialog({
             {loading ? <p>Checking shared links…</p> : shares.map((share) => (
               <article key={share.grant_id} className={share.status === "active" ? "active" : "inactive"}>
                 <span><Link2 aria-hidden="true" /></span>
-                <div><strong>{share.scope === "review" ? "Review & act" : "View"}</strong><small>{share.status === "active" ? `Expires ${formatExpiry(share.expires_at)}` : "Turned off"}</small></div>
+                <div><strong>{share.scope === "review" ? "Review & act" : "View"}</strong><small>{share.description ?? (share.status === "active" ? `Expires ${formatExpiry(share.expires_at)}` : "Turned off")}</small>{share.description && <small>{share.status === "active" ? `Expires ${formatExpiry(share.expires_at)}` : "Turned off"}</small>}</div>
                 {share.status === "active" ? <button className="share-link-revoke" type="button" disabled={saving} onClick={() => void revoke(share.grant_id)}>Turn off</button> : null}
               </article>
             ))}

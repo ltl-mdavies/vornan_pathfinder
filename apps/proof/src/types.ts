@@ -99,6 +99,7 @@ export interface ProofSharedLink {
   grant_id: string;
   scope: "view" | "review";
   label: string | null;
+  description: string | null;
   status: "active" | "revoked";
   created_at: string;
   expires_at: string;
