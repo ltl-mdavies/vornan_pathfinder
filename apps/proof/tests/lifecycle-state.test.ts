@@ -72,8 +72,8 @@ test("distinguishes customer approvals from retained production references", () 
 });
 
 test("provides customer-safe cached packet explanations for degraded order health", () => {
-  assert.match(proofOrderHealthMessage("stale") ?? "", /last synchronized proof packet/i);
-  assert.match(proofOrderHealthMessage("missing") ?? "", /previously synchronized proof files remain visible/i);
+  assert.match(proofOrderHealthMessage("stale") ?? "", /latest available proof details/i);
+  assert.match(proofOrderHealthMessage("missing") ?? "", /Lift is temporarily unavailable/i);
   assert.match(proofOrderHealthMessage("error") ?? "", /available files remain visible/i);
   assert.equal(proofOrderHealthMessage("active"), null);
   assert.equal(proofOrderHealthMessage("complete"), null);
@@ -82,11 +82,11 @@ test("provides customer-safe cached packet explanations for degraded order healt
 test("presents a success state only when every available proof is reviewed", () => {
   assert.deepEqual(proofOrderCompletion(order("active", [task("approved", "approved")])), {
     title: "All proofs approved",
-    detail: "There are no proofs awaiting review. Approved files remain available in the Approved queue."
+    detail: "There are no proofs awaiting review. You can find approved files in the Approved queue."
   });
   assert.deepEqual(proofOrderCompletion(order("complete", [task("approved", "approved"), task("reference", "reference")])), {
     title: "Proof packet complete",
-    detail: "No proofs are waiting for review. Approved files and production references remain available in All."
+    detail: "No proofs are waiting for review. Approved files and production references are available in All proofs."
   });
   assert.equal(proofOrderCompletion(order("active", [task("approved", "approved"), task("pending", "pending")])), null);
   assert.equal(proofOrderCompletion(order("active", [task("approved", "approved"), task("error", "error")])), null);

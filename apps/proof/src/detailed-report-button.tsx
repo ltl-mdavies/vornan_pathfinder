@@ -3,9 +3,11 @@ import { ArrowLeft, FileText, X } from "lucide-react";
 import { loadDetailedReport, startDetailedReport } from "./api";
 import type { ProofDetailedReport, ProofTask, ProofVersion } from "./types";
 
+export const DETAILED_REPORT_UNAVAILABLE_MESSAGE = "We couldn’t retrieve this report right now. Please try again later.";
+
 export function detailedReportOptionStatus(ready: boolean, generating: boolean, failed = false) {
   if (generating) return { description: "Generating report…", action: "Generating…" };
-  if (failed) return { description: "Couldn’t generate report", action: "Try again" };
+  if (failed) return { description: "Report unavailable right now", action: "Try again" };
   return ready
     ? { description: "Ready to view", action: "View" }
     : { description: "Generate report", action: "Generate" };
@@ -73,7 +75,7 @@ export function DetailedReportButton({
           }
         })
         .catch(() => {
-          setMessage("We’re still preparing your report. Try again shortly.");
+          setMessage(DETAILED_REPORT_UNAVAILABLE_MESSAGE);
           setReport((current) => current ? { ...current, state: "failed" } : current);
         });
     }, 5_000);
@@ -94,8 +96,8 @@ export function DetailedReportButton({
 
   function openReport(next: ProofDetailedReport) {
     setReport(next);
-    if (["failed", "timed_out"].includes(next.state)) {
-      setMessage("This report couldn’t be generated. Try again.");
+    if (["unavailable", "failed", "timed_out"].includes(next.state)) {
+      setMessage(DETAILED_REPORT_UNAVAILABLE_MESSAGE);
     }
     if (next.state === "ready" && next.view_url) {
       setSelectionOpen(false);
@@ -112,7 +114,7 @@ export function DetailedReportButton({
       .then(({ report: next }) => openReport(next))
       .catch(() => {
         setReport({ record_id: "", definition_id: candidate.definition_id, label: candidate.label, state: "failed", view_url: null });
-        setMessage("This report couldn’t be generated. Try again.");
+        setMessage(DETAILED_REPORT_UNAVAILABLE_MESSAGE);
       })
       .finally(() => setStartingDefinitionId(null));
   }
@@ -175,7 +177,11 @@ export function DetailedReportButton({
               <button className="icon-button subtle" type="button" aria-label="Close detailed report" onClick={() => setViewerOpen(false)}><X aria-hidden="true" /></button>
             </div>
           </div>
-          <div className="detailed-report-frame-wrap"><iframe className="detailed-report-frame" src={report.view_url} title={`${report.label ?? "Detailed"} report`} /></div>
+          <div className="detailed-report-frame-wrap"><iframe className="detailed-report-frame" src={report.view_url} title={`${report.label ?? "Detailed"} report`} onError={() => {
+            setViewerOpen(false);
+            setMessage(DETAILED_REPORT_UNAVAILABLE_MESSAGE);
+            setSelectionOpen(true);
+          }} /></div>
         </dialog>
       ) : null}
     </>

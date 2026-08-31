@@ -17,6 +17,7 @@ export type ProofTaskState =
   | "error";
 
 export type ProofTaskDecisionState =
+  | "approval_pending"
   | "rejected_pending_action"
   | "sent_back_to_artist"
   | "revised_art_pending"
@@ -25,6 +26,7 @@ export type ProofTaskDecisionState =
 export interface ProofTaskDecisionContext {
   state: ProofTaskDecisionState;
   action:
+    | "APPROVE"
     | "REJECT"
     | "SEND_BACK_TO_ARTIST"
     | "REVISED_ART_WILL_BE_SENT"
@@ -1686,6 +1688,7 @@ export function recordProofTaskDecisionContext(
     throw new Error("The Proof decision context timestamp must be an exact UTC ISO instant.");
   }
   const stateByAction: Record<ProofTaskDecisionContext["action"], ProofTaskDecisionState> = {
+    APPROVE: "approval_pending",
     REJECT: "rejected_pending_action",
     SEND_BACK_TO_ARTIST: "sent_back_to_artist",
     REVISED_ART_WILL_BE_SENT: "revised_art_pending",

@@ -98,6 +98,14 @@ function commentCountLabel(count: number) {
   return `${count} ${count === 1 ? "comment" : "comments"}`;
 }
 
+function actionSubmissionIsUncertain(error: unknown) {
+  return !(error instanceof ProofApiError) || error.status >= 500;
+}
+
+function actionStartErrorMessage() {
+  return "This action isn’t available for the current proof. Refresh the proof and try again.";
+}
+
 async function bootstrap() {
   if (demoEnabled) {
     const decisionFlowQa = window.location.hash === "#/proof/decision-flow-qa";
@@ -684,10 +692,10 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         ? "This line has multiple current proofs and requires the Advanced review profile."
       : selectedTask.feedback_required && !selectedTask.feedback_acknowledged
         ? "Review and acknowledge the prepress team feedback before approving."
-        : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
-          ? "This proof is shared by multiple lines and requires a coordinated approval."
-          : selectedTask.action_reconciliation_pending
-            ? "This proof is awaiting review."
+      : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
+        ? "This proof is shared by multiple lines and requires a coordinated approval."
+      : selectedTask.action_reconciliation_pending
+        ? "Vornan is checking the latest Lift proof status. Do not submit another action."
           : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
             ? "This proof is not currently available for approval."
             : null;
@@ -713,7 +721,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
       : selectedTask.shared_line_numbers && selectedTask.shared_line_numbers.length > 1
         ? "This proof is shared by multiple lines and requires coordinated support."
       : selectedTask.action_reconciliation_pending
-        ? "This proof is awaiting review."
+        ? "Vornan is checking the latest Lift proof status. Do not submit another action."
       : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
         ? "This proof is not currently available for a change request."
       : null;
@@ -759,12 +767,12 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         setApprovalNote("");
         setApprovalOpen(false);
       } else {
-        setSingleApprovalState("error");
-        setSingleApprovalMessage("Lift did not accept this approval. Refresh the proof before taking another action.");
+        setSingleApprovalState("verifying");
+        setSingleApprovalMessage("Vornan couldn’t confirm this approval yet. The latest Lift proof status is being checked. Do not submit it again.");
       }
     } catch (error) {
       setSingleApprovalState("error");
-      setSingleApprovalMessage(error instanceof Error ? error.message : "This proof could not be approved.");
+      setSingleApprovalMessage(error instanceof Error ? error.message : actionStartErrorMessage());
     }
   };
   const submitChangeRequest = async () => {
@@ -787,12 +795,12 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         setChangeRequestNote("");
         setChangeRequestOpen(false);
       } else {
-        setChangeRequestState("error");
-        setChangeRequestMessage("Lift did not accept this change request. Refresh the proof before taking another action.");
+        setChangeRequestState("verifying");
+        setChangeRequestMessage("Vornan couldn’t confirm this change request yet. The latest Lift proof status is being checked. Do not submit it again.");
       }
     } catch (error) {
       setChangeRequestState("error");
-      setChangeRequestMessage(error instanceof Error ? error.message : "Changes could not be requested for this proof.");
+      setChangeRequestMessage(error instanceof Error ? error.message : actionStartErrorMessage());
     }
   };
   return (
@@ -1114,7 +1122,7 @@ export function App() {
     if (refreshPollTimer.current !== null) return;
     if (refreshPollAttempts.current >= 12) {
       setRefreshState("error");
-      setRefreshMessage("Fresh proof details are taking longer than expected. Select refresh to check again.");
+      setRefreshMessage("Fresh proof details are taking longer than expected. Your current proof view remains available; try refreshing again shortly.");
       return;
     }
     refreshPollAttempts.current += 1;
@@ -1161,13 +1169,12 @@ export function App() {
           setLoadState(terminalState("link_unavailable"));
           return;
         }
-        const message = error instanceof Error ? error.message : "Proof access is unavailable.";
         if (silent) {
           setRefreshState("error");
-          setRefreshMessage(`The latest check could not be loaded. Your cached proof packet remains available. ${message}`);
+          setRefreshMessage("The latest Lift check could not be completed. Your current proof view remains available; Vornan will keep checking in the background.");
           return;
         }
-        setLoadState({ status: "error", kind: "link_unavailable", message });
+        setLoadState({ status: "error", kind: "link_unavailable", message: "Proof details are temporarily unavailable. Please try this secure link again shortly." });
       }
     );
   };
@@ -1250,7 +1257,7 @@ export function App() {
         return;
       }
       setRefreshState("error");
-      setRefreshMessage(error instanceof Error ? error.message : "Proof refresh could not be requested.");
+      setRefreshMessage("The latest Lift check could not be requested. Your current proof view remains available; try again shortly.");
     }
   };
 
@@ -1440,6 +1447,9 @@ export function App() {
         });
       } else {
         applyProofLoad(refreshed);
+        // The server has already read the exact Lift proof line once. Queue a
+        // quiet follow-up refresh for asynchronous Lift state changes.
+        void refresh();
       }
       return result.decision.outcome;
     } catch (error) {
@@ -1449,7 +1459,19 @@ export function App() {
         return "proof_updated" as const;
       }
       if (error instanceof ProofApiError && error.status === 401) terminateSession();
-      throw error;
+      if (actionSubmissionIsUncertain(error)) {
+        // The browser may have lost the response after the server crossed its
+        // durable no-retry boundary. Do not present this as a failed Lift action.
+        bootstrapPromise = null;
+        try {
+          applyProofLoad(await bootstrap());
+        } catch {
+          // The next quiet background refresh will keep checking without
+          // disturbing the selected proof, zoom level, or open dialogs.
+        }
+        return "submission_uncertain" as const;
+      }
+      throw new Error(actionStartErrorMessage());
     }
   };
 
@@ -1486,6 +1508,9 @@ export function App() {
         });
       } else {
         applyProofLoad(refreshed);
+        // Keep reconciling from the authoritative Lift proof state without
+        // replacing the current proof surface or closing an open dialog.
+        void refresh();
       }
       return result.decision.outcome;
     } catch (error) {
@@ -1495,7 +1520,16 @@ export function App() {
         return "proof_updated" as const;
       }
       if (error instanceof ProofApiError && error.status === 401) terminateSession();
-      throw error;
+      if (actionSubmissionIsUncertain(error)) {
+        bootstrapPromise = null;
+        try {
+          applyProofLoad(await bootstrap());
+        } catch {
+          // Keep the existing review surface intact while Lift is unavailable.
+        }
+        return "submission_uncertain" as const;
+      }
+      throw new Error(actionStartErrorMessage());
     }
   };
 

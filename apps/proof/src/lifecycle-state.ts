@@ -46,11 +46,11 @@ export function proofStatePresentation(state: ProofState) {
 export function proofOrderHealthMessage(health: ProofOrder["health"]) {
   switch (health) {
     case "stale":
-      return "Showing the last synchronized proof packet while Vornan retrieves the latest details.";
+      return "Showing the latest available proof details while Vornan reconnects to Lift.";
     case "missing":
-      return "This order is temporarily unavailable in Lift. Previously synchronized proof files remain visible for reference.";
+      return "Lift is temporarily unavailable. The latest available proof files remain visible for reference.";
     case "error":
-      return "Some proof details could not be refreshed. Available files remain visible while Vornan investigates.";
+      return "Some proof details could not be refreshed. Available files remain visible while Vornan reconnects to Lift.";
     default:
       return null;
   }
@@ -67,10 +67,10 @@ export function proofOrderCompletion(order: ProofOrder) {
   return order.health === "complete" || reviewed.every((task) => task.state === "reference")
     ? {
         title: "Proof packet complete",
-        detail: "No proofs are waiting for review. Approved files and production references remain available in All."
+        detail: "No proofs are waiting for review. Approved files and production references are available in All proofs."
       }
     : {
         title: "All proofs approved",
-        detail: "There are no proofs awaiting review. Approved files remain available in the Approved queue."
+        detail: "There are no proofs awaiting review. You can find approved files in the Approved queue."
       };
 }

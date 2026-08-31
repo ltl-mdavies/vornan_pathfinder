@@ -161,7 +161,10 @@ function currentSingleProof(order: ProofOrder, request: ProofCustomerApprovalReq
 
 function approvalObserved(order: ProofOrder, task: ProofTask) {
   return [...order.tasks, ...order.archived_tasks].some(
-    (candidate) => candidate.attachment_id === task.attachment_id && candidate.state === "approved"
+    (candidate) =>
+      candidate.order_line_id === task.order_line_id &&
+      candidate.attachment_id === task.attachment_id &&
+      candidate.state === "approved"
   );
 }
 
@@ -333,30 +336,27 @@ export function createProofCustomerApprovalService(
         // The durable state remains uncertain and must never be replayed automatically.
       }
       let confirmed = Boolean(reconciled && decision === "approve" && approvalObserved(reconciled, task));
-      if (
-        reconciled &&
-        decision === "send_back_to_artist" &&
-        observation.status !== null &&
-        observation.status >= 200 &&
-        observation.status < 300
-      ) {
+      if (reconciled && decision === "send_back_to_artist") {
         const currentTask = reconciled.tasks.find((candidate) => candidate.task_id === task.task_id);
         if (!currentTask || currentTask.attachment_id !== task.attachment_id || currentTask.state !== "pending") {
           confirmed = true;
-        } else {
-          try {
-            reconciled = await persistOrder(recordProofTaskDecisionContext(reconciled, {
-              task_id: task.task_id,
-              attachment_id: task.attachment_id!,
-              action: "SEND_BACK_TO_ARTIST",
-              recorded_at: now().toISOString(),
-              source: "pathfinder_customer_decision"
-            }));
-            confirmed = true;
-          } catch {
-            // Leave the one-shot result reconciling if the current proof changed
-            // before the accepted request could be projected durably.
-          }
+        }
+      }
+      // A Lift transport response is deliberately not a customer-visible final
+      // state. Keep a short-lived local reconciliation marker only to prevent a
+      // duplicate action while the next per-line ProofReport read catches up.
+      if (reconciled && !confirmed) {
+        try {
+          reconciled = await persistOrder(recordProofTaskDecisionContext(reconciled, {
+            task_id: task.task_id,
+            attachment_id: task.attachment_id!,
+            action: decision === "approve" ? "APPROVE" : "SEND_BACK_TO_ARTIST",
+            recorded_at: now().toISOString(),
+            source: "pathfinder_customer_decision"
+          }));
+        } catch {
+          // If the fresh Lift state changed while recording the marker, leave
+          // the result reconciling. A later ProofReport read remains decisive.
         }
       }
       const finalOutcome = confirmed ? "confirmed" : "reconciling";

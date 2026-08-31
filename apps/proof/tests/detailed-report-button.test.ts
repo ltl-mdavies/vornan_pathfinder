@@ -3,7 +3,7 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
-import { DetailedReportButton, detailedReportOptionStatus } from "../src/detailed-report-button.tsx";
+import { DETAILED_REPORT_UNAVAILABLE_MESSAGE, DetailedReportButton, detailedReportOptionStatus } from "../src/detailed-report-button.tsx";
 import type { ProofTask, ProofVersion } from "../src/types.ts";
 
 const version: ProofVersion = {
@@ -60,9 +60,10 @@ test("shows an immediate busy state for the selected report type", () => {
     action: "View"
   });
   assert.deepEqual(detailedReportOptionStatus(false, false, true), {
-    description: "Couldn’t generate report",
+    description: "Report unavailable right now",
     action: "Try again"
   });
+  assert.equal(DETAILED_REPORT_UNAVAILABLE_MESSAGE, "We couldn’t retrieve this report right now. Please try again later.");
 });
 
 test("returns from a report viewer to the report-type choices", () => {

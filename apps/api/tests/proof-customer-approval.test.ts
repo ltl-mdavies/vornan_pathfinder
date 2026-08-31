@@ -175,7 +175,7 @@ test("persists the no-retry boundary before one quantity-free PUT and immediatel
   ]);
 });
 
-test("sends one comment-required customer change request and records the exact proof context", async () => {
+test("keeps a customer change request reconciling until Lift changes the exact proof state", async () => {
   const pending = proofOrder();
   const lifecycle: string[] = [];
   let syncCount = 0;
@@ -232,13 +232,52 @@ test("sends one comment-required customer change request and records the exact p
     request: changeRequest,
     correlation_id: "correlation-customer-change-request"
   });
-  assert.equal(result.outcome, "confirmed");
+  assert.equal(result.outcome, "reconciling");
   assert.equal(persisted?.tasks[0]?.decision_context?.state, "sent_back_to_artist");
   assert.equal(persisted?.tasks[0]?.decision_context?.source, "pathfinder_customer_decision");
   assert.deepEqual(lifecycle, [
     "preflight-get", "reserve", "persist-submission_uncertain", "audit-proof.decision_submission_started",
-    "put", "reconcile-get", "persist-order-context", "persist-confirmed", "audit-proof.decision_observed"
+    "put", "reconcile-get", "persist-order-context", "persist-reconciling", "audit-proof.decision_observed"
   ]);
+});
+
+test("requires the same Lift line to confirm an approval when attachment ids are repeated", async () => {
+  const pending = proofOrder();
+  const otherLineApproved = proofOrder("approved");
+  otherLineApproved.tasks[0] = {
+    ...otherLineApproved.tasks[0]!,
+    task_id: "ptask_other_line",
+    order_line_id: "9748546",
+    line_number: "2"
+  };
+  const reconciled = {
+    ...pending,
+    archived_tasks: [otherLineApproved.tasks[0]!]
+  };
+  let record: any;
+  const service = createProofCustomerApprovalService({
+    runtimeConfig: () => runtime(true),
+    now: () => now,
+    readTargetConfig: async () => target[0]!,
+    syncOrder: async () => ({ order: reconciled, diagnostics: null }) as never,
+    getParticipant: async () => ({ participant_id: session.participant_id!, grant_id: session.grant_id, order_number: session.order_number, display_name: "Reviewer", email: "reviewer@example.invalid", first_seen_at: now.toISOString(), last_seen_at: now.toISOString() }),
+    getFeedbackAcknowledgement: async () => ({ acknowledgement_id: "pack_customer_approval", grant_id: session.grant_id, participant_id: session.participant_id!, order_number: session.order_number, task_id: request.task_id, feedback_fingerprint: "feedback-customer-approval-v1", acknowledged_at: now.toISOString() }),
+    reserve: async (contract) => {
+      record = { ...contract, prepared_audit_event_id: `paudit_decision-${"f".repeat(64)}`, record_version: 1, created_at: now.toISOString(), updated_at: now.toISOString(), expires_at_epoch: Math.floor(now.getTime() / 1000) + 2_592_000 };
+      return { status: "new" as const, record };
+    },
+    transition: async (input) => {
+      record = { ...record, outcome: input.next_outcome, record_version: record.record_version + 1, updated_at: now.toISOString() };
+      return record;
+    },
+    persistOrder: async (order) => order,
+    readCredentials: async () => ({ base_url: "https://proofing.example.invalid/api", company_id: "91", action_user_name: "VORNAN_PROOF", client_id: "synthetic-client", client_secret: "synthetic-secret-material-for-tests" }),
+    send: async () => ({ status: 202, transport_error: false, classification: { classification: "success_observed_unconfirmed", confirmed: false, retryable: false, reconciliation: "authoritative_read_after_write_required", reason: "success_response_requires_authoritative_confirmation" } }),
+    audit: async (event) => event as never
+  });
+
+  const result = await service.approve({ session, request, correlation_id: "correlation-customer-approval-line-binding" });
+  assert.equal(result.outcome, "reconciling");
 });
 
 test("rejects multiple or shared proofs before credentials or transport", async () => {
