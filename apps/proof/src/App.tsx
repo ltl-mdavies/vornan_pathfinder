@@ -1726,17 +1726,10 @@ export function App() {
             {customerProofCounts.awaitingProof ? <div><dt>Awaiting proof</dt><dd>{customerProofCounts.awaitingProof}</dd></div> : null}
             {customerProofCounts.updatingProof ? <div><dt>Updating proof</dt><dd>{customerProofCounts.updatingProof}</dd></div> : null}
           </dl>
-          <div className="view-only-badge"><ShieldCheck aria-hidden="true" /> {order!.access.decisions_enabled ? "Secure review access" : "Secure view-only access"}</div>
         </div>
       </section>
 
       <div className="notice-stack">
-        <div className="read-only-notice" role="status">
-          <ShieldCheck aria-hidden="true" />
-          <span>{order!.access.decisions_enabled
-            ? <><strong>Review mode.</strong> Single-proof approvals are available. Multi-proof, shared-art, revision, and upload actions remain protected.</>
-            : <><strong>Review mode.</strong> Approvals and revision requests remain disabled while Vornan completes isolated lifecycle QA.</>}</span>
-        </div>
         {orderHealthMessage ? (
           <div className={`order-health-notice ${order!.health}`} role="status">
             <AlertTriangle aria-hidden="true" />
