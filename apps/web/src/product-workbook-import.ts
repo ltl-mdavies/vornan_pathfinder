@@ -30,7 +30,13 @@ function textValue(value: unknown) {
 }
 
 export function workbookColumn(columns: string[], candidates: RegExp[]) {
-  return columns.find((column) => candidates.some((candidate) => candidate.test(column.trim()))) ?? "";
+  for (const candidate of candidates) {
+    const column = columns.find((value) => candidate.test(value.trim()));
+    if (column) {
+      return column;
+    }
+  }
+  return "";
 }
 
 export function inferProductWorkbookProfile(sheet: ParsedWorkbookSheet): ProductWorkbookSheetProfile {
