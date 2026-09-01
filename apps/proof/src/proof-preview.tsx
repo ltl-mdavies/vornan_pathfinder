@@ -228,7 +228,7 @@ function ProofPreviewSource({ version, refreshing = false, quality = "high", ass
     return (
       <div ref={viewerRef} className="proof-resolution-viewer" aria-busy={!loaded}>
         {quality === "high" ? (
-          <ViewerControlIsland containerRef={viewerRef} className="proof-zoom-controls" label="Proof zoom controls">
+          <ViewerControlIsland containerRef={viewerRef} className="proof-control-island" label="Proof zoom controls">
             <button type="button" aria-label="Zoom out" disabled={zoom <= zoomSteps[0]!} onClick={() => setZoom(nextZoomOut)}><Minus aria-hidden="true" /></button>
             <button type="button" className="proof-zoom-fit" aria-label="Fit proof to viewer" onClick={fitProof}>{zoom === 1 ? "Fit" : `${Math.round(zoom * 100)}%`}</button>
             <button type="button" aria-label="Zoom in" disabled={zoom >= zoomSteps.at(-1)!} onClick={() => setZoom(nextZoomIn)}><Plus aria-hidden="true" /></button>
