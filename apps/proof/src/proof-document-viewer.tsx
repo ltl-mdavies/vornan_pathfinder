@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { ChevronLeft, ChevronRight, Minus, Plus, RotateCw } from "lucide-react";
+import { ViewerControlIsland } from "./viewer-control-island";
 
 type FitMode = "page" | "width" | "actual";
 
@@ -29,6 +30,7 @@ function fitLabel(mode: FitMode) {
 }
 
 export function ProofDocumentViewer({ source, filename, onLoad, onError }: ProofDocumentViewerProps) {
+  const viewerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const renderNonce = useRef(0);
@@ -181,7 +183,7 @@ export function ProofDocumentViewer({ source, filename, onLoad, onError }: Proof
   }
 
   return (
-    <div className="proof-document-viewer" aria-busy={!document}>
+    <div ref={viewerRef} className="proof-document-viewer" aria-busy={!document}>
       <div
         ref={viewportRef}
         className={`proof-document-viewport ${zoomed ? "zoomed" : "fit"}`}
@@ -191,7 +193,7 @@ export function ProofDocumentViewer({ source, filename, onLoad, onError }: Proof
         <canvas ref={canvasRef} className="proof-document-canvas" />
       </div>
       {document ? (
-        <div className="proof-control-island" role="group" aria-label="PDF proof viewer controls">
+        <ViewerControlIsland containerRef={viewerRef} className="proof-control-island" label="PDF proof viewer controls">
           {pageCount && pageCount > 1 ? <>
             <button type="button" aria-label="Previous page" disabled={pageNumber <= 1} onClick={() => setPageNumber((page) => Math.max(1, page - 1))}><ChevronLeft aria-hidden="true" /></button>
             <span className="proof-page-indicator" aria-live="polite">{pageNumber} <i>/</i> {pageCount}</span>
@@ -208,7 +210,7 @@ export function ProofDocumentViewer({ source, filename, onLoad, onError }: Proof
           <button type="button" aria-label="Zoom in" disabled={zoom >= zoomSteps.at(-1)!} onClick={() => changeZoom(nextZoom(zoom, 1))}><Plus aria-hidden="true" /></button>
           <span className="proof-control-divider" aria-hidden="true" />
           <button type="button" aria-label="Rotate clockwise" onClick={() => setRotation((degrees) => (degrees + 90) % 360)}><RotateCw aria-hidden="true" /></button>
-        </div>
+        </ViewerControlIsland>
       ) : <div className="proof-resolution-status" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><strong>Loading full-resolution proof…</strong></div>}
     </div>
   );

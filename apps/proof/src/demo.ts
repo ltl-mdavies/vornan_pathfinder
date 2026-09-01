@@ -247,7 +247,7 @@ export function demoOrderForHash(hash: string): ProofOrder {
         if (index === 0 && task.current_version) {
           const pdfVersion = {
             ...task.current_version,
-            filename: "north-wall-final-proof-with-an-intentionally-long-filename-for-responsive-review.pdf",
+            filename: "north-wall-final-proof-with-an-intentionally-long-filename-for-responsive-review.jpg",
             content_type: "application/pdf",
             preview_kind: "pdf" as const,
             preview_url: "/brand/proof-placeholder.pdf",

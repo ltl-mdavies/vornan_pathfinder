@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   CheckCircle2,
   Clock3,
+  CircleHelp,
   Download,
   ExternalLink,
   FileImage,
@@ -25,6 +26,7 @@ import {
 } from "lucide-react";
 import { acknowledgeFeedback, approveProof, endSession, exchangeToken, extendSession, identifyParticipant, loadProofHistory, loadProofOrder, ProofApiError, requestProofChanges, requestProofRefresh } from "./api";
 import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
+import { highResolutionFormatDiffers } from "./proof-file-format";
 import {
   PROOF_BACKGROUND_CHECK_INTERVAL_MS,
   PROOF_FEEDBACK_CHECK_INTERVAL_MS,
@@ -96,6 +98,27 @@ function commentCountLabel(count: number) {
   return `${count} ${count === 1 ? "comment" : "comments"}`;
 }
 
+function ProofFileFormatInfo() {
+  const [open, setOpen] = useState(false);
+  return <span className="proof-file-format-info" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <button
+      type="button"
+      aria-label="About proof file formats"
+      aria-describedby="proof-file-format-note"
+      aria-expanded={open}
+      onClick={() => setOpen(true)}
+      onFocus={() => setOpen(true)}
+      onBlur={() => setOpen(false)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setOpen(false);
+        }
+      }}
+    ><CircleHelp aria-hidden="true" /></button>
+    <span id="proof-file-format-note" className={open ? "is-open" : ""} role="tooltip">Viewing the high-resolution version of this proof. Lift may provide it in a different file format than the source proof filename.</span>
+  </span>;
+}
 async function bootstrap() {
   if (demoEnabled) {
     const decisionFlowQa = window.location.hash === "#/proof/decision-flow-qa";
@@ -1345,6 +1368,7 @@ export function App() {
   const selectedVersion =
     selectedTask?.versions.find((version) => version.version_id === selectedVersionId) ?? selectedTask?.current_version ?? null;
   const selectedAsset = proofAsset(selectedVersion);
+  const showHighResolutionFormatInfo = highResolutionFormatDiffers(selectedVersion?.filename, selectedAsset.display_kind);
   const artworkRefreshing = refreshState === "requesting" || refreshState === "queued";
   const completion = order ? proofOrderCompletion(order) : null;
   const completionEmpty = Boolean(completion && filter === "open" && !searchQuery.trim());
@@ -1867,6 +1891,7 @@ export function App() {
                   <div className="preview-filebar">
                     <div className="preview-filebar-file">
                       <span title={selectedVersion?.filename ?? "Proof pending"}>{selectedVersion?.filename ?? "Proof pending"}</span>
+                      {showHighResolutionFormatInfo ? <ProofFileFormatInfo /> : null}
                     </div>
                     <div className="preview-filebar-meta">
                       {selectedVersion?.created_ts || selectedVersion?.created_at ? <time title="Uploaded to Lift">Uploaded {formatDate(selectedVersion.created_ts ?? selectedVersion.created_at, true)}</time> : null}

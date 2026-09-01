@@ -205,6 +205,12 @@ h1, h2, h3, p { margin-top: 0; }
 .preview-filebar-meta { min-width: 0; max-width: 58%; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .preview-filebar-meta time, .preview-filebar-meta small { flex: none; white-space: nowrap; font-size: 8px; font-weight: 800; }
 .preview-filebar-meta time { overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
+.proof-file-format-info { position: relative; flex: none; display: grid; place-items: center; }
+.proof-file-format-info button { width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #6e7a6b; display: grid; place-items: center; cursor: help; }
+.proof-file-format-info button:hover, .proof-file-format-info button:focus-visible { background: #e8ece0; color: var(--forest); }
+.proof-file-format-info svg { width: 12px; height: 12px; }
+.proof-file-format-info [role="tooltip"] { position: absolute; z-index: 8; top: calc(100% + 6px); left: -6px; width: min(300px, calc(100vw - 56px)); padding: 8px 9px; border: 1px solid rgba(43,77,48,.16); border-radius: 8px; background: rgba(255,255,252,.98); box-shadow: 0 10px 26px rgba(38,62,42,.16); color: #4f5e4e; font-size: 9px; font-weight: 650; line-height: 1.42; opacity: 0; pointer-events: none; transform: translateY(-3px); transition: opacity .14s ease, transform .14s ease; }
+.proof-file-format-info:hover [role="tooltip"], .proof-file-format-info:focus-within [role="tooltip"], .proof-file-format-info [role="tooltip"].is-open { opacity: 1; transform: translateY(0); }
 .proof-filmstrip { min-width: 0; min-height: 0; padding: 9px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #f6f7f1; display: flex; flex-direction: column; gap: 9px; }
 .filmstrip-heading { display: flex; align-items: center; gap: 6px; color: var(--forest); font-size: 9px; font-weight: 800; }
 .filmstrip-heading svg { width: 14px; }
@@ -240,12 +246,16 @@ h1, h2, h3, p { margin-top: 0; }
 .proof-resolution-status { position: absolute; z-index: 3; left: 50%; bottom: 18px; translate: -50% 0; min-height: 38px; max-width: calc(100% - 32px); padding: 8px 12px; border: 1px solid rgba(43,77,48,.14); border-radius: 999px; background: rgba(255,255,252,.94); box-shadow: 0 8px 22px rgba(38,62,42,.12); color: var(--forest); display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-size: 9px; white-space: nowrap; }
 .proof-resolution-status .spinner { width: 16px; height: 16px; border-width: 2px; }
 .proof-zoom-controls, .proof-control-island { position: absolute; z-index: 4; left: 50%; bottom: 12px; translate: -50% 0; min-height: 42px; padding: 4px; border: 1px solid rgba(255,255,252,.13); border-radius: 12px; background: rgba(35,38,35,.88); box-shadow: 0 10px 25px rgba(21,29,22,.28); color: #f8f9f4; backdrop-filter: blur(12px); }
+.viewer-control-island.is-dragging { cursor: grabbing; user-select: none; }
 .proof-zoom-controls { display: grid; grid-template-columns: 34px minmax(48px,auto) 34px; align-items: center; }
 .proof-control-island { display: flex; align-items: center; gap: 1px; white-space: nowrap; }
 .proof-zoom-controls button, .proof-control-island > button, .proof-fit-menu > button { min-width: 34px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: inherit; display: grid; place-items: center; font: inherit; font-size: 9px; font-weight: 800; cursor: pointer; }
 .proof-zoom-controls button:hover:not(:disabled), .proof-control-island > button:hover:not(:disabled), .proof-fit-menu > button:hover { background: rgba(255,255,252,.12); }
 .proof-zoom-controls button:disabled, .proof-control-island > button:disabled { opacity: .34; cursor: default; }
 .proof-zoom-controls svg, .proof-control-island svg { width: 15px; height: 15px; }
+.proof-control-handle { min-width: 26px !important; cursor: grab !important; color: rgba(248,249,244,.72) !important; }
+.proof-control-handle:hover, .proof-control-handle:focus-visible { color: #f8f9f4 !important; }
+.proof-control-reset { min-width: 30px !important; color: rgba(248,249,244,.78) !important; }
 .proof-control-divider { width: 1px; height: 20px; margin: 0 4px; background: rgba(255,255,252,.2); }
 .proof-page-indicator { min-width: 42px; padding: 0 5px; color: #f8f9f4; font-size: 10px; font-weight: 800; text-align: center; }
 .proof-page-indicator i { padding: 0 2px; color: rgba(248,249,244,.55); font-style: normal; }

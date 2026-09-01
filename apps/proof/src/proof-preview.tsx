@@ -3,6 +3,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ExternalLink, FileText, Minus, Plus, RefreshCw } from "lucide-react";
 import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
 import { ProofDocumentViewer } from "./proof-document-viewer";
+import { ViewerControlIsland } from "./viewer-control-island";
 import type { ProofVersion } from "./types";
 
 type ProofPreviewProps = {
@@ -75,6 +76,7 @@ function ProofPreviewSource({ version, refreshing = false, quality = "high", ass
   const [usingPreviewFallback, setUsingPreviewFallback] = useState(false);
   const [zoom, setZoom] = useState(1);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const viewerRef = useRef<HTMLDivElement | null>(null);
   const touchPointsRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchStartRef = useRef<{ distance: number; zoom: number } | null>(null);
   const pinchUsedRef = useRef(false);
@@ -224,13 +226,13 @@ function ProofPreviewSource({ version, refreshing = false, quality = "high", ass
     const nextZoomOut = [...zoomSteps].reverse().find((step) => step < zoom - 0.01) ?? zoomSteps[0]!;
     const nextZoomIn = zoomSteps.find((step) => step > zoom + 0.01) ?? zoomSteps.at(-1)!;
     return (
-      <div className="proof-resolution-viewer" aria-busy={!loaded}>
+      <div ref={viewerRef} className="proof-resolution-viewer" aria-busy={!loaded}>
         {quality === "high" ? (
-          <div className="proof-zoom-controls" role="group" aria-label="Proof zoom controls">
+          <ViewerControlIsland containerRef={viewerRef} className="proof-zoom-controls" label="Proof zoom controls">
             <button type="button" aria-label="Zoom out" disabled={zoom <= zoomSteps[0]!} onClick={() => setZoom(nextZoomOut)}><Minus aria-hidden="true" /></button>
             <button type="button" className="proof-zoom-fit" aria-label="Fit proof to viewer" onClick={fitProof}>{zoom === 1 ? "Fit" : `${Math.round(zoom * 100)}%`}</button>
             <button type="button" aria-label="Zoom in" disabled={zoom >= zoomSteps.at(-1)!} onClick={() => setZoom(nextZoomIn)}><Plus aria-hidden="true" /></button>
-          </div>
+          </ViewerControlIsland>
         ) : null}
         <div
           ref={viewportRef}
