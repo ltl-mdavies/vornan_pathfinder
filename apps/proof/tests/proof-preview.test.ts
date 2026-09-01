@@ -107,7 +107,7 @@ test("keeps the mounted viewer identity across signed-URL rotation but changes i
   assert.notEqual(first, replacement);
 });
 
-test("embeds a high-resolution PDF without adding a second viewer toolbar or manual fallback control", () => {
+test("renders a high-resolution PDF in the Vornan viewer shell rather than browser PDF chrome", () => {
   const markup = renderToStaticMarkup(createElement(ProofPreview, {
     version: imageVersion({
       filename: "north-wall-final.pdf",
@@ -118,11 +118,11 @@ test("embeds a high-resolution PDF without adding a second viewer toolbar or man
     })
   }));
 
-  assert.match(markup, /<iframe/);
-  assert.match(markup, /src="https:\/\/files\.example\/north-wall-full\.pdf"/);
-  assert.match(markup, /referrerPolicy="no-referrer"/);
-  assert.doesNotMatch(markup, /sandbox=/);
-  assert.doesNotMatch(markup, /proof-document-help/);
+  assert.match(markup, /proof-document-viewer/);
+  assert.match(markup, /proof-document-canvas/);
+  assert.match(markup, /PDF proof viewer: north-wall-final\.pdf/);
+  assert.match(markup, /Loading full-resolution proof/);
+  assert.doesNotMatch(markup, /<iframe/);
   assert.doesNotMatch(markup, /Use preview image/);
 });
 

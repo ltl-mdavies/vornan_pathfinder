@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { ExternalLink, FileText, Minus, Plus, RefreshCw } from "lucide-react";
 import { proofAsset, stableProofAssetUrlIdentity } from "./asset-state";
+import { ProofDocumentViewer } from "./proof-document-viewer";
 import type { ProofVersion } from "./types";
 
 type ProofPreviewProps = {
@@ -260,18 +261,12 @@ function ProofPreviewSource({ version, refreshing = false, quality = "high", ass
 
   if (activeKind === "pdf") {
     return (
-      <div className="preview-document" aria-busy={!loaded}>
-        <iframe
-          className={`proof-frame ${loaded ? "loaded" : "loading"}`}
-          src={activeSource}
-          referrerPolicy="no-referrer"
-          loading={quality === "high" ? "eager" : "lazy"}
-          title={`PDF proof preview for ${version?.filename ?? "selected artwork"}`}
-          onLoad={() => setLoadedSource(activeSource)}
-          onError={usePreviewFallbackOrFail}
-        />
-        {!loaded ? <div className="proof-resolution-status proof-resolution-status--document" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><strong>{quality === "high" ? "Loading full-resolution proof…" : "Loading proof…"}</strong></div> : null}
-      </div>
+      <ProofDocumentViewer
+        source={activeSource}
+        filename={version?.filename ?? null}
+        onLoad={() => setLoadedSource(activeSource)}
+        onError={usePreviewFallbackOrFail}
+      />
     );
   }
 
