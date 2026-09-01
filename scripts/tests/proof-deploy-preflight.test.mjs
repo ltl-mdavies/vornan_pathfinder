@@ -215,11 +215,11 @@ test("allows browser uploads only to the exact private asset bucket during the b
   );
   assert.match(
     webHeaders,
-    /ContentSecurityPolicy: !If\s+- CustomerRevisionUploadActive\s+- !Sub "default-src 'self'; connect-src 'self' https:\/\/\$\{ProofAssetBucketName\}\.s3\.\$\{AWS::Region\}\.amazonaws\.com;/
+    /ContentSecurityPolicy: !If\s+- CustomerRevisionUploadActive\s+- !Sub "default-src 'self'; connect-src 'self' https:\/\/\$\{ProofAssetBucketName\}\.s3\.\$\{AWS::Region\}\.amazonaws\.com https:\/\/lifters-integration-prod\.s3\.amazonaws\.com https:\/\/lifterp-graphics-prod-c\.s3\.amazonaws\.com;/
   );
   assert.match(
     webHeaders,
-    /- "default-src 'self'; connect-src 'self'; font-src 'self';/
+    /- "default-src 'self'; connect-src 'self' https:\/\/lifters-integration-prod\.s3\.amazonaws\.com https:\/\/lifterp-graphics-prod-c\.s3\.amazonaws\.com; font-src 'self';/
   );
   assert.doesNotMatch(webHeaders, /connect-src 'self' https:\s*;/);
   assert.doesNotMatch(webHeaders, /connect-src 'self' \*;/);

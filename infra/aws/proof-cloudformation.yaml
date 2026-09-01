@@ -606,8 +606,8 @@ Resources:
           ContentSecurityPolicy:
             ContentSecurityPolicy: !If
               - CustomerRevisionUploadActive
-              - !Sub "default-src 'self'; connect-src 'self' https://${ProofAssetBucketName}.s3.${AWS::Region}.amazonaws.com; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
-              - "default-src 'self'; connect-src 'self'; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
+              - !Sub "default-src 'self'; connect-src 'self' https://${ProofAssetBucketName}.s3.${AWS::Region}.amazonaws.com https://lifters-integration-prod.s3.amazonaws.com https://lifterp-graphics-prod-c.s3.amazonaws.com; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
+              - "default-src 'self'; connect-src 'self' https://lifters-integration-prod.s3.amazonaws.com https://lifterp-graphics-prod-c.s3.amazonaws.com; font-src 'self'; frame-src https:; img-src 'self' https: data:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; style-src 'self'; script-src 'self'"
             Override: true
           ContentTypeOptions:
             Override: true

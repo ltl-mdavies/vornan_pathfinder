@@ -253,7 +253,6 @@ function ProofPreviewSource({ version, refreshing = false, quality = "high", ass
             onError={usePreviewFallbackOrFail}
           />
         </div>
-        {usingPreviewFallback && loaded ? <div className="proof-resolution-notice" role="status" aria-live="polite">Showing preview resolution. Full resolution is temporarily unavailable.</div> : null}
         {!loaded ? <div className="proof-resolution-status" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><strong>{usingPreviewFallback ? "Loading preview resolution…" : quality === "high" ? "Loading full-resolution proof…" : "Loading proof…"}</strong></div> : null}
       </div>
     );
