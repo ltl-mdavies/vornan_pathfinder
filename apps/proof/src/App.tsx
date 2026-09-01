@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ChevronLeft,
   CheckCircle2,
   Clock3,
-  CircleHelp,
   Download,
   ExternalLink,
   FileImage,
   FileText,
   History,
+  Info,
   Layers3,
   Link2,
   LockKeyhole,
@@ -99,24 +100,68 @@ function commentCountLabel(count: number) {
 }
 
 function ProofFileFormatInfo() {
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
-  return <span className="proof-file-format-info" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+  const [pinned, setPinned] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+
+  function placeTooltip() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setPosition({
+      top: rect.bottom + 8,
+      left: Math.min(window.innerWidth - 312, Math.max(8, rect.left - 6))
+    });
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    placeTooltip();
+    window.addEventListener("resize", placeTooltip);
+    window.addEventListener("scroll", placeTooltip, true);
+    return () => {
+      window.removeEventListener("resize", placeTooltip);
+      window.removeEventListener("scroll", placeTooltip, true);
+    };
+  }, [open]);
+
+  function closeTooltip() {
+    setOpen(false);
+    setPinned(false);
+  }
+
+  const tooltip = open && typeof document !== "undefined"
+    ? createPortal(
+        <span id="proof-file-format-note" className="proof-file-format-tooltip" role="tooltip" style={position}>
+          Viewing the high-resolution version of this proof. Lift may provide it in a different file format than the source proof filename.
+        </span>,
+        document.body
+      )
+    : null;
+
+  return <span className="proof-file-format-info" onMouseEnter={() => { setOpen(true); placeTooltip(); }} onMouseLeave={() => { if (!pinned) setOpen(false); }}>
     <button
+      ref={triggerRef}
       type="button"
-      aria-label="About proof file formats"
+      aria-label="High-resolution proof format details"
       aria-describedby="proof-file-format-note"
       aria-expanded={open}
-      onClick={() => setOpen(true)}
-      onFocus={() => setOpen(true)}
-      onBlur={() => setOpen(false)}
+      onClick={() => {
+        const nextPinned = !pinned;
+        setPinned(nextPinned);
+        setOpen(nextPinned);
+        if (nextPinned) placeTooltip();
+      }}
+      onFocus={() => { setOpen(true); placeTooltip(); }}
+      onBlur={() => { if (!pinned) setOpen(false); }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
-          setOpen(false);
+          closeTooltip();
         }
       }}
-    ><CircleHelp aria-hidden="true" /></button>
-    <span id="proof-file-format-note" className={open ? "is-open" : ""} role="tooltip">Viewing the high-resolution version of this proof. Lift may provide it in a different file format than the source proof filename.</span>
+    ><Info aria-hidden="true" /></button>
+    {tooltip}
   </span>;
 }
 async function bootstrap() {
