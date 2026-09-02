@@ -441,6 +441,117 @@ test("fails closed when required configured section columns are missing", async 
   );
 });
 
+test("accepts an ICE BOXES header when the workbook has an unconfigured POINTSMITH SKU column", async () => {
+  const parsed = await parseWorkbookArrayBuffer(
+    workbookBuffer({
+      "ICE BOXES": [
+        ["Contract #", "POINTSMITH SKU", "DESCRIPTION", "Creative", "Print QTY"],
+        ["C316779", "ICE-BOX-1", "Ice Box A", "Creative A", 2]
+      ]
+    }),
+    {
+      sheetConfigs: {
+        "ICE BOXES": {
+          role: "order_lines",
+          enabled: true,
+          sections: [
+            {
+              sectionId: "ice-boxes",
+              label: "ICE BOXES order lines",
+              lineKind: "print",
+              headerRow: 1,
+              headerRowCount: 1,
+              headerSignature: ["Contract #", "DESCRIPTION", "Creative", "Print QTY"],
+              quantityColumn: "Print QTY",
+              missingQuantityBehavior: "reference",
+              required: true
+            }
+          ]
+        }
+      }
+    }
+  );
+
+  assert.equal(parsed.parsed_order_rows.length, 1);
+  assert.equal(parsed.parsed_order_rows[0].values["POINTSMITH SKU"], "ICE-BOX-1");
+  assert.equal(parsed.parsed_order_rows[0].values.DESCRIPTION, "Ice Box A");
+  assert.equal(parsed.parsed_order_rows[0].values["Print QTY"], 2);
+});
+
+test("accepts an ICE BOXES header when the workbook omits configured POINTSMITH SKU", async () => {
+  const parsed = await parseWorkbookArrayBuffer(
+    workbookBuffer({
+      "ICE BOXES": [
+        ["Contract #", "DESCRIPTION", "Creative", "Print QTY"],
+        ["C316779", "Ice Box A", "Creative A", 2]
+      ]
+    }),
+    {
+      sheetConfigs: {
+        "ICE BOXES": {
+          role: "order_lines",
+          enabled: true,
+          sections: [
+            {
+              sectionId: "ice-boxes",
+              label: "ICE BOXES order lines",
+              lineKind: "print",
+              headerRow: 1,
+              headerRowCount: 1,
+              headerSignature: ["Contract #", "POINTSMITH SKU", "DESCRIPTION", "Creative", "Print QTY"],
+              quantityColumn: "Print QTY",
+              missingQuantityBehavior: "reference",
+              required: true
+            }
+          ]
+        }
+      }
+    }
+  );
+
+  assert.equal(parsed.parsed_order_rows.length, 1);
+  assert.equal(parsed.parsed_order_rows[0].values.DESCRIPTION, "Ice Box A");
+  assert.equal(parsed.parsed_order_rows[0].values.Creative, "Creative A");
+  assert.equal(parsed.parsed_order_rows[0].values["Print QTY"], 2);
+  assert.equal("POINTSMITH SKU" in parsed.parsed_order_rows[0].values, false);
+});
+
+test("does not make other configured ICE BOXES columns optional", async () => {
+  await assert.rejects(
+    () =>
+      parseWorkbookArrayBuffer(
+        workbookBuffer({
+          "ICE BOXES": [
+            ["Contract #", "POINTSMITH SKU", "DESCRIPTION", "Print QTY"],
+            ["C316779", "ICE-BOX-1", "Ice Box A", 2]
+          ]
+        }),
+        {
+          sheetConfigs: {
+            "ICE BOXES": {
+              role: "order_lines",
+              enabled: true,
+              sections: [
+                {
+                  sectionId: "ice-boxes",
+                  label: "ICE BOXES order lines",
+                  lineKind: "print",
+                  headerRow: 1,
+                  headerRowCount: 1,
+                  headerSignature: ["Contract #", "POINTSMITH SKU", "DESCRIPTION", "Creative", "Print QTY"],
+                  quantityColumn: "Print QTY",
+                  missingQuantityBehavior: "reference",
+                  required: true
+                }
+              ]
+            }
+          }
+        }
+      ),
+    /missing the required "ICE BOXES order lines" header columns/
+  );
+});
+
 test("allows an optional configured hardware section to be absent", async () => {
   const parsed = await parseWorkbookArrayBuffer(
     workbookBuffer({
