@@ -931,7 +931,13 @@ function configuredHeaderSignatureEntries(columns: string[]) {
   });
 }
 
-function matchesConfiguredHeaderSignature(expectedColumns: string[], candidateColumns: string[]) {
+const optionalConfiguredHeaderAliases = new Set(["pointsmith sku"]);
+
+function withoutOptionalConfiguredHeaders(columns: string[]) {
+  return columns.filter((column) => !optionalConfiguredHeaderAliases.has(normalizeHeaderAlias(column)));
+}
+
+function matchesExactConfiguredHeaderSignature(expectedColumns: string[], candidateColumns: string[]) {
   const expected = configuredHeaderSignatureEntries(expectedColumns);
   const candidate = configuredHeaderSignatureEntries(candidateColumns);
 
@@ -943,6 +949,17 @@ function matchesConfiguredHeaderSignature(expectedColumns: string[], candidateCo
     (entry, index) =>
       candidate[index]?.index === entry.index &&
       candidate[index]?.value === entry.value
+  );
+}
+
+function matchesConfiguredHeaderSignature(expectedColumns: string[], candidateColumns: string[]) {
+  if (matchesExactConfiguredHeaderSignature(expectedColumns, candidateColumns)) {
+    return true;
+  }
+
+  return matchesExactConfiguredHeaderSignature(
+    withoutOptionalConfiguredHeaders(expectedColumns),
+    withoutOptionalConfiguredHeaders(candidateColumns)
   );
 }
 
@@ -1033,9 +1050,13 @@ function resolveWorkbookSections(
         return [];
       }
 
+      const detectedColumns = headerColumnsForRows(matrix, headerIndex, section.headerRowCount);
+      const configuredColumns = section.headerSignature as string[] | undefined;
       const columns = hasUsableSignature
-        ? [...(section.headerSignature as string[])]
-        : headerColumnsForRows(matrix, headerIndex, section.headerRowCount);
+        ? matchesExactConfiguredHeaderSignature(configuredColumns ?? [], detectedColumns)
+          ? [...(configuredColumns ?? [])]
+          : detectedColumns
+        : detectedColumns;
       return [
         {
           sectionId: safeSectionId(section.sectionId, `section-${index + 1}`),
