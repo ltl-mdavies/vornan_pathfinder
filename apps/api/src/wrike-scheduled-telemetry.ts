@@ -184,3 +184,62 @@ export function buildWrikeScheduledIntakeCompletionLog(
     candidate_failure_details: candidateFailureDetails
   };
 }
+
+/**
+ * Emits aggregate health metrics when an intake-wide failure occurs before
+ * candidate processing can begin. Provider content, task/job identifiers, and
+ * raw error messages must never enter this payload.
+ */
+export function buildWrikeScheduledIntakeFailureLog(
+  error: unknown,
+  checkedAt = new Date().toISOString(),
+  timestamp = Date.now()
+) {
+  const reasonCode = safeTelemetryToken(
+    typeof error === "object" && error !== null && "code" in error
+      ? (error as { code?: unknown }).code
+      : null,
+    "unknown"
+  );
+
+  return {
+    _aws: {
+      Timestamp: timestamp,
+      CloudWatchMetrics: [
+        {
+          Namespace: "Pathfinder/WrikeScheduledIntake",
+          Dimensions: [[]],
+          Metrics: [
+            { Name: "discovered_count", Unit: "Count" },
+            { Name: "prepared_count", Unit: "Count" },
+            { Name: "scheduled_submits_submitted", Unit: "Count" },
+            { Name: "scheduled_submits_reconciliation_needed", Unit: "Count" },
+            { Name: "scheduled_submits_reconciled", Unit: "Count" },
+            { Name: "status_comments_posted", Unit: "Count" },
+            { Name: "candidate_failures", Unit: "Count" },
+            { Name: "submission_inhibited_ready", Unit: "Count" }
+          ]
+        }
+      ]
+    },
+    event: "wrike_scheduled_intake_failed",
+    status: "failed",
+    checked_at: checkedAt,
+    discovered_count: 0,
+    prepared_count: 0,
+    scheduled_submits_submitted: 0,
+    scheduled_submits_reconciliation_needed: 0,
+    scheduled_submits_reconciled: 0,
+    status_comments_posted: 0,
+    candidate_failures: 1,
+    submission_inhibited_ready: 0,
+    candidate_failure_detail_count: 1,
+    candidate_failure_details: [{
+      stage: "discover",
+      reason_code: reasonCode,
+      task_id: null,
+      evidence_ids: [],
+      job_ids: []
+    }]
+  };
+}

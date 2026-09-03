@@ -49,6 +49,10 @@ test("scheduled Lambda coalesces full-store reads within one invocation", async 
     /withPathfinderStoreReadScope\(\(\) => runConfiguredWrikeScheduledIntake\(\)\)/
   );
   assert.match(source, /recordConfiguredWrikeScheduledIntakeFailure/);
+  assert.match(
+    source,
+    /recordConfiguredWrikeScheduledIntakeFailure[\s\S]*buildWrikeScheduledIntakeFailureLog\(error\)[\s\S]*throw error/
+  );
   assert.match(source, /throw error/);
   assert.doesNotMatch(source, /retry|setTimeout/);
 });
