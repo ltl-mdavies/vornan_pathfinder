@@ -260,11 +260,12 @@
 .order-rollup__shipment-address-pending { margin: 10px 0 0; color: #6b7768; font-size: 0.78rem; font-weight: 700; }
 .order-rollup__shipment-tracking-list { display: grid; gap: 8px; margin-top: 12px; }
 .order-rollup__shipment-tracking-list article { padding: 10px; border-radius: 7px; background: #f5f8f2; }
-.order-rollup__shipment-tracking-list article > div { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.order-rollup__shipment-tracking-list article > div { display: grid; gap: 4px; }
+.order-rollup__shipment-tracking-list article > div strong { flex: 0 0 auto; }
 .order-rollup__shipment-tracking-list a,
 .order-rollup__package-card a { color: #176b36; text-decoration-thickness: 1px; text-underline-offset: 2px; }
-.order-rollup__shipment-tracking-list a { overflow-wrap: anywhere; }
-.order-rollup__shipment-tracking-list article > div span { color: #657160; font-size: 0.7rem; letter-spacing: 0; text-align: right; text-transform: none; }
+.order-rollup__shipment-tracking-list a { overflow-wrap: normal; white-space: nowrap; }
+.order-rollup__shipment-tracking-list article > div span { color: #657160; font-size: 0.7rem; letter-spacing: 0; text-align: left; text-transform: none; }
 .order-rollup__shipment-tracking-list p { margin: 6px 0 0; font-size: 0.76rem; font-weight: 750; }
 .order-rollup__shipment-tracking-list article > small { margin-top: 4px; font-size: 0.68rem; }
 
@@ -331,7 +332,44 @@
 }
 
 .order-rollup__lines-heading h2 { margin-bottom: 0; }
-.order-rollup__lines-heading > span { color: #687564; font-weight: 750; }
+
+.order-rollup__lines-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.order-rollup__lines-heading-actions > span {
+  color: #899486;
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.order-rollup__lines-heading-actions > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #39523b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.order-rollup__lines-heading-actions > button svg {
+  width: 15px;
+  height: 15px;
+  transition: transform 160ms ease;
+}
+
+.order-rollup__lines-heading-actions > button svg.is-expanded { transform: rotate(180deg); }
+.order-rollup__lines-heading-actions > button:hover { color: #1f4328; background: #f3f7f1; }
+.order-rollup__lines-heading-actions > button:focus-visible { outline: 3px solid #abc65f; outline-offset: 2px; }
 
 .order-rollup__lines {
   display: grid;
@@ -713,6 +751,352 @@
 .order-rollup__lightbox-loading span { max-width: 360px; color: #687564; font-size: 0.76rem; font-weight: 700; line-height: 1.4; }
 .order-rollup__lightbox-canvas.is-error .order-rollup__lightbox-loading { color: #7a463d; }
 
+.order-rollup--public {
+  overflow: visible;
+  border-radius: 14px;
+  background: transparent;
+}
+
+.order-rollup__public-workspace {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.34fr) minmax(0, 1fr);
+  min-height: 0;
+  background: #fff;
+}
+
+.order-rollup__overview-column {
+  min-width: 0;
+  padding: 22px;
+  border-right: 1px solid #d9ddcf;
+  background: #f8faf6;
+}
+
+.order-rollup__at-a-glance {
+  padding: 4px 2px 20px;
+  border-bottom: 1px solid #d9ddcf;
+}
+
+.order-rollup__at-a-glance h2 {
+  margin: 0;
+  color: #39523b;
+  font-size: 1.45rem;
+  letter-spacing: -0.035em;
+}
+
+.order-rollup__at-a-glance > p:not(.order-rollup__eyebrow) {
+  margin: 7px 0 18px;
+  color: #687365;
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.order-rollup__at-a-glance dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  margin: 18px 0 0;
+}
+
+.order-rollup__at-a-glance dl > div {
+  min-width: 0;
+}
+
+.order-rollup__at-a-glance dt,
+.order-rollup__line-step-summary > span {
+  color: #748071;
+  font-size: 0.67rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.order-rollup__at-a-glance dd {
+  margin: 5px 0 0;
+  color: #191818;
+  font-size: 0.88rem;
+  font-weight: 850;
+}
+
+.order-rollup__shipment-summary.order-rollup__shipment-summary--compact {
+  margin: 20px 0 0;
+  border-width: 1px;
+  border-color: #d5dfd0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-overview {
+  display: block;
+  padding: 15px 16px;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-overview dl {
+  display: none;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-details > summary {
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-details > summary::after {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-details > summary > small {
+  margin: 0;
+  padding-right: 38px;
+  text-align: left;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-details > summary > span {
+  padding-right: 38px;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-destinations {
+  grid-template-columns: 1fr;
+  padding: 0 10px 10px;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-destination {
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.order-rollup--public .order-rollup__section-availability,
+.order-rollup--public .order-rollup__proof-summary {
+  margin: 14px 0 0;
+}
+
+.order-rollup--public .order-rollup__proof-summary {
+  grid-template-columns: 1fr;
+}
+
+.order-rollup--public > .order-rollup__issues {
+  margin: 0;
+  border-width: 0 0 1px;
+  border-radius: 0;
+}
+
+.order-rollup__lines-column {
+  min-width: 0;
+  padding: 4px 0;
+}
+
+.order-rollup--public .order-rollup__lines-heading {
+  padding: 22px 24px 16px;
+}
+
+.order-rollup--public .order-rollup__lines {
+  gap: 10px;
+  padding: 0 14px 16px;
+}
+
+.order-rollup__line-card--public {
+  border-color: #dde4d9;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.order-rollup__line-card--public > summary {
+  list-style: none;
+}
+
+.order-rollup__line-card--public > summary::-webkit-details-marker {
+  display: none;
+}
+
+.order-rollup__line-heading--public {
+  grid-template-columns: 38px minmax(200px, 1fr) 72px 142px 112px 112px 20px;
+  gap: 14px;
+  min-height: 96px;
+  padding: 14px 16px;
+  cursor: pointer;
+}
+
+.order-rollup__line-heading--public:hover {
+  background: #f8faf6;
+}
+
+.order-rollup__line-heading--public:focus-visible {
+  outline: 3px solid #789731;
+  outline-offset: -3px;
+}
+
+.order-rollup__line-heading--public .order-rollup__line-number {
+  width: 38px;
+  height: 38px;
+}
+
+.order-rollup__line-heading--public .order-rollup__line-title h3 {
+  font-size: 1rem;
+}
+
+.order-rollup__line-heading--public .order-rollup__line-title p {
+  font-size: 0.78rem;
+}
+
+.order-rollup__line-thumbnail {
+  position: relative;
+  display: block;
+  width: 72px;
+  height: 58px;
+  overflow: visible;
+}
+
+.order-rollup__line-thumbnail-frame {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #d9ddcf;
+  border-radius: 8px;
+  background: #f3f7f1;
+  color: #7b8778;
+}
+
+.order-rollup__line-thumbnail-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.order-rollup__line-thumbnail-frame svg {
+  width: 22px;
+  height: 22px;
+}
+
+.order-rollup__line-proof-notice {
+  position: absolute;
+  z-index: 1;
+  bottom: -9px;
+  left: 50%;
+  width: max-content;
+  max-width: 78px;
+  transform: translateX(-50%);
+  color: #9a681c;
+  font-size: 0.59rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.order-rollup__line-step-summary,
+.order-rollup__line-counts {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.order-rollup__line-step-summary strong,
+.order-rollup__line-counts span {
+  color: #191818;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.order-rollup__line-counts span:last-child {
+  color: #687365;
+  font-weight: 700;
+}
+
+.order-rollup__line-heading--public .order-rollup__status {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.order-rollup__line-chevron {
+  width: 18px;
+  height: 18px;
+  color: #39523b;
+  transition: transform 160ms ease;
+}
+
+.order-rollup__line-card--public[open] .order-rollup__line-chevron {
+  transform: rotate(180deg);
+}
+
+.order-rollup__line-expanded {
+  border-top: 1px solid #dde4d9;
+}
+
+.order-rollup__line-card--public .order-rollup__rail-wrap {
+  border: 0;
+  background: #f8faf6;
+}
+
+.order-rollup__line-card--public .order-rollup__current-step {
+  display: none;
+}
+
+.order-rollup__line-card--public .order-rollup__rail {
+  grid-template-columns: repeat(12, minmax(76px, 1fr));
+  min-width: 940px;
+  padding-top: 16px;
+  padding-bottom: 14px;
+}
+
+.order-rollup__line-card--public .order-rollup__rail::before {
+  top: 23px;
+  height: 1px;
+  background: #dce5d8;
+}
+
+.order-rollup__line-card--public .order-rollup__rail-dot {
+  width: 15px;
+  height: 15px;
+  border-width: 2px;
+}
+
+.order-rollup__line-card--public .order-rollup__rail strong {
+  margin-top: 6px;
+  color: #5f6d5c;
+  font-size: 0.64rem;
+  font-weight: 700;
+}
+
+.order-rollup__line-card--public .order-rollup__rail small {
+  margin-top: 2px;
+  color: #687365;
+  font-size: 0.64rem;
+  font-weight: 550;
+  line-height: 1.2;
+}
+
+.order-rollup__line-card--public .order-rollup__rail li.current .order-rollup__rail-dot {
+  width: 20px;
+  height: 20px;
+  margin-top: -2px;
+  border-width: 4px;
+  border-color: #fff;
+  background: #abc65f;
+  box-shadow: 0 0 0 2px #39523b;
+}
+
+.order-rollup__line-card--public .order-rollup__rail li.current strong,
+.order-rollup__line-card--public .order-rollup__rail li.current small {
+  color: #263c2b;
+  font-weight: 800;
+}
+
+.order-rollup__line-card--public .order-rollup__line-activity {
+  padding: 12px 14px 14px;
+  background: #f8faf6;
+}
+
+.order-rollup__line-card--public .order-rollup__line-activity > section {
+  border-color: #dde4d9;
+  background: #fff;
+}
+
 @keyframes order-rollup-proof-spinner {
   to { transform: rotate(360deg); }
 }
@@ -724,12 +1108,16 @@
 
 @media (max-width: 980px) {
   .order-rollup__meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .order-rollup__public-workspace { grid-template-columns: 1fr; }
+  .order-rollup__overview-column { border-right: 0; border-bottom: 1px solid #d9ddcf; }
+  .order-rollup__shipment-summary--compact .order-rollup__shipment-destinations { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
 }
 
 @media (max-width: 720px) {
   .order-rollup__header { grid-template-columns: 1fr; padding: 22px; }
   .order-rollup__meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .order-rollup__lines-heading { align-items: start; flex-direction: column; padding: 22px 18px 15px; }
+  .order-rollup__lines-heading-actions { width: 100%; justify-content: space-between; }
   .order-rollup__lines { padding: 0 12px 12px; }
   .order-rollup__line-heading { grid-template-columns: 38px minmax(0, 1fr); padding: 15px; }
   .order-rollup__line-number { width: 38px; height: 38px; }
@@ -747,6 +1135,16 @@
   .order-rollup__lightbox { width: 100%; height: 96vh; border-radius: 10px; }
   .order-rollup__lightbox > header { align-items: start; flex-direction: column; }
   .order-rollup__lightbox > header strong { max-width: 84vw; }
+  .order-rollup__line-heading--public {
+    grid-template-columns: 38px minmax(0, 1fr) 64px 18px;
+    gap: 11px;
+  }
+  .order-rollup__line-heading--public .order-rollup__line-thumbnail { grid-column: 3; grid-row: 1 / span 2; width: 64px; height: 52px; }
+  .order-rollup__line-heading--public .order-rollup__line-step-summary { grid-column: 2 / span 2; }
+  .order-rollup__line-heading--public .order-rollup__line-counts { grid-column: 2 / span 2; display: flex; gap: 12px; }
+  .order-rollup__line-heading--public .order-rollup__status { grid-column: 2 / span 2; justify-self: start; }
+  .order-rollup__line-heading--public .order-rollup__line-chevron { grid-column: 4; grid-row: 1; }
+  .order-rollup__line-card--public .order-rollup__rail-wrap { display: none; }
 }
 
 @media (max-width: 420px) {

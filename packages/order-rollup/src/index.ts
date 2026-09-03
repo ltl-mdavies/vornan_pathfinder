@@ -624,6 +624,7 @@ export interface OrderRollupLine {
   final_width?: number | null;
   step?: LiftStepDefinition | null;
   proof_count: number;
+  proof_review_required?: boolean;
   package_count: number;
   latest_proof_status: string | null;
   latest_tracking_message: string | null;

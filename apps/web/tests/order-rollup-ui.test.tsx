@@ -61,6 +61,7 @@ function realSiblingSnapshot(): OrderRollupSnapshot {
       final_width: 30.375,
       material: ".020 Styrene",
       proof_count: 4,
+      proof_review_required: true,
       package_count: 2,
       latest_proof_status: "PENDING",
       latest_tracking_message: "In transit",
@@ -231,7 +232,7 @@ test("never renders direct Proof assets for the public Status audience and hides
   );
   assert.equal((publicMarkup.match(/<img /g) ?? []).length, 0);
   assert.equal((publicMarkup.match(/aria-label="Open high-resolution proof /g) ?? []).length, 0);
-  assert.match(publicMarkup, /Files and review access are not included/);
+  assert.doesNotMatch(publicMarkup, /Proof review status/);
 
   const hidden = realSiblingSnapshot();
   hidden.proof_visibility = "off";
@@ -256,10 +257,55 @@ test("renders safe transient Proof assets only when a token-authorized public ca
     />
   );
 
-  assert.equal((markup.match(/<img /g) ?? []).length, 4);
+  assert.equal((markup.match(/<img /g) ?? []).length, 5);
   assert.equal((markup.match(/aria-label="Open high-resolution proof /g) ?? []).length, 4);
   assert.doesNotMatch(markup, /Open full resolution/);
   assert.doesNotMatch(markup, /javascript:alert/);
+});
+
+test("uses a concise public order workspace with an explicit requested-ship label and proof thumbnail before line status", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.proof_visibility = "status_only";
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" allowProofAssetLinks />
+  );
+
+  assert.match(markup, /At a glance/);
+  assert.match(markup, /<dt>Order lines<\/dt><dd>1<\/dd>/);
+  assert.match(markup, /<dt>Requested ship<\/dt><dd>Jul 23, 2026<\/dd>/);
+  assert.match(markup, /<span>Open all<\/span>/);
+  assert.doesNotMatch(markup, /class="order-rollup__line-card order-rollup__line-card--public" open=/);
+  assert.doesNotMatch(markup, /Your order is currently at/);
+  assert.doesNotMatch(markup, /packages grouped without duplicates/);
+  assert.doesNotMatch(markup, /Proof review status/);
+  assert.doesNotMatch(markup, /Proof packet reviewed/);
+  assert.doesNotMatch(markup, /Order Context/);
+  assert.doesNotMatch(markup, /Lift order status/);
+  const identity = markup.indexOf("Redacted product");
+  const thumbnail = markup.indexOf("Latest proof:");
+  const currentStep = markup.indexOf("Current step");
+  const status = markup.indexOf("PENDING");
+  assert.equal(identity >= 0 && identity < thumbnail, true);
+  assert.equal(thumbnail < currentStep, true);
+  assert.equal(currentStep < status, true);
+  assert.match(markup, /Needs approval/);
+  assert.match(markup, /approval required/);
+});
+
+test("keeps a line-level proof approval notice when Proof details are hidden", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.proof_visibility = "off";
+  snapshot.lines[0].proof_count = 0;
+  snapshot.lines[0].latest_proof_status = null;
+  snapshot.lines[0].proofs = [];
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" />
+  );
+
+  assert.match(markup, /Needs approval/);
+  assert.match(markup, /Proof preview not posted; approval required/);
+  assert.doesNotMatch(markup, /<strong>Proofs<\/strong>/);
 });
 
 test("explains that missing public thumbnails are being refreshed", () => {
@@ -335,6 +381,37 @@ test("localizes transient shipping and proof failures without a global live warn
   assert.match(markup, /Some proof details are temporarily unavailable\. We’re showing the last confirmed update and will retry automatically\./);
   assert.doesNotMatch(markup, /data notes?/);
   assert.doesNotMatch(markup, /role="status"/);
+});
+
+test("does not show a permanent degraded notice for optional shipment sources that are not configured", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.source_status = {
+    packages: {
+      source: "packages",
+      availability: "available",
+      reason_code: "available",
+      severity: "info",
+      impact: "none",
+      checked_at: "2026-08-12T16:00:00.000Z",
+      last_success_at: "2026-08-12T16:00:00.000Z"
+    },
+    shipping: {
+      source: "shipping",
+      availability: "not_configured",
+      reason_code: "not_configured",
+      severity: "warning",
+      impact: "section_stale",
+      checked_at: "2026-08-12T16:00:00.000Z",
+      last_success_at: null
+    }
+  };
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" displayDate={(value) => value ?? "Not available"} />
+  );
+
+  assert.doesNotMatch(markup, /Shipping update/);
+  assert.doesNotMatch(markup, /Some shipment details are temporarily unavailable/);
 });
 
 test("reserves the global public warning for unavailable core order status", () => {
