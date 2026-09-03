@@ -6,7 +6,10 @@ import {
 } from "./server.js";
 import { withPathfinderStoreReadScope } from "./store.js";
 import { isWrikeScheduledIntakeEvent } from "./wrike-scheduled-intake.js";
-import { buildWrikeScheduledIntakeCompletionLog } from "./wrike-scheduled-telemetry.js";
+import {
+  buildWrikeScheduledIntakeCompletionLog,
+  buildWrikeScheduledIntakeFailureLog
+} from "./wrike-scheduled-telemetry.js";
 
 const httpHandler = serverless(app, {
   binary: false
@@ -27,6 +30,7 @@ export async function handler(event: unknown, context: unknown) {
           failure_category: markerError instanceof Error ? markerError.name : "unknown"
         }));
       }
+      console.log(JSON.stringify(buildWrikeScheduledIntakeFailureLog(error)));
       throw error;
     }
   }

@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildWrikeScheduledIntakeCompletionLog } from "../src/wrike-scheduled-telemetry.js";
+import {
+  buildWrikeScheduledIntakeCompletionLog,
+  buildWrikeScheduledIntakeFailureLog
+} from "../src/wrike-scheduled-telemetry.js";
 
 test("emits complete scheduler counters and one aggregate failure metric", () => {
   const event = buildWrikeScheduledIntakeCompletionLog(
@@ -195,4 +198,32 @@ test("reports a healthy replay-only cycle without false failures", () => {
   assert.deepEqual(event.candidate_failure_details, []);
   assert.equal(event.scheduled_submits_replayed, 2);
   assert.equal(event.status_comments_failed, 0);
+});
+
+test("emits an aggregate failure metric for intake-wide configuration failures", () => {
+  const event = buildWrikeScheduledIntakeFailureLog(
+    Object.assign(new Error("provider detail must not be logged"), {
+      code: "invalid_configuration",
+      task_id: "MAAAAASECRET",
+      provider_payload: { secret: "do-not-log" }
+    }),
+    "2026-09-03T17:42:58.000Z",
+    1_788_457_378_000
+  );
+
+  assert.equal(event.event, "wrike_scheduled_intake_failed");
+  assert.equal(event.status, "failed");
+  assert.equal(event.checked_at, "2026-09-03T17:42:58.000Z");
+  assert.equal(event.candidate_failures, 1);
+  assert.equal(event.discovered_count, 0);
+  assert.equal(event.scheduled_submits_submitted, 0);
+  assert.deepEqual(event.candidate_failure_details, [{
+    stage: "discover",
+    reason_code: "invalid_configuration",
+    task_id: null,
+    evidence_ids: [],
+    job_ids: []
+  }]);
+  assert.match(JSON.stringify(event), /invalid_configuration/);
+  assert.doesNotMatch(JSON.stringify(event), /provider detail|MAAAAASECRET|do-not-log/);
 });
