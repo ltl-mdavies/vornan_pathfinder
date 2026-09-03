@@ -233,12 +233,20 @@ export function mergePublicStatusRefresh(
 
   const sourceStatus = mergedSourceStatus(previous, fresh);
   const shipmentSummaryFresh = packagesFresh && shippingFresh;
+  const lifecycle = orderFresh ? fresh.lifecycle : previous.lifecycle;
+  const mergedLifecycle = lifecycle?.state === "cancelled" && previous.lifecycle?.state === "cancelled"
+    ? {
+        ...lifecycle,
+        observed_at: previous.lifecycle.observed_at ?? lifecycle.observed_at ?? null
+      }
+    : lifecycle;
 
   return {
     ...fresh,
     header: orderFresh ? fresh.header : previous.header,
     live_order: orderFresh ? fresh.live_order : previous.live_order,
     order_status: orderFresh ? fresh.order_status : previous.order_status,
+    lifecycle: mergedLifecycle,
     proof_summary: proofsFresh ? fresh.proof_summary : previous.proof_summary,
     shipment_summary: shipmentSummaryFresh
       ? fresh.shipment_summary

@@ -132,7 +132,15 @@ test("preserves numeric Lift tracking numbers from package and shipping reports"
   assert.equal(shipping[0]?.tracking_number, "123456789012");
 });
 
-function buildFixtureSnapshot(proofOrder: ProofOrder | null = null) {
+function buildFixtureSnapshot(
+  proofOrder: ProofOrder | null = null,
+  options: {
+    orderPayload?: unknown;
+    proofLineStep?: { id: string | number | null; number: string | number | null };
+    orderLookupOk?: boolean;
+    proofReportOk?: boolean;
+  } = {}
+) {
   return buildOrderSnapshot({
     customer: {} as never,
     job: {
@@ -189,10 +197,10 @@ function buildFixtureSnapshot(proofOrder: ProofOrder | null = null) {
     attempts: [{ attempt_id: "submit-contract-fixture" }] as never,
     orderNumber: "A0226692",
     orderLookup: {
-      ok: true,
+      ok: options.orderLookupOk ?? true,
       http_status: 200,
       fetched_at: checkedAt,
-      payload: {
+      payload: options.orderPayload ?? {
         rowset: [{
           ORDER_NUMBER: "A0226692",
           CUSTOMER_ID: 1249,
@@ -220,7 +228,7 @@ function buildFixtureSnapshot(proofOrder: ProofOrder | null = null) {
       }
     } as never,
     proofReport: {
-      ok: true,
+      ok: options.proofReportOk ?? true,
       http_status: 200,
       fetched_at: checkedAt,
       proofs: [{
@@ -229,6 +237,10 @@ function buildFixtureSnapshot(proofOrder: ProofOrder | null = null) {
         attachment_id: 555,
         proof_filename: "one-sheet-proof.pdf",
         proof_approval_status: "Awaiting Approval",
+        ...(options.proofLineStep ? {
+          line_step_id: options.proofLineStep.id,
+          line_step_number: options.proofLineStep.number
+        } : {}),
         proof_link_low: "https://proof.example.invalid/low.jpg",
         proof_link_high: "https://proof.example.invalid/high.pdf",
         proof_approved_by: "internal@example.com",
@@ -261,6 +273,73 @@ function buildFixtureSnapshot(proofOrder: ProofOrder | null = null) {
     issues: []
   });
 }
+
+test("projects a successful Orders rowset:null as a durable canceled order without a data-feed warning", () => {
+  const snapshot = buildFixtureSnapshot(null, { orderPayload: { rowset: null } });
+  const publicSnapshot = publicOrderStatusSnapshotFromInternal(snapshot, "review_link");
+
+  assert.equal(snapshot.lifecycle.state, "cancelled");
+  assert.equal(snapshot.lifecycle.cancellation_source, "orders_report");
+  assert.equal(snapshot.order_status?.label, "Canceled");
+  assert.equal(snapshot.lines.length, 1);
+  assert.equal(snapshot.lines[0]?.cancelled, true);
+  assert.equal(snapshot.lines[0]?.proof_review_required, false);
+  assert.equal(snapshot.source_status?.order?.availability, undefined);
+  assert.equal(publicSnapshot.lifecycle?.state, "cancelled");
+  assert.equal(publicSnapshot.lines[0]?.proof_review_required, false);
+  assert.equal(publicSnapshot.issues.length, 0);
+});
+
+test("marks individual canceled lines while keeping an order active when another Lift line remains active", () => {
+  const snapshot = buildFixtureSnapshot(null, {
+    orderPayload: {
+      rowset: [{
+        ORDER_NUMBER: "A0230026",
+        ORDER_STATUS: "In Production",
+        LINES: [
+          { LINE_NUMBER: 1, ORDER_LINE_ID: 9742987, LINE_STEP_ID: -1, LINE_STEP_NUMBER: null },
+          { LINE_NUMBER: 2, ORDER_LINE_ID: 9742988, LINE_STEP_ID: 1043, LINE_STEP_NUMBER: 15.07 }
+        ]
+      }]
+    }
+  });
+
+  assert.equal(snapshot.lifecycle.state, "active");
+  assert.equal(snapshot.lines[0]?.cancelled, true);
+  assert.equal(snapshot.lines[0]?.step, null);
+  assert.equal(snapshot.lines[1]?.cancelled, false);
+  assert.equal(snapshot.lines[1]?.step?.step_name, "Cut");
+});
+
+test("uses the proof-report canceled-line signature when the Orders report has not caught up", () => {
+  const snapshot = buildFixtureSnapshot(null, { proofLineStep: { id: -1, number: null } });
+
+  assert.equal(snapshot.lifecycle.state, "cancelled");
+  assert.equal(snapshot.lifecycle.cancellation_source, "order_lines");
+  assert.equal(snapshot.lines[0]?.cancelled, true);
+  assert.equal(snapshot.lines[0]?.proof_review_required, false);
+});
+
+test("never infers cancellation from a canceled signature delivered by a failed Lift read", () => {
+  const failedOrderRead = buildFixtureSnapshot(null, {
+    orderLookupOk: false,
+    orderPayload: {
+      rowset: [{
+        ORDER_NUMBER: "A0230026",
+        LINES: [{ LINE_NUMBER: 1, ORDER_LINE_ID: 9742987, LINE_STEP_ID: -1, LINE_STEP_NUMBER: null }]
+      }]
+    }
+  });
+  const failedProofRead = buildFixtureSnapshot(null, {
+    proofReportOk: false,
+    proofLineStep: { id: -1, number: null }
+  });
+
+  assert.equal(failedOrderRead.lifecycle.state, "active");
+  assert.equal(failedOrderRead.lines[0]?.cancelled, false);
+  assert.equal(failedProofRead.lifecycle.state, "active");
+  assert.equal(failedProofRead.lines[0]?.cancelled, false);
+});
 
 test("uses the complete current Lift line set when lines were added after Pathfinder submission", () => {
   const snapshot = buildFixtureSnapshot();

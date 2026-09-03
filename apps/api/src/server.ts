@@ -44,6 +44,8 @@ import {
 } from "@pathfinder/lift-adapter";
 import {
   buildOrderRollupShipmentSummary,
+  isExplicitLiftOrderAbsence,
+  isLiftCancelledLine,
   matchLiftLineRecord,
   normalizeLiftOrderLookupPayload,
   toCustomerSafeOrderRollupDestination,
@@ -928,6 +930,7 @@ export function normalizeProofReportPayload(payload: unknown) {
     order_number: string | null;
     order_line_id: string | number | null;
     line_number: string | number | null;
+    line_step_id: string | number | null;
     line_step_number: string | number | null;
     product_name: string | null;
     attachment_id: string | number | null;
@@ -983,6 +986,7 @@ export function normalizeProofReportPayload(payload: unknown) {
       order_number: record.ORDER_NUMBER == null ? null : String(record.ORDER_NUMBER),
       order_line_id: (record.ORDER_LINE_ID as string | number | null | undefined) ?? null,
       line_number: (record.LINE_NUMBER as string | number | null | undefined) ?? null,
+      line_step_id: (record.LINE_STEP_ID as string | number | null | undefined) ?? null,
       line_step_number: (record.LINE_STEP_NUMBER as string | number | null | undefined) ?? null,
       product_name: typeof record.PRODUCT_NAME === "string" ? record.PRODUCT_NAME : null,
       attachment_id: (record.ATTACHMENT_ID as string | number | null | undefined) ?? null,
@@ -1460,6 +1464,7 @@ export function buildOrderSnapshot(args: {
   sourceStatus?: Partial<Record<OrderRollupDataSource, OrderRollupSourceStatus>>;
   issues: OrderRollupIssue[];
 }) {
+  const refreshedAt = new Date().toISOString();
   const proofProjection = args.proofOrder ? toOrderRollupProofProjection(args.proofOrder) : null;
   const proofs = proofProjection?.proofs ?? args.proofReport?.proofs ?? [];
   const packages = mergeShippingReportIntoPackages(
@@ -1467,6 +1472,8 @@ export function buildOrderSnapshot(args: {
     args.shippingReport?.shipments ?? []
   );
   const liveOrder = normalizeLiftOrderLookupPayload(args.orderLookup?.payload ?? null);
+  const orderMissingFromSuccessfulLookup = args.orderLookup?.ok === true
+    && isExplicitLiftOrderAbsence(args.orderLookup.payload);
   const submittedHeader = args.job.lift_payload.order;
   const resolvedHeader = {
     ...submittedHeader,
@@ -1517,6 +1524,12 @@ export function buildOrderSnapshot(args: {
     const linePackages = packages.filter((pkg) => matchLiftLineRecord(lineContexts, pkg)?.line.index === index);
     const latestProof = lineProofs[0];
     const latestProofState = latestProof && "proof_state" in latestProof ? latestProof.proof_state : null;
+    const cancelled = orderMissingFromSuccessfulLookup
+      || (args.orderLookup?.ok === true && liveLine?.cancelled === true)
+      || (args.proofReport?.ok === true && lineProofs.some((proof) => isLiftCancelledLine({
+        LINE_STEP_ID: "line_step_id" in proof ? proof.line_step_id : null,
+        LINE_STEP_NUMBER: "line_step_number" in proof ? proof.line_step_number : undefined
+      })));
     return {
       line_number,
       order_line_id: liveLine?.order_line_id ?? lineProofs[0]?.order_line_id ?? linePackages[0]?.order_line_id ?? null,
@@ -1530,9 +1543,10 @@ export function buildOrderSnapshot(args: {
         (line?.production?.material == null ? null : String(line.production.material)),
       final_height: liveLine?.final_height ?? line?.dimensions.final_height ?? null,
       final_width: liveLine?.final_width ?? line?.dimensions.final_width ?? null,
-      step: liveLine?.step ?? null,
+      step: cancelled ? null : liveLine?.step ?? null,
+      cancelled,
       proof_count: lineProofs.length,
-      proof_review_required: lineProofs.some((proof) => {
+      proof_review_required: !cancelled && lineProofs.some((proof) => {
         const approvalStatus = proof.proof_approval_status?.trim().toLowerCase();
         const proofState = "proof_state" in proof ? proof.proof_state : null;
         return approvalStatus === "pending"
@@ -1546,6 +1560,17 @@ export function buildOrderSnapshot(args: {
       packages: linePackages
     };
   });
+  const orderCancelled = orderMissingFromSuccessfulLookup
+    || (lines.length > 0 && lines.every((line) => line.cancelled));
+  const cancellationSource = orderMissingFromSuccessfulLookup ? "orders_report" as const : "order_lines" as const;
+  const orderStatus = orderCancelled
+    ? {
+        label: "Canceled",
+        code: "CANCELED",
+        color: "grey" as const,
+        step: null
+      }
+    : liveOrder?.status ?? null;
 
   return {
     snapshot_id: `snapshot-${args.job.job_id}`,
@@ -1575,7 +1600,12 @@ export function buildOrderSnapshot(args: {
     },
     header: resolvedHeader,
     live_order: liveOrder,
-    order_status: liveOrder?.status ?? null,
+    order_status: orderStatus,
+    lifecycle: {
+      state: orderCancelled ? "cancelled" as const : "active" as const,
+      cancellation_source: orderCancelled ? cancellationSource : null,
+      observed_at: orderCancelled ? args.orderLookup?.fetched_at ?? refreshedAt : null
+    },
     proof_summary: proofProjection?.summary ?? null,
     shipment_summary: buildOrderRollupShipmentSummary(lines, resolvedHeader.shipping),
     lines,
@@ -1621,7 +1651,7 @@ export function buildOrderSnapshot(args: {
     },
     source_status: args.sourceStatus,
     issues: args.issues,
-    refreshed_at: new Date().toISOString()
+    refreshed_at: refreshedAt
   };
 }
 
@@ -1957,9 +1987,11 @@ export function applyPublicProofVisibility(
   options: { include_transient_proof_assets?: boolean } = {}
 ): PublicOrderStatusSnapshot {
   const showProofStatus = proofVisibility !== "off";
+  const orderCancelled = snapshot.lifecycle?.state === "cancelled";
   const includeTransientProofAssets = showProofStatus && options.include_transient_proof_assets === true;
   const lines = snapshot.lines.map((line) => ({
     ...line,
+    proof_review_required: orderCancelled || line.cancelled ? false : line.proof_review_required,
     proof_count: showProofStatus ? line.proof_count : 0,
     latest_proof_status: showProofStatus ? line.latest_proof_status : null,
     proofs: showProofStatus
@@ -1981,7 +2013,8 @@ export function applyPublicProofVisibility(
     proof_summary: showProofStatus && snapshot.proof_summary
       ? {
           ...snapshot.proof_summary,
-          access_mode: proofVisibility,
+          review_required: orderCancelled ? false : snapshot.proof_summary.review_required,
+          access_mode: orderCancelled ? "status_only" : proofVisibility,
           review_url: null
         }
       : null,
@@ -2039,6 +2072,7 @@ export function publicOrderStatusSnapshotFromInternal(
     },
     live_order: snapshot.live_order,
     order_status: snapshot.order_status,
+    lifecycle: snapshot.lifecycle,
     proof_summary: snapshot.proof_summary,
     proof_visibility: proofVisibility,
     shipment_summary: buildOrderRollupShipmentSummary(publicLines, snapshot.header.shipping),
@@ -2144,7 +2178,8 @@ function emitPublicStatusRefreshTelemetry(args: {
         Dimensions: [["Service", "Operation", "RefreshStatus"]],
         Metrics: [
           { Name: "RefreshRequest", Unit: "Count" },
-          { Name: "RetainedSourceCount", Unit: "Count" }
+          { Name: "RetainedSourceCount", Unit: "Count" },
+          { Name: "CanceledOrder", Unit: "Count" }
         ]
       }]
     },
@@ -2158,6 +2193,8 @@ function emitPublicStatusRefreshTelemetry(args: {
     customer_id_hash: createHash("sha256").update(args.binding.customer_id).digest("hex").slice(0, 16),
     job_id_hash: createHash("sha256").update(args.binding.job_id).digest("hex").slice(0, 16),
     checked_at: args.checked_at,
+    order_lifecycle_state: args.snapshot.lifecycle?.state ?? "active",
+    cancellation_source: args.snapshot.lifecycle?.cancellation_source ?? null,
     source_outcomes: sourceStatuses.map((sourceStatus) => ({
       source: sourceStatus.source,
       availability: sourceStatus.availability,
@@ -2167,7 +2204,8 @@ function emitPublicStatusRefreshTelemetry(args: {
       last_success_at: sourceStatus.last_success_at
     })),
     RefreshRequest: 1,
-    RetainedSourceCount: staleSources.length
+    RetainedSourceCount: staleSources.length,
+    CanceledOrder: args.snapshot.lifecycle?.state === "cancelled" ? 1 : 0
   }));
 }
 

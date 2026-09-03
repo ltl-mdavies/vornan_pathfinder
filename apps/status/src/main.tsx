@@ -73,6 +73,7 @@ type StatusLine = {
   final_height?: number | null;
   final_width?: number | null;
   step?: LiftStepDefinition | null;
+  cancelled?: boolean;
   proof_count: number;
   proof_review_required?: boolean;
   package_count: number;
@@ -126,6 +127,11 @@ type PublicOrderStatusSnapshot = {
   };
   live_order?: NormalizedLiftOrder | null;
   order_status?: NormalizedLiftOrder["status"];
+  lifecycle?: {
+    state: "active" | "cancelled";
+    cancellation_source?: "orders_report" | "order_lines" | null;
+    observed_at?: string | null;
+  };
   proof_summary?: OrderRollupProofSummary | null;
   proof_visibility: OrderRollupProofVisibility;
   shipment_summary?: OrderRollupShipmentSummary | null;
@@ -222,6 +228,9 @@ function displayMilestoneDate(value: string) {
 }
 
 function statusLabel(snapshot: PublicOrderStatusSnapshot) {
+  if (snapshot.lifecycle?.state === "cancelled") {
+    return "Canceled";
+  }
   if (snapshot.order_status?.label ?? snapshot.live_order?.status?.label) {
     return snapshot.order_status?.label ?? snapshot.live_order?.status?.label ?? "Received";
   }
@@ -515,6 +524,7 @@ function StatusView({
   const proofReviewRequired = snapshot.proof_summary?.review_required === true
     && (snapshot.proof_visibility === "review_link" || snapshot.proof_summary.access_mode === "review_link");
   const pendingProofs = snapshot.proof_summary?.pending ?? 0;
+  const orderCancelled = snapshot.lifecycle?.state === "cancelled";
 
   return (
     <>
@@ -560,23 +570,32 @@ function StatusView({
             <span>Contract {snapshot.header.contract_number ?? "Not provided"}</span>
           </div>
         </div>
-        <div className="status-badge">
+        <div className={`status-badge${orderCancelled ? " is-cancelled" : ""}`}>
           <span>Current status</span>
           <strong>{currentStatus}</strong>
-          {snapshot.order_status?.step ?? snapshot.live_order?.status?.step ? (
+          {orderCancelled ? (
+            <small>Order no longer active in Lift</small>
+          ) : snapshot.order_status?.step ?? snapshot.live_order?.status?.step ? (
             <small>{`${snapshot.order_status?.step?.step_number ?? snapshot.live_order?.status?.step?.step_number} · ${snapshot.order_status?.step?.step_name ?? snapshot.live_order?.status?.step?.step_name}`}</small>
           ) : null}
           <small className="status-updated-at">Updated {displayDate(snapshot.refreshed_at)}</small>
         </div>
       </section>
 
-      <section className="progress-panel" aria-label="Order progress">
-        {steps.map((step, index) => (
-          <ProgressStep key={step.label} step={step} index={index} />
-        ))}
-      </section>
+      {orderCancelled ? (
+        <aside className="order-cancelled-notice" role="status" aria-label="Order canceled">
+          <strong>Order canceled</strong>
+          <span>This order is no longer active in Lift. Previous order, proof, and shipment details are shown below for reference.</span>
+        </aside>
+      ) : (
+        <section className="progress-panel" aria-label="Order progress">
+          {steps.map((step, index) => (
+            <ProgressStep key={step.label} step={step} index={index} />
+          ))}
+        </section>
+      )}
 
-      {proofReviewRequired ? (
+      {!orderCancelled && proofReviewRequired ? (
         <aside className="proof-review-notice" role="status" aria-label="Proof approval required">
           <div>
             <strong>Proof approval required</strong>

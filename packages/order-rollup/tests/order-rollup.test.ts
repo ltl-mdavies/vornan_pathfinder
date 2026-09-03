@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
+  isExplicitLiftOrderAbsence,
+  isLiftCancelledLine,
   matchLiftLineRecord,
   normalizeLiftOrderLookupPayload,
   resolveLiftStep,
@@ -107,6 +109,40 @@ test("normalizes authoritative header status and per-line Lift steps", () => {
   assert.equal(order?.lines[0]?.order_line_id, 9742987);
   assert.equal(order?.lines[0]?.step?.order_status_code, "PENDING_ART");
   assert.equal(order?.lines[0]?.material, ".020 Styrene");
+  assert.equal(order?.lines[0]?.cancelled, false);
+});
+
+test("recognizes only Lift's exact canceled-order and canceled-line signatures", () => {
+  assert.equal(isExplicitLiftOrderAbsence({ rowset: null }), true);
+  assert.equal(isExplicitLiftOrderAbsence({ rowset: [] }), false);
+  assert.equal(isExplicitLiftOrderAbsence(null), false);
+
+  assert.equal(isLiftCancelledLine({ LINE_STEP_ID: -1, LINE_STEP_NUMBER: null }), true);
+  assert.equal(isLiftCancelledLine({ LINE_STEP_ID: "-1", LINE_STEP_NUMBER: null }), true);
+  assert.equal(isLiftCancelledLine({ LINE_STEP_ID: -1 }), false);
+  assert.equal(isLiftCancelledLine({ LINE_STEP_ID: -1, LINE_STEP_NUMBER: 0 }), false);
+  assert.equal(isLiftCancelledLine({ LINE_STEP_ID: 1040, LINE_STEP_NUMBER: null }), false);
+});
+
+test("retains canceled Lift lines as customer-visible history without assigning a production step", () => {
+  const order = normalizeLiftOrderLookupPayload({
+    rowset: [{
+      ORDER_NUMBER: "A0230026",
+      LINES: [
+        { LINE_NUMBER: 1, ORDER_LINE_ID: 100, LINE_STEP_ID: -1, LINE_STEP_NUMBER: null },
+        { LINE_NUMBER: 2, ORDER_LINE_ID: 200, LINE_STEP_ID: 1040, LINE_STEP_NUMBER: 6 }
+      ]
+    }]
+  });
+
+  assert.deepEqual(order?.lines.map((line) => ({
+    id: line.order_line_id,
+    cancelled: line.cancelled,
+    step: line.step?.step_number ?? null
+  })), [
+    { id: 100, cancelled: true, step: null },
+    { id: 200, cancelled: false, step: "6" }
+  ]);
 });
 
 test("limits public destination context to customer-safe address fields", () => {

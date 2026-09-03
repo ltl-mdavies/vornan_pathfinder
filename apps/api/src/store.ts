@@ -1073,6 +1073,11 @@ export interface PublicOrderStatusSnapshot {
   };
   live_order?: NormalizedLiftOrder | null;
   order_status?: NormalizedLiftOrder["status"];
+  lifecycle?: {
+    state: "active" | "cancelled";
+    cancellation_source?: "orders_report" | "order_lines" | null;
+    observed_at?: string | null;
+  };
   proof_summary?: OrderRollupProofSummary | null;
   proof_visibility: StatusProofVisibility;
   shipment_summary?: OrderRollupShipmentSummary | null;
@@ -1088,6 +1093,7 @@ export interface PublicOrderStatusSnapshot {
     final_height?: number | null;
     final_width?: number | null;
     step?: LiftStepDefinition | null;
+    cancelled?: boolean;
     proof_count: number;
     proof_review_required?: boolean;
     package_count: number;

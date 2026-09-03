@@ -339,6 +339,39 @@ p {
   box-shadow: 0 10px 26px rgba(81, 61, 25, 0.05);
 }
 
+.order-cancelled-notice {
+  display: grid;
+  width: min(1500px, calc(100vw - 48px));
+  gap: 4px;
+  margin: 16px auto 0;
+  padding: 15px 18px;
+  border: 1px solid #d5dad2;
+  border-radius: 10px;
+  background: #f7f8f6;
+  color: #596158;
+  box-shadow: 0 10px 26px rgba(42, 48, 41, 0.04);
+}
+
+.order-cancelled-notice strong {
+  color: #3f473e;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.order-cancelled-notice span {
+  font-size: 0.8rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.status-badge.is-cancelled {
+  border-color: #717970;
+}
+
+.status-badge.is-cancelled strong {
+  color: #4e564d;
+}
+
 .proof-review-notice > div {
   display: grid;
   gap: 3px;
@@ -1322,6 +1355,7 @@ button:disabled {
   .progress-panel,
   .mobile-progress-summary,
   .proof-review-notice,
+  .order-cancelled-notice,
   .status-shell > .order-rollup,
   .privacy-note {
     width: calc(100% - 24px);

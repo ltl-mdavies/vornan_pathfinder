@@ -902,6 +902,32 @@
   background: #fff;
 }
 
+.order-rollup__line-card.is-cancelled {
+  border-color: #d8ddd5;
+  background: #fafbfa;
+}
+
+.order-rollup__line-card.is-cancelled .order-rollup__line-number {
+  background: #737b72;
+}
+
+.order-rollup__line-card.is-cancelled .order-rollup__status {
+  border-color: #d3d8d1;
+  background: #f0f2ef;
+  color: #555d54;
+}
+
+.order-rollup__line-cancelled-note {
+  margin: 0;
+  padding: 13px 32px;
+  border-bottom: 1px solid #e1e5df;
+  background: #f5f7f4;
+  color: #626a60;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
 .order-rollup__line-card--public > summary {
   list-style: none;
 }
