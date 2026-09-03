@@ -48,6 +48,7 @@ import {
   normalizeLiftOrderLookupPayload,
   toCustomerSafeOrderRollupDestination,
   toCustomerSafeOrderRollupPackage,
+  type NormalizedLiftOrderLine,
   type OrderRollupDataSource,
   type OrderRollupIssue,
   type OrderRollupSourceStatus
@@ -1484,34 +1485,49 @@ export function buildOrderSnapshot(args: {
       shipping: liveOrder?.shipping ? "lift" : "submitted"
     } as const
   };
-  const lineContexts = args.job.lift_payload.lines.map((line, index) => {
-    const liveLine = liveOrder?.lines.find((candidate) => candidate.line_number === line.line_number) ?? null;
-    return {
-      index,
-      line,
-      liveLine,
-      line_number: line.line_number ?? index + 1,
-      order_line_id: liveLine?.order_line_id ?? null
-    };
-  });
-  const lines = lineContexts.map(({ index, line, liveLine }) => {
+  const submittedLinesByNumber = new Map(
+    args.job.lift_payload.lines.map((line, index) => [line.line_number ?? index + 1, line])
+  );
+  type LineContext = {
+    index: number;
+    line: ProcessingJobPreview["lift_payload"]["lines"][number] | null;
+    liveLine: NormalizedLiftOrderLine | null;
+    line_number: number;
+    order_line_id: string | number | null;
+  };
+  const lineContexts: LineContext[] = liveOrder
+    ? liveOrder.lines.map((liveLine, index) => ({
+        index,
+        line: submittedLinesByNumber.get(liveLine.line_number) ?? null,
+        liveLine,
+        line_number: liveLine.line_number,
+        order_line_id: liveLine.order_line_id
+      }))
+    : args.job.lift_payload.lines.map((line, index) => ({
+        index,
+        line,
+        liveLine: null,
+        line_number: line.line_number ?? index + 1,
+        order_line_id: null
+      }));
+  const lines = lineContexts.map(({ index, line, liveLine, line_number }) => {
     const lineProofs = proofs.filter((proof) => matchLiftLineRecord(lineContexts, proof)?.line.index === index);
     const linePackages = packages.filter((pkg) => matchLiftLineRecord(lineContexts, pkg)?.line.index === index);
     const latestProof = lineProofs[0];
     const latestProofState = latestProof && "proof_state" in latestProof ? latestProof.proof_state : null;
     return {
-      line_number: line.line_number,
+      line_number,
       order_line_id: liveLine?.order_line_id ?? lineProofs[0]?.order_line_id ?? linePackages[0]?.order_line_id ?? null,
-      product_name: liveLine?.product_name ?? line.product_name,
-      description: line.description,
-      quantity: liveLine?.quantity ?? line.quantity,
-      unit_number: liveLine?.unit_number ?? line.unit_number,
-      product_id: line.product_id,
+      product_name: liveLine?.product_name ?? line?.product_name ?? null,
+      description: line?.description ?? liveLine?.product_name ?? null,
+      quantity: liveLine?.quantity ?? line?.quantity ?? 0,
+      unit_number: liveLine?.unit_number ?? line?.unit_number ?? null,
+      product_id: line?.product_id ?? null,
       material:
         liveLine?.material ??
-        (line.production?.material == null ? null : String(line.production.material)),
-      final_height: liveLine?.final_height ?? line.dimensions.final_height,
-      final_width: liveLine?.final_width ?? line.dimensions.final_width,
+        (line?.production?.material == null ? null : String(line.production.material)),
+      final_height: liveLine?.final_height ?? line?.dimensions.final_height ?? null,
+      final_width: liveLine?.final_width ?? line?.dimensions.final_width ?? null,
       step: liveLine?.step ?? null,
       proof_count: lineProofs.length,
       package_count: linePackages.length,

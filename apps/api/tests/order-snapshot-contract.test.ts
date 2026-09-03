@@ -261,6 +261,115 @@ function buildFixtureSnapshot(proofOrder: ProofOrder | null = null) {
   });
 }
 
+test("uses the complete current Lift line set when lines were added after Pathfinder submission", () => {
+  const snapshot = buildFixtureSnapshot();
+  const livePayload = snapshot.lookups.order?.payload as { rowset: Array<{ LINES: Array<Record<string, unknown>> }> };
+  livePayload.rowset[0]?.LINES.push(
+    {
+      LINE_NUMBER: 2,
+      ORDER_LINE_ID: 10011821,
+      QUANTITY: 210,
+      PRODUCT_NAME: "Fat Head (18.5x23.5)",
+      MATERIAL: "WallMark 226",
+      LINE_STEP_ID: 1019,
+      LINE_STEP_NUMBER: 17,
+      PRINT_H_IN: 23.5,
+      PRINT_W_IN: 18.5
+    },
+    {
+      LINE_NUMBER: 3,
+      ORDER_LINE_ID: 10011822,
+      QUANTITY: 125,
+      PRODUCT_NAME: "Fat Head (18.5x23.5)",
+      MATERIAL: "WallMark 226",
+      LINE_STEP_ID: 1019,
+      LINE_STEP_NUMBER: 17,
+      PRINT_H_IN: 23.5,
+      PRINT_W_IN: 18.5
+    }
+  );
+
+  const refreshed = buildFixtureSnapshot();
+  refreshed.lookups.order!.payload = livePayload;
+  const rebuilt = buildOrderSnapshot({
+    customer: {} as never,
+    job: {
+      job_id: refreshed.job.job_id,
+      state: refreshed.job.state,
+      import_method_name: refreshed.job.import_method_name,
+      source_file_name: refreshed.job.source_file_name,
+      created_at: refreshed.job.created_at,
+      updated_at: refreshed.job.updated_at,
+      source_customer_id: "284619",
+      source_customer_name: refreshed.customer.source_customer_name,
+      submit_customer_id: "1249",
+      submit_customer_name: refreshed.customer.submit_customer_name,
+      lift_payload: {
+        order: snapshot.header,
+        lines: [{
+          line_number: 1,
+          product_id: "348225",
+          product_name: "Fat Head (18.5x23.5)",
+          description: "Fat Head (18.5x23.5)",
+          quantity: 265,
+          unit_number: "line_1",
+          dimensions: { final_height: 23.5, final_width: 18.5 },
+          production: { material: "WallMark 226" }
+        }]
+      }
+    } as never,
+    route: { output_route_id: "route", name: "Lift", environment_id: "prod", output_template: "Lift" } as never,
+    target: { name: "Lift ERP" } as never,
+    attempts: [] as never,
+    orderNumber: "A0229465",
+    orderLookup: { ok: true, http_status: 200, fetched_at: checkedAt, payload: livePayload } as never,
+    proofReport: {
+      ok: true,
+      http_status: 200,
+      fetched_at: checkedAt,
+      proofs: [{
+        order_line_id: 10011822,
+        line_number: 3,
+        proof_filename: "manually-added-line-proof.pdf",
+        proof_approval_status: "APPROVED"
+      }]
+    } as never,
+    packageDetails: {
+      ok: true,
+      http_status: 200,
+      fetched_at: checkedAt,
+      redacted_fields: ["NEGOTIATED_RATE"],
+      packages: [{
+        order_line_id: 10011821,
+        line_number: 2,
+        tracking_number: "TRACK-ADDED-LINE",
+        tracker_message: "Departed FedEx location"
+      }]
+    } as never,
+    issues: []
+  });
+
+  assert.deepEqual(rebuilt.lines.map((line) => ({
+    line_number: line.line_number,
+    order_line_id: line.order_line_id,
+    quantity: line.quantity,
+    product_name: line.product_name,
+    product_id: line.product_id
+  })), [
+    { line_number: 1, order_line_id: 9742987, quantity: 17, product_name: "One Sheet (30.375×46.375)", product_id: "348225" },
+    { line_number: 2, order_line_id: 10011821, quantity: 210, product_name: "Fat Head (18.5x23.5)", product_id: null },
+    { line_number: 3, order_line_id: 10011822, quantity: 125, product_name: "Fat Head (18.5x23.5)", product_id: null }
+  ]);
+  assert.equal(rebuilt.lines[1]?.package_count, 1);
+  assert.equal(rebuilt.lines[1]?.packages[0]?.tracking_number, "TRACK-ADDED-LINE");
+  assert.equal(rebuilt.lines[2]?.proof_count, 1);
+  assert.equal(rebuilt.lines[2]?.proofs[0]?.proof_filename, "manually-added-line-proof.pdf");
+
+  const publicSnapshot = publicOrderStatusSnapshotFromInternal(rebuilt);
+  assert.equal(publicSnapshot.lines.length, 3);
+  assert.deepEqual(publicSnapshot.lines.map((line) => line.order_line_id), [9742987, 10011821, 10011822]);
+});
+
 function cachedProofOrder() {
   return normalizeProofOrder({
     order_number: "A0226692",
