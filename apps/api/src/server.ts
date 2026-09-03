@@ -1531,6 +1531,13 @@ export function buildOrderSnapshot(args: {
       final_width: liveLine?.final_width ?? line?.dimensions.final_width ?? null,
       step: liveLine?.step ?? null,
       proof_count: lineProofs.length,
+      proof_review_required: lineProofs.some((proof) => {
+        const approvalStatus = proof.proof_approval_status?.trim().toLowerCase();
+        const proofState = "proof_state" in proof ? proof.proof_state : null;
+        return approvalStatus === "pending"
+          || approvalStatus === "awaiting approval"
+          || proofState === "pending";
+      }),
       package_count: linePackages.length,
       latest_proof_status: latestProof?.proof_approval_status ?? latestProofState ?? null,
       latest_tracking_message: linePackages[0]?.tracker_message ?? null,
@@ -1555,7 +1562,8 @@ export function buildOrderSnapshot(args: {
       import_method_name: args.job.import_method_name,
       source_file_name: args.job.source_file_name,
       created_at: args.job.created_at,
-      updated_at: args.job.updated_at
+      updated_at: args.job.updated_at,
+      ...(args.job.order_confirmed_at ? { order_confirmed_at: args.job.order_confirmed_at } : {})
     },
     route: {
       output_route_id: args.route.output_route_id,
@@ -2114,7 +2122,7 @@ async function loadBoundedInternalOrderSnapshot(
   };
 }
 
-const publicStatusPollAfterSeconds = 30;
+const publicStatusPollAfterSeconds = 60;
 
 function emitPublicStatusRefreshTelemetry(args: {
   binding: { order_key: string; customer_id: string; job_id: string; order_number: string };

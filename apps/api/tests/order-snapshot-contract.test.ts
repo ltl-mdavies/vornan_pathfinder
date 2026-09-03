@@ -142,6 +142,7 @@ function buildFixtureSnapshot(proofOrder: ProofOrder | null = null) {
       source_file_name: "momentara-order.xlsx",
       created_at: "2026-07-20T20:00:00.000Z",
       updated_at: "2026-07-20T20:20:00.000Z",
+      order_confirmed_at: "2026-07-20T20:18:00.000Z",
       source_customer_id: "284619",
       source_customer_name: "Empirical – Momentara",
       submit_customer_id: "1249",
@@ -417,6 +418,7 @@ test("keeps enriched Lift order, line, proof, and package data in the internal s
   assert.equal(snapshot.lines[0]?.order_line_id, 9742987);
   assert.equal(snapshot.lines[0]?.step?.step_name, "Obtain Art");
   assert.equal(snapshot.lines[0]?.proof_count, 1);
+  assert.equal(snapshot.lines[0]?.proof_review_required, true);
   assert.equal(snapshot.lines[0]?.proofs[0]?.proof_filename, "one-sheet-proof.pdf");
   assert.equal(snapshot.lines[0]?.package_count, 1);
   assert.equal(snapshot.lines[0]?.packages[0]?.tracking_number, "1ZTEST");
@@ -510,6 +512,7 @@ test("preserves customer-safe rollup detail while removing internal submit and r
     }]
   });
   assert.equal(publicSnapshot.header.po_number, "PO-LIFT-9001");
+  assert.equal(publicSnapshot.job.order_confirmed_at, "2026-07-20T20:18:00.000Z");
   assert.equal(publicSnapshot.header.contract_number, "CONTRACT-SUBMITTED-12");
   assert.equal(publicSnapshot.header.actual_ship_date, "2026-07-26");
   assert.equal(publicSnapshot.header.field_sources?.po_number, "lift");
@@ -627,6 +630,7 @@ test("applies all three customer Proof visibility modes without exposing Lift as
 
   assert.equal(hidden.proof_summary, null);
   assert.equal(hidden.lines[0]?.proof_count, 0);
+  assert.equal(hidden.lines[0]?.proof_review_required, true);
   assert.deepEqual(hidden.lines[0]?.proofs, []);
   assert.equal(hidden.lookups.proofs, null);
 

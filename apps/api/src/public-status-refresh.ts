@@ -58,6 +58,16 @@ export function buildPublicStatusSourceStatus(args: {
 
 export function customerSafeIssueForSource(status: OrderRollupSourceStatus): OrderRollupIssue | null {
   if (status.availability === "available") return null;
+  // Optional Lift reports can time out independently even though Pathfinder
+  // still has a complete, last-confirmed section to show. Keep that condition
+  // in telemetry without presenting retained data as unavailable to customers.
+  if (
+    status.impact === "section_stale" &&
+    status.availability === "stale" &&
+    status.last_success_at
+  ) {
+    return null;
+  }
   const message = status.source === "order"
     ? "Current order status is temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
     : status.source === "proofs"
@@ -248,7 +258,7 @@ export function mergePublicStatusRefresh(
 
 export function summarizePublicStatusRefresh(
   results: Array<{ status: PublicStatusRefreshState; checked_at: string }>,
-  pollAfterSeconds = 30
+  pollAfterSeconds = 60
 ): PublicStatusRefreshMetadata {
   const checkedAt = results
     .map((result) => result.checked_at)

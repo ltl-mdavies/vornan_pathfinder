@@ -1,4 +1,4 @@
-export const DEFAULT_PUBLIC_STATUS_POLL_MS = 30_000;
+export const DEFAULT_PUBLIC_STATUS_POLL_MS = 60_000;
 export const MAX_PUBLIC_STATUS_BACKOFF_MS = 300_000;
 
 export function publicStatusPollDelay(

@@ -92,6 +92,10 @@ textarea {
   font-weight: 800;
 }
 
+.brand-live-label--compact {
+  display: none;
+}
+
 .brand-live i {
   width: 8px;
   height: 8px;
@@ -1306,7 +1310,14 @@ button:disabled {
     padding: 24px;
   }
 
-  .hero { margin-top: 12px; }
+  .hero {
+    gap: 0;
+    margin-top: 12px;
+    border: 1px solid #dce5d8;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 14px 36px rgba(30, 45, 28, 0.055);
+  }
 
   .progress-panel,
   .mobile-progress-summary,
@@ -1330,6 +1341,23 @@ button:disabled {
 
   .status-badge {
     min-width: 0;
+    margin-top: 22px;
+    padding: 20px 0 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .status-shell .order-rollup__at-a-glance h2 {
+    display: none;
+  }
+
+  .hero-meta {
+    display: grid;
+    gap: 5px;
+  }
+
+  .hero-meta span + span::before {
+    display: none;
   }
 
   .summary-grid,
@@ -1342,61 +1370,6 @@ button:disabled {
 
   .progress-panel {
     display: none;
-  }
-
-  .mobile-progress-summary {
-    display: grid;
-    grid-template-columns: 30px auto minmax(0, 1fr);
-    gap: 10px;
-    min-height: 58px;
-    align-items: center;
-    margin: 14px auto 0;
-    padding: 12px 14px;
-    border: 1px solid #dce5d8;
-    border-top: 3px solid var(--zinnia);
-    border-radius: 10px;
-    background: #fff;
-    box-shadow: 0 10px 26px rgba(30, 45, 28, 0.045);
-  }
-
-  .mobile-progress-summary > span {
-    display: inline-flex;
-    width: 30px;
-    height: 30px;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    background: var(--zinnia);
-    color: var(--night);
-    font-weight: 900;
-  }
-
-  .mobile-progress-summary.complete > span {
-    background: var(--forest);
-    color: #fff;
-  }
-
-  .mobile-progress-summary.attention {
-    border-top-color: #bc8120;
-  }
-
-  .mobile-progress-summary.attention > span {
-    background: #bc8120;
-    color: #fff;
-  }
-
-  .mobile-progress-summary > strong {
-    white-space: nowrap;
-  }
-
-  .mobile-progress-summary > small {
-    min-width: 0;
-    overflow: hidden;
-    color: #657160;
-    font-size: 0.78rem;
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .collection-heading {
@@ -1428,10 +1401,24 @@ button:disabled {
 
   .brand-live {
     font-size: 0.7rem;
+    white-space: nowrap;
   }
 
   .brand-live.live {
     display: none;
+  }
+
+  .brand-product > span,
+  .brand-product > strong {
+    display: none;
+  }
+
+  .brand-live-label--full {
+    display: none;
+  }
+
+  .brand-live-label--compact {
+    display: inline;
   }
 
   .line-summary-chips {

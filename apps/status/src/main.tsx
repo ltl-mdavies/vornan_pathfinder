@@ -515,12 +515,6 @@ function StatusView({
   const proofReviewRequired = snapshot.proof_summary?.review_required === true
     && (snapshot.proof_visibility === "review_link" || snapshot.proof_summary.access_mode === "review_link");
   const pendingProofs = snapshot.proof_summary?.pending ?? 0;
-  const mobileStep = steps.find((step) => step.state === "attention")
-    ?? (proofReviewRequired ? steps.find((step) => step.label === "Proof review") : null)
-    ?? [...steps].reverse().find((step) => step.state === "current")
-    ?? steps.find((step) => step.state === "pending")
-    ?? steps.at(-1);
-  const mobileStepIndex = mobileStep ? steps.indexOf(mobileStep) : 0;
 
   return (
     <>
@@ -581,14 +575,6 @@ function StatusView({
           <ProgressStep key={step.label} step={step} index={index} />
         ))}
       </section>
-
-      {mobileStep ? (
-        <section className={`mobile-progress-summary ${mobileStep.state}`} aria-label="Current order step">
-          <span>{mobileStepIndex + 1}</span>
-          <strong>{mobileStep.label}</strong>
-          <small>{mobileStep.detail}</small>
-        </section>
-      ) : null}
 
       {proofReviewRequired ? (
         <aside className="proof-review-notice" role="status" aria-label="Proof approval required">
@@ -662,7 +648,6 @@ function App() {
         return;
       }
       requestActive = true;
-      let refreshAfterCachedLoad = false;
       let responseStatus = 0;
       if (initial) {
         setState("loading");
@@ -700,14 +685,13 @@ function App() {
           setState("idle");
           const degraded = !initial && data.refresh?.status === "degraded";
           consecutiveDegraded = degraded ? Math.min(4, consecutiveDegraded + 1) : 0;
-          setRefreshState(initial ? "checking" : degraded ? "degraded" : "live");
+          setRefreshState(degraded ? "degraded" : "live");
           setMessage("");
           loaded = true;
-          if (initial) {
-            refreshAfterCachedLoad = true;
-          } else {
-            schedulePoll(data.refresh?.poll_after_seconds);
-          }
+          // The initial GET already delivers the complete durable snapshot,
+          // including confirmed package and shipment details. Let customers
+          // read that payload before the first background Lift refresh.
+          schedulePoll(data.refresh?.poll_after_seconds);
         }
       } catch {
         if (!ignore) {
@@ -722,9 +706,6 @@ function App() {
         }
       } finally {
         requestActive = false;
-        if (refreshAfterCachedLoad && !ignore) {
-          void loadStatus(false);
-        }
       }
     }
 
@@ -758,11 +739,20 @@ function App() {
         </div>
         <span className={`brand-live ${refreshState}`} role="status" aria-live="polite">
           <i aria-hidden="true" />
-          {refreshState === "checking"
-            ? "Syncing latest status…"
-            : refreshState === "degraded"
-              ? "Updates temporarily delayed"
-              : "Live updates on"}
+          <span className="brand-live-label brand-live-label--full">
+            {refreshState === "checking"
+              ? "Syncing latest status…"
+              : refreshState === "degraded"
+                ? "Updates temporarily delayed"
+                : "Live updates on"}
+          </span>
+          <span className="brand-live-label brand-live-label--compact">
+            {refreshState === "checking"
+              ? "Syncing…"
+              : refreshState === "degraded"
+                ? "Updates delayed"
+                : "Live"}
+          </span>
         </span>
       </header>
 

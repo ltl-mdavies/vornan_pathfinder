@@ -334,7 +334,7 @@ test("rejects unsafe proof assets before they reach an image or link", () => {
   );
 });
 
-test("localizes transient shipping and proof failures without a global live warning", () => {
+test("keeps retained optional sections quiet while source health remains observable", () => {
   const snapshot = realSiblingSnapshot();
   snapshot.source_status = {
     shipping: {
@@ -375,10 +375,10 @@ test("localizes transient shipping and proof failures without a global live warn
     <OrderRollup snapshot={snapshot} audience="public" displayDate={(value) => value ?? "Not available"} />
   );
 
-  assert.match(markup, /Shipping update/);
-  assert.match(markup, /Some shipment details are temporarily unavailable\. We’re showing the last confirmed update and will retry automatically\./);
-  assert.match(markup, /Proof update/);
-  assert.match(markup, /Some proof details are temporarily unavailable\. We’re showing the last confirmed update and will retry automatically\./);
+  assert.doesNotMatch(markup, /Shipping update/);
+  assert.doesNotMatch(markup, /Some shipment details are temporarily unavailable/);
+  assert.doesNotMatch(markup, /Proof update/);
+  assert.doesNotMatch(markup, /Some proof details are temporarily unavailable/);
   assert.doesNotMatch(markup, /data notes?/);
   assert.doesNotMatch(markup, /role="status"/);
 });
@@ -412,6 +412,37 @@ test("does not show a permanent degraded notice for optional shipment sources th
 
   assert.doesNotMatch(markup, /Shipping update/);
   assert.doesNotMatch(markup, /Some shipment details are temporarily unavailable/);
+});
+
+test("shows a shipment notice when no shipment source has usable data", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.source_status = {
+    packages: {
+      source: "packages",
+      availability: "unavailable",
+      reason_code: "timeout",
+      severity: "warning",
+      impact: "section_stale",
+      checked_at: "2026-08-12T16:00:00.000Z",
+      last_success_at: null
+    },
+    shipping: {
+      source: "shipping",
+      availability: "unavailable",
+      reason_code: "request_failed",
+      severity: "warning",
+      impact: "section_stale",
+      checked_at: "2026-08-12T16:00:00.000Z",
+      last_success_at: null
+    }
+  };
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" displayDate={(value) => value ?? "Not available"} />
+  );
+
+  assert.match(markup, /Shipping update/);
+  assert.match(markup, /Some shipment details are temporarily unavailable/);
 });
 
 test("reserves the global public warning for unavailable core order status", () => {
