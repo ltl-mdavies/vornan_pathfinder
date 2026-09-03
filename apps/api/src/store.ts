@@ -1045,6 +1045,7 @@ export interface PublicOrderStatusSnapshot {
     source_file_name: string;
     created_at: string;
     updated_at: string;
+    order_confirmed_at?: string | null;
   };
   route: {
     name: string;
@@ -1088,6 +1089,7 @@ export interface PublicOrderStatusSnapshot {
     final_width?: number | null;
     step?: LiftStepDefinition | null;
     proof_count: number;
+    proof_review_required?: boolean;
     package_count: number;
     latest_proof_status: string | null;
     latest_tracking_message: string | null;

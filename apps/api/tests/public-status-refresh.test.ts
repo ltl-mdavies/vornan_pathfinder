@@ -267,7 +267,7 @@ test("retains last-confirmed shipping enrichment independently while fresh packa
   assert.equal(merged.shipment_summary?.destinations[0]?.destination?.address_1, "123 Main");
   assert.equal(merged.source_status?.shipping?.availability, "stale");
   assert.equal(merged.source_status?.shipping?.last_success_at, checkedAt);
-  assert.equal(merged.issues[0]?.message, "Some shipment details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically.");
+  assert.equal(merged.issues.some((issue) => issue.source === "shipping"), false);
   assert.equal(JSON.stringify(merged).includes("aborted"), false);
 });
 
@@ -318,6 +318,6 @@ test("reports a degraded aggregate when any order refresh must use retained data
 
   assert.equal(result.status, "degraded");
   assert.equal(result.checked_at, "2026-08-05T12:00:05.000Z");
-  assert.equal(result.next_refresh_at, "2026-08-05T12:00:35.000Z");
-  assert.equal(result.poll_after_seconds, 30);
+  assert.equal(result.next_refresh_at, "2026-08-05T12:01:05.000Z");
+  assert.equal(result.poll_after_seconds, 60);
 });

@@ -471,8 +471,12 @@ function ShipmentSummary({ summary, compact = false }: { summary: OrderRollupShi
   );
 }
 
-function sourceDegraded(status: OrderRollupSourceStatus | undefined) {
-  return status?.availability === "stale" || status?.availability === "unavailable";
+function sourceUnavailable(status: OrderRollupSourceStatus | undefined) {
+  return status?.availability === "unavailable";
+}
+
+function sourceHasUsableData(status: OrderRollupSourceStatus | undefined) {
+  return status?.availability === "available" || status?.availability === "stale";
 }
 
 function SectionAvailabilityNote({
@@ -642,8 +646,10 @@ export function OrderRollup({
         : "Not provided";
   const title = liveOrder?.order_title ?? snapshot.header.order_title ?? snapshot.order_number;
   const fieldSources = snapshot.header.field_sources;
-  const proofStatusUnavailable = sourceDegraded(snapshot.source_status?.proofs);
-  const shippingStatusUnavailable = sourceDegraded(snapshot.source_status?.packages) || sourceDegraded(snapshot.source_status?.shipping);
+  const proofStatusUnavailable = sourceUnavailable(snapshot.source_status?.proofs);
+  const shipmentSources = [snapshot.source_status?.packages, snapshot.source_status?.shipping];
+  const shippingStatusUnavailable = shipmentSources.some(sourceUnavailable)
+    && !shipmentSources.some(sourceHasUsableData);
   const displayedIssues = audience === "internal"
     ? snapshot.issues
     : snapshot.issues.filter((issue) => issue.source === "order" && issue.impact === "core_unavailable");

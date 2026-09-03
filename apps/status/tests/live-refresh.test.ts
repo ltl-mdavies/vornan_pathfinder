@@ -53,15 +53,16 @@ test("uses a bounded server-directed polling interval", () => {
   assert.equal(publicStatusPollDelay(undefined, noJitter), DEFAULT_PUBLIC_STATUS_POLL_MS);
   assert.equal(publicStatusPollDelay(1, noJitter), 15_000);
   assert.equal(publicStatusPollDelay(30, noJitter), 30_000);
+  assert.equal(publicStatusPollDelay(60, noJitter), 60_000);
   assert.equal(publicStatusPollDelay(300, noJitter), 60_000);
 });
 
 test("backs off repeated degraded refreshes with bounded jitter", () => {
-  assert.equal(publicStatusPollDelay(30, { degradedAttempts: 1, random: () => 0.5 }), 60_000);
-  assert.equal(publicStatusPollDelay(30, { degradedAttempts: 2, random: () => 0.5 }), 120_000);
-  assert.equal(publicStatusPollDelay(30, { degradedAttempts: 4, random: () => 0.5 }), MAX_PUBLIC_STATUS_BACKOFF_MS);
-  assert.equal(publicStatusPollDelay(30, { degradedAttempts: 1, random: () => 0 }), 54_000);
-  assert.equal(publicStatusPollDelay(30, { degradedAttempts: 1, random: () => 1 }), 66_000);
+  assert.equal(publicStatusPollDelay(60, { degradedAttempts: 1, random: () => 0.5 }), 120_000);
+  assert.equal(publicStatusPollDelay(60, { degradedAttempts: 2, random: () => 0.5 }), 240_000);
+  assert.equal(publicStatusPollDelay(60, { degradedAttempts: 4, random: () => 0.5 }), MAX_PUBLIC_STATUS_BACKOFF_MS);
+  assert.equal(publicStatusPollDelay(60, { degradedAttempts: 1, random: () => 0 }), 108_000);
+  assert.equal(publicStatusPollDelay(60, { degradedAttempts: 1, random: () => 1 }), 132_000);
 });
 
 test("maps initial public API failures to fixed customer-safe copy", () => {
