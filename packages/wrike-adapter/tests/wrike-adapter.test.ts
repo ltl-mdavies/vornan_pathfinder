@@ -21,8 +21,22 @@ import {
   resolveWrikeContractNumber,
   selectWrikeReferenceProofAttachment,
   selectWrikeWorkbookAttachments,
+  verifyWrikeTaskTriggerStatus,
   WrikeConnectionError
 } from "../src/index.ts";
+
+function wrikeWorkflowResponse(
+  statuses: Array<{ id: string; name: string }> = [
+    { id: "IESENTTOPRINT", name: "Sent to Print - LTL" }
+  ]
+) {
+  return new Response(
+    JSON.stringify({
+      data: [{ id: "IEWORKFLOW", name: "Order intake", customStatuses: statuses }]
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } }
+  );
+}
 
 test("normalizes a fail-closed Wrike intake contract without retaining secrets", () => {
   const normalized = normalizeWrikeSourceConfig({
@@ -1642,6 +1656,102 @@ test("discovers only requested Wrike custom-field metadata through read-only OAu
   assert.equal(result.capabilities.wrike_writes, false);
 });
 
+test("rechecks the exact task status and rejects a transition after capture", async () => {
+  const calls: string[] = [];
+  let taskStatusId = "IESENTTOPRINT";
+  const credentials = {
+    client_id: "client-id",
+    client_secret: "client-secret",
+    refresh_token: "refresh-token",
+    access_token: "access-token",
+    access_token_expires_at: "2026-09-04T12:00:00.000Z",
+    host: "app-us2.wrike.com"
+  };
+  const options = {
+    now: () => new Date("2026-09-03T12:00:00.000Z"),
+    fetch_impl: async (input: URL | RequestInfo) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith("/api/v4/workflows")) {
+        return wrikeWorkflowResponse();
+      }
+      if (url.endsWith("/api/v4/tasks/IETASKREADY")) {
+        return new Response(
+          JSON.stringify({ data: [{ id: "IETASKREADY", customStatusId: taskStatusId }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
+    }
+  };
+
+  const verified = await verifyWrikeTaskTriggerStatus(
+    credentials,
+    {
+      task_id: "IETASKREADY",
+      trigger_status_id: "IESENTTOPRINT",
+      trigger_status_label: "Sent to Print - LTL"
+    },
+    options
+  );
+  assert.equal(verified.task_id, "IETASKREADY");
+  assert.equal(verified.trigger_status_id, "IESENTTOPRINT");
+
+  taskStatusId = "IECOMPLETE";
+  await assert.rejects(
+    verifyWrikeTaskTriggerStatus(
+      credentials,
+      {
+        task_id: "IETASKREADY",
+        trigger_status_id: "IESENTTOPRINT",
+        trigger_status_label: "Sent to Print - LTL"
+      },
+      options
+    ),
+    (error: unknown) =>
+      error instanceof WrikeConnectionError && error.code === "trigger_status_mismatch"
+  );
+
+  assert.equal(calls.filter((url) => url.endsWith("/api/v4/tasks/IETASKREADY")).length, 2);
+  assert.equal(calls.some((url) => url.includes("/attachments")), false);
+});
+
+test("fails closed before the exact task read when workflow metadata is unavailable", async () => {
+  const calls: string[] = [];
+  await assert.rejects(
+    verifyWrikeTaskTriggerStatus(
+      {
+        client_id: "client-id",
+        client_secret: "client-secret",
+        refresh_token: "refresh-token",
+        access_token: "access-token",
+        access_token_expires_at: "2026-09-04T12:00:00.000Z",
+        host: "app-us2.wrike.com"
+      },
+      {
+        task_id: "IETASKREADY",
+        trigger_status_id: "IESENTTOPRINT",
+        trigger_status_label: "Sent to Print - LTL"
+      },
+      {
+        now: () => new Date("2026-09-03T12:00:00.000Z"),
+        fetch_impl: async (input) => {
+          calls.push(String(input));
+          return new Response(null, { status: 503 });
+        }
+      }
+    ),
+    (error: unknown) =>
+      error instanceof WrikeConnectionError && error.code === "task_discovery_failed"
+  );
+
+  assert.equal(calls.some((url) => url.includes("/tasks/IETASKREADY")), false);
+  assert.equal(calls.some((url) => url.includes("/attachments")), false);
+});
+
 test("discovers eligible Placard Orders across configured campaign descendants and keeps shipping inactive by default", async () => {
   const calls: string[] = [];
   const result = await discoverScopedWrikeIntakeTasks(
@@ -1674,6 +1784,9 @@ test("discovers eligible Placard Orders across configured campaign descendants a
             }),
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
+        }
+        if (url.endsWith("/api/v4/workflows")) {
+          return wrikeWorkflowResponse();
         }
         return new Response(
           JSON.stringify({
@@ -1832,6 +1945,9 @@ test("discovers bounded numbered Placard Order title variants", async () => {
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
+        if (url.endsWith("/api/v4/workflows")) {
+          return wrikeWorkflowResponse();
+        }
         return new Response(
           JSON.stringify({
             data: titles.map((title, index) => ({
@@ -1927,6 +2043,9 @@ test("returns the true pending count and prioritizes likely Placard Order candid
             headers: { "Content-Type": "application/json" }
           });
         }
+        if (url.endsWith("/api/v4/workflows")) {
+          return wrikeWorkflowResponse([{ id: "IEREADY", name: "Sent to Print - LTL" }]);
+        }
         return new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
@@ -2009,6 +2128,9 @@ test("discovers and deduplicates eligible orders across multiple configured camp
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
+        if (url.endsWith("/api/v4/workflows")) {
+          return wrikeWorkflowResponse();
+        }
         return new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
@@ -2083,7 +2205,10 @@ test("resolves a required print vendor from a Wrike dropdown option ID", async (
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
-        if (url.includes("/api/v4/workflows") || url.includes("/api/v4/spaces")) {
+        if (url.endsWith("/api/v4/workflows")) {
+          return wrikeWorkflowResponse();
+        }
+        if (url.includes("/api/v4/spaces")) {
           return new Response(JSON.stringify({ data: [] }), {
             status: 200,
             headers: { "Content-Type": "application/json" }
@@ -2119,49 +2244,71 @@ test("resolves a required print vendor from a Wrike dropdown option ID", async (
   assert.equal(result.order_candidates[0]?.contract_number, "C111111");
 });
 
-test("matches the configured ready-status label across distinct Wrike workflows", async () => {
+test("rejects a saved trigger status ID that does not match its configured label", async () => {
   const calls: string[] = [];
-  const result = await discoverScopedWrikeIntakeTasks(
-    {
-      client_id: "client-id",
-      client_secret: "client-secret",
-      refresh_token: "refresh-token",
-      host: "www.wrike.com"
-    },
-    normalizeWrikeSourceConfig({
-      folder_id: "IEGPACAMPAIGNS",
-      trigger_status_id: "IEEARLIERWORKFLOWSTATUS",
-      trigger_status_label: "Sent to Print - LTL",
-      contract_number_custom_field_id: "IECONTRACT",
-      print_vendor_custom_field_id: "IEVENDOR",
-      order_task_title: "Placard Order",
-      required_print_vendor_value: "Larger Than Life"
-    }),
-    {
-      now: () => new Date("2026-08-05T22:30:00.000Z"),
-      fetch_impl: async (input) => {
-        const url = String(input);
-        calls.push(url);
-        if (url.endsWith("/oauth2/token")) {
-          return new Response(
-            JSON.stringify({
-              access_token: "access-token",
-              refresh_token: "rotated-refresh-token",
-              host: "app-us2.wrike.com"
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } }
-          );
-        }
-        if (url.endsWith("/api/v4/workflows")) {
+  await assert.rejects(
+    discoverScopedWrikeIntakeTasks(
+      {
+        client_id: "client-id",
+        client_secret: "client-secret",
+        refresh_token: "refresh-token",
+        host: "www.wrike.com"
+      },
+      normalizeWrikeSourceConfig({
+        folder_id: "IEGPACAMPAIGNS",
+        trigger_status_id: "IEEARLIERWORKFLOWSTATUS",
+        trigger_status_label: "Sent to Print - LTL",
+        contract_number_custom_field_id: "IECONTRACT",
+        print_vendor_custom_field_id: "IEVENDOR",
+        order_task_title: "Placard Order",
+        required_print_vendor_value: "Larger Than Life"
+      }),
+      {
+        now: () => new Date("2026-08-05T22:30:00.000Z"),
+        fetch_impl: async (input) => {
+          const url = String(input);
+          calls.push(url);
+          if (url.endsWith("/oauth2/token")) {
+            return new Response(
+              JSON.stringify({
+                access_token: "access-token",
+                refresh_token: "rotated-refresh-token",
+                host: "app-us2.wrike.com"
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            );
+          }
+          if (url.endsWith("/api/v4/workflows")) {
+            return new Response(
+              JSON.stringify({
+                data: [
+                  {
+                    id: "IEWORKFLOW",
+                    name: "GPA Campaigns",
+                    customStatuses: [
+                      { id: "IENEWWORKFLOWSTATUS", name: "Sent to Print - LTL" },
+                      { id: "IEOTHERSTATUS", name: "In Progress" }
+                    ]
+                  }
+                ]
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            );
+          }
           return new Response(
             JSON.stringify({
               data: [
                 {
-                  id: "IEWORKFLOW",
-                  name: "GPA Campaigns",
-                  customStatuses: [
-                    { id: "IENEWWORKFLOWSTATUS", name: "Sent to Print - LTL" },
-                    { id: "IEOTHERSTATUS", name: "In Progress" }
+                  id: "IEREADY",
+                  accountId: "IEACCOUNT",
+                  parentIds: ["IECAMPAIGNNEW"],
+                  superParentIds: ["IEGPACAMPAIGNS"],
+                  customStatusId: "IENEWWORKFLOWSTATUS",
+                  attachmentCount: 2,
+                  title: "Placard Order",
+                  customFields: [
+                    { id: "IECONTRACT", value: "C111111" },
+                    { id: "IEVENDOR", value: "Larger Than Life" }
                   ]
                 }
               ]
@@ -2169,42 +2316,16 @@ test("matches the configured ready-status label across distinct Wrike workflows"
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
-        return new Response(
-          JSON.stringify({
-            data: [
-              {
-                id: "IEREADY",
-                accountId: "IEACCOUNT",
-                parentIds: ["IECAMPAIGNNEW"],
-                superParentIds: ["IEGPACAMPAIGNS"],
-                customStatusId: "IENEWWORKFLOWSTATUS",
-                attachmentCount: 2,
-                title: "Placard Order",
-                customFields: [
-                  { id: "IECONTRACT", value: "C111111" },
-                  { id: "IEVENDOR", value: "Larger Than Life" }
-                ]
-              }
-            ]
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
       }
-    }
+    ),
+    (error: unknown) =>
+      error instanceof WrikeConnectionError &&
+      error.code === "invalid_configuration" &&
+      error.message.includes("does not match")
   );
 
-  assert.equal(result.summary.task_count, 1);
-  assert.equal(result.summary.scoped_task_count, 1);
-  assert.equal(result.summary.order_identity_match_count, 1);
-  assert.equal(result.summary.order_status_match_count, 1);
-  assert.equal(result.summary.order_status_and_identity_match_count, 1);
-  assert.equal(result.summary.order_vendor_match_count, 1);
-  assert.equal(result.summary.order_contract_ready_count, 1);
-  assert.equal(result.summary.order_status_id_count, 2);
-  assert.equal(result.summary.eligible_order_count, 1);
-  assert.equal(result.order_candidates[0].task_id, "IEREADY");
-  assert.equal(result.capabilities.workflow_status_metadata_read, true);
   assert.equal(calls.some((url) => url.endsWith("/api/v4/workflows")), true);
+  assert.equal(calls.some((url) => url.includes("/attachments")), false);
 });
 
 test("matches a ready status defined only in a Wrike space workflow", async () => {
@@ -2218,7 +2339,7 @@ test("matches a ready status defined only in a Wrike space workflow", async () =
     },
     normalizeWrikeSourceConfig({
       folder_id: "IEGPACAMPAIGNS",
-      trigger_status_id: "IEEARLIERWORKFLOWSTATUS",
+      trigger_status_id: "IESPACEREADYSTATUS",
       trigger_status_label: "Sent to Print - LTL",
       contract_number_custom_field_id: "IECONTRACT",
       print_vendor_custom_field_id: "IEVENDOR",
@@ -2291,7 +2412,7 @@ test("matches a ready status defined only in a Wrike space workflow", async () =
     }
   );
 
-  assert.equal(result.summary.order_status_id_count, 2);
+  assert.equal(result.summary.order_status_id_count, 1);
   assert.equal(result.summary.order_status_match_count, 1);
   assert.equal(result.summary.eligible_order_count, 1);
   assert.equal(result.order_candidates[0].task_id, "IEREADY");
@@ -2335,7 +2456,10 @@ test("discovers an eligible Placard Order on a later bounded Wrike page", async 
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
-        if (url.endsWith("/api/v4/workflows") || url.includes("/api/v4/spaces?")) {
+        if (url.endsWith("/api/v4/workflows")) {
+          return wrikeWorkflowResponse();
+        }
+        if (url.includes("/api/v4/spaces?")) {
           return new Response(JSON.stringify({ data: [] }), {
             status: 200,
             headers: { "Content-Type": "application/json" }
@@ -2465,6 +2589,12 @@ test("discovers only safe shipping task and attachment metadata when the pure co
             }),
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
+        }
+        if (url.endsWith("/api/v4/workflows")) {
+          return wrikeWorkflowResponse([
+            { id: "IESENTTOPRINT", name: "Sent to Print - LTL" },
+            { id: "IEHAVADDRESS", name: "Have Address - LTL" }
+          ]);
         }
         return new Response(
           JSON.stringify({

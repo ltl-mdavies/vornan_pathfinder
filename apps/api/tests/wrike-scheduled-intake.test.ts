@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   buildWrikeScheduledCandidatePreparationError,
@@ -465,6 +466,42 @@ test("scheduled submit classifies an uncertain attempt as reconciliation-needed,
     outcome: "reconciliation_needed",
     failure_category: null
   }]);
+});
+
+test("a changed Wrike status inhibits scheduled submit with only an aggregate-safe code", async () => {
+  const statusError = new Error("private task status detail") as Error & { code: string };
+  statusError.name = "WrikeConnectionError";
+  statusError.code = "trigger_status_mismatch";
+  const result = await runWrikeScheduledSubmits({
+    candidates: [{ job_id: "JOB-STATUS-CHANGED" }],
+    submit: async () => {
+      throw statusError;
+    }
+  });
+
+  assert.equal(result.submitted_count, 0);
+  assert.equal(result.failed_count, 1);
+  assert.equal(result.outcomes[0]?.failure_category, "trigger_status_mismatch");
+  assert.doesNotMatch(JSON.stringify(result), /private task status detail/);
+});
+
+test("scheduled submit rechecks the exact Wrike status before reservation and Lift transport", async () => {
+  const source = await readFile(new URL("../src/server.ts", import.meta.url), "utf8");
+  const start = source.indexOf("async function submitScheduledWrikeJobOnce");
+  const end = source.indexOf("async function runConfiguredWrikeIntakeCore", start);
+  assert.ok(start >= 0 && end > start);
+  const submit = source.slice(start, end);
+
+  const preflight = submit.indexOf("preflightWrikeSubmitDocuments");
+  const statusCheck = submit.indexOf("verifyWrikeTaskTriggerStatus");
+  const reservation = submit.indexOf("reserveSubmitAttempt");
+  const transport = submit.indexOf("submitLiftOrder");
+  assert.ok(preflight >= 0);
+  assert.ok(statusCheck > preflight);
+  assert.ok(reservation > statusCheck);
+  assert.ok(transport > reservation);
+  assert.match(submit, /task_id:\s*marker\.task_id/);
+  assert.match(submit, /trigger_status_id:\s*sourceConfig\.trigger_status_id/);
 });
 
 test("scheduled status writeback posts each confirmed job independently and replays safely", async () => {
