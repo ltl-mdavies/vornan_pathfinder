@@ -88,6 +88,13 @@ function MetaItem({ label, value, detail }: { label: string; value: ReactNode; d
 }
 
 function StepRail({ line }: { line: OrderRollupLine }) {
+  if (line.cancelled) {
+    return (
+      <div className="order-rollup__line-cancelled-note" role="status">
+        This line was canceled in Lift. Previous proof and shipment details remain available for reference.
+      </div>
+    );
+  }
   const progressIndex = stepProgressIndex(line.step ?? null);
   return (
     <div className="order-rollup__rail-wrap">
@@ -504,6 +511,7 @@ function LineProofThumbnail({ line, allowProofAssetLinks }: { line: OrderRollupL
     || latestProofStatus === "awaiting approval"
     || line.proofs.some((candidate) => candidate.proof_state === "pending"
       || ["pending", "awaiting approval"].includes(candidate.proof_approval_status?.trim().toLowerCase() ?? ""));
+  const showProofReviewRequired = !line.cancelled && proofReviewRequired;
   const lowResolutionUrl = allowProofAssetLinks ? safeProofAssetUrl(proof?.proof_link_low) : null;
   const previewUrl = proof && (proof.preview_kind === "image" || (!proof.preview_kind && inferredImageAsset(lowResolutionUrl, filename)))
     ? lowResolutionUrl
@@ -511,18 +519,19 @@ function LineProofThumbnail({ line, allowProofAssetLinks }: { line: OrderRollupL
 
   return (
     <span
-      className={`order-rollup__line-thumbnail${proofReviewRequired ? " needs-approval" : ""}`}
-      aria-label={`${proof ? `Latest proof: ${filename}` : "Proof preview not posted"}${proofReviewRequired ? "; approval required" : ""}`}
+      className={`order-rollup__line-thumbnail${showProofReviewRequired ? " needs-approval" : ""}`}
+      aria-label={`${proof ? `Latest proof: ${filename}` : "Proof preview not posted"}${showProofReviewRequired ? "; approval required" : ""}`}
     >
       <span className="order-rollup__line-thumbnail-frame">
         {previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : <FileImage aria-hidden="true" />}
       </span>
-      {proofReviewRequired ? <span className="order-rollup__line-proof-notice">Needs approval</span> : null}
+      {showProofReviewRequired ? <span className="order-rollup__line-proof-notice">Needs approval</span> : null}
     </span>
   );
 }
 
 function lineStatus(line: OrderRollupLine) {
+  if (line.cancelled) return "Canceled";
   return line.step?.order_status ?? line.latest_tracking_message ?? line.latest_proof_status ?? "Status pending";
 }
 
@@ -535,7 +544,7 @@ function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAs
   if (publicLayout) {
     return (
       <details
-        className="order-rollup__line-card order-rollup__line-card--public"
+        className={`order-rollup__line-card order-rollup__line-card--public${line.cancelled ? " is-cancelled" : ""}`}
         open={expanded}
         onToggle={(event) => onExpandedChange?.(event.currentTarget.open)}
       >
@@ -547,8 +556,8 @@ function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAs
           </div>
           <LineProofThumbnail line={line} allowProofAssetLinks={allowProofAssetLinks} />
           <div className="order-rollup__line-step-summary">
-            <span>Current step</span>
-            <strong>{line.step ? `${line.step.step_number} · ${line.step.step_name}` : "Waiting for Lift"}</strong>
+            <span>{line.cancelled ? "Line status" : "Current step"}</span>
+            <strong>{line.cancelled ? "Canceled" : line.step ? `${line.step.step_number} · ${line.step.step_name}` : "Waiting for Lift"}</strong>
           </div>
           <div className="order-rollup__line-counts">
             {showProofs ? <span>{line.proof_count} proof{line.proof_count === 1 ? "" : "s"}</span> : null}
@@ -580,7 +589,7 @@ function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAs
     );
   }
   return (
-    <article className="order-rollup__line-card">
+    <article className={`order-rollup__line-card${line.cancelled ? " is-cancelled" : ""}`}>
       <div className="order-rollup__line-heading">
         <span className="order-rollup__line-number">{line.line_number}</span>
         <div className="order-rollup__line-title">

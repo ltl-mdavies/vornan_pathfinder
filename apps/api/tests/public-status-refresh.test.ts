@@ -33,6 +33,7 @@ function snapshot(overrides: Partial<PublicOrderStatusSnapshot> = {}): PublicOrd
     header: { ext_id: "EXT-1", order_title: "Original" },
     live_order: null,
     order_status: null,
+    lifecycle: { state: "active", cancellation_source: null, observed_at: null },
     proof_summary: null,
     proof_visibility: "status_only",
     shipment_summary: null,
@@ -123,6 +124,75 @@ test("retains the entire previous order shape when the live order lookup is unav
   const merged = mergePublicStatusRefresh(previous, fresh);
   assert.equal(merged.header.order_title, "Original");
   assert.equal(merged.lines[0].quantity, 2);
+});
+
+test("retains a confirmed canceled state during a transient order failure", () => {
+  const previous = snapshot({
+    lifecycle: {
+      state: "cancelled",
+      cancellation_source: "orders_report",
+      observed_at: "2026-08-05T12:00:00.000Z"
+    },
+    order_status: { label: "Canceled", code: "CANCELED", color: "grey", step: null },
+    lines: [{ ...snapshot().lines[0], cancelled: true, proof_review_required: false }]
+  });
+  const fresh = snapshot({
+    refreshed_at: "2026-08-05T12:01:00.000Z",
+    lookups: {
+      ...previous.lookups,
+      order: { ok: false, http_status: 503, fetched_at: "2026-08-05T12:01:00.000Z" }
+    }
+  });
+
+  const merged = mergePublicStatusRefresh(previous, fresh);
+  assert.equal(merged.lifecycle?.state, "cancelled");
+  assert.equal(merged.order_status?.label, "Canceled");
+  assert.equal(merged.lines[0]?.cancelled, true);
+});
+
+test("keeps the first cancellation observation time across successful canceled refreshes", () => {
+  const previous = snapshot({
+    lifecycle: {
+      state: "cancelled",
+      cancellation_source: "orders_report",
+      observed_at: "2026-08-05T12:00:00.000Z"
+    }
+  });
+  const fresh = snapshot({
+    lifecycle: {
+      state: "cancelled",
+      cancellation_source: "orders_report",
+      observed_at: "2026-08-05T12:01:00.000Z"
+    },
+    refreshed_at: "2026-08-05T12:01:00.000Z"
+  });
+
+  const merged = mergePublicStatusRefresh(previous, fresh);
+  assert.equal(merged.lifecycle?.observed_at, "2026-08-05T12:00:00.000Z");
+  assert.equal(merged.refreshed_at, "2026-08-05T12:01:00.000Z");
+});
+
+test("accepts a later authoritative active order after a canceled state", () => {
+  const previous = snapshot({
+    lifecycle: {
+      state: "cancelled",
+      cancellation_source: "orders_report",
+      observed_at: "2026-08-05T12:00:00.000Z"
+    },
+    order_status: { label: "Canceled", code: "CANCELED", color: "grey", step: null },
+    lines: [{ ...snapshot().lines[0], cancelled: true }]
+  });
+  const fresh = snapshot({
+    lifecycle: { state: "active", cancellation_source: null, observed_at: null },
+    order_status: { label: "In Production", code: "IN_PRODUCTION", color: "red", step: null },
+    lines: [{ ...snapshot().lines[0], cancelled: false }],
+    refreshed_at: "2026-08-05T12:01:00.000Z"
+  });
+
+  const merged = mergePublicStatusRefresh(previous, fresh);
+  assert.equal(merged.lifecycle?.state, "active");
+  assert.equal(merged.order_status?.label, "In Production");
+  assert.equal(merged.lines[0]?.cancelled, false);
 });
 
 test("retains last-confirmed proofs while order and shipment portions advance", () => {

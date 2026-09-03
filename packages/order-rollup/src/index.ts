@@ -173,6 +173,15 @@ export interface NormalizedLiftOrderLine {
   final_height: number | null;
   final_width: number | null;
   step: LiftStepDefinition | null;
+  cancelled: boolean;
+}
+
+export type OrderRollupLifecycleState = "active" | "cancelled";
+
+export interface OrderRollupLifecycle {
+  state: OrderRollupLifecycleState;
+  cancellation_source?: "orders_report" | "order_lines" | null;
+  observed_at?: string | null;
 }
 
 export interface OrderRollupDestination {
@@ -357,6 +366,7 @@ export function normalizeLiftOrderLookupPayload(payload: unknown): NormalizedLif
       if (!line) {
         return [];
       }
+      const cancelled = isLiftCancelledLine(line);
       return [{
         line_number: numericValue(line, "LINE_NUMBER") ?? index + 1,
         order_line_id: value(line, "ORDER_LINE_ID"),
@@ -366,10 +376,30 @@ export function normalizeLiftOrderLookupPayload(payload: unknown): NormalizedLif
         material: value(line, "MATERIAL") == null ? null : String(value(line, "MATERIAL")),
         final_height: numericValue(line, "PRINT_H_IN"),
         final_width: numericValue(line, "PRINT_W_IN"),
-        step: resolveLiftStep(value(line, "LINE_STEP_ID"), value(line, "LINE_STEP_NUMBER"))
+        step: cancelled ? null : resolveLiftStep(value(line, "LINE_STEP_ID"), value(line, "LINE_STEP_NUMBER")),
+        cancelled
       }];
     })
   };
+}
+
+/** Lift's documented, authoritative cancelled-line signature. */
+export function isLiftCancelledLine(valueToCheck: unknown) {
+  const record = asRecord(valueToCheck);
+  if (!record) return false;
+  const stepId = value(record, "LINE_STEP_ID") ?? value(record, "line_step_id");
+  const hasStepNumber = Object.prototype.hasOwnProperty.call(record, "LINE_STEP_NUMBER")
+    || Object.prototype.hasOwnProperty.call(record, "line_step_number");
+  const stepNumber = Object.prototype.hasOwnProperty.call(record, "LINE_STEP_NUMBER")
+    ? record.LINE_STEP_NUMBER
+    : record.line_step_number;
+  return Number(stepId) === -1 && hasStepNumber && stepNumber === null;
+}
+
+/** A successful Orders report can represent a removed order with rowset: null. */
+export function isExplicitLiftOrderAbsence(payload: unknown) {
+  const record = asRecord(payload);
+  return Boolean(record && Object.prototype.hasOwnProperty.call(record, "rowset") && record.rowset === null);
 }
 
 export function stepProgressIndex(step: LiftStepDefinition | null) {
@@ -406,7 +436,7 @@ export interface OrderRollupProof {
 
 export interface OrderRollupProofSummary {
   source: "proof_cache";
-  health: "active" | "complete" | "missing" | "stale" | "error";
+  health: "active" | "complete" | "cancelled" | "missing" | "stale" | "error";
   pending: number;
   regenerating: number;
   waiting: number;
@@ -623,6 +653,7 @@ export interface OrderRollupLine {
   final_height?: number | null;
   final_width?: number | null;
   step?: LiftStepDefinition | null;
+  cancelled?: boolean;
   proof_count: number;
   proof_review_required?: boolean;
   package_count: number;
@@ -690,6 +721,7 @@ export interface OrderRollupSnapshot {
   };
   live_order?: NormalizedLiftOrder | null;
   order_status?: NormalizedLiftOrder["status"];
+  lifecycle?: OrderRollupLifecycle;
   proof_summary?: OrderRollupProofSummary | null;
   proof_visibility?: OrderRollupProofVisibility;
   shipment_summary?: OrderRollupShipmentSummary | null;
