@@ -867,7 +867,7 @@ type DestructiveConfirmation =
   | { kind: "import-method"; method: ImportMethod }
   | { kind: "public-intake-link"; action: "rotate" | "revoke"; method: ImportMethod }
   | { kind: "target"; target: TargetConfig }
-  | { kind: "jobs"; jobs: ProcessingJobPreview[]; archived: boolean }
+  | { kind: "jobs"; jobs: JobListRecord[]; archived: boolean }
   | {
       kind: "target-environment";
       target_id: string;
@@ -1079,6 +1079,40 @@ interface ProcessingJobPreview {
   };
 }
 
+interface JobListItem {
+  job_id: string;
+  pathfinder_order_id: string;
+  customer_id: string;
+  customer_name: string;
+  import_method_name: string;
+  output_route_name: string;
+  state: ProcessingState;
+  source_file_name: string;
+  target_order_number: string | null;
+  target_order_status?: NormalizedLiftOrder["status"] | null;
+  target_order_status_checked_at: string | null;
+  target_order_created_at: string | null;
+  target_order_created_precision: "date" | "timestamp" | null;
+  target_order_created_source: "lift_header" | "pathfinder_submit_confirmation" | null;
+  last_activity_at: string | null;
+  order_confirmed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  ext_id: string;
+  contract_number: string | null;
+  campaign_name: string | null;
+  order_title: string | null;
+  line_count: number;
+  public_intake: ProcessingJobPreview["public_intake"];
+  source_order_summary: {
+    source_order_key: string;
+    related_record_count: number;
+  } | null;
+}
+
+type JobListRecord = JobListItem | ProcessingJobPreview;
+
 interface JobRecoveryAuditEntry {
   recovery_id: string;
   action: "product_mappings_re_evaluated";
@@ -1214,7 +1248,12 @@ interface PathfinderCustomerWorkspace {
   import_methods: ImportMethod[];
   output_routes: OutputRoute[];
   templates: SavedFieldMappingTemplate[];
-  jobs: ProcessingJobPreview[];
+  jobs: JobListRecord[];
+  jobs_page?: {
+    returned_count: number;
+    total_count: number;
+    next_cursor: string | null;
+  };
   submit_attempts?: SubmitAttempt[];
   product_mappings: CustomerProductMapping[];
   catalog_presets: LiftCatalogPreset[];
@@ -2744,7 +2783,7 @@ function isFailureState(state: ProcessingState) {
   return state === "Failed" || state === "Submit Failed" || state === "Cancelled";
 }
 
-function jobOperationalState(job: ProcessingJobPreview): Exclude<JobStateFilter, "Current Orders" | "All States"> | "Other" {
+function jobOperationalState(job: JobListRecord): Exclude<JobStateFilter, "Current Orders" | "All States"> | "Other" {
   if (job.target_order_number || job.state === "Order Confirmed" || job.state === "Completed") {
     return "Order Confirmed";
   }
@@ -2754,32 +2793,36 @@ function jobOperationalState(job: ProcessingJobPreview): Exclude<JobStateFilter,
   return "Other";
 }
 
-function jobExtId(job: ProcessingJobPreview) {
-  return job.lift_payload.order.ext_id;
+function jobExtId(job: JobListRecord) {
+  return "ext_id" in job ? job.ext_id : job.lift_payload.order.ext_id;
 }
 
-function jobContractNumber(job: ProcessingJobPreview) {
-  return job.canonical_order.order.contract_number?.trim() || "Contract pending";
+function jobContractNumber(job: JobListRecord) {
+  return ("contract_number" in job
+    ? job.contract_number
+    : job.canonical_order.order.contract_number)?.trim() || "Contract pending";
 }
 
-function jobCampaignName(job: ProcessingJobPreview) {
-  return (
-    job.source_evidence?.campaign_name?.trim() ||
-    job.lift_payload.order.order_title?.trim() ||
-    job.source_file_name
-  );
+function jobCampaignName(job: JobListRecord) {
+  return "campaign_name" in job
+    ? job.campaign_name || job.source_file_name
+    : job.source_evidence?.campaign_name?.trim() || job.lift_payload.order.order_title?.trim() || job.source_file_name;
 }
 
-function jobOrderCount(job: ProcessingJobPreview) {
-  return job.lift_payload.lines.length;
+function jobOrderTitle(job: JobListRecord) {
+  return "order_title" in job ? job.order_title : job.lift_payload.order.order_title;
 }
 
-function upsertJob(jobs: ProcessingJobPreview[], job: ProcessingJobPreview) {
+function jobOrderCount(job: JobListRecord) {
+  return "line_count" in job ? job.line_count : job.lift_payload.lines.length;
+}
+
+function upsertJob<T extends { job_id: string }>(jobs: T[], job: T) {
   return [job, ...jobs.filter((candidate) => candidate.job_id !== job.job_id)];
 }
 
 function sortAndFilterJobs(
-  jobs: ProcessingJobPreview[],
+  jobs: JobListRecord[],
   archiveFilter: JobArchiveFilter,
   intakeFilter: JobIntakeFilter,
   stateFilter: JobStateFilter,
@@ -2815,7 +2858,7 @@ function sortAndFilterJobs(
 }
 
 function buildOperationsSummary(
-  jobs: ProcessingJobPreview[],
+  jobs: JobListRecord[],
   snapshots: CustomerWrikeOperationsSnapshot[],
   now = new Date()
 ) {
@@ -2858,7 +2901,7 @@ function OperationsTriageStrip({
   activeFilter,
   onSelectFilter
 }: {
-  jobs: ProcessingJobPreview[];
+  jobs: JobListRecord[];
   snapshots: CustomerWrikeOperationsSnapshot[];
   activeFilter: JobStateFilter;
   onSelectFilter: (filter: JobStateFilter) => void;
@@ -3112,13 +3155,13 @@ function JobListTable({
   onOpenJob,
   onArchiveJob
 }: {
-  jobs: ProcessingJobPreview[];
+  jobs: JobListRecord[];
   includeCustomer?: boolean;
   selectedJobIds: string[];
   onToggleJob: (jobId: string, selected: boolean) => void;
   onToggleAll: (selected: boolean) => void;
-  onOpenJob: (job: ProcessingJobPreview) => void;
-  onArchiveJob: (job: ProcessingJobPreview) => void;
+  onOpenJob: (job: JobListRecord) => void;
+  onArchiveJob: (job: JobListRecord) => void;
 }) {
   const allSelected = Boolean(jobs.length) && jobs.every((job) => selectedJobIds.includes(job.job_id));
   return (
@@ -3190,7 +3233,7 @@ function JobListTable({
               <td>
                 <span className="job-identity-cell">
                   <strong>{job.target_order_number ?? "Pending"}</strong>
-                  <small>{job.lift_payload.order.order_title || "Lift order name pending"}</small>
+                  <small>{jobOrderTitle(job) || "Lift order name pending"}</small>
                 </span>
               </td>
               <td>
@@ -4623,7 +4666,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
   const [activeTargetsView, setActiveTargetsView] = useState<TargetDetailView>("Environments");
   const [activeOutputTemplateId, setActiveOutputTemplateId] = useState<string | null>(null);
-  const [globalJobs, setGlobalJobs] = useState<ProcessingJobPreview[]>([]);
+  const [globalJobs, setGlobalJobs] = useState<JobListRecord[]>([]);
   const [wrikeOperationsSnapshots, setWrikeOperationsSnapshots] = useState<CustomerWrikeOperationsSnapshot[]>([]);
   const [scheduledSubmissionHealth, setScheduledSubmissionHealth] = useState<ScheduledSubmissionHealth | null>(null);
   const [jobsLastRefreshedAt, setJobsLastRefreshedAt] = useState<string | null>(null);
@@ -5139,7 +5182,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       ]);
       const targetsPayload = await readJsonResponse<{ targets: TargetConfig[] }>(targetsResponse);
       const jobsPayload = await readJsonResponse<{
-        jobs: ProcessingJobPreview[];
+        jobs: JobListItem[];
         wrike_operations_snapshots?: CustomerWrikeOperationsSnapshot[];
         scheduled_submission_health?: ScheduledSubmissionHealth;
       }>(jobsResponse);
@@ -5159,7 +5202,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   async function refreshVisibleJobs() {
     const response = await fetch(`${apiBaseUrl}/api/jobs`, { cache: "no-store" });
     const payload = await readJsonResponse<{
-      jobs: ProcessingJobPreview[];
+      jobs: JobListItem[];
       wrike_operations_snapshots?: CustomerWrikeOperationsSnapshot[];
       scheduled_submission_health?: ScheduledSubmissionHealth;
     }>(response);
@@ -5174,13 +5217,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           }
         : current
     );
-    setSelectedJobDetail((current) =>
-      current
-        ? payload.jobs.find(
-            (job) => job.customer_id === current.customer_id && job.job_id === current.job_id
-          ) ?? current
-        : current
-    );
+    // List refreshes intentionally carry compact job items. Keep any open full
+    // detail record until its exact detail endpoint is refreshed explicitly.
     setJobsLastRefreshedAt(new Date().toISOString());
   }
 
@@ -5754,14 +5792,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
   }
 
-  async function openJobDetail(job: ProcessingJobPreview) {
+  async function openJobDetail(job: JobListRecord) {
     if (activeGlobalView === "Customers") {
       setActiveCustomerView("Jobs");
     } else {
       setActiveGlobalView("Jobs");
     }
     setJobActionMenuOpen(false);
-    setSelectedJobDetail(job);
+    setSelectedJobDetail(null);
     setSelectedJobAttempts([]);
     setSourceOrderReviewDraft(null);
     setSourceOrderReviewState("idle");
@@ -6030,7 +6068,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
   }
 
-  function requestJobsArchive(jobs: ProcessingJobPreview[], archived: boolean) {
+  function requestJobsArchive(jobs: JobListRecord[], archived: boolean) {
     if (!jobs.length) {
       setWorkspaceMessage("Choose at least one job.");
       return;
@@ -6038,8 +6076,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setDestructiveConfirmation({ kind: "jobs", jobs, archived });
   }
 
-  async function updateJobsArchived(jobs: ProcessingJobPreview[], archived: boolean) {
-    const jobsByCustomer = new globalThis.Map<string, ProcessingJobPreview[]>();
+  async function updateJobsArchived(jobs: JobListRecord[], archived: boolean) {
+    const jobsByCustomer = new globalThis.Map<string, JobListRecord[]>();
     for (const job of jobs) {
       jobsByCustomer.set(job.customer_id, [...(jobsByCustomer.get(job.customer_id) ?? []), job]);
     }
@@ -6148,7 +6186,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
   }
 
-  async function createStatusLink(job: ProcessingJobPreview) {
+  async function createStatusLink(job: JobListRecord) {
     setStatusLinkState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/status-link`, {
@@ -11214,7 +11252,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <td>
                           <span className="job-identity-cell">
                             <strong>{job.target_order_number ?? "Not in Lift"}</strong>
-                            <small>{job.target_order_number ? job.lift_payload.order.order_title || "Order name not available" : "Awaiting submission"}</small>
+                            <small>{job.target_order_number ? jobOrderTitle(job) || "Order name not available" : "Awaiting submission"}</small>
                           </span>
                         </td>
                         <td>

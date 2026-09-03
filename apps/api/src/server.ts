@@ -281,6 +281,7 @@ import {
   type TargetConfig,
   type TargetEnvironment
 } from "./store.js";
+import { buildJobListPage, compactWorkspaceJobs } from "./job-list.js";
 import {
   assertReviewedSubmitIntegrity,
   buildSubmitIdempotencyKey,
@@ -7784,8 +7785,12 @@ app.get("/api/customers/:liftCustomerId/workspace", async (req, res) => {
     }
     const target = await getTarget(workspace.primary_target_id);
 
-    res.json({
+    const compactWorkspace = compactWorkspaceJobs({
       ...workspace,
+      jobs: await sourceOrderJobProjectionWithStatus(workspace.jobs)
+    });
+    res.json({
+      ...compactWorkspace,
       primary_target: target
     });
   } catch {
@@ -9124,8 +9129,10 @@ app.get("/api/jobs", async (_req, res) => {
         scheduled_submit_failed_count: latestSchedulerSnapshot.scheduled_submit.failed_count
       }
     : null;
+  const jobList = buildJobListPage(await sourceOrderJobProjectionWithStatus(jobs));
   res.json({
-    jobs: await sourceOrderJobProjectionWithStatus(jobs),
+    jobs: jobList.items,
+    jobs_page: jobList.page,
     wrike_operations_snapshots: snapshots,
     scheduled_submission_health: buildScheduledSubmissionHealth(
       wrikeScheduledIntakeConfig,

@@ -4,6 +4,7 @@ import test from "node:test";
 
 const source = await readFile(new URL("../src/server.ts", import.meta.url), "utf8");
 const storeSource = await readFile(new URL("../src/store.ts", import.meta.url), "utf8");
+const jobListSource = await readFile(new URL("../src/job-list.ts", import.meta.url), "utf8");
 
 test("Lift dates use the configured target formatter after output mappings", () => {
   const mappingIndex = source.indexOf("const rawLiftPayload = applyLiftOrderOutputMappings");
@@ -61,6 +62,27 @@ test("Jobs projects cached Lift header status and creation time without issuing 
   assert.match(source, /projectLastMeaningfulActivity/);
   assert.doesNotMatch(jobsRoute, /fetchLiftOrderLookup/);
   assert.doesNotMatch(jobsRoute, /buildInternalOrderSnapshotForJob/);
+});
+
+test("workspace and jobs list routes share the compact response projection", () => {
+  const workspaceStart = source.indexOf('app.get("/api/customers/:liftCustomerId/workspace"');
+  const workspaceEnd = source.indexOf('app.post("/api/customers/:liftCustomerId/workspace"', workspaceStart);
+  const jobsStart = source.indexOf('app.get("/api/jobs"');
+  const jobsEnd = source.indexOf('app.get("/api/customers/:liftCustomerId/jobs/:jobId"', jobsStart);
+  assert.ok(workspaceStart > 0 && workspaceEnd > workspaceStart);
+  assert.ok(jobsStart > 0 && jobsEnd > jobsStart);
+  assert.match(source.slice(workspaceStart, workspaceEnd), /compactWorkspaceJobs/);
+  assert.match(source.slice(jobsStart, jobsEnd), /buildJobListPage/);
+  assert.match(jobListSource, /export function toJobListItem/);
+  assert.match(jobListSource, /next_cursor: null/);
+});
+
+test("exact job detail retains the full detail projection", () => {
+  const detailStart = source.indexOf('app.get("/api/customers/:liftCustomerId/jobs/:jobId"');
+  const detailEnd = source.indexOf('app.post(', detailStart);
+  const detailRoute = source.slice(detailStart, detailEnd);
+  assert.match(detailRoute, /sourceOrderJobDetail/);
+  assert.doesNotMatch(detailRoute, /toJobListItem|buildJobListPage|compactWorkspaceJobs/);
 });
 
 test("mapping recovery preserves order identity and never invokes Lift transport", () => {
