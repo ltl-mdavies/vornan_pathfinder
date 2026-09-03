@@ -5,6 +5,7 @@ import { proofReviewProgress } from "../src/proof-state.ts";
 
 const context = {
   proof_files: 0,
+  approved_proofs: 0,
   proof_phase: true,
   production_phase: false,
   shipping_phase: false,
@@ -31,7 +32,7 @@ function summary(patch: Partial<OrderRollupProofSummary> = {}): OrderRollupProof
 test("uses normalized cached Proof state before raw proof-file counts", () => {
   assert.deepEqual(proofReviewProgress(summary({ pending: 2, total: 2, review_required: true }), context), {
     label: "Proof review",
-    detail: "Review required in Vornan Proof",
+    detail: "Proofs pending approval",
     state: "current"
   });
   assert.deepEqual(proofReviewProgress(summary({ regenerating: 1, total: 1 }), context), {
@@ -42,6 +43,14 @@ test("uses normalized cached Proof state before raw proof-file counts", () => {
   assert.deepEqual(proofReviewProgress(summary({ reviewed: 3, total: 3, health: "complete" }), context), {
     label: "Proof review",
     detail: "3 of 3 reviewed",
+    state: "complete"
+  });
+  assert.deepEqual(proofReviewProgress(summary({ reviewed: 3, total: 3, health: "complete" }), {
+    ...context,
+    approved_proofs: 3
+  }), {
+    label: "Proof review",
+    detail: "3 of 3 approved",
     state: "complete"
   });
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { LoaderCircle } from "lucide-react";
+import { ChevronDown, FileImage, LoaderCircle } from "lucide-react";
 import {
   buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
@@ -403,19 +403,19 @@ function compareShipmentTrackingByPackage(
   return left.tracking_number.localeCompare(right.tracking_number, "en", { numeric: true, sensitivity: "base" });
 }
 
-function ShipmentSummary({ summary }: { summary: OrderRollupShipmentSummary }) {
+function ShipmentSummary({ summary, compact = false }: { summary: OrderRollupShipmentSummary; compact?: boolean }) {
   const context = [
     summary.status_messages[0],
     summary.methods.length ? summary.methods.join(", ") : null,
     summary.locations.length ? summary.locations.join(", ") : null
   ].filter(Boolean).join(" · ");
   return (
-    <aside className={`order-rollup__shipment-summary shipment-state--${summary.state}`} aria-label="Shipment summary">
+    <aside className={`order-rollup__shipment-summary${compact ? " order-rollup__shipment-summary--compact" : ""} shipment-state--${summary.state}`} aria-label="Shipment summary">
       <div className="order-rollup__shipment-overview">
         <div>
           <span>Shipping</span>
           <strong>{shipmentSummaryTitle(summary)}</strong>
-          <small>{context || "Lift has not posted package or tracking activity yet."}</small>
+          {compact ? null : <small>{context || "Lift has not posted package or tracking activity yet."}</small>}
         </div>
         <dl>
           <div><dt>Packages</dt><dd>{summary.package_count}</dd></div>
@@ -424,10 +424,10 @@ function ShipmentSummary({ summary }: { summary: OrderRollupShipmentSummary }) {
         </dl>
       </div>
       {summary.destinations.length ? (
-        <details className="order-rollup__shipment-details" open>
+        <details className="order-rollup__shipment-details" open={!compact}>
           <summary>
             <span>View shipment destinations and tracking</span>
-            <small>{summary.package_count} package{summary.package_count === 1 ? "" : "s"} grouped without duplicates</small>
+            {compact ? null : <small>{summary.package_count} package{summary.package_count === 1 ? "" : "s"}</small>}
           </summary>
           <div className="order-rollup__shipment-destinations">
             {summary.destinations.map((group, index) => {
@@ -471,8 +471,8 @@ function ShipmentSummary({ summary }: { summary: OrderRollupShipmentSummary }) {
   );
 }
 
-function sourceUnavailable(status: OrderRollupSourceStatus | undefined) {
-  return Boolean(status && status.availability !== "available");
+function sourceDegraded(status: OrderRollupSourceStatus | undefined) {
+  return status?.availability === "stale" || status?.availability === "unavailable";
 }
 
 function SectionAvailabilityNote({
@@ -491,8 +491,90 @@ function SectionAvailabilityNote({
   );
 }
 
-function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAssetsLoading }: { line: OrderRollupLine; displayDate: (value?: string | null) => string; showProofs: boolean; allowProofAssetLinks: boolean; proofAssetsLoading: boolean }) {
+function LineProofThumbnail({ line, allowProofAssetLinks }: { line: OrderRollupLine; allowProofAssetLinks: boolean }) {
+  const proof = line.proofs[0];
+  const filename = proof?.proof_filename ?? "Proof file";
+  const latestProofStatus = line.latest_proof_status?.trim().toLowerCase();
+  const proofReviewRequired = line.proof_review_required === true
+    || latestProofStatus === "pending"
+    || latestProofStatus === "awaiting approval"
+    || line.proofs.some((candidate) => candidate.proof_state === "pending"
+      || ["pending", "awaiting approval"].includes(candidate.proof_approval_status?.trim().toLowerCase() ?? ""));
+  const lowResolutionUrl = allowProofAssetLinks ? safeProofAssetUrl(proof?.proof_link_low) : null;
+  const previewUrl = proof && (proof.preview_kind === "image" || (!proof.preview_kind && inferredImageAsset(lowResolutionUrl, filename)))
+    ? lowResolutionUrl
+    : null;
+
+  return (
+    <span
+      className={`order-rollup__line-thumbnail${proofReviewRequired ? " needs-approval" : ""}`}
+      aria-label={`${proof ? `Latest proof: ${filename}` : "Proof preview not posted"}${proofReviewRequired ? "; approval required" : ""}`}
+    >
+      <span className="order-rollup__line-thumbnail-frame">
+        {previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : <FileImage aria-hidden="true" />}
+      </span>
+      {proofReviewRequired ? <span className="order-rollup__line-proof-notice">Needs approval</span> : null}
+    </span>
+  );
+}
+
+function lineStatus(line: OrderRollupLine) {
+  return line.step?.order_status ?? line.latest_tracking_message ?? line.latest_proof_status ?? "Status pending";
+}
+
+function publicLineKey(line: OrderRollupLine) {
+  return `${line.line_number}-${line.order_line_id ?? line.product_id ?? "line"}`;
+}
+
+function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAssetsLoading, publicLayout = false, expanded = false, onExpandedChange }: { line: OrderRollupLine; displayDate: (value?: string | null) => string; showProofs: boolean; allowProofAssetLinks: boolean; proofAssetsLoading: boolean; publicLayout?: boolean; expanded?: boolean; onExpandedChange?: (expanded: boolean) => void }) {
   const lineTitle = line.product_name ?? line.description ?? `Order line ${line.line_number}`;
+  if (publicLayout) {
+    return (
+      <details
+        className="order-rollup__line-card order-rollup__line-card--public"
+        open={expanded}
+        onToggle={(event) => onExpandedChange?.(event.currentTarget.open)}
+      >
+        <summary className="order-rollup__line-heading order-rollup__line-heading--public">
+          <span className="order-rollup__line-number">{line.line_number}</span>
+          <div className="order-rollup__line-title">
+            <h3>{lineTitle}</h3>
+            <p>{[`Qty ${line.quantity ?? "pending"}`, dimensions(line), line.material].filter(Boolean).join(" · ")}</p>
+          </div>
+          <LineProofThumbnail line={line} allowProofAssetLinks={allowProofAssetLinks} />
+          <div className="order-rollup__line-step-summary">
+            <span>Current step</span>
+            <strong>{line.step ? `${line.step.step_number} · ${line.step.step_name}` : "Waiting for Lift"}</strong>
+          </div>
+          <div className="order-rollup__line-counts">
+            {showProofs ? <span>{line.proof_count} proof{line.proof_count === 1 ? "" : "s"}</span> : null}
+            <span>{line.package_count ? `${line.package_count} package${line.package_count === 1 ? "" : "s"}` : "No shipment yet"}</span>
+          </div>
+          <span className="order-rollup__status">{lineStatus(line)}</span>
+          <ChevronDown className="order-rollup__line-chevron" aria-hidden="true" />
+        </summary>
+        <div className="order-rollup__line-expanded">
+          <StepRail line={line} />
+          <div className={`order-rollup__line-activity${showProofs ? "" : " is-shipping-only"}`}>
+            {showProofs ? <section>
+              <div className="order-rollup__subheading">
+                <strong>Proofs</strong>
+                <span>{line.proof_count}</span>
+              </div>
+              <ProofList proofs={line.proofs} displayDate={displayDate} allowAssetLinks={allowProofAssetLinks} assetsLoading={proofAssetsLoading} />
+            </section> : null}
+            <section>
+              <div className="order-rollup__subheading">
+                <strong>Shipping</strong>
+                <span>{line.package_count}</span>
+              </div>
+              <PackageList packages={line.packages} />
+            </section>
+          </div>
+        </div>
+      </details>
+    );
+  }
   return (
     <article className="order-rollup__line-card">
       <div className="order-rollup__line-heading">
@@ -502,7 +584,7 @@ function LineCard({ line, displayDate, showProofs, allowProofAssetLinks, proofAs
           <p>{[`Qty ${line.quantity ?? "pending"}`, dimensions(line), line.material].filter(Boolean).join(" · ")}</p>
         </div>
         <span className="order-rollup__status">
-          {line.step?.order_status ?? line.latest_tracking_message ?? line.latest_proof_status ?? "Status pending"}
+          {lineStatus(line)}
         </span>
       </div>
       <StepRail line={line} />
@@ -539,6 +621,7 @@ export function OrderRollup({
   allowProofAssetLinks?: boolean;
   proofAssetsLoading?: boolean;
 }) {
+  const [publicExpandedLines, setPublicExpandedLines] = useState<Set<string>>(() => new Set());
   const liveOrder = snapshot.live_order ?? null;
   const proofVisibility = audience === "internal" ? "review_link" : snapshot.proof_visibility ?? "status_only";
   const showProofs = proofVisibility !== "off";
@@ -559,11 +642,103 @@ export function OrderRollup({
         : "Not provided";
   const title = liveOrder?.order_title ?? snapshot.header.order_title ?? snapshot.order_number;
   const fieldSources = snapshot.header.field_sources;
-  const proofStatusUnavailable = sourceUnavailable(snapshot.source_status?.proofs);
-  const shippingStatusUnavailable = sourceUnavailable(snapshot.source_status?.packages) || sourceUnavailable(snapshot.source_status?.shipping);
+  const proofStatusUnavailable = sourceDegraded(snapshot.source_status?.proofs);
+  const shippingStatusUnavailable = sourceDegraded(snapshot.source_status?.packages) || sourceDegraded(snapshot.source_status?.shipping);
   const displayedIssues = audience === "internal"
     ? snapshot.issues
     : snapshot.issues.filter((issue) => issue.source === "order" && issue.impact === "core_unavailable");
+  const allPublicLinesExpanded = snapshot.lines.length > 0
+    && snapshot.lines.every((line) => publicExpandedLines.has(publicLineKey(line)));
+
+  if (audience === "public") {
+    return (
+      <section className="order-rollup order-rollup--public">
+        {displayedIssues.length ? (
+          <div className="order-rollup__issues">
+            <strong>Order update</strong>
+            <span>Current order status is temporarily unavailable. We’re showing the last confirmed update and will retry automatically.</span>
+          </div>
+        ) : null}
+
+        <div className="order-rollup__public-workspace">
+          <aside className="order-rollup__overview-column" aria-label="Order overview">
+            <section className="order-rollup__at-a-glance">
+              <p className="order-rollup__eyebrow">At a glance</p>
+              <h2>{orderStatus?.label ?? "Status pending"}</h2>
+              <dl>
+                <div><dt>Order lines</dt><dd>{snapshot.lines.length}</dd></div>
+                <div><dt>Requested ship</dt><dd>{displayDateOnly(snapshot.header.requested_ship_date)}</dd></div>
+                <div><dt>Delivery / due</dt><dd>{displayDateOnly(snapshot.header.due_date)}</dd></div>
+                {showProofs ? <div><dt>Proofs</dt><dd>{proofCount}</dd></div> : null}
+                <div><dt>Packages</dt><dd>{packageCount}</dd></div>
+                <div><dt>Destinations</dt><dd>{summarizedDestinations.length || "—"}</dd></div>
+              </dl>
+            </section>
+
+            <ShipmentSummary summary={shipmentSummary} compact />
+
+            {shippingStatusUnavailable ? (
+              <SectionAvailabilityNote
+                heading="Shipping update"
+                message="Some shipment details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
+              />
+            ) : null}
+
+            {showProofs && proofStatusUnavailable ? (
+              <SectionAvailabilityNote
+                heading="Proof update"
+                message="Some proof details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
+              />
+            ) : null}
+          </aside>
+
+          <div className="order-rollup__lines-column">
+            <div className="order-rollup__lines-heading">
+              <div>
+                <p className="order-rollup__eyebrow">Order lines</p>
+                <h2>{snapshot.lines.length} line{snapshot.lines.length === 1 ? "" : "s"}</h2>
+              </div>
+              <div className="order-rollup__lines-heading-actions">
+                <span>Line progress may vary.</span>
+                <button
+                  type="button"
+                  onClick={() => setPublicExpandedLines(allPublicLinesExpanded
+                    ? new Set()
+                    : new Set(snapshot.lines.map(publicLineKey)))}
+                >
+                  <span>{allPublicLinesExpanded ? "Collapse all" : "Open all"}</span>
+                  <ChevronDown className={allPublicLinesExpanded ? "is-expanded" : ""} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+            <div className="order-rollup__lines">
+              {snapshot.lines.map((line) => {
+                const key = publicLineKey(line);
+                return (
+                  <LineCard
+                    line={line}
+                    displayDate={displayDate}
+                    showProofs={showProofs}
+                    allowProofAssetLinks={allowProofAssetLinks}
+                    proofAssetsLoading={proofAssetsLoading}
+                    publicLayout
+                    expanded={publicExpandedLines.has(key)}
+                    onExpandedChange={(nextExpanded) => setPublicExpandedLines((current) => {
+                      const next = new Set(current);
+                      if (nextExpanded) next.add(key);
+                      else next.delete(key);
+                      return next;
+                    })}
+                    key={key}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className={`order-rollup order-rollup--${audience}`}>
@@ -578,7 +753,7 @@ export function OrderRollup({
           <strong>{orderStatus?.label ?? "Status pending"}</strong>
           {orderStatus?.step ? <small>{`${orderStatus.step.step_number}: ${orderStatus.step.step_name}`}</small> : null}
           <small className="order-rollup__freshness">
-            {audience === "internal" ? "Last checked" : "Snapshot captured"} {displayDate(snapshot.refreshed_at)}
+            Last checked {displayDate(snapshot.refreshed_at)}
           </small>
         </div>
       </header>
@@ -597,30 +772,14 @@ export function OrderRollup({
 
       <ShipmentSummary summary={shipmentSummary} />
 
-      {audience === "public" && shippingStatusUnavailable ? (
-        <SectionAvailabilityNote
-          heading="Shipping update"
-          message="Some shipment details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
-        />
-      ) : null}
-
       {showProofs && snapshot.proof_summary ? (
-        <ProofSummary summary={snapshot.proof_summary} audience={audience} displayDate={displayDate} allowAssetLinks={allowProofAssetLinks} />
-      ) : null}
-
-      {audience === "public" && showProofs && proofStatusUnavailable ? (
-        <SectionAvailabilityNote
-          heading="Proof update"
-          message="Some proof details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
-        />
+        <ProofSummary summary={snapshot.proof_summary} audience="internal" displayDate={displayDate} allowAssetLinks={allowProofAssetLinks} />
       ) : null}
 
       {displayedIssues.length ? (
-        <div className="order-rollup__issues" role={audience === "internal" ? "status" : undefined}>
-          <strong>{audience === "public" ? "Order update" : `${displayedIssues.length} data note${displayedIssues.length === 1 ? "" : "s"}`}</strong>
-          <span>{audience === "public"
-            ? "Current order status is temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
-            : displayedIssues.map((issue) => issue.message).join(" ")}</span>
+        <div className="order-rollup__issues" role="status">
+          <strong>{displayedIssues.length} data note{displayedIssues.length === 1 ? "" : "s"}</strong>
+          <span>{displayedIssues.map((issue) => issue.message).join(" ")}</span>
         </div>
       ) : null}
 

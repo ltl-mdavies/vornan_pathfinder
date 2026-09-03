@@ -4,6 +4,7 @@ export type StatusProgressState = "complete" | "current" | "attention" | "pendin
 
 export interface ProofProgressContext {
   proof_files: number;
+  approved_proofs: number;
   proof_phase: boolean;
   production_phase: boolean;
   shipping_phase: boolean;
@@ -17,7 +18,7 @@ export function proofReviewProgress(
 ): { label: "Proof review"; detail: string; state: StatusProgressState } {
   if (summary) {
     if (summary.pending > 0) {
-      return { label: "Proof review", detail: "Review required in Vornan Proof", state: "current" };
+      return { label: "Proof review", detail: "Proofs pending approval", state: "current" };
     }
     if (summary.regenerating > 0) {
       return { label: "Proof review", detail: "Revised proof in progress", state: "current" };
@@ -26,7 +27,13 @@ export function proofReviewProgress(
       return { label: "Proof review", detail: "Proof files are being prepared", state: "current" };
     }
     if (summary.total > 0 && summary.reviewed === summary.total) {
-      return { label: "Proof review", detail: `${summary.reviewed} of ${summary.total} reviewed`, state: "complete" };
+      return {
+        label: "Proof review",
+        detail: context.approved_proofs === summary.total
+          ? `${summary.total} of ${summary.total} approved`
+          : `${summary.reviewed} of ${summary.total} reviewed`,
+        state: "complete"
+      };
     }
     if (summary.health === "missing" || summary.health === "error") {
       return { label: "Proof review", detail: "Proof status needs attention", state: "attention" };

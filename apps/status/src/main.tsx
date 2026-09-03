@@ -74,6 +74,7 @@ type StatusLine = {
   final_width?: number | null;
   step?: LiftStepDefinition | null;
   proof_count: number;
+  proof_review_required?: boolean;
   package_count: number;
   latest_proof_status: string | null;
   latest_tracking_message: string | null;
@@ -97,6 +98,7 @@ type PublicOrderStatusSnapshot = {
     source_file_name: string;
     created_at: string;
     updated_at: string;
+    order_confirmed_at?: string | null;
   };
   route: {
     name: string;
@@ -206,6 +208,19 @@ function displayDate(value?: string | null) {
   }).format(date);
 }
 
+function displayMilestoneDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
 function statusLabel(snapshot: PublicOrderStatusSnapshot) {
   if (snapshot.order_status?.label ?? snapshot.live_order?.status?.label) {
     return snapshot.order_status?.label ?? snapshot.live_order?.status?.label ?? "Received";
@@ -222,12 +237,6 @@ function statusLabel(snapshot: PublicOrderStatusSnapshot) {
   return "Received";
 }
 
-function firstTracking(snapshot: PublicOrderStatusSnapshot) {
-  return snapshot.lines
-    .flatMap((line) => line.packages)
-    .find((pkg) => pkg.tracking_number)?.tracking_number;
-}
-
 function countProofs(snapshot: PublicOrderStatusSnapshot) {
   return snapshot.lines.reduce((total, line) => total + line.proof_count, 0);
 }
@@ -236,10 +245,21 @@ function countPackages(snapshot: PublicOrderStatusSnapshot) {
   return snapshot.lines.reduce((total, line) => total + line.package_count, 0);
 }
 
+function countApprovedProofs(snapshot: PublicOrderStatusSnapshot) {
+  return snapshot.lines.reduce(
+    (total, line) => total + line.proofs.filter(
+      (proof) => proof.proof_approval_status?.trim().toLowerCase() === "approved"
+    ).length,
+    0
+  );
+}
+
 function progressSteps(snapshot: PublicOrderStatusSnapshot) {
   const proofs = countProofs(snapshot);
+  const approvedProofs = countApprovedProofs(snapshot);
   const packages = countPackages(snapshot);
-  const tracking = firstTracking(snapshot);
+  const trackingCount = snapshot.shipment_summary?.tracking_count
+    ?? new Set(snapshot.lines.flatMap((line) => line.packages).map((pkg) => pkg.tracking_number).filter(Boolean)).size;
   const hasError = snapshot.issues.some((issue) => issue.severity === "error");
   const headerStepNumber = Number(snapshot.order_status?.step?.step_number ?? snapshot.live_order?.status?.step?.step_number);
   const hasHeaderStep = Number.isFinite(headerStepNumber);
@@ -247,15 +267,19 @@ function progressSteps(snapshot: PublicOrderStatusSnapshot) {
   const productionPhase = hasHeaderStep && headerStepNumber >= 10 && headerStepNumber < 15.29;
   const shippingPhase = hasHeaderStep && headerStepNumber >= 15.29;
   const completed = hasHeaderStep && headerStepNumber >= 18;
+  const confirmedAt = snapshot.job.order_confirmed_at
+    ? displayMilestoneDate(snapshot.job.order_confirmed_at)
+    : null;
 
   const steps = [
     {
       label: "Received",
-      detail: statusLabel(snapshot),
+      detail: confirmedAt ? `Confirmed ${confirmedAt}` : "Order confirmed",
       state: "complete"
     },
     ...(snapshot.proof_visibility === "off" ? [] : [proofReviewProgress(snapshot.proof_summary, {
       proof_files: proofs,
+      approved_proofs: approvedProofs,
       proof_phase: proofPhase,
       production_phase: productionPhase,
       shipping_phase: shippingPhase,
@@ -264,13 +288,23 @@ function progressSteps(snapshot: PublicOrderStatusSnapshot) {
     })]),
     {
       label: "Production",
-      detail: packages || tracking ? "Production activity recorded" : "Production updates pending",
-      state: packages || tracking || shippingPhase || completed ? "complete" : productionPhase ? "current" : proofs ? "current" : "pending"
+      detail: completed
+        ? "Production complete"
+        : productionPhase || packages || trackingCount || shippingPhase
+          ? "Your order is being produced"
+          : proofs
+            ? "Ready after proof approval"
+            : "Not started",
+      state: packages || trackingCount || shippingPhase || completed ? "complete" : productionPhase ? "current" : proofs ? "current" : "pending"
     },
     {
       label: "Shipping",
-      detail: tracking ? `Tracking ${tracking}` : "Tracking pending",
-      state: completed ? "complete" : tracking || shippingPhase ? "current" : "pending"
+      detail: trackingCount
+        ? `${trackingCount} tracking number${trackingCount === 1 ? "" : "s"}`
+        : packages
+          ? `${packages} package${packages === 1 ? "" : "s"}`
+          : "Tracking pending",
+      state: completed ? "complete" : trackingCount || shippingPhase ? "current" : "pending"
     }
   ];
   return steps;
@@ -475,8 +509,18 @@ function StatusView({
   const [selectedOrderKey, setSelectedOrderKey] = useState(snapshots[0].order_key);
   const snapshot = snapshots.find((candidate) => candidate.order_key === selectedOrderKey) ?? snapshots[0];
   const currentStatus = statusLabel(snapshot);
+  const orderTitle = snapshot.live_order?.order_title ?? snapshot.header.order_title ?? snapshot.order_number;
   const expiresAt = displayDate(payload.link.expires_at);
   const steps = progressSteps(snapshot);
+  const proofReviewRequired = snapshot.proof_summary?.review_required === true
+    && (snapshot.proof_visibility === "review_link" || snapshot.proof_summary.access_mode === "review_link");
+  const pendingProofs = snapshot.proof_summary?.pending ?? 0;
+  const mobileStep = steps.find((step) => step.state === "attention")
+    ?? (proofReviewRequired ? steps.find((step) => step.label === "Proof review") : null)
+    ?? [...steps].reverse().find((step) => step.state === "current")
+    ?? steps.find((step) => step.state === "pending")
+    ?? steps.at(-1);
+  const mobileStepIndex = mobileStep ? steps.indexOf(mobileStep) : 0;
 
   return (
     <>
@@ -514,21 +558,21 @@ function StatusView({
 
       <section className="hero">
         <div>
-          <p className="eyebrow">Order Status</p>
-          <h1>{snapshot.order_number}</h1>
-          <p>Latest available update for {snapshot.customer.source_customer_name}.</p>
+          <p className="eyebrow">Order {snapshot.order_number}</p>
+          <h1>{orderTitle}</h1>
+          <div className="hero-meta" aria-label="Order identifiers">
+            <span>{snapshot.customer.source_customer_name}</span>
+            <span>PO {snapshot.header.po_number ?? "Not provided"}</span>
+            <span>Contract {snapshot.header.contract_number ?? "Not provided"}</span>
+          </div>
         </div>
         <div className="status-badge">
           <span>Current status</span>
           <strong>{currentStatus}</strong>
-          <small>Updated {displayDate(snapshot.refreshed_at)}</small>
-          <small className={`live-refresh ${refreshState}`}>
-            {refreshState === "checking"
-              ? "Checking for updates…"
-              : refreshState === "degraded"
-                ? "Showing the last confirmed update · retrying automatically"
-                : "Live updates on"}
-          </small>
+          {snapshot.order_status?.step ?? snapshot.live_order?.status?.step ? (
+            <small>{`${snapshot.order_status?.step?.step_number ?? snapshot.live_order?.status?.step?.step_number} · ${snapshot.order_status?.step?.step_name ?? snapshot.live_order?.status?.step?.step_name}`}</small>
+          ) : null}
+          <small className="status-updated-at">Updated {displayDate(snapshot.refreshed_at)}</small>
         </div>
       </section>
 
@@ -537,6 +581,30 @@ function StatusView({
           <ProgressStep key={step.label} step={step} index={index} />
         ))}
       </section>
+
+      {mobileStep ? (
+        <section className={`mobile-progress-summary ${mobileStep.state}`} aria-label="Current order step">
+          <span>{mobileStepIndex + 1}</span>
+          <strong>{mobileStep.label}</strong>
+          <small>{mobileStep.detail}</small>
+        </section>
+      ) : null}
+
+      {proofReviewRequired ? (
+        <aside className="proof-review-notice" role="status" aria-label="Proof approval required">
+          <div>
+            <strong>Proof approval required</strong>
+            <span>
+              {pendingProofs > 0
+                ? `${pendingProofs} proof${pendingProofs === 1 ? " is" : "s are"} ready for your review and approval.`
+                : "Proofs are ready for your review and approval."}
+            </span>
+          </div>
+          {snapshot.proof_summary?.review_url ? (
+            <a href={snapshot.proof_summary.review_url} target="_blank" rel="noreferrer">Open Proof</a>
+          ) : null}
+        </aside>
+      ) : null}
 
       <OrderRollup
         snapshot={snapshot}
@@ -547,8 +615,7 @@ function StatusView({
       />
 
       <section className="privacy-note">
-        <strong>Private link</strong>
-        <span>This view expires {expiresAt}. For questions, reply to the email that sent this link.</span>
+        <span>Available until {expiresAt}</span>
       </section>
     </>
   );
@@ -684,8 +751,19 @@ function App() {
   return (
     <main className="status-shell">
       <header className="brand-header">
-        <img src="/brand/vornan-wordmark.svg" alt="Vornan" className="vornan-wordmark" />
-        <img src="/brand/pathfinder-lockup-zinnia.svg" alt="Pathfinder" className="pathfinder-lockup" />
+        <div className="brand-product">
+          <img src="/brand/vornan-wordmark.svg" alt="Vornan" className="vornan-wordmark" />
+          <span aria-hidden="true" />
+          <strong>Order status</strong>
+        </div>
+        <span className={`brand-live ${refreshState}`} role="status" aria-live="polite">
+          <i aria-hidden="true" />
+          {refreshState === "checking"
+            ? "Syncing latest status…"
+            : refreshState === "degraded"
+              ? "Updates temporarily delayed"
+              : "Live updates on"}
+        </span>
       </header>
 
       {!initialToken ? <StatusRequest /> : null}
@@ -732,8 +810,11 @@ function RootApp() {
   return (
     <main className="status-shell intake-shell">
       <header className="brand-header">
-        <img src="/brand/vornan-wordmark.svg" alt="Vornan" className="vornan-wordmark" />
-        <img src="/brand/pathfinder-lockup-zinnia.svg" alt="Pathfinder" className="pathfinder-lockup" />
+        <div className="brand-product">
+          <img src="/brand/vornan-wordmark.svg" alt="Vornan" className="vornan-wordmark" />
+          <span aria-hidden="true" />
+          <strong>Order intake</strong>
+        </div>
       </header>
       <CustomerIntake apiBaseUrl={apiBaseUrl} publicKey={intakeKey} />
     </main>
