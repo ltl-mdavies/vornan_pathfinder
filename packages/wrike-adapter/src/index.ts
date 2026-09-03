@@ -88,6 +88,7 @@ export class WrikeConnectionError extends Error {
       | "attachment_metadata_failed"
       | "attachment_download_failed"
       | "attachment_validation_failed"
+      | "trigger_status_mismatch"
       | "comment_write_failed"
       | "invalid_response",
     message: string,
@@ -1536,6 +1537,132 @@ async function discoverWrikeStatusIdsByLabel(args: {
   return { read: metadataRead, status_ids_by_label: statusIdsByLabel };
 }
 
+function requireVerifiedWrikeStatusId(args: {
+  configured_status_id: string;
+  configured_status_label: string;
+  workflow_statuses: Awaited<ReturnType<typeof discoverWrikeStatusIdsByLabel>>;
+  rotated_credentials: WrikeOAuthCredentials;
+  status_kind: "order" | "shipping";
+}) {
+  const configuredStatusId = providerIdentifier(args.configured_status_id);
+  const configuredStatusLabel = normalizedComparableText(args.configured_status_label);
+  if (!configuredStatusId || !configuredStatusLabel) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      `Save the exact ${args.status_kind} intake-ready status ID and label before discovery.`,
+      args.rotated_credentials
+    );
+  }
+  if (!args.workflow_statuses.read) {
+    throw new WrikeConnectionError(
+      "task_discovery_failed",
+      `Pathfinder could not verify the configured ${args.status_kind} intake-ready status against Wrike workflow metadata.`,
+      args.rotated_credentials
+    );
+  }
+  const matchingIds = args.workflow_statuses.status_ids_by_label.get(configuredStatusLabel);
+  if (!matchingIds?.has(configuredStatusId)) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      `The saved ${args.status_kind} intake-ready status ID does not match the configured Wrike status label. Re-select the status before intake can continue.`,
+      args.rotated_credentials
+    );
+  }
+  return configuredStatusId;
+}
+
+/**
+ * Re-reads one exact Wrike task immediately before a scheduled Lift submit.
+ * The configured status ID must still resolve to its saved label, and the task
+ * must still be in that exact status. No attachment, Wrike write, or Lift call
+ * occurs here.
+ */
+export async function verifyWrikeTaskTriggerStatus(
+  credentials: WrikeOAuthCredentials,
+  args: {
+    task_id: string;
+    trigger_status_id: string;
+    trigger_status_label: string;
+  },
+  options: {
+    fetch_impl?: typeof fetch;
+    now?: () => Date;
+  } = {}
+) {
+  const taskId = providerIdentifier(args.task_id);
+  const configuredStatusId = providerIdentifier(args.trigger_status_id);
+  if (!taskId || !configuredStatusId || !args.trigger_status_label.trim()) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      "Save the exact Wrike task and intake-ready status before submission."
+    );
+  }
+
+  const fetchImpl = options.fetch_impl ?? fetch;
+  const refreshed = await refreshWrikeOAuthCredentials(credentials, options);
+  const rotatedCredentials = refreshed.credentials;
+  const host = rotatedCredentials.host;
+  const accessToken = rotatedCredentials.access_token ?? "";
+  const workflowStatuses = await discoverWrikeStatusIdsByLabel({
+    host,
+    access_token: accessToken,
+    labels: [args.trigger_status_label],
+    fetch_impl: fetchImpl
+  });
+  const verifiedStatusId = requireVerifiedWrikeStatusId({
+    configured_status_id: configuredStatusId,
+    configured_status_label: args.trigger_status_label,
+    workflow_statuses: workflowStatuses,
+    rotated_credentials: rotatedCredentials,
+    status_kind: "order"
+  });
+
+  let taskResponse: Response;
+  try {
+    taskResponse = await fetchImpl(
+      `https://${host}/api/v4/tasks/${encodeURIComponent(taskId)}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" }
+      }
+    );
+  } catch {
+    throw new WrikeConnectionError(
+      "task_discovery_failed",
+      "Pathfinder could not re-check the Wrike task before submission.",
+      rotatedCredentials
+    );
+  }
+  const taskPayload = await readWrikeApiJson(
+    taskResponse,
+    "task_discovery_failed",
+    rotatedCredentials
+  );
+  const taskRecords = Array.isArray(taskPayload.data) ? taskPayload.data.map(asRecord) : [];
+  const task = taskRecords[0];
+  if (taskRecords.length !== 1 || providerIdentifier(task?.id) !== taskId) {
+    throw new WrikeConnectionError(
+      "invalid_response",
+      "Wrike did not return the exact task during the pre-submit status check.",
+      rotatedCredentials
+    );
+  }
+  if (providerIdentifier(task.customStatusId) !== verifiedStatusId) {
+    throw new WrikeConnectionError(
+      "trigger_status_mismatch",
+      "The Wrike task is no longer in the configured intake-ready status. Pathfinder did not submit it to Lift.",
+      rotatedCredentials
+    );
+  }
+
+  return {
+    credentials: rotatedCredentials,
+    checked_at: (options.now ?? (() => new Date()))().toISOString(),
+    task_id: taskId,
+    trigger_status_id: verifiedStatusId
+  };
+}
+
 async function resolveWrikeFolderId(
   folderId: string,
   host: string,
@@ -2032,21 +2159,28 @@ export async function discoverScopedWrikeIntakeTasks(
     ],
     fetch_impl: fetchImpl
   });
-  const orderStatusIds = new Set([
-    triggerStatusId,
-    ...(workflowStatuses.status_ids_by_label.get(
-      normalizedComparableText(config.trigger_status_label)
-    ) ?? [])
-  ]);
+  const verifiedOrderStatusId = requireVerifiedWrikeStatusId({
+    configured_status_id: triggerStatusId,
+    configured_status_label: config.trigger_status_label,
+    workflow_statuses: workflowStatuses,
+    rotated_credentials: rotatedCredentials,
+    status_kind: "order"
+  });
+  const orderStatusIds = new Set([verifiedOrderStatusId]);
   const configuredShippingStatusId = providerIdentifier(
     config.shipping_intake.trigger_status_id
   );
-  const shippingStatusIds = new Set([
-    ...(configuredShippingStatusId ? [configuredShippingStatusId] : []),
-    ...(workflowStatuses.status_ids_by_label.get(
-      normalizedComparableText(config.shipping_intake.trigger_status_label)
-    ) ?? [])
-  ]);
+  const shippingStatusIds = new Set(
+    config.shipping_intake.enabled
+      ? [requireVerifiedWrikeStatusId({
+          configured_status_id: configuredShippingStatusId,
+          configured_status_label: config.shipping_intake.trigger_status_label,
+          workflow_statuses: workflowStatuses,
+          rotated_credentials: rotatedCredentials,
+          status_kind: "shipping"
+        })]
+      : []
+  );
 
   const scopedOrderTasks = taskRecords
     // Wrike has already scoped this response to the exact configured folder

@@ -94,6 +94,7 @@ import {
   normalizeWrikeSourceConfig,
   postWrikeTaskComment,
   prepareWrikeLiftOrderDocumentPatch,
+  verifyWrikeTaskTriggerStatus,
   WrikeConnectionError,
   type WrikeLiftDocumentPublication,
   type WrikeLiftSourceEvidenceBinding,
@@ -6281,6 +6282,78 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
     publication_enabled: wrikeLiftDocumentPublicationConfig.enabled,
     delivery_bucket_name: wrikeLiftDocumentPublicationConfig.bucket_name
   });
+
+  // Discovery and evidence capture can precede submission by several seconds.
+  // Re-read the exact task at the last safe boundary so a status transition
+  // after capture cannot reserve or send a Lift request.
+  if (!method || method.source !== "Wrike" || method.status !== "Active") {
+    throw new Error("WrikeScheduledSubmitMethodInactive");
+  }
+  const sourceConfig = normalizeWrikeSourceConfig(method.source_config.wrike);
+  if (
+    !sourceConfig.connection_id ||
+    !sourceConfig.trigger_status_id ||
+    !sourceConfig.trigger_status_label
+  ) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      "The scheduled Wrike source is missing its exact intake-ready status configuration."
+    );
+  }
+  const sourceConnection = await findCustomerSourceConnection(
+    customer,
+    sourceConfig.connection_id
+  );
+  if (
+    !sourceConnection ||
+    sourceConnection.provider !== "wrike" ||
+    sourceConnection.status !== "Active"
+  ) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      "The scheduled Wrike source connection is not active."
+    );
+  }
+  const sourceConnectionSecrets = await readCustomerSourceConnectionSecrets(
+    customer.lift_customer_id,
+    sourceConnection.connection_id
+  );
+  const existingWrikeSecrets = sourceConnectionSecrets.wrike ?? {};
+  const sourceOauth = existingWrikeSecrets.oauth as WrikeOAuthCredentials | undefined;
+  if (!sourceOauth) {
+    throw new WrikeConnectionError(
+      "invalid_configuration",
+      "Wrike OAuth credentials are not configured."
+    );
+  }
+  try {
+    const statusCheck = await verifyWrikeTaskTriggerStatus(sourceOauth, {
+      task_id: marker.task_id,
+      trigger_status_id: sourceConfig.trigger_status_id,
+      trigger_status_label: sourceConfig.trigger_status_label
+    });
+    await writeCustomerSourceConnectionSecrets(
+      customer.lift_customer_id,
+      sourceConnection.connection_id,
+      {
+        provider: "wrike",
+        wrike: { ...existingWrikeSecrets, oauth: statusCheck.credentials }
+      }
+    );
+  } catch (error) {
+    if (error instanceof WrikeConnectionError && error.rotated_credentials) {
+      await writeCustomerSourceConnectionSecrets(
+        customer.lift_customer_id,
+        sourceConnection.connection_id,
+        {
+          provider: "wrike",
+          wrike: { ...existingWrikeSecrets, oauth: error.rotated_credentials }
+        }
+      );
+    }
+    throw error;
+  }
+
   const reservedAttempt = createSubmitAttempt({
     job,
     idempotencyKey,
