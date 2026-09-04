@@ -391,11 +391,34 @@ export function normalizeLiftOrderLookupPayload(payload: unknown): NormalizedLif
  * even when an older proof-report row still says pending.
  */
 export const LIFT_ART_APPROVED_STEP_NUMBER = 7.05;
+export const LIFT_APPROVE_ART_STEP_NUMBER = 7.02;
+export const LIFT_OBTAIN_ART_STEP_NUMBER = 6;
+
+export type LiftLineProofApprovalDisposition = "waiting" | "pending" | "approved";
+
+/**
+ * Interpret the latest Lift line step in both directions. Operators can move a
+ * line backward as well as forward, so an older proof status must not make the
+ * approved boundary sticky after the current line returns to proof review.
+ */
+export function liftLineProofApprovalDisposition(
+  stepNumber: unknown
+): LiftLineProofApprovalDisposition | null {
+  if (stepNumber === null || stepNumber === undefined || stepNumber === "") return null;
+  const parsed = Number(stepNumber);
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed >= LIFT_ART_APPROVED_STEP_NUMBER) return "approved";
+  // Some Standard Graphics flows use legacy step 7 for Approve Art, while the
+  // current flow uses 7.02.
+  if (parsed === 7 || parsed >= LIFT_APPROVE_ART_STEP_NUMBER) return "pending";
+  // Earlier/custom job flows may use unrelated numeric ranges. Only impose the
+  // standard graphics proof lifecycle once the line reaches Obtain Art.
+  if (parsed >= LIFT_OBTAIN_ART_STEP_NUMBER) return "waiting";
+  return null;
+}
 
 export function liftLineHasClearedProofApproval(stepNumber: unknown) {
-  if (stepNumber === null || stepNumber === undefined || stepNumber === "") return false;
-  const parsed = Number(stepNumber);
-  return Number.isFinite(parsed) && parsed >= LIFT_ART_APPROVED_STEP_NUMBER;
+  return liftLineProofApprovalDisposition(stepNumber) === "approved";
 }
 
 /** Lift's documented, authoritative cancelled-line signature. */

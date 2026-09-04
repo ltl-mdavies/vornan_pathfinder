@@ -1,5 +1,5 @@
 import {
-  liftLineHasClearedProofApproval,
+  liftLineProofApprovalDisposition,
   matchLiftLineRecord,
   type LiftLineIdentity,
   type OrderRollupProof,
@@ -790,19 +790,30 @@ function taskState(line: ProofLine | null, version: ProofVersion | null, policy:
   if (line?.cancelled) {
     return "cancelled" as const;
   }
-  // The current AS360Orders line step is newer and more authoritative than a
-  // proof-report status. Once Lift reaches 7.05 (Approved), or any later step,
-  // an attached proof is reviewed and must leave the actionable queue. A line
-  // without a proof remains a non-actionable production reference.
-  if (line && liftLineHasClearedProofApproval(line.step_number)) {
+  const liftDisposition = line ? liftLineProofApprovalDisposition(line.step_number) : null;
+  // The latest AS360Orders line step is authoritative in both directions. Lift
+  // operators can advance a line beyond approval and later return it to proof
+  // review, so an older approved proof-report value cannot make approval sticky.
+  if (liftDisposition === "approved") {
     return version ? "approved" as const : "reference" as const;
+  }
+  if (version && /REVIS|REJECT|REGENERAT|CHANGE.*REQUEST/i.test(version.approval_status ?? "")) {
+    return "revised" as const;
+  }
+  if (
+    liftDisposition === "waiting" &&
+    (!version || !version.approval_status?.trim() || /APPROV/i.test(version.approval_status))
+  ) {
+    return "waiting" as const;
+  }
+  if (liftDisposition === "pending") {
+    if (!version) return "waiting" as const;
+    if (!version.preview_url && !version.download_url) return "error" as const;
+    return "pending" as const;
   }
   if (version) {
     if (/APPROV/i.test(version.approval_status ?? "")) {
       return "approved" as const;
-    }
-    if (/REVIS|REJECT|REGENERAT|CHANGE.*REQUEST/i.test(version.approval_status ?? "")) {
-      return "revised" as const;
     }
     if ((version.approval_status ?? "").trim()) {
       if (!version.preview_url && !version.download_url) {

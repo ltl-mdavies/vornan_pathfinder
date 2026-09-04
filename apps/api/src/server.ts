@@ -46,7 +46,7 @@ import {
   buildOrderRollupShipmentSummary,
   isExplicitLiftOrderAbsence,
   isLiftCancelledLine,
-  liftLineHasClearedProofApproval,
+  liftLineProofApprovalDisposition,
   matchLiftLineRecord,
   normalizeLiftOrderLookupPayload,
   toCustomerSafeOrderRollupDestination,
@@ -1549,7 +1549,6 @@ export function buildOrderSnapshot(args: {
       || proofState === "pending";
   };
   const effectiveProofs = new Map<(typeof proofs)[number], (typeof proofs)[number]>();
-  let clearedPendingProofCount = 0;
   const lines = lineContexts.map(({ index, line, liveLine, line_number }) => {
     const reportedLineProofs = proofs.filter((proof) => matchLiftLineRecord(lineContexts, proof)?.line.index === index);
     const linePackages = packages.filter((pkg) => matchLiftLineRecord(lineContexts, pkg)?.line.index === index);
@@ -1562,17 +1561,39 @@ export function buildOrderSnapshot(args: {
     const authoritativeStepNumber = args.orderLookup?.ok === true && liveLine
       ? liveLine.step?.step_number
       : proofReportStepNumber;
-    const hasClearedProofApproval = liftLineHasClearedProofApproval(authoritativeStepNumber);
+    const proofDisposition = liftLineProofApprovalDisposition(authoritativeStepNumber);
     const lineProofs = reportedLineProofs.map((proof) => {
-      if (!hasClearedProofApproval) {
+      const proofState = "proof_state" in proof ? proof.proof_state : null;
+      const approvalStatus = proof.proof_approval_status ?? "";
+      const isRevision = proofState === "revised"
+        || /REVIS|REJECT|REGENERAT|CHANGE.*REQUEST/i.test(approvalStatus);
+      const hasPendingProofStatus = proofNeedsReview(proof);
+      if (
+        !proofDisposition ||
+        isRevision ||
+        (proofDisposition === "waiting" && hasPendingProofStatus)
+      ) {
         effectiveProofs.set(proof, proof);
         return proof;
       }
-      if (proofNeedsReview(proof)) clearedPendingProofCount += 1;
+      const hasUsableProof = Boolean(proof.proof_link_low || proof.proof_link_high);
+      const effectiveState = proofDisposition === "approved"
+        ? "approved" as const
+        : proofDisposition === "pending" && hasUsableProof
+          ? "pending" as const
+          : proofDisposition === "pending"
+            ? "error" as const
+            : "waiting" as const;
       const effectiveProof = {
         ...proof,
-        proof_approval_status: "Approved",
-        proof_state: "approved" as const
+        proof_approval_status: effectiveState === "approved"
+          ? "Approved"
+          : effectiveState === "pending"
+            ? "Pending"
+            : effectiveState === "waiting"
+              ? "Waiting for proof"
+              : proof.proof_approval_status,
+        proof_state: effectiveState
       };
       effectiveProofs.set(proof, effectiveProof);
       return effectiveProof;
@@ -1620,19 +1641,29 @@ export function buildOrderSnapshot(args: {
         step: null
       }
     : liveOrder?.status ?? null;
+  const projectedProofs = proofs.map((proof) => effectiveProofs.get(proof) ?? proof);
   const proofSummary = proofProjection?.summary
     ? (() => {
-        const cleared = Math.min(proofProjection.summary.pending, clearedPendingProofCount);
-        const pending = proofProjection.summary.pending - cleared;
-        return {
-          ...proofProjection.summary,
-          pending,
-          reviewed: Math.min(proofProjection.summary.total, proofProjection.summary.reviewed + cleared),
-          review_required: pending > 0
+        const summary = { ...proofProjection.summary };
+        const bucket = (state: unknown) => {
+          if (state === "pending") return "pending" as const;
+          if (state === "revised") return "regenerating" as const;
+          if (state === "waiting") return "waiting" as const;
+          if (state === "approved" || state === "reference") return "reviewed" as const;
+          return null;
         };
+        proofs.forEach((proof, index) => {
+          const originalBucket = bucket("proof_state" in proof ? proof.proof_state : null);
+          const effective = projectedProofs[index];
+          const effectiveBucket = bucket(effective && "proof_state" in effective ? effective.proof_state : null);
+          if (!originalBucket || !effectiveBucket || originalBucket === effectiveBucket) return;
+          summary[originalBucket] = Math.max(0, summary[originalBucket] - 1);
+          summary[effectiveBucket] = Math.min(summary.total, summary[effectiveBucket] + 1);
+        });
+        summary.review_required = summary.pending > 0;
+        return summary;
       })()
     : null;
-  const projectedProofs = proofs.map((proof) => effectiveProofs.get(proof) ?? proof);
 
   return {
     snapshot_id: `snapshot-${args.job.job_id}`,

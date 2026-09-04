@@ -600,6 +600,81 @@ test("lets the current Lift line step clear stale pending proof state at 7.05 an
   }, { pending: 0, reviewed: 1, review_required: false });
 });
 
+test("lets a current Lift line step reopen stale approved proof state after an operator reversal", () => {
+  const cachedApprovedProofOrder = normalizeProofOrder({
+    order_number: "A0226692",
+    order_payload: {
+      rowset: [{
+        ORDER_NUMBER: "A0226692",
+        CUSTOMER_ID: 1249,
+        LINES: [{
+          LINE_NUMBER: 1,
+          ORDER_LINE_ID: 9742987,
+          PRODUCT_NAME: "One Sheet",
+          QUANTITY: 17,
+          LINE_STEP_NUMBER: 15.22
+        }]
+      }]
+    },
+    proof_payloads: [{
+      rowset: [{
+        ORDER_NUMBER: "A0226692",
+        ORDER_LINE_ID: 9742987,
+        LINE_NUMBER: 1,
+        ATTACHMENT_ID: 555,
+        PROOF_FILENAME: "one-sheet-proof.pdf",
+        PROOF_LINK_HIGH: "https://proof.example.invalid/high.pdf",
+        PROOF_APPROVAL_STATUS: "APPROVED"
+      }]
+    }],
+    synced_at: checkedAt
+  });
+  const currentOrderAt = (step: number) => ({
+    rowset: [{
+      ORDER_NUMBER: "A0226692",
+      CUSTOMER_ID: 1249,
+      ORDER_STATUS: "Proof Review",
+      ORDER_STEP_ID: 1041,
+      HEADER_STEP_NUMBER: step,
+      LINES: [{
+        LINE_NUMBER: 1,
+        ORDER_LINE_ID: 9742987,
+        PRODUCT_NAME: "One Sheet",
+        QUANTITY: 17,
+        LINE_STEP_ID: null,
+        LINE_STEP_NUMBER: step
+      }]
+    }]
+  });
+
+  const pendingAgain = buildFixtureSnapshot(cachedApprovedProofOrder, {
+    orderPayload: currentOrderAt(7.02)
+  });
+  assert.equal(pendingAgain.lines[0]?.proof_review_required, true);
+  assert.equal(pendingAgain.lines[0]?.latest_proof_status, "Pending");
+  assert.equal(pendingAgain.lines[0]?.proofs[0]?.proof_state, "pending");
+  assert.equal(pendingAgain.proofs[0]?.proof_state, "pending");
+  assert.deepEqual(pendingAgain.proof_summary && {
+    pending: pendingAgain.proof_summary.pending,
+    waiting: pendingAgain.proof_summary.waiting,
+    reviewed: pendingAgain.proof_summary.reviewed,
+    review_required: pendingAgain.proof_summary.review_required
+  }, { pending: 1, waiting: 0, reviewed: 0, review_required: true });
+
+  const waitingAgain = buildFixtureSnapshot(cachedApprovedProofOrder, {
+    orderPayload: currentOrderAt(6)
+  });
+  assert.equal(waitingAgain.lines[0]?.proof_review_required, false);
+  assert.equal(waitingAgain.lines[0]?.latest_proof_status, "Waiting for proof");
+  assert.equal(waitingAgain.lines[0]?.proofs[0]?.proof_state, "waiting");
+  assert.deepEqual(waitingAgain.proof_summary && {
+    pending: waitingAgain.proof_summary.pending,
+    waiting: waitingAgain.proof_summary.waiting,
+    reviewed: waitingAgain.proof_summary.reviewed,
+    review_required: waitingAgain.proof_summary.review_required
+  }, { pending: 0, waiting: 1, reviewed: 0, review_required: false });
+});
+
 test("preserves customer-safe rollup detail while removing internal submit and raw lookup data", () => {
   const internal = buildFixtureSnapshot();
   const publicSnapshot = publicOrderStatusSnapshotFromInternal(internal);

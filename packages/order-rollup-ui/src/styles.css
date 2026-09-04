@@ -263,7 +263,12 @@
 .order-rollup__shipment-tracking-list article > div { display: grid; gap: 4px; }
 .order-rollup__shipment-tracking-list article > div strong { flex: 0 0 auto; }
 .order-rollup__shipment-tracking-list a,
-.order-rollup__package-card a { color: #176b36; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.order-rollup__package-card a {
+  color: #176b36;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
 .order-rollup__shipment-tracking-list a { overflow-wrap: normal; white-space: nowrap; }
 .order-rollup__shipment-tracking-list article > div span { color: #657160; font-size: 0.7rem; letter-spacing: 0; text-align: left; text-transform: none; }
 .order-rollup__shipment-tracking-list p { margin: 6px 0 0; font-size: 0.76rem; font-weight: 750; }
@@ -340,7 +345,7 @@
 }
 
 .order-rollup__lines-heading-actions > span {
-  color: #899486;
+  color: #687365;
   font-size: 0.74rem;
   font-weight: 650;
 }
@@ -753,56 +758,74 @@
 
 .order-rollup--public {
   overflow: visible;
-  border-radius: 14px;
+  border: 0;
+  border-radius: 0;
   background: transparent;
 }
 
 .order-rollup__public-workspace {
   display: grid;
   grid-template-columns: minmax(280px, 0.34fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
   min-height: 0;
-  background: #fff;
+  background: transparent;
 }
 
 .order-rollup__overview-column {
   min-width: 0;
-  padding: 22px;
-  border-right: 1px solid #d9ddcf;
-  background: #f8faf6;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .order-rollup__at-a-glance {
-  padding: 4px 2px 20px;
-  border-bottom: 1px solid #d9ddcf;
+  padding: 22px;
+  border: 1px solid #d9ddcf;
+  border-radius: 12px;
+  background: #fff;
 }
 
-.order-rollup__at-a-glance h2 {
+.order-rollup__at-a-glance h2,
+.order-rollup__shipment-compact-heading h2,
+.order-rollup--public .order-rollup__lines-heading h2 {
   margin: 0;
-  color: #39523b;
-  font-size: 1.45rem;
-  letter-spacing: -0.035em;
+  color: var(--forest-dark, #263e2a);
+  font-size: 1.12rem;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
 }
 
-.order-rollup__at-a-glance > p:not(.order-rollup__eyebrow) {
-  margin: 7px 0 18px;
-  color: #687365;
-  font-size: 0.86rem;
-  font-weight: 700;
-  line-height: 1.5;
+.order-rollup__at-a-glance > .order-rollup__at-a-glance-summary {
+  margin: 8px 0 0;
+  color: #405b45;
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.45;
 }
 
 .order-rollup__at-a-glance dl {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 18px;
-  margin: 18px 0 0;
+  gap: 0;
+  margin: 16px 0 0;
 }
 
 .order-rollup__at-a-glance dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: baseline;
   min-width: 0;
+  padding: 6px 0;
 }
 
-.order-rollup__at-a-glance dt,
+.order-rollup__at-a-glance dt {
+  color: #687365;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
 .order-rollup__line-step-summary > span {
   color: #748071;
   font-size: 0.67rem;
@@ -812,59 +835,196 @@
 }
 
 .order-rollup__at-a-glance dd {
-  margin: 5px 0 0;
+  margin: 0;
   color: #191818;
-  font-size: 0.88rem;
+  font-size: 0.8rem;
   font-weight: 850;
+  text-align: right;
 }
 
 .order-rollup__shipment-summary.order-rollup__shipment-summary--compact {
-  margin: 20px 0 0;
-  border-width: 1px;
-  border-color: #d5dfd0;
-  border-radius: 10px;
+  margin: 16px 0 0;
+  border: 1px solid #d9ddcf;
+  border-radius: 12px;
+  background: #fff;
+  color: #253e2b;
+}
+
+.order-rollup__shipment-summary--compact.shipment-state--tracking_available {
+  border-left-color: #d9e1d5;
   background: #fff;
 }
 
-.order-rollup__shipment-summary--compact .order-rollup__shipment-overview {
-  display: block;
-  padding: 15px 16px;
-}
-
-.order-rollup__shipment-summary--compact .order-rollup__shipment-overview dl {
-  display: none;
-}
-
-.order-rollup__shipment-summary--compact .order-rollup__shipment-details > summary {
-  display: grid;
-  gap: 4px;
-  padding: 12px 16px;
-}
-
-.order-rollup__shipment-summary--compact .order-rollup__shipment-details > summary::after {
-  position: absolute;
-  top: 14px;
-  right: 16px;
-}
-
-.order-rollup__shipment-summary--compact .order-rollup__shipment-details > summary > small {
-  margin: 0;
-  padding-right: 38px;
-  text-align: left;
-}
-
-.order-rollup__shipment-summary--compact .order-rollup__shipment-details > summary > span {
-  padding-right: 38px;
+.order-rollup__shipment-compact-heading {
+  padding: 22px 22px 0;
 }
 
 .order-rollup__shipment-summary--compact .order-rollup__shipment-destinations {
-  grid-template-columns: 1fr;
-  padding: 0 10px 10px;
+  display: block;
+  padding: 0 22px;
 }
 
 .order-rollup__shipment-summary--compact .order-rollup__shipment-destination {
+  padding: 16px 0 18px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-destination + .order-rollup__shipment-destination {
+  border-top: 1px solid #d9e1d5;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-destination > header {
+  gap: 12px;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-destination > header strong {
+  margin-top: 0;
+  color: #191818;
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-destination > header > small {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #657160;
+  font-size: 0.68rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-destination address {
+  margin-top: 7px;
+  color: #596657;
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-tracking-list {
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.order-rollup__shipment-summary--compact .order-rollup__shipment-tracking-list article {
   padding: 12px;
   border-radius: 8px;
+  background: #f7f8f5;
+}
+
+.order-rollup__shipment-package-meta {
+  display: grid;
+  gap: 3px;
+}
+
+.order-rollup__shipment-package-meta > span {
+  color: #637060;
+  font-size: 0.61rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.order-rollup__shipment-package-meta > strong {
+  color: #223b28;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.order-rollup__shipment-tracking-number {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.88rem;
+}
+
+.order-rollup__shipment-tracking-number a {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.order-rollup__shipment-tracking-number svg {
+  width: 13px;
+  height: 13px;
+}
+
+.order-rollup__shipment-event {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  margin-top: 10px;
+}
+
+.order-rollup__shipment-event > svg {
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+  color: #315c3b;
+}
+
+.order-rollup__shipment-event p {
+  margin: 0;
+  color: #334a38;
+  font-size: 0.73rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.order-rollup__shipment-event small {
+  margin-top: 3px;
+  color: #687365;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.order-rollup__shipment-lines {
+  display: block;
+  margin: 4px 0 0;
+  color: #7a8477;
+  font-size: 0.64rem;
+  font-weight: 650;
+}
+
+.order-rollup__shipment-empty {
+  display: grid;
+  gap: 4px;
+  margin: 14px 18px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f5f8f2;
+}
+
+.order-rollup__shipment-empty strong {
+  color: #36513b;
+  font-size: 0.79rem;
+}
+
+.order-rollup__shipment-empty span {
+  color: #687365;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.order-rollup__shipment-destination .order-rollup__shipment-empty {
+  margin: 13px 0 0;
+}
+
+.order-rollup__shipment-auto-update {
+  margin: 0;
+  padding: 0 18px 16px;
+  color: #7b8578;
+  font-size: 0.64rem;
+  font-weight: 600;
 }
 
 .order-rollup--public .order-rollup__section-availability,
@@ -884,11 +1044,23 @@
 
 .order-rollup__lines-column {
   min-width: 0;
-  padding: 4px 0;
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid #d9ddcf;
+  border-radius: 12px;
+  background: #fff;
 }
 
 .order-rollup--public .order-rollup__lines-heading {
   padding: 22px 24px 16px;
+}
+
+.order-rollup--public .order-rollup__lines-count {
+  margin: 5px 0 0;
+  color: #191818;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
 .order-rollup--public .order-rollup__lines {
@@ -1005,10 +1177,10 @@
   bottom: -9px;
   left: 50%;
   width: max-content;
-  max-width: 78px;
+  max-width: none;
   transform: translateX(-50%);
   color: #9a681c;
-  font-size: 0.59rem;
+  font-size: 0.56rem;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
@@ -1135,8 +1307,8 @@
 @media (max-width: 980px) {
   .order-rollup__meta { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .order-rollup__public-workspace { grid-template-columns: 1fr; }
-  .order-rollup__overview-column { border-right: 0; border-bottom: 1px solid #d9ddcf; }
-  .order-rollup__shipment-summary--compact .order-rollup__shipment-destinations { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+  .order-rollup__overview-column { border: 0; }
+  .order-rollup__shipment-summary--compact .order-rollup__shipment-destinations { display: block; }
 }
 
 @media (max-width: 720px) {
