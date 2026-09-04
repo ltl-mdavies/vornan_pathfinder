@@ -9,6 +9,8 @@ test("manual Lift order association remains inside the authenticated admin API b
   assert.match(source, /\/api\/customers\/:liftCustomerId\/jobs\/:jobId\/lift-order-association\/verify/);
   assert.match(source, /\/api\/customers\/:liftCustomerId\/jobs\/:jobId\/lift-order-association"/);
   assert.match(source, /verifyLiftOrderAssociation/);
+  assert.match(source, /order\.external_order_id/);
+  assert.match(source, /does not match this Pathfinder job's Ext_ID/);
   assert.match(source, /expected_current_order_number/);
   assert.match(source, /status_links_rebound/);
   assert.match(source, /res\.locals\.authUser\?\.email/);

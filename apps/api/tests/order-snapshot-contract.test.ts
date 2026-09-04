@@ -539,6 +539,67 @@ test("keeps enriched Lift order, line, proof, and package data in the internal s
   assert.equal(Number.isNaN(Date.parse(snapshot.refreshed_at)), false);
 });
 
+test("lets the current Lift line step clear stale pending proof state at 7.05 and later", () => {
+  const cachedPendingProofOrder = normalizeProofOrder({
+    order_number: "A0226692",
+    order_payload: {
+      rowset: [{
+        ORDER_NUMBER: "A0226692",
+        CUSTOMER_ID: 1249,
+        LINES: [{
+          LINE_NUMBER: 1,
+          ORDER_LINE_ID: 9742987,
+          PRODUCT_NAME: "One Sheet",
+          QUANTITY: 17,
+          LINE_STEP_NUMBER: 7.02
+        }]
+      }]
+    },
+    proof_payloads: [{
+      rowset: [{
+        ORDER_NUMBER: "A0226692",
+        ORDER_LINE_ID: 9742987,
+        LINE_NUMBER: 1,
+        ATTACHMENT_ID: 555,
+        PROOF_FILENAME: "one-sheet-proof.pdf",
+        PROOF_LINK_HIGH: "https://proof.example.invalid/high.pdf",
+        PROOF_APPROVAL_STATUS: "PENDING"
+      }]
+    }],
+    synced_at: checkedAt
+  });
+  const snapshot = buildFixtureSnapshot(cachedPendingProofOrder, {
+    orderPayload: {
+      rowset: [{
+        ORDER_NUMBER: "A0226692",
+        EXT_ID: "PFMRTNIZAX18FE",
+        CUSTOMER_ID: 1249,
+        ORDER_STATUS: "Pull from Inventory",
+        ORDER_STEP_ID: 1098,
+        HEADER_STEP_NUMBER: 15.22,
+        LINES: [{
+          LINE_NUMBER: 1,
+          ORDER_LINE_ID: 9742987,
+          PRODUCT_NAME: "AOM Hardware",
+          QUANTITY: 17,
+          LINE_STEP_ID: 1098,
+          LINE_STEP_NUMBER: 15.22
+        }]
+      }]
+    }
+  });
+
+  assert.equal(snapshot.lines[0]?.proof_review_required, false);
+  assert.equal(snapshot.lines[0]?.latest_proof_status, "Approved");
+  assert.equal(snapshot.lines[0]?.proofs[0]?.proof_state, "approved");
+  assert.equal(snapshot.proofs[0]?.proof_state, "approved");
+  assert.deepEqual(snapshot.proof_summary && {
+    pending: snapshot.proof_summary.pending,
+    reviewed: snapshot.proof_summary.reviewed,
+    review_required: snapshot.proof_summary.review_required
+  }, { pending: 0, reviewed: 1, review_required: false });
+});
+
 test("preserves customer-safe rollup detail while removing internal submit and raw lookup data", () => {
   const internal = buildFixtureSnapshot();
   const publicSnapshot = publicOrderStatusSnapshotFromInternal(internal);

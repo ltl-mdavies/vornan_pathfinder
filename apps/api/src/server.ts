@@ -46,6 +46,7 @@ import {
   buildOrderRollupShipmentSummary,
   isExplicitLiftOrderAbsence,
   isLiftCancelledLine,
+  liftLineHasClearedProofApproval,
   matchLiftLineRecord,
   normalizeLiftOrderLookupPayload,
   toCustomerSafeOrderRollupDestination,
@@ -798,9 +799,14 @@ async function fetchLiftOrderLookup(args: {
   target: TargetConfig;
   route: OutputRoute;
   orderNumber: string;
+  customerId?: string | number | null;
+  externalId?: string | null;
 }) {
   const environment = routeEnvironmentForTarget(args.target, args.route);
-  const lookupUrl = buildLiftOrderLookupUrl(args.route.order_lookup_url, args.orderNumber);
+  const lookupUrl = buildLiftOrderLookupUrl(args.route.order_lookup_url, args.orderNumber, {
+    customerId: args.customerId,
+    externalId: args.externalId
+  });
 
   if (!lookupUrl) {
     throw new Error("This output route does not have a valid Lift order lookup URL for the selected order number.");
@@ -844,10 +850,17 @@ async function verifyLiftOrderAssociation(args: {
   route: OutputRoute;
   orderNumber: string;
 }) {
+  const expectedCustomerId = valueAsString(args.job.submit_customer_id ?? args.job.customer_id).trim();
+  const expectedExternalOrderId = valueAsString(args.job.lift_payload.order.ext_id).trim().toUpperCase();
+  if (!expectedExternalOrderId) {
+    throw new Error("The Pathfinder job does not have a valid Lift Ext_ID to verify.");
+  }
   const lookup = await fetchLiftOrderLookup({
     target: args.target,
     route: args.route,
-    orderNumber: args.orderNumber
+    orderNumber: args.orderNumber,
+    customerId: expectedCustomerId,
+    externalId: expectedExternalOrderId
   });
   if (!lookup.ok) {
     throw new Error(`Lift order ${args.orderNumber} could not be found (${lookup.http_status}).`);
@@ -857,8 +870,14 @@ async function verifyLiftOrderAssociation(args: {
   if (!order || normalizedResponseOrderNumber !== args.orderNumber) {
     throw new Error("Lift returned an order that did not match the requested order number.");
   }
+  const actualExternalOrderId = valueAsString(order.external_order_id).trim().toUpperCase();
+  if (!actualExternalOrderId) {
+    throw new Error(`Lift order ${args.orderNumber} does not expose an Ext_ID. Verify again after Lift finishes updating the order.`);
+  }
+  if (actualExternalOrderId !== expectedExternalOrderId) {
+    throw new Error(`Lift order ${args.orderNumber} does not match this Pathfinder job's Ext_ID.`);
+  }
   const customerId = valueAsString(order.customer_id).trim();
-  const expectedCustomerId = valueAsString(args.job.submit_customer_id ?? args.job.customer_id).trim();
   if (!customerId || customerId !== expectedCustomerId) {
     throw new Error(
       `Lift order ${args.orderNumber} belongs to customer ${customerId || "unknown"}, not the job's submit customer ${expectedCustomerId || "unknown"}.`
@@ -870,6 +889,7 @@ async function verifyLiftOrderAssociation(args: {
 
   const verification: LiftOrderAssociationVerification = {
     order_number: args.orderNumber,
+    external_order_id: actualExternalOrderId,
     customer_id: customerId,
     customer_name: order.customer_name,
     order_title: order.order_title,
@@ -1521,14 +1541,47 @@ export function buildOrderSnapshot(args: {
         line_number: line.line_number ?? index + 1,
         order_line_id: null
       }));
+  const proofNeedsReview = (proof: (typeof proofs)[number]) => {
+    const approvalStatus = proof.proof_approval_status?.trim().toLowerCase();
+    const proofState = "proof_state" in proof ? proof.proof_state : null;
+    return approvalStatus === "pending"
+      || approvalStatus === "awaiting approval"
+      || proofState === "pending";
+  };
+  const effectiveProofs = new Map<(typeof proofs)[number], (typeof proofs)[number]>();
+  let clearedPendingProofCount = 0;
   const lines = lineContexts.map(({ index, line, liveLine, line_number }) => {
-    const lineProofs = proofs.filter((proof) => matchLiftLineRecord(lineContexts, proof)?.line.index === index);
+    const reportedLineProofs = proofs.filter((proof) => matchLiftLineRecord(lineContexts, proof)?.line.index === index);
     const linePackages = packages.filter((pkg) => matchLiftLineRecord(lineContexts, pkg)?.line.index === index);
+    const proofWithLineStep = args.proofReport?.ok === true
+      ? reportedLineProofs.find((proof) => "line_step_number" in proof && proof.line_step_number != null)
+      : null;
+    const proofReportStepNumber = proofWithLineStep && "line_step_number" in proofWithLineStep
+      ? proofWithLineStep.line_step_number
+      : null;
+    const authoritativeStepNumber = args.orderLookup?.ok === true && liveLine
+      ? liveLine.step?.step_number
+      : proofReportStepNumber;
+    const hasClearedProofApproval = liftLineHasClearedProofApproval(authoritativeStepNumber);
+    const lineProofs = reportedLineProofs.map((proof) => {
+      if (!hasClearedProofApproval) {
+        effectiveProofs.set(proof, proof);
+        return proof;
+      }
+      if (proofNeedsReview(proof)) clearedPendingProofCount += 1;
+      const effectiveProof = {
+        ...proof,
+        proof_approval_status: "Approved",
+        proof_state: "approved" as const
+      };
+      effectiveProofs.set(proof, effectiveProof);
+      return effectiveProof;
+    });
     const latestProof = lineProofs[0];
     const latestProofState = latestProof && "proof_state" in latestProof ? latestProof.proof_state : null;
     const cancelled = orderMissingFromSuccessfulLookup
       || (args.orderLookup?.ok === true && liveLine?.cancelled === true)
-      || (args.proofReport?.ok === true && lineProofs.some((proof) => isLiftCancelledLine({
+      || (args.proofReport?.ok === true && reportedLineProofs.some((proof) => isLiftCancelledLine({
         LINE_STEP_ID: "line_step_id" in proof ? proof.line_step_id : null,
         LINE_STEP_NUMBER: "line_step_number" in proof ? proof.line_step_number : undefined
       })));
@@ -1548,13 +1601,7 @@ export function buildOrderSnapshot(args: {
       step: cancelled ? null : liveLine?.step ?? null,
       cancelled,
       proof_count: lineProofs.length,
-      proof_review_required: !cancelled && lineProofs.some((proof) => {
-        const approvalStatus = proof.proof_approval_status?.trim().toLowerCase();
-        const proofState = "proof_state" in proof ? proof.proof_state : null;
-        return approvalStatus === "pending"
-          || approvalStatus === "awaiting approval"
-          || proofState === "pending";
-      }),
+      proof_review_required: !cancelled && lineProofs.some(proofNeedsReview),
       package_count: linePackages.length,
       latest_proof_status: latestProof?.proof_approval_status ?? latestProofState ?? null,
       latest_tracking_message: linePackages[0]?.tracker_message ?? null,
@@ -1573,6 +1620,19 @@ export function buildOrderSnapshot(args: {
         step: null
       }
     : liveOrder?.status ?? null;
+  const proofSummary = proofProjection?.summary
+    ? (() => {
+        const cleared = Math.min(proofProjection.summary.pending, clearedPendingProofCount);
+        const pending = proofProjection.summary.pending - cleared;
+        return {
+          ...proofProjection.summary,
+          pending,
+          reviewed: Math.min(proofProjection.summary.total, proofProjection.summary.reviewed + cleared),
+          review_required: pending > 0
+        };
+      })()
+    : null;
+  const projectedProofs = proofs.map((proof) => effectiveProofs.get(proof) ?? proof);
 
   return {
     snapshot_id: `snapshot-${args.job.job_id}`,
@@ -1608,10 +1668,10 @@ export function buildOrderSnapshot(args: {
       cancellation_source: orderCancelled ? cancellationSource : null,
       observed_at: orderCancelled ? args.orderLookup?.fetched_at ?? refreshedAt : null
     },
-    proof_summary: proofProjection?.summary ?? null,
+    proof_summary: proofSummary,
     shipment_summary: buildOrderRollupShipmentSummary(lines, resolvedHeader.shipping),
     lines,
-    proofs,
+    proofs: projectedProofs,
     packages,
     submit_history: args.attempts,
     lookups: {

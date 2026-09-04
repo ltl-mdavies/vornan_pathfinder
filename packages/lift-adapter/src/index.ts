@@ -166,17 +166,27 @@ export type LiftSubmitMockScenario =
   | "duplicate_order_name"
   | "endpoint_error";
 
-export function buildLiftOrderLookupUrl(orderLookupUrl: string | null | undefined, orderNumber: string | null | undefined) {
+export function buildLiftOrderLookupUrl(
+  orderLookupUrl: string | null | undefined,
+  orderNumber: string | null | undefined,
+  identity?: { customerId?: string | number | null; externalId?: string | null }
+) {
   const baseUrl = orderLookupUrl?.trim();
   const trimmedOrderNumber = orderNumber?.trim();
+  const customerId = identity?.customerId == null ? "" : String(identity.customerId).trim();
+  const externalId = identity?.externalId?.trim();
 
-  if (!baseUrl || !trimmedOrderNumber) {
+  if (!baseUrl || (!trimmedOrderNumber && !externalId)) {
     return null;
   }
 
   try {
     const url = new URL(baseUrl);
-    url.searchParams.set("p0", trimmedOrderNumber);
+    if (trimmedOrderNumber) url.searchParams.set("p0", trimmedOrderNumber);
+    else url.searchParams.delete("p0");
+    if (customerId) url.searchParams.set("p1", customerId);
+    if (externalId) url.searchParams.set("p3", externalId);
+    if (trimmedOrderNumber || externalId) url.searchParams.delete("p2");
     return url.toString();
   } catch {
     return null;

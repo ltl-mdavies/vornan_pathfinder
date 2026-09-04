@@ -5,6 +5,7 @@ import { sampleCanonicalOrder } from "@pathfinder/canonical";
 import {
   applyLiftOrderDateFormat,
   applyLiftOrderOutputMappings,
+  buildLiftOrderLookupUrl,
   buildLiftSubmitRequest,
   buildLiftProofReportUrl,
   buildLiftShippingReportUrl,
@@ -13,6 +14,19 @@ import {
   validateLiftPayload,
   type LiftOrderPayload
 } from "../src/index.ts";
+
+test("builds an AS360Orders lookup with customer and Ext_ID identity parameters", () => {
+  const built = buildLiftOrderLookupUrl(
+    "https://lift.example/AS360Orders/N?offset=0&p2=30",
+    "A0230112",
+    { customerId: "284619", externalId: "PFMTLOIWSFEFAF" }
+  );
+  const url = new URL(built!);
+  assert.equal(url.searchParams.get("p0"), "A0230112");
+  assert.equal(url.searchParams.get("p1"), "284619");
+  assert.equal(url.searchParams.has("p2"), false);
+  assert.equal(url.searchParams.get("p3"), "PFMTLOIWSFEFAF");
+});
 
 test("formats Lift order dates with four-digit years at the output boundary", () => {
   const source = generateLiftPayload({

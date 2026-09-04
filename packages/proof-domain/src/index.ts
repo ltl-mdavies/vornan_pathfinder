@@ -1,4 +1,5 @@
 import {
+  liftLineHasClearedProofApproval,
   matchLiftLineRecord,
   type LiftLineIdentity,
   type OrderRollupProof,
@@ -789,9 +790,13 @@ function taskState(line: ProofLine | null, version: ProofVersion | null, policy:
   if (line?.cancelled) {
     return "cancelled" as const;
   }
-  // Lift's proof status is authoritative whenever it is present. A line can have
-  // reached a production step while its proof record still carries the customer
-  // approval outcome that the Proof experience must display.
+  // The current AS360Orders line step is newer and more authoritative than a
+  // proof-report status. Once Lift reaches 7.05 (Approved), or any later step,
+  // an attached proof is reviewed and must leave the actionable queue. A line
+  // without a proof remains a non-actionable production reference.
+  if (line && liftLineHasClearedProofApproval(line.step_number)) {
+    return version ? "approved" as const : "reference" as const;
+  }
   if (version) {
     if (/APPROV/i.test(version.approval_status ?? "")) {
       return "approved" as const;
@@ -1763,7 +1768,12 @@ export function toOrderRollupProofProjection(order: ProofOrder): ProofOrderRollu
         order_line_id: task.order_line_id,
         line_number: task.line_number,
         proof_filename: version.filename,
-        proof_approval_status: version.approval_status ?? rollupProofStateLabel(task.state),
+        proof_approval_status:
+          task.state === "approved"
+            ? "Approved"
+            : task.state === "reference"
+              ? rollupProofStateLabel(task.state)
+              : version.approval_status ?? rollupProofStateLabel(task.state),
         proof_link_low: version.preview_url,
         proof_link_high: version.download_url,
         creation_date: version.created_at,

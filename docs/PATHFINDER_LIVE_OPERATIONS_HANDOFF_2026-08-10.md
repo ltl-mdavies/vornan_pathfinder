@@ -26,6 +26,14 @@ Read-only AWS inspection after the 2026-08-11 operations release confirmed:
 
 The saved production Wrike Import Method contains both GPA Campaigns (`34000804`) and IBA Campaigns (`49405755`). Its `Order Form` hardware section (`order-form-hardware-13`, quantity column `Qty. Needed`) stores the scoped text-quantity rule `TBD` → `0.5`.
 
+### Repository-ready Lift proof authority and Ext_ID lookup update (not yet deployed)
+
+Lift now returns `EXT_ID` from AS360Orders and accepts `p3=<EXT_ID>` independently of `p0`; customer-bound reads continue to send `p1=<CUSTOMER_ID>`. Read-only verification against order `A0230112`, customer `284619`, and Ext_ID `PFMTLOIWSFEFAF` returned the same six-line order by both `p0+p1` and `p1+p3`. Pathfinder's exact association lookup now sends `p0+p1+p3`, requires Lift to return the matching Ext_ID, and uncertain-submit reconciliation no longer substitutes Pathfinder's expected Ext_ID when the provider omits it.
+
+Lift's current AS360Orders line step is also the authoritative customer proof boundary. A line at exact step `7.05 Approved` or any later numeric step is non-actionable even if an older AS360ProofReport row still says pending. Attached images project as approved and move out of Proof's Open queue; later-step lines without an attachment project as neutral references. Status uses the same derived rule for line badges and its proof-review summary, so hardware images at `15.22 Pull from Inventory` do not display **Needs approval**. Lines below `7.05`, including `7.02 Approve Art`, remain pending when the proof report says pending. This changes only read-derived Pathfinder/Status/Proof state; it does not write an approval back to Lift.
+
+The regression fixture covers the reported `A0230112` split between printable lines and hardware lines, the exact `7.05` boundary, stale cached Status proof state, independent `p3` queries, mismatched Ext_ID responses, and missing Ext_ID fail-closed reconciliation. Deployment has not been performed from this checkpoint.
+
 ### Pending Proof authority workspace-persistence hardening
 
 Proof customer-default and order-override saves must use the selected

@@ -122,9 +122,8 @@ test("strictly verifies the exact C316981 incident order and Lift's contract-tit
   assert.match(verified.line_fingerprint, /^[a-f0-9]{64}$/);
 });
 
-test("accepts the live AS360Orders shape only when its visible identities exactly bind the attempt", () => {
+test("requires Lift Ext_ID while retaining company and contract compatibility fallbacks", () => {
   const payload = providerOrder();
-  delete (payload.rowset[0] as Record<string, unknown>).EXT_ID;
   delete (payload.rowset[0] as Record<string, unknown>).COMPANY_ID;
   delete (payload.rowset[0] as Record<string, unknown>).CONTRACT_NUMBER;
   const verified = verifyScheduledUncertainProviderOrder({
@@ -217,6 +216,7 @@ test("supports the exact C317014 six-line fixture without weakening its identity
 
 test("fails closed for Ext_ID, customer, contract, line, missing, and ambiguous matches", () => {
   const cases: Array<[string, (payload: ReturnType<typeof providerOrder>) => void]> = [
+    ["external_id_missing", (payload) => { delete (payload.rowset[0] as Record<string, unknown>).EXT_ID; }],
     ["external_id_mismatch", (payload) => { payload.rowset[0]!.EXT_ID = "OTHER"; }],
     ["customer_mismatch", (payload) => { payload.rowset[0]!.CUSTOMER_ID = "1249"; }],
     ["order_title_mismatch", (payload) => { payload.rowset[0]!.ORDER_TITLE = "OTHER"; }],
