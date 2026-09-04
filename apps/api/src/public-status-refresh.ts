@@ -8,6 +8,17 @@ import type { PublicOrderStatusSnapshot } from "./store.js";
 
 export type PublicStatusRefreshState = "live" | "degraded";
 
+export function publicStatusProofAssetCandidates(
+  proof: { proof_link_low?: string | null; proof_link_high?: string | null },
+  assetKind: unknown
+) {
+  const low = typeof proof.proof_link_low === "string" ? proof.proof_link_low : null;
+  const high = typeof proof.proof_link_high === "string" ? proof.proof_link_high : null;
+  return (assetKind === "thumbnail" ? [low, high] : [high, low]).filter(
+    (candidate): candidate is string => Boolean(candidate)
+  );
+}
+
 export interface PublicStatusRefreshMetadata {
   status: PublicStatusRefreshState;
   checked_at: string;

@@ -69,6 +69,7 @@ import {
   type SourceConnectorProvider
 } from "@pathfinder/source-connections";
 import { projectLastMeaningfulActivity, projectLiftCreation } from "./job-operational-timestamps.js";
+import { ExpiringPromiseCache } from "./expiring-promise-cache.js";
 import {
   appendOrderNameRetrySuffix,
   applyOrderNameResolution,
@@ -298,6 +299,7 @@ import {
   buildPublicStatusSourceStatus,
   customerSafeIssuesFromSourceStatus,
   mergePublicStatusRefresh,
+  publicStatusProofAssetCandidates,
   summarizePublicStatusRefresh,
   type PublicStatusSourceOutcome,
   type PublicStatusRefreshState
@@ -2158,6 +2160,7 @@ async function loadBoundedInternalOrderSnapshot(
 }
 
 const publicStatusPollAfterSeconds = 60;
+const publicProofAssetReportCache = new ExpiringPromiseCache(15_000);
 
 function emitPublicStatusRefreshTelemetry(args: {
   binding: { order_key: string; customer_id: string; job_id: string; order_number: string };
@@ -4167,17 +4170,22 @@ app.get("/public/status/:token/proof-asset", async (req, res) => {
       return;
     }
 
-    const proofReport = await fetchLiftProofReport({
-      target,
-      route,
-      orderNumber: binding.order_number
-    });
+    const proofReport = await publicProofAssetReportCache.read(
+      `${target.target_id}:${route.output_route_id}:${binding.order_number}`,
+      () => fetchLiftProofReport({
+        target,
+        route,
+        orderNumber: binding.order_number
+      })
+    );
     const proof = proofReport.ok
       ? proofReport.proofs.find((candidate) =>
           String(candidate.line_number ?? "") === lineNumber && candidate.proof_filename === filename
         )
       : null;
-    const assetUrl = allowedLiftProofAssetUrl(proof?.proof_link_high ?? proof?.proof_link_low);
+    const assetUrl = publicStatusProofAssetCandidates(proof ?? {}, req.query.asset_kind)
+      .map(allowedLiftProofAssetUrl)
+      .find((candidate): candidate is URL => candidate != null) ?? null;
     if (!assetUrl) {
       res.status(404).json({ error: "Current high-resolution proof is unavailable." });
       return;

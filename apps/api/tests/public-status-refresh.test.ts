@@ -5,6 +5,7 @@ import {
   buildPublicStatusSourceStatus,
   customerSafeIssueForSource,
   mergePublicStatusRefresh,
+  publicStatusProofAssetCandidates,
   summarizePublicStatusRefresh
 } from "../src/public-status-refresh.js";
 
@@ -80,6 +81,21 @@ function snapshot(overrides: Partial<PublicOrderStatusSnapshot> = {}): PublicOrd
     ...overrides
   };
 }
+
+test("selects the thumbnail before the original only for initial proof image requests", () => {
+  const proof = {
+    proof_link_low: "https://proof.example/thumb.jpg",
+    proof_link_high: "https://proof.example/original.pdf"
+  };
+  assert.deepEqual(
+    publicStatusProofAssetCandidates(proof, "thumbnail"),
+    [proof.proof_link_low, proof.proof_link_high]
+  );
+  assert.deepEqual(
+    publicStatusProofAssetCandidates(proof, "pdf"),
+    [proof.proof_link_high, proof.proof_link_low]
+  );
+});
 
 test("advances successful order and proof data while retaining packages after a transient package failure", () => {
   const previous = snapshot();
