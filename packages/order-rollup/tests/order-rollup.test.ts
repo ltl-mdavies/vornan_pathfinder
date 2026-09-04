@@ -6,6 +6,7 @@ import {
   isExplicitLiftOrderAbsence,
   isLiftCancelledLine,
   liftLineHasClearedProofApproval,
+  liftLineProofApprovalDisposition,
   matchLiftLineRecord,
   normalizeLiftOrderLookupPayload,
   resolveLiftStep,
@@ -61,6 +62,19 @@ test("uses Lift 7.05 as the authoritative proof-approval boundary", () => {
   assert.equal(liftLineHasClearedProofApproval(15.22), true);
   assert.equal(liftLineHasClearedProofApproval(null), false);
   assert.equal(liftLineHasClearedProofApproval("not-a-step"), false);
+});
+
+test("interprets the latest Lift proof step in both forward and reverse directions", () => {
+  assert.equal(liftLineProofApprovalDisposition(6), "waiting");
+  assert.equal(liftLineProofApprovalDisposition("7.01"), "waiting");
+  assert.equal(liftLineProofApprovalDisposition(7), "pending");
+  assert.equal(liftLineProofApprovalDisposition(7.02), "pending");
+  assert.equal(liftLineProofApprovalDisposition(7.049), "pending");
+  assert.equal(liftLineProofApprovalDisposition(7.05), "approved");
+  assert.equal(liftLineProofApprovalDisposition(15.22), "approved");
+  assert.equal(liftLineProofApprovalDisposition(4), null);
+  assert.equal(liftLineProofApprovalDisposition(null), null);
+  assert.equal(liftLineProofApprovalDisposition("not-a-step"), null);
 });
 
 test("normalizes authoritative header status and per-line Lift steps", () => {

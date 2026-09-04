@@ -933,6 +933,60 @@ test("includes exact Lift step 7.05 in the authoritative approved boundary", () 
     .every((task) => task.state === "approved" && !task.actionable));
 });
 
+test("reopens proof review when a Lift operator moves an approved line backward", () => {
+  const orderPayloadAt = (step: number) => ({
+    rowset: [{
+      ORDER_NUMBER: "A0230112",
+      CUSTOMER_ID: 284619,
+      LINES: [{
+        LINE_NUMBER: 1,
+        ORDER_LINE_ID: 10027013,
+        PRODUCT_NAME: "Pump topper (Clip)",
+        QUANTITY: 40,
+        LINE_STEP_NUMBER: step
+      }]
+    }]
+  });
+  const staleApprovedProof = {
+    rowset: [{
+      ORDER_NUMBER: "A0230112",
+      ORDER_LINE_ID: 10027013,
+      LINE_NUMBER: 1,
+      ATTACHMENT_ID: 501,
+      PROOF_FILENAME: "print-proof.pdf",
+      PROOF_LINK_HIGH: "https://files.example/print-proof.pdf",
+      PROOF_APPROVAL_STATUS: "APPROVED"
+    }]
+  };
+  const approved = normalizeProofOrder({
+    order_number: "A0230112",
+    order_payload: orderPayloadAt(15.22),
+    proof_payloads: [staleApprovedProof],
+    synced_at: "2026-09-04T13:00:00.000Z"
+  });
+  const pendingAgain = normalizeProofOrder({
+    order_number: "A0230112",
+    order_payload: orderPayloadAt(7.02),
+    proof_payloads: [staleApprovedProof],
+    previous: approved,
+    synced_at: "2026-09-04T13:01:00.000Z"
+  });
+  const waitingAgain = normalizeProofOrder({
+    order_number: "A0230112",
+    order_payload: orderPayloadAt(6),
+    proof_payloads: [staleApprovedProof],
+    previous: pendingAgain,
+    synced_at: "2026-09-04T13:02:00.000Z"
+  });
+
+  assert.equal(approved.tasks[0]?.state, "approved");
+  assert.equal(pendingAgain.tasks[0]?.state, "pending");
+  assert.equal(pendingAgain.tasks[0]?.actionable, true);
+  assert.equal(pendingAgain.tasks[0]?.version, approved.tasks[0]!.version + 1);
+  assert.equal(waitingAgain.tasks[0]?.state, "waiting");
+  assert.equal(waitingAgain.tasks[0]?.actionable, false);
+});
+
 test("normalizes the redacted live sibling fixture as four distinct pending attachments", async () => {
   const captured = await fixture("lift-siblings-A0221132.redacted.json");
   const liftOrder = normalizeLiftOrderLookupPayload(captured.order_payload);
