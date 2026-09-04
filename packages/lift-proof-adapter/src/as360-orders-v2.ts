@@ -21,6 +21,7 @@ export interface CustomerOrderSummary {
   source: typeof AS360_ORDERS_V2;
   source_order_reference: string;
   order_number: string;
+  external_id: string | null;
   customer_id: string;
   customer_name: string | null;
   order_title: string | null;
@@ -41,6 +42,7 @@ export interface As360OrdersV2Result {
   customer_id: string;
   query: {
     order_number: string | null;
+    external_id: string | null;
     days_back: As360OrderHistoryDays | null;
   };
   total_count: number;
@@ -88,10 +90,27 @@ function exactDaysBack(value: number | null | undefined) {
   return value as As360OrderHistoryDays;
 }
 
+function exactExternalId(value: string | null | undefined) {
+  if (value == null || !value.trim()) return null;
+  const normalized = value.trim().toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9._:-]{0,127}$/.test(normalized)) {
+    throw new As360OrdersV2Error("invalid_request", "Lift Ext_ID has an unsupported format.");
+  }
+  return normalized;
+}
+
 function optionalString(value: unknown) {
   if (value === null || value === undefined) return null;
   const normalized = String(value).trim();
   return normalized || null;
+}
+
+function providerExternalId(value: unknown) {
+  const normalized = optionalString(value)?.toUpperCase() ?? null;
+  if (normalized && !/^[A-Z0-9][A-Z0-9._:-]{0,127}$/.test(normalized)) {
+    throw new As360OrdersV2Error("invalid_response", "Lift returned an invalid Ext_ID.");
+  }
+  return normalized;
 }
 
 function optionalNumber(value: unknown) {
@@ -170,6 +189,7 @@ function normalizeOrder(value: unknown, verifiedCustomerId: string): CustomerOrd
     source: AS360_ORDERS_V2,
     source_order_reference: orderNumber,
     order_number: orderNumber,
+    external_id: providerExternalId(row.EXT_ID ?? row.EXTERNAL_ORDER_ID ?? row.ORDER_EXT_ID),
     customer_id: customerId,
     customer_name: optionalString(row.CUSTOMER_NAME),
     order_title: optionalString(row.ORDER_TITLE),
@@ -191,6 +211,7 @@ export function buildAs360OrdersV2Url(
   input: {
     verified_customer_id: string;
     order_number?: string | null;
+    external_id?: string | null;
     days_back?: number | null;
   }
 ) {
@@ -204,18 +225,30 @@ export function buildAs360OrdersV2Url(
   const orderNumber = input.order_number?.trim()
     ? normalizeLiftOrderNumber(input.order_number)
     : null;
+  const externalId = exactExternalId(input.external_id);
   const daysBack = exactDaysBack(input.days_back);
-  if (!orderNumber && daysBack === null) {
-    throw new As360OrdersV2Error("invalid_request", "Order history days are required when no order number is supplied.");
+  if (!orderNumber && !externalId && daysBack === null) {
+    throw new As360OrdersV2Error(
+      "invalid_request",
+      "An order number, Lift Ext_ID, or order history day range is required."
+    );
   }
   url.searchParams.set("offset", "0");
   url.searchParams.set("p1", customerId);
   url.searchParams.delete("rows");
   if (orderNumber) {
     url.searchParams.set("p0", orderNumber);
-    url.searchParams.delete("p2");
   } else {
     url.searchParams.delete("p0");
+  }
+  if (externalId) {
+    url.searchParams.set("p3", externalId);
+  } else {
+    url.searchParams.delete("p3");
+  }
+  if (orderNumber || externalId) {
+    url.searchParams.delete("p2");
+  } else {
     url.searchParams.set("p2", String(daysBack));
   }
   return url.toString();
@@ -226,6 +259,7 @@ export async function readAs360OrdersV2(
   input: {
     verified_customer_id: string;
     order_number?: string | null;
+    external_id?: string | null;
     days_back?: number | null;
     result_limit?: number;
     timeout_ms?: number;
@@ -236,10 +270,12 @@ export async function readAs360OrdersV2(
   const orderNumber = input.order_number?.trim()
     ? normalizeLiftOrderNumber(input.order_number)
     : null;
-  const daysBack = orderNumber ? null : exactDaysBack(input.days_back);
+  const externalId = exactExternalId(input.external_id);
+  const daysBack = orderNumber || externalId ? null : exactDaysBack(input.days_back);
   const url = buildAs360OrdersV2Url(baseUrl, {
     verified_customer_id: customerId,
     order_number: orderNumber,
+    external_id: externalId,
     days_back: daysBack
   });
   const resultLimit = Math.max(1, Math.min(100, Math.floor(input.result_limit ?? 50)));
@@ -274,11 +310,14 @@ export async function readAs360OrdersV2(
   if (orderNumber && orders.some((order) => order.order_number !== orderNumber)) {
     throw new As360OrdersV2Error("invalid_response", "Lift returned an unexpected order for the exact-order query.");
   }
+  if (externalId && orders.some((order) => order.external_id?.trim().toUpperCase() !== externalId)) {
+    throw new As360OrdersV2Error("invalid_response", "Lift returned an unexpected order for the exact Ext_ID query.");
+  }
   const limited = orders.slice(0, resultLimit);
   return {
     adapter_version: AS360_ORDERS_V2,
     customer_id: customerId,
-    query: { order_number: orderNumber, days_back: daysBack },
+    query: { order_number: orderNumber, external_id: externalId, days_back: daysBack },
     total_count: orders.length,
     returned_count: limited.length,
     truncated: limited.length < orders.length,

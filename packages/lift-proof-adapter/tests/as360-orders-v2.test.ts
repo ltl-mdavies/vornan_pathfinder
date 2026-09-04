@@ -35,6 +35,18 @@ test("builds a bounded customer-history URL from the supported day presets", () 
   );
 });
 
+test("builds a tenant-bound Ext_ID query independently of the order number", () => {
+  const url = new URL(buildAs360OrdersV2Url(baseUrl, {
+    verified_customer_id: "284619",
+    external_id: "pfmtloiwsfefaf",
+    days_back: 30
+  }));
+  assert.equal(url.searchParams.has("p0"), false);
+  assert.equal(url.searchParams.get("p1"), "284619");
+  assert.equal(url.searchParams.has("p2"), false);
+  assert.equal(url.searchParams.get("p3"), "PFMTLOIWSFEFAF");
+});
+
 test("normalizes only the safe source-neutral customer order projection", async () => {
   let fetchedUrl = "";
   const result = await readAs360OrdersV2(baseUrl, {
@@ -45,6 +57,7 @@ test("normalizes only the safe source-neutral customer order projection", async 
       return new Response(JSON.stringify({
         rowset: [{
           ORDER_NUMBER: "A0229276",
+          EXT_ID: "PFMRTNIZAX18FE",
           CUSTOMER_ID: 1249,
           ORDER_TITLE: "Proof QA clone",
           PO_NUMBER: 10002,
@@ -81,6 +94,7 @@ test("normalizes only the safe source-neutral customer order projection", async 
     source: "as360_orders_v2",
     source_order_reference: "A0229276",
     order_number: "A0229276",
+    external_id: "PFMRTNIZAX18FE",
     customer_id: "1249",
     customer_name: "LTL Demo",
     order_title: "Proof QA clone",
@@ -108,6 +122,28 @@ test("normalizes only the safe source-neutral customer order projection", async 
   });
   assert.equal("INTERNAL_URL" in result.orders[0], false);
   assert.equal("DOWNLOAD_URL" in result.orders[0].lines[0]!, false);
+});
+
+test("validates every Ext_ID result against the exact requested identity", async () => {
+  const common = {
+    verified_customer_id: "284619",
+    external_id: "PFMTLOIWSFEFAF",
+    fetcher: async () => new Response(JSON.stringify({
+      rowset: [{
+        ORDER_NUMBER: "A0230112",
+        EXT_ID: "OTHER",
+        CUSTOMER_ID: 284619,
+        CREATION_DATE: "2026-09-03",
+        LINES: []
+      }]
+    }), { status: 200 })
+  };
+  await assert.rejects(
+    readAs360OrdersV2(baseUrl, common),
+    (error: unknown) => error instanceof As360OrdersV2Error
+      && error.code === "invalid_response"
+      && /Ext_ID/.test(error.message)
+  );
 });
 
 test("treats a null rowset as an empty cross-customer exact-order result", async () => {

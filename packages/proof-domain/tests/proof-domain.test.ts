@@ -842,6 +842,97 @@ test("uses the neutral production fallback only when Lift provides no proof stat
   assert.equal(order.tasks[0]?.actionable, false);
 });
 
+test("treats Lift line step 7.05 and later as approved even when proof rows remain pending", () => {
+  const order = normalizeProofOrder({
+    order_number: "A0230112",
+    order_payload: {
+      rowset: [{
+        ORDER_NUMBER: "A0230112",
+        CUSTOMER_ID: 284619,
+        ORDER_STATUS: "Ready to Print",
+        LINES: [
+          {
+            LINE_NUMBER: 1,
+            ORDER_LINE_ID: 10027013,
+            PRODUCT_NAME: "Pump topper (Clip)",
+            QUANTITY: 40,
+            LINE_STEP_NUMBER: 7.02
+          },
+          {
+            LINE_NUMBER: 5,
+            ORDER_LINE_ID: 10027017,
+            PRODUCT_NAME: "AOM397-Hardware-20x12 / Clip Frames",
+            QUANTITY: 12,
+            LINE_STEP_NUMBER: 15.22
+          },
+          {
+            LINE_NUMBER: 6,
+            ORDER_LINE_ID: 10027018,
+            PRODUCT_NAME: "AOM400-Hardware-Risers",
+            QUANTITY: 6,
+            LINE_STEP_NUMBER: 15.22
+          }
+        ]
+      }]
+    },
+    proof_payloads: [{
+      rowset: [
+        {
+          ORDER_NUMBER: "A0230112",
+          ORDER_LINE_ID: 10027013,
+          LINE_NUMBER: 1,
+          ATTACHMENT_ID: 501,
+          PROOF_FILENAME: "print-proof.pdf",
+          PROOF_LINK_HIGH: "https://files.example/print-proof.pdf",
+          PROOF_APPROVAL_STATUS: "PENDING"
+        },
+        {
+          ORDER_NUMBER: "A0230112",
+          ORDER_LINE_ID: 10027017,
+          LINE_NUMBER: 5,
+          ATTACHMENT_ID: 505,
+          PROOF_FILENAME: "hardware-image.jpg",
+          PROOF_LINK_HIGH: "https://files.example/hardware-image.jpg",
+          PROOF_APPROVAL_STATUS: "PENDING"
+        }
+      ]
+    }],
+    synced_at: syncedAt
+  });
+
+  assert.equal(order.tasks.find((task) => task.line_number === "1")?.state, "pending");
+  assert.equal(order.tasks.find((task) => task.line_number === "1")?.actionable, true);
+  assert.equal(order.tasks.find((task) => task.line_number === "5")?.state, "approved");
+  assert.equal(order.tasks.find((task) => task.line_number === "5")?.actionable, false);
+  assert.equal(order.tasks.find((task) => task.line_number === "6")?.state, "reference");
+  assert.deepEqual(toOrderRollupProofProjection(order).proofs.map((proof) => ({
+    line: proof.line_number,
+    state: proof.proof_state,
+    status: proof.proof_approval_status
+  })), [
+    { line: "1", state: "pending", status: "PENDING" },
+    { line: "5", state: "approved", status: "Approved" }
+  ]);
+});
+
+test("includes exact Lift step 7.05 in the authoritative approved boundary", () => {
+  const approvedOrderPayload = {
+    rowset: orderPayload.rowset.map((row) => row.ORDER_LINE_ID === 9301338
+      ? { ...row, LINE_STEP_NUMBER: 7.05 }
+      : row)
+  };
+  const order = normalizeProofOrder({
+    order_number: "A0221132",
+    order_payload: approvedOrderPayload,
+    proof_payloads: [proofPayload],
+    synced_at: syncedAt
+  });
+
+  assert.ok(order.tasks
+    .filter((task) => task.order_line_id === "9301338")
+    .every((task) => task.state === "approved" && !task.actionable));
+});
+
 test("normalizes the redacted live sibling fixture as four distinct pending attachments", async () => {
   const captured = await fixture("lift-siblings-A0221132.redacted.json");
   const liftOrder = normalizeLiftOrderLookupPayload(captured.order_payload);

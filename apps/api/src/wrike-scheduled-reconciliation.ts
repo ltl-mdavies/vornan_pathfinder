@@ -236,7 +236,8 @@ export function verifyScheduledUncertainProviderOrder(args: {
   const actualPo = normalizedText(firstValue(header, ["PO_NUMBER", "PO_NO"]));
   const actualContract = normalizedText(firstValue(header, ["CONTRACT_NUMBER", "CONTRACT_NO"]));
   const checks: Array<[boolean, string, string]> = [
-    [!actualExternalId || actualExternalId === normalizedText(args.attempt.ext_id), "external_id_mismatch", "Lift Ext_ID does not match the uncertain submit attempt."],
+    [Boolean(actualExternalId), "external_id_missing", "Lift did not return the Ext_ID required to reconcile this uncertain submit attempt."],
+    [actualExternalId === normalizedText(args.attempt.ext_id), "external_id_mismatch", "Lift Ext_ID does not match the uncertain submit attempt."],
     [actualCompanyId === normalizedText(args.attempt.company_id), "company_mismatch", "Lift company does not match the uncertain submit attempt."],
     [normalizedText(firstValue(header, ["CUSTOMER_ID"])) === normalizedText(args.job.submit_customer_id), "customer_mismatch", "Lift customer does not match the scheduled submit customer."],
     [
@@ -261,10 +262,7 @@ export function verifyScheduledUncertainProviderOrder(args: {
   }
   return {
     order_number: requestedOrder,
-    // AS360Orders currently omits Ext_ID. The exact uncertain attempt remains
-    // the authoritative Ext_ID binding when every provider-visible identity
-    // above matches; a provider-supplied Ext_ID still must match exactly.
-    external_order_id: actualExternalId || normalizedText(args.attempt.ext_id),
+    external_order_id: actualExternalId,
     company_id: actualCompanyId,
     customer_id: normalizedText(firstValue(header, ["CUSTOMER_ID"])),
     customer_name: safeText(firstValue(header, ["CUSTOMER_NAME"])) || null,

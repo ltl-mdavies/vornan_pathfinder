@@ -107,7 +107,7 @@ Check scheduled submit is enabled, live-customer profile is selected, certificat
 
 ### Submitted but no Lift order number
 
-Treat as ambiguous. Search Lift by Ext_ID and reconcile before any retry. If found, associate it through the audited manual Lift-order override. If not found, preserve evidence and escalate.
+Treat as ambiguous. Search AS360Orders with the job's exact Ext_ID (`p3`) and verified customer ID (`p1`) before any retry; `p0` is optional for this lookup. Require Lift to return the matching Ext_ID, customer, and order identity. If found, associate it through the audited manual Lift-order override. If not found, preserve evidence and escalate.
 
 ### Lift order exists but status/writeback is missing
 

@@ -5,6 +5,7 @@ import {
   buildOrderRollupShipmentSummary,
   isExplicitLiftOrderAbsence,
   isLiftCancelledLine,
+  liftLineHasClearedProofApproval,
   matchLiftLineRecord,
   normalizeLiftOrderLookupPayload,
   resolveLiftStep,
@@ -53,10 +54,20 @@ test("resolves supplied Standard Graphics Lift steps", () => {
   assert.equal(stepProgressIndex(resolveLiftStep(1043, "15.07")), 6);
 });
 
+test("uses Lift 7.05 as the authoritative proof-approval boundary", () => {
+  assert.equal(liftLineHasClearedProofApproval(7.02), false);
+  assert.equal(liftLineHasClearedProofApproval("7.05"), true);
+  assert.equal(liftLineHasClearedProofApproval(10), true);
+  assert.equal(liftLineHasClearedProofApproval(15.22), true);
+  assert.equal(liftLineHasClearedProofApproval(null), false);
+  assert.equal(liftLineHasClearedProofApproval("not-a-step"), false);
+});
+
 test("normalizes authoritative header status and per-line Lift steps", () => {
   const order = normalizeLiftOrderLookupPayload({
     rowset: [{
       ORDER_NUMBER: "A0226692",
+      EXT_ID: "PFMRTNIZAX18FE",
       CUSTOMER_ID: 1249,
       CUSTOMER_NAME: "LTL Demo",
       ORDER_TITLE: "Momentara Web Order",
@@ -90,6 +101,7 @@ test("normalizes authoritative header status and per-line Lift steps", () => {
   });
 
   assert.equal(order?.status?.label, "Pending Art");
+  assert.equal(order?.external_order_id, "PFMRTNIZAX18FE");
   assert.equal(order?.po_number, "PO-LIFT-4471");
   assert.equal(order?.contract_number, "CONTRACT-LIFT-12");
   assert.equal(order?.requested_ship_date, "2026-07-23");

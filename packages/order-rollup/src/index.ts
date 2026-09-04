@@ -253,6 +253,7 @@ export function matchLiftLineRecord<T extends LiftLineIdentity>(
 
 export interface NormalizedLiftOrder {
   order_number: string | null;
+  external_order_id: string | null;
   customer_id: string | number | null;
   customer_name: string | null;
   order_title: string | null;
@@ -341,6 +342,7 @@ export function normalizeLiftOrderLookupPayload(payload: unknown): NormalizedLif
 
   return {
     order_number: value(header, "ORDER_NUMBER") == null ? null : String(value(header, "ORDER_NUMBER")),
+    external_order_id: firstText(header, "EXT_ID", "EXTERNAL_ORDER_ID", "ORDER_EXT_ID"),
     customer_id: value(header, "CUSTOMER_ID"),
     customer_name: value(header, "CUSTOMER_NAME") == null ? null : String(value(header, "CUSTOMER_NAME")),
     order_title: value(header, "ORDER_TITLE") == null ? null : String(value(header, "ORDER_TITLE")),
@@ -381,6 +383,19 @@ export function normalizeLiftOrderLookupPayload(payload: unknown): NormalizedLif
       }];
     })
   };
+}
+
+/**
+ * Lift step 7.05 is the authoritative art-approved boundary. Lines at this
+ * step or any later production step no longer require customer proof action,
+ * even when an older proof-report row still says pending.
+ */
+export const LIFT_ART_APPROVED_STEP_NUMBER = 7.05;
+
+export function liftLineHasClearedProofApproval(stepNumber: unknown) {
+  if (stepNumber === null || stepNumber === undefined || stepNumber === "") return false;
+  const parsed = Number(stepNumber);
+  return Number.isFinite(parsed) && parsed >= LIFT_ART_APPROVED_STEP_NUMBER;
 }
 
 /** Lift's documented, authoritative cancelled-line signature. */
