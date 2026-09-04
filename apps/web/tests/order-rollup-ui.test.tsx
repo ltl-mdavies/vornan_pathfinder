@@ -258,12 +258,12 @@ test("renders safe transient Proof assets only when a token-authorized public ca
   );
 
   assert.equal((markup.match(/<img /g) ?? []).length, 5);
-  assert.equal((markup.match(/aria-label="Open high-resolution proof /g) ?? []).length, 4);
+  assert.equal((markup.match(/aria-label="Open high-resolution creative /g) ?? []).length, 4);
   assert.doesNotMatch(markup, /Open full resolution/);
   assert.doesNotMatch(markup, /javascript:alert/);
 });
 
-test("uses a concise public order workspace with an explicit requested-ship label and proof thumbnail before line status", () => {
+test("uses a concise public order workspace with creative labels and always-visible shipments", () => {
   const snapshot = realSiblingSnapshot();
   snapshot.proof_visibility = "status_only";
   const markup = renderToStaticMarkup(
@@ -271,8 +271,13 @@ test("uses a concise public order workspace with an explicit requested-ship labe
   );
 
   assert.match(markup, /At a glance/);
-  assert.match(markup, /<dt>Order lines<\/dt><dd>1<\/dd>/);
   assert.match(markup, /<dt>Requested ship<\/dt><dd>Jul 23, 2026<\/dd>/);
+  assert.match(markup, /<dt>Creatives<\/dt><dd>4<\/dd>/);
+  assert.match(markup, /aria-label="Shipments"/);
+  assert.doesNotMatch(markup, /View shipment destinations and tracking/);
+  assert.doesNotMatch(markup, /Tracking is available/);
+  assert.match(markup, /Shipment details update automatically/);
+  assert.match(markup, />1ZTEST001<svg/);
   assert.match(markup, /<span>Open all<\/span>/);
   assert.doesNotMatch(markup, /class="order-rollup__line-card order-rollup__line-card--public" open=/);
   assert.doesNotMatch(markup, /Your order is currently at/);
@@ -282,14 +287,14 @@ test("uses a concise public order workspace with an explicit requested-ship labe
   assert.doesNotMatch(markup, /Order Context/);
   assert.doesNotMatch(markup, /Lift order status/);
   const identity = markup.indexOf("Redacted product");
-  const thumbnail = markup.indexOf("Latest proof:");
+  const thumbnail = markup.indexOf("Latest creative:");
   const currentStep = markup.indexOf("Current step");
-  const status = markup.indexOf("PENDING");
+  const status = markup.indexOf("In transit", currentStep);
   assert.equal(identity >= 0 && identity < thumbnail, true);
   assert.equal(thumbnail < currentStep, true);
   assert.equal(currentStep < status, true);
-  assert.match(markup, /Needs approval/);
-  assert.match(markup, /approval required/);
+  assert.match(markup, /Proof needs approval/);
+  assert.match(markup, /proof approval required/);
 });
 
 test("keeps a line-level proof approval notice when Proof details are hidden", () => {
@@ -303,9 +308,130 @@ test("keeps a line-level proof approval notice when Proof details are hidden", (
     <OrderRollup snapshot={snapshot} audience="public" />
   );
 
-  assert.match(markup, /Needs approval/);
-  assert.match(markup, /Proof preview not posted; approval required/);
+  assert.match(markup, /Proof needs approval/);
+  assert.match(markup, /Creative preview not posted; proof approval required/);
   assert.doesNotMatch(markup, /<strong>Proofs<\/strong>/);
+});
+
+test("keeps multiple public shipment destinations in one divided always-open panel", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.proof_visibility = "status_only";
+  snapshot.shipment_summary = {
+    source: "package_details",
+    state: "tracking_available",
+    package_count: 2,
+    tracking_count: 2,
+    methods: ["FEDEX_2_DAY_AM"],
+    locations: ["Cincinnati Hub", "Brooklyn Hub"],
+    status_messages: ["In transit"],
+    destinations: [
+      {
+        destination: snapshot.header.shipping ?? null,
+        location_name: "Cincinnati Hub",
+        package_count: 1,
+        methods: ["FEDEX_2_DAY_AM"],
+        status_messages: ["In transit"],
+        line_numbers: [1],
+        tracking: [{
+          tracking_number: "383510615260",
+          ship_method: "FEDEX_2_DAY_AM",
+          tracker_message: "Delivered (09/01/2026 11:28 AM) in Cincinnati, OH, 45202",
+          box_numbers: ["1"],
+          package_types: ["Custom Package"],
+          line_numbers: [1]
+        }]
+      },
+      {
+        destination: {
+          company: "Second destination",
+          address_1: "2413 Flatbush Ave",
+          city: "Brooklyn",
+          state: "NY",
+          postal_code: "11234"
+        },
+        location_name: "Brooklyn Hub",
+        package_count: 1,
+        methods: ["FEDEX_GROUND"],
+        status_messages: ["Departed FedEx Location"],
+        line_numbers: [1],
+        tracking: [{
+          tracking_number: "383510614789",
+          ship_method: "FEDEX_GROUND",
+          tracker_message: "Departed FedEx Location",
+          box_numbers: ["2"],
+          package_types: ["Custom Package"],
+          line_numbers: [1]
+        }]
+      }
+    ]
+  };
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" allowProofAssetLinks />
+  );
+
+  assert.equal((markup.match(/class="order-rollup__shipment-destination"/g) ?? []).length, 2);
+  assert.match(markup, /Destination 1/);
+  assert.match(markup, /Destination 2/);
+  assert.match(markup, /FedEx 2Day A\.M\./);
+  assert.match(markup, /Delivered Sep 1, 2026 at 11:28 AM/);
+  assert.match(markup, /Cincinnati, OH 45202/);
+  assert.doesNotMatch(markup, /<details class="order-rollup__shipment-details"/);
+});
+
+test("shows quiet public shipment empty states for pending and partially tracked packages", () => {
+  const pending = realSiblingSnapshot();
+  pending.proof_visibility = "status_only";
+  pending.lines[0].packages = [];
+  pending.lines[0].package_count = 0;
+  pending.shipment_summary = {
+    source: "package_details",
+    state: "pending",
+    package_count: 0,
+    tracking_count: 0,
+    methods: [],
+    locations: [],
+    status_messages: [],
+    destinations: []
+  };
+  const pendingMarkup = renderToStaticMarkup(
+    <OrderRollup snapshot={pending} audience="public" />
+  );
+  assert.match(pendingMarkup, /Shipment updates pending/);
+  assert.match(pendingMarkup, /Packages and tracking will appear here when they become available/);
+
+  const partial = realSiblingSnapshot();
+  partial.proof_visibility = "status_only";
+  partial.shipment_summary = {
+    source: "package_details",
+    state: "tracking_available",
+    package_count: 2,
+    tracking_count: 1,
+    methods: ["UPS Ground"],
+    locations: ["Cincinnati Hub"],
+    status_messages: ["In transit"],
+    destinations: [{
+      destination: partial.header.shipping ?? null,
+      location_name: "Cincinnati Hub",
+      package_count: 2,
+      methods: ["UPS Ground"],
+      status_messages: ["In transit"],
+      line_numbers: [1],
+      tracking: [{
+        tracking_number: "1ZTEST001",
+        ship_method: "UPS Ground",
+        tracker_message: "In transit",
+        box_numbers: ["1"],
+        package_types: ["Box"],
+        line_numbers: [1]
+      }]
+    }]
+  };
+  const partialMarkup = renderToStaticMarkup(
+    <OrderRollup snapshot={partial} audience="public" />
+  );
+  assert.match(partialMarkup, /1 package awaiting tracking/);
+  assert.match(partialMarkup, /Tracking will appear here when it becomes available/);
 });
 
 test("explains that missing public thumbnails are being refreshed", () => {
