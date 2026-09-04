@@ -41,6 +41,32 @@ test("passes a default-off same-origin read-only deployment", async () => {
   assert.equal(calls.some((call) => call.includes("approve")), true);
 });
 
+test("accepts the explicitly expected customer decision posture", async () => {
+  const result = await runProofReadOnlySmoke(
+    {
+      PATHFINDER_PROOF_SMOKE_BASE_URL: "https://proof.example.com",
+      PATHFINDER_PROOF_EXPECT_PUBLIC_READ: "true",
+      PATHFINDER_PROOF_EXPECT_DECISIONS_ENABLED: "true"
+    },
+    async (url, init = {}) => {
+      const path = new URL(url).pathname;
+      if (path === "/api/public/proof/health") {
+        return fakeResponse(200, { public_read: true, decisions_enabled: true });
+      }
+      if (path === "/api/public/proof/sessions") return fakeResponse(401, { error: "Unauthorized" });
+      if (path === "/api/public/proof/order" || path === "/api/public/proof/order/refresh") {
+        return fakeResponse(401, { error: "Unauthorized" });
+      }
+      if ((init.method === "POST" || init.method === "PUT") && path.startsWith("/api/public/proof/")) {
+        return fakeResponse(404, { error: "Not found" });
+      }
+      throw new Error(`Unexpected request: ${init.method ?? "GET"} ${path}`);
+    }
+  );
+  assert.equal(result.public_read_enabled, true);
+  assert.equal(result.decisions_enabled, true);
+});
+
 test("fails when a deployment exposes a public decision route", async () => {
   await assert.rejects(
     () => runProofReadOnlySmoke(

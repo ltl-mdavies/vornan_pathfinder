@@ -304,11 +304,12 @@ jobs:
           aws s3 cp apps/proof/dist/index.html "s3://${bucket}/index.html" --cache-control "no-cache,no-store,must-revalidate" --content-type text/html
           aws cloudfront create-invalidation --distribution-id "${distribution_id}" --paths "/*"
 
-      - name: Smoke isolated read-only boundary
+      - name: Smoke isolated customer boundary
         env:
           ENVIRONMENT_NAME: ${{ inputs.environment_name }}
           PROOF_DOMAIN: ${{ vars.PATHFINDER_PROOF_DOMAIN_NAME }}
-          EXPECT_PUBLIC_READ: ${{ inputs.public_read_enabled }}
+          EXPECT_PUBLIC_READ: ${{ inputs.public_read_enabled == 'true' || inputs.ltl_demo_qa_enabled == 'true' }}
+          EXPECT_DECISIONS_ENABLED: ${{ inputs.customer_approval_enabled == 'true' || (inputs.ltl_demo_qa_enabled == 'true' && inputs.ltl_demo_qa_customer_approval_enabled == 'true') }}
         run: |
           stack_name="vornan-proof-${ENVIRONMENT_NAME}"
           distribution_domain="$(aws cloudformation describe-stacks --stack-name "${stack_name}" --query "Stacks[0].Outputs[?OutputKey=='ProofWebDistributionDomainName'].OutputValue" --output text)"
@@ -316,10 +317,11 @@ jobs:
           PATHFINDER_PROOF_SMOKE_BASE_URL="https://${distribution_domain}" \
           PATHFINDER_PROOF_SMOKE_DIRECT_API_URL="${direct_api_url}" \
           PATHFINDER_PROOF_EXPECT_PUBLIC_READ="${EXPECT_PUBLIC_READ}" \
+          PATHFINDER_PROOF_EXPECT_DECISIONS_ENABLED="${EXPECT_DECISIONS_ENABLED}" \
           npm run smoke:proof-read-only
 
       - name: Publish dark DNS readiness handoff
-        if: inputs.public_read_enabled == 'false'
+        if: inputs.public_read_enabled == 'false' && inputs.ltl_demo_qa_enabled == 'false'
         env:
           PATHFINDER_PROOF_ENVIRONMENT_NAME: ${{ inputs.environment_name }}
           PATHFINDER_PROOF_DARK_SMOKE_CONFIRMED: "true"
