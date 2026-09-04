@@ -354,6 +354,8 @@ function PackageList({ packages }: { packages: OrderRollupPackage[] }) {
           ? `Package ${pkg.box_number}`
           : pkg.package_type ?? `Package ${index + 1}`;
         const trackingUrl = buildCarrierTrackingUrl(pkg.tracking_number, pkg.ship_method);
+        const event = trackingEventDetails(pkg.tracker_message);
+        const eventSummary = event.location ? `${event.status} in ${event.location}` : event.status;
         return (
           <article className="order-rollup__package-card" key={`${pkg.tracking_number ?? "package"}-${pkg.box_number ?? index}`}>
             <div>
@@ -363,8 +365,8 @@ function PackageList({ packages }: { packages: OrderRollupPackage[] }) {
                 : `Tracking ${pkg.tracking_number}`
                 : "Tracking pending"}</span>
             </div>
-            <p>{pkg.tracker_message ?? "Package activity recorded"}</p>
-            <small>{[pkg.package_type, pkg.ship_method, pkg.location_name].filter(Boolean).join(" · ") || "Shipment details pending"}</small>
+            <p>{eventSummary}</p>
+            <small>{[pkg.package_type, humanizeShipMethod(pkg.ship_method), pkg.location_name].filter(Boolean).join(" · ") || "Shipment details pending"}</small>
           </article>
         );
       })}
@@ -465,7 +467,7 @@ function ShipmentSummary({ summary, compact = false }: { summary: OrderRollupShi
     return (
       <aside className={`order-rollup__shipment-summary order-rollup__shipment-summary--compact shipment-state--${summary.state}`} aria-label="Shipments">
         <div className="order-rollup__shipment-compact-heading">
-          <span>Shipments</span>
+          <h2>Shipments</h2>
         </div>
         {summary.destinations.length ? (
           <div className="order-rollup__shipment-destinations">
@@ -480,7 +482,6 @@ function ShipmentSummary({ summary, compact = false }: { summary: OrderRollupShi
                 <section className="order-rollup__shipment-destination" key={`${group.location_name ?? "destination"}-${index}`}>
                   <header>
                     <div>
-                      {summary.destinations.length > 1 ? <span>Destination {index + 1}</span> : null}
                       <strong>{addressLines[0] ?? group.location_name ?? "Destination details pending"}</strong>
                     </div>
                     <small>{group.package_count} package{group.package_count === 1 ? "" : "s"}</small>
@@ -510,9 +511,9 @@ function ShipmentSummary({ summary, compact = false }: { summary: OrderRollupShi
                               <div>
                                 <p>{event.status}</p>
                                 {event.location ? <small>{event.location}</small> : null}
+                                {lineNumberSummary(tracking.line_numbers) ? <small className="order-rollup__shipment-lines">{lineNumberSummary(tracking.line_numbers)}</small> : null}
                               </div>
                             </div>
-                            {lineNumberSummary(tracking.line_numbers) ? <small className="order-rollup__shipment-lines">{lineNumberSummary(tracking.line_numbers)}</small> : null}
                           </article>
                         );
                       })}
@@ -824,7 +825,7 @@ export function OrderRollup({
         <div className="order-rollup__public-workspace">
           <aside className="order-rollup__overview-column" aria-label="Order overview">
             <section className="order-rollup__at-a-glance">
-              <p className="order-rollup__eyebrow">At a glance</p>
+              <h2>At a glance</h2>
               <p className="order-rollup__at-a-glance-summary">{atAGlanceSummary}</p>
               <dl>
                 <div><dt>Requested ship</dt><dd>{displayDateOnly(snapshot.header.requested_ship_date)}</dd></div>
@@ -855,8 +856,8 @@ export function OrderRollup({
           <div className="order-rollup__lines-column">
             <div className="order-rollup__lines-heading">
               <div>
-                <p className="order-rollup__eyebrow">Order lines</p>
-                <h2>{snapshot.lines.length} line{snapshot.lines.length === 1 ? "" : "s"}</h2>
+                <h2>Order lines</h2>
+                <p className="order-rollup__lines-count">{snapshot.lines.length} line{snapshot.lines.length === 1 ? "" : "s"}</p>
               </div>
               <div className="order-rollup__lines-heading-actions">
                 <span>Line progress may vary.</span>

@@ -371,12 +371,30 @@ test("keeps multiple public shipment destinations in one divided always-open pan
   );
 
   assert.equal((markup.match(/class="order-rollup__shipment-destination"/g) ?? []).length, 2);
-  assert.match(markup, /Destination 1/);
-  assert.match(markup, /Destination 2/);
+  assert.doesNotMatch(markup, /Destination 1/);
+  assert.doesNotMatch(markup, /Destination 2/);
   assert.match(markup, /FedEx 2Day A\.M\./);
   assert.match(markup, /Delivered Sep 1, 2026 at 11:28 AM/);
   assert.match(markup, /Cincinnati, OH 45202/);
   assert.doesNotMatch(markup, /<details class="order-rollup__shipment-details"/);
+});
+
+test("humanizes expanded shipment activity and service labels", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.lines[0].packages[0] = {
+    ...snapshot.lines[0].packages[0],
+    ship_method: "PRIORITY_OVERNIGHT",
+    tracker_message: "Delivered (09/01/2026 11:28 AM) in Cincinnati, OH, 45202"
+  };
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" />
+  );
+
+  assert.match(markup, /Delivered Sep 1, 2026 at 11:28 AM in Cincinnati, OH 45202/);
+  assert.match(markup, /Priority Overnight/);
+  assert.doesNotMatch(markup, /PRIORITY_OVERNIGHT/);
+  assert.doesNotMatch(markup, /Delivered \(09\/01\/2026/);
 });
 
 test("shows quiet public shipment empty states for pending and partially tracked packages", () => {
