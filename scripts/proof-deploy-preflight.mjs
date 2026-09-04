@@ -204,9 +204,29 @@ export function validateProofDeployment(env = process.env) {
   const legacyCustomerRevisionUploadEnabled = enabled(env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS);
   const legacyProofAssetUploadEnabled = enabled(env.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD);
   const ltlDemoQaEnabled = enabled(env.PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED);
-  const ltlDemoQaAllowedOrders = ltlDemoQaEnabled
-    ? orderNumberCohort(env, "PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS")
-    : [];
+  const ltlDemoQaPersistentEnabled = enabled(env.PATHFINDER_PROOF_LTL_DEMO_QA_PERSISTENT_ENABLED);
+  if (ltlDemoQaPersistentEnabled && !ltlDemoQaEnabled) {
+    throw new Error(
+      "PATHFINDER_PROOF_LTL_DEMO_QA_PERSISTENT_ENABLED=true requires PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED=true."
+    );
+  }
+  let ltlDemoQaAllowedOrders = [];
+  if (ltlDemoQaEnabled) {
+    if (ltlDemoQaPersistentEnabled) {
+      const allowedOrders = required(env, "PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS");
+      if (allowedOrders !== "LTL_DEMO_ALL") {
+        throw new Error(
+          "Persistent LTL Demo QA must use PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS=LTL_DEMO_ALL."
+        );
+      }
+      ltlDemoQaAllowedOrders = [allowedOrders];
+    } else {
+      ltlDemoQaAllowedOrders = orderNumberCohort(
+        env,
+        "PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS"
+      );
+    }
+  }
   const publicReadEnabled = legacyPublicReadEnabled || ltlDemoQaEnabled;
   const customerApprovalEnabled = legacyCustomerApprovalEnabled || ltlDemoQaEnabled;
   const customerRevisionUploadEnabled = legacyCustomerRevisionUploadEnabled || ltlDemoQaEnabled;
@@ -232,12 +252,14 @@ export function validateProofDeployment(env = process.env) {
         "The LTL Demo QA profile requires the isolated dev stack with legacy Proof gates, operator grants, synthetic QA, email, and production approval disabled."
       );
     }
-    readOnlyActivationExpiresAt = futureUtcTimestamp(
-      env,
-      "PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT"
-    );
-    if (Date.parse(readOnlyActivationExpiresAt) > Date.now() + 24 * 60 * 60 * 1000) {
-      throw new Error("PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT must be within 24 hours.");
+    if (!ltlDemoQaPersistentEnabled) {
+      readOnlyActivationExpiresAt = futureUtcTimestamp(
+        env,
+        "PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT"
+      );
+      if (Date.parse(readOnlyActivationExpiresAt) > Date.now() + 24 * 60 * 60 * 1000) {
+        throw new Error("PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT must be within 24 hours.");
+      }
     }
     if (!enabled(env.PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED)) {
       throw new Error("PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED=true is required for the LTL Demo QA profile.");
@@ -356,6 +378,7 @@ export function validateProofDeployment(env = process.env) {
     operator_cohort_size: grantAllowedCustomerIds.length,
     operator_public_base_url: operatorPublicBaseUrl,
     ltl_demo_qa_enabled: ltlDemoQaEnabled,
+    ltl_demo_qa_persistent_enabled: ltlDemoQaPersistentEnabled,
     ltl_demo_qa_customer_id: ltlDemoQaEnabled ? "1249" : null,
     ltl_demo_qa_allowed_orders: ltlDemoQaAllowedOrders,
     ltl_demo_qa_session_ttl_minutes: ltlDemoQaEnabled ? 720 : null,
