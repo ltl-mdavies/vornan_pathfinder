@@ -50,15 +50,34 @@ export interface TransientProofSnapshot {
   lines: TransientProofLine[];
 }
 
-function highResolutionAssetKind(url: string) {
+function highResolutionAssetKind(value: string) {
   try {
-    const pathname = new URL(url).pathname.toLowerCase();
+    const pathname = new URL(value).pathname.toLowerCase();
     if (pathname.endsWith(".pdf")) return "pdf";
     if (/\.(?:avif|gif|jpe?g|png|webp)$/.test(pathname)) return "image";
   } catch {
     // The server will still validate and resolve the token-bound asset.
   }
+  const path = value.split(/[?#]/, 1)[0]?.toLowerCase() ?? "";
+  if (path.endsWith(".pdf")) return "pdf";
+  if (/\.(?:avif|gif|jpe?g|png|webp)$/.test(path)) return "image";
   return "document";
+}
+
+function tokenBoundProofAssetUrl(args: {
+  base: string;
+  token: string;
+  orderNumber: string;
+  lineNumber: number;
+  filename: string;
+  assetKind: "thumbnail" | "pdf" | "image" | "document";
+}) {
+  return `${args.base}/public/status/${encodeURIComponent(args.token)}/proof-asset?${new URLSearchParams({
+    order_number: args.orderNumber,
+    line_number: String(args.lineNumber),
+    filename: args.filename,
+    asset_kind: args.assetKind
+  }).toString()}`;
 }
 
 export function proxyHighResolutionProofAssets<T extends TransientProofSnapshot>(
@@ -71,17 +90,31 @@ export function proxyHighResolutionProofAssets<T extends TransientProofSnapshot>
     ...snapshot,
     lines: snapshot.lines.map((line) => ({
       ...line,
-      proofs: line.proofs.map((proof) => proof.proof_link_high && snapshot.order_number
-        ? {
-            ...proof,
-            proof_link_high: `${base}/public/status/${encodeURIComponent(token)}/proof-asset?${new URLSearchParams({
-              order_number: snapshot.order_number,
-              line_number: String(line.line_number),
-              filename: proof.proof_filename ?? "Proof file",
-              asset_kind: highResolutionAssetKind(proof.proof_link_high)
-            }).toString()}`
-          }
-        : proof)
+      proofs: line.proofs.map((proof) => {
+        const filename = proof.proof_filename?.trim();
+        if (!filename || !snapshot.order_number) return proof;
+        const synthesizedThumbnail = !proof.proof_link_low;
+        return {
+          ...proof,
+          proof_link_low: proof.proof_link_low ?? tokenBoundProofAssetUrl({
+            base,
+            token,
+            orderNumber: snapshot.order_number,
+            lineNumber: line.line_number,
+            filename,
+            assetKind: "thumbnail"
+          }),
+          proof_link_high: tokenBoundProofAssetUrl({
+            base,
+            token,
+            orderNumber: snapshot.order_number,
+            lineNumber: line.line_number,
+            filename,
+            assetKind: highResolutionAssetKind(proof.proof_link_high ?? filename)
+          }),
+          preview_kind: synthesizedThumbnail ? "image" as const : proof.preview_kind
+        };
+      })
     }))
   }));
 }

@@ -48,6 +48,42 @@ test("marks image high-resolution assets for the lightbox renderer", () => {
   assert.match(snapshot?.lines[0]?.proofs[0]?.proof_link_high ?? "", /asset_kind=image/);
 });
 
+test("hydrates redacted initial proof metadata with token-bound thumbnail and viewer URLs", () => {
+  const [snapshot] = proxyHighResolutionProofAssets([{
+    order_key: "order-1",
+    order_number: "A0230105",
+    lines: [{
+      line_number: 1,
+      proofs: [{
+        proof_filename: "MTM_30_375x46_375OS.jpg",
+        proof_link_low: null,
+        proof_link_high: null,
+        preview_kind: "unavailable" as const
+      }]
+    }]
+  }], "https://api.pathfinder.vornan.co", "private-token");
+
+  const proof = snapshot?.lines[0]?.proofs[0];
+  assert.match(proof?.proof_link_low ?? "", /order_number=A0230105/);
+  assert.match(proof?.proof_link_low ?? "", /asset_kind=thumbnail/);
+  assert.match(proof?.proof_link_high ?? "", /asset_kind=image/);
+  assert.equal(proof?.preview_kind, "image");
+});
+
+test("does not invent proof asset routes without a real proof filename", () => {
+  const [snapshot] = proxyHighResolutionProofAssets([{
+    order_key: "order-1",
+    order_number: "A0230105",
+    lines: [{
+      line_number: 1,
+      proofs: [{ proof_filename: null, proof_link_low: null, proof_link_high: null }]
+    }]
+  }], "https://api.pathfinder.vornan.co", "private-token");
+
+  assert.equal(snapshot?.lines[0]?.proofs[0]?.proof_link_low, null);
+  assert.equal(snapshot?.lines[0]?.proofs[0]?.proof_link_high, null);
+});
+
 test("uses a bounded server-directed polling interval", () => {
   const noJitter = { random: () => 0.5 };
   assert.equal(publicStatusPollDelay(undefined, noJitter), DEFAULT_PUBLIC_STATUS_POLL_MS);
