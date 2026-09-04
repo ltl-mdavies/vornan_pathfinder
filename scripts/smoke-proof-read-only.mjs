@@ -34,6 +34,7 @@ export async function runProofReadOnlySmoke(env = process.env, fetcher = fetch) 
   const allowHttp = enabled(env.PATHFINDER_PROOF_SMOKE_ALLOW_HTTP);
   const baseUrl = configuredUrl(env.PATHFINDER_PROOF_SMOKE_BASE_URL, "PATHFINDER_PROOF_SMOKE_BASE_URL", allowHttp);
   const expectedPublicRead = enabled(env.PATHFINDER_PROOF_EXPECT_PUBLIC_READ);
+  const expectedDecisionsEnabled = enabled(env.PATHFINDER_PROOF_EXPECT_DECISIONS_ENABLED);
 
   const health = await fetcher(`${baseUrl}/api/public/proof/health`, { redirect: "manual" });
   if (health.status !== 200) {
@@ -47,8 +48,11 @@ export async function runProofReadOnlySmoke(env = process.env, fetcher = fetch) 
   requireHeader(health, "permissions-policy", /camera=\(\)/i);
   requireHeader(health, "x-request-id", /^[A-Za-z0-9_-]{1,80}$/);
   const healthBody = await responseJson(health, "Proof health smoke");
-  if (healthBody.decisions_enabled !== false || healthBody.public_read !== expectedPublicRead) {
-    throw new Error("Proof health flags do not match the read-only deployment expectation.");
+  if (
+    healthBody.decisions_enabled !== expectedDecisionsEnabled
+    || healthBody.public_read !== expectedPublicRead
+  ) {
+    throw new Error("Proof health flags do not match the deployment expectation.");
   }
 
   const tokenExchange = await fetcher(`${baseUrl}/api/public/proof/sessions`, {
@@ -112,7 +116,7 @@ export async function runProofReadOnlySmoke(env = process.env, fetcher = fetch) 
   return {
     base_host: new URL(baseUrl).hostname,
     public_read_enabled: expectedPublicRead,
-    decisions_enabled: false,
+    decisions_enabled: expectedDecisionsEnabled,
     direct_api_bypass_rejected: Boolean(env.PATHFINDER_PROOF_SMOKE_DIRECT_API_URL?.trim())
   };
 }

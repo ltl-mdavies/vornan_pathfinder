@@ -395,6 +395,18 @@ test("requires bounded activation and durable customer policy bindings in deploy
   assert.match(proofWorkflow, /LTL_DEMO_QA_SESSION_READ_ENABLED: \$\{\{ inputs\.ltl_demo_qa_session_read_enabled \}\}/);
   assert.match(proofWorkflow, /LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED: \$\{\{ inputs\.ltl_demo_qa_customer_approval_enabled \}\}/);
   assert.match(proofWorkflow, /LTL_DEMO_QA_REVISION_UPLOAD_ENABLED: \$\{\{ inputs\.ltl_demo_qa_revision_upload_enabled \}\}/);
+  assert.match(
+    proofWorkflow,
+    /EXPECT_PUBLIC_READ: \$\{\{ inputs\.public_read_enabled == 'true' \|\| inputs\.ltl_demo_qa_enabled == 'true' \}\}/
+  );
+  assert.match(
+    proofWorkflow,
+    /EXPECT_DECISIONS_ENABLED: \$\{\{ inputs\.customer_approval_enabled == 'true' \|\| \(inputs\.ltl_demo_qa_enabled == 'true' && inputs\.ltl_demo_qa_customer_approval_enabled == 'true'\) \}\}/
+  );
+  assert.match(
+    proofWorkflow,
+    /if: inputs\.public_read_enabled == 'false' && inputs\.ltl_demo_qa_enabled == 'false'/
+  );
   assert.match(proofTemplate, /PathfinderCustomerWorkspacesTableName:/);
   assert.match(proofTemplate, /Resource: !Ref PathfinderCustomerWorkspacesTableArn/);
   assert.match(proofWorkflow, /PathfinderCustomerWorkspacesTableName="\$\{PATHFINDER_CUSTOMER_WORKSPACES_TABLE\}"/);
