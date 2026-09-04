@@ -390,6 +390,11 @@ test("requires bounded activation and durable customer policy bindings in deploy
   assert.match(proofWorkflow, /OperatorGrantCreationEnabled="\$\{OPERATOR_GRANT_CREATION_ENABLED\}"/);
   assert.match(proofWorkflow, /GrantAllowedCustomerIds="\$\{GRANT_ALLOWED_CUSTOMER_IDS\}"/);
   assert.match(proofWorkflow, /LtlDemoQaPersistentEnabled="\$\{LTL_DEMO_QA_PERSISTENT_ENABLED\}"/);
+  assert.match(proofWorkflow, /--s3-bucket "\$\{ARTIFACT_BUCKET\}"/);
+  assert.match(proofWorkflow, /LTL_DEMO_QA_GRANT_CREATION_ENABLED: \$\{\{ inputs\.ltl_demo_qa_grant_creation_enabled \}\}/);
+  assert.match(proofWorkflow, /LTL_DEMO_QA_SESSION_READ_ENABLED: \$\{\{ inputs\.ltl_demo_qa_session_read_enabled \}\}/);
+  assert.match(proofWorkflow, /LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED: \$\{\{ inputs\.ltl_demo_qa_customer_approval_enabled \}\}/);
+  assert.match(proofWorkflow, /LTL_DEMO_QA_REVISION_UPLOAD_ENABLED: \$\{\{ inputs\.ltl_demo_qa_revision_upload_enabled \}\}/);
   assert.match(proofTemplate, /PathfinderCustomerWorkspacesTableName:/);
   assert.match(proofTemplate, /Resource: !Ref PathfinderCustomerWorkspacesTableArn/);
   assert.match(proofWorkflow, /PathfinderCustomerWorkspacesTableName="\$\{PATHFINDER_CUSTOMER_WORKSPACES_TABLE\}"/);

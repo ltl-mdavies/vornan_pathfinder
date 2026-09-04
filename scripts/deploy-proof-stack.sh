@@ -25,6 +25,7 @@ aws s3 cp "${zip_path}" "s3://${artifact_bucket}/${artifact_key}"
 aws cloudformation deploy \
   --stack-name "${stack_name}" \
   --template-file infra/aws/proof-cloudformation.yaml \
+  --s3-bucket "${artifact_bucket}" \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides \
     EnvironmentName="${environment_name}" \
@@ -48,6 +49,10 @@ aws cloudformation deploy \
     LtlDemoQaPersistentEnabled="${PATHFINDER_PROOF_LTL_DEMO_QA_PERSISTENT_ENABLED:-false}" \
     LtlDemoQaAllowedOrders="${PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS:-}" \
     LtlDemoQaExpiresAt="${PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT:-}" \
+    LtlDemoQaGrantCreationEnabled="${PATHFINDER_PROOF_LTL_DEMO_QA_GRANT_CREATION_ENABLED:-false}" \
+    LtlDemoQaSessionReadEnabled="${PATHFINDER_PROOF_LTL_DEMO_QA_SESSION_READ_ENABLED:-false}" \
+    LtlDemoQaCustomerApprovalEnabled="${PATHFINDER_PROOF_LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED:-false}" \
+    LtlDemoQaRevisionUploadEnabled="${PATHFINDER_PROOF_LTL_DEMO_QA_REVISION_UPLOAD_ENABLED:-false}" \
     ProofAssetBucketName="${PATHFINDER_PROOF_ASSET_BUCKET:-}" \
     ProofAssetBucketArn="${PATHFINDER_PROOF_ASSET_BUCKET_ARN:-}" \
     PathfinderTargetsTableName="${PATHFINDER_PROOF_TARGETS_TABLE:-}" \

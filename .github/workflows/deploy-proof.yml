@@ -51,6 +51,30 @@ on:
         type: choice
         default: "false"
         options: ["false", "true"]
+      ltl_demo_qa_grant_creation_enabled:
+        description: "Allow customer-1249 Proof grant creation within the isolated QA profile"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
+      ltl_demo_qa_session_read_enabled:
+        description: "Allow customer-1249 Proof session reads within the isolated QA profile"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
+      ltl_demo_qa_customer_approval_enabled:
+        description: "Allow customer-1249 proof approvals within the isolated QA profile"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
+      ltl_demo_qa_revision_upload_enabled:
+        description: "Allow customer-1249 revision uploads within the isolated QA profile"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
       ltl_demo_qa_allowed_orders:
         description: "Exact comma-separated LTL Demo orders for this QA window"
         required: false
@@ -185,10 +209,10 @@ jobs:
           LTL_DEMO_QA_PERSISTENT_ENABLED: ${{ inputs.ltl_demo_qa_persistent_enabled }}
           LTL_DEMO_QA_ALLOWED_ORDERS: ${{ inputs.ltl_demo_qa_allowed_orders }}
           LTL_DEMO_QA_EXPIRES_AT: ${{ inputs.ltl_demo_qa_expires_at }}
-          LTL_DEMO_QA_GRANT_CREATION_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_GRANT_CREATION_ENABLED || 'false' }}
-          LTL_DEMO_QA_SESSION_READ_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_SESSION_READ_ENABLED || 'false' }}
-          LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED || 'false' }}
-          LTL_DEMO_QA_REVISION_UPLOAD_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_REVISION_UPLOAD_ENABLED || 'false' }}
+          LTL_DEMO_QA_GRANT_CREATION_ENABLED: ${{ inputs.ltl_demo_qa_grant_creation_enabled }}
+          LTL_DEMO_QA_SESSION_READ_ENABLED: ${{ inputs.ltl_demo_qa_session_read_enabled }}
+          LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED: ${{ inputs.ltl_demo_qa_customer_approval_enabled }}
+          LTL_DEMO_QA_REVISION_UPLOAD_ENABLED: ${{ inputs.ltl_demo_qa_revision_upload_enabled }}
           PROOF_ASSET_UPLOAD_ENABLED: ${{ vars.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD || 'false' }}
           PROOF_ASSET_UPLOAD_ALLOWED_ORDERS: ${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS || '' }}
           PROOF_ASSET_UPLOAD_EXPIRES_AT: ${{ vars.PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT || '' }}
@@ -219,6 +243,7 @@ jobs:
           aws cloudformation deploy \
             --stack-name "vornan-proof-${ENVIRONMENT_NAME}" \
             --template-file infra/aws/proof-cloudformation.yaml \
+            --s3-bucket "${ARTIFACT_BUCKET}" \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
               EnvironmentName="${ENVIRONMENT_NAME}" \
