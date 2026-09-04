@@ -45,6 +45,7 @@ aws cloudformation deploy \
     ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \
     ProofAssetUploadExpiresAt="${PATHFINDER_PROOF_ASSET_UPLOAD_EXPIRES_AT:-}" \
     LtlDemoQaEnabled="${PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED:-false}" \
+    LtlDemoQaPersistentEnabled="${PATHFINDER_PROOF_LTL_DEMO_QA_PERSISTENT_ENABLED:-false}" \
     LtlDemoQaAllowedOrders="${PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS:-}" \
     LtlDemoQaExpiresAt="${PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT:-}" \
     ProofAssetBucketName="${PATHFINDER_PROOF_ASSET_BUCKET:-}" \

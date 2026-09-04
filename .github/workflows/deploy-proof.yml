@@ -45,6 +45,12 @@ on:
         type: choice
         default: "false"
         options: ["false", "true"]
+      ltl_demo_qa_persistent_enabled:
+        description: "Keep the isolated customer-1249 QA profile active without a bounded expiry"
+        required: true
+        type: choice
+        default: "false"
+        options: ["false", "true"]
       ltl_demo_qa_allowed_orders:
         description: "Exact comma-separated LTL Demo orders for this QA window"
         required: false
@@ -122,6 +128,7 @@ jobs:
           PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS: ${{ inputs.customer_approval_enabled }}
           PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS: ${{ inputs.customer_revision_upload_enabled }}
           PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED: ${{ inputs.ltl_demo_qa_enabled }}
+          PATHFINDER_PROOF_LTL_DEMO_QA_PERSISTENT_ENABLED: ${{ inputs.ltl_demo_qa_persistent_enabled }}
           PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS: ${{ inputs.ltl_demo_qa_allowed_orders }}
           PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT: ${{ inputs.ltl_demo_qa_expires_at }}
           PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD: ${{ vars.PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD || 'false' }}
@@ -175,6 +182,7 @@ jobs:
           CUSTOMER_APPROVAL_ENABLED: ${{ inputs.customer_approval_enabled }}
           CUSTOMER_REVISION_UPLOAD_ENABLED: ${{ inputs.customer_revision_upload_enabled }}
           LTL_DEMO_QA_ENABLED: ${{ inputs.ltl_demo_qa_enabled }}
+          LTL_DEMO_QA_PERSISTENT_ENABLED: ${{ inputs.ltl_demo_qa_persistent_enabled }}
           LTL_DEMO_QA_ALLOWED_ORDERS: ${{ inputs.ltl_demo_qa_allowed_orders }}
           LTL_DEMO_QA_EXPIRES_AT: ${{ inputs.ltl_demo_qa_expires_at }}
           LTL_DEMO_QA_GRANT_CREATION_ENABLED: ${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_GRANT_CREATION_ENABLED || 'false' }}
@@ -231,6 +239,7 @@ jobs:
               ProofAssetUploadAllowedOrders="${PROOF_ASSET_UPLOAD_ALLOWED_ORDERS}" \
               ProofAssetUploadExpiresAt="${PROOF_ASSET_UPLOAD_EXPIRES_AT}" \
               LtlDemoQaEnabled="${LTL_DEMO_QA_ENABLED}" \
+              LtlDemoQaPersistentEnabled="${LTL_DEMO_QA_PERSISTENT_ENABLED}" \
               LtlDemoQaAllowedOrders="${LTL_DEMO_QA_ALLOWED_ORDERS}" \
               LtlDemoQaExpiresAt="${LTL_DEMO_QA_EXPIRES_AT}" \
               LtlDemoQaGrantCreationEnabled="${LTL_DEMO_QA_GRANT_CREATION_ENABLED}" \

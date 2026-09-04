@@ -289,6 +289,43 @@ test("accepts only the bounded allowlisted LTL Demo QA profile", () => {
   }
 });
 
+test("accepts only the persistent customer-1249 all-orders LTL Demo lane", () => {
+  const profile = {
+    ...qaEnvironment,
+    PATHFINDER_PROOF_ENVIRONMENT_NAME: "dev",
+    PATHFINDER_PROOF_LIFT_READ_ENVIRONMENT: "dev",
+    PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED: "true",
+    PATHFINDER_PROOF_LTL_DEMO_QA_PERSISTENT_ENABLED: "true",
+    PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS: "LTL_DEMO_ALL",
+    PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT: "",
+    PATHFINDER_PROOF_READ_ONLY_QA_CONFIRMED: "true",
+    PATHFINDER_PROOF_MANAGED_WEB_ACL_ENABLED: "true",
+    PATHFINDER_PROOF_TARGETS_TABLE: "Pathfinder-Targets-prod",
+    PATHFINDER_PROOF_TARGETS_TABLE_ARN:
+      "arn:aws:dynamodb:us-east-1:744016783602:table/Pathfinder-Targets-prod",
+    PATHFINDER_PROOFING_API_SECRET_ARN:
+      "arn:aws:secretsmanager:us-east-1:744016783602:secret:/vornan/pathfinder/targets/lift-standard-graphics-AbCdEf",
+    PATHFINDER_SECRET_PREFIX: "/vornan/pathfinder/",
+    PATHFINDER_PROOF_ASSET_BUCKET:
+      "vornan-pathfinder-proof-assets-dev-744016783602",
+    PATHFINDER_PROOF_ASSET_BUCKET_ARN:
+      "arn:aws:s3:::vornan-pathfinder-proof-assets-dev-744016783602"
+  };
+  const result = validateProofDeployment(profile);
+  assert.equal(result.ltl_demo_qa_enabled, true);
+  assert.equal(result.ltl_demo_qa_persistent_enabled, true);
+  assert.deepEqual(result.ltl_demo_qa_allowed_orders, ["LTL_DEMO_ALL"]);
+  assert.equal(result.read_only_activation_expires_at, null);
+
+  for (const unsafe of [
+    { PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED: "false" },
+    { PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS: "A0230112" },
+    { PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS: "" }
+  ]) {
+    assert.throws(() => validateProofDeployment({ ...profile, ...unsafe }));
+  }
+});
+
 test("allows the synthetic fixture only in a fully dark dev deployment", () => {
   const dev = {
     ...qaEnvironment,
@@ -352,6 +389,7 @@ test("requires bounded activation and durable customer policy bindings in deploy
   assert.match(proofWorkflow, /ReadOnlyActivationExpiresAt="\$\{READ_ONLY_ACTIVATION_EXPIRES_AT\}"/);
   assert.match(proofWorkflow, /OperatorGrantCreationEnabled="\$\{OPERATOR_GRANT_CREATION_ENABLED\}"/);
   assert.match(proofWorkflow, /GrantAllowedCustomerIds="\$\{GRANT_ALLOWED_CUSTOMER_IDS\}"/);
+  assert.match(proofWorkflow, /LtlDemoQaPersistentEnabled="\$\{LTL_DEMO_QA_PERSISTENT_ENABLED\}"/);
   assert.match(proofTemplate, /PathfinderCustomerWorkspacesTableName:/);
   assert.match(proofTemplate, /Resource: !Ref PathfinderCustomerWorkspacesTableArn/);
   assert.match(proofWorkflow, /PathfinderCustomerWorkspacesTableName="\$\{PATHFINDER_CUSTOMER_WORKSPACES_TABLE\}"/);
