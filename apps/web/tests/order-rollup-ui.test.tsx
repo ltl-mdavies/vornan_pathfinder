@@ -84,12 +84,14 @@ function realSiblingSnapshot(): OrderRollupSnapshot {
         proof_filename: index === 0
           ? "redacted-proof-with-an-intentionally-long-filename-that-must-wrap-within-the-card-at-320px.jpg"
           : `redacted-proof-${index + 1}.jpg`,
-        proof_approval_status: "PENDING",
         proof_link_low: `https://proof-assets.example.invalid/redacted-proof-${index + 1}-low.jpg`,
         proof_link_high: `https://proof-assets.example.invalid/redacted-proof-${index + 1}.jpg`,
+        created_ts: `19-JUL-2026 10:0${index}:00 AM`,
         creation_date: `2026-07-19T10:0${index}:00.000Z`,
+        proof_approved_ts: index === 0 ? "20-JUL-2026 08:00:00 AM" : null,
         preview_kind: "image" as const,
-        proof_state: "pending" as const
+        proof_state: index === 0 ? "approved" as const : "pending" as const,
+        proof_approval_status: index === 0 ? "APPROVED" : "PENDING"
       }))
     }],
     issues: [],
@@ -109,7 +111,8 @@ test("renders the four real-shape sibling proofs as distinct view-only gallery c
   assert.equal((markup.match(/order-rollup__proof-filename/g) ?? []).length, 4);
   assert.doesNotMatch(markup, /Preview larger/);
   assert.doesNotMatch(markup, /Open full resolution/);
-  assert.equal((markup.match(/Posted 2026-07-19/g) ?? []).length, 4);
+  assert.equal((markup.match(/Proof created: Jul 19, 2026, 10:0\d AM/g) ?? []).length, 4);
+  assert.equal((markup.match(/Proof approved: Jul 20, 2026, 8:00 AM/g) ?? []).length, 1);
   assert.match(markup, /Proof review required/);
   assert.match(markup, /Normalized Proof cache synchronized/);
   assert.match(markup, /PO-LIFT-9001/);
@@ -135,6 +138,38 @@ test("renders the four real-shape sibling proofs as distinct view-only gallery c
   assert.doesNotMatch(markup, /INTERNAL-UNIT-01/);
   assert.doesNotMatch(markup, />Approve</);
   assert.doesNotMatch(markup, />Request revision</);
+});
+
+test("renders a date-only legacy proof date without shifting it across timezones", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.lines[0]!.proofs = [{
+    proof_filename: "legacy-proof.jpg",
+    creation_date: "2026-07-19",
+    proof_approved_ts: "20-JUL-2026 08:00:00 AM",
+    proof_state: "pending"
+  }];
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="internal" />
+  );
+
+  assert.match(markup, /Proof created: Jul 19, 2026/);
+  assert.doesNotMatch(markup, /Proof approved:/);
+});
+
+test("shows a stable shipment loading state only when no confirmed shipment data exists", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.lines[0]!.packages = [];
+  snapshot.lines[0]!.package_count = 0;
+  snapshot.shipment_summary = null;
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" shipmentsLoading />
+  );
+
+  assert.match(markup, /Checking Lift for shipment details/);
+  assert.match(markup, /aria-busy="true"/);
+  assert.doesNotMatch(markup, /Tracking isn’t available yet/);
 });
 
 test("sorts a precomputed shipment summary by package number at the final render boundary", () => {
@@ -415,8 +450,8 @@ test("shows quiet public shipment empty states for pending and partially tracked
   const pendingMarkup = renderToStaticMarkup(
     <OrderRollup snapshot={pending} audience="public" />
   );
-  assert.match(pendingMarkup, /Shipment updates pending/);
-  assert.match(pendingMarkup, /Packages and tracking will appear here when they become available/);
+  assert.match(pendingMarkup, /Tracking isn’t available yet/);
+  assert.match(pendingMarkup, /Packages and tracking will appear here when available/);
 
   const partial = realSiblingSnapshot();
   partial.proof_visibility = "status_only";
@@ -586,7 +621,7 @@ test("shows a shipment notice when no shipment source has usable data", () => {
   );
 
   assert.match(markup, /Shipping update/);
-  assert.match(markup, /Some shipment details are temporarily unavailable/);
+  assert.match(markup, /Shipment details could not be refreshed/);
 });
 
 test("reserves the global public warning for unavailable core order status", () => {

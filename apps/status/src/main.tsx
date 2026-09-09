@@ -619,6 +619,7 @@ function StatusView({
         displayDate={displayDate}
         allowProofAssetLinks
         proofAssetsLoading={refreshState === "checking"}
+        shipmentsLoading={refreshState === "checking"}
       />
 
       <section className="privacy-note">
@@ -669,6 +670,7 @@ function App() {
         return;
       }
       requestActive = true;
+      let refreshImmediately = false;
       let responseStatus = 0;
       if (initial) {
         setState("loading");
@@ -706,13 +708,16 @@ function App() {
           setState("idle");
           const degraded = !initial && data.refresh?.status === "degraded";
           consecutiveDegraded = degraded ? Math.min(4, consecutiveDegraded + 1) : 0;
-          setRefreshState(degraded ? "degraded" : "live");
+          setRefreshState(initial ? "checking" : degraded ? "degraded" : "live");
           setMessage("");
           loaded = true;
-          // The initial GET already delivers the complete durable snapshot,
-          // including confirmed package and shipment details. Let customers
-          // read that payload before the first background Lift refresh.
-          schedulePoll(data.refresh?.poll_after_seconds);
+          if (initial) {
+            // Render the durable snapshot immediately, then refresh Lift once
+            // in the background so shipment details do not wait for the first poll.
+            refreshImmediately = true;
+          } else {
+            schedulePoll(data.refresh?.poll_after_seconds);
+          }
         }
       } catch {
         if (!ignore) {
@@ -727,6 +732,13 @@ function App() {
         }
       } finally {
         requestActive = false;
+        if (refreshImmediately && !ignore) {
+          if (shouldPollPublicStatus(document.visibilityState)) {
+            void loadStatus(false);
+          } else {
+            setRefreshState("live");
+          }
+        }
       }
     }
 
