@@ -711,7 +711,9 @@ function LineProofThumbnail({ line, allowProofAssetLinks }: { line: OrderRollupL
 
 function lineStatus(line: OrderRollupLine) {
   if (line.cancelled) return "Canceled";
-  return line.step?.order_status ?? line.latest_tracking_message ?? line.latest_proof_status ?? "Status pending";
+  if (line.step?.order_status) return line.step.order_status;
+  if (/^delivered(?:\s|\(|$)/i.test(line.latest_tracking_message?.trim() ?? "")) return "Delivered";
+  return line.latest_tracking_message ?? line.latest_proof_status ?? "Status pending";
 }
 
 function publicLineKey(line: OrderRollupLine) {
