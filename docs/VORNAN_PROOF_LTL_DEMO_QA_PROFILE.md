@@ -2,13 +2,13 @@
 
 ## Purpose
 
-This profile reduces repeated QA setup without broadening customer or order access. It is repository-side configuration only. Merged code, a default-dark deployment, profile activation, asset publication, and Lift action testing remain separate approvals.
+This profile reduces repeated QA setup without broadening access beyond the LTL Demo customer. It is repository-side configuration only. Merged code, a default-dark deployment, profile activation, asset publication, and direct operator Lift-action testing remain separate approvals.
 
 ## Fixed boundary
 
 - Lift customer is always `1249`.
-- Every usable order must be present in the explicit `A########` allowlist.
-- The profile is dev-only and expires no later than 24 hours after activation.
+- Every usable order must belong to Lift customer `1249`. Bounded windows use an explicit `A########` allowlist; the persistent QA lane uses the `LTL_DEMO_ALL` sentinel and still rejects every other customer.
+- The profile is dev-only. Bounded windows expire no later than 24 hours after activation; the persistent `LTL_DEMO_ALL` lane has no profile expiry but retains the same customer boundary and per-session controls.
 - Review sessions are capped at 12 hours and also capped by the grant and profile expiry.
 - Existing grant/session, CSRF, participant identity, current-proof, feedback acknowledgement, task version, attachment, and Proof version checks remain authoritative.
 - The selected Pathfinder customer must first have a verified durable Proof
@@ -28,7 +28,7 @@ The shared Pathfinder API and isolated Proof stack receive different packed capa
 | Pathfinder API | yes | no | no | no |
 | Isolated Proof | no | yes | yes | yes |
 
-The API-side grant route still requires an authenticated operator. The public Proof side still requires a one-time valid review grant, reviewer identity, session cookie, and CSRF token. Both sides use the same exact order allowlist and expiry.
+The API-side grant route still requires an authenticated operator. The public Proof side still requires a one-time valid review grant, reviewer identity, session cookie, and CSRF token. Both sides use the same customer-1249 boundary and either the same exact order allowlist/expiry or the persistent `LTL_DEMO_ALL` profile.
 
 ## Configuration
 
@@ -37,10 +37,15 @@ Deployment inputs and variables are:
 - `PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED`
 - `PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS`
 - `PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT`
+- `PATHFINDER_PROOF_LTL_DEMO_QA_PERSISTENT_ENABLED`
+- `PATHFINDER_PROOF_LTL_DEMO_QA_GRANT_CREATION_ENABLED`
+- `PATHFINDER_PROOF_LTL_DEMO_QA_SESSION_READ_ENABLED`
+- `PATHFINDER_PROOF_LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED`
+- `PATHFINDER_PROOF_LTL_DEMO_QA_REVISION_UPLOAD_ENABLED`
 
 CloudFormation packs these into `PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE` as:
 
-`enabled|expiry|orders|grant_creation|public_read|customer_approval|asset_upload`
+`enabled|expiry|orders|grant_creation|session_read|customer_approval|revision_upload|persistent`
 
 Operators must not set the packed runtime value manually. CloudFormation rules reject overlap with the legacy Proof gates. The shared API rule also rejects publication, scan-worker, operator-action, and email activation. The isolated Proof rule requires dev, the reviewed read-only boundary, WAF, edge secret, target/secret bindings, private asset bucket, exact orders, and the common expiry.
 
