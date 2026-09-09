@@ -419,6 +419,7 @@ test("humanizes expanded shipment activity and service labels", () => {
   snapshot.lines[0].latest_tracking_message = "Delivered (09/01/2026 11:28 AM) in Cincinnati, OH, 45202";
   snapshot.lines[0].packages[0] = {
     ...snapshot.lines[0].packages[0],
+    tracking_number: "383464350227",
     ship_method: "PRIORITY_OVERNIGHT",
     tracker_message: "Delivered (09/01/2026 11:28 AM) in Cincinnati, OH, 45202"
   };
@@ -429,7 +430,7 @@ test("humanizes expanded shipment activity and service labels", () => {
 
   assert.match(markup, /Delivered Sep 1, 2026 at 11:28 AM in Cincinnati, OH 45202/);
   assert.match(markup, /<span class="order-rollup__status">Delivered<\/span>/);
-  assert.match(markup, /Priority Overnight/);
+  assert.match(markup, /FedEx · Priority Overnight/);
   assert.doesNotMatch(markup, /PRIORITY_OVERNIGHT/);
   assert.doesNotMatch(markup, /Delivered \(09\/01\/2026/);
 });

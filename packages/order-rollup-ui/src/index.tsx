@@ -3,6 +3,7 @@ import { ArrowUpRight, CheckCircle2, ChevronDown, FileImage, LoaderCircle } from
 import {
   buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
+  carrierNameForTracking,
   standardGraphicsRail,
   stepProgressIndex,
   type OrderRollupDestination,
@@ -409,7 +410,7 @@ function PackageList({ packages }: { packages: OrderRollupPackage[] }) {
                 : "Tracking pending"}</span>
             </div>
             <p>{eventSummary}</p>
-            <small>{[pkg.package_type, humanizeShipMethod(pkg.ship_method), pkg.location_name].filter(Boolean).join(" · ") || "Shipment details pending"}</small>
+            <small>{[pkg.package_type, shipmentServiceLabel(pkg.tracking_number, pkg.ship_method), pkg.location_name].filter(Boolean).join(" · ") || "Shipment details pending"}</small>
           </article>
         );
       })}
@@ -454,6 +455,14 @@ function humanizeShipMethod(value?: string | null) {
     return `${word.charAt(0).toUpperCase()}${word.slice(1).toLowerCase()}`;
   });
   return words.join(" ").replace(/FedEx 2 Day/g, "FedEx 2Day");
+}
+
+function shipmentServiceLabel(trackingNumber?: string | null, shipMethod?: string | null) {
+  const carrier = carrierNameForTracking(trackingNumber, shipMethod);
+  if (!shipMethod) return carrier ?? "Shipping method pending";
+  const service = humanizeShipMethod(shipMethod);
+  if (!carrier || service.toLocaleLowerCase().startsWith(carrier.toLocaleLowerCase())) return service;
+  return `${carrier} · ${service}`;
 }
 
 function trackingEventDetails(message?: string | null) {
@@ -544,7 +553,7 @@ function ShipmentSummary({ summary, compact = false, loading = false }: { summar
                           <article key={tracking.tracking_number}>
                             <div className="order-rollup__shipment-package-meta">
                               <span>{packageName}</span>
-                              <strong>{humanizeShipMethod(tracking.ship_method)}</strong>
+                              <strong>{shipmentServiceLabel(tracking.tracking_number, tracking.ship_method)}</strong>
                             </div>
                             <strong className="order-rollup__shipment-tracking-number">{trackingUrl
                               ? <a href={trackingUrl} target="_blank" rel="noreferrer">{tracking.tracking_number}<ArrowUpRight aria-hidden="true" /></a>
@@ -639,7 +648,7 @@ function ShipmentSummary({ summary, compact = false, loading = false }: { summar
                             <strong>{trackingUrl
                               ? <a href={trackingUrl} target="_blank" rel="noreferrer">{tracking.tracking_number}</a>
                               : tracking.tracking_number}</strong>
-                            <span>{[tracking.ship_method, tracking.box_numbers.length ? `Package ${tracking.box_numbers.join(", ")}` : null].filter(Boolean).join(" · ")}</span>
+                            <span>{[shipmentServiceLabel(tracking.tracking_number, tracking.ship_method), tracking.box_numbers.length ? `Package ${tracking.box_numbers.join(", ")}` : null].filter(Boolean).join(" · ")}</span>
                           </div>
                           <p>{tracking.tracker_message ?? "Tracking activity is available from the carrier."}</p>
                           {lineNumberSummary(tracking.line_numbers) ? <small>{lineNumberSummary(tracking.line_numbers)}</small> : null}
