@@ -412,6 +412,10 @@ test("requires bounded activation and durable customer policy bindings in deploy
   assert.match(proofWorkflow, /PathfinderCustomerWorkspacesTableName="\$\{PATHFINDER_CUSTOMER_WORKSPACES_TABLE\}"/);
   assert.match(apiWorkflow, /ProofGrantAllowedCustomerIds=/);
   assert.match(apiWorkflow, /ProofReadOnlyActivationExpiresAt=/);
+  assert.match(
+    apiWorkflow,
+    /ProofLtlDemoQaPersistentEnabled="\$\{\{ vars\.PATHFINDER_PROOF_LTL_DEMO_QA_PERSISTENT_ENABLED \|\| 'false' \}\}"/
+  );
 });
 
 test("packages an IAM-only operator without a public invocation surface", () => {

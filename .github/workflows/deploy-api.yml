@@ -186,6 +186,7 @@ jobs:
               ProofLtlDemoQaEnabled="${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_ENABLED || 'false' }}" \
               ProofLtlDemoQaAllowedOrders="${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_ALLOWED_ORDERS || '' }}" \
               ProofLtlDemoQaExpiresAt="${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_EXPIRES_AT || '' }}" \
+              ProofLtlDemoQaPersistentEnabled="${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_PERSISTENT_ENABLED || 'false' }}" \
               ProofLtlDemoQaGrantCreationEnabled="${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_GRANT_CREATION_ENABLED || 'false' }}" \
               ProofLtlDemoQaSessionReadEnabled="${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_SESSION_READ_ENABLED || 'false' }}" \
               ProofLtlDemoQaCustomerApprovalEnabled="${{ vars.PATHFINDER_PROOF_LTL_DEMO_QA_CUSTOMER_APPROVAL_ENABLED || 'false' }}" \
