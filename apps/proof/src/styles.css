@@ -199,9 +199,12 @@ h1, h2, h3, p { margin-top: 0; }
 .proof-viewer { min-width: 0; min-height: 0; height: 100%; display: grid; }
 .proof-viewer.has-filmstrip { grid-template-columns: 112px minmax(0,1fr); gap: 10px; }
 .preview-column { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: 30px minmax(0, 1fr); gap: 6px; }
-.preview-filebar { min-width: 0; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; background: #f8f9f4; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); }
-.preview-filebar > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; font-weight: 700; }
-.preview-filebar small { flex: none; font-size: 8px; font-weight: 800; }
+.preview-filebar { position: relative; z-index: 6; min-width: 0; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; background: #f8f9f4; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); }
+.preview-filebar-file { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 4px; }
+.preview-filebar-file > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; font-weight: 700; }
+.preview-filebar-meta { min-width: 0; max-width: 58%; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.preview-filebar-meta time, .preview-filebar-meta small { flex: none; white-space: nowrap; font-size: 8px; font-weight: 800; }
+.preview-filebar-meta time { overflow: hidden; text-overflow: ellipsis; font-weight: 700; }
 .proof-filmstrip { min-width: 0; min-height: 0; padding: 9px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #f6f7f1; display: flex; flex-direction: column; gap: 9px; }
 .filmstrip-heading { display: flex; align-items: center; gap: 6px; color: var(--forest); font-size: 9px; font-weight: 800; }
 .filmstrip-heading svg { width: 14px; }
@@ -441,7 +444,7 @@ h1, h2, h3, p { margin-top: 0; }
 .version-list strong { font-size: 11px; }
 .version-list small { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .history-version-detail { padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: #f8f9f4; display: grid; gap: 13px; }
-.history-version-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.history-version-meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .history-version-meta > span { min-width: 0; display: grid; gap: 4px; }
 .history-version-meta small { color: var(--muted); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
 .history-version-meta strong { color: var(--ink); font-size: 11px; overflow-wrap: anywhere; }

@@ -3,6 +3,7 @@ export type ProofDecisionState = "rejected_pending_action" | "sent_back_to_artis
 
 export interface ProofVersion {
   version_id: string;
+  created_ts?: string | null;
   created_at: string | null;
   filename: string | null;
   content_type: string | null;
@@ -10,6 +11,7 @@ export interface ProofVersion {
   preview_url: string | null;
   download_url: string | null;
   approval_status: string | null;
+  proof_approved_ts?: string | null;
   approved_at: string | null;
   comments: {
     text: string | null;

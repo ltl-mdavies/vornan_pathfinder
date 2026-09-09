@@ -130,6 +130,19 @@ function terminalState(kind: TerminalState): LoadState {
 
 function formatDate(value: string | null, includeTime = false) {
   if (!value) return "Not available";
+  // CREATED_TS and PROOF_APPROVED_TS are supplied by Lift without a timezone.
+  // Format them as Lift's recorded wall-clock time rather than allowing the
+  // browser to apply an implicit timezone conversion.
+  const liftTimestamp = /^(\d{2})-([A-Z]{3})-(\d{4}) (\d{2}):(\d{2})(?::\d{2})? (AM|PM)$/i.exec(value.trim());
+  if (liftTimestamp) {
+    const [, day, month, year, hour, minute, period] = liftTimestamp;
+    const monthNames: Record<string, string> = {
+      JAN: "Jan", FEB: "Feb", MAR: "Mar", APR: "Apr", MAY: "May", JUN: "Jun",
+      JUL: "Jul", AUG: "Aug", SEP: "Sep", OCT: "Oct", NOV: "Nov", DEC: "Dec"
+    };
+    const label = `${monthNames[month.toUpperCase()] ?? month} ${Number(day)}, ${year}`;
+    return includeTime ? `${label}, ${Number(hour)}:${minute} ${period.toUpperCase()}` : label;
+  }
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return value;
   return new Intl.DateTimeFormat(undefined, {
@@ -1852,8 +1865,13 @@ export function App() {
                 />
                 <div className="preview-column">
                   <div className="preview-filebar">
-                    <span title={selectedVersion?.filename ?? "Proof pending"}>{selectedVersion?.filename ?? "Proof pending"}</span>
-                    {selectedGroup && selectedGroup.tasks.length > 1 ? <small>Creative {selectedGroup.tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1} of {selectedGroup.tasks.length}</small> : null}
+                    <div className="preview-filebar-file">
+                      <span title={selectedVersion?.filename ?? "Proof pending"}>{selectedVersion?.filename ?? "Proof pending"}</span>
+                    </div>
+                    <div className="preview-filebar-meta">
+                      {selectedVersion?.created_ts || selectedVersion?.created_at ? <time title="Uploaded to Lift">Uploaded {formatDate(selectedVersion.created_ts ?? selectedVersion.created_at, true)}</time> : null}
+                      {selectedGroup && selectedGroup.tasks.length > 1 ? <small>Creative {selectedGroup.tasks.findIndex((task) => task.task_id === selectedTask.task_id) + 1} of {selectedGroup.tasks.length}</small> : null}
+                    </div>
                   </div>
                   <div className="preview-stage"><ProofPreview version={selectedVersion} refreshing={artworkRefreshing} /></div>
                 </div>
@@ -2082,7 +2100,7 @@ export function App() {
                       onClick={() => setSelectedVersionId(version.version_id)}
                     >
                       <span><strong>Version {Math.max(1, dialogVersions.length - index)}</strong><small>{version.filename ?? "Proof file"}</small></span>
-                      <time>{formatDate(version.created_at)}</time>
+                      <time>{formatDate(version.created_ts ?? version.created_at, true)}</time>
                     </button>
                   ))}
                 </div>
@@ -2090,8 +2108,9 @@ export function App() {
               {dialogVersion ? (
                 <article className="history-version-detail" aria-label="Selected version details">
                   <div className="history-version-meta">
+                    <span><small>Uploaded to Lift</small><strong>{dialogVersion.created_ts || dialogVersion.created_at ? formatDate(dialogVersion.created_ts ?? dialogVersion.created_at, true) : "Not recorded"}</strong></span>
                     <span><small>Approval status</small><strong>{dialogVersion.approval_status ?? "Not recorded"}</strong></span>
-                    <span><small>Approval date</small><strong>{dialogVersion.approved_at ? formatDate(dialogVersion.approved_at, true) : "Not recorded"}</strong></span>
+                    <span><small>Approved in Lift</small><strong>{dialogVersion.proof_approved_ts || dialogVersion.approved_at ? formatDate(dialogVersion.proof_approved_ts ?? dialogVersion.approved_at, true) : "Not recorded"}</strong></span>
                   </div>
                   {dialogVersion.technical_checks.length ? (
                     <section className="technical-checks" aria-labelledby="technical-checks-title">

@@ -61,6 +61,7 @@ const proofPayload = {
       LINE_NUMBER: 999,
       ATTACHMENT_ID: 25435041,
       CREATION_DATE: "2026-07-19T10:00:00Z",
+      CREATED_TS: "19-JUL-2026 10:00:00 AM",
       PROOF_FILENAME: "north-a.pdf",
       PROOF_MIME_TYPE: "application/pdf",
       PROOF_LINK_LOW: "https://files.example/north-a-preview",
@@ -89,11 +90,13 @@ const proofPayload = {
       LINE_NUMBER: 10,
       ATTACHMENT_ID: 25435042,
       CREATION_DATE: "2026-07-19T10:10:00Z",
+      CREATED_TS: "19-JUL-2026 10:10:00 AM",
       PROOF_FILENAME: "north-b.pdf",
       PROOF_LINK_HIGH: "https://files.example/north-b.pdf",
       PROOF_APPROVAL_STATUS: "APPROVED",
       PROOF_APPROVED_BY: "Reviewer",
-      PROOF_APPROVED_DATE: "2026-07-20T08:00:00Z"
+      PROOF_APPROVED_DATE: "2026-07-20T08:00:00Z",
+      PROOF_APPROVED_TS: "20-JUL-2026 08:00:00 AM"
     }
   ]
 };
@@ -169,6 +172,8 @@ test("keeps sibling attachments separate and joins by ORDER_LINE_ID before LINE_
   assert.equal(siblings[0]?.current_version?.comments.length, 2);
   assert.deepEqual(siblings.map((task) => task.quantity), [1, 1]);
   assert.equal(siblings[0]?.current_version?.content_type, "application/pdf");
+  assert.equal(siblings[0]?.current_version?.created_ts, "19-JUL-2026 10:00:00 AM");
+  assert.equal(siblings[1]?.current_version?.proof_approved_ts, "20-JUL-2026 08:00:00 AM");
   assert.equal(siblings[0]?.state, "pending");
   assert.equal(siblings[1]?.state, "approved");
   assert.equal(order.tasks.find((task) => task.order_line_id === "9301339")?.state, "waiting");
@@ -428,6 +433,13 @@ test("projects one customer-safe cached Proof summary for Status and Order Rollu
   assert.equal(serialized.includes("task_id"), false);
   assert.equal(serialized.includes("proof_comment"), false);
   assert.equal(serialized.includes("approved_by"), false);
+  assert.deepEqual(projection.proofs.map((proof) => ({
+    created_ts: proof.created_ts,
+    proof_approved_ts: proof.proof_approved_ts
+  })), [
+    { created_ts: "19-JUL-2026 10:00:00 AM", proof_approved_ts: null },
+    { created_ts: "19-JUL-2026 10:10:00 AM", proof_approved_ts: "20-JUL-2026 08:00:00 AM" }
+  ]);
 });
 
 test("sanitizes raw fallback proof records before they enter public Status", () => {
@@ -436,7 +448,9 @@ test("sanitizes raw fallback proof records before they enter public Status", () 
     proof_approval_status: " PENDING\nREVIEW ",
     proof_link_low: "javascript:alert(1)",
     proof_link_high: "https://user:secret@proof.example/file.pdf",
+    created_ts: "03-SEP-2026 02:48:31 PM",
     creation_date: "not-a-date",
+    proof_approved_ts: "03-SEP-2026 02:48:31 PM",
     proof_state: "pending"
   });
 
@@ -445,7 +459,9 @@ test("sanitizes raw fallback proof records before they enter public Status", () 
     proof_approval_status: "PENDING REVIEW",
     proof_link_low: null,
     proof_link_high: null,
+    created_ts: "03-SEP-2026 02:48:31 PM",
     creation_date: null,
+    proof_approved_ts: "03-SEP-2026 02:48:31 PM",
     proof_state: "pending"
   });
 });
@@ -1256,6 +1272,7 @@ test("projects customer-safe proof assets with deterministic preview behavior", 
   version.download_url = "https://files.example/final-proof.pdf?X-Amz-Signature=signed";
   assert.deepEqual(toPublicProofVersion(version), {
     version_id: version.version_id,
+    created_ts: version.created_ts,
     created_at: version.created_at,
     filename: "final-proof.pdf",
     content_type: "application/pdf",
@@ -1263,6 +1280,7 @@ test("projects customer-safe proof assets with deterministic preview behavior", 
     preview_url: "https://files.example/final-proof.pdf?X-Amz-Signature=signed",
     download_url: "https://files.example/final-proof.pdf?X-Amz-Signature=signed",
     approval_status: version.approval_status,
+    proof_approved_ts: version.proof_approved_ts,
     approved_at: version.approved_at,
     comments: [...version.comments]
       .sort((left, right) => Date.parse(right.created_at ?? "") - Date.parse(left.created_at ?? ""))

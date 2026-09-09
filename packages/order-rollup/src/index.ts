@@ -467,7 +467,11 @@ export interface OrderRollupProof {
   proof_approval_status?: string | null;
   proof_link_low?: string | null;
   proof_link_high?: string | null;
+  /** Lift-recorded proof-upload timestamp. This is a wall-clock value, not a UTC instant. */
+  created_ts?: string | null;
   creation_date?: string | null;
+  /** Lift-recorded proof-approval timestamp. This is a wall-clock value, not a UTC instant. */
+  proof_approved_ts?: string | null;
   preview_kind?: "image" | "pdf" | "download" | "unavailable";
   proof_state?: "waiting" | "pending" | "revised" | "approved" | "reference" | "cancelled" | "missing" | "error";
 }
