@@ -1310,6 +1310,7 @@ async function fetchLiftShippingReport(args: {
   route: OutputRoute;
   orderNumber: string;
   orderLineId?: string | number | null;
+  timeoutMs?: number;
 }) {
   const environment = routeEnvironmentForTarget(args.target, args.route);
   const shippingReportUrl = buildLiftShippingReportUrl(args.route.shipping_report_url, args.orderNumber, args.orderLineId);
@@ -1327,7 +1328,7 @@ async function fetchLiftShippingReport(args: {
 
   const response = await fetch(shippingReportUrl, {
     headers,
-    signal: AbortSignal.timeout(15000)
+    signal: AbortSignal.timeout(args.timeoutMs ?? 15000)
   });
   const contentType = response.headers.get("content-type") ?? "";
   const body = contentType.includes("application/json") ? await response.json().catch(() => null) : await response.text();
@@ -1941,7 +1942,8 @@ async function buildInternalOrderSnapshotForJob(
         ? () => fetchLiftShippingReport({
           target: context.target,
           route: context.route,
-          orderNumber: context.orderNumber
+          orderNumber: context.orderNumber,
+          ...(options.telemetryContext === "public_status_refresh" ? { timeoutMs: 5000 } : {})
         })
         : null
     })

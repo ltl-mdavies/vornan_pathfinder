@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildCarrierTrackingUrl,
+  carrierNameForTracking,
   buildOrderRollupShipmentSummary,
   isExplicitLiftOrderAbsence,
   isLiftCancelledLine,
@@ -306,6 +307,10 @@ test("deduplicates physical packages across lines and builds only known carrier 
     buildCarrierTrackingUrl("123456789012", "PRIORITY_OVERNIGHT"),
     "https://www.fedex.com/fedextrack/?trknbr=123456789012"
   );
+  assert.equal(carrierNameForTracking("123456789012", "PRIORITY_OVERNIGHT"), "FedEx");
+  assert.equal(carrierNameForTracking("1Z60V157P299088946", "GROUND"), "UPS");
+  assert.equal(carrierNameForTracking("", "USPS_PRIORITY_MAIL"), "USPS");
+  assert.equal(carrierNameForTracking("not a safe value", "Unknown"), null);
   assert.equal(buildCarrierTrackingUrl("not a safe value", "Unknown"), null);
 });
 

@@ -1,8 +1,9 @@
-import type {
-  OrderRollupDataSource,
-  OrderRollupIssue,
-  OrderRollupSourceReason,
-  OrderRollupSourceStatus
+import {
+  buildOrderRollupShipmentSummary,
+  type OrderRollupDataSource,
+  type OrderRollupIssue,
+  type OrderRollupSourceReason,
+  type OrderRollupSourceStatus
 } from "@pathfinder/order-rollup";
 import type { PublicOrderStatusSnapshot } from "./store.js";
 
@@ -243,7 +244,8 @@ export function mergePublicStatusRefresh(
   });
 
   const sourceStatus = mergedSourceStatus(previous, fresh);
-  const shipmentSummaryFresh = packagesFresh && shippingFresh;
+  const header = orderFresh ? fresh.header : previous.header;
+  const shipmentSummaryFresh = packagesFresh || shippingFresh;
   const lifecycle = orderFresh ? fresh.lifecycle : previous.lifecycle;
   const mergedLifecycle = lifecycle?.state === "cancelled" && previous.lifecycle?.state === "cancelled"
     ? {
@@ -254,13 +256,13 @@ export function mergePublicStatusRefresh(
 
   return {
     ...fresh,
-    header: orderFresh ? fresh.header : previous.header,
+    header,
     live_order: orderFresh ? fresh.live_order : previous.live_order,
     order_status: orderFresh ? fresh.order_status : previous.order_status,
     lifecycle: mergedLifecycle,
     proof_summary: proofsFresh ? fresh.proof_summary : previous.proof_summary,
     shipment_summary: shipmentSummaryFresh
-      ? fresh.shipment_summary
+      ? buildOrderRollupShipmentSummary(lines, header.shipping)
       : previous.shipment_summary ?? fresh.shipment_summary,
     lines,
     lookups: {

@@ -53,6 +53,7 @@ type StatusProof = {
   creation_date?: string | null;
   proof_approved_ts?: string | null;
   preview_kind?: "image" | "pdf" | "download" | "unavailable";
+  proof_state?: "waiting" | "pending" | "revised" | "approved" | "reference" | "cancelled" | "missing" | "error";
 };
 
 type StatusPackage = {
@@ -62,6 +63,7 @@ type StatusPackage = {
   box_number?: string | number | null;
   package_type?: string | null;
   location_name?: string | null;
+  destination?: OrderRollupDestination | null;
 };
 
 type StatusLine = {
@@ -170,6 +172,8 @@ type PublicStatusResponse = {
     order_count?: number;
   };
 };
+
+type PublicStatusRefreshState = "live" | "checking" | "degraded";
 
 type StatusRequestResponse = {
   status: string;
@@ -514,7 +518,7 @@ function StatusView({
   refreshState
 }: {
   payload: PublicStatusResponse;
-  refreshState: "live" | "checking" | "degraded";
+  refreshState: PublicStatusRefreshState;
 }) {
   const snapshots = payload.snapshots?.length ? payload.snapshots : [payload.snapshot];
   const [selectedOrderKey, setSelectedOrderKey] = useState(snapshots[0].order_key);
@@ -619,6 +623,7 @@ function StatusView({
         displayDate={displayDate}
         allowProofAssetLinks
         proofAssetsLoading={refreshState === "checking"}
+        shipmentsLoading={refreshState === "checking"}
       />
 
       <section className="privacy-note">
@@ -628,11 +633,178 @@ function StatusView({
   );
 }
 
+function PublicStatusHeader({
+  productName,
+  refreshState
+}: {
+  productName: "Order status" | "Order intake";
+  refreshState?: PublicStatusRefreshState;
+}) {
+  return (
+    <header className="brand-header">
+      <div className="brand-product">
+        <img src="/brand/vornan-wordmark.svg" alt="Vornan" className="vornan-wordmark" />
+        <span aria-hidden="true" />
+        <strong>{productName}</strong>
+      </div>
+      {refreshState ? (
+        <span className={`brand-live ${refreshState}`} role="status" aria-live="polite">
+          <i aria-hidden="true" />
+          <span className="brand-live-label brand-live-label--full">
+            {refreshState === "checking"
+              ? "Syncing latest status…"
+              : refreshState === "degraded"
+                ? "Updates temporarily delayed"
+                : "Live updates on"}
+          </span>
+          <span className="brand-live-label brand-live-label--compact">
+            {refreshState === "checking"
+              ? "Syncing…"
+              : refreshState === "degraded"
+                ? "Updates delayed"
+                : "Live"}
+          </span>
+        </span>
+      ) : null}
+    </header>
+  );
+}
+
+function DesignQaApp() {
+  const [refreshState, setRefreshState] = useState<PublicStatusRefreshState>("checking");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setRefreshState("live"), 1_800);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const packageOne: StatusPackage = {
+    tracking_number: "383464350227",
+    box_number: "1",
+    ship_method: "PRIORITY_OVERNIGHT",
+    tracker_message: "Delivered (09/08/2026 11:28 AM) in Cincinnati, OH, 45202",
+    location_name: "Cincinnati",
+    destination: {
+      company: "Christopher Crabtree",
+      address_1: "500 Elliott Ave",
+      city: "Haileyville",
+      state: "OK",
+      postal_code: "74546"
+    }
+  };
+  const checking = refreshState === "checking";
+  const printStep: LiftStepDefinition = {
+    step_id: "1005",
+    step_number: "14",
+    job_flow_id: "1006",
+    step_name: "Print",
+    step_code: "PRINT",
+    order_status: "Ready to Print",
+    order_status_code: "READY_TO_PRINT",
+    order_status_color: "blue",
+    active: true
+  };
+  const lines: StatusLine[] = [1, 2].map((lineNumber) => ({
+    line_number: lineNumber,
+    product_name: lineNumber === 1 ? "Pump topper (Clip)" : "Pump topper (Citgo)",
+    quantity: lineNumber === 1 ? 40 : 8,
+    material: ".015 Styrene",
+    final_height: 12,
+    final_width: 20.125,
+    step: printStep,
+    proof_count: 1,
+    proof_review_required: false,
+    package_count: !checking && lineNumber === 1 ? 1 : 0,
+    latest_proof_status: "APPROVED",
+    latest_tracking_message: !checking && lineNumber === 1 ? packageOne.tracker_message ?? null : null,
+    packages: !checking && lineNumber === 1 ? [packageOne] : [],
+    proofs: [{
+      proof_filename: `PFMTLOIWSFEFAF_line_${lineNumber}.jpg`,
+      proof_approval_status: "APPROVED",
+      proof_state: "approved",
+      created_ts: `03-SEP-2026 0${lineNumber + 1}:48:31 PM`,
+      proof_approved_ts: `04-SEP-2026 0${lineNumber + 8}:12:05 AM`,
+      preview_kind: "unavailable"
+    }]
+  }));
+  const snapshot: PublicOrderStatusSnapshot = {
+    snapshot_id: "design-qa-snapshot",
+    order_key: "design-qa-order",
+    order_number: "A0230112",
+    source_order_id: "PFMTLOIWSFEFAF",
+    customer: { source_customer_name: "Empirical – Momentara", submit_customer_name: "Momentara" },
+    job: {
+      job_id: "design-qa-job",
+      state: "accepted",
+      import_method_name: "Design QA",
+      source_file_name: "design-qa.json",
+      created_at: "2026-09-03T15:28:00.000Z",
+      updated_at: "2026-09-09T16:00:00.000Z",
+      order_confirmed_at: "2026-09-03T15:30:00.000Z"
+    },
+    route: { name: "Design QA", target: "Lift", template: "Design QA" },
+    header: {
+      ext_id: "PFMTLOIWSFEFAF",
+      order_title: "C316905 – Momentara Web Order – 20260903",
+      po_number: "C316905",
+      contract_number: "C316905",
+      requested_ship_date: "2026-09-09",
+      due_date: "2026-09-09"
+    },
+    live_order: null,
+    order_status: { label: "Ready to Print", code: "READY_TO_PRINT", color: "blue", step: printStep },
+    lifecycle: { state: "active" },
+    proof_summary: {
+      source: "proof_cache",
+      health: "complete",
+      pending: 0,
+      regenerating: 0,
+      waiting: 0,
+      reviewed: 2,
+      total: 2,
+      review_required: false,
+      last_synced_at: "2026-09-09T16:00:00.000Z",
+      decisions_enabled: false,
+      access_mode: "status_only"
+    },
+    proof_visibility: "status_only",
+    shipment_summary: null,
+    lines,
+    lookups: { order: null, proofs: null, packages: null, shipping: null },
+    source_status: {},
+    issues: [],
+    visibility_policy: {
+      audience: "design_qa",
+      redacted_fields: [],
+      token_required: false,
+      proof_visibility: "status_only"
+    },
+    refreshed_at: "2026-09-09T16:00:00.000Z"
+  };
+  const payload: PublicStatusResponse = {
+    snapshot,
+    snapshots: [snapshot],
+    refresh: {
+      status: "live",
+      checked_at: snapshot.refreshed_at,
+      next_refresh_at: "2026-09-09T16:01:00.000Z",
+      poll_after_seconds: 60
+    },
+    link: { status: "active", expires_at: "2026-10-09T16:00:00.000Z", order_count: 1 }
+  };
+
+  return (
+    <main className="status-shell">
+      <PublicStatusHeader productName="Order status" refreshState={refreshState} />
+      <StatusView payload={payload} refreshState={refreshState} />
+    </main>
+  );
+}
+
 function App() {
   const initialToken = useMemo(tokenFromLocation, []);
   const [payload, setPayload] = useState<PublicStatusResponse | null>(null);
   const [state, setState] = useState<"idle" | "loading" | "error">(initialToken ? "loading" : "idle");
-  const [refreshState, setRefreshState] = useState<"live" | "checking" | "degraded">("checking");
+  const [refreshState, setRefreshState] = useState<PublicStatusRefreshState>("checking");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -669,6 +841,7 @@ function App() {
         return;
       }
       requestActive = true;
+      let refreshImmediately = false;
       let responseStatus = 0;
       if (initial) {
         setState("loading");
@@ -706,13 +879,16 @@ function App() {
           setState("idle");
           const degraded = !initial && data.refresh?.status === "degraded";
           consecutiveDegraded = degraded ? Math.min(4, consecutiveDegraded + 1) : 0;
-          setRefreshState(degraded ? "degraded" : "live");
+          setRefreshState(initial ? "checking" : degraded ? "degraded" : "live");
           setMessage("");
           loaded = true;
-          // The initial GET already delivers the complete durable snapshot,
-          // including confirmed package and shipment details. Let customers
-          // read that payload before the first background Lift refresh.
-          schedulePoll(data.refresh?.poll_after_seconds);
+          if (initial) {
+            // Render the durable snapshot immediately, then refresh Lift once
+            // in the background so shipment details do not wait for the first poll.
+            refreshImmediately = true;
+          } else {
+            schedulePoll(data.refresh?.poll_after_seconds);
+          }
         }
       } catch {
         if (!ignore) {
@@ -727,6 +903,13 @@ function App() {
         }
       } finally {
         requestActive = false;
+        if (refreshImmediately && !ignore) {
+          if (shouldPollPublicStatus(document.visibilityState)) {
+            void loadStatus(false);
+          } else {
+            setRefreshState("live");
+          }
+        }
       }
     }
 
@@ -752,30 +935,7 @@ function App() {
 
   return (
     <main className="status-shell">
-      <header className="brand-header">
-        <div className="brand-product">
-          <img src="/brand/vornan-wordmark.svg" alt="Vornan" className="vornan-wordmark" />
-          <span aria-hidden="true" />
-          <strong>Order status</strong>
-        </div>
-        <span className={`brand-live ${refreshState}`} role="status" aria-live="polite">
-          <i aria-hidden="true" />
-          <span className="brand-live-label brand-live-label--full">
-            {refreshState === "checking"
-              ? "Syncing latest status…"
-              : refreshState === "degraded"
-                ? "Updates temporarily delayed"
-                : "Live updates on"}
-          </span>
-          <span className="brand-live-label brand-live-label--compact">
-            {refreshState === "checking"
-              ? "Syncing…"
-              : refreshState === "degraded"
-                ? "Updates delayed"
-                : "Live"}
-          </span>
-        </span>
-      </header>
+      <PublicStatusHeader productName="Order status" refreshState={refreshState} />
 
       {!initialToken ? <StatusRequest /> : null}
 
@@ -814,19 +974,16 @@ function App() {
 
 function RootApp() {
   const intakeKey = useMemo(intakeKeyFromLocation, []);
+  if (import.meta.env.DEV && window.location.pathname.replace(/\/+$/, "") === "/design-qa") {
+    return <DesignQaApp />;
+  }
   if (!intakeKey) {
     return <App />;
   }
 
   return (
     <main className="status-shell intake-shell">
-      <header className="brand-header">
-        <div className="brand-product">
-          <img src="/brand/vornan-wordmark.svg" alt="Vornan" className="vornan-wordmark" />
-          <span aria-hidden="true" />
-          <strong>Order intake</strong>
-        </div>
-      </header>
+      <PublicStatusHeader productName="Order intake" />
       <CustomerIntake apiBaseUrl={apiBaseUrl} publicKey={intakeKey} />
     </main>
   );

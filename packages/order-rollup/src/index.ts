@@ -593,19 +593,36 @@ function comparePackagesByNumber(
   return packageNumberCollator.compare(left.package.tracking_number ?? "", right.package.tracking_number ?? "");
 }
 
+export type ShipmentCarrierName = "FedEx" | "UPS" | "USPS";
+
+export function carrierNameForTracking(
+  trackingNumber?: string | null,
+  shipMethod?: string | null
+): ShipmentCarrierName | null {
+  const tracking = trackingNumber?.replace(/\s+/g, "").trim();
+  const method = shipMethod?.trim() ?? "";
+  if (/fed\s*ex/i.test(method)) return "FedEx";
+  if (/(^|[^a-z])ups([^a-z]|$)/i.test(method)) return "UPS";
+  if (/(^|[^a-z])usps([^a-z]|$)|postal/i.test(method)) return "USPS";
+  if (/^1Z[0-9A-Z]{16}$/i.test(tracking ?? "")) return "UPS";
+  if (/^\d{12}$/.test(tracking ?? "")) return "FedEx";
+  if (/^(?:9[2345]\d{20,22}|[A-Z]{2}\d{9}US)$/i.test(tracking ?? "")) return "USPS";
+  return null;
+}
+
 export function buildCarrierTrackingUrl(trackingNumber?: string | null, shipMethod?: string | null) {
   const tracking = trackingNumber?.replace(/\s+/g, "").trim();
   if (!tracking || tracking.length > 100) return null;
-  const method = shipMethod?.toLocaleLowerCase() ?? "";
-  if (/^1Z[0-9A-Z]{16}$/i.test(tracking) || method.includes("ups")) {
+  const carrier = carrierNameForTracking(tracking, shipMethod);
+  if (carrier === "UPS") {
     return /^[-0-9A-Z]+$/i.test(tracking)
       ? `https://www.ups.com/track?loc=en_US&tracknum=${encodeURIComponent(tracking)}`
       : null;
   }
-  if ((/^\d{12,22}$/.test(tracking) && method.includes("fedex")) || /^\d{12}$/.test(tracking)) {
+  if (carrier === "FedEx" && /^\d{12,22}$/.test(tracking)) {
     return `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(tracking)}`;
   }
-  if (method.includes("usps") || /^(?:9[2345]\d{20,22}|[A-Z]{2}\d{9}US)$/i.test(tracking)) {
+  if (carrier === "USPS") {
     return /^[0-9A-Z]+$/i.test(tracking)
       ? `https://tools.usps.com/go/TrackConfirmAction?tLabels=${encodeURIComponent(tracking)}`
       : null;

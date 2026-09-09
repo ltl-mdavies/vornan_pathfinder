@@ -331,7 +331,10 @@ test("retains last-confirmed shipping enrichment independently while fresh packa
     lines: [{
       ...previous.lines[0],
       package_count: 2,
-      packages: [{ tracking_number: "TRACK-OLD", box_number: "1", tracker_message: "Label updated" }]
+      packages: [
+        { tracking_number: "TRACK-OLD", box_number: "1", tracker_message: "Label updated" },
+        { tracking_number: "TRACK-NEW", box_number: "2", ship_method: "UPS", tracker_message: "Label created" }
+      ]
     }],
     lookups: {
       ...previous.lookups,
@@ -350,7 +353,12 @@ test("retains last-confirmed shipping enrichment independently while fresh packa
   assert.equal(merged.lines[0].package_count, 2);
   assert.equal(merged.lines[0].packages[0]?.tracker_message, "Label updated");
   assert.equal(merged.lines[0].packages[0]?.destination?.address_1, "123 Main");
+  assert.equal(merged.shipment_summary?.package_count, 2);
+  assert.equal(merged.shipment_summary?.tracking_count, 2);
   assert.equal(merged.shipment_summary?.destinations[0]?.destination?.address_1, "123 Main");
+  assert.equal(merged.shipment_summary?.destinations.some((destination) =>
+    destination.tracking.some((tracking) => tracking.tracking_number === "TRACK-NEW")
+  ), true);
   assert.equal(merged.source_status?.shipping?.availability, "stale");
   assert.equal(merged.source_status?.shipping?.last_success_at, checkedAt);
   assert.equal(merged.issues.some((issue) => issue.source === "shipping"), false);

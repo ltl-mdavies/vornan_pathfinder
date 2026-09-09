@@ -3,6 +3,7 @@ import { ArrowUpRight, CheckCircle2, ChevronDown, FileImage, LoaderCircle } from
 import {
   buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
+  carrierNameForTracking,
   standardGraphicsRail,
   stepProgressIndex,
   type OrderRollupDestination,
@@ -45,6 +46,38 @@ function displayDateOnly(value?: string | null) {
     month: "short",
     day: "numeric",
     year: "numeric"
+  }).format(date);
+}
+
+const liftProofTimestampMonths: Record<string, string> = {
+  JAN: "Jan", FEB: "Feb", MAR: "Mar", APR: "Apr", MAY: "May", JUN: "Jun",
+  JUL: "Jul", AUG: "Aug", SEP: "Sep", OCT: "Oct", NOV: "Nov", DEC: "Dec"
+};
+
+/** Lift proof timestamps are wall-clock values without an offset. */
+export function displayProofTimestamp(value?: string | null) {
+  if (!value) return "Not available";
+  const match = /^(\d{2})-([A-Z]{3})-(\d{4}) (\d{2}):(\d{2})(?::\d{2})? (AM|PM)$/i.exec(value.trim());
+  if (match) {
+    const [, day, month, year, hour, minute, period] = match;
+    return `${liftProofTimestampMonths[month.toUpperCase()] ?? month} ${Number(day)}, ${year}, ${Number(hour)}:${minute} ${period.toUpperCase()}`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return displayDateOnly(value);
+  }
+  return defaultDisplayDateTime(value);
+}
+
+function defaultDisplayDateTime(value?: string | null) {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
   }).format(date);
 }
 
@@ -185,6 +218,16 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
     : null;
   const lightboxUrl = highResolutionUrl ?? previewUrl;
   const lightboxKind = proofAssetKind(lightboxUrl, filename);
+  const proofCreatedAt = proof.created_ts
+    ? displayProofTimestamp(proof.created_ts)
+    : proof.creation_date
+      ? (/^\d{4}-\d{2}-\d{2}$/.test(proof.creation_date) ? displayDateOnly(proof.creation_date) : displayDate(proof.creation_date))
+      : null;
+  const currentProofApproved = proof.proof_state === "approved"
+    || proof.proof_approval_status?.trim().toLowerCase() === "approved";
+  const proofApprovedAt = currentProofApproved && proof.proof_approved_ts
+    ? displayProofTimestamp(proof.proof_approved_ts)
+    : null;
 
   useEffect(() => {
     if (!previewOpen) return undefined;
@@ -239,7 +282,8 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
         <div className="order-rollup__proof-card-copy">
           <strong className="order-rollup__proof-filename">{filename}</strong>
           <span className="order-rollup__proof-state">{proofStateLabel(proof, creativeContext)}</span>
-          {proof.creation_date ? <small>Posted {displayDate(proof.creation_date)}</small> : null}
+          {proofCreatedAt ? <small>Proof created: {proofCreatedAt}</small> : null}
+          {proofApprovedAt ? <small>Proof approved: {proofApprovedAt}</small> : null}
         </div>
       </article>
       {previewOpen && lightboxUrl ? (
@@ -332,7 +376,7 @@ function ProofList({ proofs, displayDate, allowAssetLinks, assetsLoading, creati
   if (!proofs.length) {
     return <p className="order-rollup__empty">{creativeContext ? "A creative has not been posted for this line yet." : "Proofs have not been posted for this line yet."}</p>;
   }
-  return <div className="order-rollup__proofs">{proofs.map((proof, index) => <ProofCard proof={proof} displayDate={displayDate} allowAssetLinks={allowAssetLinks} assetsLoading={assetsLoading} creativeContext={creativeContext} key={`${proof.proof_filename ?? "proof"}-${proof.creation_date ?? index}`} />)}</div>;
+  return <div className="order-rollup__proofs">{proofs.map((proof, index) => <ProofCard proof={proof} displayDate={displayDate} allowAssetLinks={allowAssetLinks} assetsLoading={assetsLoading} creativeContext={creativeContext} key={`${proof.proof_filename ?? "proof"}-${proof.created_ts ?? proof.creation_date ?? index}`} />)}</div>;
 }
 
 function PackageList({ packages }: { packages: OrderRollupPackage[] }) {
@@ -366,7 +410,7 @@ function PackageList({ packages }: { packages: OrderRollupPackage[] }) {
                 : "Tracking pending"}</span>
             </div>
             <p>{eventSummary}</p>
-            <small>{[pkg.package_type, humanizeShipMethod(pkg.ship_method), pkg.location_name].filter(Boolean).join(" · ") || "Shipment details pending"}</small>
+            <small>{[pkg.package_type, shipmentServiceLabel(pkg.tracking_number, pkg.ship_method), pkg.location_name].filter(Boolean).join(" · ") || "Shipment details pending"}</small>
           </article>
         );
       })}
@@ -413,6 +457,14 @@ function humanizeShipMethod(value?: string | null) {
   return words.join(" ").replace(/FedEx 2 Day/g, "FedEx 2Day");
 }
 
+function shipmentServiceLabel(trackingNumber?: string | null, shipMethod?: string | null) {
+  const carrier = carrierNameForTracking(trackingNumber, shipMethod);
+  if (!shipMethod) return carrier ?? "Shipping method pending";
+  const service = humanizeShipMethod(shipMethod);
+  if (!carrier || service.toLocaleLowerCase().startsWith(carrier.toLocaleLowerCase())) return service;
+  return `${carrier} · ${service}`;
+}
+
 function trackingEventDetails(message?: string | null) {
   const normalized = message?.trim();
   if (!normalized) {
@@ -457,7 +509,7 @@ function compareShipmentTrackingByPackage(
   return left.tracking_number.localeCompare(right.tracking_number, "en", { numeric: true, sensitivity: "base" });
 }
 
-function ShipmentSummary({ summary, compact = false }: { summary: OrderRollupShipmentSummary; compact?: boolean }) {
+function ShipmentSummary({ summary, compact = false, loading = false }: { summary: OrderRollupShipmentSummary; compact?: boolean; loading?: boolean }) {
   const context = [
     summary.status_messages[0],
     summary.methods.length ? summary.methods.join(", ") : null,
@@ -501,7 +553,7 @@ function ShipmentSummary({ summary, compact = false }: { summary: OrderRollupShi
                           <article key={tracking.tracking_number}>
                             <div className="order-rollup__shipment-package-meta">
                               <span>{packageName}</span>
-                              <strong>{humanizeShipMethod(tracking.ship_method)}</strong>
+                              <strong>{shipmentServiceLabel(tracking.tracking_number, tracking.ship_method)}</strong>
                             </div>
                             <strong className="order-rollup__shipment-tracking-number">{trackingUrl
                               ? <a href={trackingUrl} target="_blank" rel="noreferrer">{tracking.tracking_number}<ArrowUpRight aria-hidden="true" /></a>
@@ -534,10 +586,18 @@ function ShipmentSummary({ summary, compact = false }: { summary: OrderRollupShi
               );
             })}
           </div>
+        ) : loading ? (
+          <div className="order-rollup__shipment-empty order-rollup__shipment-loading" role="status" aria-live="polite" aria-busy="true">
+            <LoaderCircle aria-hidden="true" />
+            <div>
+              <strong>Checking Lift for shipment details</strong>
+              <span>Loading the latest package and tracking information…</span>
+            </div>
+          </div>
         ) : (
           <div className="order-rollup__shipment-empty">
-            <strong>Shipment updates pending</strong>
-            <span>Packages and tracking will appear here when they become available.</span>
+            <strong>Tracking isn’t available yet</strong>
+            <span>Packages and tracking will appear here when available.</span>
           </div>
         )}
         <small className="order-rollup__shipment-auto-update">Shipment details update automatically.</small>
@@ -588,7 +648,7 @@ function ShipmentSummary({ summary, compact = false }: { summary: OrderRollupShi
                             <strong>{trackingUrl
                               ? <a href={trackingUrl} target="_blank" rel="noreferrer">{tracking.tracking_number}</a>
                               : tracking.tracking_number}</strong>
-                            <span>{[tracking.ship_method, tracking.box_numbers.length ? `Package ${tracking.box_numbers.join(", ")}` : null].filter(Boolean).join(" · ")}</span>
+                            <span>{[shipmentServiceLabel(tracking.tracking_number, tracking.ship_method), tracking.box_numbers.length ? `Package ${tracking.box_numbers.join(", ")}` : null].filter(Boolean).join(" · ")}</span>
                           </div>
                           <p>{tracking.tracker_message ?? "Tracking activity is available from the carrier."}</p>
                           {lineNumberSummary(tracking.line_numbers) ? <small>{lineNumberSummary(tracking.line_numbers)}</small> : null}
@@ -658,9 +718,24 @@ function LineProofThumbnail({ line, allowProofAssetLinks }: { line: OrderRollupL
   );
 }
 
+function mixedCaseStatus(value: string) {
+  const normalized = value.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized || normalized !== normalized.toUpperCase()) return normalized;
+  const acronyms = new Set(["PDF", "UPS", "USPS"]);
+  const minorWords = new Set(["and", "for", "in", "of", "to"]);
+  return normalized.split(" ").map((word, index) => {
+    if (acronyms.has(word)) return word;
+    const lower = word.toLowerCase();
+    if (index > 0 && minorWords.has(lower)) return lower;
+    return `${lower.charAt(0).toUpperCase()}${lower.slice(1)}`;
+  }).join(" ");
+}
+
 function lineStatus(line: OrderRollupLine) {
   if (line.cancelled) return "Canceled";
-  return line.step?.order_status ?? line.latest_tracking_message ?? line.latest_proof_status ?? "Status pending";
+  const status = line.step?.order_status ?? line.latest_tracking_message ?? line.latest_proof_status ?? "Status pending";
+  if (/^delivered(?:\s|\(|$)/i.test(status.trim())) return "Delivered";
+  return mixedCaseStatus(status);
 }
 
 function publicLineKey(line: OrderRollupLine) {
@@ -772,13 +847,15 @@ export function OrderRollup({
   audience = "public",
   displayDate = defaultDisplayDate,
   allowProofAssetLinks = audience === "internal",
-  proofAssetsLoading = false
+  proofAssetsLoading = false,
+  shipmentsLoading = false
 }: {
   snapshot: OrderRollupSnapshot;
   audience?: OrderRollupAudience;
   displayDate?: (value?: string | null) => string;
   allowProofAssetLinks?: boolean;
   proofAssetsLoading?: boolean;
+  shipmentsLoading?: boolean;
 }) {
   const [publicExpandedLines, setPublicExpandedLines] = useState<Set<string>>(() => new Set());
   const liveOrder = snapshot.live_order ?? null;
@@ -836,12 +913,12 @@ export function OrderRollup({
               </dl>
             </section>
 
-            <ShipmentSummary summary={shipmentSummary} compact />
+            <ShipmentSummary summary={shipmentSummary} compact loading={shipmentsLoading} />
 
             {shippingStatusUnavailable ? (
               <SectionAvailabilityNote
                 heading="Shipping update"
-                message="Some shipment details are temporarily unavailable. We’re showing the last confirmed update and will retry automatically."
+                message="Shipment details could not be refreshed. We’ll retry automatically."
               />
             ) : null}
 
