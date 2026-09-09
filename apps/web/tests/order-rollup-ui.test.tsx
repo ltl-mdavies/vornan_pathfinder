@@ -434,6 +434,19 @@ test("humanizes expanded shipment activity and service labels", () => {
   assert.doesNotMatch(markup, /Delivered \(09\/01\/2026/);
 });
 
+test("normalizes uppercase provider status values in line chips", () => {
+  const snapshot = realSiblingSnapshot();
+  snapshot.lines[0].latest_tracking_message = null;
+  snapshot.lines[0].latest_proof_status = "APPROVED";
+
+  const markup = renderToStaticMarkup(
+    <OrderRollup snapshot={snapshot} audience="public" />
+  );
+
+  assert.match(markup, /<span class="order-rollup__status">Approved<\/span>/);
+  assert.doesNotMatch(markup, /<span class="order-rollup__status">APPROVED<\/span>/);
+});
+
 test("shows quiet public shipment empty states for pending and partially tracked packages", () => {
   const pending = realSiblingSnapshot();
   pending.proof_visibility = "status_only";

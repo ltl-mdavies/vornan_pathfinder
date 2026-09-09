@@ -709,11 +709,24 @@ function LineProofThumbnail({ line, allowProofAssetLinks }: { line: OrderRollupL
   );
 }
 
+function mixedCaseStatus(value: string) {
+  const normalized = value.replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized || normalized !== normalized.toUpperCase()) return normalized;
+  const acronyms = new Set(["PDF", "UPS", "USPS"]);
+  const minorWords = new Set(["and", "for", "in", "of", "to"]);
+  return normalized.split(" ").map((word, index) => {
+    if (acronyms.has(word)) return word;
+    const lower = word.toLowerCase();
+    if (index > 0 && minorWords.has(lower)) return lower;
+    return `${lower.charAt(0).toUpperCase()}${lower.slice(1)}`;
+  }).join(" ");
+}
+
 function lineStatus(line: OrderRollupLine) {
   if (line.cancelled) return "Canceled";
-  if (line.step?.order_status) return line.step.order_status;
-  if (/^delivered(?:\s|\(|$)/i.test(line.latest_tracking_message?.trim() ?? "")) return "Delivered";
-  return line.latest_tracking_message ?? line.latest_proof_status ?? "Status pending";
+  const status = line.step?.order_status ?? line.latest_tracking_message ?? line.latest_proof_status ?? "Status pending";
+  if (/^delivered(?:\s|\(|$)/i.test(status.trim())) return "Delivered";
+  return mixedCaseStatus(status);
 }
 
 function publicLineKey(line: OrderRollupLine) {
