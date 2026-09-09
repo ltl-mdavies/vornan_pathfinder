@@ -1,4 +1,7 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { fileURLToPath } from "node:url";
+
+const fixturePdfPath = fileURLToPath(new URL("../../apps/proof/public/brand/proof-placeholder.pdf", import.meta.url));
 
 const fixtureSvg = `
   <svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
@@ -29,7 +32,7 @@ async function isolateNetwork(context: BrowserContext) {
         await route.fulfill({
           status: 200,
           contentType: "application/pdf",
-          body: "%PDF-1.4\n%%EOF"
+          path: fixturePdfPath
         });
         return;
       }
@@ -157,7 +160,14 @@ for (const viewport of viewports) {
     await page.goto(`/proof?fixture=assets-${encodeURIComponent(viewport.name)}#/proof/assets-qa`);
     await waitForProofWorkspace(page);
     await expectNoHorizontalOverflow(page);
-    expect(await page.getByText("north-wall-final-proof-with-an-intentionally-long-filename-for-responsive-review.pdf").count()).toBeGreaterThan(0);
+    expect(await page.getByText("north-wall-final-proof-with-an-intentionally-long-filename-for-responsive-review.jpg").count()).toBeGreaterThan(0);
+    await expect(page.locator("iframe[title^='PDF proof preview']")).toHaveCount(0);
+    const pdfViewer = page.locator(viewport.width > 820 && viewport.height > 480
+      ? ".preview-stage .proof-document-viewer"
+      : ".mobile-feed .feed-card:first-child .proof-document-viewer");
+    await expect(pdfViewer).toBeVisible();
+    await expect(pdfViewer.locator(".proof-document-canvas")).toBeVisible();
+    await expect(pdfViewer.getByRole("group", { name: "PDF proof viewer controls" })).toBeVisible();
 
     if (viewport.width > 820 && viewport.height > 480) {
       const queue = page.locator(".task-list");
@@ -311,10 +321,15 @@ test("Proof renders PDF and non-preview fallbacks deterministically", async ({ p
   await page.goto("/proof#/proof/assets-qa");
   await waitForProofWorkspace(page);
 
-  const pdfFrame = page.locator(".preview-stage iframe[title^='PDF proof preview']");
-  await expect(pdfFrame).toBeVisible();
-  await expect(pdfFrame).not.toHaveAttribute("sandbox", /.+/);
-  await expect(pdfFrame).toHaveAttribute("referrerpolicy", "no-referrer");
+  const pdfViewer = page.locator(".preview-stage .proof-document-viewer");
+  await expect(pdfViewer).toBeVisible();
+  await expect(pdfViewer.locator(".proof-document-canvas")).toBeVisible();
+  const controls = pdfViewer.getByRole("group", { name: "PDF proof viewer controls" });
+  await expect(controls).toBeVisible();
+  await expect(controls.getByRole("button", { name: "Zoom out" })).toBeVisible();
+  await expect(controls.getByRole("button", { name: "Zoom in" })).toBeVisible();
+  await expect(controls.getByRole("button", { name: "Rotate clockwise" })).toBeVisible();
+  await expect(page.locator(".preview-stage iframe, .preview-stage embed, .preview-stage object")).toHaveCount(0);
   await page.getByRole("button", { name: "Creative 2: north-wall-layered-production-artwork-with-linked-assets.psd; Pending", exact: true }).click();
   await expect(page.locator(".preview-stage").getByText("Full-resolution file", { exact: true })).toBeVisible();
   await expect(page.locator(".preview-stage").getByRole("link", { name: /Open north-wall-layered-production-artwork/ })).toHaveAttribute("target", "_blank");
