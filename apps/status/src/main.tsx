@@ -49,7 +49,9 @@ type StatusProof = {
   proof_approval_status?: string | null;
   proof_link_low?: string | null;
   proof_link_high?: string | null;
+  created_ts?: string | null;
   creation_date?: string | null;
+  proof_approved_ts?: string | null;
   preview_kind?: "image" | "pdf" | "download" | "unavailable";
 };
 

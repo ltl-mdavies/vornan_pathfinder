@@ -158,3 +158,24 @@ test("does not carry proof links to a different proof identity", () => {
 
   assert.equal(retainTransientProofAssets(previous, incoming)[0]?.lines[0]?.proofs[0]?.proof_link_low, null);
 });
+
+test("does not carry a transient proof link across same-name Lift reuploads", () => {
+  const previous = [{
+    order_key: "order-1",
+    lines: [{ line_number: 1, proofs: [{
+      proof_filename: "proof.jpg",
+      created_ts: "03-SEP-2026 02:48:31 PM",
+      proof_link_low: "https://proof.example.invalid/original.jpg"
+    }] }]
+  }];
+  const incoming = [{
+    order_key: "order-1",
+    lines: [{ line_number: 1, proofs: [{
+      proof_filename: "proof.jpg",
+      created_ts: "03-SEP-2026 03:12:05 PM",
+      proof_link_low: null
+    }] }]
+  }];
+
+  assert.equal(retainTransientProofAssets(previous, incoming)[0]?.lines[0]?.proofs[0]?.proof_link_low, null);
+});

@@ -956,12 +956,14 @@ export function normalizeProofReportPayload(payload: unknown) {
     line_step_number: string | number | null;
     product_name: string | null;
     attachment_id: string | number | null;
+    created_ts: string | null;
     creation_date: string | null;
     proof_filename: string | null;
     proof_link_low: string | null;
     proof_link_high: string | null;
     proof_approval_status: string | null;
     proof_approved_by: string | null;
+    proof_approved_ts: string | null;
     proof_approved_date: string | null;
     comments: Array<{
       proof_comment: string | null;
@@ -1012,12 +1014,14 @@ export function normalizeProofReportPayload(payload: unknown) {
       line_step_number: (record.LINE_STEP_NUMBER as string | number | null | undefined) ?? null,
       product_name: typeof record.PRODUCT_NAME === "string" ? record.PRODUCT_NAME : null,
       attachment_id: (record.ATTACHMENT_ID as string | number | null | undefined) ?? null,
+      created_ts: typeof record.CREATED_TS === "string" ? record.CREATED_TS : null,
       creation_date: typeof record.CREATION_DATE === "string" ? record.CREATION_DATE : null,
       proof_filename: typeof record.PROOF_FILENAME === "string" ? record.PROOF_FILENAME : null,
       proof_link_low: typeof record.PROOF_LINK_LOW === "string" ? record.PROOF_LINK_LOW : null,
       proof_link_high: typeof record.PROOF_LINK_HIGH === "string" ? record.PROOF_LINK_HIGH : null,
       proof_approval_status: typeof record.PROOF_APPROVAL_STATUS === "string" ? record.PROOF_APPROVAL_STATUS : null,
       proof_approved_by: typeof record.PROOF_APPROVED_BY === "string" ? record.PROOF_APPROVED_BY : null,
+      proof_approved_ts: typeof record.PROOF_APPROVED_TS === "string" ? record.PROOF_APPROVED_TS : null,
       proof_approved_date: typeof record.PROOF_APPROVED_DATE === "string" ? record.PROOF_APPROVED_DATE : null,
       comments: comment.proof_comment || comment.comment_ts || comment.comment_attachment ? [comment] : [],
       detailed_report: record.DETAILED_REPORT ?? null,

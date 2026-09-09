@@ -69,6 +69,8 @@ export interface ProofLine {
 export interface ProofVersion {
   version_id: string;
   attachment_id: string | null;
+  /** Lift-recorded upload timestamp. Keep separate from the legacy date-only field. */
+  created_ts?: string | null;
   created_at: string | null;
   filename: string | null;
   content_type?: string | null;
@@ -76,6 +78,8 @@ export interface ProofVersion {
   download_url: string | null;
   approval_status: string | null;
   approved_by: string | null;
+  /** Lift-recorded approval timestamp. Keep separate from the legacy date-only field. */
+  proof_approved_ts?: string | null;
   approved_at: string | null;
   comments: ProofComment[];
   detailed_report: unknown;
@@ -450,6 +454,8 @@ export interface PublicProofDetailedReportDefinition {
 
 export interface PublicProofVersion {
   version_id: string;
+  /** Exact wall-clock upload time reported by Lift, when available. */
+  created_ts?: string | null;
   created_at: string | null;
   filename: string | null;
   content_type: string | null;
@@ -457,6 +463,8 @@ export interface PublicProofVersion {
   preview_url: string | null;
   download_url: string | null;
   approval_status: string | null;
+  /** Exact wall-clock approval time reported by Lift, when available. */
+  proof_approved_ts?: string | null;
   approved_at: string | null;
   comments: PublicProofComment[];
   technical_checks: PublicProofTechnicalCheck[];
@@ -738,6 +746,7 @@ function canonicalFeedbackComments(rows: Record<string, unknown>[]) {
 function proofVersionFromRows(rows: Record<string, unknown>[]): ProofVersion {
   const row = rows[0] ?? {};
   const attachmentId = text(row, "ATTACHMENT_ID", "attachment_id");
+  const createdTs = text(row, "CREATED_TS", "created_ts");
   const createdAt = text(row, "CREATION_DATE", "CREATED_AT", "creation_date", "created_at");
   const filename = text(row, "PROOF_FILENAME", "FILENAME", "proof_filename", "filename");
   const contentType = text(
@@ -757,6 +766,7 @@ function proofVersionFromRows(rows: Record<string, unknown>[]): ProofVersion {
     text(row, "PROOF_LINK_HIGH", "PROOF_URL_HIGH", "proof_link_high", "proof_url_high") ?? previewUrl;
   const approvalStatus = text(row, "PROOF_APPROVAL_STATUS", "APPROVAL_STATUS", "proof_approval_status", "approval_status");
   const approvedBy = text(row, "PROOF_APPROVED_BY", "APPROVED_BY", "proof_approved_by", "approved_by");
+  const approvedTs = text(row, "PROOF_APPROVED_TS", "proof_approved_ts", "APPROVED_TS", "approved_ts");
   const approvedAt = text(row, "PROOF_APPROVED_DATE", "APPROVED_DATE", "proof_approved_date", "approved_date");
   const detailedReport = value(row, "DETAILED_REPORT", "detailed_report");
   return {
@@ -770,6 +780,7 @@ function proofVersionFromRows(rows: Record<string, unknown>[]): ProofVersion {
       downloadUrl
     }),
     attachment_id: attachmentId,
+    created_ts: createdTs,
     created_at: createdAt,
     filename,
     content_type: contentType,
@@ -777,6 +788,7 @@ function proofVersionFromRows(rows: Record<string, unknown>[]): ProofVersion {
     download_url: downloadUrl,
     approval_status: approvalStatus,
     approved_by: approvedBy,
+    proof_approved_ts: approvedTs,
     approved_at: approvedAt,
     comments,
     detailed_report: detailedReport,
@@ -1250,9 +1262,55 @@ function publicProofDisplayText(value: unknown, maxLength: number) {
   return normalized && normalized.length <= maxLength ? normalized : null;
 }
 
+const liftTimestampMonths: Record<string, number> = {
+  JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5,
+  JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11
+};
+
+function liftWallClockTimestampParts(value: string) {
+  const match = /^(\d{2})-([A-Z]{3})-(\d{4}) (\d{2}):(\d{2})(?::(\d{2}))? (AM|PM)$/i.exec(value);
+  if (!match) return null;
+  const [, dayText, monthText, yearText, hourText, minuteText, secondText = "0", periodText] = match;
+  const month = liftTimestampMonths[monthText.toUpperCase()];
+  const day = Number(dayText);
+  const year = Number(yearText);
+  const hour12 = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  if (month == null || !Number.isInteger(day) || !Number.isInteger(year) || hour12 < 1 || hour12 > 12 || minute > 59 || second > 59) return null;
+  const hour = (hour12 % 12) + (periodText.toUpperCase() === "PM" ? 12 : 0);
+  // UTC is only a stable arithmetic representation for ordering and validation;
+  // this function never converts or relabels Lift's wall-clock value.
+  const candidate = new Date(Date.UTC(year, month, day, hour, minute, second));
+  if (candidate.getUTCFullYear() !== year || candidate.getUTCMonth() !== month || candidate.getUTCDate() !== day) return null;
+  return { year, month, day, hour, minute, second, sort_key: candidate.getTime() };
+}
+
 function publicProofTimestamp(value: unknown) {
   const candidate = publicProofDisplayText(value, 64);
-  return candidate && Number.isFinite(Date.parse(candidate)) ? candidate : null;
+  if (!candidate) return null;
+  // Lift's CREATED_TS and PROOF_APPROVED_TS are wall-clock timestamps without
+  // an offset (for example, 03-SEP-2026 02:48:31 PM). Do not reinterpret them
+  // as UTC or the browser's timezone; validate and retain the original value.
+  if (liftWallClockTimestampParts(candidate)) return candidate;
+  return Number.isFinite(Date.parse(candidate)) ? candidate : null;
+}
+
+function proofTimestampSortKey(value: string | null | undefined) {
+  if (!value) return null;
+  const liftTimestamp = liftWallClockTimestampParts(value);
+  if (liftTimestamp) return liftTimestamp.sort_key;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function compareProofVersionRecency(left: ProofVersion, right: ProofVersion) {
+  const leftTime = proofTimestampSortKey(left.created_ts ?? left.created_at);
+  const rightTime = proofTimestampSortKey(right.created_ts ?? right.created_at);
+  if (leftTime !== null && rightTime !== null && leftTime !== rightTime) return rightTime - leftTime;
+  if (leftTime !== null && rightTime === null) return -1;
+  if (leftTime === null && rightTime !== null) return 1;
+  return right.version_id.localeCompare(left.version_id);
 }
 
 function publicProofComments(comments: ProofComment[], includeAssetUrls: boolean): PublicProofComment[] {
@@ -1506,6 +1564,7 @@ export function toPublicProofVersion(
   });
   return {
     version_id: version.version_id,
+    created_ts: publicProofTimestamp(version.created_ts),
     created_at: publicProofTimestamp(version.created_at),
     filename,
     content_type: contentType,
@@ -1516,6 +1575,7 @@ export function toPublicProofVersion(
         : null,
     download_url: includeAssetUrls ? downloadUrl : null,
     approval_status: publicProofDisplayText(version.approval_status, 40),
+    proof_approved_ts: publicProofTimestamp(version.proof_approved_ts),
     approved_at: publicProofTimestamp(version.approved_at),
     comments: publicProofComments(version.comments.slice(0, 100), includeAssetUrls),
     technical_checks: publicTechnicalChecks(version.detailed_report),
@@ -1541,7 +1601,7 @@ export function toPublicProofTaskHistory(
       : priorTask.current_version
         ? [priorTask.current_version]
         : [])
-  ]).map((version) => ({
+  ]).sort(compareProofVersionRecency).map((version) => ({
     ...version,
     // The selected file is the only current entry in this file's lineage.
     current: version.version_id === selectedVersionId
@@ -1753,7 +1813,9 @@ export function toCustomerSafeOrderRollupProof(proof: OrderRollupProof): OrderRo
     proof_approval_status: publicProofDisplayText(proof.proof_approval_status, 80),
     proof_link_low: publicProofAssetUrl(proof.proof_link_low),
     proof_link_high: publicProofAssetUrl(proof.proof_link_high),
+    created_ts: publicProofTimestamp(proof.created_ts),
     creation_date: publicProofTimestamp(proof.creation_date),
+    proof_approved_ts: publicProofTimestamp(proof.proof_approved_ts),
     ...(previewKind ? { preview_kind: previewKind } : {}),
     ...(proofState ? { proof_state: proofState } : {})
   };
@@ -1787,7 +1849,9 @@ export function toOrderRollupProofProjection(order: ProofOrder): ProofOrderRollu
               : version.approval_status ?? rollupProofStateLabel(task.state),
         proof_link_low: version.preview_url,
         proof_link_high: version.download_url,
+        created_ts: version.created_ts,
         creation_date: version.created_at,
+        proof_approved_ts: version.proof_approved_ts,
         preview_kind: version.preview_kind,
         proof_state: task.state
       }];
