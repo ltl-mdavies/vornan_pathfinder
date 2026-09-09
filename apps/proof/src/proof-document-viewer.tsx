@@ -195,21 +195,21 @@ export function ProofDocumentViewer({ source, filename, onLoad, onError }: Proof
       {document ? (
         <ViewerControlIsland containerRef={viewerRef} className="proof-control-island" label="PDF proof viewer controls">
           {pageCount && pageCount > 1 ? <>
-            <button type="button" aria-label="Previous page" disabled={pageNumber <= 1} onClick={() => setPageNumber((page) => Math.max(1, page - 1))}><ChevronLeft aria-hidden="true" /></button>
+            <button type="button" aria-label="Previous page" data-tooltip="Previous page" disabled={pageNumber <= 1} onClick={() => setPageNumber((page) => Math.max(1, page - 1))}><ChevronLeft aria-hidden="true" /></button>
             <span className="proof-page-indicator" aria-live="polite">{pageNumber} <i>/</i> {pageCount}</span>
-            <button type="button" aria-label="Next page" disabled={pageNumber >= pageCount} onClick={() => setPageNumber((page) => Math.min(pageCount, page + 1))}><ChevronRight aria-hidden="true" /></button>
+            <button type="button" aria-label="Next page" data-tooltip="Next page" disabled={pageNumber >= pageCount} onClick={() => setPageNumber((page) => Math.min(pageCount, page + 1))}><ChevronRight aria-hidden="true" /></button>
             <span className="proof-control-divider" aria-hidden="true" />
           </> : null}
-          <button type="button" aria-label="Zoom out" disabled={zoom <= zoomSteps[0]!} onClick={() => changeZoom(nextZoom(zoom, -1))}><Minus aria-hidden="true" /></button>
+          <button type="button" aria-label="Zoom out" data-tooltip="Zoom out" disabled={zoom <= zoomSteps[0]!} onClick={() => changeZoom(nextZoom(zoom, -1))}><Minus aria-hidden="true" /></button>
           <div className="proof-fit-menu">
-            <button type="button" className="proof-zoom-fit" aria-label={`${fitLabel(fitMode)}. Choose zoom fitting`} aria-haspopup="menu" aria-expanded={fitMenuOpen} onClick={() => setFitMenuOpen((open) => !open)}>{label}</button>
+            <button type="button" className="proof-zoom-fit" aria-label={`${fitLabel(fitMode)}. Choose zoom fitting`} data-tooltip="View options" aria-haspopup="menu" aria-expanded={fitMenuOpen} onClick={() => setFitMenuOpen((open) => !open)}>{label}</button>
             {fitMenuOpen ? <div className="proof-fit-options" role="menu" aria-label="PDF zoom fitting">
               {(["page", "width", "actual"] as FitMode[]).map((mode) => <button key={mode} type="button" role="menuitemradio" aria-checked={fitMode === mode && zoom === 1} onClick={() => changeFitMode(mode)}>{fitLabel(mode)}</button>)}
             </div> : null}
           </div>
-          <button type="button" aria-label="Zoom in" disabled={zoom >= zoomSteps.at(-1)!} onClick={() => changeZoom(nextZoom(zoom, 1))}><Plus aria-hidden="true" /></button>
+          <button type="button" aria-label="Zoom in" data-tooltip="Zoom in" disabled={zoom >= zoomSteps.at(-1)!} onClick={() => changeZoom(nextZoom(zoom, 1))}><Plus aria-hidden="true" /></button>
           <span className="proof-control-divider" aria-hidden="true" />
-          <button type="button" aria-label="Rotate clockwise" onClick={() => setRotation((degrees) => (degrees + 90) % 360)}><RotateCw aria-hidden="true" /></button>
+          <button type="button" aria-label="Rotate clockwise" data-tooltip="Rotate clockwise" onClick={() => setRotation((degrees) => (degrees + 90) % 360)}><RotateCw aria-hidden="true" /></button>
         </ViewerControlIsland>
       ) : <div className="proof-resolution-status" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" /><strong>Loading full-resolution proof…</strong></div>}
     </div>

@@ -251,6 +251,9 @@ h1, h2, h3, p { margin-top: 0; }
 .proof-control-island > button:hover:not(:disabled), .proof-fit-menu > button:hover { background: rgba(255,255,252,.12); }
 .proof-control-island > button:disabled { opacity: .34; cursor: default; }
 .proof-control-island svg { width: 15px; height: 15px; }
+.proof-control-island button[data-tooltip] { position: relative; }
+.proof-control-island button[data-tooltip]::after { content: attr(data-tooltip); position: absolute; z-index: 2; left: 50%; bottom: calc(100% + 9px); translate: -50% 4px; padding: 6px 8px; border: 1px solid rgba(255,255,252,.16); border-radius: 7px; background: rgba(35,38,35,.96); box-shadow: 0 8px 20px rgba(21,29,22,.28); color: #f8f9f4; font-size: 9px; font-weight: 800; line-height: 1.2; opacity: 0; pointer-events: none; transition: opacity .14s ease, translate .14s ease; white-space: nowrap; }
+.proof-control-island button[data-tooltip]:hover:not(:disabled)::after, .proof-control-island button[data-tooltip]:focus-visible::after { opacity: 1; translate: -50% 0; }
 .proof-control-handle { min-width: 26px !important; cursor: grab !important; color: rgba(248,249,244,.72) !important; }
 .proof-control-handle:hover, .proof-control-handle:focus-visible { color: #f8f9f4 !important; }
 .proof-control-reset { min-width: 30px !important; color: rgba(248,249,244,.78) !important; }

@@ -31,6 +31,9 @@ test("loads the full-resolution image progressively with zoom controls", () => {
   assert.match(markup, /Loading full-resolution proof/);
   assert.match(markup, /aria-label="Proof zoom controls"/);
   assert.match(markup, /aria-label="Fit proof to viewer"/);
+  assert.match(markup, /data-tooltip="Zoom out"/);
+  assert.match(markup, /data-tooltip="Fit proof to viewer"/);
+  assert.match(markup, /data-tooltip="Zoom in"/);
   assert.match(markup, /aria-label="Proof image viewer\. Pinch or double tap to zoom\."/);
   assert.doesNotMatch(markup, /Showing preview resolution/);
   assert.doesNotMatch(markup, /proof-image-link/);

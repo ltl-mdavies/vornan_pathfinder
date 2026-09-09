@@ -177,6 +177,7 @@ export function ViewerControlIsland({ containerRef, className, label, children }
         type="button"
         className="proof-control-handle"
         aria-label="Move viewer controls. Use arrow keys to reposition or Home to reset."
+        data-tooltip="Move controls"
         onPointerDown={beginDrag}
         onPointerMove={moveDrag}
         onPointerUp={endDrag}
@@ -185,7 +186,7 @@ export function ViewerControlIsland({ containerRef, className, label, children }
       >
         <GripVertical aria-hidden="true" />
       </button>
-      {position ? <button type="button" className="proof-control-reset" aria-label="Reset viewer controls position" onClick={() => { setPosition(null); persistPosition(null); }}><RotateCcw aria-hidden="true" /></button> : null}
+      {position ? <button type="button" className="proof-control-reset" aria-label="Reset viewer controls position" data-tooltip="Reset controls position" onClick={() => { setPosition(null); persistPosition(null); }}><RotateCcw aria-hidden="true" /></button> : null}
       <span className="proof-control-divider" aria-hidden="true" />
       {children}
     </div>

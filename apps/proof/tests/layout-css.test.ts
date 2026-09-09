@@ -28,3 +28,8 @@ test("reserves green status treatment for approved proofs", () => {
   assert.match(styles, /\.line-group-status\.reference\s*\{\s*color:\s*var\(--muted\);/);
   assert.doesNotMatch(styles, /\.line-group-status\.approved,\s*\.line-group-status\.reference/);
 });
+
+test("keeps viewer-control tooltips available on hover and keyboard focus", () => {
+  assert.match(styles, /\.proof-control-island button\[data-tooltip\]::after\s*\{[^}]*content:\s*attr\(data-tooltip\);/s);
+  assert.match(styles, /button\[data-tooltip\]:hover:not\(:disabled\)::after,\s*\.proof-control-island button\[data-tooltip\]:focus-visible::after/s);
+});
