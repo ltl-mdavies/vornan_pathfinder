@@ -57,3 +57,16 @@ test("corrupt lifecycle and deterministic identity fields fail closed", () => {
     assert.throws(() => observeWrikeIntent({ ...first, ...patch } as typeof first, scope, observation(1)));
   }
 });
+
+test("entry proof requires a persisted strictly older non-ready baseline", () => {
+  const firstReady = observeWrikeIntent(null, scope, observation(0));
+  const edited = observeWrikeIntent(firstReady, scope, observation(1));
+  assert.equal(edited.entry_proven, false);
+  assert.throws(() => validateWrikeIntentCursor({ ...edited, entry_proven: true }, scope));
+  const baseline = observeWrikeIntent(null, scope, observation(0, "OTHER"));
+  const entry = observeWrikeIntent(baseline, scope, observation(1));
+  assert.equal(entry.entry_proven, true);
+  for (const patch of [{ status_id: "READY" }, { source_updated_at: entry.entry_source_updated_at! }, { observed_at: entry.entry_observed_at! }]) {
+    assert.throws(() => validateWrikeIntentCursor({ ...entry, entry_baseline: { ...entry.entry_baseline!, ...patch } }, scope));
+  }
+});

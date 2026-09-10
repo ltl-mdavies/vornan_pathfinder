@@ -61,6 +61,13 @@ found no correctness merge blocker; GitHub validation passed. The task re-entry
 resolver and deployment infrastructure remain outstanding; see
 `activation-prerequisites.md` for the coordinated implementation/release dossier.
 
+The subsequent shared capture slice now wires manual/scheduled discovery through
+the durable cursor and guarded intake handoff. Preparation requires a persisted
+qualified non-ready baseline followed by the first newer ready entry. Initial-ready
+tasks, reuse, legacy identities and unsafe history remain sticky manual review.
+This replaces the fixed occurrence in the capture-enabled runtime; activation
+still awaits independent integration review, cursor inventory and production QA.
+
 Dynamo is required for distributed workers; local JSON supports serialized work in
 one process only. Provider actions and local state are not one atomic transaction.
 An already-in-flight request cannot be withdrawn by a later source/config change.

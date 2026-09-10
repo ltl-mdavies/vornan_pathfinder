@@ -11,7 +11,7 @@ export interface WrikeIntentObservation {
 }
 export interface WrikeIntentCursor {
   schema_version: 1; cursor_id: string; scope: WrikeIntentScope; revision: number;
-  generation: number; in_intent: boolean; last_status_id: string;
+  generation: number; entry_proven: boolean; entry_baseline: { status_id: string; source_updated_at: string; observed_at: string } | null; in_intent: boolean; last_status_id: string;
   source_updated_at: string; observed_at: string;
   entry_observed_at: string | null; entry_source_updated_at: string | null; attempt_id: string | null;
 }
@@ -39,11 +39,18 @@ export function validateWrikeIntentCursor(value: unknown, scope: WrikeIntentScop
   const id = wrikeIntentCursorId(scope);
   if (!row || row.schema_version !== 1 || !row.scope || row.cursor_id !== id || wrikeIntentCursorId(row.scope) !== id ||
     !Number.isSafeInteger(row.revision) || row.revision < 1 || !Number.isSafeInteger(row.generation) || row.generation < 0 ||
-    row.generation > Math.floor((row.revision + 1) / 2) || typeof row.in_intent !== "boolean") throw new Error("Invalid persisted Wrike intent cursor");
+    row.generation > Math.floor((row.revision + 1) / 2) || typeof row.in_intent !== "boolean" || typeof row.entry_proven !== "boolean" ||
+    (row.generation > 1 && !row.entry_proven) || (row.entry_proven && row.revision < 2)) throw new Error("Invalid persisted Wrike intent cursor");
+  if (row.entry_proven) {
+    const baseline = row.entry_baseline;
+    if (!baseline || baseline.status_id === scope.trigger_status_id || time(baseline.source_updated_at) > time(baseline.observed_at) ||
+      time(baseline.source_updated_at) >= time(row.entry_source_updated_at) || time(baseline.observed_at) >= time(row.entry_observed_at)) throw new Error("Invalid persisted Wrike entry baseline");
+    identifier(baseline.status_id);
+  } else if (row.entry_baseline !== null) throw new Error("Unexpected Wrike entry baseline");
   identifier(row.last_status_id);
   if (row.in_intent !== (row.last_status_id === scope.trigger_status_id) || time(row.source_updated_at) > time(row.observed_at)) throw new Error("Invalid persisted Wrike intent observation");
   if (row.generation === 0) {
-    if (row.in_intent || row.entry_observed_at !== null || row.entry_source_updated_at !== null || row.attempt_id !== null) throw new Error("Invalid persisted initial Wrike intent");
+    if (row.entry_proven || row.in_intent || row.entry_observed_at !== null || row.entry_source_updated_at !== null || row.attempt_id !== null) throw new Error("Invalid persisted initial Wrike intent");
   } else {
     if (time(row.entry_observed_at) > time(row.observed_at) || time(row.entry_source_updated_at) > time(row.entry_observed_at) ||
       time(row.entry_source_updated_at) > time(row.source_updated_at) ||
@@ -71,8 +78,9 @@ export function observeWrikeIntent(current: WrikeIntentCursor | null, scope: Wri
   }
   const enters = inIntent && !current?.in_intent;
   const next: WrikeIntentCursor = { schema_version: 1, cursor_id: id, scope: { ...scope }, revision: (current?.revision ?? 0) + 1,
-    generation: (current?.generation ?? 0) + (enters ? 1 : 0), in_intent: inIntent, last_status_id: observation.custom_status_id,
+    generation: (current?.generation ?? 0) + (enters ? 1 : 0), entry_proven: enters ? !!current : current?.entry_proven ?? false, in_intent: inIntent, last_status_id: observation.custom_status_id,
     source_updated_at: observation.source_updated_at, observed_at: observation.observed_at,
+    entry_baseline: enters ? current ? { status_id: current.last_status_id, source_updated_at: current.source_updated_at, observed_at: current.observed_at } : null : current?.entry_baseline ?? null,
     entry_observed_at: enters ? observation.observed_at : current?.entry_observed_at ?? null,
     entry_source_updated_at: enters ? observation.source_updated_at : current?.entry_source_updated_at ?? null, attempt_id: null };
   const signal = wrikeIntentSignal(next);

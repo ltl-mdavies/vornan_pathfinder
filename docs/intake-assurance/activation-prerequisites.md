@@ -58,7 +58,8 @@ No production action accompanied either review.
 
 ## Task re-entry: next engineering slice
 
-Current capture still uses `intent_occurrence: "initial"`; activation remains held.
+The shared capture integration replaces the live cycle's fixed `initial` occurrence
+when the existing capture gate is enabled; activation remains held.
 Neither poll time, task edit time, workbook version/hash nor comment time proves
 a new order request. The existing one-task/one-order protection must remain.
 
@@ -86,10 +87,11 @@ Test races, crash recovery, continuous-ready corrections, missed exits, timestam
 ambiguity, scope isolation, manual/scheduled interchange and all transport postures.
 Reusable tasks for multiple orders require an explicit operator-authorized policy.
 
-The observation foundation now provides `observeWrikeIntent` plus local and Dynamo
+The observation foundation provides `observeWrikeIntent` plus local and Dynamo
 cursor persistence. Its identity includes customer, connection, Import Method,
 exact task and exact trigger status. A generation-bound future intake signal/ID is
-stored with the cursor, but no IntakeAttempt is reserved and no job is prepared.
+stored with the cursor. Its shared capture caller now performs the guarded intake
+handoff described below before allowing the existing preparation path.
 Dynamo uses a reserved `wrike-intent#<customer>` partition with consistent reads and
 revision CAS; conflicting writers reread, with four bounded attempts. Local storage
 uses the existing serialized intake mutation queue and remains single-process only.
@@ -98,12 +100,31 @@ closed on reads and mutation. A generation-zero outside observation has no intak
 
 Only explicitly verified scope/identity observations are accepted. Provider scope
 verification is an integration prerequisite: these booleans are not a replacement
-for current Wrike discovery. This foundation has no runtime caller, public endpoint,
-scheduler wiring, provider read, intake reservation or migration. It does not change
-the existing `initial` occurrence. Integration must reconcile legacy/current attempts,
-observe qualified non-ready tasks, share one manual/scheduled resolver, enforce
-post-transport manual review, and recover cursor-to-attempt reservation atomically
-or idempotently. Those gates remain open until their separate implementation review.
+for current Wrike discovery. The resolver itself performs no provider reads. The
+manual and scheduled callers use qualified scoped discovery; manual preparation
+performs a bounded metadata discovery restricted to its requested task before
+evidence capture, and scheduled discovery also records qualified non-ready tasks.
+
+Both callers use one shared service. Automatic preparation requires generation one
+with persisted proof of a qualified non-ready baseline and a strictly newer ready
+entry. Initially-ready tasks, subsequent generations, legacy `initial` records,
+existing unbound/conflicting jobs, any transport/order/association/writeback history
+or incomplete evidence require manual review. No task reuse or legacy migration is
+inferred. Manual review remains sticky during automatic outcome reconciliation.
+
+The cursor now stores `entry_proven` and its baseline status/source/observation
+timestamps. Pre-integration experimental cursors missing those fields fail closed;
+inventory/migration review remains necessary before rollout. A Dynamo transaction
+checks the exact cursor data/revision and conditionally puts the deterministic
+attempt; local storage performs the equivalent in one serialized mutation. A crash
+after cursor commit can recover the same signal; a stale handoff fails and the next
+caller re-resolves from durable state. No job or provider transaction is implied.
+
+The existing capture flag controls both entry points. Full history snapshots require
+an explicit `PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT`; there is no operating default.
+Manual metadata read cost, observation/candidate bounds and freshness must be included
+in rollout sizing. Shared integration remains subject to independent review, source
+validation and production QA. All deployment/activation approvals remain separate.
 
 ## Infrastructure preparation
 

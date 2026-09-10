@@ -1,3 +1,4 @@
+import type { createSharedWrikeCapture, SharedWrikeCaptureResult } from "./wrike-shared-capture.js";
 import { WRIKE_ORDER_INTENT_LABEL } from "@pathfinder/wrike-adapter";
 import { intakeAttemptId, type IntakeAttempt, type IntakeEvent, type IntakeLedger } from "./intake-assurance.js";
 import { captureWrikeIntakeIntents, projectWrikeAssuranceOutcome, wrikeIntakeIntentCandidates,
@@ -26,6 +27,7 @@ export async function applyWrikeAssuranceObservation(args: {
   ledger: IntakeLedger; attempt: IntakeAttempt; outcome: WrikeAssuranceOutcome; now: string; next_action_at: string;
 }) {
   let current = args.attempt;
+  if (current.signal.intent_occurrence.startsWith("wrike-intent_") && current.state === "manual_review") return current;
   if (["withdrawn", "superseded"].includes(current.state)) return current;
   async function set(state: IntakeEvent["state"], reason: IntakeEvent["reason"], links: Partial<IntakeEvent> = {}) {
     const values = { job_id: links.job_id ?? current.job_id, submit_attempt_id: links.submit_attempt_id ?? current.submit_attempt_id,
@@ -66,23 +68,36 @@ export async function applyWrikeAssuranceObservation(args: {
 
 export function createWrikeAssuranceCycle(args: {
   config: WrikeAssuranceCaptureConfig; ledger: IntakeLedger;
+  sharedCapture?: ReturnType<typeof createSharedWrikeCapture>;
   now?: () => Date;
 }) {
-  let captured: { scope: WrikeAssuranceScope; discovery: WrikeScopedIntakeDiscoveryResult } | null = null;
+  let captured: { scope: WrikeAssuranceScope; discovery: WrikeScopedIntakeDiscoveryResult; candidates: SharedWrikeCaptureResult[] } | null = null;
   const now = () => (args.now ?? (() => new Date()))().toISOString();
   return {
     async capture(scope: Omit<WrikeAssuranceScope, "approved_status_label">, discovery: WrikeScopedIntakeDiscoveryResult) {
       if (!args.config.enabled) return;
       if (scope.customer_id !== args.config.customer_id || scope.import_method_id !== args.config.import_method_id) throw new Error("Assurance cycle scope mismatch");
       const approvedScope = { ...scope, approved_status_label: WRIKE_ORDER_INTENT_LABEL };
-      await captureWrikeIntakeIntents({ enabled: true, scope: approvedScope, discovery, ledger: args.ledger,
-        next_action_at: deadline(discovery.checked_at, args.config), max_candidates: args.config.max_candidates });
-      captured = { scope: approvedScope, discovery };
+      if (args.sharedCapture) {
+        const candidates = await args.sharedCapture(approvedScope, discovery, args.config.sla_seconds, args.config.max_candidates);
+        captured = { scope: approvedScope, discovery, candidates };
+      } else {
+        await captureWrikeIntakeIntents({ enabled: true, scope: approvedScope, discovery, ledger: args.ledger,
+          next_action_at: deadline(discovery.checked_at, args.config), max_candidates: args.config.max_candidates });
+        captured = { scope: approvedScope, discovery, candidates: wrikeIntakeIntentCandidates(approvedScope, discovery).map(candidate => ({ ...candidate, preparation_allowed: true })) };
+      }
+
+    },
+    assertPreparationAllowed(taskId: string) {
+      if (args.sharedCapture && !captured?.candidates.some(candidate => candidate.signal.source_id === taskId && candidate.preparation_allowed)) {
+        throw new Error("Wrike intake requires manual review before preparation");
+      }
     },
     async preparationFailed(taskId: string) {
       if (!captured) return;
-      const candidate = wrikeIntakeIntentCandidates(captured.scope, captured.discovery).find((entry) => entry.signal.source_id === taskId);
+      const candidate = captured.candidates.find((entry) => entry.signal.source_id === taskId);
       if (!candidate) throw new Error("Preparation lacks a captured intake intent");
+      if (!candidate.preparation_allowed) return;
       const attempt = await args.ledger.get(candidate.signal.customer_id, intakeAttemptId(candidate.signal));
       if (!attempt) throw new Error("Captured intake attempt disappeared");
       if (attempt.submit_attempt_id || attempt.confirmed_order_number || ["withdrawn", "superseded"].includes(attempt.state)) return;
@@ -92,7 +107,8 @@ export function createWrikeAssuranceCycle(args: {
     },
     async observe(snapshot: Omit<Parameters<typeof projectWrikeAssuranceOutcome>[0], "attempt" | "import_method_id">) {
       if (!captured) return;
-      for (const candidate of wrikeIntakeIntentCandidates(captured.scope, captured.discovery)) {
+      for (const candidate of captured.candidates) {
+        if (!candidate.preparation_allowed) continue;
         const attempt = await args.ledger.get(candidate.signal.customer_id, intakeAttemptId(candidate.signal));
         if (!attempt) throw new Error("Captured intake attempt disappeared");
         const outcome = projectWrikeAssuranceOutcome({ ...snapshot, attempt, import_method_id: captured.scope.import_method_id });
@@ -104,11 +120,12 @@ export function createWrikeAssuranceCycle(args: {
 
 /** The disabled path returns the original callback unchanged. */
 export function wrapWrikeAssurancePreparation<T extends { task_id: string }, R>(
-  cycle: Pick<ReturnType<typeof createWrikeAssuranceCycle>, "preparationFailed"> | null,
+  cycle: Pick<ReturnType<typeof createWrikeAssuranceCycle>, "preparationFailed" | "assertPreparationAllowed"> | null,
   prepare: (candidate: T) => Promise<R>
 ): (candidate: T) => Promise<R> {
   if (!cycle) return prepare;
   return async (candidate) => {
+    cycle.assertPreparationAllowed(candidate.task_id);
     try { return await prepare(candidate); }
     catch (error) { await cycle.preparationFailed(candidate.task_id); throw error; }
   };

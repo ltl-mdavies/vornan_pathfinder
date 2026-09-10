@@ -435,3 +435,23 @@ production smoke test.
   Shared capture integration, legacy/current identity reconciliation, post-transport
   policy and cursor-to-attempt crash recovery remain separate implementation gates.
   No deployment, provisioning or activation accompanied either review.
+
+## Shared manual/scheduled capture integration
+
+- User-approved PR #333 merged after successful CI at main
+  `3dfb2a5c1e7485bc271e63f2863c2cfb08cf7341`. This slice connects both preparation
+  entry points to one observation/admission service under the existing capture gate.
+- Development's cutover constraint is enforced: only a qualified non-ready baseline
+  followed by a strictly newer first entry can prepare. Persisted baseline evidence
+  is validated. Initial-ready tasks, reuse, legacy identities and unsafe history
+  require sticky manual review; no legacy/current record is silently rebound.
+- Cursor data/revision and intake Put share one Dynamo transaction or local
+  serialized mutation. Exact signal replay and restart recovery preserve identity;
+  stale handoffs fail closed. Existing preparation/transport safeguards remain.
+- Final validation: 559 API tests, all-workspace typecheck/build and whitespace
+  checks passed. Synthetic coverage includes shared cycle ordering, admission
+  policy, guarded handoff races/crash recovery, local replay, and baseline corruption.
+- Independent integration review remains required. Production metadata/cutover QA,
+  cursor inventory, explicit history snapshot bounds, manual discovery cost,
+  infrastructure and all deployment/activation decisions remain holds. No deployment,
+  provisioning or real provider action occurred.
