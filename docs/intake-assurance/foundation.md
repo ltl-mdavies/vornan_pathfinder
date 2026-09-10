@@ -185,3 +185,13 @@ requests and durable preflight/claim checks. Only existing unmapped-product jobs
 currently qualify; all other correction templates await stronger evidence checks.
 No new capability has been activated. See `sprint-slices.md` for rollout limits,
 source-freshness caveats and recommended remaining work.
+
+## Reconciliation, freshness and repair update (slices 11–13)
+
+Authorized operator attestations now reconcile uncertain delivery with an atomic,
+immutable audit and no automatic rearming. Feedback verifies exact current workbook
+identity and source timestamps; legacy/multiple-workbook cases remain review-only.
+A separate default-off status-link repair worker reuses the existing writeback
+ledger and refuses previously prepared/failed/uncertain records. The engineering
+review and remaining rollout approvals are recorded in `review-and-rollout.md`.
+No production capability has been activated.

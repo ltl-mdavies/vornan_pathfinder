@@ -5,10 +5,12 @@ import { isIntakeNotificationEvent, runConfiguredIntakeNotifications } from "./i
 import { isWrikeIntakeFeedbackEvent, runConfiguredWrikeIntakeFeedback } from "./wrike-intake-feedback-runtime.js";
 import {
   app,
+  runConfiguredIntakeStatusRepairs,
   recordConfiguredWrikeScheduledIntakeFailure,
   runConfiguredWrikeScheduledIntake
 } from "./server.js";
 import { withPathfinderStoreReadScope } from "./store.js";
+import { isIntakeStatusRepairEvent } from "./intake-status-repair-runtime.js";
 import { isWrikeScheduledIntakeEvent } from "./wrike-scheduled-intake.js";
 import {
   buildWrikeScheduledIntakeCompletionLog,
@@ -20,6 +22,16 @@ const httpHandler = serverless(app, {
 });
 
 export async function handler(event: unknown, context: unknown) {
+  if (isIntakeStatusRepairEvent(event)) {
+    try {
+      const result = await runConfiguredIntakeStatusRepairs();
+      console.log(JSON.stringify({ event: "intake_status_repair_completed", ...result }));
+      return result;
+    } catch (error) {
+      console.log(JSON.stringify({ event: "intake_status_repair_failed", failure_category: "repair_failed" }));
+      throw error;
+    }
+  }
   if (isWrikeIntakeFeedbackEvent(event)) {
     try {
       const result = await runConfiguredWrikeIntakeFeedback();

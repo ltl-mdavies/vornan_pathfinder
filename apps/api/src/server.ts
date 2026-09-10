@@ -2,6 +2,8 @@ import cors from "cors";
 import { createIntakeExceptionsRouter } from "./intake-exceptions-router.js";
 import { createIntakeDeliveryReviewRouter } from "./intake-delivery-review-router.js";
 import { reconcileStoredIntakeDelivery } from "./store.js";
+import { readWrikeIntakeFeedbackScope } from "./store.js";
+import { getIntakeStatusRepairConfig, runIntakeStatusRepairs } from "./intake-status-repair-runtime.js";
 import { intakeLedger, listIntakeAttemptsPage, listIntakeDeliveriesPage, readStore } from "./store.js";
 import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, wrapWrikeAssurancePreparation } from "./wrike-assurance-coordinator.js";
 import express, { type NextFunction, type Request, type Response } from "express";
@@ -10353,6 +10355,8 @@ async function postWrikeStatusLinkForJob(args: {
   customer: LiftCustomer;
   job_id: string;
   expected_task_id?: string | null;
+  expected_order_number?: string;
+  expected_connection_id?: string;
   prepared_by_email?: string | null;
 }) {
   const job = await getJob(args.customer, args.job_id);
@@ -10362,12 +10366,14 @@ async function postWrikeStatusLinkForJob(args: {
     !evidence ||
     evidence.provider !== "wrike" ||
     (args.expected_task_id && evidence.task_id !== args.expected_task_id)
+    || (args.expected_connection_id && evidence.connection_id !== args.expected_connection_id)
   ) {
     throw new WrikeStatusWritebackConflictError(
       "This job is not bound to the expected Wrike Placard Order task."
     );
   }
   const orderNumber = valueAsString(job.target_order_number).trim().toUpperCase();
+  if (args.expected_order_number && orderNumber !== args.expected_order_number) throw new WrikeStatusWritebackConflictError("The confirmed order changed before repair.");
   const contractNumber = valueAsString(job.canonical_order.order.contract_number)
     .trim()
     .toUpperCase();
@@ -11221,5 +11227,17 @@ app.post("/api/lift/preview", (req, res) => {
 if (!process.env.AWS_LAMBDA_FUNCTION_NAME && process.env.PATHFINDER_RUNTIME !== "lambda") {
   app.listen(port, () => {
     console.log(`Pathfinder API listening on http://127.0.0.1:${port}`);
+  });
+}
+
+export async function runConfiguredIntakeStatusRepairs() {
+  return runIntakeStatusRepairs(async target => {
+    const config = getIntakeStatusRepairConfig(process.env);
+    if (!config.sweep.enabled) throw new Error("Intake status repair is disabled");
+    const context = await readWrikeIntakeFeedbackScope(config.sweep.scope);
+    if (context.customer_id !== target.customer_id || context.connection.connection_id !== target.connection_id || context.connection.provider !== "wrike" || context.connection.status !== "Active" ||
+      context.method.source !== "Wrike" || context.method.status !== "Active" || context.method.source_config.wrike?.connection_id !== target.connection_id) throw new Error("Intake repair scope changed");
+    return postWrikeStatusLinkForJob({ customer: context.customer, job_id: target.job_id, expected_task_id: target.task_id,
+      expected_order_number: target.order_number, expected_connection_id: target.connection_id, prepared_by_email: null });
   });
 }

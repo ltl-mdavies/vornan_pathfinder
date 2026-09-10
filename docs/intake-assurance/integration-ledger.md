@@ -263,3 +263,29 @@ production smoke test.
   Full final regression matrix follows status-link repair integration.
 - All new gates remain off. No external requests, migration, push, PR, deployment,
   operator reconciliation or customer communication performed. Deployed SHA: none.
+
+## Slice 13 — existing-ledger status repair and review checkpoint
+
+- Main refreshed before the slice and final review, still
+  `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`; previous slice `7285714`, no
+  intervening conflicts. Read-only PR inspection confirms #330 remains OPEN/DRAFT
+  on `codex/intake-assurance-foundation`. No PR mutation occurred.
+- Adds a separately gated bounded repair event using strict existing order/submit
+  association and the existing success-link writer. Prior writeback records and
+  operator suppression block dispatch; the writer additionally checks expected
+  task/order/connection for this new caller. No alternate comment ledger or Lift
+  path. Successful outcomes feed back through existing lease/revision projection.
+- Requires existing scheduled-writeback permission for the exact customer/Import
+  Method, explicit limits and its own repair cursor. Tests cover disabled real
+  Lambda, strict confirmation, caps/lease loss, posted observation, uncertain/failed
+  suppression and existing-gate enforcement. The review-and-rollout document
+  records the conservative repeat policy and unresolved operational decisions.
+- Final validation: 994 workspace tests passed (523 API serial-file tests,
+  471 other workspace tests); 17 browser regressions; 126 deployment-contract
+  tests; all-workspace typecheck/build; API and Proof Lambda packaging; whitespace
+  check. All provider-facing QA uses synthetic fixtures/mocked transport.
+- All gates remain off. No push, PR change, merge, schedule, infrastructure change,
+  deployment, provider communication or real operator reconciliation. Deployed SHA:
+  none. Next approval is push/draft-PR update for review; merge/deployment/activation
+  remain separate approvals. Legacy/multi-workbook backfill and broader repeat
+  escalation require explicit policy and scoped production review.

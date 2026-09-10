@@ -363,3 +363,28 @@ metadata and missing legacy fields. This closes the known old-version feedback
 path, but cannot make provider edits and local dispatch an atomic transaction.
 Mapping/configuration changes and production metadata completeness still need
 scoped rollout QA. Customer wording remains limited to unmapped-product jobs.
+
+## Slice 13: existing-ledger success-link repair
+
+The separate `PATHFINDER_ENABLE_INTAKE_STATUS_REPAIR` gate controls the
+`Intake Status Link Repair` event (`source: pathfinder.intake`,
+`detail.automation: existing_success_writeback`). It requires explicit shared
+scope/snapshot/SLA/sweep bounds, `PATHFINDER_INTAKE_STATUS_REPAIR_MAX` (1–50), and
+existing scheduled-writeback permission for the exact customer/Import Method.
+Its durable cursor uses `status_link_repair`; no other worker cursor changes.
+
+Only a strictly verified existing order/submit association and a unique matching
+job with no prior writeback qualify. Prepared, failed, uncertain, posted and
+operator-suppressed records do not start another send. The coordinator calls the
+existing success-link writer, which preserves its conditional job/writeback claim.
+Optional exact order and connection checks protect the repair call without changing
+older callers. Successful repair is observed back into the intake ledger using
+lease/revision guards. Lost outcomes remain governed by existing writeback records;
+there is no alternate receipt, comment path, Lift submission or blind retry.
+
+The initial repeat-follow-up policy remains one automatic delivery per intake and
+channel. Unchanged polling does not reset SLA age. Changed reasons stay visible
+but do not rearm sent/uncertain channels; audited non-delivery closure also does
+not rearm. Future repeat notifications require a separately reviewed incident or
+cadence policy. See `review-and-rollout.md` for the concrete remaining approvals
+and implementation limits. No schedule or capability is enabled by this slice.

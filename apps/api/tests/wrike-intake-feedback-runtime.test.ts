@@ -32,6 +32,7 @@ test("actual feedback Lambda stays dark and safely dispatches one synthetic Wrik
       const { handler } = await import(${JSON.stringify(new URL("../src/lambda.ts", import.meta.url).href)});
       const event = { source: 'pathfinder.intake', 'detail-type': 'Wrike Intake Feedback', detail: { automation: 'customer_correction', customer_id: 'ignored' } };
       assert.equal((await handler(event, {})).status, 'disabled'); assert.equal(requests, 0);
+      assert.equal((await handler({ source: 'pathfinder.intake', 'detail-type': 'Intake Status Link Repair', detail: { automation: 'existing_success_writeback' } }, {})).status, 'disabled');
       await assert.rejects(fs.access(process.env.PATHFINDER_LOCAL_STORE_PATH));
       const store = await import(${JSON.stringify(new URL("../src/store.ts", import.meta.url).href)});
       const { writeCustomerSourceConnectionSecrets } = await import(${JSON.stringify(new URL("../src/secrets-store.ts", import.meta.url).href)});
@@ -50,7 +51,7 @@ test("actual feedback Lambda stays dark and safely dispatches one synthetic Wrik
     `;
     const result = spawnSync(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", script], { encoding: "utf8", env: { ...process.env,
       PATHFINDER_RUNTIME: "lambda", PATHFINDER_STORAGE_DRIVER: "local", PATHFINDER_SECRETS_DRIVER: "local", PATHFINDER_LOCAL_STORE_PATH: join(directory, "store.json"), PATHFINDER_LOCAL_SECRETS_PATH: join(directory, "secrets.json"),
-      PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK: "false", PATHFINDER_WRIKE_SCHEDULED_INTAKE: "false||||false|false" } });
+      PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK: "false", PATHFINDER_ENABLE_INTAKE_STATUS_REPAIR: "false", PATHFINDER_WRIKE_SCHEDULED_INTAKE: "false||||false|false" } });
     assert.equal(result.status, 0, result.stderr || result.stdout);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

@@ -8815,7 +8815,7 @@ export async function readWrikeIntakeFeedbackScope(scope: IntakeSweepScope) {
   if (!workspace || workspace.customer?.lift_customer_id !== scope.customer_id || !method || method.import_method_id !== scope.import_method_id) throw new Error("Feedback scope is unavailable");
   const connection = workspace.source_connections.find(row => row.connection_id === scope.connection_id);
   if (!connection) throw new Error("Feedback connection is unavailable");
-  return { customer_id: scope.customer_id, connection, method };
+  return { customer_id: scope.customer_id, customer: workspace.customer, connection, method };
 }
 
 export async function reconcileStoredIntakeDelivery(customer: string, attempt: string, kind: IntakeDeliveryKind,
