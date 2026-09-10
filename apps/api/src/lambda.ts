@@ -1,6 +1,7 @@
 import serverless from "serverless-http";
 import { isIntakeRecoverySweepEvent } from "./intake-recovery-sweep.js";
 import { runConfiguredIntakeRecoverySweep } from "./intake-recovery-runtime.js";
+import { isIntakeNotificationEvent, runConfiguredIntakeNotifications } from "./intake-notification-runtime.js";
 import {
   app,
   recordConfiguredWrikeScheduledIntakeFailure,
@@ -18,6 +19,16 @@ const httpHandler = serverless(app, {
 });
 
 export async function handler(event: unknown, context: unknown) {
+  if (isIntakeNotificationEvent(event)) {
+    try {
+      const result = await runConfiguredIntakeNotifications();
+      console.log(JSON.stringify({ event: "intake_notifications_completed", ...result }));
+      return result;
+    } catch (error) {
+      console.log(JSON.stringify({ event: "intake_notifications_failed", failure_category: "dispatch_failed" }));
+      throw error;
+    }
+  }
   if (isIntakeRecoverySweepEvent(event)) {
     try {
       const result = await runConfiguredIntakeRecoverySweep();

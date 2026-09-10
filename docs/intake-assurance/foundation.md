@@ -164,3 +164,14 @@ from the last committed cursor. Local JSON remains a single-process development
 backend. See `sprint-slices.md` for explicit configuration bounds and activation
 prerequisites. Notification/customer feedback dispatch, durable delivery receipts,
 backoff and success-link repair are still future work. No schedule is provisioned.
+
+## Delivery implementation update (slices 7–8)
+
+Durable per-channel delivery receipts and a guarded dispatcher now exist. Claims
+check intake/receipt revisions and scheduled lease ownership before transport;
+uncertain or acknowledged sends cannot automatically rearm. A default-off internal
+notification event uses a separate cursor and bounded, single-attempt SES dispatch
+to the fixed internal recipient. Customer-feedback transport is still injected
+only, and successful-order Status-link repair retains its existing ledger. See
+`sprint-slices.md` for the conservative one-message-per-channel policy, receipt
+uncertainty limitations and activation prerequisites. Nothing has been enabled.

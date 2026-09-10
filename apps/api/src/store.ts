@@ -8728,9 +8728,10 @@ export async function getIntakeDelivery(customer: string, attempt: string, kind:
   if (receipt.receipt_id !== key.attempt_id.S) throw new IntakeDeliveryConflictError();
   return receipt;
 }
-async function persistIntakeDelivery(previous: IntakeDeliveryReceipt | null, next: IntakeDeliveryReceipt, attempt?: IntakeAttempt) {
+async function persistIntakeDelivery(previous: IntakeDeliveryReceipt | null, next: IntakeDeliveryReceipt, attempt?: IntakeAttempt, fence?: IntakeSweepFence) {
   validateIntakeDelivery(next);
   if (next === previous) return next;
+  if (fence && (fence.scope.customer_id !== next.customer_id || !attempt)) throw new IntakeDeliveryConflictError();
   if (attempt && (attempt.attempt_id !== next.attempt_id || attempt.signal.customer_id !== next.customer_id || attempt.revision !== next.intake_revision)) throw new IntakeDeliveryConflictError();
   if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
     const put = { TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
@@ -8740,7 +8741,8 @@ async function persistIntakeDelivery(previous: IntakeDeliveryReceipt | null, nex
     try {
       if (attempt) await getDynamoClient().send(new TransactWriteItemsCommand({ TransactItems: [
         { ConditionCheck: { TableName: put.TableName, Key: { customer_id: dynamoString(next.customer_id), attempt_id: dynamoString(next.attempt_id) },
-          ConditionExpression: "#revision = :intake", ExpressionAttributeNames: { "#revision": "revision" }, ExpressionAttributeValues: { ":intake": { N: String(attempt.revision) } } } }, { Put: put }
+          ConditionExpression: "#revision = :intake", ExpressionAttributeNames: { "#revision": "revision" }, ExpressionAttributeValues: { ":intake": { N: String(attempt.revision) } } } }, { Put: put },
+        ...(fence ? [{ ConditionCheck: sweepFenceCondition(fence) }] : [])
       ] }));
       else await getDynamoClient().send(new PutItemCommand(put));
     } catch (error) {
@@ -8748,6 +8750,7 @@ async function persistIntakeDelivery(previous: IntakeDeliveryReceipt | null, nex
       throw error;
     }
   } else await mutateLocalIntake(store => {
+    if (fence) assertLocalSweepFence(store, fence);
     const raw = store.intake_deliveries?.[next.receipt_id];
     const current = raw ? validateIntakeDelivery(raw) : null;
     if (current?.revision !== previous?.revision) throw new IntakeDeliveryConflictError();
@@ -8766,6 +8769,6 @@ export const intakeDeliveryLedger: IntakeDeliveryLedger = {
     const next = prepareIntakeDelivery(previous, attempt, kind, now);
     return next ? persistIntakeDelivery(previous, next, attempt) : null;
   },
-  claim: async (receipt, attempt, now) => persistIntakeDelivery(receipt, claimIntakeDelivery(receipt, attempt, now), attempt),
+  claim: async (receipt, attempt, now, fence) => persistIntakeDelivery(receipt, claimIntakeDelivery(receipt, attempt, now), attempt, fence),
   acknowledge: async (receipt, id, now) => persistIntakeDelivery(receipt, acknowledgeIntakeDelivery(receipt, id, now))
 };

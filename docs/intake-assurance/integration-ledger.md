@@ -165,3 +165,30 @@ production smoke test.
 - Local commit checkpoint: all 501 API tests passed with serial file execution;
   API typecheck and whitespace check passed. Broader final regression/build matrix
   follows the dispatcher slice; no frontend or provider transport changed here.
+
+## Slice 8 — guarded dispatch and internal notification worker
+
+- Main fetched before the slice and final review, still
+  `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`; no intervening changes/conflicts.
+  Previous local slice: `7690340`.
+- Adds an injected dispatcher and a separate default-off internal notification
+  event with bounded per-run sends and its own durable sweep cursor. Receipt
+  claims atomically check intake revision, receipt revision and sweep lease.
+  State changes/uncertain sends do not create automatic repeated messages.
+- Overlaps: generic sweep gains optional purpose and fence callback while retaining
+  existing recovery identity; store gains a third claim transaction condition;
+  Lambda gains an event branch; email helper gains opt-in single-attempt SES
+  transport. Existing email callers, Wrike success writeback and Lift paths retain
+  their previous behavior. Customer-feedback transport remains unwired.
+- Six new tests plus expanded Dynamo fencing coverage verify concurrent dispatch,
+  stale-state suppression, caps, timeout/missing-ID/lost-ack uncertainty, independent
+  gates/cursors, real disabled Lambda with no persistence, and mocked bounded SES
+  sends with SDK retries disabled. No real provider request is part of QA.
+- Final matrix: 976 workspace tests passed (507 API, 469 other workspaces),
+  16 browser regressions, 126 deployment-contract tests, all-workspace check/build,
+  API/Proof Lambda packaging and whitespace check. API fixture files ran serially
+  with local-server permission; no production smoke tests or test workarounds.
+- Notifications/capture/recovery/Exceptions remain off. No new schedule, IAM/table
+  provisioning, push, PR change, deployment, customer comment, SES message or Lift
+  submission. Deployed SHA: none. Operator receipt review, customer-feedback
+  adapter, repeat-follow-up policy and explicit rollout approval remain future work.

@@ -226,3 +226,42 @@ repeat follow-ups, delivery-uncertainty reconciliation and operator-authorized
 retries require later policy and tooling. This is not an exactly-once delivery
 promise. A crash after claim but before sending can leave an unsent uncertain
 receipt requiring review. This slice adds no dispatcher, runtime gate or sends.
+
+## Slice 8: guarded dispatch and default-off internal notifications
+
+The dispatcher regenerates approved payloads from the intake ledger, prepares the
+receipt, rereads the intake, then atomically claims the exact intake/receipt
+revision before invoking transport. Scheduled notification claims also check the
+sweep lease in that transaction. A stale revision, lost lease, unavailable store
+or exhausted send budget prevents dispatch. Provider timeout, missing message ID,
+or failed acknowledgement persistence leaves `uncertain`; automatic replay is
+suppressed. `sent` means provider acknowledgement, not proof of mailbox delivery.
+An already-in-flight request cannot be cancelled by later intake state changes.
+
+The Lambda event is `source: pathfinder.intake`, `detail-type: Intake Assurance
+Notifications`, `detail.automation: notify_internal`. Event content cannot choose
+a tenant, recipient or message. A separate gate
+`PATHFINDER_ENABLE_INTAKE_INTERNAL_NOTIFICATIONS=true` requires the existing explicit
+assurance customer/connection/Import Method/SLA and sweep page/max-page/lease
+settings, plus `PATHFINDER_INTAKE_NOTIFICATION_MAX_SENDS` (1–100). The independent
+notification cursor uses the `internal_notification` purpose; recovery's existing
+cursor identity is unchanged. This worker reads persisted intake state only; job
+and submit reconciliation remains the observation worker's responsibility.
+
+SES mode is mandatory before any receipt mutation. Log mode cannot count as
+successful delivery. Messages use the safe system template and fixed recipient
+`pathfinder@vornan.co`. The email helper accepts an opt-in single-attempt SES client
+for this path, avoiding invisible SDK retries; other email callers keep their
+existing client and behavior. The send cap counts transport invocations, including
+uncertain outcomes. Deferred items remain eligible on later passes. Same-channel
+sent/uncertain receipts suppress further automatic sends across all later intake
+revisions under the conservative slice-7 policy.
+
+Source-feedback dispatch is available only through an injected callback and safe
+Wrike correction payload, with no production Wrike sender or customer-feedback
+runtime flag wired. Existing successful-order Status-link writebacks keep their
+own ledger and adapter. No new worker performs Lift submission or automatic link
+repair. Next work is operator visibility/reconciliation for uncertain deliveries,
+the customer-feedback adapter and carefully reviewed repeat-follow-up policy.
+Activation still requires explicit approval, production IAM/SES and scope review,
+SLA/cap/lease/schedule choices, and synthetic-to-production rollout validation.

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { validatePersistedIntakeAttempt, type IntakeAttempt } from "./intake-assurance.js";
 import { draftIntakeCustomerFeedback, draftIntakeInternalNotification } from "./intake-follow-up.js";
 import type { TransactionalEmail } from "./email.js";
+import type { IntakeSweepFence } from "./intake-recovery-sweep.js";
 
 export type IntakeDeliveryKind = "source_feedback" | "internal_notification";
 export type IntakeDeliveryPayload = { kind: "source_feedback"; provider: "wrike"; connection_id: string; task_id: string; text: string } |
@@ -83,6 +84,6 @@ export function acknowledgeIntakeDelivery(current: IntakeDeliveryReceipt, provid
 export interface IntakeDeliveryLedger {
   get(customer: string, attempt: string, kind: IntakeDeliveryKind): Promise<IntakeDeliveryReceipt | null>;
   prepare(attempt: IntakeAttempt, kind: IntakeDeliveryKind, now: string): Promise<IntakeDeliveryReceipt | null>;
-  claim(receipt: IntakeDeliveryReceipt, attempt: IntakeAttempt, now: string): Promise<IntakeDeliveryReceipt>;
+  claim(receipt: IntakeDeliveryReceipt, attempt: IntakeAttempt, now: string, fence?: IntakeSweepFence): Promise<IntakeDeliveryReceipt>;
   acknowledge(receipt: IntakeDeliveryReceipt, providerMessageId: string, now: string): Promise<IntakeDeliveryReceipt>;
 }

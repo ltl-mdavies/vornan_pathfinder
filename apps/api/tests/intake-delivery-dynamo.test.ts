@@ -17,6 +17,11 @@ test("Dynamo delivery claim atomically checks intake and receipt revisions; lost
       assert.equal(check.Key!.customer_id!.S, "synthetic");
       assert.equal(put.Item!.customer_id!.S, "intake-delivery#synthetic");
       const previous = records.get(key(put.Item!));
+      const lease = command.input.TransactItems![2]?.ConditionCheck;
+      if (lease) {
+        const owner = records.get(key(lease.Key!));
+        if (owner?.lease_token?.S !== lease.ExpressionAttributeValues![":owner"]!.S || Number(owner?.lease_until?.N) <= Number(lease.ExpressionAttributeValues![":now"]!.N)) throw Object.assign(new Error("lease rejected"), { name: "TransactionCanceledException" });
+      }
       if (records.get(key(check.Key!))?.revision?.N !== check.ExpressionAttributeValues![":intake"]!.N ||
         (put.ExpressionAttributeValues ? previous?.revision?.N !== put.ExpressionAttributeValues[":expected"]!.N : !!previous)) throw Object.assign(new Error("rejected"), { name: "TransactionCanceledException" });
       records.set(key(put.Item!), structuredClone(put.Item!)); return {};
@@ -34,7 +39,11 @@ test("Dynamo delivery claim atomically checks intake and receipt revisions; lost
     const attempt = await store.transitionIntakeAttempt("synthetic", initial.attempt_id, { event_id: "failure", expected_revision: initial.revision, occurred_at: time, state: "internal_action_required", reason: "pathfinder_failure", next_action_at: initial.next_action_at });
     const ledger = store.intakeDeliveryLedger;
     const receipt = (await ledger.prepare(attempt, "internal_notification", time))!;
-    const claims = await Promise.allSettled([ledger.claim(receipt, attempt, time), ledger.claim(receipt, attempt, time)]);
+    const scope = { customer_id: "synthetic", provider: "wrike", connection_id: "connection", import_method_id: "method", purpose: "internal_notification" as const };
+    await store.acquireIntakeSweep(scope, "owner", time, 30);
+    await assert.rejects(ledger.claim(receipt, attempt, time, { scope, lease_token: "stale", now: time }), /changed/);
+    const fence = { scope, lease_token: "owner", now: time };
+    const claims = await Promise.allSettled([ledger.claim(receipt, attempt, time, fence), ledger.claim(receipt, attempt, time, fence)]);
     assert.equal(claims.filter(row => row.status === "fulfilled").length, 1);
     const uncertain = (await ledger.get("synthetic", attempt.attempt_id, "internal_notification"))!;
     failAck = true;
