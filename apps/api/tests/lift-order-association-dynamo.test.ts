@@ -17,6 +17,8 @@ const clientPrototype = DynamoDBClient.prototype as unknown as {
 const originalSend = clientPrototype.send;
 let associateJobWithLiftOrder: typeof import("../src/store.ts")["associateJobWithLiftOrder"];
 let LiftOrderAssociationConflictError: typeof import("../src/store.ts")["LiftOrderAssociationConflictError"];
+let listJobs: typeof import("../src/store.ts")["listJobs"];
+let withPathfinderStoreReadScope: typeof import("../src/store.ts")["withPathfinderStoreReadScope"];
 
 const customer = {
   lift_customer_id: "284619",
@@ -103,7 +105,12 @@ before(async () => {
     }
     return {};
   };
-  ({ associateJobWithLiftOrder, LiftOrderAssociationConflictError } = await import("../src/store.ts"));
+  ({
+    associateJobWithLiftOrder,
+    LiftOrderAssociationConflictError,
+    listJobs,
+    withPathfinderStoreReadScope
+  } = await import("../src/store.ts"));
 });
 
 beforeEach(() => {
@@ -177,6 +184,25 @@ test("atomically preserves the exact uncertain attempt while associating its ver
   assert.equal(write?.ConditionExpression, "updated_at = :expected_updated_at");
   assert.equal(write?.Item?.target_order_number?.S, "A0227641");
   assert.equal(write?.Item?.data?.S?.includes("submit_b5d039"), true);
+});
+
+test("exposes a reconciled association to later stages in the same scheduled read scope", async () => {
+  const scoped = await withPathfinderStoreReadScope(async () => {
+    await listJobs();
+    await associateJobWithLiftOrder(customer, {
+      job_id: job.job_id,
+      order_number: verification.order_number,
+      expected_current_order_number: null,
+      linked_by_email: null,
+      reason: "Automatically reconcile the exact uncertain Lift response.",
+      verification
+    });
+    return listJobs();
+  });
+  assert.equal(
+    scoped.find((candidate) => candidate.job_id === job.job_id)?.target_order_number,
+    verification.order_number
+  );
 });
 
 test("fails closed when another operator changes the job before the conditional write", async () => {
