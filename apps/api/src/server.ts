@@ -150,6 +150,7 @@ import {
 } from "./wrike-scheduled-telemetry.js";
 import { buildScheduledSubmissionHealth } from "./wrike-scheduled-health.js";
 import {
+  resolveScheduledUncertainProviderOrderNumber,
   ScheduledUncertainReconciliationError,
   selectScheduledUncertainAttempt,
   verifyScheduledUncertainProviderOrder
@@ -6297,6 +6298,124 @@ async function prepareWrikeOrderForTask(args: {
   });
 }
 
+function scheduledReconciliationVerification(
+  strict: ReturnType<typeof verifyScheduledUncertainProviderOrder>
+): LiftOrderAssociationVerification {
+  return {
+    order_number: strict.order_number,
+    customer_id: strict.customer_id,
+    customer_name: strict.customer_name,
+    order_title: strict.order_title,
+    contract_number: strict.contract_number,
+    created_by: strict.created_by,
+    order_status: strict.order_status,
+    line_count: strict.line_count,
+    fetched_at: strict.fetched_at,
+    external_order_id: strict.external_order_id,
+    company_id: strict.company_id,
+    po_number: strict.po_number,
+    order_type: strict.order_type,
+    line_fingerprint: strict.line_fingerprint,
+    submit_attempt_id: strict.submit_attempt_id,
+    request_fingerprint: strict.request_fingerprint
+  };
+}
+
+async function reconcileScheduledWrikeUncertainJob(
+  job: ProcessingJobPreview,
+  attempts: SubmitAttempt[]
+) {
+  const customer = await findLiftCustomer(wrikeScheduledIntakeConfig.customer_id);
+  const attempt = selectScheduledUncertainAttempt({ job, attempts });
+  const workspace = await getOrCreateWorkspace(customer);
+  const route = workspace.output_routes.find(
+    (candidate) => candidate.output_route_id === job.output_route_id
+  );
+  const target = route
+    ? ((await getTarget(route.target_id, false)) as TargetConfig | null)
+    : null;
+  if (!route || !target) {
+    throw new ScheduledUncertainReconciliationError(
+      "route_missing",
+      "The scheduled job output route or target is unavailable for reconciliation."
+    );
+  }
+
+  // Ext_ID is the durable identity shared by the reserved Pathfinder attempt
+  // and the Lift order. Never repeat the create-order POST after an uncertain
+  // response; query AS360Orders by p3 and fail closed unless one exact order
+  // passes the full customer, contract, type, and line-identity contract.
+  const lookup = await fetchLiftOrderLookup({
+    target,
+    route,
+    orderNumber: "",
+    customerId: job.submit_customer_id,
+    externalId: attempt.ext_id
+  });
+  if (!lookup.ok) {
+    throw new ScheduledUncertainReconciliationError(
+      "provider_lookup_failed",
+      "Lift order reconciliation lookup failed."
+    );
+  }
+
+  let orderNumber: string;
+  try {
+    orderNumber = resolveScheduledUncertainProviderOrderNumber({
+      provider_payload: lookup.payload,
+      external_id: attempt.ext_id
+    });
+  } catch (error) {
+    if (
+      error instanceof ScheduledUncertainReconciliationError &&
+      error.code === "provider_order_missing"
+    ) {
+      return { outcome: "reconciliation_needed" as const };
+    }
+    throw error;
+  }
+
+  const providerCompanyId =
+    route.company_id ??
+    routeEnvironmentForTarget(target, route)?.headers.Company ??
+    target.lift.headers.Company;
+  const strict = verifyScheduledUncertainProviderOrder({
+    job,
+    attempt,
+    order_number: orderNumber,
+    provider_payload: lookup.payload,
+    provider_company_id: providerCompanyId,
+    expected_order_type:
+      valueAsString(job.lift_payload.order.order_type).trim() ||
+      target.output_templates
+        .find((candidate) => candidate.output_template_id === route.output_template_id)
+        ?.name.replace(/^Lift\s+/i, "").trim() ||
+      route.output_template.replace(/^Lift\s+/i, ""),
+    fetched_at: lookup.fetched_at
+  });
+  const associated = await associateJobWithLiftOrder(customer, {
+    job_id: job.job_id,
+    order_number: orderNumber,
+    expected_current_order_number: null,
+    linked_by_email: null,
+    reason: "Automatically reconciled from the reserved submit Ext_ID after an uncertain Lift response.",
+    verification: scheduledReconciliationVerification(strict),
+    source: "scheduled_uncertain_reconciliation",
+    expected_uncertain_attempt: {
+      attempt_id: attempt.attempt_id,
+      idempotency_key: attempt.idempotency_key,
+      request_fingerprint: attempt.request_fingerprint?.trim() || null
+    }
+  });
+  if (!associated) {
+    throw new ScheduledUncertainReconciliationError(
+      "job_missing",
+      "The scheduled job disappeared during reconciliation."
+    );
+  }
+  return { outcome: associated.reused ? "replayed" as const : "reconciled" as const };
+}
+
 async function submitScheduledWrikeJobOnce(jobId: string) {
   const customer = await findLiftCustomer(wrikeScheduledIntakeConfig.customer_id);
   let existingJob = await getJob(customer, jobId);
@@ -6322,11 +6441,7 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
   const existingTransportAttempts = (await listSubmitAttemptsForJob(customer, existingJob.job_id))
     .filter((attempt) => !["Blocked", "Gate Locked"].includes(attempt.state));
   if (existingTransportAttempts.some((attempt) => attempt.state === "Submission Uncertain")) {
-    selectScheduledUncertainAttempt({
-      job: existingJob,
-      attempts: existingTransportAttempts
-    });
-    return { outcome: "reconciliation_needed" as const };
+    return reconcileScheduledWrikeUncertainJob(existingJob, existingTransportAttempts);
   }
 
   const existingImportMethodId = existingJob.import_method_id;
@@ -6424,7 +6539,7 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
       return { reused: true };
     }
     if (existingAttempt.state === "Submission Uncertain") {
-      return { outcome: "reconciliation_needed" as const };
+      return reconcileScheduledWrikeUncertainJob(existingJob, existingTransportAttempts);
     }
     throw new Error("WrikeScheduledSubmitAlreadyAttempted");
   }
@@ -6527,7 +6642,7 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
       return { reused: true };
     }
     if (reservation.attempt.state === "Submission Uncertain") {
-      return { outcome: "reconciliation_needed" as const };
+      return reconcileScheduledWrikeUncertainJob(existingJob, [reservation.attempt]);
     }
     throw new Error("WrikeScheduledSubmitReservationExists");
   }
@@ -6544,7 +6659,12 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
     updated_at: new Date().toISOString()
   });
   if (attemptState === "Submission Uncertain") {
-    return { outcome: "reconciliation_needed" as const };
+    return reconcileScheduledWrikeUncertainJob(existingJob, [{
+      ...reservation.attempt,
+      state: attemptState,
+      response: transportResult,
+      updated_at: new Date().toISOString()
+    }]);
   }
   if (attemptState !== "Submitted" || !transportResult.lift_order_id) {
     throw new Error("WrikeScheduledSubmitNeedsReconciliation");
@@ -6728,16 +6848,56 @@ export async function runConfiguredWrikeScheduledIntake() {
     markScheduled: true
   });
   const { customer, intakeResult } = core;
+  const scheduledJobs = await listJobs();
   const scheduledSubmissionHealth = buildScheduledSubmissionHealth(
     wrikeScheduledIntakeConfig,
-    await listJobs()
+    scheduledJobs
   );
+
+  // Revisit durable uncertain submissions even if their Wrike task no longer
+  // appears in the current discovery result. This is the recovery queue: the
+  // create-order POST is never repeated, and each candidate is resolved only
+  // through the strict Ext_ID lookup above.
+  const uncertainReconciliationJobIds: string[] = [];
+  if (wrikeScheduledIntakeConfig.lift_submit_enabled && customer) {
+    const candidates = scheduledJobs
+      .filter((job) => {
+        const marker = job.scheduled_wrike_intake;
+        return (
+          job.customer_id === wrikeScheduledIntakeConfig.customer_id &&
+          job.import_method_id === wrikeScheduledIntakeConfig.import_method_id &&
+          marker?.source === "scheduled_polling" &&
+          marker.import_method_id === wrikeScheduledIntakeConfig.import_method_id &&
+          marker.task_id === job.source_evidence?.task_id &&
+          job.source_evidence?.provider === "wrike" &&
+          !valueAsString(job.target_order_number).trim()
+        );
+      })
+      .sort((left, right) =>
+        Date.parse(left.created_at) - Date.parse(right.created_at) ||
+        left.job_id.localeCompare(right.job_id)
+      );
+    for (const job of candidates) {
+      const attempts = await listSubmitAttemptsForJob(customer, job.job_id);
+      if (attempts.some((attempt) => attempt.state === "Submission Uncertain")) {
+        uncertainReconciliationJobIds.push(job.job_id);
+      }
+      if (uncertainReconciliationJobIds.length >= wrikeScheduledIntakeConfig.max_candidates) {
+        break;
+      }
+    }
+  }
 
   const scheduledSubmit = wrikeScheduledIntakeConfig.lift_submit_enabled
     ? await runWrikeScheduledSubmits({
         candidates: Array.from(
-          new Set(intakeResult.results.flatMap((result) => result.job_ids))
-        ).map((job_id) => ({ job_id })),
+          new Set([
+            ...uncertainReconciliationJobIds,
+            ...intakeResult.results.flatMap((result) => result.job_ids)
+          ])
+        )
+          .slice(0, wrikeScheduledIntakeConfig.max_candidates)
+          .map((job_id) => ({ job_id })),
         submit: ({ job_id }) => submitScheduledWrikeJobOnce(job_id)
       })
     : {

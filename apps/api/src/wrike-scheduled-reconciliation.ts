@@ -40,6 +40,41 @@ function providerRows(payload: unknown) {
   return record && Array.isArray(record.rowset) ? record.rowset : [];
 }
 
+export function resolveScheduledUncertainProviderOrderNumber(args: {
+  provider_payload: unknown;
+  external_id: string;
+}) {
+  const externalId = normalizedText(args.external_id);
+  if (!externalId) {
+    throw new ScheduledUncertainReconciliationError(
+      "external_id_missing",
+      "The uncertain submit attempt does not have the Ext_ID required for reconciliation."
+    );
+  }
+  const matchingRows = providerRows(args.provider_payload)
+    .map(asRecord)
+    .filter((row): row is Record<string, unknown> => Boolean(row))
+    .filter(
+      (row) =>
+        normalizedText(firstValue(row, ["EXT_ID", "EXTERNAL_ORDER_ID", "ORDER_EXT_ID"])) ===
+        externalId
+    );
+  if (matchingRows.length !== 1) {
+    throw new ScheduledUncertainReconciliationError(
+      matchingRows.length ? "provider_order_ambiguous" : "provider_order_missing",
+      "Lift did not return exactly one order for this Ext_ID reconciliation."
+    );
+  }
+  const orderNumber = normalizedText(firstValue(matchingRows[0]!, ["ORDER_NUMBER"]));
+  if (!/^[A-Z0-9][A-Z0-9_-]{3,31}$/.test(orderNumber)) {
+    throw new ScheduledUncertainReconciliationError(
+      "provider_order_number_missing",
+      "Lift did not return a valid order number for this Ext_ID reconciliation."
+    );
+  }
+  return orderNumber;
+}
+
 export interface ScheduledUncertainReconciliationJob {
   job_id: string;
   customer_id: string;

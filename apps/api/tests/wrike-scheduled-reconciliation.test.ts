@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  resolveScheduledUncertainProviderOrderNumber,
   ScheduledUncertainReconciliationError,
   selectScheduledUncertainAttempt,
   verifyScheduledUncertainProviderOrder
@@ -101,6 +102,52 @@ test("selects only the one exact live uncertain attempt and never a second trans
     (error) =>
       error instanceof ScheduledUncertainReconciliationError &&
       error.code === "attempt_ambiguous"
+  );
+});
+
+test("resolves one Lift order number from the exact Ext_ID returned by a p3 lookup", () => {
+  assert.equal(
+    resolveScheduledUncertainProviderOrderNumber({
+      provider_payload: providerOrder(),
+      external_id: "pfmtac7uy1272e"
+    }),
+    "A0229496"
+  );
+});
+
+test("fails closed when an Ext_ID lookup is missing, ambiguous, or lacks an order number", () => {
+  assert.throws(
+    () => resolveScheduledUncertainProviderOrderNumber({
+      provider_payload: { rowset: [] },
+      external_id: "PFMTAC7UY1272E"
+    }),
+    (error) =>
+      error instanceof ScheduledUncertainReconciliationError &&
+      error.code === "provider_order_missing"
+  );
+
+  const ambiguous = providerOrder();
+  ambiguous.rowset.push(structuredClone(ambiguous.rowset[0]!));
+  assert.throws(
+    () => resolveScheduledUncertainProviderOrderNumber({
+      provider_payload: ambiguous,
+      external_id: "PFMTAC7UY1272E"
+    }),
+    (error) =>
+      error instanceof ScheduledUncertainReconciliationError &&
+      error.code === "provider_order_ambiguous"
+  );
+
+  const missingNumber = providerOrder();
+  delete (missingNumber.rowset[0] as Record<string, unknown>).ORDER_NUMBER;
+  assert.throws(
+    () => resolveScheduledUncertainProviderOrderNumber({
+      provider_payload: missingNumber,
+      external_id: "PFMTAC7UY1272E"
+    }),
+    (error) =>
+      error instanceof ScheduledUncertainReconciliationError &&
+      error.code === "provider_order_number_missing"
   );
 });
 

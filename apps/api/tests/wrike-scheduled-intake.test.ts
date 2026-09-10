@@ -504,6 +504,25 @@ test("scheduled submit rechecks the exact Wrike status before reservation and Li
   assert.match(submit, /trigger_status_id:\s*sourceConfig\.trigger_status_id/);
 });
 
+test("scheduled submit reconciles an uncertain Lift response by Ext_ID without another transport", async () => {
+  const source = await readFile(new URL("../src/server.ts", import.meta.url), "utf8");
+  const reconcileStart = source.indexOf("async function reconcileScheduledWrikeUncertainJob");
+  const submitStart = source.indexOf("async function submitScheduledWrikeJobOnce", reconcileStart);
+  assert.ok(reconcileStart >= 0 && submitStart > reconcileStart);
+  const reconcile = source.slice(reconcileStart, submitStart);
+  assert.match(reconcile, /externalId:\s*attempt\.ext_id/);
+  assert.match(reconcile, /resolveScheduledUncertainProviderOrderNumber/);
+  assert.match(reconcile, /verifyScheduledUncertainProviderOrder/);
+  assert.match(reconcile, /associateJobWithLiftOrder/);
+  assert.doesNotMatch(reconcile, /submitLiftOrder/);
+
+  const runnerStart = source.indexOf("export async function runConfiguredWrikeScheduledIntake");
+  const runnerEnd = source.indexOf("export async function recordConfiguredWrikeScheduledIntakeFailure", runnerStart);
+  const runner = source.slice(runnerStart, runnerEnd);
+  assert.match(runner, /uncertainReconciliationJobIds/);
+  assert.match(runner, /attempt\.state === "Submission Uncertain"/);
+});
+
 test("scheduled status writeback posts each confirmed job independently and replays safely", async () => {
   const calls: string[] = [];
   const result = await runWrikeScheduledStatusWritebacks({
