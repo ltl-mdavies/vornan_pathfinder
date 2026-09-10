@@ -78,7 +78,7 @@ import {
 } from "@pathfinder/wrike-adapter";
 import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
 import { assertLocalStorageDriver, getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
-import { createIntakeAttempt, transitionIntake, type IntakeAttempt, type IntakeEvent, type IntakeSignal, type IntakeLedger } from "./intake-assurance.js";
+import { createIntakeAttempt, transitionIntake, validatePersistedIntakeAttempt, type IntakeAttempt, type IntakeEvent, type IntakeSignal, type IntakeLedger } from "./intake-assurance.js";
 import type {
   WrikeSourceOrderImpact,
   WrikeSourceOrderImpactAssessment
@@ -8456,11 +8456,19 @@ async function mutateLocalIntake<T>(mutate: (store: PathfinderStore) => T): Prom
 }
 export async function getIntakeAttempt(customerId: string, attemptId: string) {
   if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
-    return getDynamoData<IntakeAttempt>(requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
-      { customer_id: customerId, attempt_id: attemptId }, true);
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
+      Key: { customer_id: dynamoString(customerId), attempt_id: dynamoString(attemptId) },
+      ConsistentRead: true
+    }));
+    if (!response.Item) return null;
+    const attempt = validatePersistedIntakeAttempt(parseDynamoData<IntakeAttempt>(response.Item));
+    if (attempt.signal.customer_id !== customerId || attempt.attempt_id !== attemptId) throw new Error("Intake identity integrity failure");
+    return attempt;
   }
   const store = await readStoreUncached();
-  return store.intake_attempts?.find((entry) => entry.signal.customer_id === customerId && entry.attempt_id === attemptId) ?? null;
+  const value = store.intake_attempts?.find((entry) => entry.signal.customer_id === customerId && entry.attempt_id === attemptId);
+  return value ? validatePersistedIntakeAttempt(value) : null;
 }
 function intakeItem(attempt: IntakeAttempt) {
   return { ...dynamoItem({ customer_id: attempt.signal.customer_id, attempt_id: attempt.attempt_id }, attempt),
@@ -8486,7 +8494,7 @@ export async function reserveIntakeAttempt(signal: IntakeSignal, nextActionAt: s
   }
   return mutateLocalIntake((store) => {
     const existing = store.intake_attempts?.find((entry) => entry.attempt_id === attempt.attempt_id && entry.signal.customer_id === signal.customer_id);
-    if (existing) return { attempt: existing, created: false };
+    if (existing) return { attempt: validatePersistedIntakeAttempt(existing), created: false };
     store.intake_attempts = [...(store.intake_attempts ?? []), attempt];
     return { attempt, created: true };
   });
@@ -8515,7 +8523,7 @@ export async function transitionIntakeAttempt(customerId: string, attemptId: str
   return mutateLocalIntake((store) => {
     const index = store.intake_attempts?.findIndex((entry) => entry.signal.customer_id === customerId && entry.attempt_id === attemptId) ?? -1;
     if (index < 0) throw new Error("Intake attempt not found");
-    const next = transitionIntake(store.intake_attempts![index]!, event);
+    const next = transitionIntake(validatePersistedIntakeAttempt(store.intake_attempts![index]!), event);
     store.intake_attempts![index] = next;
     return next;
   });
@@ -8536,7 +8544,7 @@ export async function listIntakeAttemptsPage(customerId: string, limit = 50, cur
       ConsistentRead: true, Limit: request.limit,
       ...(request.after ? { ExclusiveStartKey: { customer_id: dynamoString(customerId), attempt_id: dynamoString(request.after) } } : {})
     }));
-    const attempts = (response.Items ?? []).map((item) => parseDynamoData<IntakeAttempt>(item)).filter((entry): entry is IntakeAttempt => entry !== null);
+    const attempts = (response.Items ?? []).map((item) => validatePersistedIntakeAttempt(parseDynamoData<IntakeAttempt>(item)));
     if (attempts.some((entry) => entry.signal.customer_id !== customerId)) throw new Error("Intake tenant integrity failure");
     const after = response.LastEvaluatedKey?.attempt_id?.S;
     return { attempts, next_cursor: after ? intakePageCursor(customerId, after) : null };
@@ -8544,6 +8552,6 @@ export async function listIntakeAttemptsPage(customerId: string, limit = 50, cur
   const store = await readStoreUncached();
   const candidates = (store.intake_attempts ?? []).filter((entry) => entry.signal.customer_id === customerId && (!request.after || entry.attempt_id > request.after))
     .sort((left, right) => left.attempt_id.localeCompare(right.attempt_id));
-  const attempts = candidates.slice(0, request.limit);
+  const attempts = candidates.slice(0, request.limit).map(validatePersistedIntakeAttempt);
   return { attempts, next_cursor: candidates.length > request.limit ? intakePageCursor(customerId, attempts.at(-1)!.attempt_id) : null };
 }

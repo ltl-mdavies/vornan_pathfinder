@@ -29,5 +29,14 @@ test("local ledger survives a process restart, serializes reservations, and pres
       if (replay.created || replay.attempt.state !== 'preparing') throw new Error('lost durable record');
       if (await getIntakeAttempt('another-customer', replay.attempt.attempt_id)) throw new Error('tenant leak');`);
     assert.deepEqual(JSON.parse(await readFile(path, "utf8")), before);
+    run(`const fs = await import('node:fs/promises');
+      const data = JSON.parse(await fs.readFile(process.env.PATHFINDER_LOCAL_STORE_PATH, 'utf8'));
+      data.intake_attempts[0].revision = -1;
+      const bytes = JSON.stringify(data);
+      await fs.writeFile(process.env.PATHFINDER_LOCAL_STORE_PATH, bytes);
+      let rejected = false;
+      try { await reserveIntakeAttempt(signal, deadline); } catch (error) { rejected = String(error).includes('Invalid persisted'); }
+      if (!rejected) throw new Error('corrupt reservation was accepted');
+      if (await fs.readFile(process.env.PATHFINDER_LOCAL_STORE_PATH, 'utf8') !== bytes) throw new Error('corrupt data was overwritten');`);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

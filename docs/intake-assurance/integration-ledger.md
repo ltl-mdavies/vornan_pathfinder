@@ -52,3 +52,23 @@ production smoke test.
 - Posture: new API flag, customer allowlist and UI build flag unset/default-off.
   Capture, submission, repair, comments and notifications remain unenabled.
 - Deployed SHA: none. No push or PR mutation after the revised review boundary.
+
+## Slice 3 — local Wrike assurance and follow-up planning
+
+- Refreshed main before implementation and again at final review: unchanged
+  `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`; no intervening production commits.
+  Previous local slice: `9ca084b` (Exceptions stack).
+- Overlaps: adds standalone Wrike discovery/ledger projection and feedback/watchdog
+  planners; adds an un-emitted count builder to existing telemetry; hardens only
+  intake-ledger reads/reservations. Live scheduler, EXT_ID reconciliation,
+  writebacks, SES service, Proof and Order Status behavior remain unchanged.
+- Final validation: 946 workspace tests passed, 16 browser regressions passed,
+  126 deployment-contract tests passed, all-workspace typecheck/build passed,
+  API Lambda packaging passed, whitespace check passed. The final two local-store
+  validation guards were covered by the last full suite and check/build rerun;
+  browser/deployment contracts had no further affected changes.
+- Reconciliation surfaced: brief's en-dash status versus adapter fallback's
+  hyphen status. Exact-label question pending; live saved configuration untouched.
+- Posture: Exceptions server/UI flags unset, capture disabled and unwired,
+  delivery/repair/watchdog dispatch absent. No new PR, push, infrastructure change,
+  provider communication or order submission. Deployed SHA: none.

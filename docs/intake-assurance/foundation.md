@@ -1,5 +1,8 @@
 # Intake Assurance foundation
 
+This records the original foundation PR boundary. Subsequent local, default-off
+work is tracked in `sprint-slices.md` and `integration-ledger.md`.
+
 ## Slice 1 boundary
 
 Provider-neutral, default-dark domain and durable pre-job ledger. No server route,

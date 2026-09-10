@@ -72,3 +72,15 @@ test("durable reservation, replay, tenant isolation, concurrent CAS and unavaila
   await assert.rejects(reserveIntakeAttempt(signal, deadline), /Dynamo unavailable/);
   assert.ok(commands.every((command) => command instanceof GetItemCommand || command instanceof PutItemCommand));
 });
+
+test("corrupt persisted data cannot silently disappear from the Exceptions page", async () => {
+  const { reserveIntakeAttempt, listIntakeAttemptsPage, getIntakeAttempt } = await import("../src/store.js");
+  const reserved = await reserveIntakeAttempt(signal, deadline);
+  const key = [...records.keys()][0]!;
+  const item = records.get(key)!;
+  records.set(key, { ...item, data: { S: JSON.stringify({ ...reserved.attempt, revision: -1 }) } });
+  await assert.rejects(listIntakeAttemptsPage(signal.customer_id), /Invalid persisted/);
+  await assert.rejects(getIntakeAttempt(signal.customer_id, reserved.attempt.attempt_id), /Invalid persisted/);
+  records.set(key, { ...item, data: { S: "null" } });
+  await assert.rejects(listIntakeAttemptsPage(signal.customer_id), /Invalid persisted/);
+});

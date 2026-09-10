@@ -110,6 +110,29 @@ const transitions: Record<IntakeState, readonly IntakeState[]> = {
   manual_review: ["preparing", "reconciling", "confirmed", "withdrawn", "superseded"],
   superseded: [], withdrawn: []
 };
+/** Corrupt persisted records must surface an operational failure, never disappear from a page. */
+export function validatePersistedIntakeAttempt(value: unknown): IntakeAttempt {
+  const attempt = value as IntakeAttempt | null;
+  if (!attempt || attempt.schema_version !== 1 || !attempt.signal ||
+    attempt.attempt_id !== intakeAttemptId(attempt.signal) ||
+    !Object.hasOwn(transitions, attempt.state) || !Number.isInteger(attempt.revision) || attempt.revision < 0 ||
+    !["automation", "customer", "internal", "none"].includes(attempt.owner) ||
+    (attempt.reason !== null && !Object.hasOwn(intakeFailures, attempt.reason))) {
+    throw new Error("Invalid persisted intake attempt");
+  }
+  if (timestamp(attempt.updated_at) < timestamp(attempt.created_at)) throw new Error("Invalid persisted intake clock");
+  timestamp(attempt.signal.observed_at);
+  if (attempt.next_action_at !== null) timestamp(attempt.next_action_at);
+  if (!["confirmed", "superseded", "withdrawn"].includes(attempt.state) && !attempt.next_action_at) throw new Error("Missing persisted intake deadline");
+  for (const value of [attempt.job_id, attempt.submit_attempt_id, attempt.confirmed_order_number, attempt.writeback_id, attempt.superseded_by]) {
+    if (value !== null) required(value);
+  }
+  if (attempt.revision === 0 ? attempt.last_event !== null : !attempt.last_event ||
+    attempt.last_event.expected_revision !== attempt.revision - 1 || attempt.last_event.state !== attempt.state) {
+    throw new Error("Invalid persisted intake event");
+  }
+  return attempt;
+}
 export function transitionIntake(attempt: IntakeAttempt, event: IntakeEvent): IntakeAttempt {
   required(event.event_id);
   if (attempt.last_event?.event_id === event.event_id) {
