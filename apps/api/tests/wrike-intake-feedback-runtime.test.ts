@@ -9,7 +9,19 @@ test("feedback requires its own gate and explicit bounds", () => {
   assert.equal(getWrikeIntakeFeedbackConfig({ PATHFINDER_ENABLE_INTAKE_INTERNAL_NOTIFICATIONS: "true" }).sweep.enabled, false);
   assert.throws(() => getWrikeIntakeFeedbackConfig({ PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK: "true" }));
 });
-for (const variant of ["safe", "moved", "renamed", "type", "moved_after_claim", "renamed_after_claim", "type_after_claim"]) test(`actual feedback Lambda validates live task scope: ${variant}`, async () => {
+test("enabled feedback requires explicit aggregate limits shorter than its lease", () => {
+  const env = { PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK: "true", PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: "synthetic",
+    PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: "connection", PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: "method",
+    PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: "3600", PATHFINDER_INTAKE_SWEEP_PAGE_SIZE: "1", PATHFINDER_INTAKE_SWEEP_MAX_PAGES: "1",
+    PATHFINDER_INTAKE_SWEEP_LEASE_SECONDS: "30", PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: "100", PATHFINDER_INTAKE_FEEDBACK_MAX_COMMENTS: "1",
+    PATHFINDER_INTAKE_FEEDBACK_MAX_REQUESTS: "27", PATHFINDER_INTAKE_FEEDBACK_MAX_ELAPSED_MS: "10000" };
+  assert.deepEqual(getWrikeIntakeFeedbackConfig(env).limits, { max_requests: 27, max_elapsed_ms: 10000 });
+  for (const patch of [{ PATHFINDER_INTAKE_FEEDBACK_MAX_REQUESTS: undefined }, { PATHFINDER_INTAKE_FEEDBACK_MAX_ELAPSED_MS: undefined },
+    { PATHFINDER_INTAKE_FEEDBACK_MAX_REQUESTS: "257" }, { PATHFINDER_INTAKE_FEEDBACK_MAX_ELAPSED_MS: "30000" }]) {
+    assert.throws(() => getWrikeIntakeFeedbackConfig({ ...env, ...patch }));
+  }
+});
+for (const variant of ["safe", "moved", "renamed", "type", "moved_after_claim", "renamed_after_claim", "type_after_claim", "deep_before_budget", "deep_after_budget", "deep_safe"]) test(`actual feedback Lambda validates live task scope: ${variant}`, async () => {
   const directory = await mkdtemp(join(tmpdir(), "wrike-feedback-"));
   try {
     const script = `
@@ -20,6 +32,10 @@ for (const variant of ["safe", "moved", "renamed", "type", "moved_after_claim", 
       globalThis.fetch = async (input, init) => {
         requests++; assert.ok(init.signal);
         const url = String(input);
+        if (/\\/api\\/v4\\/folders\\/F[0-5]$/.test(url)) {
+          const index = Number(url.slice(-1));
+          return Response.json({ data: [{ id: 'F' + index, title: 'Campaign', parentIds: [index === 5 ? 'ROOT' : 'F' + (index + 1)] }] });
+        }
         if (url.endsWith('/api/v4/folders/ROOT')) return Response.json({ data: [{ id: 'ROOT', title: 'Campaign' }] });
         if (url.includes('/api/v4/spaces')) return Response.json({ data: [] });
         if (url.endsWith('/api/v4/workflows')) return Response.json({ data: [{ id: 'WORKFLOW', customStatuses: [{ id: 'STATUS1', name: 'Sent to Print – LTL' }] }] });
@@ -27,7 +43,7 @@ for (const variant of ["safe", "moved", "renamed", "type", "moved_after_claim", 
         if (url.endsWith('/api/v4/tasks/TASK123')) {
           taskReads++;
           const changed = !variant.endsWith('_after_claim') || taskReads >= 3;
-          return Response.json({ data: [{ id: 'TASK123', accountId: 'ACCOUNT', parentIds: changed && variant.startsWith('moved') ? ['OTHER'] : ['ROOT'], title: changed && variant.startsWith('renamed') ? 'Other Task' : 'Placard Order', customItemTypeId: changed && variant.startsWith('type') ? 'OTHER_TYPE' : 'ORDER_TYPE', customFields: [{ id: 'CONTRACT', value: 'C123456' }], customStatusId: 'STATUS1', updatedDate: '2026-09-10T09:00:00Z' }] });
+          return Response.json({ data: [{ id: 'TASK123', accountId: 'ACCOUNT', parentIds: changed && variant.startsWith('moved') ? ['OTHER'] : variant.startsWith('deep') ? ['F0'] : ['ROOT'], title: changed && variant.startsWith('renamed') ? 'Other Task' : 'Placard Order', customItemTypeId: changed && variant.startsWith('type') ? 'OTHER_TYPE' : 'ORDER_TYPE', customFields: [{ id: 'CONTRACT', value: 'C123456' }], customStatusId: 'STATUS1', updatedDate: '2026-09-10T09:00:00Z' }] });
         }
         if (url.includes('/api/v4/tasks/TASK123/attachments')) return Response.json({ data: [{ id: 'ATTACH1', versionId: 'VERSION1', name: 'order.xlsx', updatedDate: '2026-09-10T09:00:00Z' }] });
         if (url.endsWith('/api/v4/tasks/TASK123/comments')) {
@@ -53,23 +69,30 @@ for (const variant of ["safe", "moved", "renamed", "type", "moved_after_claim", 
       Object.assign(process.env, { PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK: 'true', PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: 'synthetic', PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: 'connection', PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: 'method', PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: '3600', PATHFINDER_INTAKE_SWEEP_PAGE_SIZE: '10', PATHFINDER_INTAKE_SWEEP_MAX_PAGES: '1', PATHFINDER_INTAKE_SWEEP_LEASE_SECONDS: '30', PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: '100', PATHFINDER_INTAKE_FEEDBACK_MAX_COMMENTS: '1' });
       const first = await handler(event, {});
       const receipts = await store.listIntakeDeliveriesPage('synthetic');
-      if (variant === 'safe') {
+      if (variant === 'safe' || variant === 'deep_safe') {
         assert.equal(first.sent, 1); assert.equal(comments, 1);
         const second = await handler(event, {}); assert.equal(second.suppressed, 1); assert.equal(comments, 1);
         assert.equal(receipts.receipts[0].provider_message_id, 'COMMENT1');
-        assert.equal(requests, 15);
+        assert.equal(requests, variant === 'deep_safe' ? 27 : 15);
       } else {
         assert.equal(comments, 0);
-        assert.equal(receipts.receipts[0].state, variant.endsWith('_after_claim') ? 'uncertain' : 'prepared');
-        if (variant.endsWith('_after_claim')) {
+        assert.equal(receipts.receipts[0].state, (variant.endsWith('_after_claim') || variant === 'deep_after_budget') ? 'uncertain' : 'prepared');
+        if (variant.endsWith('_after_claim') || variant === 'deep_after_budget') {
           const second = await handler(event, {}); assert.equal(second.suppressed, 1); assert.equal(comments, 0);
         }
       }
+      assert.ok(requests <= Number(process.env.PATHFINDER_INTAKE_FEEDBACK_MAX_REQUESTS));
       assert.equal((await store.getIntakeAttempt('synthetic', attempt.attempt_id)).next_action_at, attempt.next_action_at);
     `;
     const result = spawnSync(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", script], { encoding: "utf8", env: { ...process.env,
-      PATHFINDER_RUNTIME: "lambda", PATHFINDER_STORAGE_DRIVER: "local", PATHFINDER_SECRETS_DRIVER: "local", PATHFINDER_LOCAL_STORE_PATH: join(directory, "store.json"), PATHFINDER_LOCAL_SECRETS_PATH: join(directory, "secrets.json"),
+      PATHFINDER_INTAKE_FEEDBACK_MAX_REQUESTS: variant === "deep_before_budget" ? "10" : variant === "deep_after_budget" ? "26" : variant === "deep_safe" ? "27" : "100", PATHFINDER_INTAKE_FEEDBACK_MAX_ELAPSED_MS: "10000", PATHFINDER_RUNTIME: "lambda", PATHFINDER_STORAGE_DRIVER: "local", PATHFINDER_SECRETS_DRIVER: "local", PATHFINDER_LOCAL_STORE_PATH: join(directory, "store.json"), PATHFINDER_LOCAL_SECRETS_PATH: join(directory, "secrets.json"),
       PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK: "false", PATHFINDER_ENABLE_INTAKE_STATUS_REPAIR: "false", PATHFINDER_WRIKE_SCHEDULED_INTAKE: "false||||false|false" } });
     assert.equal(result.status, 0, result.stderr || result.stdout);
+    const reports = result.stdout.split("\n").filter(line => line.startsWith("{")).map(line => JSON.parse(line))
+      .filter(row => row.event === "wrike_intake_feedback_budget");
+    assert.ok(reports.length >= 1);
+    assert.equal(reports[0].exhausted, variant === "deep_before_budget" || variant === "deep_after_budget" ? "requests" : null);
+    assert.ok(Number.isInteger(reports[0].provider_requests));
+    assert.ok(reports[0].elapsed_ms >= 0);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
