@@ -22,6 +22,7 @@ function fixture() {
   const args: Parameters<typeof dispatchWrikeIntakeFeedback>[0] = { enabled: true, scope, attempt_id: attempt.attempt_id, intake, receipts,
     loadScope: async () => saved, snapshot: async () => snapshot, loadCredentials: async () => credentials, saveCredentials: async () => { saves++; }, now: () => new Date(time),
     verify: async (_oauth, requested) => { checks++; assert.equal(requested.task_id, "TASK123"); return { credentials, checked_at: time, task_id: "TASK123", trigger_status_id: "STATUS1", task_updated_at: "2026-09-10T09:00:00Z" }; },
+    discover: async (_oauth, config) => ({ credentials, qualification: { account_id: "ACCOUNT", task_id: config.approved_discovery_task_id, task_title: "Placard Order", contract_number: "C123456", task_qualified: true }, preview: { observed: { task_id: "TASK123", custom_status_id: "STATUS1" }, checks: [] } } as Awaited<ReturnType<NonNullable<Parameters<typeof dispatchWrikeIntakeFeedback>[0]["discover"]>>>),
     currentWorkbooks: async () => ({ credentials, attachments: [{ attachment_id: "ATTACH1", version_id: "VERSION1", updated_at: "2026-09-10T09:00:00Z" }] }),
     post: async (_oauth, requested) => { posts++; assert.equal(receipt!.state, "uncertain"); assert.equal(requested.task_id, "TASK123"); assert.match(requested.text, /products could not be matched/); return { credentials, comment: { comment_id: "COMMENT1", created_at: time } }; } };
   return { args, snapshot, saved, receipt: () => receipt, posts: () => posts, checks: () => checks, saves: () => saves, change: () => { attempt = { ...attempt, revision: attempt.revision + 1 }; } };
@@ -29,8 +30,8 @@ function fixture() {
 test("disabled adapter has no reads; safe correction verifies exact status and preserves credentials before and after a single comment", async () => {
   const f = fixture();
   assert.equal((await dispatchWrikeIntakeFeedback({ ...f.args, enabled: false })).status, "disabled"); assert.equal(f.receipt(), null);
-  assert.equal((await dispatchWrikeIntakeFeedback(f.args)).status, "sent"); assert.equal(f.posts(), 1); assert.equal(f.checks(), 1); assert.equal(f.saves(), 4);
-  assert.equal((await dispatchWrikeIntakeFeedback(f.args)).status, "suppressed"); assert.equal(f.posts(), 1); assert.equal(f.checks(), 1);
+  assert.equal((await dispatchWrikeIntakeFeedback(f.args)).status, "sent"); assert.equal(f.posts(), 1); assert.equal(f.checks(), 2); assert.equal(f.saves(), 7);
+  assert.equal((await dispatchWrikeIntakeFeedback(f.args)).status, "suppressed"); assert.equal(f.posts(), 1); assert.equal(f.checks(), 2);
 });
 test("any transport history, a corrected job, conflicting job or wrong scope blocks comments before provider verification", async () => {
   for (const variant of ["transport", "corrected", "duplicate", "scope", "inactive", "readonly"]) {
@@ -47,11 +48,11 @@ test("any transport history, a corrected job, conflicting job or wrong scope blo
 test("status mismatch preserves rotated credentials and prevents a claim; post uncertainty never retries", async () => {
   const f = fixture();
   f.args.verify = async () => { throw new WrikeConnectionError("trigger_status_mismatch", "private", credentials); };
-  await assert.rejects(dispatchWrikeIntakeFeedback(f.args)); assert.equal(f.receipt()!.state, "prepared"); assert.equal(f.saves(), 1); assert.equal(f.posts(), 0);
+  await assert.rejects(dispatchWrikeIntakeFeedback(f.args)); assert.equal(f.receipt()!.state, "prepared"); assert.equal(f.saves(), 2); assert.equal(f.posts(), 0);
   const g = fixture(); let posts = 0;
   g.args.post = async () => { posts++; throw new WrikeConnectionError("comment_write_failed", "private", credentials); };
   assert.equal((await dispatchWrikeIntakeFeedback(g.args)).status, "uncertain");
-  assert.equal((await dispatchWrikeIntakeFeedback(g.args)).status, "suppressed"); assert.equal(posts, 1); assert.equal(g.saves(), 4);
+  assert.equal((await dispatchWrikeIntakeFeedback(g.args)).status, "suppressed"); assert.equal(posts, 1); assert.equal(g.saves(), 7);
 });
 test("evidence changing during verification or after claim suppresses comments", async () => {
   const f = fixture(); const verify = f.args.verify!;
@@ -60,4 +61,42 @@ test("evidence changing during verification or after claim suppresses comments",
   const g = fixture(); const claim = g.args.receipts.claim;
   g.args.receipts.claim = async (...args) => { const row = await claim(...args); g.snapshot.jobs[0]!.state = "Ready"; return row; };
   assert.equal((await dispatchWrikeIntakeFeedback(g.args)).status, "uncertain"); assert.equal(g.posts(), 0);
+});
+
+test("current discovery rejects routing changes before claim and after claim", async () => {
+  for (const check_id of ["folder_scope", "task_identity", "trigger_status", "print_vendor", "contract_number"]) {
+    for (const afterClaim of [false, true]) {
+      const f = fixture(); const discover = f.args.discover!; let calls = 0;
+      f.args.discover = async (...args) => {
+        const result = await discover(...args); calls++;
+        if (!afterClaim || calls === 2) {
+          result.qualification.task_qualified = false;
+          result.preview.checks = [{ check_id: check_id as "folder_scope", status: "Blocked", message: "changed" }];
+        }
+        return result;
+      };
+      assert.equal((await dispatchWrikeIntakeFeedback(f.args)).status, afterClaim ? "uncertain" : "blocked");
+      assert.equal(f.posts(), 0);
+      assert.equal(f.receipt()!.state, afterClaim ? "uncertain" : "prepared");
+    }
+  }
+});
+test("saved routing changes and newer task timestamps after claim prevent a comment", async () => {
+  for (const variant of ["config", "inactive", "timestamp"]) {
+    const f = fixture(); const claim = f.args.receipts.claim;
+    f.args.receipts.claim = async (...args) => {
+      const row = await claim(...args);
+      if (variant === "config") f.saved.method.source_config.wrike!.folder_id = "other";
+      if (variant === "inactive") f.saved.method.status = "Inactive";
+      return row;
+    };
+    // The verify seam is captured at dispatch start, so use a changing response.
+    if (variant === "timestamp") {
+      const verify = f.args.verify!; let checks = 0;
+      f.args.verify = async (...args) => ({ ...await verify(...args), task_updated_at: ++checks === 1 ? "2026-09-10T09:00:00Z" : "2026-09-10T11:00:00Z" });
+    }
+    assert.equal((await dispatchWrikeIntakeFeedback(f.args)).status, "uncertain", variant);
+    assert.equal(f.posts(), 0);
+    assert.equal((await dispatchWrikeIntakeFeedback(f.args)).status, "suppressed");
+  }
 });

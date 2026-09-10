@@ -337,3 +337,32 @@ production smoke test.
 - Normal PR review and separate merge approval remain required. Live Support's
   operational hold and Development's task re-entry and Wrike discovery-scope
   activation holds remain in force. No merge, deployment or activation occurred.
+
+## Post-merge slice — current feedback scope and activation preparation
+
+- PR #330 merged at `c7e07e8` following user approval. The follow-up branch starts
+  from that main commit; Development and Live Support supplied read-only next-step
+  assessments. Their findings are recorded in `activation-prerequisites.md`.
+- Feedback now reuses exact-task discovery before and after claim, validates
+  current ancestry/task identity/vendor/contract/status, reloads saved configuration,
+  and refreshes task timestamps at both boundaries. No cached ancestry proof is used.
+- Synthetic Lambda tests cover moved, renamed and retyped tasks at both boundaries,
+  zero comments on failure and uncertain-receipt replay suppression. Additional
+  unit tests cover configuration changes and newer task timestamps after claim.
+- Validation: 534 API tests, 55 Wrike adapter tests, all-workspace typecheck/build
+  and whitespace checks passed. No external provider or production QA ran.
+- This slice requires independent review. Task re-entry capture integration,
+  infrastructure/runtime wiring, production inventory and operating decisions
+  remain holds. No deployment, provisioning or activation occurred.
+
+- Live Support reviewed source head `433d7dd`: no source-merge blocker or material
+  dossier misstatement. The additional activation hold for aggregate provider
+  request/time budgets and deep-ancestry tests is now explicit in the dossier.
+  Development's correctness review remains pending; this update is documentation only.
+
+- Development subsequently completed review of exact source head
+  `433d7dd0e14a18479ecfe18f8c9b435ead4d457a` against `c7e07e8`, confirmed the
+  current-Wrike-scope defect closed and found no correctness merge blocker. The
+  reviewer also verified successful GitHub validation. Subsequent changes record
+  review findings only. Re-entry, aggregate provider budgets and infrastructure
+  readiness remain activation holds; no merge or activation occurred in this review.

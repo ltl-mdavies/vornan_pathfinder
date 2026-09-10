@@ -53,6 +53,14 @@ task identity and custom item type against the scoped discovery contract. Curren
 status and workbook freshness checks alone do not establish that full scope.
 Resolve these engineering holds before the corresponding rollout steps below.
 
+The follow-up scope guard reuses exact-task discovery before and after receipt
+claim, including folder ancestry and configured task identity. It also reloads
+configuration and task freshness. Development reviewed exact source head
+`433d7dd0e14a18479ecfe18f8c9b435ead4d457a`, confirmed the scope defect closed and
+found no correctness merge blocker; GitHub validation passed. The task re-entry
+resolver and deployment infrastructure remain outstanding; see
+`activation-prerequisites.md` for the coordinated implementation/release dossier.
+
 Dynamo is required for distributed workers; local JSON supports serialized work in
 one process only. Provider actions and local state are not one atomic transaction.
 An already-in-flight request cannot be withdrawn by a later source/config change.

@@ -1,4 +1,4 @@
-import { normalizeWrikeStatusLabel, WRIKE_ORDER_INTENT_LABEL, verifyWrikeTaskTriggerStatus, readWrikeCurrentWorkbookVersions, postWrikeTaskComment, WrikeConnectionError, type WrikeOAuthCredentials } from "@pathfinder/wrike-adapter";
+import { discoverApprovedWrikeTask, normalizeWrikeSourceConfig, normalizeWrikeStatusLabel, WRIKE_ORDER_INTENT_LABEL, verifyWrikeTaskTriggerStatus, readWrikeCurrentWorkbookVersions, postWrikeTaskComment, WrikeConnectionError, type WrikeOAuthCredentials } from "@pathfinder/wrike-adapter";
 import { assessWrikeFeedbackFreshness } from "./wrike-intake-freshness.js";
 import type { IntakeAttempt, IntakeLedger } from "./intake-assurance.js";
 import type { IntakeDeliveryLedger } from "./intake-delivery.js";
@@ -16,6 +16,7 @@ export async function dispatchWrikeIntakeFeedback(args: {
   saveCredentials: (credentials: WrikeOAuthCredentials) => Promise<void>;
   verify?: typeof verifyWrikeTaskTriggerStatus; post?: typeof postWrikeTaskComment;
   currentWorkbooks?: typeof readWrikeCurrentWorkbookVersions;
+  discover?: typeof discoverApprovedWrikeTask;
   canDispatch?: () => boolean; fence?: () => IntakeSweepFence; now?: () => Date;
 }) {
   const verify = args.verify ?? verifyWrikeTaskTriggerStatus;
@@ -42,13 +43,34 @@ export async function dispatchWrikeIntakeFeedback(args: {
     prepareTransport: async (payload, attempt) => {
       if (payload.kind !== "source_feedback" || !await evidenceAllows(attempt)) return null;
       const saved = await args.loadScope();
-      const config = saved.method.source_config.wrike;
+      const config = normalizeWrikeSourceConfig(saved.method.source_config.wrike);
+      const savedConfig = JSON.stringify(config);
       if (saved.customer_id !== args.scope.customer_id || saved.connection.connection_id !== args.scope.connection_id || saved.connection.provider !== "wrike" || saved.connection.status !== "Active" ||
         saved.method.import_method_id !== args.scope.import_method_id || saved.method.source !== "Wrike" || saved.method.status !== "Active" ||
         !config || config.connection_id !== args.scope.connection_id || !config.trigger_status_id || normalizeWrikeStatusLabel(config.trigger_status_label) !== normalizeWrikeStatusLabel(WRIKE_ORDER_INTENT_LABEL)) return null;
       let credentials = await args.loadCredentials();
       if (credentials.scope !== "wsReadWrite") return null;
       let taskUpdatedAt: string | null = null;
+      const currentScope = async () => {
+        const current = await args.loadScope();
+        if (current.customer_id !== saved.customer_id || current.connection.connection_id !== saved.connection.connection_id ||
+          current.connection.provider !== "wrike" || current.connection.status !== "Active" ||
+          current.method.import_method_id !== saved.method.import_method_id || current.method.source !== "Wrike" || current.method.status !== "Active" ||
+          JSON.stringify(normalizeWrikeSourceConfig(current.method.source_config.wrike)) !== savedConfig) return false;
+        // Reuse exact-task discovery without cached/prequalified ancestry evidence.
+        const discovery = await (args.discover ?? discoverApprovedWrikeTask)(credentials,
+          { ...config, approved_discovery_task_id: payload.task_id }, providerOptions);
+        credentials = discovery.credentials;
+        await args.saveCredentials(credentials);
+        if (!discovery.qualification.task_qualified || discovery.qualification.task_id !== payload.task_id ||
+          discovery.preview.observed.task_id !== payload.task_id || discovery.preview.observed.custom_status_id !== config.trigger_status_id ||
+          discovery.preview.checks.some(check => check.status === "Blocked")) return false;
+        const checked = await verify(credentials, { task_id: payload.task_id, trigger_status_id: config.trigger_status_id, trigger_status_label: config.trigger_status_label }, providerOptions);
+        credentials = checked.credentials;
+        taskUpdatedAt = checked.task_updated_at;
+        await args.saveCredentials(credentials);
+        return checked.task_id === payload.task_id && checked.trigger_status_id === config.trigger_status_id;
+      };
       const freshSource = async () => {
         const metadata = await (args.currentWorkbooks ?? readWrikeCurrentWorkbookVersions)(credentials, payload.task_id, config, providerOptions);
         credentials = metadata.credentials;
@@ -58,11 +80,7 @@ export async function dispatchWrikeIntakeFeedback(args: {
         return !!job && assessWrikeFeedbackFreshness(job, metadata.attachments, taskUpdatedAt) === "current";
       };
       try {
-        const checked = await verify(credentials, { task_id: payload.task_id, trigger_status_id: config.trigger_status_id, trigger_status_label: config.trigger_status_label }, providerOptions);
-        credentials = checked.credentials;
-        taskUpdatedAt = checked.task_updated_at;
-        await args.saveCredentials(credentials);
-        if (checked.task_id !== payload.task_id || checked.trigger_status_id !== config.trigger_status_id || !await evidenceAllows(attempt) || !await freshSource()) return null;
+        if (!await currentScope() || !await evidenceAllows(attempt) || !await freshSource()) return null;
       } catch (error) {
         if (error instanceof WrikeConnectionError && error.rotated_credentials) await args.saveCredentials(error.rotated_credentials);
         throw error;
@@ -70,7 +88,7 @@ export async function dispatchWrikeIntakeFeedback(args: {
       return async () => {
         // Final durable evidence check also covers a submit occurring during preflight/claim.
         try {
-          if (!await evidenceAllows(attempt) || !await freshSource()) throw new Error("Feedback evidence changed after claim");
+          if (!await currentScope() || !await evidenceAllows(attempt) || !await freshSource()) throw new Error("Feedback evidence changed after claim");
           const result = await post(credentials, { task_id: payload.task_id, text: payload.text }, providerOptions);
           await args.saveCredentials(result.credentials);
           return { provider_message_id: result.comment.comment_id };
