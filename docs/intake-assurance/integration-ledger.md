@@ -147,3 +147,21 @@ production smoke test.
   Deployed SHA: none. Production-sized bounds, transaction IAM, approved scope,
   schedule/lease policy, multi-workbook/backfill QA and delivery receipts remain
   activation prerequisites. This slice provides observation, not automatic repair.
+
+## Slice 7 — durable delivery receipts
+
+- Main refreshed before work, unchanged at `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`.
+  Previous local slice `be1dd64`; no integration conflicts.
+- Adds receipt lifecycle and persistence for safe feedback/internal notification
+  payload hashes. Atomic receipt/intake revision checks guard dispatch claims;
+  uncertain/sent slots block automatic replay across later intake revisions.
+  Existing success writebacks, email service and provider paths are untouched.
+- Five new tests cover stale-draft suppression, payload guards, acknowledgement,
+  cross-process durability, concurrent claims, Dynamo transactions and failed
+  acknowledgement persistence. Targeted tests and API typecheck passed. Full API
+  regression result recorded at the local commit checkpoint below.
+- Default-dark and unwired. No push, PR change, deployment, activation, provider
+  communication or Lift submission. Deployed SHA: none.
+- Local commit checkpoint: all 501 API tests passed with serial file execution;
+  API typecheck and whitespace check passed. Broader final regression/build matrix
+  follows the dispatcher slice; no frontend or provider transport changed here.

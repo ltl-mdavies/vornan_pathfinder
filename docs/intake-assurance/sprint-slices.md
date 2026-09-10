@@ -206,3 +206,23 @@ scope, table and transaction/condition-check IAM permissions, production-sized
 bounds and duration, schedule/retry/lease settings, multi-workbook identities and
 legacy backfill. Feedback/notification delivery receipts and dispatch remain the
 next separate slice; no exactly-once delivery claim is made here.
+
+## Slice 7: durable delivery receipts
+
+New source-feedback and internal-notification receipts use a reserved
+`intake-delivery#<customer>` partition in the intake table, or the serialized local
+JSON development store. These receipts are separate from existing successful-order
+Status-link writebacks, which retain their own ledger and transport rules.
+Receipts store a hash of the approved payload and its intake revision, not message
+bodies. Preparation and dispatch claims atomically check the current intake
+revision and receipt revision. Claiming writes `uncertain` before any possible
+provider call; only a provider message/comment identifier permits `sent`.
+
+One automatic delivery is allowed per channel per intake lifetime in this initial
+policy. Sent or uncertain slots cannot rearm on later revisions. Before dispatch,
+stale drafts can cancel or refresh against the current intake revision. This
+conservative policy prevents notification loops and repeated customer comments;
+repeat follow-ups, delivery-uncertainty reconciliation and operator-authorized
+retries require later policy and tooling. This is not an exactly-once delivery
+promise. A crash after claim but before sending can leave an unsent uncertain
+receipt requiring review. This slice adds no dispatcher, runtime gate or sends.
