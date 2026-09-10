@@ -30,6 +30,32 @@ time, including both preflight passes. Budget exhaustion must prevent the commen
 (and leave a claimed receipt uncertain). Test deep-ancestry exhaustion and size
 leases and schedules against the resulting full-operation bound.
 
+The next source slice implements this budget with explicit
+`PATHFINDER_INTAKE_FEEDBACK_MAX_REQUESTS` (1–256) and
+`PATHFINDER_INTAKE_FEEDBACK_MAX_ELAPSED_MS` (1–120000). There are no operating
+defaults. Enabled runtime configuration requires the elapsed budget to be shorter
+than the sweep lease. One monotonic deadline starts before dispatch reads and
+spans both discovery passes, OAuth, metadata and the comment. Every provider fetch
+counts, including failed requests; the shared deadline aborts in-flight fetches.
+Checks before claim/dispatch prevent a late comment even when local persistence
+takes time. Local persistence is not cancelled or raced against a timeout.
+
+Pre-claim exhaustion blocks without sending; post-claim exhaustion remains uncertain
+and suppressed on replay. Per-dispatch aggregate telemetry reports provider request
+count, elapsed milliseconds and request/time exhaustion without task IDs, URLs or
+provider error text. Synthetic six-folder ancestry succeeds at exactly 27 requests,
+blocks before claim at 10, and becomes uncertain without a comment at 26.
+Independent review remains required. Production limits, whole-page lease sizing,
+schedule cadence, alarm thresholds and overhead margin still need approved workload
+evidence; a per-dispatch limit alone does not bound a multi-attempt sweep's duration.
+
+Live Support reviewed exact source head `e747da1` and confirmed that this closes
+the aggregate-budget engineering condition, with no source-merge blocker.
+Development also reviewed exact source head `e747da1`, returned source-merge GO
+and confirmed the engineering condition closed. Current PR-head CI must pass
+before merge. Production sizing and activation holds above remain in force.
+No production action accompanied either review.
+
 ## Task re-entry: next engineering slice
 
 Current capture still uses `intent_occurrence: "initial"`; activation remains held.

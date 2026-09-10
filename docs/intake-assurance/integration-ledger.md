@@ -366,3 +366,37 @@ production smoke test.
   reviewer also verified successful GitHub validation. Subsequent changes record
   review findings only. Re-entry, aggregate provider budgets and infrastructure
   readiness remain activation holds; no merge or activation occurred in this review.
+
+## Aggregate feedback-budget slice
+
+- User-approved PR #331 merged at `3b452f0`. This slice starts from that main
+  commit and addresses Live Support's aggregate provider-budget engineering hold.
+- Explicit request/time settings govern each complete feedback dispatch, including
+  both ancestry checks, credential refresh, metadata and comment transport. One
+  monotonic deadline aborts in-flight provider requests; local persistence remains
+  uncancelled. Checks before claim/comment prevent late provider work.
+- Pre-claim exhaustion blocks; post-claim exhaustion leaves an uncertain receipt.
+  Safe per-dispatch telemetry records count, elapsed time and exhaustion category.
+  The runtime requires an elapsed limit shorter than its sweep lease.
+- Tests include six-folder ancestry success at 27 requests, pre-claim exhaustion
+  at 10 and post-claim exhaustion at 26 with no comment, plus elapsed exhaustion,
+  in-flight abort and explicit configuration validation. Full API and adapter
+  regressions, workspace checks/build and whitespace validation passed.
+- Independent review is required. Task re-entry, infrastructure and production
+  workload/whole-page sizing remain unresolved. All new gates remain off; no
+  deployment, provisioning or provider action occurred.
+
+- Live Support independently reviewed exact source head
+  `e747da1cc72074a1bb8123cdb97132bb4c697b68` against `3b452f0`: source-merge GO,
+  no blocker found, aggregate feedback-budget engineering condition closed.
+  The reviewer verified shared request/time accounting, abort propagation,
+  pre/post-claim outcomes, safe telemetry and deep-ancestry boundary tests.
+  Development review remains pending. Production workload/whole-page headroom,
+  task re-entry, infrastructure and operating decisions remain activation holds.
+
+- Development independently reviewed exact source head `e747da1` against `3b452f0`
+  and also returned source-merge GO with no correctness blocker, confirming the
+  aggregate-budget engineering condition closed. The later `6cabb28` delta was
+  documentation only. The source-head CI run was superseded/cancelled, so this
+  review relies on source/test inspection and local full-suite results; current
+  PR-head CI must pass before merge. All deployment/activation holds remain.

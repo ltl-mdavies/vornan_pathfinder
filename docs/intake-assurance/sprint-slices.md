@@ -388,3 +388,14 @@ but do not rearm sent/uncertain channels; audited non-delivery closure also does
 not rearm. Future repeat notifications require a separately reviewed incident or
 cadence policy. See `review-and-rollout.md` for the concrete remaining approvals
 and implementation limits. No schedule or capability is enabled by this slice.
+
+## Follow-up: aggregate Wrike feedback budgets
+
+Feedback requires explicit maximum provider requests and elapsed milliseconds per
+dispatch. A shared monotonic deadline and counter cover OAuth, both current-scope
+checks, workbook metadata and the comment. Exhaustion before claim blocks; after
+claim it preserves uncertainty with no automatic resend. Safe aggregate telemetry
+records request count, elapsed time and exhaustion. Runtime settings have no
+defaults and the elapsed limit must be shorter than the sweep lease. Deep ancestry
+and elapsed-budget tests supplement the existing scope-change tests. See
+`activation-prerequisites.md` for remaining production sizing and infrastructure holds.

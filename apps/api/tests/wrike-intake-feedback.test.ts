@@ -19,7 +19,7 @@ function fixture() {
   const receipts: IntakeDeliveryLedger = { get: async () => receipt, prepare: async (row, kind, now) => receipt = prepareIntakeDelivery(receipt, row, kind, now),
     claim: async (row, current, now) => { if (attempt.revision !== current.revision) throw new Error("revision changed"); return receipt = claimIntakeDelivery(row, current, now); },
     acknowledge: async (row, id, now) => receipt = acknowledgeIntakeDelivery(row, id, now) };
-  const args: Parameters<typeof dispatchWrikeIntakeFeedback>[0] = { enabled: true, scope, attempt_id: attempt.attempt_id, intake, receipts,
+  const args: Parameters<typeof dispatchWrikeIntakeFeedback>[0] = { enabled: true, limits: { max_requests: 100, max_elapsed_ms: 10000 }, scope, attempt_id: attempt.attempt_id, intake, receipts,
     loadScope: async () => saved, snapshot: async () => snapshot, loadCredentials: async () => credentials, saveCredentials: async () => { saves++; }, now: () => new Date(time),
     verify: async (_oauth, requested) => { checks++; assert.equal(requested.task_id, "TASK123"); return { credentials, checked_at: time, task_id: "TASK123", trigger_status_id: "STATUS1", task_updated_at: "2026-09-10T09:00:00Z" }; },
     discover: async (_oauth, config) => ({ credentials, qualification: { account_id: "ACCOUNT", task_id: config.approved_discovery_task_id, task_title: "Placard Order", contract_number: "C123456", task_qualified: true }, preview: { observed: { task_id: "TASK123", custom_status_id: "STATUS1" }, checks: [] } } as Awaited<ReturnType<NonNullable<Parameters<typeof dispatchWrikeIntakeFeedback>[0]["discover"]>>>),
@@ -98,5 +98,25 @@ test("saved routing changes and newer task timestamps after claim prevent a comm
     assert.equal((await dispatchWrikeIntakeFeedback(f.args)).status, "uncertain", variant);
     assert.equal(f.posts(), 0);
     assert.equal((await dispatchWrikeIntakeFeedback(f.args)).status, "suppressed");
+  }
+});
+
+test("elapsed budget exhaustion prevents comments before claim and after claim", async () => {
+  for (const afterClaim of [false, true]) {
+    const f = fixture(); let elapsed = 0;
+    f.args.monotonicNow = () => elapsed;
+    f.args.limits.max_elapsed_ms = 100;
+    let report: unknown;
+    f.args.onBudgetReport = value => { report = value; };
+    if (afterClaim) {
+      const claim = f.args.receipts.claim;
+      f.args.receipts.claim = async (...args) => { const row = await claim(...args); elapsed = 100; return row; };
+    } else {
+      const discover = f.args.discover!;
+      f.args.discover = async (...args) => { const row = await discover(...args); elapsed = 100; return row; };
+    }
+    assert.equal((await dispatchWrikeIntakeFeedback(f.args)).status, afterClaim ? "uncertain" : "blocked");
+    assert.equal(f.posts(), 0);
+    assert.deepEqual(report, { provider_requests: 0, elapsed_ms: 100, exhausted: "elapsed" });
   }
 });

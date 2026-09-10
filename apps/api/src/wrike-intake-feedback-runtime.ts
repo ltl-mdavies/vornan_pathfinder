@@ -1,3 +1,4 @@
+import { validateWrikeFeedbackLimits } from "./wrike-feedback-budget.js";
 import { postWrikeTaskComment, type WrikeOAuthCredentials } from "@pathfinder/wrike-adapter";
 import { getIntakeSweepConfig, runIntakeRecoverySweep } from "./intake-recovery-sweep.js";
 import { dispatchWrikeIntakeFeedback } from "./wrike-intake-feedback.js";
@@ -8,7 +9,12 @@ export function getWrikeIntakeFeedbackConfig(env: NodeJS.ProcessEnv) {
   const sweep = getIntakeSweepConfig({ ...env, PATHFINDER_ENABLE_INTAKE_ASSURANCE_SWEEP: String(enabled) });
   const maxComments = Number(env.PATHFINDER_INTAKE_FEEDBACK_MAX_COMMENTS);
   if (enabled && (!Number.isInteger(maxComments) || maxComments < 1 || maxComments > 50)) throw new Error("Wrike intake feedback requires an explicit comment limit (1–50)");
-  return { sweep: { ...sweep, scope: { ...sweep.scope, purpose: "source_feedback" as const } }, maxComments };
+  const limits = { max_requests: Number(env.PATHFINDER_INTAKE_FEEDBACK_MAX_REQUESTS), max_elapsed_ms: Number(env.PATHFINDER_INTAKE_FEEDBACK_MAX_ELAPSED_MS) };
+  if (enabled) {
+    validateWrikeFeedbackLimits(limits);
+    if (limits.max_elapsed_ms >= sweep.lease_seconds * 1000) throw new Error("Wrike feedback dispatch budget must be shorter than the sweep lease");
+  }
+  return { limits, sweep: { ...sweep, scope: { ...sweep.scope, purpose: "source_feedback" as const } }, maxComments };
 }
 export function isWrikeIntakeFeedbackEvent(event: unknown) {
   const row = event as { source?: unknown; "detail-type"?: unknown; detail?: { automation?: unknown } } | null;
@@ -23,7 +29,8 @@ export async function runConfiguredWrikeIntakeFeedback() {
     snapshot: async () => ({ checked_at: new Date().toISOString() }),
     observe: async (attempt, _snapshot, _ledger, _now, fence) => {
       let savedSecrets: WrikeConnectorSecrets = {};
-      const outcome = await dispatchWrikeIntakeFeedback({ enabled: true, scope, attempt_id: attempt.attempt_id, intake: intakeLedger, receipts: intakeDeliveryLedger, fence,
+      const outcome = await dispatchWrikeIntakeFeedback({ enabled: true, limits: config.limits,
+        onBudgetReport: report => console.log(JSON.stringify({ event: "wrike_intake_feedback_budget", ...report })), scope, attempt_id: attempt.attempt_id, intake: intakeLedger, receipts: intakeDeliveryLedger, fence,
         canDispatch: () => counts.comments_attempted < config.maxComments,
         loadScope: () => readWrikeIntakeFeedbackScope(scope),
         snapshot: () => readIntakeRecoverySnapshot(scope.customer_id, config.sweep.snapshot_limit),

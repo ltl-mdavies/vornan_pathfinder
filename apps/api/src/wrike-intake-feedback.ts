@@ -1,3 +1,4 @@
+import { createWrikeFeedbackBudget, type WrikeFeedbackLimits, type WrikeFeedbackBudgetReport } from "./wrike-feedback-budget.js";
 import { discoverApprovedWrikeTask, normalizeWrikeSourceConfig, normalizeWrikeStatusLabel, WRIKE_ORDER_INTENT_LABEL, verifyWrikeTaskTriggerStatus, readWrikeCurrentWorkbookVersions, postWrikeTaskComment, WrikeConnectionError, type WrikeOAuthCredentials } from "@pathfinder/wrike-adapter";
 import { assessWrikeFeedbackFreshness } from "./wrike-intake-freshness.js";
 import type { IntakeAttempt, IntakeLedger } from "./intake-assurance.js";
@@ -9,6 +10,8 @@ import { projectWrikeAssuranceOutcome } from "./wrike-intake-assurance.js";
 
 /** Concrete Wrike adapter with injected persistence for synthetic QA. No transport retries. */
 export async function dispatchWrikeIntakeFeedback(args: {
+  limits: WrikeFeedbackLimits; onBudgetReport?: (report: WrikeFeedbackBudgetReport) => void;
+  monotonicNow?: () => number;
   enabled: boolean; scope: IntakeSweepScope; attempt_id: string; intake: IntakeLedger; receipts: IntakeDeliveryLedger;
   loadScope: () => ReturnType<typeof readWrikeIntakeFeedbackScope>;
   snapshot: () => ReturnType<typeof readIntakeRecoverySnapshot>;
@@ -19,10 +22,11 @@ export async function dispatchWrikeIntakeFeedback(args: {
   discover?: typeof discoverApprovedWrikeTask;
   canDispatch?: () => boolean; fence?: () => IntakeSweepFence; now?: () => Date;
 }) {
+  if (!args.enabled) return { status: "disabled" as const };
+  const budget = createWrikeFeedbackBudget(args.limits, { monotonicNow: args.monotonicNow });
   const verify = args.verify ?? verifyWrikeTaskTriggerStatus;
   const post = args.post ?? postWrikeTaskComment;
-  const providerOptions = { now: args.now, fetch_impl: ((input, init) => fetch(input, { ...init,
-    signal: AbortSignal.any([AbortSignal.timeout(15_000), ...(init?.signal ? [init.signal] : [])]) })) as typeof fetch };
+  const providerOptions = { now: args.now, fetch_impl: budget.fetch };
   async function evidenceAllows(attempt: IntakeAttempt) {
     // Only unmapped-product evidence is durably classified by today's job adapter.
     // Other correction templates await equally strong current-evidence checks.
@@ -37,7 +41,8 @@ export async function dispatchWrikeIntakeFeedback(args: {
     const outcome = projectWrikeAssuranceOutcome({ attempt, import_method_id: args.scope.import_method_id, jobs: snapshot.jobs, submits: snapshot.submits });
     return outcome.state === "customer_action_required" && outcome.reason === attempt.reason && outcome.job_id === attempt.job_id;
   }
-  return dispatchIntakeDelivery({ enabled: args.enabled, customer_id: args.scope.customer_id, attempt_id: args.attempt_id, kind: "source_feedback",
+  try {
+  return await dispatchIntakeDelivery({ enabled: args.enabled, customer_id: args.scope.customer_id, attempt_id: args.attempt_id, kind: "source_feedback",
     intake: args.intake, receipts: args.receipts, canDispatch: args.canDispatch, fence: args.fence, now: args.now,
     send: async () => { throw new Error("Wrike feedback requires preflight"); },
     prepareTransport: async (payload, attempt) => {
@@ -52,6 +57,7 @@ export async function dispatchWrikeIntakeFeedback(args: {
       if (credentials.scope !== "wsReadWrite") return null;
       let taskUpdatedAt: string | null = null;
       const currentScope = async () => {
+        budget.check();
         const current = await args.loadScope();
         if (current.customer_id !== saved.customer_id || current.connection.connection_id !== saved.connection.connection_id ||
           current.connection.provider !== "wrike" || current.connection.status !== "Active" ||
@@ -72,6 +78,7 @@ export async function dispatchWrikeIntakeFeedback(args: {
         return checked.task_id === payload.task_id && checked.trigger_status_id === config.trigger_status_id;
       };
       const freshSource = async () => {
+        budget.check();
         const metadata = await (args.currentWorkbooks ?? readWrikeCurrentWorkbookVersions)(credentials, payload.task_id, config, providerOptions);
         credentials = metadata.credentials;
         await args.saveCredentials(credentials);
@@ -81,14 +88,17 @@ export async function dispatchWrikeIntakeFeedback(args: {
       };
       try {
         if (!await currentScope() || !await evidenceAllows(attempt) || !await freshSource()) return null;
+        budget.canRequest();
       } catch (error) {
         if (error instanceof WrikeConnectionError && error.rotated_credentials) await args.saveCredentials(error.rotated_credentials);
+        if (budget.report().exhausted) return null;
         throw error;
       }
       return async () => {
         // Final durable evidence check also covers a submit occurring during preflight/claim.
         try {
           if (!await currentScope() || !await evidenceAllows(attempt) || !await freshSource()) throw new Error("Feedback evidence changed after claim");
+          budget.canRequest();
           const result = await post(credentials, { task_id: payload.task_id, text: payload.text }, providerOptions);
           await args.saveCredentials(result.credentials);
           return { provider_message_id: result.comment.comment_id };
@@ -99,4 +109,7 @@ export async function dispatchWrikeIntakeFeedback(args: {
       };
     }
   });
+  } finally {
+    args.onBudgetReport?.(budget.report());
+  }
 }
