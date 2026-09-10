@@ -88,3 +88,32 @@ production smoke test.
   tests, all-workspace check/build and whitespace check passed.
 - Capture and Exceptions flags remain off; no deployment, push, PR mutation,
   notification, comment or Lift submission. Deployed SHA: none.
+
+## Slice 5 — default-off scheduled capture and observation
+
+- Main fetched before implementation and at final review, still
+  `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`; no intervening changes/conflicts.
+  Previous local slice `dea03a9` resolved the approved status aliases.
+- Overlaps: small wrapper around existing preparation, capture before confirmed
+  candidate filtering, observation after existing submit/writeback stages. No
+  transport or Proof/Status logic replaced. Reuses scoped store, submit records,
+  strict association history and success writeback records.
+- New runtime gate requires exact scheduled customer/Import Method, explicit SLA
+  (60–604800 seconds), explicit candidate cap (1–1000), and existing persistence.
+  All remain unset/default-off; the existing scheduler cannot be activated by
+  the assurance gate alone. No table/IAM changes or production reads/smoke tests.
+- Validated 956 tests across all workspaces. Two ordinary parallel full-suite runs
+  each hit one ECONNRESET in different existing proof-public-api fixture tests;
+  the isolated Proof suite passed, and a serial test-file run of the entire API
+  suite passed all 487 tests. All other workspaces passed their ordinary runs
+  (469 tests). No Proof code/test workaround was committed.
+- All-workspace check/build, 16 browser regressions, 126 deployment-contract tests,
+  API/Proof Lambda packaging and diff whitespace checks passed. The final hook
+  refactor and ownership guard changes were included in the final API suite,
+  all-workspace check/build and API package; browser/Proof-only artifacts had no
+  subsequent affected changes.
+- No new push, PR mutation, flag enablement, deployment, customer comment, SES
+  notification or Lift submission. Deployed SHA: none.
+- Remaining activation prerequisites are documented in sprint-slices.md, notably
+  a persisted-ledger sweep independent of current Wrike discovery and durable
+  feedback/notification delivery receipts. This slice does not claim those exist.

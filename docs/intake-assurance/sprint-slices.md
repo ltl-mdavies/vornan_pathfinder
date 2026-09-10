@@ -64,7 +64,7 @@ Validation: final full suite 946 workspace tests; 16 browser regressions and 126
 deployment-contract tests; all-workspace check/build; API Lambda packaging and
 whitespace validation passed. All delivery functions remain absent/unwired.
 
-### Reconciliation required before scheduler wiring
+### Historical reconciliation (resolved in slice 4)
 
 The project brief specifies `Sent to Print – LTL` (en dash); the existing adapter
 fallback at `packages/wrike-adapter/src/index.ts` uses `Sent to Print - LTL`
@@ -100,3 +100,58 @@ when the display dash changes. Other labels and em dashes are not aliases.
 All 948 workspace tests, 16 browser regressions, 126 deployment-contract tests,
 and all-workspace check/build passed. No live configuration or default changed;
 the compatibility code is local and has not been deployed.
+
+## Slice 5: default-off scheduled capture and outcome observation
+
+A separate scoped gate now connects assurance to the existing scheduled Wrike
+pipeline. Capture runs after metadata discovery/credential preservation and before
+confirmed-task filtering or workbook preparation, including pending metadata
+prequalification failures. The preparation wrapper records safe internal failure
+before returning the original error; raw parser details are not persisted.
+The disabled wrapper returns the original preparation callback unchanged.
+
+After existing submit/reconciliation/writeback stages, the cycle reads the existing
+scoped store snapshot and projects job, transport and feedback outcomes into the
+intake ledger using guarded, revision-checked transitions. It does not add a Lift
+call or change existing submission, reconciliation, or writeback rules. Verified
+unmapped-product jobs may become customer-owned only before transport. Confirmed
+orders without success feedback retain their order association and become internal
+action required. Later posted success feedback closes the same attempt.
+Ambiguous/changed identities stay internally owned without replacing linked IDs.
+Terminal withdrawn/superseded attempts do not restart automatically.
+
+Repeated unchanged observations create no event and do not reset the SLA deadline.
+Late work may retain an already-overdue deadline; it cannot manufacture a new past
+deadline. Confirmation followed by missing feedback starts a new explicit follow-up
+deadline. These are observational state updates, never a second preparation or
+submission workflow.
+
+All of the following must be deliberately configured to enable capture:
+
+- `PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE=true` (unset is disabled).
+- `PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID` and
+  `PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID` exactly match the active scheduler.
+- `PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS`: explicit integer, 60–604800.
+- `PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES`: explicit integer, 1–1000.
+- Existing intake persistence configured; Dynamo requires the optional intake table.
+
+None are enabled or provisioned by this slice. Existing scheduler, preparation,
+Lift submission and writeback gates retain authority. The assurance flag alone
+cannot activate a disabled scheduler, as tested through the real server entrypoint.
+Invalid enabled scope or limits fail before provider discovery. Discovery exceeding
+the capture limit fails visibly rather than silently dropping excess intents.
+
+Remaining before production activation: durable infrastructure/IAM and rollout
+review, multi-workbook and legacy-backfill QA, and an independent bounded ledger
+sweep that follows requests after they disappear from current Wrike discovery.
+This cycle observes current captured discovery only; it does not replace the
+existing uncertain-submit recovery queue. A task's later reconciliation may need
+that independent sweep to refresh its assurance record. Feedback/notification
+receipts, dispatch, automatic link repair and scheduled watchdog execution remain
+unimplemented and disabled. Drafts/plans are not delivery guarantees.
+
+Slice 5 validation: 956 workspace tests passed across the matrix (487 API tests
+passed with serial file execution after intermittent concurrent Proof fixture
+socket resets; 469 other workspace tests passed normally). Typecheck/build, 16
+browser regressions, 126 deployment-contract tests and API/Proof packaging passed.
+See the integration ledger for the exact validation sequence.

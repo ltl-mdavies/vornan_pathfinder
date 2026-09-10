@@ -1,6 +1,7 @@
 import cors from "cors";
 import { createIntakeExceptionsRouter } from "./intake-exceptions-router.js";
-import { listIntakeAttemptsPage } from "./store.js";
+import { intakeLedger, listIntakeAttemptsPage, readStore } from "./store.js";
+import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, wrapWrikeAssurancePreparation } from "./wrike-assurance-coordinator.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -6683,6 +6684,10 @@ async function runConfiguredWrikeIntakeCore(args: {
   config: ReturnType<typeof getWrikeScheduledIntakeConfig>;
   markScheduled: boolean;
 }) {
+  const assuranceConfig = args.markScheduled && args.config.enabled
+    ? getWrikeAssuranceCaptureConfig(process.env, args.config) : null;
+  const assurance = assuranceConfig?.enabled
+    ? createWrikeAssuranceCycle({ config: assuranceConfig, ledger: intakeLedger }) : null;
   if (
     args.config.enabled &&
     (!wrikeWorkbookEvidenceEnabled ||
@@ -6757,6 +6762,13 @@ async function runConfiguredWrikeIntakeCore(args: {
         }
       );
       existingSecrets = { ...existingSecrets, oauth: scopedDiscovery.credentials };
+      await assurance?.capture({
+        customer_id: args.config.customer_id,
+        import_method_id: args.config.import_method_id,
+        connection_id: connection.connection_id,
+        configured_status_id: config.trigger_status_id,
+        configured_status_label: config.trigger_status_label
+      }, scopedDiscovery);
       const resolvedRootFolderByConfiguredId = new Map(
         scopedDiscovery.root_scopes.map((scope) => [
           scope.configured_folder_id,
@@ -6782,7 +6794,7 @@ async function runConfiguredWrikeIntakeCore(args: {
         import_method_id: args.config.import_method_id
       });
     },
-    prepare: async (candidate: WrikeScheduledOrderCandidate) => {
+    prepare: wrapWrikeAssurancePreparation(assurance, async (candidate: WrikeScheduledOrderCandidate) => {
       const result = await prepareWrikeOrderForTask({
         liftCustomerId: args.config.customer_id,
         methodId: args.config.import_method_id,
@@ -6821,7 +6833,7 @@ async function runConfiguredWrikeIntakeCore(args: {
           .map((workbook) => workbook.job_id)
           .filter((jobId): jobId is string => Boolean(jobId))
       };
-    }
+    })
   }).catch(async (error) => {
     if (
       customer &&
@@ -6845,7 +6857,8 @@ async function runConfiguredWrikeIntakeCore(args: {
   return {
     customer,
     discovery: discovery as WrikeScopedIntakeDiscoveryResult | null,
-    intakeResult
+    intakeResult,
+    assurance
   };
 }
 
@@ -6970,6 +6983,11 @@ export async function runConfiguredWrikeScheduledIntake() {
         failed_count: 0,
         outcomes: []
       };
+
+  if (core.assurance) {
+    const snapshot = await readStore();
+    await core.assurance.observe({ jobs: snapshot.jobs, submits: snapshot.submit_attempts });
+  }
 
   const result = {
     ...intakeResult,

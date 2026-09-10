@@ -66,7 +66,7 @@ export async function captureWrikeIntakeIntents(args: {
       const reason = candidate.prequalification_reason;
       await args.ledger.transition(args.scope.customer_id, result.attempt.attempt_id, {
         event_id: `${result.attempt.attempt_id}:prequalification`, expected_revision: result.attempt.revision,
-        occurred_at: args.discovery.checked_at, next_action_at: args.next_action_at,
+        occurred_at: args.discovery.checked_at, next_action_at: result.attempt.next_action_at ?? args.next_action_at,
         state: reason === "pathfinder_failure" ? "internal_action_required" : "customer_action_required", reason
       });
     }
@@ -105,6 +105,7 @@ export function projectWrikeAssuranceOutcome(args: {
   const submits = args.submits.filter((submit) => submit.customer_id === job.customer_id && submit.job_id === job.job_id && !["Blocked", "Gate Locked"].includes(submit.state));
   if (submits.length > 1) return { ...linked, state: "manual_review", reason: "reconciliation_ambiguity", repair: "manual_review" };
   const submit = submits[0];
+  if (!submit && args.attempt.submit_attempt_id) return { ...linked, state: "manual_review", reason: "reconciliation_ambiguity", repair: "manual_review" };
   if (!submit) return { ...linked, state: job.target_order_number ? "manual_review" : job.state === "Needs Mapping" ? "customer_action_required" : job.state === "Ready" ? "ready" : "internal_action_required",
     reason: job.target_order_number ? "reconciliation_ambiguity" : job.state === "Needs Mapping" ? "unmapped_product" : job.state === "Ready" ? null : "pathfinder_failure",
     repair: job.target_order_number ? "manual_review" : "none" };

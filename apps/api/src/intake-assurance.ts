@@ -105,9 +105,9 @@ const transitions: Record<IntakeState, readonly IntakeState[]> = {
   ready: ["reconciling", "customer_action_required", "internal_action_required", "manual_review", "withdrawn", "superseded"],
   reconciling: ["confirmed", "internal_action_required", "manual_review"],
   confirmed: ["confirmed", "internal_action_required"],
-  customer_action_required: ["preparing", "manual_review", "withdrawn", "superseded"],
-  internal_action_required: ["preparing", "reconciling", "confirmed", "manual_review", "withdrawn", "superseded"],
-  manual_review: ["preparing", "reconciling", "confirmed", "withdrawn", "superseded"],
+  customer_action_required: ["preparing", "internal_action_required", "manual_review", "withdrawn", "superseded"],
+  internal_action_required: ["preparing", "reconciling", "confirmed", "customer_action_required", "manual_review", "withdrawn", "superseded"],
+  manual_review: ["preparing", "reconciling", "confirmed", "customer_action_required", "internal_action_required", "withdrawn", "superseded"],
   superseded: [], withdrawn: []
 };
 /** Corrupt persisted records must surface an operational failure, never disappear from a page. */
@@ -140,12 +140,13 @@ export function transitionIntake(attempt: IntakeAttempt, event: IntakeEvent): In
     return attempt;
   }
   if (event.expected_revision !== attempt.revision) throw new Error("Intake revision conflict");
-  if (!transitions[attempt.state].includes(event.state)) throw new Error("Unsafe intake transition");
+  const updatesUnresolvedState = event.state === attempt.state && !["confirmed", "superseded", "withdrawn"].includes(attempt.state);
+  if (!updatesUnresolvedState && !transitions[attempt.state].includes(event.state)) throw new Error("Unsafe intake transition");
   if (timestamp(event.occurred_at) < timestamp(attempt.updated_at)) throw new Error("Intake clock regression");
   if (event.reason !== null && !Object.hasOwn(intakeFailures, event.reason)) throw new Error("Unknown intake failure");
   const closed = ["confirmed", "superseded", "withdrawn"].includes(event.state);
   if (closed ? event.next_action_at !== null : !event.next_action_at) throw new Error("Intake deadline required for unresolved work only");
-  if (event.next_action_at && timestamp(event.next_action_at) < timestamp(event.occurred_at)) throw new Error("Intake deadline in past");
+  if (event.next_action_at && event.next_action_at !== attempt.next_action_at && timestamp(event.next_action_at) < timestamp(event.occurred_at)) throw new Error("Intake deadline in past");
   const jobId = event.job_id === undefined ? attempt.job_id : required(event.job_id);
   const submitId = event.submit_attempt_id === undefined ? attempt.submit_attempt_id : required(event.submit_attempt_id);
   const orderNumber = event.confirmed_order_number === undefined ? attempt.confirmed_order_number : required(event.confirmed_order_number);
