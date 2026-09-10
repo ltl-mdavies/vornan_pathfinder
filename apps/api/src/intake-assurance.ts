@@ -70,7 +70,13 @@ export interface IntakeAttempt {
   confirmed_order_number: string | null;
   writeback_id: string | null;
   superseded_by: string | null;
-  last_event: IntakeEvent | null;
+  last_event: (IntakeEvent & { projection: IntakeEventProjection }) | null;
+}
+type IntakeEventProjection = Pick<IntakeAttempt, "state" | "owner" | "reason" | "updated_at" | "next_action_at" |
+  "job_id" | "submit_attempt_id" | "confirmed_order_number" | "writeback_id" | "superseded_by">;
+const projectionFields = ["state", "owner", "reason", "updated_at", "next_action_at", "job_id", "submit_attempt_id", "confirmed_order_number", "writeback_id", "superseded_by"] as const;
+function intakeProjection(attempt: IntakeAttempt): IntakeEventProjection {
+  return Object.fromEntries(projectionFields.map(key => [key, attempt[key]])) as IntakeEventProjection;
 }
 const digest = (parts: unknown[]) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 const eventDigest = (event: IntakeEvent) => digest([event.event_id, event.expected_revision,
@@ -81,7 +87,7 @@ function required(value: string) {
   return value;
 }
 function timestamp(value: string) {
-  if (!Number.isFinite(Date.parse(value))) throw new Error("Invalid intake timestamp");
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) throw new Error("Invalid intake timestamp");
   return Date.parse(value);
 }
 export function intakeAttemptId(signal: IntakeSignal) {
@@ -115,25 +121,49 @@ export function validatePersistedIntakeAttempt(value: unknown): IntakeAttempt {
   const attempt = value as IntakeAttempt | null;
   if (!attempt || attempt.schema_version !== 1 || !attempt.signal ||
     attempt.attempt_id !== intakeAttemptId(attempt.signal) ||
-    !Object.hasOwn(transitions, attempt.state) || !Number.isInteger(attempt.revision) || attempt.revision < 0 ||
+    !Object.hasOwn(transitions, attempt.state) || !Number.isSafeInteger(attempt.revision) || attempt.revision < 0 ||
     !["automation", "customer", "internal", "none"].includes(attempt.owner) ||
     (attempt.reason !== null && !Object.hasOwn(intakeFailures, attempt.reason))) {
     throw new Error("Invalid persisted intake attempt");
   }
   if (timestamp(attempt.updated_at) < timestamp(attempt.created_at)) throw new Error("Invalid persisted intake clock");
   timestamp(attempt.signal.observed_at);
+  if (attempt.created_at !== attempt.signal.observed_at) throw new Error("Invalid persisted intake creation time");
   if (attempt.next_action_at !== null) timestamp(attempt.next_action_at);
-  if (!["confirmed", "superseded", "withdrawn"].includes(attempt.state) && !attempt.next_action_at) throw new Error("Missing persisted intake deadline");
+  const closed = ["confirmed", "superseded", "withdrawn"].includes(attempt.state);
+  const owner = closed ? "none" : attempt.state === "customer_action_required" ? "customer" : ["internal_action_required", "manual_review"].includes(attempt.state) ? "internal" : "automation";
+  if (attempt.owner !== owner) throw new Error("Invalid persisted intake owner");
+  if (closed ? attempt.next_action_at !== null : !attempt.next_action_at) throw new Error("Invalid persisted intake deadline");
+  if (attempt.next_action_at && timestamp(attempt.next_action_at) < timestamp(attempt.created_at)) throw new Error("Invalid persisted intake deadline");
   for (const value of [attempt.job_id, attempt.submit_attempt_id, attempt.confirmed_order_number, attempt.writeback_id, attempt.superseded_by]) {
     if (value !== null) required(value);
   }
-  if (attempt.revision === 0 ? attempt.last_event !== null : !attempt.last_event ||
-    attempt.last_event.expected_revision !== attempt.revision - 1 || attempt.last_event.state !== attempt.state) {
-    throw new Error("Invalid persisted intake event");
+  if (attempt.state === "customer_action_required" && (!attempt.reason || intakeFailures[attempt.reason] !== "customer")) throw new Error("Invalid persisted customer reason");
+  if (attempt.state === "internal_action_required" && (!attempt.reason || intakeFailures[attempt.reason] !== "internal")) throw new Error("Invalid persisted internal reason");
+  if (attempt.reason && !["customer_action_required", "internal_action_required", "manual_review", "reconciling"].includes(attempt.state)) throw new Error("Invalid persisted intake reason");
+  if (attempt.state === "ready" && !attempt.job_id) throw new Error("Invalid persisted ready association");
+  if (attempt.submit_attempt_id && (!attempt.job_id || !["reconciling", "confirmed", "internal_action_required", "manual_review"].includes(attempt.state))) throw new Error("Invalid persisted submit association");
+  if (attempt.state === "reconciling" && (!attempt.job_id || !attempt.submit_attempt_id)) throw new Error("Invalid persisted reconciliation association");
+  if ((attempt.state === "confirmed" || attempt.confirmed_order_number) && (!attempt.job_id || !attempt.submit_attempt_id || !attempt.confirmed_order_number || !["confirmed", "internal_action_required", "manual_review"].includes(attempt.state))) throw new Error("Invalid persisted confirmation association");
+  if (attempt.writeback_id && !attempt.confirmed_order_number) throw new Error("Invalid persisted writeback association");
+  if (attempt.state === "superseded" ? !attempt.superseded_by || attempt.superseded_by === attempt.attempt_id : attempt.superseded_by !== null) throw new Error("Invalid persisted supersession");
+  if (attempt.state === "received" && [attempt.job_id, attempt.submit_attempt_id, attempt.confirmed_order_number, attempt.writeback_id, attempt.superseded_by].some(value => value !== null)) throw new Error("Invalid persisted received association");
+  if (attempt.revision === 0) {
+    if (attempt.last_event !== null || attempt.state !== "received" || attempt.updated_at !== attempt.created_at) throw new Error("Invalid persisted initial intake");
+  } else {
+    const event = attempt.last_event;
+    if (!event || event.expected_revision !== attempt.revision - 1 || event.state !== attempt.state || event.reason !== attempt.reason ||
+      event.occurred_at !== attempt.updated_at || event.next_action_at !== attempt.next_action_at || !event.projection ||
+      projectionFields.some(key => event.projection[key] !== attempt[key])) throw new Error("Invalid persisted intake event projection");
+    required(event.event_id);
+    for (const key of ["job_id", "submit_attempt_id", "confirmed_order_number", "writeback_id", "superseded_by"] as const) {
+      if (event[key] !== undefined && event[key] !== attempt[key]) throw new Error("Invalid persisted intake event association");
+    }
   }
   return attempt;
 }
 export function transitionIntake(attempt: IntakeAttempt, event: IntakeEvent): IntakeAttempt {
+  validatePersistedIntakeAttempt(attempt);
   required(event.event_id);
   if (attempt.last_event?.event_id === event.event_id) {
     if (eventDigest(attempt.last_event) !== eventDigest(event)) throw new Error("Intake event identity conflict");
@@ -150,7 +180,8 @@ export function transitionIntake(attempt: IntakeAttempt, event: IntakeEvent): In
   const jobId = event.job_id === undefined ? attempt.job_id : required(event.job_id);
   const submitId = event.submit_attempt_id === undefined ? attempt.submit_attempt_id : required(event.submit_attempt_id);
   const orderNumber = event.confirmed_order_number === undefined ? attempt.confirmed_order_number : required(event.confirmed_order_number);
-  for (const [current, next] of [[attempt.job_id, jobId], [attempt.submit_attempt_id, submitId], [attempt.confirmed_order_number, orderNumber]]) {
+  const writebackId = event.writeback_id === undefined ? attempt.writeback_id : required(event.writeback_id);
+  for (const [current, next] of [[attempt.job_id, jobId], [attempt.submit_attempt_id, submitId], [attempt.confirmed_order_number, orderNumber], [attempt.writeback_id, writebackId]]) {
     if (current && current !== next) throw new Error("Intake association is immutable");
   }
   if (submitId && ["preparing", "ready", "customer_action_required", "superseded", "withdrawn"].includes(event.state)) {
@@ -166,14 +197,16 @@ export function transitionIntake(attempt: IntakeAttempt, event: IntakeEvent): In
   if (event.reason && !["customer_action_required", "internal_action_required", "manual_review", "reconciling"].includes(event.state)) throw new Error("Unexpected intake failure");
   if (event.state === "superseded" && (!event.superseded_by || event.superseded_by === attempt.attempt_id)) throw new Error("Supersession requires a different durable attempt");
   if (event.superseded_by && event.state !== "superseded") throw new Error("Unexpected supersession");
-  return { ...attempt, revision: attempt.revision + 1, state: event.state,
+  const next: IntakeAttempt = { ...attempt, revision: attempt.revision + 1, state: event.state,
     owner: closed ? "none" : event.state === "customer_action_required" ? "customer" :
       ["internal_action_required", "manual_review"].includes(event.state) ? "internal" : "automation",
     reason: event.reason, updated_at: event.occurred_at, next_action_at: event.next_action_at,
     job_id: jobId, submit_attempt_id: submitId, confirmed_order_number: orderNumber,
-    writeback_id: event.writeback_id === undefined ? attempt.writeback_id : required(event.writeback_id),
-    superseded_by: event.superseded_by ?? attempt.superseded_by, last_event: { ...event }
+    writeback_id: writebackId,
+    superseded_by: event.superseded_by ?? attempt.superseded_by, last_event: null
   };
+  next.last_event = { ...event, projection: intakeProjection(next) };
+  return validatePersistedIntakeAttempt(next);
 }
 export interface IntakeLedger {
   reserve(signal: IntakeSignal, nextActionAt: string): Promise<{ attempt: IntakeAttempt; created: boolean }>;

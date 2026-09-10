@@ -81,6 +81,9 @@ test("corrupt persisted data cannot silently disappear from the Exceptions page"
   records.set(key, { ...item, data: { S: JSON.stringify({ ...reserved.attempt, revision: -1 }) } });
   await assert.rejects(listIntakeAttemptsPage(signal.customer_id), /Invalid persisted/);
   await assert.rejects(getIntakeAttempt(signal.customer_id, reserved.attempt.attempt_id), /Invalid persisted/);
+  records.set(key, { ...item, data: { S: JSON.stringify({ ...reserved.attempt, state: "confirmed", owner: "none", next_action_at: null }) } });
+  await assert.rejects(listIntakeAttemptsPage(signal.customer_id), /Invalid persisted/);
+  await assert.rejects(getIntakeAttempt(signal.customer_id, reserved.attempt.attempt_id), /Invalid persisted/);
   records.set(key, { ...item, data: { S: "null" } });
   await assert.rejects(listIntakeAttemptsPage(signal.customer_id), /Invalid persisted/);
 });

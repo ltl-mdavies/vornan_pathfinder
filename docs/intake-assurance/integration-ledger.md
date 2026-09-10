@@ -306,3 +306,19 @@ production smoke test.
   no source-code changes; whitespace validation is sufficient.
 - Pathfinder Development's independent correctness review remains pending. Live
   Support's assessment is not a combined approval or authorization to merge.
+
+## Development review corrections
+
+- Development subsequently requested changes: persisted lifecycle corruption and
+  replacement of an established writeback ID were merge blockers. Both are now
+  guarded on transition/read, with full resulting-state event projections and
+  tests for corruption, inherited associations, exact replay and ID rebinding.
+- Dynamo read/list tests explicitly reject an impossible confirmed row instead
+  of allowing it to disappear from Exceptions. Pre-review experimental events
+  without projections fail closed; no migration or production capture occurred.
+- Validation: full API suite 523/523 passed, followed by six focused integrity and
+  Dynamo tests (three newly added tests); all-workspace typecheck/build and
+  whitespace check passed. A focused Development re-review remains required.
+  Task re-entry identity and full current Wrike discovery-scope
+  validation remain activation holds, alongside Live Support's operating gates.
+- All new gates remain off; no merge, deployment or provider action is authorized.

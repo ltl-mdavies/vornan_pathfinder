@@ -34,6 +34,21 @@ Wrike adapter, narrow web components and synthetic tests.
 
 ## Remaining engineering/operational limits
 
+Independent Development review requested changes before merge: impossible
+persisted lifecycle combinations and writeback ID rebinding. The follow-up
+validates lifecycle invariants on reads and transitions, stores and checks the
+complete resulting-state projection on each event, and prevents replacement of
+an assigned writeback ID. Correctness re-review is required before merge approval.
+Experimental records created before this projection requirement fail closed;
+there is no automatic migration or repair, and capture has not been activated.
+
+Capture activation remains blocked on an authoritative task re-entry/occurrence
+policy: the current fixed `initial` occurrence cannot represent reuse of a terminal
+task. Customer feedback activation also requires validating current folder/root,
+task identity and custom item type against the scoped discovery contract. Current
+status and workbook freshness checks alone do not establish that full scope.
+Resolve these engineering holds before the corresponding rollout steps below.
+
 Dynamo is required for distributed workers; local JSON supports serialized work in
 one process only. Provider actions and local state are not one atomic transaction.
 An already-in-flight request cannot be withdrawn by a later source/config change.
