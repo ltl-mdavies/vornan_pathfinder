@@ -345,3 +345,21 @@ sending. The read-only table shows review evidence and the closed outcome.
 This endpoint records human-verified provider evidence; it does not independently
 query SES or Wrike to prove delivery. No reconciliation or retry was performed on
 real records during implementation.
+
+## Slice 12: source freshness and legacy/multi-workbook boundaries
+
+Feedback now requires exact current attachment and version identity, valid captured
+evidence identity/hash, a current task timestamp no newer than the job capture,
+and matching workbook metadata no newer than capture. A bounded metadata-only
+Wrike read uses existing version normalization without download URLs or workbook
+bytes. Partial, oversized, duplicate and malformed metadata listings fail closed.
+Metadata is checked before and after the receipt claim. Verification returns the
+current task timestamp; missing timestamps suppress customer feedback.
+
+Legacy jobs lacking identity require explicit backfill review; multiple current
+workbooks require an identity decision. Neither case is automatically migrated or
+messaged. Synthetic coverage verifies changed/removed/added workbooks, changed task
+metadata and missing legacy fields. This closes the known old-version feedback
+path, but cannot make provider edits and local dispatch an atomic transaction.
+Mapping/configuration changes and production metadata completeness still need
+scoped rollout QA. Customer wording remains limited to unmapped-product jobs.

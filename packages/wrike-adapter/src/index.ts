@@ -1667,8 +1667,29 @@ export async function verifyWrikeTaskTriggerStatus(
     credentials: rotatedCredentials,
     checked_at: (options.now ?? (() => new Date()))().toISOString(),
     task_id: taskId,
-    trigger_status_id: verifiedStatusId
+    trigger_status_id: verifiedStatusId,
+    task_updated_at: typeof task.updatedDate === "string" && Number.isFinite(Date.parse(task.updatedDate)) ? new Date(task.updatedDate).toISOString() : null
   };
+}
+
+/** Metadata only, for feedback freshness. Partial or ambiguous listings fail closed. */
+export async function readWrikeCurrentWorkbookVersions(credentials: WrikeOAuthCredentials, taskId: string, config: WrikeSourceConfig,
+  options: { fetch_impl?: typeof fetch; now?: () => Date } = {}) {
+  const task = normalizedWrikeTaskId(taskId);
+  const refreshed = await refreshWrikeOAuthCredentials(credentials, options);
+  const oauth = refreshed.credentials;
+  const url = new URL(`https://${oauth.host}/api/v4/tasks/${encodeURIComponent(task)}/attachments`);
+  url.searchParams.set("versions", "false");
+  let response: Response;
+  try {
+    response = await (options.fetch_impl ?? fetch)(url, { method: "GET", headers: { Authorization: `Bearer ${oauth.access_token ?? ""}`, Accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+  } catch { throw new WrikeConnectionError("attachment_metadata_failed", "Workbook metadata could not be verified.", oauth); }
+  const payload = await readWrikeApiJson(response, "attachment_metadata_failed", oauth);
+  if (!Array.isArray(payload.data) || payload.data.length > 1000 || payload.nextPageToken) throw new WrikeConnectionError("attachment_metadata_failed", "Complete bounded workbook metadata is required for feedback.", oauth);
+  const matching = payload.data.map(asRecord).filter(row => matchesWrikeWorkbookContract(typeof row.name === "string" ? row.name : "", config));
+  const attachments = matching.map(row => ({ attachment_id: providerIdentifier(row.id), version_id: effectiveAttachmentVersionId(row), updated_at: safeAttachmentUpdatedAt(row) ?? "" }));
+  if (attachments.some(row => !row.attachment_id || !row.version_id || !Number.isFinite(Date.parse(row.updated_at))) || new Set(attachments.map(row => row.attachment_id)).size !== attachments.length) throw new WrikeConnectionError("attachment_metadata_failed", "Ambiguous workbook metadata requires review.", oauth);
+  return { credentials: oauth, attachments };
 }
 
 async function resolveWrikeFolderId(

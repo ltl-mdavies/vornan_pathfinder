@@ -250,3 +250,16 @@ production smoke test.
 - Focused tests cover unauthorized/disabled/spoofed requests, replay conflicts,
   concurrent persistent reviews and audit durability across restart. Full final
   matrix follows the next slice. No real review, send, push, PR change or activation.
+
+## Slice 12 — source freshness guardrails
+
+- Refreshed main before work, unchanged at `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`;
+  previous slice `1f36fbc`, no integration conflict.
+- Adds a bounded metadata-only attachment verifier and task timestamp to the
+  existing status-check result. Feedback checks exact captured/current workbook
+  identity and metadata freshness before and after claim. No raw workbook download,
+  automatic legacy backfill or multi-workbook identity migration is introduced.
+- Focused freshness/provider tests and synthetic real feedback Lambda tests pass.
+  Full final regression matrix follows status-link repair integration.
+- All new gates remain off. No external requests, migration, push, PR, deployment,
+  operator reconciliation or customer communication performed. Deployed SHA: none.

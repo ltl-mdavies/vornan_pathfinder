@@ -1,4 +1,5 @@
-import { normalizeWrikeStatusLabel, WRIKE_ORDER_INTENT_LABEL, verifyWrikeTaskTriggerStatus, postWrikeTaskComment, WrikeConnectionError, type WrikeOAuthCredentials } from "@pathfinder/wrike-adapter";
+import { normalizeWrikeStatusLabel, WRIKE_ORDER_INTENT_LABEL, verifyWrikeTaskTriggerStatus, readWrikeCurrentWorkbookVersions, postWrikeTaskComment, WrikeConnectionError, type WrikeOAuthCredentials } from "@pathfinder/wrike-adapter";
+import { assessWrikeFeedbackFreshness } from "./wrike-intake-freshness.js";
 import type { IntakeAttempt, IntakeLedger } from "./intake-assurance.js";
 import type { IntakeDeliveryLedger } from "./intake-delivery.js";
 import { dispatchIntakeDelivery } from "./intake-dispatch.js";
@@ -14,6 +15,7 @@ export async function dispatchWrikeIntakeFeedback(args: {
   loadCredentials: () => Promise<WrikeOAuthCredentials>;
   saveCredentials: (credentials: WrikeOAuthCredentials) => Promise<void>;
   verify?: typeof verifyWrikeTaskTriggerStatus; post?: typeof postWrikeTaskComment;
+  currentWorkbooks?: typeof readWrikeCurrentWorkbookVersions;
   canDispatch?: () => boolean; fence?: () => IntakeSweepFence; now?: () => Date;
 }) {
   const verify = args.verify ?? verifyWrikeTaskTriggerStatus;
@@ -46,19 +48,29 @@ export async function dispatchWrikeIntakeFeedback(args: {
         !config || config.connection_id !== args.scope.connection_id || !config.trigger_status_id || normalizeWrikeStatusLabel(config.trigger_status_label) !== normalizeWrikeStatusLabel(WRIKE_ORDER_INTENT_LABEL)) return null;
       let credentials = await args.loadCredentials();
       if (credentials.scope !== "wsReadWrite") return null;
+      let taskUpdatedAt: string | null = null;
+      const freshSource = async () => {
+        const metadata = await (args.currentWorkbooks ?? readWrikeCurrentWorkbookVersions)(credentials, payload.task_id, config, providerOptions);
+        credentials = metadata.credentials;
+        await args.saveCredentials(credentials);
+        const snapshot = await args.snapshot();
+        const job = snapshot.jobs.find(row => row.customer_id === args.scope.customer_id && row.job_id === attempt.job_id);
+        return !!job && assessWrikeFeedbackFreshness(job, metadata.attachments, taskUpdatedAt) === "current";
+      };
       try {
         const checked = await verify(credentials, { task_id: payload.task_id, trigger_status_id: config.trigger_status_id, trigger_status_label: config.trigger_status_label }, providerOptions);
         credentials = checked.credentials;
+        taskUpdatedAt = checked.task_updated_at;
         await args.saveCredentials(credentials);
-        if (checked.task_id !== payload.task_id || checked.trigger_status_id !== config.trigger_status_id || !await evidenceAllows(attempt)) return null;
+        if (checked.task_id !== payload.task_id || checked.trigger_status_id !== config.trigger_status_id || !await evidenceAllows(attempt) || !await freshSource()) return null;
       } catch (error) {
         if (error instanceof WrikeConnectionError && error.rotated_credentials) await args.saveCredentials(error.rotated_credentials);
         throw error;
       }
       return async () => {
         // Final durable evidence check also covers a submit occurring during preflight/claim.
-        if (!await evidenceAllows(attempt)) throw new Error("Feedback evidence changed after claim");
         try {
+          if (!await evidenceAllows(attempt) || !await freshSource()) throw new Error("Feedback evidence changed after claim");
           const result = await post(credentials, { task_id: payload.task_id, text: payload.text }, providerOptions);
           await args.saveCredentials(result.credentials);
           return { provider_message_id: result.comment.comment_id };
