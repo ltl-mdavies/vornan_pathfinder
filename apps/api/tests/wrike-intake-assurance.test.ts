@@ -86,3 +86,14 @@ test("confirmation requires authoritative association and repair respects writeb
   assert.equal(project([{ ...confirmedJob, target_order_association_history: [{ ...history, automatic_wrike_status_writeback_suppressed: true }] }], [accepted]).repair, "manual_review");
   assert.equal(project([{ ...confirmedJob, target_order_association_history: [{ ...history, verification: { ...history.verification, company_id: "WRONG" } }] }], [submit()]).state, "manual_review");
 });
+
+test("Momentara dash aliases produce one durable intent key and never broaden status ID selection", () => {
+  const hyphen = { ...scope, approved_status_label: "Sent to Print - LTL", configured_status_label: "Sent to Print - LTL" };
+  const enDash = { ...scope, approved_status_label: "Sent to Print – LTL", configured_status_label: "Sent to Print – LTL" };
+  const first = wrikeIntakeIntentCandidates(hyphen, discovery());
+  const second = wrikeIntakeIntentCandidates(enDash, discovery());
+  assert.deepEqual(second, first);
+  assert.equal(first[0]!.signal.intent_key, "Sent to Print - LTL");
+  assert.throws(() => wrikeIntakeIntentCandidates({ ...hyphen, configured_status_label: "Sent to Print — LTL" }, discovery()));
+  assert.throws(() => wrikeIntakeIntentCandidates({ ...hyphen, configured_status_id: "other" }, discovery()));
+});

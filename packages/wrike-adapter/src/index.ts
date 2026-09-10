@@ -605,6 +605,14 @@ export function resolveWrikeContractNumber(
   return { status: "ready", contract_number: normalized };
 }
 
+export const WRIKE_ORDER_INTENT_LABEL = "Sent to Print - LTL";
+
+/** Only the approved order-intent dash variants are aliases; status IDs remain exact. */
+export function normalizeWrikeStatusLabel(value: unknown) {
+  const normalized = normalizedComparableText(value);
+  return normalized === "sent to print – ltl" ? "sent to print - ltl" : normalized;
+}
+
 function normalizedComparableText(value: unknown) {
   return typeof value === "string"
     ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")
@@ -1442,7 +1450,7 @@ async function discoverWrikeStatusIdsByLabel(args: {
   fetch_impl: typeof fetch;
 }) {
   const requestedLabels = new Set(
-    args.labels.map(normalizedComparableText).filter(Boolean)
+    args.labels.map(normalizeWrikeStatusLabel).filter(Boolean)
   );
   const statusIdsByLabel = new Map<string, Set<string>>();
   if (requestedLabels.size === 0) {
@@ -1461,7 +1469,7 @@ async function discoverWrikeStatusIdsByLabel(args: {
         ? workflow.customStatuses.map(asRecord)
         : [];
       for (const status of statuses) {
-        const label = normalizedComparableText(status.name ?? status.title);
+        const label = normalizeWrikeStatusLabel(status.name ?? status.title);
         const statusId = providerIdentifier(status.id);
         if (!requestedLabels.has(label) || !statusId) {
           continue;
@@ -1545,7 +1553,7 @@ function requireVerifiedWrikeStatusId(args: {
   status_kind: "order" | "shipping";
 }) {
   const configuredStatusId = providerIdentifier(args.configured_status_id);
-  const configuredStatusLabel = normalizedComparableText(args.configured_status_label);
+  const configuredStatusLabel = normalizeWrikeStatusLabel(args.configured_status_label);
   if (!configuredStatusId || !configuredStatusLabel) {
     throw new WrikeConnectionError(
       "invalid_configuration",

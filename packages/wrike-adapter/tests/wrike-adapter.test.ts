@@ -2684,3 +2684,30 @@ test("requires a complete explicit shipping identity before metadata discovery c
       error.code === "invalid_configuration"
   );
 });
+
+test("order intent tolerates the approved hyphen/en-dash labels while verifying the exact saved status ID", async () => {
+  const credentials = { client_id: "fixture", client_secret: "fixture", refresh_token: "fixture", access_token: "fixture", access_token_expires_at: "2026-09-11T12:00:00Z", host: "app-us2.wrike.com" };
+  for (const configured of ["Sent to Print - LTL", "Sent to Print – LTL"]) {
+    for (const provider of ["Sent to Print - LTL", "Sent to Print – LTL"]) {
+      const calls: string[] = [];
+      const verified = await verifyWrikeTaskTriggerStatus(credentials, { task_id: "IETASK", trigger_status_id: "IESTATUS", trigger_status_label: configured }, {
+        now: () => new Date("2026-09-10T10:00:00Z"),
+        fetch_impl: async (input) => {
+          const url = String(input); calls.push(url);
+          if (url.endsWith("/workflows")) return wrikeWorkflowResponse([{ id: "IESTATUS", name: provider }, { id: "IEOTHERSTATUS", name: configured }]);
+          if (url.endsWith("/tasks/IETASK")) return new Response(JSON.stringify({ data: [{ id: "IETASK", customStatusId: "IESTATUS" }] }));
+          return new Response(JSON.stringify({ data: [] }));
+        }
+      });
+      assert.equal(verified.trigger_status_id, "IESTATUS");
+      assert.equal(calls.some((url) => url.includes("attachments")), false);
+    }
+  }
+  for (const provider of ["Sent to Print — LTL", "Sent to Print - OTHER", "Not Sent to Print - LTL"]) {
+    await assert.rejects(verifyWrikeTaskTriggerStatus(credentials, { task_id: "IETASK", trigger_status_id: "IESTATUS", trigger_status_label: "Sent to Print - LTL" }, {
+      now: () => new Date("2026-09-10T10:00:00Z"),
+      fetch_impl: async (input) => String(input).endsWith("/workflows") ? wrikeWorkflowResponse([{ id: "IESTATUS", name: provider }]) : new Response(JSON.stringify({ data: [] }))
+    }), (error: unknown) => error instanceof WrikeConnectionError && error.code === "invalid_configuration");
+  }
+  assert.equal(createDefaultWrikeSourceConfig().trigger_status_label, "Sent to Print - LTL");
+});

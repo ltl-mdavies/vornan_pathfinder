@@ -1,4 +1,4 @@
-import type { WrikeScopedIntakeDiscoveryResult } from "@pathfinder/wrike-adapter";
+import { normalizeWrikeStatusLabel, WRIKE_ORDER_INTENT_LABEL, type WrikeScopedIntakeDiscoveryResult } from "@pathfinder/wrike-adapter";
 import { intakeAttemptId, type IntakeAttempt, type IntakeFailure, type IntakeLedger, type IntakeSignal, type IntakeState } from "./intake-assurance.js";
 import type { ProcessingJobPreview, SubmitAttempt } from "./store.js";
 
@@ -6,7 +6,7 @@ export interface WrikeAssuranceScope {
   customer_id: string;
   connection_id: string;
   import_method_id: string;
-  /** Exact label must be resolved against production configuration before wiring. */
+  /** The approved Momentara hyphen/en-dash variants share one intent identity. */
   approved_status_label: string;
   configured_status_label: string;
   configured_status_id: string;
@@ -16,7 +16,7 @@ export interface WrikeIntentCandidate { signal: IntakeSignal; prequalification_r
 export function wrikeIntakeIntentCandidates(scope: WrikeAssuranceScope, discovery: Pick<WrikeScopedIntakeDiscoveryResult,
   "checked_at" | "order_candidates" | "pending_order_candidates" | "summary">): WrikeIntentCandidate[] {
   if (!scope.import_method_id.trim() || !scope.approved_status_label.trim() ||
-    scope.configured_status_label !== scope.approved_status_label || !scope.configured_status_id ||
+    normalizeWrikeStatusLabel(scope.configured_status_label) !== normalizeWrikeStatusLabel(scope.approved_status_label) || !scope.configured_status_id ||
     discovery.summary.resolved_order_status_ids.length !== 1 ||
     discovery.summary.resolved_order_status_ids[0] !== scope.configured_status_id) {
     throw new Error("Wrike assurance intent boundary is not exact and verified");
@@ -24,7 +24,9 @@ export function wrikeIntakeIntentCandidates(scope: WrikeAssuranceScope, discover
   const candidates = new Map<string, WrikeIntentCandidate>();
   const add = (taskId: string, reason: IntakeFailure | null) => {
     const signal: IntakeSignal = { schema_version: 1, customer_id: scope.customer_id, provider: "wrike",
-      connection_id: scope.connection_id, source_id: taskId, intent_key: scope.approved_status_label,
+      connection_id: scope.connection_id, source_id: taskId,
+      intent_key: normalizeWrikeStatusLabel(scope.approved_status_label) === normalizeWrikeStatusLabel(WRIKE_ORDER_INTENT_LABEL)
+        ? WRIKE_ORDER_INTENT_LABEL : scope.approved_status_label,
       intent_occurrence: "initial", observed_at: discovery.checked_at };
     const id = intakeAttemptId(signal);
     const existing = candidates.get(id);

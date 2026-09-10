@@ -85,3 +85,18 @@ receipt integration, scheduled watchdog execution, dispatch and success-link rep
 all remain later work requiring validated default-off slices and explicit approval
 before production activation. Draft deduplication keys alone are not delivery
 receipts or exactly-once guarantees.
+
+## Slice 4: resolved status-label compatibility
+
+The user approved accepting both `Sent to Print - LTL` and `Sent to Print – LTL`,
+with the hyphenated form as the default. The earlier label blocker is resolved.
+A shared narrow normalizer extends existing case/whitespace comparison only for
+these two labels. Discovery workflow verification and immediate pre-submit checks
+use it while preserving exact saved status-ID and task-status checks. Even if a
+workflow contains both labels under different IDs, only the configured ID qualifies.
+Assurance identity always uses `Sent to Print - LTL`, avoiding duplicate attempts
+when the display dash changes. Other labels and em dashes are not aliases.
+
+All 948 workspace tests, 16 browser regressions, 126 deployment-contract tests,
+and all-workspace check/build passed. No live configuration or default changed;
+the compatibility code is local and has not been deployed.

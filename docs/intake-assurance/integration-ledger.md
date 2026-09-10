@@ -72,3 +72,19 @@ production smoke test.
 - Posture: Exceptions server/UI flags unset, capture disabled and unwired,
   delivery/repair/watchdog dispatch absent. No new PR, push, infrastructure change,
   provider communication or order submission. Deployed SHA: none.
+
+## Slice 4 — approved status dash tolerance
+
+- User resolved the status-label reconciliation: accept hyphen and en dash, retain
+  the existing hyphenated default. No broader fuzzy matching was requested.
+- Main refreshed before the slice: `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`,
+  unchanged; no intervening commits or conflicts. Prior local slice `2963b19`.
+- Existing workflow metadata matching and immediate pre-submit status verification
+  now share the narrowly scoped alias normalizer. Configured status IDs and task
+  status IDs remain exact. Other labels, shipping labels, em dashes and different
+  vendor names retain prior behavior. Both approved variants map to the same
+  hyphenated assurance intent key; no production assurance rows exist to migrate.
+- Validation: 948 workspace tests, 16 browser regressions, 126 deployment-contract
+  tests, all-workspace check/build and whitespace check passed.
+- Capture and Exceptions flags remain off; no deployment, push, PR mutation,
+  notification, comment or Lift submission. Deployed SHA: none.
