@@ -6399,6 +6399,7 @@ export async function associateJobWithLiftOrder(
         "The job changed while the Lift order association was being saved. Refresh and verify it again."
       );
     }
+    replaceScopedJob(next.job);
     return { ...next, reused: false as const };
   }
 
