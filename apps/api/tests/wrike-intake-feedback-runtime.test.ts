@@ -9,19 +9,26 @@ test("feedback requires its own gate and explicit bounds", () => {
   assert.equal(getWrikeIntakeFeedbackConfig({ PATHFINDER_ENABLE_INTAKE_INTERNAL_NOTIFICATIONS: "true" }).sweep.enabled, false);
   assert.throws(() => getWrikeIntakeFeedbackConfig({ PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK: "true" }));
 });
-test("actual feedback Lambda stays dark and safely dispatches one synthetic Wrike correction with replay suppression", async () => {
+for (const variant of ["safe", "moved", "renamed", "type", "moved_after_claim", "renamed_after_claim", "type_after_claim"]) test(`actual feedback Lambda validates live task scope: ${variant}`, async () => {
   const directory = await mkdtemp(join(tmpdir(), "wrike-feedback-"));
   try {
     const script = `
       const assert = (await import('node:assert/strict')).default;
       const fs = await import('node:fs/promises');
-      let requests = 0; let comments = 0;
+      const variant = ${JSON.stringify(variant)};
+      let requests = 0; let comments = 0; let taskReads = 0;
       globalThis.fetch = async (input, init) => {
         requests++; assert.ok(init.signal);
         const url = String(input);
+        if (url.endsWith('/api/v4/folders/ROOT')) return Response.json({ data: [{ id: 'ROOT', title: 'Campaign' }] });
         if (url.includes('/api/v4/spaces')) return Response.json({ data: [] });
         if (url.endsWith('/api/v4/workflows')) return Response.json({ data: [{ id: 'WORKFLOW', customStatuses: [{ id: 'STATUS1', name: 'Sent to Print – LTL' }] }] });
-        if (url.endsWith('/api/v4/tasks/TASK123')) return Response.json({ data: [{ id: 'TASK123', customStatusId: 'STATUS1', updatedDate: '2026-09-10T09:00:00Z' }] });
+        if (url.endsWith('/api/v4/folders/OTHER')) return Response.json({ data: [{ id: 'OTHER', parentIds: [] }] });
+        if (url.endsWith('/api/v4/tasks/TASK123')) {
+          taskReads++;
+          const changed = !variant.endsWith('_after_claim') || taskReads >= 3;
+          return Response.json({ data: [{ id: 'TASK123', accountId: 'ACCOUNT', parentIds: changed && variant.startsWith('moved') ? ['OTHER'] : ['ROOT'], title: changed && variant.startsWith('renamed') ? 'Other Task' : 'Placard Order', customItemTypeId: changed && variant.startsWith('type') ? 'OTHER_TYPE' : 'ORDER_TYPE', customFields: [{ id: 'CONTRACT', value: 'C123456' }], customStatusId: 'STATUS1', updatedDate: '2026-09-10T09:00:00Z' }] });
+        }
         if (url.includes('/api/v4/tasks/TASK123/attachments')) return Response.json({ data: [{ id: 'ATTACH1', versionId: 'VERSION1', name: 'order.xlsx', updatedDate: '2026-09-10T09:00:00Z' }] });
         if (url.endsWith('/api/v4/tasks/TASK123/comments')) {
           assert.equal(init.method, 'POST'); assert.match(String(init.body), /products/); comments++;
@@ -39,14 +46,25 @@ test("actual feedback Lambda stays dark and safely dispatches one synthetic Wrik
       const { attempt } = await store.reserveIntakeAttempt({ schema_version: 1, customer_id: 'synthetic', provider: 'wrike', connection_id: 'connection', source_id: 'TASK123', intent_key: 'Sent to Print - LTL', intent_occurrence: 'initial', observed_at: '2026-09-10T10:00:00Z' }, '2026-09-10T11:00:00Z');
       await store.transitionIntakeAttempt('synthetic', attempt.attempt_id, { event_id: 'mapping', expected_revision: 0, occurred_at: '2026-09-10T10:00:00Z', state: 'customer_action_required', reason: 'unmapped_product', job_id: 'job', next_action_at: attempt.next_action_at });
       const data = JSON.parse(await fs.readFile(process.env.PATHFINDER_LOCAL_STORE_PATH, 'utf8'));
-      data.workspaces.synthetic = { customer: { lift_customer_id: 'synthetic', customer_name: 'Synthetic' }, source_connections: [{ connection_id: 'connection', name: 'Synthetic', provider: 'wrike', status: 'Active', environment: 'Live', auth_strategy: 'oauth2', created_at: '2026-09-10T10:00:00Z', updated_at: '2026-09-10T10:00:00Z' }], import_methods: [{ import_method_id: 'method', source: 'Wrike', status: 'Active', source_config: { wrike: { connection_id: 'connection', trigger_status_id: 'STATUS1', trigger_status_label: 'Sent to Print - LTL' } } }] };
+      data.workspaces.synthetic = { customer: { lift_customer_id: 'synthetic', customer_name: 'Synthetic' }, source_connections: [{ connection_id: 'connection', name: 'Synthetic', provider: 'wrike', status: 'Active', environment: 'Live', auth_strategy: 'oauth2', created_at: '2026-09-10T10:00:00Z', updated_at: '2026-09-10T10:00:00Z' }], import_methods: [{ import_method_id: 'method', source: 'Wrike', status: 'Active', source_config: { wrike: { order_task_identity_mode: variant.startsWith('type') ? 'custom_item_type' : 'exact_title', order_task_custom_item_type_id: 'ORDER_TYPE', folder_ids: ['ROOT'], folder_id: 'ROOT', contract_number_custom_field_id: 'CONTRACT', connection_id: 'connection', trigger_status_id: 'STATUS1', trigger_status_label: 'Sent to Print - LTL' } } }] };
       data.jobs.push({ customer_id: 'synthetic', job_id: 'job', import_method_id: 'method', state: 'Needs Mapping', target_order_number: null, source_evidence: { provider: 'wrike', task_id: 'TASK123', connection_id: 'connection', attachment_id: 'ATTACH1', version_id: 'VERSION1', evidence_id: 'evidence', evidence_sha256: 'a'.repeat(64), import_method_fingerprint: 'fingerprint', captured_at: '2026-09-10T10:00:00Z' } });
       await fs.writeFile(process.env.PATHFINDER_LOCAL_STORE_PATH, JSON.stringify(data));
       await writeCustomerSourceConnectionSecrets('synthetic', 'connection', { provider: 'wrike', wrike: { oauth: { client_id: 'synthetic', client_secret: 'synthetic', refresh_token: 'synthetic', access_token: 'synthetic', access_token_expires_at: new Date(Date.now() + 3600000).toISOString(), host: 'www.wrike.com', scope: 'wsReadWrite' } } });
       Object.assign(process.env, { PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK: 'true', PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: 'synthetic', PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: 'connection', PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: 'method', PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: '3600', PATHFINDER_INTAKE_SWEEP_PAGE_SIZE: '10', PATHFINDER_INTAKE_SWEEP_MAX_PAGES: '1', PATHFINDER_INTAKE_SWEEP_LEASE_SECONDS: '30', PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: '100', PATHFINDER_INTAKE_FEEDBACK_MAX_COMMENTS: '1' });
-      const first = await handler(event, {}); assert.equal(first.sent, 1); assert.equal(first.comments_attempted, 1); assert.equal(comments, 1);
-      const second = await handler(event, {}); assert.equal(second.suppressed, 1); assert.equal(comments, 1); assert.equal(requests, 6);
-      const receipts = await store.listIntakeDeliveriesPage('synthetic'); assert.equal(receipts.receipts[0].provider_message_id, 'COMMENT1');
+      const first = await handler(event, {});
+      const receipts = await store.listIntakeDeliveriesPage('synthetic');
+      if (variant === 'safe') {
+        assert.equal(first.sent, 1); assert.equal(comments, 1);
+        const second = await handler(event, {}); assert.equal(second.suppressed, 1); assert.equal(comments, 1);
+        assert.equal(receipts.receipts[0].provider_message_id, 'COMMENT1');
+        assert.equal(requests, 15);
+      } else {
+        assert.equal(comments, 0);
+        assert.equal(receipts.receipts[0].state, variant.endsWith('_after_claim') ? 'uncertain' : 'prepared');
+        if (variant.endsWith('_after_claim')) {
+          const second = await handler(event, {}); assert.equal(second.suppressed, 1); assert.equal(comments, 0);
+        }
+      }
       assert.equal((await store.getIntakeAttempt('synthetic', attempt.attempt_id)).next_action_at, attempt.next_action_at);
     `;
     const result = spawnSync(process.execPath, ["--import", "tsx/esm", "--input-type=module", "-e", script], { encoding: "utf8", env: { ...process.env,

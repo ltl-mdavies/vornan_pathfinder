@@ -53,6 +53,13 @@ task identity and custom item type against the scoped discovery contract. Curren
 status and workbook freshness checks alone do not establish that full scope.
 Resolve these engineering holds before the corresponding rollout steps below.
 
+The follow-up scope guard reuses exact-task discovery before and after receipt
+claim, including folder ancestry and configured task identity. It also reloads
+configuration and task freshness. Its validation and independent review must be
+completed before treating that engineering hold as resolved. The task re-entry
+resolver and deployment infrastructure remain outstanding; see
+`activation-prerequisites.md` for the coordinated implementation/release dossier.
+
 Dynamo is required for distributed workers; local JSON supports serialized work in
 one process only. Provider actions and local state are not one atomic transaction.
 An already-in-flight request cannot be withdrawn by a later source/config change.
