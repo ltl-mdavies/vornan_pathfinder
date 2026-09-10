@@ -79,6 +79,8 @@ import {
 import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
 import { assertLocalStorageDriver, getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 import { createIntakeAttempt, transitionIntake, validatePersistedIntakeAttempt, type IntakeAttempt, type IntakeEvent, type IntakeSignal, type IntakeLedger } from "./intake-assurance.js";
+import { intakeSweepId, sweepTime, validateSweepCheckpoint, IntakeSweepLeaseLostError,
+  type IntakeSweepCheckpoint, type IntakeSweepScope, type IntakeSweepFence } from "./intake-recovery-sweep.js";
 import type {
   WrikeSourceOrderImpact,
   WrikeSourceOrderImpactAssessment
@@ -1014,6 +1016,7 @@ export interface PathfinderCustomerWorkspace {
 export interface PathfinderStore {
   version: 1;
   intake_attempts?: IntakeAttempt[];
+  intake_sweeps?: Record<string, IntakeSweepCheckpoint>;
   targets: Record<string, TargetConfig>;
   workspaces: Record<string, PathfinderCustomerWorkspace>;
   jobs: ProcessingJobPreview[];
@@ -8499,20 +8502,29 @@ export async function reserveIntakeAttempt(signal: IntakeSignal, nextActionAt: s
     return { attempt, created: true };
   });
 }
-export async function transitionIntakeAttempt(customerId: string, attemptId: string, event: IntakeEvent) {
+export async function transitionIntakeAttempt(customerId: string, attemptId: string, event: IntakeEvent, fence?: IntakeSweepFence) {
+  if (fence && fence.scope.customer_id !== customerId) throw new IntakeSweepLeaseLostError();
   if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
     const current = await getIntakeAttempt(customerId, attemptId);
     if (!current) throw new Error("Intake attempt not found");
     const next = transitionIntake(current, event);
     if (next === current) return current;
     try {
-      await getDynamoClient().send(new PutItemCommand({
+      const put = {
         TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Item: intakeItem(next),
         ConditionExpression: "#revision = :expected",
         ExpressionAttributeNames: { "#revision": "revision" },
         ExpressionAttributeValues: { ":expected": { N: String(current.revision) } }
-      }));
+      };
+      if (fence) {
+        await getDynamoClient().send(new TransactWriteItemsCommand({ TransactItems: [
+          { ConditionCheck: sweepFenceCondition(fence) }, { Put: put }
+        ] }));
+      } else {
+        await getDynamoClient().send(new PutItemCommand(put));
+      }
     } catch (error) {
+      if (fence && (error as { name?: string }).name === "TransactionCanceledException") throw new IntakeSweepLeaseLostError();
       if (!isConditionalCheckFailure(error)) throw error;
       const observed = await getIntakeAttempt(customerId, attemptId);
       if (observed?.last_event?.event_id === event.event_id) return transitionIntake(observed, event);
@@ -8521,6 +8533,7 @@ export async function transitionIntakeAttempt(customerId: string, attemptId: str
     return next;
   }
   return mutateLocalIntake((store) => {
+    if (fence) assertLocalSweepFence(store, fence);
     const index = store.intake_attempts?.findIndex((entry) => entry.signal.customer_id === customerId && entry.attempt_id === attemptId) ?? -1;
     if (index < 0) throw new Error("Intake attempt not found");
     const next = transitionIntake(validatePersistedIntakeAttempt(store.intake_attempts![index]!), event);
@@ -8554,4 +8567,142 @@ export async function listIntakeAttemptsPage(customerId: string, limit = 50, cur
     .sort((left, right) => left.attempt_id.localeCompare(right.attempt_id));
   const attempts = candidates.slice(0, request.limit).map(validatePersistedIntakeAttempt);
   return { attempts, next_cursor: candidates.length > request.limit ? intakePageCursor(customerId, attempts.at(-1)!.attempt_id) : null };
+}
+
+// Checkpoints share intake persistence but use a reserved partition that the
+// validated tenant request API cannot address. They never appear as attempts.
+function sweepCheckpointKey(scope: IntakeSweepScope) {
+  return { customer_id: `intake-sweep#${scope.customer_id}`, attempt_id: intakeSweepId(scope) };
+}
+function sweepCheckpointItem(checkpoint: IntakeSweepCheckpoint) {
+  return { ...dynamoItem(sweepCheckpointKey(checkpoint.scope), checkpoint), revision: { N: String(checkpoint.revision) },
+    lease_token: dynamoString(checkpoint.lease_token), lease_until: { N: String(checkpoint.lease_until) } };
+}
+function sweepFenceCondition(fence: IntakeSweepFence) {
+  return {
+    TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
+    Key: Object.fromEntries(Object.entries(sweepCheckpointKey(fence.scope)).map(([key, value]) => [key, dynamoString(value)])),
+    ConditionExpression: "lease_token = :owner AND lease_until > :now",
+    ExpressionAttributeValues: { ":owner": dynamoString(fence.lease_token), ":now": { N: String(sweepTime(fence.now)) } }
+  };
+}
+function assertLocalSweepFence(store: PathfinderStore, fence: IntakeSweepFence) {
+  const raw = store.intake_sweeps?.[intakeSweepId(fence.scope)];
+  if (!raw) throw new IntakeSweepLeaseLostError();
+  const checkpoint = validateSweepCheckpoint(raw, fence.scope);
+  if (checkpoint.lease_token !== fence.lease_token || checkpoint.lease_until <= sweepTime(fence.now)) throw new IntakeSweepLeaseLostError();
+}
+export async function getIntakeSweepCheckpoint(scope: IntakeSweepScope) {
+  const id = intakeSweepId(scope);
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), ConsistentRead: true,
+      Key: Object.fromEntries(Object.entries(sweepCheckpointKey(scope)).map(([key, value]) => [key, dynamoString(value)]))
+    }));
+    return response.Item ? validateSweepCheckpoint(parseDynamoData(response.Item), scope) : null;
+  }
+  const raw = (await readStoreUncached()).intake_sweeps?.[id];
+  return raw ? validateSweepCheckpoint(raw, scope) : null;
+}
+export async function acquireIntakeSweep(scope: IntakeSweepScope, token: string, now: string, leaseSeconds: number) {
+  if (!/^[A-Za-z0-9:_-]{1,128}$/.test(token) || !Number.isInteger(leaseSeconds) || leaseSeconds < 30 || leaseSeconds > 900) throw new Error("Invalid intake recovery lease");
+  const timestamp = sweepTime(now);
+  const next = (current: IntakeSweepCheckpoint | null): IntakeSweepCheckpoint | null => {
+    if (current && current.lease_until > timestamp) return null;
+    if (current && sweepTime(current.updated_at) > timestamp) throw new Error("Intake recovery clock regression");
+    return { schema_version: 1, sweep_id: intakeSweepId(scope), scope, revision: (current?.revision ?? 0) + 1,
+      cursor: current?.cursor ?? null, pass_count: current?.pass_count ?? 0, last_completed_at: current?.last_completed_at ?? null,
+      lease_token: token, lease_until: timestamp + leaseSeconds * 1000, updated_at: now, last_failure: current?.last_failure ?? null };
+  };
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const current = await getIntakeSweepCheckpoint(scope);
+    const checkpoint = next(current);
+    if (!checkpoint) return null;
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Item: sweepCheckpointItem(checkpoint),
+        ...(current ? { ConditionExpression: "#revision = :expected AND lease_until <= :now",
+          ExpressionAttributeNames: { "#revision": "revision" },
+          ExpressionAttributeValues: { ":expected": { N: String(current.revision) }, ":now": { N: String(timestamp) } }
+        } : { ConditionExpression: "attribute_not_exists(customer_id) AND attribute_not_exists(attempt_id)" })
+      }));
+      return checkpoint;
+    } catch (error) { if (isConditionalCheckFailure(error)) return null; throw error; }
+  }
+  return mutateLocalIntake((store) => {
+    const raw = store.intake_sweeps?.[intakeSweepId(scope)];
+    const checkpoint = next(raw ? validateSweepCheckpoint(raw, scope) : null);
+    if (checkpoint) store.intake_sweeps = { ...store.intake_sweeps, [checkpoint.sweep_id]: checkpoint };
+    return checkpoint;
+  });
+}
+export async function saveIntakeSweep(previous: IntakeSweepCheckpoint, next: IntakeSweepCheckpoint, now: string) {
+  validateSweepCheckpoint(previous, previous.scope); validateSweepCheckpoint(next, previous.scope);
+  if (!previous.lease_token || previous.lease_until <= sweepTime(now) || next.revision !== previous.revision + 1 ||
+    (next.lease_token !== null && next.lease_token !== previous.lease_token)) throw new IntakeSweepLeaseLostError();
+  const fence = { scope: previous.scope, lease_token: previous.lease_token, now };
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const condition = sweepFenceCondition(fence);
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: condition.TableName, Item: sweepCheckpointItem(next),
+        ConditionExpression: `${condition.ConditionExpression} AND #revision = :expected`,
+        ExpressionAttributeNames: { "#revision": "revision" },
+        ExpressionAttributeValues: { ...condition.ExpressionAttributeValues, ":expected": { N: String(previous.revision) } }
+      }));
+    } catch (error) { if (isConditionalCheckFailure(error)) throw new IntakeSweepLeaseLostError(); throw error; }
+    return;
+  }
+  await mutateLocalIntake((store) => {
+    assertLocalSweepFence(store, fence);
+    if (store.intake_sweeps![previous.sweep_id]!.revision !== previous.revision) throw new IntakeSweepLeaseLostError();
+    store.intake_sweeps![previous.sweep_id] = next;
+  });
+}
+export const intakeSweepCheckpoints = { acquire: acquireIntakeSweep, save: saveIntakeSweep };
+export function fencedIntakeSweepLedger(fence: () => IntakeSweepFence): IntakeLedger {
+  return { ...intakeLedger, transition: (customerId, attemptId, event) => transitionIntakeAttempt(customerId, attemptId, event, fence()) };
+}
+
+/** Existing job/transport partitions only; fail on overflow instead of reconciling from partial evidence. */
+export async function readIntakeRecoverySnapshot(customerId: string, maxRecords: number) {
+  if (!Number.isInteger(maxRecords) || maxRecords < 1 || maxRecords > 10000) throw new Error("Invalid recovery snapshot limit");
+  const checked_at = new Date().toISOString();
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "local") {
+    const store = await readStoreUncached();
+    const jobs = store.jobs.filter((entry) => entry.customer_id === customerId);
+    const submits = store.submit_attempts.filter((entry) => entry.customer_id === customerId);
+    if (jobs.length > maxRecords || submits.length > maxRecords) throw new Error("Intake recovery snapshot limit exceeded");
+    return { checked_at, jobs, submits };
+  }
+  async function partition<T extends { customer_id: string }>(table: string): Promise<T[]> {
+    const values: T[] = [];
+    let cursor: Record<string, AttributeValue> | undefined;
+    let pages = 0;
+    const seen = new Set<string>();
+    do {
+      if (++pages > maxRecords + 1) throw new Error("Intake recovery snapshot page limit exceeded");
+      const response = await getDynamoClient().send(new QueryCommand({ TableName: table, ConsistentRead: true,
+        KeyConditionExpression: "customer_id = :customer", ExpressionAttributeValues: { ":customer": dynamoString(customerId) },
+        Limit: Math.min(100, maxRecords + 1 - values.length), ...(cursor ? { ExclusiveStartKey: cursor } : {}) }));
+      for (const item of response.Items ?? []) {
+        const value = parseDynamoData<T>(item);
+        if (!value || value.customer_id !== customerId) throw new Error("Invalid intake recovery snapshot record");
+        values.push(value);
+      }
+      cursor = response.LastEvaluatedKey;
+      if (cursor) {
+        const key = JSON.stringify(Object.entries(cursor).sort(([a], [b]) => a.localeCompare(b)));
+        if (seen.has(key)) throw new Error("Intake recovery snapshot cursor repeated");
+        seen.add(key);
+      }
+      if (values.length > maxRecords || (values.length === maxRecords && cursor)) throw new Error("Intake recovery snapshot limit exceeded");
+    } while (cursor);
+    return values;
+  }
+  const [jobs, submits] = await Promise.all([
+    partition<ProcessingJobPreview>(requireEnv("PATHFINDER_JOBS_TABLE")),
+    partition<SubmitAttempt>(requireEnv("PATHFINDER_SUBMIT_ATTEMPTS_TABLE"))
+  ]);
+  return { checked_at, jobs, submits };
 }

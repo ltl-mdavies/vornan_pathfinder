@@ -155,3 +155,54 @@ passed with serial file execution after intermittent concurrent Proof fixture
 socket resets; 469 other workspace tests passed normally). Typecheck/build, 16
 browser regressions, 126 deployment-contract tests and API/Proof packaging passed.
 See the integration ledger for the exact validation sequence.
+
+## Slice 6: independent durable recovery sweep
+
+The standalone Lambda event (`source: pathfinder.intake`, `detail-type: Intake
+Assurance Sweep`, `detail.automation: observe_durable_outcomes`) now observes
+persisted intake requests independently of current discovery. Event payloads do
+not select the customer or operating limits. Runtime scope comes from explicit
+configuration. No schedule, infrastructure, flag enablement or delivery is added.
+
+Required settings when `PATHFINDER_ENABLE_INTAKE_ASSURANCE_SWEEP=true`:
+
+- Shared assurance customer, Import Method and SLA settings from slice 5.
+- `PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID`: explicit connection.
+- `PATHFINDER_INTAKE_SWEEP_PAGE_SIZE`: 1–100 attempts.
+- `PATHFINDER_INTAKE_SWEEP_MAX_PAGES`: 1–10 pages per invocation.
+- `PATHFINDER_INTAKE_SWEEP_LEASE_SECONDS`: 30–900 seconds.
+- `PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT`: 1–10000 records per existing
+  customer job/submit partition. Overflow fails without advancing the current
+  page; operators must choose a reviewed bound appropriate to the customer.
+
+Each scope has a durable revision, cursor, pass count and leased owner token.
+Dynamo checkpoints occupy `intake-sweep#<customer>` in the existing intake table;
+validated Exceptions queries cannot address that reserved partition. Conditional
+acquisition and renewal protect ownership. Every intake mutation combines lease
+ownership and intake revision checks in one Dynamo transaction. Local development
+uses the existing serialized JSON mutation queue; distributed concurrency requires
+Dynamo, not multiple processes writing the same local JSON file.
+
+Progress commits after a complete page. Failure retains the last committed cursor;
+expiry allows another invocation to retry. Already-applied observations are
+idempotent and keep the existing deadline. Completing a pass resets the cursor so
+new requests inserted before it are considered on the next pass. Empty/filtered
+pages retain their cursor. Snapshot reads use consistent tenant queries, at most
+100 items per query and at most snapshot-limit-plus-one pages per partition;
+repeated cursors, corrupt rows and excess records fail closed. Snapshots are not
+cross-table transactions: newer intake rows wait for a later snapshot, and strict
+existing association checks remain authoritative. No observation initiates a
+provider request, preparation, submission, link repair or notification.
+
+The sweep can adopt an existing job or later confirmed outcome after a source
+leaves discovery. Terminal withdrawals/supersessions and confirmed requests with
+recorded feedback are skipped. Multiple jobs/transports retain conservative manual
+review. Repeated unresolved observations preserve age and deadline. A confirmed
+order missing feedback follows the existing explicit follow-up deadline policy.
+Completion/failure logs contain aggregate counts and fixed categories only.
+
+Before activation: validate the single approved customer/connection/Import Method
+scope, table and transaction/condition-check IAM permissions, production-sized
+bounds and duration, schedule/retry/lease settings, multi-workbook identities and
+legacy backfill. Feedback/notification delivery receipts and dispatch remain the
+next separate slice; no exactly-once delivery claim is made here.

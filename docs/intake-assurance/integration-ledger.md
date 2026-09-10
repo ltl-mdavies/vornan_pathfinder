@@ -117,3 +117,33 @@ production smoke test.
 - Remaining activation prerequisites are documented in sprint-slices.md, notably
   a persisted-ledger sweep independent of current Wrike discovery and durable
   feedback/notification delivery receipts. This slice does not claim those exist.
+
+## Slice 6 — independent observation recovery
+
+- Main fetched before implementation and at final review, unchanged at
+  `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`; no intervening commits/conflicts.
+  Previous local slice: `7c18b55`.
+- Overlaps: optional fenced intake transitions and checkpoint persistence in
+  store.ts, plus a standalone default-off Lambda event branch. Existing scheduled
+  discovery, submission, reconciliation, feedback transport and Proof behavior
+  remain authoritative. New runtime projects existing job/submit/writeback
+  evidence; it has no delivery or submission callback.
+- Durable cursor advances only after a complete page. Conditional lease acquisition
+  and transaction-fenced intake updates reject former owners. Checkpoints use a
+  reserved partition in the intake table. Job/submit reads use bounded consistent
+  tenant queries; overflow/corruption/non-progressing cursors fail before progress.
+  The local JSON backend supports serialized work in one process only.
+- Nine new tests cover disabled real Lambda execution, persisted process restart,
+  lease contention/takeover and stale-owner writes, Dynamo transaction fencing,
+  independent adoption after source disappearance, deadline-preserving replay,
+  partial-page failure, empty/filtered pagination and snapshot bounds.
+- Validation: 965 workspace tests passed (496 API with serial file execution,
+  469 other workspace tests); 16 browser regressions; 126 deployment-contract
+  tests; all-workspace check/build; API and Proof Lambda packaging; whitespace
+  check. Initial sandboxed API/browser runs could not bind local fixture ports;
+  reruns with local-server permission passed. No code workaround was needed.
+- Sweep/capture/Exceptions gates remain off. No schedule, table, IAM, push, PR
+  mutation, deployment, customer comment, SES notification or Lift submission.
+  Deployed SHA: none. Production-sized bounds, transaction IAM, approved scope,
+  schedule/lease policy, multi-workbook/backfill QA and delivery receipts remain
+  activation prerequisites. This slice provides observation, not automatic repair.

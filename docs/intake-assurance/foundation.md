@@ -152,3 +152,15 @@ commits, integrate without reverting newer behavior, rerun the complete relevant
 regression matrix and update `integration-ledger.md`. Stop if intent conflicts.
 Deployment and enabling production capture/delivery require explicit approval;
 no customer communication, SES message or Lift submit is part of development QA.
+
+## Recovery implementation update (slice 6)
+
+The independent observation worker and leased durable cursor now exist behind
+`PATHFINDER_ENABLE_INTAKE_ASSURANCE_SWEEP` (default off). It reads bounded tenant
+partitions from the existing intake, job and submit ledgers and applies existing
+strict outcome projections without using current Wrike discovery. Dynamo updates
+atomically check both lease ownership and intake revision; incomplete pages replay
+from the last committed cursor. Local JSON remains a single-process development
+backend. See `sprint-slices.md` for explicit configuration bounds and activation
+prerequisites. Notification/customer feedback dispatch, durable delivery receipts,
+backoff and success-link repair are still future work. No schedule is provisioned.

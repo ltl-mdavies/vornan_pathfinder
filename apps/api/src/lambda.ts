@@ -1,4 +1,6 @@
 import serverless from "serverless-http";
+import { isIntakeRecoverySweepEvent } from "./intake-recovery-sweep.js";
+import { runConfiguredIntakeRecoverySweep } from "./intake-recovery-runtime.js";
 import {
   app,
   recordConfiguredWrikeScheduledIntakeFailure,
@@ -16,6 +18,16 @@ const httpHandler = serverless(app, {
 });
 
 export async function handler(event: unknown, context: unknown) {
+  if (isIntakeRecoverySweepEvent(event)) {
+    try {
+      const result = await runConfiguredIntakeRecoverySweep();
+      console.log(JSON.stringify({ event: "intake_recovery_sweep_completed", ...result }));
+      return result;
+    } catch (error) {
+      console.log(JSON.stringify({ event: "intake_recovery_sweep_failed", failure_category: "observation_failed" }));
+      throw error;
+    }
+  }
   if (isWrikeScheduledIntakeEvent(event)) {
     try {
       const result = await withPathfinderStoreReadScope(() => runConfiguredWrikeScheduledIntake());
