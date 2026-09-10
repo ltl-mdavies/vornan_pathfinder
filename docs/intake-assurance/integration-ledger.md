@@ -322,3 +322,18 @@ production smoke test.
   Task re-entry identity and full current Wrike discovery-scope
   validation remain activation holds, alongside Live Support's operating gates.
 - All new gates remain off; no merge, deployment or provider action is authorized.
+
+## Development re-review — source head dd24f06
+
+- Pathfinder Development reviewed exact source head
+  `dd24f064c8ff2ac45c47b7cfeeb2e2ae2eec84cf` and confirmed both prior merge
+  blockers resolved, with no new merge blocker found in the correction.
+- Full event projections cover inherited associations, impossible confirmed rows
+  fail closed on Dynamo get/list, and writeback links remain immutable while exact
+  replay is preserved. The reviewer independently assessed these corrections.
+- Pre-fix experimental rows without projections fail closed. Before deployment
+  or activation, inventory the table and verify the no-capture/no-migration
+  assertion underlying this compatibility assessment.
+- Normal PR review and separate merge approval remain required. Live Support's
+  operational hold and Development's task re-entry and Wrike discovery-scope
+  activation holds remain in force. No merge, deployment or activation occurred.

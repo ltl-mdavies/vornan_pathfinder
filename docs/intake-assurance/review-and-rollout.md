@@ -38,9 +38,13 @@ Independent Development review requested changes before merge: impossible
 persisted lifecycle combinations and writeback ID rebinding. The follow-up
 validates lifecycle invariants on reads and transitions, stores and checks the
 complete resulting-state projection on each event, and prevents replacement of
-an assigned writeback ID. Correctness re-review is required before merge approval.
+an assigned writeback ID. Development re-reviewed exact source head `dd24f06`,
+confirmed both merge blockers resolved and found no new blocker in the correction.
+Normal PR review and separate merge approval remain required.
 Experimental records created before this projection requirement fail closed;
 there is no automatic migration or repair, and capture has not been activated.
+Inventory the intake table and verify that no capture/migration occurred before
+deployment or activation; the compatibility assessment depends on that assertion.
 
 Capture activation remains blocked on an authoritative task re-entry/occurrence
 policy: the current fixed `initial` occurrence cannot represent reuse of a terminal
