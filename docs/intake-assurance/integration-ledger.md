@@ -400,3 +400,38 @@ production smoke test.
   documentation only. The source-head CI run was superseded/cancelled, so this
   review relies on source/test inspection and local full-suite results; current
   PR-head CI must pass before merge. All deployment/activation holds remain.
+
+## Durable Wrike intent observation foundation
+
+- PR #332 merged after user approval and successful current-head CI, at main
+  `20f9bfc19d224dbb72827156915c473ecd598f3a`. Development confirmed this next
+  boundary: derive and persist a future attempt identity only; no intake reservation.
+- Adds a pure status cursor and local/Dynamo persistence keyed by all five scope
+  dimensions. Qualified ready/exit/re-entry observations use strict source and
+  observation ordering; continuous-ready edits never imply a new generation.
+- Dynamo consistent reads validate native/data revision and scope, and writes use
+  creation/revision CAS with bounded rereads. Local mutations use the existing
+  serialized queue. Corruption and stale observations fail closed; no provider,
+  IntakeAttempt or job side effects are introduced.
+- Validation: 552 API tests, all-workspace typecheck/build and whitespace checks
+  passed. Tests cover duplicate races, competing exit/entry, restart recovery,
+  deterministic scope isolation, timestamp ambiguity and local/Dynamo corruption.
+- Independent review is required. Capture integration, legacy/current identity
+  reconciliation, post-transport manual-review policy and cursor-to-attempt crash
+  recovery remain a separate slice. Infrastructure and activation holds remain;
+  no deployment, provisioning or activation occurred.
+
+## Independent review — Wrike observation source head 339dc7c
+
+- Development reviewed exact source head
+  `339dc7c8628a4320df8a5784dda9917d5f82d29b` against `20f9bfc`, returned
+  source-merge GO with no correctness blocker, and passed the pure observation/CAS
+  delivery boundary. The reviewer verified identity, chronology, race/replay,
+  persistence and corruption safeguards without rerunning the reported local suite.
+- Live Support independently returned source-merge GO and confirmed no new live
+  behavior, activation/configuration requirement or operational blocker. The
+  existing table/environment/IAM hold covers the future persistence caller.
+- Merge remains conditional on successful current-head CI and user approval.
+  Shared capture integration, legacy/current identity reconciliation, post-transport
+  policy and cursor-to-attempt crash recovery remain separate implementation gates.
+  No deployment, provisioning or activation accompanied either review.
