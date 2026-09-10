@@ -78,6 +78,7 @@ import {
 } from "@pathfinder/wrike-adapter";
 import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
 import { assertLocalStorageDriver, getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
+import { createIntakeAttempt, transitionIntake, type IntakeAttempt, type IntakeEvent, type IntakeSignal, type IntakeLedger } from "./intake-assurance.js";
 import type {
   WrikeSourceOrderImpact,
   WrikeSourceOrderImpactAssessment
@@ -1012,6 +1013,7 @@ export interface PathfinderCustomerWorkspace {
 
 export interface PathfinderStore {
   version: 1;
+  intake_attempts?: IntakeAttempt[];
   targets: Record<string, TargetConfig>;
   workspaces: Record<string, PathfinderCustomerWorkspace>;
   jobs: ProcessingJobPreview[];
@@ -8437,3 +8439,87 @@ export async function persistPreviewJob(
 
   return workspace;
 }
+
+// Intake is a pre-job entity. Keep it separate from transport attempts so legacy
+// submit scans cannot mistake an intake failure for a Lift submission.
+let localIntakeMutationQueue: Promise<void> = Promise.resolve();
+async function mutateLocalIntake<T>(mutate: (store: PathfinderStore) => T): Promise<T> {
+  const operation = localIntakeMutationQueue.then(async () => {
+    // Reservation/CAS must not use an execution's potentially stale read cache.
+    const store = await readStoreUncached();
+    const result = mutate(store);
+    await writeStore(store);
+    return result;
+  });
+  localIntakeMutationQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+export async function getIntakeAttempt(customerId: string, attemptId: string) {
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    return getDynamoData<IntakeAttempt>(requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
+      { customer_id: customerId, attempt_id: attemptId }, true);
+  }
+  const store = await readStoreUncached();
+  return store.intake_attempts?.find((entry) => entry.signal.customer_id === customerId && entry.attempt_id === attemptId) ?? null;
+}
+function intakeItem(attempt: IntakeAttempt) {
+  return { ...dynamoItem({ customer_id: attempt.signal.customer_id, attempt_id: attempt.attempt_id }, attempt),
+    revision: { N: String(attempt.revision) }, state: dynamoString(attempt.state) };
+}
+export async function reserveIntakeAttempt(signal: IntakeSignal, nextActionAt: string) {
+  const attempt = createIntakeAttempt(signal, nextActionAt);
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Item: intakeItem(attempt),
+        ConditionExpression: "attribute_not_exists(customer_id) AND attribute_not_exists(attempt_id)"
+      }));
+      return { attempt, created: true };
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) throw error;
+      const existing = await getIntakeAttempt(signal.customer_id, attempt.attempt_id);
+      if (!existing || createIntakeAttempt(existing.signal, existing.created_at).attempt_id !== attempt.attempt_id) {
+        throw new Error("Intake reservation could not be reconciled safely");
+      }
+      return { attempt: existing, created: false };
+    }
+  }
+  return mutateLocalIntake((store) => {
+    const existing = store.intake_attempts?.find((entry) => entry.attempt_id === attempt.attempt_id && entry.signal.customer_id === signal.customer_id);
+    if (existing) return { attempt: existing, created: false };
+    store.intake_attempts = [...(store.intake_attempts ?? []), attempt];
+    return { attempt, created: true };
+  });
+}
+export async function transitionIntakeAttempt(customerId: string, attemptId: string, event: IntakeEvent) {
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const current = await getIntakeAttempt(customerId, attemptId);
+    if (!current) throw new Error("Intake attempt not found");
+    const next = transitionIntake(current, event);
+    if (next === current) return current;
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Item: intakeItem(next),
+        ConditionExpression: "#revision = :expected",
+        ExpressionAttributeNames: { "#revision": "revision" },
+        ExpressionAttributeValues: { ":expected": { N: String(current.revision) } }
+      }));
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) throw error;
+      const observed = await getIntakeAttempt(customerId, attemptId);
+      if (observed?.last_event?.event_id === event.event_id) return transitionIntake(observed, event);
+      throw new Error("Intake revision conflict", { cause: error });
+    }
+    return next;
+  }
+  return mutateLocalIntake((store) => {
+    const index = store.intake_attempts?.findIndex((entry) => entry.signal.customer_id === customerId && entry.attempt_id === attemptId) ?? -1;
+    if (index < 0) throw new Error("Intake attempt not found");
+    const next = transitionIntake(store.intake_attempts![index]!, event);
+    store.intake_attempts![index] = next;
+    return next;
+  });
+}
+export const intakeLedger: IntakeLedger = {
+  reserve: reserveIntakeAttempt, get: getIntakeAttempt, transition: transitionIntakeAttempt
+};

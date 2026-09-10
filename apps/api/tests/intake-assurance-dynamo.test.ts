@@ -1,0 +1,49 @@
+import assert from "node:assert/strict";
+import test, { after, before } from "node:test";
+import { DynamoDBClient, GetItemCommand, PutItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import type { IntakeSignal } from "../src/intake-assurance.js";
+const originalSend = DynamoDBClient.prototype.send;
+const records = new Map<string, Record<string, AttributeValue>>();
+let unavailable = false;
+const commands: (GetItemCommand | PutItemCommand)[] = [];
+const signal: IntakeSignal = { schema_version: 1, customer_id: "synthetic", provider: "api", connection_id: "api", source_id: "request", intent_key: "submit", intent_occurrence: "1", observed_at: "2026-09-10T10:00:00Z" };
+const deadline = "2026-09-10T11:00:00Z";
+before(() => {
+  process.env.PATHFINDER_STORAGE_DRIVER = "dynamodb";
+  process.env.PATHFINDER_INTAKE_ATTEMPTS_TABLE = "synthetic-intake";
+  DynamoDBClient.prototype.send = (async (command: GetItemCommand | PutItemCommand) => {
+    commands.push(command);
+    if (unavailable) throw new Error("Dynamo unavailable");
+    const item = command instanceof PutItemCommand ? command.input.Item! : command.input.Key!;
+    const key = JSON.stringify([item.customer_id, item.attempt_id]);
+    const previous = records.get(key);
+    if (command instanceof GetItemCommand) { assert.equal(command.input.ConsistentRead, true); return { Item: previous }; }
+    assert.equal(command.input.TableName, "synthetic-intake");
+    const create = command.input.ConditionExpression?.includes("attribute_not_exists");
+    if (create ? previous : previous?.revision?.N !== command.input.ExpressionAttributeValues?.[":expected"]?.N) {
+      throw Object.assign(new Error("conditional"), { name: "ConditionalCheckFailedException" });
+    }
+    records.set(key, structuredClone(item));
+    return {};
+  }) as typeof DynamoDBClient.prototype.send;
+});
+after(() => { DynamoDBClient.prototype.send = originalSend; });
+test("durable reservation, replay, tenant isolation, concurrent CAS and unavailable storage", async () => {
+  const { reserveIntakeAttempt, getIntakeAttempt, transitionIntakeAttempt } = await import("../src/store.js");
+  const results = await Promise.all(Array.from({ length: 8 }, () => reserveIntakeAttempt(signal, deadline)));
+  assert.equal(results.filter((result) => result.created).length, 1);
+  const id = results[0]!.attempt.attempt_id;
+  assert.equal(await getIntakeAttempt("other", id), null);
+  const e = { event_id: "prepare", expected_revision: 0, occurred_at: signal.observed_at, state: "preparing" as const, reason: null, next_action_at: deadline };
+  const transitions = await Promise.allSettled([transitionIntakeAttempt(signal.customer_id, id, e), transitionIntakeAttempt(signal.customer_id, id, { ...e, event_id: "other-worker" })]);
+  assert.equal(transitions.filter((entry) => entry.status === "fulfilled").length, 1);
+  const stored = (await getIntakeAttempt(signal.customer_id, id))!;
+  assert.equal(stored.revision, 1);
+  assert.deepEqual(await transitionIntakeAttempt(signal.customer_id, id, stored.last_event!), stored);
+  const replay = await reserveIntakeAttempt({ ...signal, observed_at: deadline }, "2026-09-10T12:00:00Z");
+  assert.equal(replay.attempt.created_at, signal.observed_at);
+  assert.equal(replay.attempt.next_action_at, deadline);
+  unavailable = true;
+  await assert.rejects(reserveIntakeAttempt(signal, deadline), /Dynamo unavailable/);
+  assert.ok(commands.every((command) => command instanceof GetItemCommand || command instanceof PutItemCommand));
+});
