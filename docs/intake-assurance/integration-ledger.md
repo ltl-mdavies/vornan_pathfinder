@@ -420,3 +420,18 @@ production smoke test.
   reconciliation, post-transport manual-review policy and cursor-to-attempt crash
   recovery remain a separate slice. Infrastructure and activation holds remain;
   no deployment, provisioning or activation occurred.
+
+## Independent review — Wrike observation source head 339dc7c
+
+- Development reviewed exact source head
+  `339dc7c8628a4320df8a5784dda9917d5f82d29b` against `20f9bfc`, returned
+  source-merge GO with no correctness blocker, and passed the pure observation/CAS
+  delivery boundary. The reviewer verified identity, chronology, race/replay,
+  persistence and corruption safeguards without rerunning the reported local suite.
+- Live Support independently returned source-merge GO and confirmed no new live
+  behavior, activation/configuration requirement or operational blocker. The
+  existing table/environment/IAM hold covers the future persistence caller.
+- Merge remains conditional on successful current-head CI and user approval.
+  Shared capture integration, legacy/current identity reconciliation, post-transport
+  policy and cursor-to-attempt crash recovery remain separate implementation gates.
+  No deployment, provisioning or activation accompanied either review.
