@@ -86,6 +86,25 @@ Test races, crash recovery, continuous-ready corrections, missed exits, timestam
 ambiguity, scope isolation, manual/scheduled interchange and all transport postures.
 Reusable tasks for multiple orders require an explicit operator-authorized policy.
 
+The observation foundation now provides `observeWrikeIntent` plus local and Dynamo
+cursor persistence. Its identity includes customer, connection, Import Method,
+exact task and exact trigger status. A generation-bound future intake signal/ID is
+stored with the cursor, but no IntakeAttempt is reserved and no job is prepared.
+Dynamo uses a reserved `wrike-intent#<customer>` partition with consistent reads and
+revision CAS; conflicting writers reread, with four bounded attempts. Local storage
+uses the existing serialized intake mutation queue and remains single-process only.
+Schema, scope, revision, lifecycle, timestamp and derived-identity corruption fail
+closed on reads and mutation. A generation-zero outside observation has no intake ID.
+
+Only explicitly verified scope/identity observations are accepted. Provider scope
+verification is an integration prerequisite: these booleans are not a replacement
+for current Wrike discovery. This foundation has no runtime caller, public endpoint,
+scheduler wiring, provider read, intake reservation or migration. It does not change
+the existing `initial` occurrence. Integration must reconcile legacy/current attempts,
+observe qualified non-ready tasks, share one manual/scheduled resolver, enforce
+post-transport manual review, and recover cursor-to-attempt reservation atomically
+or idempotently. Those gates remain open until their separate implementation review.
+
 ## Infrastructure preparation
 
 Live Support's repository-only assessment found no Intake Assurance table, runtime

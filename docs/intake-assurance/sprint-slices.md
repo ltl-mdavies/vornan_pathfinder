@@ -399,3 +399,15 @@ records request count, elapsed time and exhaustion. Runtime settings have no
 defaults and the elapsed limit must be shorter than the sweep lease. Deep ancestry
 and elapsed-budget tests supplement the existing scope-change tests. See
 `activation-prerequisites.md` for remaining production sizing and infrastructure holds.
+
+## Follow-up: durable Wrike intent observations
+
+A pure status resolver and local/Dynamo CAS store now track qualified ready/exit/
+re-entry observations. Continuous-ready edits and polling retain one generation;
+only an observed strictly newer exit followed by a strictly newer ready status
+advances it. Missing/coarse/regressed timestamps and unverified scope fail closed.
+The persisted future intake identity includes every scope dimension and generation
+and is stable across retries and restarts. It is an identity proposal, not permission
+to create an intake, prepare a job or submit. No live capture path calls it yet.
+The shared manual/scheduled integration and post-transport policy remain the next
+review boundary. All existing gates and the current capture behavior are unchanged.

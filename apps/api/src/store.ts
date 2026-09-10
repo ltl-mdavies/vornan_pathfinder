@@ -79,6 +79,7 @@ import {
 import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
 import { assertLocalStorageDriver, getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 import { createIntakeAttempt, transitionIntake, validatePersistedIntakeAttempt, type IntakeAttempt, type IntakeEvent, type IntakeSignal, type IntakeLedger } from "./intake-assurance.js";
+import { wrikeIntentCursorId, observeWrikeIntent, validateWrikeIntentCursor, type WrikeIntentCursor, type WrikeIntentScope, type WrikeIntentObservation } from "./wrike-intent-observation.js";
 import { intakeSweepId, sweepTime, validateSweepCheckpoint, IntakeSweepLeaseLostError,
   type IntakeSweepCheckpoint, type IntakeSweepScope, type IntakeSweepFence } from "./intake-recovery-sweep.js";
 import { intakeDeliveryId, prepareIntakeDelivery, claimIntakeDelivery, acknowledgeIntakeDelivery, validateIntakeDelivery, IntakeDeliveryConflictError,
@@ -1018,6 +1019,7 @@ export interface PathfinderCustomerWorkspace {
 export interface PathfinderStore {
   version: 1;
   intake_attempts?: IntakeAttempt[];
+  wrike_intent_cursors?: Record<string, WrikeIntentCursor>;
   intake_sweeps?: Record<string, IntakeSweepCheckpoint>;
   intake_deliveries?: Record<string, IntakeDeliveryReceipt>;
   targets: Record<string, TargetConfig>;
@@ -8824,4 +8826,50 @@ export async function reconcileStoredIntakeDelivery(customer: string, attempt: s
   const current = await getIntakeDelivery(customer, attempt, kind);
   if (!current) throw new IntakeDeliveryConflictError();
   return persistIntakeDelivery(current, reconcileIntakeDelivery(current, review, now));
+}
+
+// Prospective status observations only. This store never reserves an IntakeAttempt.
+function wrikeIntentStorageKey(scope: WrikeIntentScope) {
+  return { customer_id: dynamoString(`wrike-intent#${scope.customer_id}`), attempt_id: dynamoString(wrikeIntentCursorId(scope)) };
+}
+export async function getWrikeIntentCursor(scope: WrikeIntentScope): Promise<WrikeIntentCursor | null> {
+  const id = wrikeIntentCursorId(scope);
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const key = wrikeIntentStorageKey(scope);
+    const response = await getDynamoClient().send(new GetItemCommand({ TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Key: key, ConsistentRead: true }));
+    if (!response.Item) return null;
+    const cursor = validateWrikeIntentCursor(parseDynamoData(response.Item), scope);
+    if (response.Item.revision?.N !== String(cursor.revision) || response.Item.customer_id?.S !== key.customer_id.S ||
+      response.Item.attempt_id?.S !== id) throw new Error("Invalid persisted Wrike intent storage identity");
+    return cursor;
+  }
+  const raw = (await readStoreUncached()).wrike_intent_cursors?.[id];
+  return raw === undefined ? null : validateWrikeIntentCursor(raw, scope);
+}
+export async function recordWrikeIntentObservation(scope: WrikeIntentScope, observation: WrikeIntentObservation): Promise<WrikeIntentCursor> {
+  const id = wrikeIntentCursorId(scope);
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver !== "dynamodb") {
+    return mutateLocalIntake(store => {
+      const raw = store.wrike_intent_cursors?.[id];
+      const current = raw === undefined ? null : validateWrikeIntentCursor(raw, scope);
+      const next = observeWrikeIntent(current, scope, observation);
+      store.wrike_intent_cursors = { ...store.wrike_intent_cursors, [id]: next };
+      return next;
+    });
+  }
+  for (let retry = 0; retry < 4; retry++) {
+    const current = await getWrikeIntentCursor(scope);
+    const next = observeWrikeIntent(current, scope, observation);
+    if (next === current) return next;
+    try {
+      await getDynamoClient().send(new PutItemCommand({ TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
+        Item: { ...wrikeIntentStorageKey(scope), data: dynamoString(JSON.stringify(next)), revision: { N: String(next.revision) } },
+        ...(current ? { ConditionExpression: "#revision = :expected", ExpressionAttributeNames: { "#revision": "revision" },
+          ExpressionAttributeValues: { ":expected": { N: String(current.revision) } } }
+          : { ConditionExpression: "attribute_not_exists(customer_id) AND attribute_not_exists(attempt_id)" })
+      }));
+      return next;
+    } catch (error) { if (!isConditionalCheckFailure(error)) throw error; }
+  }
+  throw new Error("Wrike intent observation contention requires a fresh read");
 }
