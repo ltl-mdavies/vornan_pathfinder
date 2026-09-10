@@ -49,6 +49,11 @@ Independent review remains required. Production limits, whole-page lease sizing,
 schedule cadence, alarm thresholds and overhead margin still need approved workload
 evidence; a per-dispatch limit alone does not bound a multi-attempt sweep's duration.
 
+Live Support reviewed exact source head `e747da1` and confirmed that this closes
+the aggregate-budget engineering condition, with no source-merge blocker.
+Development review remains pending; production sizing and activation holds above
+remain in force. No production action accompanied the review.
+
 ## Task re-entry: next engineering slice
 
 Current capture still uses `intent_occurrence: "initial"`; activation remains held.

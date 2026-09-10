@@ -385,3 +385,11 @@ production smoke test.
 - Independent review is required. Task re-entry, infrastructure and production
   workload/whole-page sizing remain unresolved. All new gates remain off; no
   deployment, provisioning or provider action occurred.
+
+- Live Support independently reviewed exact source head
+  `e747da1cc72074a1bb8123cdb97132bb4c697b68` against `3b452f0`: source-merge GO,
+  no blocker found, aggregate feedback-budget engineering condition closed.
+  The reviewer verified shared request/time accounting, abort propagation,
+  pre/post-claim outcomes, safe telemetry and deep-ancestry boundary tests.
+  Development review remains pending. Production workload/whole-page headroom,
+  task re-entry, infrastructure and operating decisions remain activation holds.
