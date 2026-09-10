@@ -24,6 +24,7 @@ export function buildIntakeDeliveryPage(page: IntakeDeliveryPage, customer: stri
     if (row.customer_id !== customer) throw new Error("Delivery tenant mismatch");
     return { receipt_id: row.receipt_id, attempt_id: row.attempt_id, kind: row.kind, state: row.state,
       created_at: row.created_at, updated_at: row.updated_at, dispatch_started_at: row.dispatch_started_at,
-      provider_message_id: row.provider_message_id, needs_review: row.state === "uncertain" };
+      provider_message_id: row.provider_message_id, needs_review: row.state === "uncertain",
+      review: row.reconciliation ? { outcome: row.reconciliation.outcome, evidence_ref: row.reconciliation.evidence_ref, reviewed_at: row.reconciliation.reviewed_at } : null };
   }), next_cursor: page.next_cursor, page_uncertain_count: page.receipts.filter(row => row.state === "uncertain").length };
 }

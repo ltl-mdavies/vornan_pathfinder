@@ -3,6 +3,7 @@ import { pathfinderFetch as fetch } from "./api-client";
 export interface IntakeDeliveryRow {
   receipt_id: string; attempt_id: string; kind: string; state: string; updated_at: string;
   dispatch_started_at: string | null; provider_message_id: string | null; needs_review: boolean;
+  review?: { outcome: string; evidence_ref: string; reviewed_at: string } | null;
 }
 export function IntakeDeliveriesTable({ rows }: { rows: IntakeDeliveryRow[] }) {
   return <div style={{ overflowX: "auto" }}><table className="data-table">
@@ -11,7 +12,8 @@ export function IntakeDeliveriesTable({ rows }: { rows: IntakeDeliveryRow[] }) {
     <tbody>{rows.map(row => <tr key={row.receipt_id}>
       <td style={{ overflowWrap: "anywhere", maxWidth: "20rem" }}>{row.attempt_id}</td>
       <td>{row.kind === "source_feedback" ? "Customer feedback" : "Internal notification"}</td>
-      <td>{row.needs_review ? <><strong>Outcome uncertain — review required</strong><br />Check provider records before any retry.</> : row.state === "sent" ? "Provider acknowledged" : row.state === "cancelled" ? "Cancelled before sending" : "Prepared; not sent"}</td>
+      <td>{row.needs_review ? <><strong>Outcome uncertain — review required</strong><br />Check provider records before any retry.</> : row.state === "sent" ? "Provider acknowledged" : row.state === "closed_without_delivery" ? "Reviewed: not delivered; retry blocked" : row.state === "cancelled" ? "Cancelled before sending" : "Prepared; not sent"}
+        {row.review ? <><br />Review: {row.review.evidence_ref}</> : null}</td>
       <td>{new Date(row.updated_at).toLocaleString()}</td><td>{row.provider_message_id ?? "No acknowledgement recorded"}</td>
     </tr>)}</tbody>
   </table></div>;

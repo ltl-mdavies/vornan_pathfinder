@@ -36,11 +36,16 @@ test("local receipts survive restart, claim once and reject a changed intake rev
       assert.equal(receipt.state, 'uncertain');
       await assert.rejects(ledger.claim(receipt, original, time));
       assert.equal((await ledger.prepare(original, 'source_feedback', time)).state, 'uncertain');
-      const sent = await ledger.acknowledge(receipt, 'provider-id', time);
-      assert.equal(sent.state, 'sent');
+      const review = { event_id: 'review-1', expected_revision: receipt.revision, actor_uid: 'operator', evidence_ref: 'case:123', outcome: 'provider_acknowledged', provider_message_id: 'provider-id' };
+      const reviews = await Promise.allSettled([
+        store.reconcileStoredIntakeDelivery('synthetic', original.attempt_id, 'source_feedback', review, time),
+        store.reconcileStoredIntakeDelivery('synthetic', original.attempt_id, 'source_feedback', { ...review, event_id: 'review-2' }, time)
+      ]);
+      assert.equal(reviews.filter(row => row.status === 'fulfilled').length, 1);
       assert.equal(await ledger.get('other', original.attempt_id, 'source_feedback'), null);
     `);
     run(`assert.equal((await ledger.get('synthetic', original.attempt_id, 'source_feedback')).provider_message_id, 'provider-id');
+      assert.equal((await ledger.get('synthetic', original.attempt_id, 'source_feedback')).reconciliation.actor_uid, 'operator');
       await ledger.prepare(original, 'internal_notification', '2026-09-10T12:00:00Z');
       const first = await store.listIntakeDeliveriesPage('synthetic', 1);
       assert.equal(first.receipts.length, 1); assert.ok(first.next_cursor);

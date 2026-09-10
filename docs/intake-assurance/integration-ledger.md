@@ -238,3 +238,15 @@ production smoke test.
   customer comment, SES message or Lift submission. Deployed SHA: none. Suggested
   next steps and activation prerequisites are in sprint-slices.md, including audit
   reconciliation for uncertain receipts and source-freshness/multi-workbook QA.
+
+## Slice 11 — audited operator reconciliation
+
+- Base main refreshed, unchanged at `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`;
+  previous slice `ec4da81`; no conflicts.
+- Adds a separate default-off operator/customer-allowlisted review endpoint and
+  immutable review audit stored atomically with receipt revision. Authority is
+  authenticated UID only. Confirmed non-delivery closes without rearming; provider
+  acknowledgement retains the evidence reference. Read-only visibility updated.
+- Focused tests cover unauthorized/disabled/spoofed requests, replay conflicts,
+  concurrent persistent reviews and audit durability across restart. Full final
+  matrix follows the next slice. No real review, send, push, PR change or activation.

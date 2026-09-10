@@ -22,7 +22,7 @@ export async function dispatchIntakeDelivery(args: {
     throw error;
   }
   if (!receipt) return { status: "ineligible" as const };
-  if (receipt.state === "uncertain" || receipt.state === "sent") return { status: "suppressed" as const };
+  if (["uncertain", "sent", "closed_without_delivery"].includes(receipt.state)) return { status: "suppressed" as const };
   if (receipt.state === "cancelled") return { status: "cancelled" as const };
   if (args.canDispatch && !args.canDispatch()) return { status: "deferred" as const };
   // Re-read immediately before claim. Persistence atomically checks this revision

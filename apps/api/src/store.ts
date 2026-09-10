@@ -8817,3 +8817,11 @@ export async function readWrikeIntakeFeedbackScope(scope: IntakeSweepScope) {
   if (!connection) throw new Error("Feedback connection is unavailable");
   return { customer_id: scope.customer_id, connection, method };
 }
+
+export async function reconcileStoredIntakeDelivery(customer: string, attempt: string, kind: IntakeDeliveryKind,
+  review: import("./intake-delivery-reconciliation.js").IntakeDeliveryReview, now: string) {
+  const { reconcileIntakeDelivery } = await import("./intake-delivery-reconciliation.js");
+  const current = await getIntakeDelivery(customer, attempt, kind);
+  if (!current) throw new IntakeDeliveryConflictError();
+  return persistIntakeDelivery(current, reconcileIntakeDelivery(current, review, now));
+}

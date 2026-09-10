@@ -3,6 +3,7 @@ import { validatePersistedIntakeAttempt, type IntakeAttempt } from "./intake-ass
 import { draftIntakeCustomerFeedback, draftIntakeInternalNotification } from "./intake-follow-up.js";
 import type { TransactionalEmail } from "./email.js";
 import type { IntakeSweepFence } from "./intake-recovery-sweep.js";
+import { validateDeliveryReviewAudit, type IntakeDeliveryReviewAudit } from "./intake-delivery-reconciliation.js";
 
 export type IntakeDeliveryKind = "source_feedback" | "internal_notification";
 export type IntakeDeliveryPayload = { kind: "source_feedback"; provider: "wrike"; connection_id: string; task_id: string; text: string } |
@@ -10,7 +11,8 @@ export type IntakeDeliveryPayload = { kind: "source_feedback"; provider: "wrike"
 export interface IntakeDeliveryReceipt {
   schema_version: 1; receipt_id: string; customer_id: string; attempt_id: string; kind: IntakeDeliveryKind;
   revision: number; intake_revision: number; payload_sha256: string;
-  state: "prepared" | "cancelled" | "uncertain" | "sent";
+  state: "prepared" | "cancelled" | "uncertain" | "sent" | "closed_without_delivery";
+  reconciliation?: IntakeDeliveryReviewAudit;
   created_at: string; updated_at: string; dispatch_started_at: string | null;
   provider_message_id: string | null;
 }
@@ -43,12 +45,17 @@ export function validateIntakeDelivery(value: unknown): IntakeDeliveryReceipt {
   const row = value as IntakeDeliveryReceipt | null;
   if (!row || row.schema_version !== 1 || row.receipt_id !== intakeDeliveryId(row.customer_id, row.attempt_id, row.kind) ||
     !Number.isSafeInteger(row.revision) || row.revision < 0 || !Number.isSafeInteger(row.intake_revision) || row.intake_revision < 0 ||
-    !/^[a-f0-9]{64}$/.test(row.payload_sha256) || !["prepared", "cancelled", "uncertain", "sent"].includes(row.state)) throw new Error("Invalid intake delivery receipt");
+    !/^[a-f0-9]{64}$/.test(row.payload_sha256) || !["prepared", "cancelled", "uncertain", "sent", "closed_without_delivery"].includes(row.state)) throw new Error("Invalid intake delivery receipt");
   if (deliveryTime(row.updated_at) < deliveryTime(row.created_at)) throw new Error("Invalid intake delivery chronology");
-  const dispatched = row.state === "uncertain" || row.state === "sent";
+  const dispatched = row.state === "uncertain" || row.state === "sent" || row.state === "closed_without_delivery";
   if (dispatched ? !row.dispatch_started_at : row.dispatch_started_at !== null) throw new Error("Invalid intake delivery dispatch marker");
   if (row.dispatch_started_at && (deliveryTime(row.dispatch_started_at) < deliveryTime(row.created_at) || deliveryTime(row.dispatch_started_at) > deliveryTime(row.updated_at))) throw new Error("Invalid intake delivery dispatch time");
   if (row.state === "sent" ? typeof row.provider_message_id !== "string" || !row.provider_message_id.trim() || row.provider_message_id.length > 512 : row.provider_message_id !== null) throw new Error("Invalid intake delivery acknowledgement");
+  if (row.reconciliation) {
+    validateDeliveryReviewAudit(row.reconciliation);
+    if (row.reconciliation.expected_revision + 1 !== row.revision || row.reconciliation.reviewed_at !== row.updated_at ||
+      (row.reconciliation.outcome === "provider_acknowledged" ? row.state !== "sent" || row.provider_message_id !== row.reconciliation.provider_message_id : row.state !== "closed_without_delivery")) throw new Error("Delivery review does not match receipt");
+  } else if (row.state === "closed_without_delivery") throw new Error("Missing delivery review audit");
   return row;
 }
 /** One channel slot per intake: once dispatch starts it cannot automatically rearm, even on a new intake revision. */
@@ -57,7 +64,7 @@ export function prepareIntakeDelivery(current: IntakeDeliveryReceipt | null, att
   if (current) {
     validateIntakeDelivery(current);
     if (current.receipt_id !== id) throw new IntakeDeliveryConflictError();
-    if (current.state === "uncertain" || current.state === "sent") return current;
+    if (["uncertain", "sent", "closed_without_delivery"].includes(current.state)) return current;
     if (deliveryTime(now) < deliveryTime(current.updated_at) || attempt.revision < current.intake_revision) throw new IntakeDeliveryConflictError();
   }
   const payload = intakeDeliveryPayload(attempt, kind, now);

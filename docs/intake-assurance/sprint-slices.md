@@ -324,3 +324,24 @@ One automatic correction per channel/intake remains the conservative policy.
 4. Review the accumulated local changes for a PR. Separately approve infrastructure,
    IAM/SES/Wrike scopes and a bounded staged rollout; start with visibility and
    observation, then internal notifications, then narrowly scoped customer feedback.
+
+## Slice 11: audited operator delivery reconciliation
+
+A separately gated POST endpoint at
+`/api/customers/:customerId/intake-deliveries/:attemptId/:kind/reconcile` accepts
+an operator attestation: `provider_acknowledged` with provider ID, or
+`confirmed_not_delivered`. Both require an evidence reference, event ID and exact
+receipt revision. Authority comes exclusively from the authenticated UID and
+explicit operator/customer allowlists, never request-body identity. The flags are
+`PATHFINDER_ENABLE_INTAKE_DELIVERY_REVIEW`,
+`PATHFINDER_INTAKE_DELIVERY_REVIEW_CUSTOMER_IDS`, and
+`PATHFINDER_INTAKE_DELIVERY_REVIEW_OPERATOR_UIDS`; all are unset by default.
+
+Receipt and audit persist in the same conditional write. The audit records the
+operator, timestamp, evidence reference and request digest. Exact request replay
+is idempotent; changed replays and competing reviews conflict. Confirmed
+non-delivery closes the receipt as `closed_without_delivery`; it never rearms
+sending. The read-only table shows review evidence and the closed outcome.
+This endpoint records human-verified provider evidence; it does not independently
+query SES or Wrike to prove delivery. No reconciliation or retry was performed on
+real records during implementation.
