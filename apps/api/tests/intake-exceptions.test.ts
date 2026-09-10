@@ -1,0 +1,52 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import express from "express";
+import request from "supertest";
+import { createIntakeAttempt } from "../src/intake-assurance.js";
+import { buildIntakeExceptionsPage, intakePageCursor, intakePageRequest } from "../src/intake-exceptions.js";
+import { createIntakeExceptionsRouter } from "../src/intake-exceptions-router.js";
+const now = "2026-09-10T12:00:00Z";
+const fresh = () => createIntakeAttempt({ schema_version: 1, customer_id: "customer", provider: "portal", connection_id: "portal", source_id: "request", intent_key: "submit", intent_occurrence: "1", observed_at: "2026-09-10T10:00:00Z" }, "2026-09-10T11:00:00Z");
+test("cursor validation isolates tenants and bounds requests", () => {
+  const cursor = intakePageCursor("customer", fresh().attempt_id);
+  assert.equal(intakePageRequest("customer", 1, cursor).after, fresh().attempt_id);
+  assert.throws(() => intakePageRequest("other", 1, cursor));
+  for (const limit of [0, -1, 101, NaN, 1.5]) assert.throws(() => intakePageRequest("customer", limit));
+  for (const cursor of ["", "?", "a".repeat(1025), Buffer.from('{}').toString('base64url')]) assert.throws(() => intakePageRequest("customer", 1, cursor));
+});
+test("projection retains pre-job and confirmed feedback exceptions without leaking signal context", () => {
+  const intake = fresh();
+  const confirmed = { ...fresh(), state: "confirmed" as const, owner: "none" as const, confirmed_order_number: "LTL123", next_action_at: null };
+  const page = buildIntakeExceptionsPage({ attempts: [intake, confirmed, { ...confirmed, writeback_id: "posted" }], next_cursor: "more" }, now);
+  assert.equal(page.rows.length, 2);
+  assert.equal(page.rows[0]!.job_id, null);
+  assert.equal(page.rows[0]!.overdue, true);
+  assert.equal(page.rows[1]!.reason, "success_writeback_missing");
+  assert.equal(page.rows[1]!.owner, "internal");
+  assert.equal(page.next_cursor, "more");
+  assert.ok(!JSON.stringify(page).includes("connection_id"));
+  assert.equal(page.scanned_count, 3);
+  assert.throws(() => buildIntakeExceptionsPage({ attempts: [], next_cursor: null }, "invalid"));
+});
+test("API stays dark without reads; enabled read is customer-bounded, non-cacheable and safe on failure", async () => {
+  let reads = 0;
+  let fail = false;
+  const list = async (customer: string, limit: number, cursor?: string) => {
+    intakePageRequest(customer, limit, cursor); reads++;
+    if (fail) throw new Error("SECRET provider token");
+    return { attempts: [fresh()], next_cursor: null };
+  };
+  const dark = express().use(createIntakeExceptionsRouter({ enabled: false, customer_ids: ["customer"], list }));
+  await request(dark).get("/customers/customer/intake-exceptions").expect(423);
+  assert.equal(reads, 0);
+  const app = express().use(createIntakeExceptionsRouter({ enabled: true, customer_ids: ["customer"], list, now: () => new Date(now) }));
+  await request(app).get("/customers/other/intake-exceptions").expect(423);
+  assert.equal(reads, 0);
+  for (const query of ["limit=0", "limit=101", "limit=1&limit=2", "cursor=bad", "limit=1.1"]) await request(app).get(`/customers/customer/intake-exceptions?${query}`).expect(400);
+  const result = await request(app).get("/customers/customer/intake-exceptions?limit=1").expect(200);
+  assert.equal(result.headers["cache-control"], "no-store");
+  assert.equal(result.body.rows[0].source_id, "request");
+  fail = true;
+  const failure = await request(app).get("/customers/customer/intake-exceptions").expect(503);
+  assert.ok(!JSON.stringify(failure.body).includes("SECRET"));
+});

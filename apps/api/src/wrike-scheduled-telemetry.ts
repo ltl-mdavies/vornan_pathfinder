@@ -243,3 +243,26 @@ export function buildWrikeScheduledIntakeFailureLog(
     }]
   };
 }
+
+/** Source-neutral extension of the existing operational telemetry path. Pure and un-emitted until wired. */
+export function buildIntakeAssuranceWatchdogLog(summary: {
+  page_scanned_count: number;
+  page_overdue_count: number;
+  page_writeback_review_count: number;
+  next_cursor: string | null;
+}, timestamp = Date.now()) {
+  const counts = {
+    intake_page_scanned: summary.page_scanned_count,
+    intake_page_overdue: summary.page_overdue_count,
+    intake_page_writeback_review: summary.page_writeback_review_count
+  };
+  if (!Number.isFinite(timestamp) || Object.values(counts).some((count) => !Number.isInteger(count) || count < 0 || count > 100) ||
+    counts.intake_page_overdue > counts.intake_page_scanned || counts.intake_page_writeback_review > counts.intake_page_scanned) {
+    throw new Error("Invalid intake telemetry counts");
+  }
+  return {
+    _aws: { Timestamp: timestamp, CloudWatchMetrics: [{ Namespace: "Pathfinder/IntakeAssurance", Dimensions: [[]],
+      Metrics: Object.keys(counts).map((Name) => ({ Name, Unit: "Count" })) }] },
+    event: "intake_assurance_page_reviewed", ...counts, more_pages: summary.next_cursor !== null
+  };
+}

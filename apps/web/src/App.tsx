@@ -1,4 +1,5 @@
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { IntakeExceptions } from "./IntakeExceptions";
 import {
   Activity,
   AlertTriangle,
@@ -146,7 +147,7 @@ import "./artwork-catalog/artwork-catalog.css";
 import "./artwork-catalog/artwork-inspection-results.css";
 
 type GlobalView = "Dashboard" | "Customers" | "Targets" | "Jobs" | "Audit" | "Settings";
-type CustomerView = "Overview" | "Artwork Catalog" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Settings";
+type CustomerView = "Overview" | "Artwork Catalog" | "Import Methods" | "Output Product Map" | "Manual Import" | "Jobs" | "Intake Exceptions" | "Settings";
 type JobArchiveFilter = "Active" | "Archived" | "All";
 type JobIntakeFilter = "All" | "Customer Dropbox" | "Operator";
 type JobStateFilter =
@@ -1610,6 +1611,7 @@ const globalNavItems: Array<{ label: GlobalView; icon: typeof Gauge }> = [
 
 const customerNavItems: Array<{ label: CustomerView; icon: typeof Gauge }> = [
   { label: "Overview", icon: Gauge },
+  { label: "Intake Exceptions", icon: AlertTriangle },
   { label: "Artwork Catalog", icon: FileText },
   { label: "Import Methods", icon: Workflow },
   { label: "Output Product Map", icon: Database },
@@ -6874,7 +6876,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     selectedCustomerId
   );
   const visibleCustomerNavItems = customerNavItems.filter(
-    (item) => item.label !== "Artwork Catalog" || artworkCatalogInternalPilotAvailable
+    (item) => (item.label !== "Artwork Catalog" || artworkCatalogInternalPilotAvailable) &&
+      (item.label !== "Intake Exceptions" || import.meta.env.VITE_ENABLE_INTAKE_EXCEPTIONS === "true")
   );
   const artworkCatalogFocusedShell = shouldUseArtworkCatalogFocusedShell({
     activeGlobalView,
@@ -11052,6 +11055,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </header> : null}
 
+            {activeCustomerView === "Intake Exceptions" && import.meta.env.VITE_ENABLE_INTAKE_EXCEPTIONS === "true" ? (
+              <IntakeExceptions key={selectedCustomer.lift_customer_id} customerId={selectedCustomer.lift_customer_id} apiBaseUrl={apiBaseUrl} />
+            ) : null}
             {activeCustomerView === "Overview" ? (
               <>
                 <section className="customer-overview">

@@ -605,6 +605,14 @@ export function resolveWrikeContractNumber(
   return { status: "ready", contract_number: normalized };
 }
 
+export const WRIKE_ORDER_INTENT_LABEL = "Sent to Print - LTL";
+
+/** Only the approved order-intent dash variants are aliases; status IDs remain exact. */
+export function normalizeWrikeStatusLabel(value: unknown) {
+  const normalized = normalizedComparableText(value);
+  return normalized === "sent to print – ltl" ? "sent to print - ltl" : normalized;
+}
+
 function normalizedComparableText(value: unknown) {
   return typeof value === "string"
     ? value.trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")
@@ -1442,7 +1450,7 @@ async function discoverWrikeStatusIdsByLabel(args: {
   fetch_impl: typeof fetch;
 }) {
   const requestedLabels = new Set(
-    args.labels.map(normalizedComparableText).filter(Boolean)
+    args.labels.map(normalizeWrikeStatusLabel).filter(Boolean)
   );
   const statusIdsByLabel = new Map<string, Set<string>>();
   if (requestedLabels.size === 0) {
@@ -1461,7 +1469,7 @@ async function discoverWrikeStatusIdsByLabel(args: {
         ? workflow.customStatuses.map(asRecord)
         : [];
       for (const status of statuses) {
-        const label = normalizedComparableText(status.name ?? status.title);
+        const label = normalizeWrikeStatusLabel(status.name ?? status.title);
         const statusId = providerIdentifier(status.id);
         if (!requestedLabels.has(label) || !statusId) {
           continue;
@@ -1545,7 +1553,7 @@ function requireVerifiedWrikeStatusId(args: {
   status_kind: "order" | "shipping";
 }) {
   const configuredStatusId = providerIdentifier(args.configured_status_id);
-  const configuredStatusLabel = normalizedComparableText(args.configured_status_label);
+  const configuredStatusLabel = normalizeWrikeStatusLabel(args.configured_status_label);
   if (!configuredStatusId || !configuredStatusLabel) {
     throw new WrikeConnectionError(
       "invalid_configuration",
@@ -1659,8 +1667,29 @@ export async function verifyWrikeTaskTriggerStatus(
     credentials: rotatedCredentials,
     checked_at: (options.now ?? (() => new Date()))().toISOString(),
     task_id: taskId,
-    trigger_status_id: verifiedStatusId
+    trigger_status_id: verifiedStatusId,
+    task_updated_at: typeof task.updatedDate === "string" && Number.isFinite(Date.parse(task.updatedDate)) ? new Date(task.updatedDate).toISOString() : null
   };
+}
+
+/** Metadata only, for feedback freshness. Partial or ambiguous listings fail closed. */
+export async function readWrikeCurrentWorkbookVersions(credentials: WrikeOAuthCredentials, taskId: string, config: WrikeSourceConfig,
+  options: { fetch_impl?: typeof fetch; now?: () => Date } = {}) {
+  const task = normalizedWrikeTaskId(taskId);
+  const refreshed = await refreshWrikeOAuthCredentials(credentials, options);
+  const oauth = refreshed.credentials;
+  const url = new URL(`https://${oauth.host}/api/v4/tasks/${encodeURIComponent(task)}/attachments`);
+  url.searchParams.set("versions", "false");
+  let response: Response;
+  try {
+    response = await (options.fetch_impl ?? fetch)(url, { method: "GET", headers: { Authorization: `Bearer ${oauth.access_token ?? ""}`, Accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+  } catch { throw new WrikeConnectionError("attachment_metadata_failed", "Workbook metadata could not be verified.", oauth); }
+  const payload = await readWrikeApiJson(response, "attachment_metadata_failed", oauth);
+  if (!Array.isArray(payload.data) || payload.data.length > 1000 || payload.nextPageToken) throw new WrikeConnectionError("attachment_metadata_failed", "Complete bounded workbook metadata is required for feedback.", oauth);
+  const matching = payload.data.map(asRecord).filter(row => matchesWrikeWorkbookContract(typeof row.name === "string" ? row.name : "", config));
+  const attachments = matching.map(row => ({ attachment_id: providerIdentifier(row.id), version_id: effectiveAttachmentVersionId(row), updated_at: safeAttachmentUpdatedAt(row) ?? "" }));
+  if (attachments.some(row => !row.attachment_id || !row.version_id || !Number.isFinite(Date.parse(row.updated_at))) || new Set(attachments.map(row => row.attachment_id)).size !== attachments.length) throw new WrikeConnectionError("attachment_metadata_failed", "Ambiguous workbook metadata requires review.", oauth);
+  return { credentials: oauth, attachments };
 }
 
 async function resolveWrikeFolderId(

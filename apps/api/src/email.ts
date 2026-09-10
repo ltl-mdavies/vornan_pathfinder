@@ -31,6 +31,7 @@ export type EmailRuntimeConfig = {
 };
 
 let sesClient: SESv2Client | undefined;
+let singleAttemptSesClient: SESv2Client | undefined;
 
 function getEnvString(name: string, fallback: string) {
   const value = process.env[name]?.trim();
@@ -322,7 +323,7 @@ export function buildProofLinkEmail(args: {
   };
 }
 
-export async function sendTransactionalEmail(email: TransactionalEmail): Promise<TransactionalEmailResult> {
+export async function sendTransactionalEmail(email: TransactionalEmail, options: { disableRetries?: true } = {}): Promise<TransactionalEmailResult> {
   const config = getEmailRuntimeConfig();
   const from = email.from ?? config.from;
   const replyTo = email.replyTo ?? [replyToForCategory(email.category, config)];
@@ -337,9 +338,11 @@ export async function sendTransactionalEmail(email: TransactionalEmail): Promise
     return { mode: "log", status: "logged" };
   }
 
-  sesClient ??= new SESv2Client({ region: config.sesRegion });
+  const client = options.disableRetries
+    ? (singleAttemptSesClient ??= new SESv2Client({ region: config.sesRegion, maxAttempts: 1 }))
+    : (sesClient ??= new SESv2Client({ region: config.sesRegion }));
 
-  const result = await sesClient.send(
+  const result = await client.send(
     new SendEmailCommand({
       FromEmailAddress: from,
       Destination: {

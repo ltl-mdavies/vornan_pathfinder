@@ -1,4 +1,11 @@
 import cors from "cors";
+import { createIntakeExceptionsRouter } from "./intake-exceptions-router.js";
+import { createIntakeDeliveryReviewRouter } from "./intake-delivery-review-router.js";
+import { reconcileStoredIntakeDelivery } from "./store.js";
+import { readWrikeIntakeFeedbackScope } from "./store.js";
+import { getIntakeStatusRepairConfig, runIntakeStatusRepairs } from "./intake-status-repair-runtime.js";
+import { intakeLedger, listIntakeAttemptsPage, listIntakeDeliveriesPage, readStore } from "./store.js";
+import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, wrapWrikeAssurancePreparation } from "./wrike-assurance-coordinator.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -4825,6 +4832,18 @@ app.get("/oauth/wrike/callback", async (req, res) => {
 });
 
 app.use("/api", requirePathfinderAuth);
+app.use("/api", createIntakeDeliveryReviewRouter({
+  enabled: process.env.PATHFINDER_ENABLE_INTAKE_DELIVERY_REVIEW === "true",
+  customer_ids: (process.env.PATHFINDER_INTAKE_DELIVERY_REVIEW_CUSTOMER_IDS ?? "").split(",").map(value => value.trim()).filter(Boolean),
+  operator_uids: (process.env.PATHFINDER_INTAKE_DELIVERY_REVIEW_OPERATOR_UIDS ?? "").split(",").map(value => value.trim()).filter(Boolean),
+  reconcile: reconcileStoredIntakeDelivery
+}));
+app.use("/api", createIntakeExceptionsRouter({
+  enabled: process.env.PATHFINDER_ENABLE_INTAKE_EXCEPTIONS === "true",
+  customer_ids: (process.env.PATHFINDER_INTAKE_EXCEPTIONS_CUSTOMER_IDS ?? "").split(",").map((value) => value.trim()).filter(Boolean),
+  list: listIntakeAttemptsPage,
+  listDeliveries: listIntakeDeliveriesPage
+}));
 app.use("/api/proof", createProofAdminRouter());
 
 function preserveWrikeSecret(nextValue: unknown, existingValue: string | undefined) {
@@ -6676,6 +6695,10 @@ async function runConfiguredWrikeIntakeCore(args: {
   config: ReturnType<typeof getWrikeScheduledIntakeConfig>;
   markScheduled: boolean;
 }) {
+  const assuranceConfig = args.markScheduled && args.config.enabled
+    ? getWrikeAssuranceCaptureConfig(process.env, args.config) : null;
+  const assurance = assuranceConfig?.enabled
+    ? createWrikeAssuranceCycle({ config: assuranceConfig, ledger: intakeLedger }) : null;
   if (
     args.config.enabled &&
     (!wrikeWorkbookEvidenceEnabled ||
@@ -6750,6 +6773,13 @@ async function runConfiguredWrikeIntakeCore(args: {
         }
       );
       existingSecrets = { ...existingSecrets, oauth: scopedDiscovery.credentials };
+      await assurance?.capture({
+        customer_id: args.config.customer_id,
+        import_method_id: args.config.import_method_id,
+        connection_id: connection.connection_id,
+        configured_status_id: config.trigger_status_id,
+        configured_status_label: config.trigger_status_label
+      }, scopedDiscovery);
       const resolvedRootFolderByConfiguredId = new Map(
         scopedDiscovery.root_scopes.map((scope) => [
           scope.configured_folder_id,
@@ -6775,7 +6805,7 @@ async function runConfiguredWrikeIntakeCore(args: {
         import_method_id: args.config.import_method_id
       });
     },
-    prepare: async (candidate: WrikeScheduledOrderCandidate) => {
+    prepare: wrapWrikeAssurancePreparation(assurance, async (candidate: WrikeScheduledOrderCandidate) => {
       const result = await prepareWrikeOrderForTask({
         liftCustomerId: args.config.customer_id,
         methodId: args.config.import_method_id,
@@ -6814,7 +6844,7 @@ async function runConfiguredWrikeIntakeCore(args: {
           .map((workbook) => workbook.job_id)
           .filter((jobId): jobId is string => Boolean(jobId))
       };
-    }
+    })
   }).catch(async (error) => {
     if (
       customer &&
@@ -6838,7 +6868,8 @@ async function runConfiguredWrikeIntakeCore(args: {
   return {
     customer,
     discovery: discovery as WrikeScopedIntakeDiscoveryResult | null,
-    intakeResult
+    intakeResult,
+    assurance
   };
 }
 
@@ -6963,6 +6994,11 @@ export async function runConfiguredWrikeScheduledIntake() {
         failed_count: 0,
         outcomes: []
       };
+
+  if (core.assurance) {
+    const snapshot = await readStore();
+    await core.assurance.observe({ jobs: snapshot.jobs, submits: snapshot.submit_attempts });
+  }
 
   const result = {
     ...intakeResult,
@@ -10319,6 +10355,8 @@ async function postWrikeStatusLinkForJob(args: {
   customer: LiftCustomer;
   job_id: string;
   expected_task_id?: string | null;
+  expected_order_number?: string;
+  expected_connection_id?: string;
   prepared_by_email?: string | null;
 }) {
   const job = await getJob(args.customer, args.job_id);
@@ -10328,12 +10366,14 @@ async function postWrikeStatusLinkForJob(args: {
     !evidence ||
     evidence.provider !== "wrike" ||
     (args.expected_task_id && evidence.task_id !== args.expected_task_id)
+    || (args.expected_connection_id && evidence.connection_id !== args.expected_connection_id)
   ) {
     throw new WrikeStatusWritebackConflictError(
       "This job is not bound to the expected Wrike Placard Order task."
     );
   }
   const orderNumber = valueAsString(job.target_order_number).trim().toUpperCase();
+  if (args.expected_order_number && orderNumber !== args.expected_order_number) throw new WrikeStatusWritebackConflictError("The confirmed order changed before repair.");
   const contractNumber = valueAsString(job.canonical_order.order.contract_number)
     .trim()
     .toUpperCase();
@@ -11187,5 +11227,17 @@ app.post("/api/lift/preview", (req, res) => {
 if (!process.env.AWS_LAMBDA_FUNCTION_NAME && process.env.PATHFINDER_RUNTIME !== "lambda") {
   app.listen(port, () => {
     console.log(`Pathfinder API listening on http://127.0.0.1:${port}`);
+  });
+}
+
+export async function runConfiguredIntakeStatusRepairs() {
+  return runIntakeStatusRepairs(async target => {
+    const config = getIntakeStatusRepairConfig(process.env);
+    if (!config.sweep.enabled) throw new Error("Intake status repair is disabled");
+    const context = await readWrikeIntakeFeedbackScope(config.sweep.scope);
+    if (context.customer_id !== target.customer_id || context.connection.connection_id !== target.connection_id || context.connection.provider !== "wrike" || context.connection.status !== "Active" ||
+      context.method.source !== "Wrike" || context.method.status !== "Active" || context.method.source_config.wrike?.connection_id !== target.connection_id) throw new Error("Intake repair scope changed");
+    return postWrikeStatusLinkForJob({ customer: context.customer, job_id: target.job_id, expected_task_id: target.task_id,
+      expected_order_number: target.order_number, expected_connection_id: target.connection_id, prepared_by_email: null });
   });
 }

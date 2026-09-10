@@ -78,6 +78,11 @@ import {
 } from "@pathfinder/wrike-adapter";
 import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
 import { assertLocalStorageDriver, getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
+import { createIntakeAttempt, transitionIntake, validatePersistedIntakeAttempt, type IntakeAttempt, type IntakeEvent, type IntakeSignal, type IntakeLedger } from "./intake-assurance.js";
+import { intakeSweepId, sweepTime, validateSweepCheckpoint, IntakeSweepLeaseLostError,
+  type IntakeSweepCheckpoint, type IntakeSweepScope, type IntakeSweepFence } from "./intake-recovery-sweep.js";
+import { intakeDeliveryId, prepareIntakeDelivery, claimIntakeDelivery, acknowledgeIntakeDelivery, validateIntakeDelivery, IntakeDeliveryConflictError,
+  type IntakeDeliveryReceipt, type IntakeDeliveryKind, type IntakeDeliveryLedger } from "./intake-delivery.js";
 import type {
   WrikeSourceOrderImpact,
   WrikeSourceOrderImpactAssessment
@@ -1012,6 +1017,9 @@ export interface PathfinderCustomerWorkspace {
 
 export interface PathfinderStore {
   version: 1;
+  intake_attempts?: IntakeAttempt[];
+  intake_sweeps?: Record<string, IntakeSweepCheckpoint>;
+  intake_deliveries?: Record<string, IntakeDeliveryReceipt>;
   targets: Record<string, TargetConfig>;
   workspaces: Record<string, PathfinderCustomerWorkspace>;
   jobs: ProcessingJobPreview[];
@@ -8436,4 +8444,384 @@ export async function persistPreviewJob(
   }
 
   return workspace;
+}
+
+// Intake is a pre-job entity. Keep it separate from transport attempts so legacy
+// submit scans cannot mistake an intake failure for a Lift submission.
+let localIntakeMutationQueue: Promise<void> = Promise.resolve();
+async function mutateLocalIntake<T>(mutate: (store: PathfinderStore) => T): Promise<T> {
+  const operation = localIntakeMutationQueue.then(async () => {
+    // Reservation/CAS must not use an execution's potentially stale read cache.
+    const store = await readStoreUncached();
+    const result = mutate(store);
+    await writeStore(store);
+    return result;
+  });
+  localIntakeMutationQueue = operation.then(() => undefined, () => undefined);
+  return operation;
+}
+export async function getIntakeAttempt(customerId: string, attemptId: string) {
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
+      Key: { customer_id: dynamoString(customerId), attempt_id: dynamoString(attemptId) },
+      ConsistentRead: true
+    }));
+    if (!response.Item) return null;
+    const attempt = validatePersistedIntakeAttempt(parseDynamoData<IntakeAttempt>(response.Item));
+    if (attempt.signal.customer_id !== customerId || attempt.attempt_id !== attemptId) throw new Error("Intake identity integrity failure");
+    return attempt;
+  }
+  const store = await readStoreUncached();
+  const value = store.intake_attempts?.find((entry) => entry.signal.customer_id === customerId && entry.attempt_id === attemptId);
+  return value ? validatePersistedIntakeAttempt(value) : null;
+}
+function intakeItem(attempt: IntakeAttempt) {
+  return { ...dynamoItem({ customer_id: attempt.signal.customer_id, attempt_id: attempt.attempt_id }, attempt),
+    revision: { N: String(attempt.revision) }, state: dynamoString(attempt.state) };
+}
+export async function reserveIntakeAttempt(signal: IntakeSignal, nextActionAt: string) {
+  const attempt = createIntakeAttempt(signal, nextActionAt);
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Item: intakeItem(attempt),
+        ConditionExpression: "attribute_not_exists(customer_id) AND attribute_not_exists(attempt_id)"
+      }));
+      return { attempt, created: true };
+    } catch (error) {
+      if (!isConditionalCheckFailure(error)) throw error;
+      const existing = await getIntakeAttempt(signal.customer_id, attempt.attempt_id);
+      if (!existing || createIntakeAttempt(existing.signal, existing.created_at).attempt_id !== attempt.attempt_id) {
+        throw new Error("Intake reservation could not be reconciled safely");
+      }
+      return { attempt: existing, created: false };
+    }
+  }
+  return mutateLocalIntake((store) => {
+    const existing = store.intake_attempts?.find((entry) => entry.attempt_id === attempt.attempt_id && entry.signal.customer_id === signal.customer_id);
+    if (existing) return { attempt: validatePersistedIntakeAttempt(existing), created: false };
+    store.intake_attempts = [...(store.intake_attempts ?? []), attempt];
+    return { attempt, created: true };
+  });
+}
+export async function transitionIntakeAttempt(customerId: string, attemptId: string, event: IntakeEvent, fence?: IntakeSweepFence) {
+  if (fence && fence.scope.customer_id !== customerId) throw new IntakeSweepLeaseLostError();
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const current = await getIntakeAttempt(customerId, attemptId);
+    if (!current) throw new Error("Intake attempt not found");
+    const next = transitionIntake(current, event);
+    if (next === current) return current;
+    try {
+      const put = {
+        TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Item: intakeItem(next),
+        ConditionExpression: "#revision = :expected",
+        ExpressionAttributeNames: { "#revision": "revision" },
+        ExpressionAttributeValues: { ":expected": { N: String(current.revision) } }
+      };
+      if (fence) {
+        await getDynamoClient().send(new TransactWriteItemsCommand({ TransactItems: [
+          { ConditionCheck: sweepFenceCondition(fence) }, { Put: put }
+        ] }));
+      } else {
+        await getDynamoClient().send(new PutItemCommand(put));
+      }
+    } catch (error) {
+      if (fence && (error as { name?: string }).name === "TransactionCanceledException") throw new IntakeSweepLeaseLostError();
+      if (!isConditionalCheckFailure(error)) throw error;
+      const observed = await getIntakeAttempt(customerId, attemptId);
+      if (observed?.last_event?.event_id === event.event_id) return transitionIntake(observed, event);
+      throw new Error("Intake revision conflict", { cause: error });
+    }
+    return next;
+  }
+  return mutateLocalIntake((store) => {
+    if (fence) assertLocalSweepFence(store, fence);
+    const index = store.intake_attempts?.findIndex((entry) => entry.signal.customer_id === customerId && entry.attempt_id === attemptId) ?? -1;
+    if (index < 0) throw new Error("Intake attempt not found");
+    const next = transitionIntake(validatePersistedIntakeAttempt(store.intake_attempts![index]!), event);
+    store.intake_attempts![index] = next;
+    return next;
+  });
+}
+export const intakeLedger: IntakeLedger = {
+  reserve: reserveIntakeAttempt, get: getIntakeAttempt, transition: transitionIntakeAttempt
+};
+
+/** Tenant-partitioned, bounded enumeration; no unbounded production table scan. */
+export async function listIntakeAttemptsPage(customerId: string, limit = 50, cursor?: string) {
+  const { intakePageRequest, intakePageCursor } = await import("./intake-exceptions.js");
+  const request = intakePageRequest(customerId, limit, cursor);
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const response = await getDynamoClient().send(new QueryCommand({
+      TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
+      KeyConditionExpression: "customer_id = :customer",
+      ExpressionAttributeValues: { ":customer": dynamoString(customerId) },
+      ConsistentRead: true, Limit: request.limit,
+      ...(request.after ? { ExclusiveStartKey: { customer_id: dynamoString(customerId), attempt_id: dynamoString(request.after) } } : {})
+    }));
+    const attempts = (response.Items ?? []).map((item) => validatePersistedIntakeAttempt(parseDynamoData<IntakeAttempt>(item)));
+    if (attempts.some((entry) => entry.signal.customer_id !== customerId)) throw new Error("Intake tenant integrity failure");
+    const after = response.LastEvaluatedKey?.attempt_id?.S;
+    return { attempts, next_cursor: after ? intakePageCursor(customerId, after) : null };
+  }
+  const store = await readStoreUncached();
+  const candidates = (store.intake_attempts ?? []).filter((entry) => entry.signal.customer_id === customerId && (!request.after || entry.attempt_id > request.after))
+    .sort((left, right) => left.attempt_id.localeCompare(right.attempt_id));
+  const attempts = candidates.slice(0, request.limit).map(validatePersistedIntakeAttempt);
+  return { attempts, next_cursor: candidates.length > request.limit ? intakePageCursor(customerId, attempts.at(-1)!.attempt_id) : null };
+}
+
+// Checkpoints share intake persistence but use a reserved partition that the
+// validated tenant request API cannot address. They never appear as attempts.
+function sweepCheckpointKey(scope: IntakeSweepScope) {
+  return { customer_id: `intake-sweep#${scope.customer_id}`, attempt_id: intakeSweepId(scope) };
+}
+function sweepCheckpointItem(checkpoint: IntakeSweepCheckpoint) {
+  return { ...dynamoItem(sweepCheckpointKey(checkpoint.scope), checkpoint), revision: { N: String(checkpoint.revision) },
+    lease_token: dynamoString(checkpoint.lease_token), lease_until: { N: String(checkpoint.lease_until) } };
+}
+function sweepFenceCondition(fence: IntakeSweepFence) {
+  return {
+    TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
+    Key: Object.fromEntries(Object.entries(sweepCheckpointKey(fence.scope)).map(([key, value]) => [key, dynamoString(value)])),
+    ConditionExpression: "lease_token = :owner AND lease_until > :now",
+    ExpressionAttributeValues: { ":owner": dynamoString(fence.lease_token), ":now": { N: String(sweepTime(fence.now)) } }
+  };
+}
+function assertLocalSweepFence(store: PathfinderStore, fence: IntakeSweepFence) {
+  const raw = store.intake_sweeps?.[intakeSweepId(fence.scope)];
+  if (!raw) throw new IntakeSweepLeaseLostError();
+  const checkpoint = validateSweepCheckpoint(raw, fence.scope);
+  if (checkpoint.lease_token !== fence.lease_token || checkpoint.lease_until <= sweepTime(fence.now)) throw new IntakeSweepLeaseLostError();
+}
+export async function getIntakeSweepCheckpoint(scope: IntakeSweepScope) {
+  const id = intakeSweepId(scope);
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const response = await getDynamoClient().send(new GetItemCommand({
+      TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), ConsistentRead: true,
+      Key: Object.fromEntries(Object.entries(sweepCheckpointKey(scope)).map(([key, value]) => [key, dynamoString(value)]))
+    }));
+    return response.Item ? validateSweepCheckpoint(parseDynamoData(response.Item), scope) : null;
+  }
+  const raw = (await readStoreUncached()).intake_sweeps?.[id];
+  return raw ? validateSweepCheckpoint(raw, scope) : null;
+}
+export async function acquireIntakeSweep(scope: IntakeSweepScope, token: string, now: string, leaseSeconds: number) {
+  if (!/^[A-Za-z0-9:_-]{1,128}$/.test(token) || !Number.isInteger(leaseSeconds) || leaseSeconds < 30 || leaseSeconds > 900) throw new Error("Invalid intake recovery lease");
+  const timestamp = sweepTime(now);
+  const next = (current: IntakeSweepCheckpoint | null): IntakeSweepCheckpoint | null => {
+    if (current && current.lease_until > timestamp) return null;
+    if (current && sweepTime(current.updated_at) > timestamp) throw new Error("Intake recovery clock regression");
+    return { schema_version: 1, sweep_id: intakeSweepId(scope), scope, revision: (current?.revision ?? 0) + 1,
+      cursor: current?.cursor ?? null, pass_count: current?.pass_count ?? 0, last_completed_at: current?.last_completed_at ?? null,
+      lease_token: token, lease_until: timestamp + leaseSeconds * 1000, updated_at: now, last_failure: current?.last_failure ?? null };
+  };
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const current = await getIntakeSweepCheckpoint(scope);
+    const checkpoint = next(current);
+    if (!checkpoint) return null;
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Item: sweepCheckpointItem(checkpoint),
+        ...(current ? { ConditionExpression: "#revision = :expected AND lease_until <= :now",
+          ExpressionAttributeNames: { "#revision": "revision" },
+          ExpressionAttributeValues: { ":expected": { N: String(current.revision) }, ":now": { N: String(timestamp) } }
+        } : { ConditionExpression: "attribute_not_exists(customer_id) AND attribute_not_exists(attempt_id)" })
+      }));
+      return checkpoint;
+    } catch (error) { if (isConditionalCheckFailure(error)) return null; throw error; }
+  }
+  return mutateLocalIntake((store) => {
+    const raw = store.intake_sweeps?.[intakeSweepId(scope)];
+    const checkpoint = next(raw ? validateSweepCheckpoint(raw, scope) : null);
+    if (checkpoint) store.intake_sweeps = { ...store.intake_sweeps, [checkpoint.sweep_id]: checkpoint };
+    return checkpoint;
+  });
+}
+export async function saveIntakeSweep(previous: IntakeSweepCheckpoint, next: IntakeSweepCheckpoint, now: string) {
+  validateSweepCheckpoint(previous, previous.scope); validateSweepCheckpoint(next, previous.scope);
+  if (!previous.lease_token || previous.lease_until <= sweepTime(now) || next.revision !== previous.revision + 1 ||
+    (next.lease_token !== null && next.lease_token !== previous.lease_token)) throw new IntakeSweepLeaseLostError();
+  const fence = { scope: previous.scope, lease_token: previous.lease_token, now };
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const condition = sweepFenceCondition(fence);
+    try {
+      await getDynamoClient().send(new PutItemCommand({
+        TableName: condition.TableName, Item: sweepCheckpointItem(next),
+        ConditionExpression: `${condition.ConditionExpression} AND #revision = :expected`,
+        ExpressionAttributeNames: { "#revision": "revision" },
+        ExpressionAttributeValues: { ...condition.ExpressionAttributeValues, ":expected": { N: String(previous.revision) } }
+      }));
+    } catch (error) { if (isConditionalCheckFailure(error)) throw new IntakeSweepLeaseLostError(); throw error; }
+    return;
+  }
+  await mutateLocalIntake((store) => {
+    assertLocalSweepFence(store, fence);
+    if (store.intake_sweeps![previous.sweep_id]!.revision !== previous.revision) throw new IntakeSweepLeaseLostError();
+    store.intake_sweeps![previous.sweep_id] = next;
+  });
+}
+export const intakeSweepCheckpoints = { acquire: acquireIntakeSweep, save: saveIntakeSweep };
+export function fencedIntakeSweepLedger(fence: () => IntakeSweepFence): IntakeLedger {
+  return { ...intakeLedger, transition: (customerId, attemptId, event) => transitionIntakeAttempt(customerId, attemptId, event, fence()) };
+}
+
+/** Existing job/transport partitions only; fail on overflow instead of reconciling from partial evidence. */
+export async function readIntakeRecoverySnapshot(customerId: string, maxRecords: number) {
+  if (!Number.isInteger(maxRecords) || maxRecords < 1 || maxRecords > 10000) throw new Error("Invalid recovery snapshot limit");
+  const checked_at = new Date().toISOString();
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "local") {
+    const store = await readStoreUncached();
+    const jobs = store.jobs.filter((entry) => entry.customer_id === customerId);
+    const submits = store.submit_attempts.filter((entry) => entry.customer_id === customerId);
+    if (jobs.length > maxRecords || submits.length > maxRecords) throw new Error("Intake recovery snapshot limit exceeded");
+    return { checked_at, jobs, submits };
+  }
+  async function partition<T extends { customer_id: string }>(table: string): Promise<T[]> {
+    const values: T[] = [];
+    let cursor: Record<string, AttributeValue> | undefined;
+    let pages = 0;
+    const seen = new Set<string>();
+    do {
+      if (++pages > maxRecords + 1) throw new Error("Intake recovery snapshot page limit exceeded");
+      const response = await getDynamoClient().send(new QueryCommand({ TableName: table, ConsistentRead: true,
+        KeyConditionExpression: "customer_id = :customer", ExpressionAttributeValues: { ":customer": dynamoString(customerId) },
+        Limit: Math.min(100, maxRecords + 1 - values.length), ...(cursor ? { ExclusiveStartKey: cursor } : {}) }));
+      for (const item of response.Items ?? []) {
+        const value = parseDynamoData<T>(item);
+        if (!value || value.customer_id !== customerId) throw new Error("Invalid intake recovery snapshot record");
+        values.push(value);
+      }
+      cursor = response.LastEvaluatedKey;
+      if (cursor) {
+        const key = JSON.stringify(Object.entries(cursor).sort(([a], [b]) => a.localeCompare(b)));
+        if (seen.has(key)) throw new Error("Intake recovery snapshot cursor repeated");
+        seen.add(key);
+      }
+      if (values.length > maxRecords || (values.length === maxRecords && cursor)) throw new Error("Intake recovery snapshot limit exceeded");
+    } while (cursor);
+    return values;
+  }
+  const [jobs, submits] = await Promise.all([
+    partition<ProcessingJobPreview>(requireEnv("PATHFINDER_JOBS_TABLE")),
+    partition<SubmitAttempt>(requireEnv("PATHFINDER_SUBMIT_ATTEMPTS_TABLE"))
+  ]);
+  return { checked_at, jobs, submits };
+}
+
+function intakeDeliveryKey(customer: string, attempt: string, kind: IntakeDeliveryKind) {
+  return { customer_id: dynamoString(`intake-delivery#${customer}`), attempt_id: dynamoString(intakeDeliveryId(customer, attempt, kind)) };
+}
+export async function getIntakeDelivery(customer: string, attempt: string, kind: IntakeDeliveryKind) {
+  const key = intakeDeliveryKey(customer, attempt, kind);
+  let raw: unknown;
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const response = await getDynamoClient().send(new GetItemCommand({ TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Key: key, ConsistentRead: true }));
+    if (!response.Item) return null;
+    raw = parseDynamoData(response.Item);
+  } else {
+    raw = (await readStoreUncached()).intake_deliveries?.[key.attempt_id.S!];
+    if (raw === undefined) return null;
+  }
+  const receipt = validateIntakeDelivery(raw);
+  if (receipt.receipt_id !== key.attempt_id.S) throw new IntakeDeliveryConflictError();
+  return receipt;
+}
+async function persistIntakeDelivery(previous: IntakeDeliveryReceipt | null, next: IntakeDeliveryReceipt, attempt?: IntakeAttempt, fence?: IntakeSweepFence) {
+  validateIntakeDelivery(next);
+  if (next === previous) return next;
+  if (fence && (fence.scope.customer_id !== next.customer_id || !attempt)) throw new IntakeDeliveryConflictError();
+  if (attempt && (attempt.attempt_id !== next.attempt_id || attempt.signal.customer_id !== next.customer_id || attempt.revision !== next.intake_revision)) throw new IntakeDeliveryConflictError();
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const put = { TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
+      Item: { ...intakeDeliveryKey(next.customer_id, next.attempt_id, next.kind), data: { S: JSON.stringify(next) }, revision: { N: String(next.revision) } },
+      ...(previous ? { ConditionExpression: "#revision = :expected", ExpressionAttributeNames: { "#revision": "revision" }, ExpressionAttributeValues: { ":expected": { N: String(previous.revision) } } } :
+        { ConditionExpression: "attribute_not_exists(customer_id) AND attribute_not_exists(attempt_id)" }) };
+    try {
+      if (attempt) await getDynamoClient().send(new TransactWriteItemsCommand({ TransactItems: [
+        { ConditionCheck: { TableName: put.TableName, Key: { customer_id: dynamoString(next.customer_id), attempt_id: dynamoString(next.attempt_id) },
+          ConditionExpression: "#revision = :intake", ExpressionAttributeNames: { "#revision": "revision" }, ExpressionAttributeValues: { ":intake": { N: String(attempt.revision) } } } }, { Put: put },
+        ...(fence ? [{ ConditionCheck: sweepFenceCondition(fence) }] : [])
+      ] }));
+      else await getDynamoClient().send(new PutItemCommand(put));
+    } catch (error) {
+      if (isConditionalCheckFailure(error) || (error as { name?: string }).name === "TransactionCanceledException") throw new IntakeDeliveryConflictError();
+      throw error;
+    }
+  } else await mutateLocalIntake(store => {
+    if (fence) assertLocalSweepFence(store, fence);
+    const raw = store.intake_deliveries?.[next.receipt_id];
+    const current = raw ? validateIntakeDelivery(raw) : null;
+    if (current?.revision !== previous?.revision) throw new IntakeDeliveryConflictError();
+    if (attempt) {
+      const stored = store.intake_attempts?.find(row => row.attempt_id === next.attempt_id && row.signal.customer_id === next.customer_id);
+      if (!stored || validatePersistedIntakeAttempt(stored).revision !== attempt.revision) throw new IntakeDeliveryConflictError();
+    }
+    store.intake_deliveries = { ...store.intake_deliveries, [next.receipt_id]: next };
+  });
+  return next;
+}
+export const intakeDeliveryLedger: IntakeDeliveryLedger = {
+  get: getIntakeDelivery,
+  prepare: async (attempt, kind, now) => {
+    const previous = await getIntakeDelivery(attempt.signal.customer_id, attempt.attempt_id, kind);
+    const next = prepareIntakeDelivery(previous, attempt, kind, now);
+    return next ? persistIntakeDelivery(previous, next, attempt) : null;
+  },
+  claim: async (receipt, attempt, now, fence) => persistIntakeDelivery(receipt, claimIntakeDelivery(receipt, attempt, now), attempt, fence),
+  acknowledge: async (receipt, id, now) => persistIntakeDelivery(receipt, acknowledgeIntakeDelivery(receipt, id, now))
+};
+
+/** Receipt listing is independent of intake state, so resolved requests cannot hide uncertain delivery. */
+export async function listIntakeDeliveriesPage(customer: string, limit = 50, cursor?: string) {
+  const { deliveryPageRequest, deliveryPageCursor } = await import("./intake-delivery-view.js");
+  const request = deliveryPageRequest(customer, limit, cursor);
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const partition = `intake-delivery#${customer}`;
+    const response = await getDynamoClient().send(new QueryCommand({ TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), ConsistentRead: true,
+      KeyConditionExpression: "customer_id = :customer", ExpressionAttributeValues: { ":customer": dynamoString(partition) }, Limit: request.limit,
+      ...(request.after ? { ExclusiveStartKey: { customer_id: dynamoString(partition), attempt_id: dynamoString(request.after) } } : {}) }));
+    const receipts = (response.Items ?? []).map(item => validateIntakeDelivery(parseDynamoData(item)));
+    if (receipts.some(row => row.customer_id !== customer)) throw new Error("Delivery tenant mismatch");
+    const after = response.LastEvaluatedKey?.attempt_id?.S;
+    if (response.LastEvaluatedKey && !/^delivery_[a-f0-9]{64}$/.test(after ?? "")) throw new Error("Invalid delivery continuation");
+    return { receipts, next_cursor: after ? deliveryPageCursor(customer, after) : null };
+  }
+  const records = Object.values((await readStoreUncached()).intake_deliveries ?? {}).filter(row => row.customer_id === customer && (!request.after || row.receipt_id > request.after))
+    .sort((a, b) => a.receipt_id.localeCompare(b.receipt_id));
+  const receipts = records.slice(0, request.limit).map(validateIntakeDelivery);
+  return { receipts, next_cursor: records.length > receipts.length ? deliveryPageCursor(customer, receipts.at(-1)!.receipt_id) : null };
+}
+
+/** Focused, read-only saved scope lookup; never creates a workspace or scans tenants. */
+export async function readWrikeIntakeFeedbackScope(scope: IntakeSweepScope) {
+  intakeSweepId(scope);
+  let workspace: PathfinderCustomerWorkspace | null;
+  let method: ImportMethod | null;
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const [workspaceResponse, methodResponse] = await Promise.all([
+      getDynamoClient().send(new GetItemCommand({ TableName: requireEnv("PATHFINDER_CUSTOMER_WORKSPACES_TABLE"), Key: { customer_id: dynamoString(scope.customer_id) }, ConsistentRead: true })),
+      getDynamoClient().send(new GetItemCommand({ TableName: requireEnv("PATHFINDER_IMPORT_METHODS_TABLE"), Key: { customer_id: dynamoString(scope.customer_id), import_method_id: dynamoString(scope.import_method_id) }, ConsistentRead: true }))
+    ]);
+    workspace = workspaceResponse.Item ? parseDynamoData<PathfinderCustomerWorkspace>(workspaceResponse.Item) : null;
+    const saved = methodResponse.Item ? parseDynamoData<ImportMethod & { customer_id: string }>(methodResponse.Item) : null;
+    if (saved && saved.customer_id !== scope.customer_id) throw new Error("Feedback scope tenant mismatch");
+    method = saved;
+  } else {
+    workspace = (await readStoreUncached()).workspaces[scope.customer_id] ?? null;
+    method = workspace?.import_methods.find(row => row.import_method_id === scope.import_method_id) ?? null;
+  }
+  if (!workspace || workspace.customer?.lift_customer_id !== scope.customer_id || !method || method.import_method_id !== scope.import_method_id) throw new Error("Feedback scope is unavailable");
+  const connection = workspace.source_connections.find(row => row.connection_id === scope.connection_id);
+  if (!connection) throw new Error("Feedback connection is unavailable");
+  return { customer_id: scope.customer_id, customer: workspace.customer, connection, method };
+}
+
+export async function reconcileStoredIntakeDelivery(customer: string, attempt: string, kind: IntakeDeliveryKind,
+  review: import("./intake-delivery-reconciliation.js").IntakeDeliveryReview, now: string) {
+  const { reconcileIntakeDelivery } = await import("./intake-delivery-reconciliation.js");
+  const current = await getIntakeDelivery(customer, attempt, kind);
+  if (!current) throw new IntakeDeliveryConflictError();
+  return persistIntakeDelivery(current, reconcileIntakeDelivery(current, review, now));
 }
