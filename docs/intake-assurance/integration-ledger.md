@@ -289,3 +289,20 @@ production smoke test.
   none. Next approval is push/draft-PR update for review; merge/deployment/activation
   remain separate approvals. Legacy/multi-workbook backfill and broader repeat
   escalation require explicit policy and scoped production review.
+
+## Independent review checkpoint — head 9adf8a2
+
+- The user authorized proceeding with independent review coordinated through
+  Pathfinder Development and Pathfinder Live Support. Commits through `9adf8a2`
+  were pushed to the existing branch and draft PR #330 was updated with the full
+  scope and validation evidence. It remains a draft; no merge or activation.
+- Pathfinder Live Support reviewed exact head
+  `9adf8a299b6995fd0215bbc28bd04737a7a2f4c2` against base `ae7ba0a9` and reported
+  no blocker to merging the default-dark source. Release/activation remains HOLD
+  pending table/transaction IAM, explicit production scope and bounds, Wrike and
+  Secrets review, a separate SES window, and ledger-preserving rollback.
+- Live Support's documentation-only finding was corrected: the review-and-rollout
+  document now records the approved push and draft-PR update. This follow-up has
+  no source-code changes; whitespace validation is sufficient.
+- Pathfinder Development's independent correctness review remains pending. Live
+  Support's assessment is not a combined approval or authorization to merge.

@@ -11,9 +11,10 @@ The integration ledger records each local commit and regression checkpoint.
 
 Production main was repeatedly checked against
 `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`. The existing draft PR initially contained
-only the foundation; later work has remained local under the revised delivery
-boundary. No new push, deployment, infrastructure, schedule or flag activation has
-been performed. Review this branch before merging; the patch spans the API/store,
+only the foundation. Following explicit approval to coordinate independent review,
+the accumulated commits through `9adf8a2` were pushed and draft PR #330 was updated.
+No merge, deployment, infrastructure, schedule or flag activation has been
+performed. Review this branch before merging; the patch spans the API/store,
 Wrike adapter, narrow web components and synthetic tests.
 
 ## Policy currently implemented
@@ -50,8 +51,9 @@ production IAM/Secrets/Status capability review is required before repair activa
 
 ## Approval sequence
 
-1. Approve pushing the accumulated commits and updating the existing draft PR for
-   code review. This approval does not imply merge, deployment or enablement.
+1. The user approved pushing the accumulated commits and updating draft PR #330
+   for independent review; that step is complete. Code review and separate merge
+   approval remain required. This approval does not imply deployment or enablement.
 2. Review storage/IAM (including transaction condition checks), Secrets access,
    read/write Wrike connection authority, SES configuration, operational ownership,
    scope IDs and explicit bounds. Select SLA, lease durations, polling/retry windows
