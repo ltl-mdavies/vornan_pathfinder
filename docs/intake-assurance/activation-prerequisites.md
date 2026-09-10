@@ -20,6 +20,16 @@ reads increase preflight time: the direct-root synthetic success fixture uses 15
 requests, including the comment. Deep ancestry may require more bounded reads.
 Production lease and schedule sizing must include this cost and credential refresh.
 
+Live Support's narrow review of `433d7dd` found no source-merge blocker, but retained
+an aggregate provider-budget activation hold. Each of the two discovery passes
+can walk up to 32 ancestry folders, in addition to exact-task, status, workbook
+and credential reads. The 15-request direct-root fixture is not a general bound.
+The current per-request 15-second timeout does not impose an end-to-end deadline.
+Before activation, enforce and measure total provider requests and elapsed dispatch
+time, including both preflight passes. Budget exhaustion must prevent the comment
+(and leave a claimed receipt uncertain). Test deep-ancestry exhaustion and size
+leases and schedules against the resulting full-operation bound.
+
 ## Task re-entry: next engineering slice
 
 Current capture still uses `intent_occurrence: "initial"`; activation remains held.

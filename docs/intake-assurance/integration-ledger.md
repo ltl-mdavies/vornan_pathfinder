@@ -354,3 +354,8 @@ production smoke test.
 - This slice requires independent review. Task re-entry capture integration,
   infrastructure/runtime wiring, production inventory and operating decisions
   remain holds. No deployment, provisioning or activation occurred.
+
+- Live Support reviewed source head `433d7dd`: no source-merge blocker or material
+  dossier misstatement. The additional activation hold for aggregate provider
+  request/time budgets and deep-ancestry tests is now explicit in the dossier.
+  Development's correctness review remains pending; this update is documentation only.
