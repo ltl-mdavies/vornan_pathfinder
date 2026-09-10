@@ -1,4 +1,5 @@
-import { StrictMode } from "react";
+import { StrictMode, useState } from "react";
+import { IntakeExceptions } from "../../../apps/web/src/IntakeExceptions";
 import { createRoot } from "react-dom/client";
 import type { OrderRollupSnapshot } from "@pathfinder/order-rollup";
 import { OrderRollup } from "@pathfinder/order-rollup-ui";
@@ -98,7 +99,12 @@ function StatusProofCardFixture() {
   );
 }
 
-const fixture = window.location.pathname.startsWith("/order-rollup")
+function IntakeFixture() {
+  const [customer, setCustomer] = useState("fixture-a");
+  return <main className="browser-fixture-shell"><button onClick={() => setCustomer("fixture-b")}>Switch customer</button>
+    <IntakeExceptions key={customer} customerId={customer} apiBaseUrl="http://127.0.0.1:5190" /></main>;
+}
+const fixture = window.location.pathname.startsWith("/intake-exceptions") ? <IntakeFixture /> : window.location.pathname.startsWith("/order-rollup")
   ? <StatusProofCardFixture />
   : <ProofApp />;
 

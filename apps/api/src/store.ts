@@ -8523,3 +8523,27 @@ export async function transitionIntakeAttempt(customerId: string, attemptId: str
 export const intakeLedger: IntakeLedger = {
   reserve: reserveIntakeAttempt, get: getIntakeAttempt, transition: transitionIntakeAttempt
 };
+
+/** Tenant-partitioned, bounded enumeration; no unbounded production table scan. */
+export async function listIntakeAttemptsPage(customerId: string, limit = 50, cursor?: string) {
+  const { intakePageRequest, intakePageCursor } = await import("./intake-exceptions.js");
+  const request = intakePageRequest(customerId, limit, cursor);
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const response = await getDynamoClient().send(new QueryCommand({
+      TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"),
+      KeyConditionExpression: "customer_id = :customer",
+      ExpressionAttributeValues: { ":customer": dynamoString(customerId) },
+      ConsistentRead: true, Limit: request.limit,
+      ...(request.after ? { ExclusiveStartKey: { customer_id: dynamoString(customerId), attempt_id: dynamoString(request.after) } } : {})
+    }));
+    const attempts = (response.Items ?? []).map((item) => parseDynamoData<IntakeAttempt>(item)).filter((entry): entry is IntakeAttempt => entry !== null);
+    if (attempts.some((entry) => entry.signal.customer_id !== customerId)) throw new Error("Intake tenant integrity failure");
+    const after = response.LastEvaluatedKey?.attempt_id?.S;
+    return { attempts, next_cursor: after ? intakePageCursor(customerId, after) : null };
+  }
+  const store = await readStoreUncached();
+  const candidates = (store.intake_attempts ?? []).filter((entry) => entry.signal.customer_id === customerId && (!request.after || entry.attempt_id > request.after))
+    .sort((left, right) => left.attempt_id.localeCompare(right.attempt_id));
+  const attempts = candidates.slice(0, request.limit);
+  return { attempts, next_cursor: candidates.length > request.limit ? intakePageCursor(customerId, attempts.at(-1)!.attempt_id) : null };
+}

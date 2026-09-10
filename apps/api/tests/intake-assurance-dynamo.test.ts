@@ -1,19 +1,29 @@
 import assert from "node:assert/strict";
-import test, { after, before } from "node:test";
-import { DynamoDBClient, GetItemCommand, PutItemCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
+import test, { after, before, beforeEach } from "node:test";
+import { DynamoDBClient, GetItemCommand, PutItemCommand, QueryCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
 import type { IntakeSignal } from "../src/intake-assurance.js";
 const originalSend = DynamoDBClient.prototype.send;
 const records = new Map<string, Record<string, AttributeValue>>();
 let unavailable = false;
-const commands: (GetItemCommand | PutItemCommand)[] = [];
+const commands: (GetItemCommand | PutItemCommand | QueryCommand)[] = [];
 const signal: IntakeSignal = { schema_version: 1, customer_id: "synthetic", provider: "api", connection_id: "api", source_id: "request", intent_key: "submit", intent_occurrence: "1", observed_at: "2026-09-10T10:00:00Z" };
 const deadline = "2026-09-10T11:00:00Z";
 before(() => {
   process.env.PATHFINDER_STORAGE_DRIVER = "dynamodb";
   process.env.PATHFINDER_INTAKE_ATTEMPTS_TABLE = "synthetic-intake";
-  DynamoDBClient.prototype.send = (async (command: GetItemCommand | PutItemCommand) => {
+  DynamoDBClient.prototype.send = (async (command: GetItemCommand | PutItemCommand | QueryCommand) => {
     commands.push(command);
     if (unavailable) throw new Error("Dynamo unavailable");
+    if (command instanceof QueryCommand) {
+      assert.equal(command.input.KeyConditionExpression, "customer_id = :customer");
+      assert.equal(command.input.ConsistentRead, true);
+      const customer = command.input.ExpressionAttributeValues![":customer"]!.S;
+      const after = command.input.ExclusiveStartKey?.attempt_id?.S;
+      const all = [...records.values()].filter((item) => item.customer_id?.S === customer && (!after || item.attempt_id!.S! > after))
+        .sort((left, right) => left.attempt_id!.S!.localeCompare(right.attempt_id!.S!));
+      const items = all.slice(0, command.input.Limit);
+      return { Items: items, LastEvaluatedKey: all.length > items.length ? { customer_id: items.at(-1)!.customer_id, attempt_id: items.at(-1)!.attempt_id } : undefined };
+    }
     const item = command instanceof PutItemCommand ? command.input.Item! : command.input.Key!;
     const key = JSON.stringify([item.customer_id, item.attempt_id]);
     const previous = records.get(key);
@@ -26,6 +36,21 @@ before(() => {
     records.set(key, structuredClone(item));
     return {};
   }) as typeof DynamoDBClient.prototype.send;
+});
+beforeEach(() => { records.clear(); commands.length = 0; unavailable = false; });
+test("Dynamo enumeration paginates by tenant without skipping requests or scanning", async () => {
+  unavailable = false;
+  const { reserveIntakeAttempt, listIntakeAttemptsPage } = await import("../src/store.js");
+  for (const source_id of ["request-2", "request-3", "request-4"]) await reserveIntakeAttempt({ ...signal, source_id }, deadline);
+  await reserveIntakeAttempt({ ...signal, customer_id: "another-tenant" }, deadline);
+  const first = await listIntakeAttemptsPage(signal.customer_id, 2);
+  assert.equal(first.attempts.length, 2);
+  assert.ok(first.next_cursor);
+  const second = await listIntakeAttemptsPage(signal.customer_id, 2, first.next_cursor!);
+  assert.equal(second.attempts.length, 1);
+  assert.equal(second.next_cursor, null);
+  assert.equal(new Set([...first.attempts, ...second.attempts].map((entry) => entry.attempt_id)).size, 3);
+  await assert.rejects(listIntakeAttemptsPage("another-tenant", 2, first.next_cursor!));
 });
 after(() => { DynamoDBClient.prototype.send = originalSend; });
 test("durable reservation, replay, tenant isolation, concurrent CAS and unavailable storage", async () => {

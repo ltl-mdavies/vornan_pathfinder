@@ -22,3 +22,33 @@ production smoke test.
 - Feature posture remains all false and unwired. No table provisioned, API setting
   changed, customer communication sent, Wrike comment posted or Lift order submitted.
 - Deployed SHA: none. This ledger records source integration, not production state.
+
+## Local review checkpoint after revised delivery instruction — 2026-09-10
+
+- Re-fetched `origin/main`: `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`.
+  No intervening commits since provisioning; no merge/rebase or production-code
+  reconciliation was needed. Foundation HEAD: `58a73336908b08633fc78eb5b4712fd85c2c8ea6`.
+- The earlier authorized workflow had already pushed that commit and created
+  draft PR #330 before the revised instruction to stop before push/PR arrived.
+  No further push, PR mutation, deployment, activation or provider action has
+  occurred after that instruction. This checkpoint remains local for review.
+- Rechecked the final regression logs: 932 workspace tests, 15 browser tests and
+  126 deployment-contract tests passed; final typecheck/build logs show no errors.
+  No implementation or base changes since those runs, so no duplicate test run.
+- Diff at foundation HEAD: seven files, 679 additions; existing code changes are
+  limited to an optional store field, one import and additive ledger functions.
+  All new capabilities remain false and unwired. Deployed SHA: none.
+
+## Slice 2 — local Exceptions stack
+
+- Base main remains `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`; fetched before
+  implementation. No intervening production changes. Extends the reviewed
+  foundation commit `58a7333` locally.
+- Overlaps: additive query in `store.ts`, one router mounted after existing API
+  auth, one gated customer navigation item and isolated component. No Proof,
+  Order Status, live Wrike discovery/transport/writeback logic replaced.
+- Validation: 937 workspace tests, 16 browser regressions, 126 deployment-contract
+  tests, all-workspace check/build and whitespace check passed.
+- Posture: new API flag, customer allowlist and UI build flag unset/default-off.
+  Capture, submission, repair, comments and notifications remain unenabled.
+- Deployed SHA: none. No push or PR mutation after the revised review boundary.

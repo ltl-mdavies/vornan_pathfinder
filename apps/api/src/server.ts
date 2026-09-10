@@ -1,4 +1,6 @@
 import cors from "cors";
+import { createIntakeExceptionsRouter } from "./intake-exceptions-router.js";
+import { listIntakeAttemptsPage } from "./store.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -4825,6 +4827,11 @@ app.get("/oauth/wrike/callback", async (req, res) => {
 });
 
 app.use("/api", requirePathfinderAuth);
+app.use("/api", createIntakeExceptionsRouter({
+  enabled: process.env.PATHFINDER_ENABLE_INTAKE_EXCEPTIONS === "true",
+  customer_ids: (process.env.PATHFINDER_INTAKE_EXCEPTIONS_CUSTOMER_IDS ?? "").split(",").map((value) => value.trim()).filter(Boolean),
+  list: listIntakeAttemptsPage
+}));
 app.use("/api/proof", createProofAdminRouter());
 
 function preserveWrikeSecret(nextValue: unknown, existingValue: string | undefined) {
