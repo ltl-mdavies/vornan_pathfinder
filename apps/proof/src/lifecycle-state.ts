@@ -45,8 +45,6 @@ export function proofStatePresentation(state: ProofState) {
 
 export function proofOrderHealthMessage(health: ProofOrder["health"]) {
   switch (health) {
-    case "stale":
-      return "Showing the last synchronized proof packet while Vornan retrieves the latest details.";
     case "missing":
       return "This order is temporarily unavailable in Lift. Previously synchronized proof files remain visible for reference.";
     case "error":

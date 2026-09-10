@@ -65,7 +65,7 @@ test("distinguishes customer approvals from retained production references", () 
 });
 
 test("provides customer-safe cached packet explanations for degraded order health", () => {
-  assert.match(proofOrderHealthMessage("stale") ?? "", /last synchronized proof packet/i);
+  assert.equal(proofOrderHealthMessage("stale"), null);
   assert.match(proofOrderHealthMessage("missing") ?? "", /previously synchronized proof files remain visible/i);
   assert.match(proofOrderHealthMessage("error") ?? "", /available files remain visible/i);
   assert.equal(proofOrderHealthMessage("active"), null);
