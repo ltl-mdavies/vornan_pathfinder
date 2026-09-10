@@ -1,4 +1,4 @@
-import type { IntakeLedger } from "./intake-assurance.js";
+import type { IntakeAttempt, IntakeLedger } from "./intake-assurance.js";
 import { IntakeDeliveryConflictError, intakeDeliveryPayload, type IntakeDeliveryKind, type IntakeDeliveryLedger, type IntakeDeliveryPayload } from "./intake-delivery.js";
 import type { IntakeSweepFence } from "./intake-recovery-sweep.js";
 
@@ -7,6 +7,7 @@ export async function dispatchIntakeDelivery(args: {
   enabled: boolean; customer_id: string; attempt_id: string; kind: IntakeDeliveryKind;
   intake: IntakeLedger; receipts: IntakeDeliveryLedger;
   send: (payload: IntakeDeliveryPayload) => Promise<{ provider_message_id: string }>;
+  prepareTransport?: (payload: IntakeDeliveryPayload, attempt: IntakeAttempt) => Promise<(() => Promise<{ provider_message_id: string }>) | null>;
   canDispatch?: () => boolean; fence?: () => IntakeSweepFence; now?: () => Date;
 }) {
   if (!args.enabled) return { status: "disabled" as const };
@@ -31,14 +32,16 @@ export async function dispatchIntakeDelivery(args: {
   const timestamp = now();
   const payload = intakeDeliveryPayload(current, args.kind, timestamp);
   if (!payload) return { status: "cancelled" as const };
+  const preparedSend = args.prepareTransport ? await args.prepareTransport(payload, current) : () => args.send(payload);
+  if (!preparedSend) return { status: "blocked" as const };
   try {
-    receipt = await args.receipts.claim(receipt, current, timestamp, args.fence?.());
+    receipt = await args.receipts.claim(receipt, current, now(), args.fence?.());
   } catch (error) {
     if (error instanceof IntakeDeliveryConflictError) return { status: "conflict" as const };
     throw error;
   }
   try {
-    const result = await args.send(payload);
+    const result = await preparedSend();
     await args.receipts.acknowledge(receipt, result.provider_message_id, now());
     return { status: "sent" as const };
   } catch {

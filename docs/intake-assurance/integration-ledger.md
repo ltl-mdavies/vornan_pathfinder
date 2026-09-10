@@ -207,3 +207,34 @@ production smoke test.
 - No push, PR mutation, deployment, activation or provider call. Deployed SHA: none.
 - Local checkpoint: all 509 API tests and 142 web tests passed; updated durable
   pagination test passed separately, with all-workspace typecheck and whitespace.
+
+## Slice 10 — bounded Wrike customer correction
+
+- Main fetched before the slice and final review, unchanged at
+  `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`. Previous slice `2602700`;
+  no intervening changes or conflicts.
+- Adds a default-off scoped feedback event and concrete Wrike adapter using the
+  existing task/workflow verifier and single-POST comment adapter. Saved scope
+  lookup uses focused consistent workspace/Import Method reads; job/submit evidence
+  remains bounded. Only durable unmapped-product jobs qualify in this release.
+- Generic dispatch gains a pre-claim transport-preparation hook; receipt/intake/lease
+  conditions still guard the claim. Evidence is rechecked before verification,
+  before claim and after claim. All submit history, multiple jobs, corrected jobs,
+  wrong/inactive scope, read-only credentials and task/status mismatch suppress
+  customer feedback. Rotated credentials survive success and reported failures.
+- A separate source-feedback cursor and explicit comment cap retain the independent
+  observation/notification paths. Provider requests are individually bounded to
+  15 seconds. Uncertain outcomes block automatic replay; post-claim cancellation
+  can require manual review even if no comment was sent. No cross-system atomicity
+  or unobserved source-edit freshness guarantee is claimed.
+- Validation: 986 workspace tests passed (515 API in the full serial-file matrix
+  plus the final focused Dynamo scope/listing test; 470 other workspace tests),
+  17 browser regressions, 126 deployment-contract tests, all-workspace check/build,
+  API/Proof Lambda packaging and whitespace checks. Synthetic real-Lambda tests
+  mock all Wrike HTTP and secrets; one acknowledged comment is replay-suppressed.
+  The new browser test covers resolved-intake receipt visibility, pagination error
+  recovery and customer switching; its screenshot was visually inspected.
+- All gates remain off. No push, PR change, schedule, provisioning, deployment,
+  customer comment, SES message or Lift submission. Deployed SHA: none. Suggested
+  next steps and activation prerequisites are in sprint-slices.md, including audit
+  reconciliation for uncertain receipts and source-freshness/multi-workbook QA.

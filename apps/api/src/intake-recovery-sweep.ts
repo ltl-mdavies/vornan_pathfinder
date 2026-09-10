@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { IntakeAttempt, IntakeLedger } from "./intake-assurance.js";
 import { intakePageRequest, type IntakePage } from "./intake-exceptions.js";
 
-export interface IntakeSweepScope { customer_id: string; provider: string; connection_id: string; import_method_id: string; purpose?: "internal_notification" }
+export interface IntakeSweepScope { customer_id: string; provider: string; connection_id: string; import_method_id: string; purpose?: "internal_notification" | "source_feedback" }
 export interface IntakeSweepCheckpoint {
   schema_version: 1; sweep_id: string; scope: IntakeSweepScope; revision: number;
   cursor: string | null; pass_count: number; last_completed_at: string | null;
@@ -16,7 +16,7 @@ export class IntakeSweepLeaseLostError extends Error {
 export function intakeSweepId(scope: IntakeSweepScope) {
   const values = [scope.customer_id, scope.provider, scope.connection_id, scope.import_method_id];
   if (scope.purpose !== undefined) {
-    if (scope.purpose !== "internal_notification") throw new Error("Invalid intake sweep purpose");
+    if (!["internal_notification", "source_feedback"].includes(scope.purpose)) throw new Error("Invalid intake sweep purpose");
     values.push(scope.purpose);
   }
   if (values.some((value) => typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(value))) throw new Error("Invalid intake recovery scope");

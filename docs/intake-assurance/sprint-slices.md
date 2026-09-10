@@ -276,3 +276,51 @@ provider acknowledgement reference and uncertainty. Message bodies, payload hash
 and credentials are not exposed. Uncertain delivery explicitly requires provider
 review before retry; no retry, rearm or manual acknowledgement control is added.
 Pagination and loading/errors are independent of the unresolved-intake table.
+
+## Slice 10: default-off Wrike customer-feedback adapter
+
+A separate `PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK=true` gate controls the Lambda
+event `source: pathfinder.intake`, `detail-type: Wrike Intake Feedback`,
+`detail.automation: customer_correction`. Event payloads cannot select the tenant,
+connection, task or message. Explicit shared scope/SLA/sweep settings are required,
+including the snapshot record limit, plus `PATHFINDER_INTAKE_FEEDBACK_MAX_COMMENTS`
+(1–50 per invocation). The `source_feedback` cursor is separate from recovery and
+internal notifications. No schedule or flag is provisioned/enabled here.
+
+Only `unmapped_product` corrections currently have the required durable job
+evidence. The adapter requires exactly one matching task/connection job in the
+approved Import Method, the same linked job, `Needs Mapping` classification, no
+order and no submit history at all (including blocked transports). Other safe
+wording templates remain blocked pending equivalent source-evidence validation.
+The saved Import Method and connection must both be active, the saved scope must
+match, and the status label must be one of the approved hyphen/en-dash variants.
+Focused consistent Dynamo reads replace any workspace creation or tenant scan.
+
+Before a claim, the adapter verifies the exact current task/status via the existing
+Wrike workflow/task checker and persists rotated credentials. Durable job/submit
+evidence is checked again after verification and after the claim. The receipt
+claim remains conditional on intake/receipt revisions and the worker lease. The
+existing Wrike comment adapter makes one POST without automatic retries; individual
+provider requests are bounded to 15 seconds. Rotated credentials are preserved on
+success and reported failure. Missing acknowledgement or persistence failure
+leaves a visible uncertain receipt and blocks automatic replay. A post-claim
+preflight failure can likewise leave an unsent uncertain receipt for review.
+
+This is not an atomic transaction across Wrike, the job ledger and delivery.
+Changes after the final checks cannot cancel an in-flight comment. Source edits
+not yet reflected in the current job require freshness/multi-workbook QA before
+activation. The adapter does not classify new raw workbooks, retry an order,
+resubmit to Lift, repair success links or rearm a sent/uncertain channel.
+One automatic correction per channel/intake remains the conservative policy.
+
+### Suggested next steps after slices 9–10
+
+1. Add evidence-backed operator reconciliation for uncertain receipts, with audit
+   records and explicit authority; do not add a blind resend button.
+2. Finish freshness and multi-workbook/backfill validation, then extend customer
+   correction categories only where current evidence supports the classification.
+3. Integrate success-link repair through its existing writeback ledger and settle
+   repeat-follow-up/SLA policy, including how changed failure reasons are escalated.
+4. Review the accumulated local changes for a PR. Separately approve infrastructure,
+   IAM/SES/Wrike scopes and a bounded staged rollout; start with visibility and
+   observation, then internal notifications, then narrowly scoped customer feedback.

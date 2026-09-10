@@ -8793,3 +8793,27 @@ export async function listIntakeDeliveriesPage(customer: string, limit = 50, cur
   const receipts = records.slice(0, request.limit).map(validateIntakeDelivery);
   return { receipts, next_cursor: records.length > receipts.length ? deliveryPageCursor(customer, receipts.at(-1)!.receipt_id) : null };
 }
+
+/** Focused, read-only saved scope lookup; never creates a workspace or scans tenants. */
+export async function readWrikeIntakeFeedbackScope(scope: IntakeSweepScope) {
+  intakeSweepId(scope);
+  let workspace: PathfinderCustomerWorkspace | null;
+  let method: ImportMethod | null;
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const [workspaceResponse, methodResponse] = await Promise.all([
+      getDynamoClient().send(new GetItemCommand({ TableName: requireEnv("PATHFINDER_CUSTOMER_WORKSPACES_TABLE"), Key: { customer_id: dynamoString(scope.customer_id) }, ConsistentRead: true })),
+      getDynamoClient().send(new GetItemCommand({ TableName: requireEnv("PATHFINDER_IMPORT_METHODS_TABLE"), Key: { customer_id: dynamoString(scope.customer_id), import_method_id: dynamoString(scope.import_method_id) }, ConsistentRead: true }))
+    ]);
+    workspace = workspaceResponse.Item ? parseDynamoData<PathfinderCustomerWorkspace>(workspaceResponse.Item) : null;
+    const saved = methodResponse.Item ? parseDynamoData<ImportMethod & { customer_id: string }>(methodResponse.Item) : null;
+    if (saved && saved.customer_id !== scope.customer_id) throw new Error("Feedback scope tenant mismatch");
+    method = saved;
+  } else {
+    workspace = (await readStoreUncached()).workspaces[scope.customer_id] ?? null;
+    method = workspace?.import_methods.find(row => row.import_method_id === scope.import_method_id) ?? null;
+  }
+  if (!workspace || workspace.customer?.lift_customer_id !== scope.customer_id || !method || method.import_method_id !== scope.import_method_id) throw new Error("Feedback scope is unavailable");
+  const connection = workspace.source_connections.find(row => row.connection_id === scope.connection_id);
+  if (!connection) throw new Error("Feedback connection is unavailable");
+  return { customer_id: scope.customer_id, connection, method };
+}

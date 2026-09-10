@@ -175,3 +175,13 @@ to the fixed internal recipient. Customer-feedback transport is still injected
 only, and successful-order Status-link repair retains its existing ledger. See
 `sprint-slices.md` for the conservative one-message-per-channel policy, receipt
 uncertainty limitations and activation prerequisites. Nothing has been enabled.
+
+## Visibility and Wrike feedback update (slices 9–10)
+
+The gated Exceptions view now includes independent read-only delivery receipts,
+so uncertain sends remain visible after intake resolution. The Wrike correction
+adapter has a separate default-off gate, scoped saved configuration, bounded
+requests and durable preflight/claim checks. Only existing unmapped-product jobs
+currently qualify; all other correction templates await stronger evidence checks.
+No new capability has been activated. See `sprint-slices.md` for rollout limits,
+source-freshness caveats and recommended remaining work.
