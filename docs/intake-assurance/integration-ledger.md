@@ -192,3 +192,18 @@ production smoke test.
   provisioning, push, PR change, deployment, customer comment, SES message or Lift
   submission. Deployed SHA: none. Operator receipt review, customer-feedback
   adapter, repeat-follow-up policy and explicit rollout approval remain future work.
+
+## Slice 9 — operator receipt visibility
+
+- Main refreshed before work, unchanged at `ae7ba0a9d76fabcd6523b363e46fc17143e91c1d`;
+  previous local slice `5359011`. No intervening production changes/conflicts.
+- Adds bounded receipt enumeration, safe read projection and authenticated,
+  customer-allowlisted route under the existing default-off Exceptions gate.
+  A separate read-only UI table retains uncertainty after intake resolution.
+  No resend/reconciliation mutation or messaging capability added to the UI.
+- Tests cover cursor/tenant isolation, disabled/no-read behavior, sanitized errors,
+  safe UI wording/escaping and durable pagination. All-workspace typecheck and
+  focused route/store tests passed; complete matrix follows the adapter slice.
+- No push, PR mutation, deployment, activation or provider call. Deployed SHA: none.
+- Local checkpoint: all 509 API tests and 142 web tests passed; updated durable
+  pagination test passed separately, with all-workspace typecheck and whitespace.

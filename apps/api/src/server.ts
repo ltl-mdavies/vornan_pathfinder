@@ -1,6 +1,6 @@
 import cors from "cors";
 import { createIntakeExceptionsRouter } from "./intake-exceptions-router.js";
-import { intakeLedger, listIntakeAttemptsPage, readStore } from "./store.js";
+import { intakeLedger, listIntakeAttemptsPage, listIntakeDeliveriesPage, readStore } from "./store.js";
 import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, wrapWrikeAssurancePreparation } from "./wrike-assurance-coordinator.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
@@ -4831,7 +4831,8 @@ app.use("/api", requirePathfinderAuth);
 app.use("/api", createIntakeExceptionsRouter({
   enabled: process.env.PATHFINDER_ENABLE_INTAKE_EXCEPTIONS === "true",
   customer_ids: (process.env.PATHFINDER_INTAKE_EXCEPTIONS_CUSTOMER_IDS ?? "").split(",").map((value) => value.trim()).filter(Boolean),
-  list: listIntakeAttemptsPage
+  list: listIntakeAttemptsPage,
+  listDeliveries: listIntakeDeliveriesPage
 }));
 app.use("/api/proof", createProofAdminRouter());
 

@@ -265,3 +265,14 @@ repair. Next work is operator visibility/reconciliation for uncertain deliveries
 the customer-feedback adapter and carefully reviewed repeat-follow-up policy.
 Activation still requires explicit approval, production IAM/SES and scope review,
 SLA/cap/lease/schedule choices, and synthetic-to-production rollout validation.
+
+## Slice 9: operator receipt visibility
+
+The existing authenticated, customer-allowlisted Exceptions gate now also covers
+`GET /api/customers/:customerId/intake-deliveries`. It enumerates the separate
+receipt partition in bounded, tenant-bound pages. Receipts remain visible even
+when their intake request is resolved. The read-only UI shows channel, attempt,
+provider acknowledgement reference and uncertainty. Message bodies, payload hashes
+and credentials are not exposed. Uncertain delivery explicitly requires provider
+review before retry; no retry, rearm or manual acknowledgement control is added.
+Pagination and loading/errors are independent of the unresolved-intake table.

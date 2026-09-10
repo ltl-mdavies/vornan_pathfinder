@@ -1,14 +1,32 @@
 import { Router } from "express";
 import { buildIntakeExceptionsPage, IntakeQueryError, type IntakePage } from "./intake-exceptions.js";
+import { buildIntakeDeliveryPage, deliveryPageRequest, type IntakeDeliveryPage } from "./intake-delivery-view.js";
 
 /** Mount behind Pathfinder's existing /api authentication middleware. */
 export function createIntakeExceptionsRouter(args: {
   enabled: boolean;
   customer_ids: string[];
   list: (customerId: string, limit: number, cursor?: string) => Promise<IntakePage>;
+  listDeliveries?: (customerId: string, limit: number, cursor?: string) => Promise<IntakeDeliveryPage>;
   now?: () => Date;
 }) {
   const router = Router();
+  router.get("/customers/:customerId/intake-deliveries", async (req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    if (!args.enabled || !args.customer_ids.includes(req.params.customerId) || !args.listDeliveries) {
+      res.status(423).json({ error: "Intake delivery visibility is disabled for this customer." }); return;
+    }
+    try {
+      if ((req.query.limit !== undefined && (typeof req.query.limit !== "string" || !/^[1-9][0-9]{0,2}$/.test(req.query.limit))) ||
+        (req.query.cursor !== undefined && typeof req.query.cursor !== "string")) throw new IntakeQueryError("Invalid delivery query");
+      const limit = req.query.limit === undefined ? 50 : Number(req.query.limit);
+      const cursor = req.query.cursor as string | undefined;
+      deliveryPageRequest(req.params.customerId, limit, cursor);
+      res.json(buildIntakeDeliveryPage(await args.listDeliveries(req.params.customerId, limit, cursor), req.params.customerId));
+    } catch (error) {
+      res.status(error instanceof IntakeQueryError ? 400 : 503).json({ error: error instanceof IntakeQueryError ? "Invalid delivery page request." : "Intake delivery visibility is temporarily unavailable." });
+    }
+  });
   router.get("/customers/:customerId/intake-exceptions", async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     if (!args.enabled || !args.customer_ids.includes(req.params.customerId)) {

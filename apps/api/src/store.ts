@@ -8772,3 +8772,24 @@ export const intakeDeliveryLedger: IntakeDeliveryLedger = {
   claim: async (receipt, attempt, now, fence) => persistIntakeDelivery(receipt, claimIntakeDelivery(receipt, attempt, now), attempt, fence),
   acknowledge: async (receipt, id, now) => persistIntakeDelivery(receipt, acknowledgeIntakeDelivery(receipt, id, now))
 };
+
+/** Receipt listing is independent of intake state, so resolved requests cannot hide uncertain delivery. */
+export async function listIntakeDeliveriesPage(customer: string, limit = 50, cursor?: string) {
+  const { deliveryPageRequest, deliveryPageCursor } = await import("./intake-delivery-view.js");
+  const request = deliveryPageRequest(customer, limit, cursor);
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const partition = `intake-delivery#${customer}`;
+    const response = await getDynamoClient().send(new QueryCommand({ TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), ConsistentRead: true,
+      KeyConditionExpression: "customer_id = :customer", ExpressionAttributeValues: { ":customer": dynamoString(partition) }, Limit: request.limit,
+      ...(request.after ? { ExclusiveStartKey: { customer_id: dynamoString(partition), attempt_id: dynamoString(request.after) } } : {}) }));
+    const receipts = (response.Items ?? []).map(item => validateIntakeDelivery(parseDynamoData(item)));
+    if (receipts.some(row => row.customer_id !== customer)) throw new Error("Delivery tenant mismatch");
+    const after = response.LastEvaluatedKey?.attempt_id?.S;
+    if (response.LastEvaluatedKey && !/^delivery_[a-f0-9]{64}$/.test(after ?? "")) throw new Error("Invalid delivery continuation");
+    return { receipts, next_cursor: after ? deliveryPageCursor(customer, after) : null };
+  }
+  const records = Object.values((await readStoreUncached()).intake_deliveries ?? {}).filter(row => row.customer_id === customer && (!request.after || row.receipt_id > request.after))
+    .sort((a, b) => a.receipt_id.localeCompare(b.receipt_id));
+  const receipts = records.slice(0, request.limit).map(validateIntakeDelivery);
+  return { receipts, next_cursor: records.length > receipts.length ? deliveryPageCursor(customer, receipts.at(-1)!.receipt_id) : null };
+}

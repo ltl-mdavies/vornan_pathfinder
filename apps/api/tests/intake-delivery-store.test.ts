@@ -40,6 +40,14 @@ test("local receipts survive restart, claim once and reject a changed intake rev
       assert.equal(sent.state, 'sent');
       assert.equal(await ledger.get('other', original.attempt_id, 'source_feedback'), null);
     `);
-    run(`assert.equal((await ledger.get('synthetic', original.attempt_id, 'source_feedback')).provider_message_id, 'provider-id');`);
+    run(`assert.equal((await ledger.get('synthetic', original.attempt_id, 'source_feedback')).provider_message_id, 'provider-id');
+      await ledger.prepare(original, 'internal_notification', '2026-09-10T12:00:00Z');
+      const first = await store.listIntakeDeliveriesPage('synthetic', 1);
+      assert.equal(first.receipts.length, 1); assert.ok(first.next_cursor);
+      const second = await store.listIntakeDeliveriesPage('synthetic', 1, first.next_cursor);
+      assert.equal(second.receipts.length, 1); assert.equal(second.next_cursor, null);
+      assert.notEqual(first.receipts[0].receipt_id, second.receipts[0].receipt_id);
+      await assert.rejects(store.listIntakeDeliveriesPage('other', 1, first.next_cursor));
+      assert.equal((await store.listIntakeDeliveriesPage('other')).receipts.length, 0);`);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { pathfinderFetch as fetch } from "./api-client";
+import { IntakeDeliveries } from "./IntakeDeliveries";
 
 export interface IntakeExceptionRow {
   attempt_id: string;
@@ -67,5 +68,6 @@ export function IntakeExceptions({ customerId, apiBaseUrl }: { customerId: strin
     {rows.length ? <IntakeExceptionsTable rows={rows} /> : null}
     {cursor ? <button type="button" disabled={busy} onClick={() => void load(cursor, false)}>Load more requests</button> : null}
     {rows.length ? <p>{rows.length} exceptions loaded{cursor ? "; more requests available" : ""}.</p> : null}
+    <IntakeDeliveries key={customerId} customerId={customerId} apiBaseUrl={apiBaseUrl} />
   </section>;
 }
