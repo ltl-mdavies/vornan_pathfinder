@@ -51,8 +51,10 @@ evidence; a per-dispatch limit alone does not bound a multi-attempt sweep's dura
 
 Live Support reviewed exact source head `e747da1` and confirmed that this closes
 the aggregate-budget engineering condition, with no source-merge blocker.
-Development review remains pending; production sizing and activation holds above
-remain in force. No production action accompanied the review.
+Development also reviewed exact source head `e747da1`, returned source-merge GO
+and confirmed the engineering condition closed. Current PR-head CI must pass
+before merge. Production sizing and activation holds above remain in force.
+No production action accompanied either review.
 
 ## Task re-entry: next engineering slice
 
