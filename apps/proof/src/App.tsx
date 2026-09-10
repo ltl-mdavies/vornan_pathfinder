@@ -34,6 +34,7 @@ import {
   PROOF_BACKGROUND_POLL_INTERVAL_MS,
   PROOF_BACKGROUND_POLL_LIMIT,
   proofBackgroundCheckAllowed,
+  proofBackgroundPollAllowed,
   proofBackgroundLiftRefreshDue
 } from "./background-refresh-state";
 import { demoActivityForHash, demoOrderForHash } from "./demo";
@@ -52,6 +53,7 @@ import {
 } from "./queue-state";
 import { isOpenProofState, proofOrderCompletion, proofOrderHealthMessage, proofStatePresentation } from "./lifecycle-state";
 import { ProofPreview } from "./proof-preview";
+import { preserveDisplayedHistoryAssets, preserveDisplayedProofAssets, proofOrderContentIdentity } from "./proof-refresh-continuity";
 import { DetailedReportButton } from "./detailed-report-button";
 import { isLiftProofUpdatedError, PROOF_UPDATED_MESSAGE, replacementProofTaskId } from "./proof-update-state";
 import { RevisionUploadDialog } from "./revision-upload-dialog";
@@ -510,6 +512,7 @@ type ActionTransportProps = {
   onSaveDraft: (draft: SavedQuantityDraft) => void;
   demoBatchEnabled: boolean;
   decisionsEnabled: boolean;
+  freshnessBlocked: string | null;
   reviewExperience: "simple" | "advanced";
   revisionUploadEnabled: boolean;
   participantIdentified: boolean;
@@ -693,7 +696,7 @@ function ChangeRequestDialog({ open, task, note, productionBlocked, uploadBlocke
   );
 }
 
-function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, reviewExperience, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestChanges, onRequestRevision, mobile = false }: ActionTransportProps) {
+function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, freshnessBlocked, reviewExperience, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestChanges, onRequestRevision, mobile = false }: ActionTransportProps) {
   const actionableTasks = tasks.filter((task) => task.state === "pending" && task.current_version?.current);
   const multiProof = usesAdvancedQuantityAllocation(actionableTasks.length, reviewExperience);
   const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
@@ -755,6 +758,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   };
   const singleApprovalBlocked = !decisionsEnabled
     ? "Approval access is not enabled for this review link."
+    : freshnessBlocked
+      ? freshnessBlocked
     : !participantIdentified
       ? "Identify the reviewer before approving this proof."
       : actionableTasks.length > 1 && reviewExperience === "simple"
@@ -781,6 +786,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   }, [selectedTask.task_id]);
   const productionChangeRequestBlocked = !decisionsEnabled
     ? "Change requests are not enabled for this review link."
+    : freshnessBlocked
+      ? freshnessBlocked
     : !participantIdentified
       ? "Identify the reviewer before requesting changes."
       : actionableTasks.length > 1 && reviewExperience === "simple"
@@ -797,6 +804,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   const changeRequestBlocked = productionChangeRequestBlocked ?? (!changeRequestNote.trim() ? "Describe the changes the prepress team should make." : null);
   const revisionUploadBlocked = !revisionUploadEnabled
     ? "Revised artwork upload is not enabled for this review link."
+    : freshnessBlocked
+      ? freshnessBlocked
     : !participantIdentified
       ? "Identify the reviewer before providing revised artwork."
       : actionableTasks.length > 1 && reviewExperience === "simple"
@@ -808,9 +817,9 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         : selectedTask.state !== "pending" || !selectedTask.attachment_id || !selectedTask.current_version?.version_id
           ? "This proof is not currently available for replacement artwork."
           : null;
-  const changeRequestEntryBlocked = productionChangeRequestBlocked && revisionUploadBlocked
+  const changeRequestEntryBlocked = freshnessBlocked ?? (productionChangeRequestBlocked && revisionUploadBlocked
     ? "This proof is not currently available for a change request."
-    : null;
+    : null);
   const completedDecision = singleApprovalState === "complete"
     ? { title: "Proof approved", detail: singleApprovalMessage ?? "Approval recorded." }
     : changeRequestState === "complete"
@@ -905,7 +914,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
               {selectedIsStaged ? <span className="staged-status"><CheckCircle2 aria-hidden="true" /> Ready to submit</span> : null}
               {selectedIsStaged
                 ? <button className="button tertiary" type="button" onClick={undoSelectedApproval}>Undo</button>
-                : <button className="button primary" type="button" onClick={() => onStageApproval(selectedTask.task_id)}><ShieldCheck aria-hidden="true" /> Approve this creative</button>}
+                : <button className="button primary" type="button" disabled={Boolean(freshnessBlocked)} title={freshnessBlocked ?? undefined} onClick={() => onStageApproval(selectedTask.task_id)}><ShieldCheck aria-hidden="true" /> Approve this creative</button>}
               <button className="button secondary request-changes" type="button" disabled title="Multiple-proof revision requests require coordinated support."><Upload aria-hidden="true" /> Request changes</button>
             </span>
           </div>
@@ -926,7 +935,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
               className="button secondary"
               type="button"
               data-quantity-assignment-trigger
-              disabled={stagedTasks.length === 0}
+              disabled={stagedTasks.length === 0 || Boolean(freshnessBlocked)}
               onClick={() => summary.complete && demoBatchEnabled ? setBatchStage("confirm") : setAssignmentOpen(true)}
             >
               {summary.complete && demoBatchEnabled ? "Review approvals" : "Assign quantities"}
@@ -1085,6 +1094,7 @@ export function App() {
   const [stagedApprovals, setStagedApprovals] = useState<Record<string, string[]>>({});
   const [refreshState, setRefreshState] = useState<RefreshState>("idle");
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [backgroundRefreshPending, setBackgroundRefreshPending] = useState(false);
   const [detailDialog, setDetailDialog] = useState<DetailDialog | null>(null);
   const [revisionUploadTaskId, setRevisionUploadTaskId] = useState<string | null>(null);
   const [identityOpen, setIdentityOpen] = useState(false);
@@ -1113,6 +1123,9 @@ export function App() {
   const backgroundCheckInFlight = useRef(false);
   const backgroundPollTimer = useRef<number | null>(null);
   const backgroundLastRequestedAt = useRef(0);
+  const backgroundRefreshPendingRef = useRef(false);
+  const refreshBaselineIdentity = useRef<string | null>(null);
+  const refreshOutcomeTimer = useRef<number | null>(null);
   const approvalIdempotencyKeys = useRef(new Map<string, string>());
   const changeRequestIdempotencyKeys = useRef(new Map<string, string>());
   const loadStateRef = useRef(loadState);
@@ -1120,6 +1133,7 @@ export function App() {
   const selectedTaskIdRef = useRef(selectedTaskId);
   loadStateRef.current = loadState;
   refreshStateRef.current = refreshState;
+  backgroundRefreshPendingRef.current = backgroundRefreshPending;
   selectedTaskIdRef.current = selectedTaskId;
 
   const endLocalSession = () => {
@@ -1137,12 +1151,15 @@ export function App() {
   };
 
   function applyProofLoad(result: ProofLoad) {
-    const previous = loadStateRef.current.status === "ready"
-      ? loadStateRef.current.order.tasks.find((task) => task.task_id === selectedTaskIdRef.current) ?? null
+    const previousState = loadStateRef.current;
+    const previousOrder = previousState.status === "ready" ? previousState.order : null;
+    const previous = previousOrder
+      ? previousOrder.tasks.find((task) => task.task_id === selectedTaskIdRef.current) ?? null
       : null;
+    const order = preserveDisplayedProofAssets(previousOrder, result.order);
     const nextState: LoadState = {
       status: "ready",
-      order: result.order,
+      order,
       participant: result.participant,
       activity: result.activity,
       session_expires_at: result.session_expires_at
@@ -1150,9 +1167,48 @@ export function App() {
     loadStateRef.current = nextState;
     setLoadState(nextState);
     setSelectedTaskId((current) => {
-      if (current && result.order.tasks.some((task) => task.task_id === current)) return current;
-      return previous ? replacementProofTaskId(result.order, previous) : result.order.tasks[0]?.task_id ?? null;
+      if (current && order.tasks.some((task) => task.task_id === current)) return current;
+      return previous ? replacementProofTaskId(order, previous) : order.tasks[0]?.task_id ?? null;
     });
+    return order;
+  }
+
+  function setBackgroundRefresh(value: boolean) {
+    backgroundRefreshPendingRef.current = value;
+    setBackgroundRefreshPending(value);
+  }
+
+  function beginProofVerification(order: ProofOrder, background = false) {
+    refreshBaselineIdentity.current ??= proofOrderContentIdentity(order);
+    setRefreshMessage(null);
+    if (background) setBackgroundRefresh(true);
+  }
+
+  function showRefreshOutcome(message: string | null) {
+    if (refreshOutcomeTimer.current !== null) window.clearTimeout(refreshOutcomeTimer.current);
+    setRefreshMessage(message);
+    if (!message) return;
+    refreshOutcomeTimer.current = window.setTimeout(() => {
+      refreshOutcomeTimer.current = null;
+      setRefreshMessage(null);
+    }, 4_000);
+  }
+
+  function finishProofVerification(order: ProofOrder) {
+    const baseline = refreshBaselineIdentity.current;
+    refreshBaselineIdentity.current = null;
+    setBackgroundRefresh(false);
+    refreshStateRef.current = "idle";
+    setRefreshState("idle");
+    showRefreshOutcome(baseline && baseline !== proofOrderContentIdentity(order) ? "Proof updated" : null);
+  }
+
+  function failProofVerification() {
+    refreshBaselineIdentity.current = null;
+    setBackgroundRefresh(false);
+    refreshStateRef.current = "error";
+    setRefreshState("error");
+    setRefreshMessage(null);
   }
 
   function applyCompletedAction(result: ProofLoad, task: ProofTask, outcome: ActionOutcomeNotice) {
@@ -1181,8 +1237,7 @@ export function App() {
   function scheduleRefreshReload() {
     if (refreshPollTimer.current !== null) return;
     if (refreshPollAttempts.current >= 12) {
-      setRefreshState("error");
-      setRefreshMessage("Fresh proof details are taking longer than expected. Select refresh to check again.");
+      failProofVerification();
       return;
     }
     refreshPollAttempts.current += 1;
@@ -1206,16 +1261,16 @@ export function App() {
     bootstrapPromise ??= bootstrap();
     bootstrapPromise.then(
       (result) => {
-        applyProofLoad(result);
+        const order = applyProofLoad(result);
         const { refresh_queued: refreshQueued } = result;
         if (refreshQueued) {
+          beginProofVerification(order);
+          refreshStateRef.current = "queued";
           setRefreshState("queued");
-          setRefreshMessage("Getting fresh artwork links from Lift. This page will update automatically.");
           scheduleRefreshReload();
         } else if (silent) {
           refreshPollAttempts.current = 0;
-          setRefreshState("idle");
-          setRefreshMessage("Proof details checked. The latest available version is shown.");
+          finishProofVerification(order);
         } else {
           refreshPollAttempts.current = 0;
         }
@@ -1231,8 +1286,7 @@ export function App() {
         }
         const message = error instanceof Error ? error.message : "Proof access is unavailable.";
         if (silent) {
-          setRefreshState("error");
-          setRefreshMessage(`The latest check could not be loaded. Your cached proof packet remains available. ${message}`);
+          failProofVerification();
           return;
         }
         setLoadState({ status: "error", kind: "link_unavailable", message });
@@ -1248,23 +1302,33 @@ export function App() {
   }
 
   function scheduleBackgroundReload(previousSyncedAt: string, attempt = 0) {
-    if (backgroundPollTimer.current !== null || attempt >= PROOF_BACKGROUND_POLL_LIMIT) return;
+    if (backgroundPollTimer.current !== null) return;
+    if (attempt >= PROOF_BACKGROUND_POLL_LIMIT) {
+      failProofVerification();
+      return;
+    }
     backgroundPollTimer.current = window.setTimeout(async () => {
       backgroundPollTimer.current = null;
-      if (!proofBackgroundCheckAllowed({
+      if (!proofBackgroundPollAllowed({
         visible: document.visibilityState === "visible",
         ready: loadStateRef.current.status === "ready",
-        in_flight: backgroundCheckInFlight.current,
-        refresh_state: refreshStateRef.current
-      })) return;
+        in_flight: backgroundCheckInFlight.current
+      })) {
+        setBackgroundRefresh(false);
+        return;
+      }
       backgroundCheckInFlight.current = true;
       try {
         const result = await loadProofInBackground();
         if (result.order.last_synced_at === previousSyncedAt) {
           scheduleBackgroundReload(previousSyncedAt, attempt + 1);
+        } else {
+          const next = loadStateRef.current;
+          if (next.status === "ready") finishProofVerification(next.order);
         }
       } catch (error) {
         if (error instanceof ProofApiError && error.status === 401) terminateSession();
+        else failProofVerification();
       } finally {
         backgroundCheckInFlight.current = false;
       }
@@ -1277,6 +1341,7 @@ export function App() {
       visible: document.visibilityState === "visible",
       ready: current.status === "ready",
       in_flight: backgroundCheckInFlight.current,
+      refreshing: backgroundRefreshPendingRef.current,
       refresh_state: refreshStateRef.current
     }) || current.status !== "ready") return;
 
@@ -1288,37 +1353,48 @@ export function App() {
         last_requested_at: backgroundLastRequestedAt.current,
         now
       })) {
+        beginProofVerification(current.order, true);
         await requestProofRefresh();
         backgroundLastRequestedAt.current = now;
         scheduleBackgroundReload(current.order.last_synced_at);
         return;
       }
       const result = await loadProofInBackground();
-      if (result.refresh_queued) scheduleBackgroundReload(current.order.last_synced_at);
+      if (result.refresh_queued) {
+        const next = loadStateRef.current;
+        if (next.status === "ready") beginProofVerification(next.order, true);
+        scheduleBackgroundReload(current.order.last_synced_at);
+      } else if (refreshBaselineIdentity.current) {
+        const next = loadStateRef.current;
+        if (next.status === "ready") finishProofVerification(next.order);
+      }
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) terminateSession();
+      else if (backgroundRefreshPendingRef.current) failProofVerification();
     } finally {
       backgroundCheckInFlight.current = false;
     }
   }
 
   const refresh = async () => {
-    if (refreshState === "requesting" || refreshState === "queued") return;
+    if (refreshState === "requesting" || refreshState === "queued" || backgroundRefreshPendingRef.current) return;
+    const current = loadStateRef.current;
+    if (current.status !== "ready") return;
+    beginProofVerification(current.order);
+    refreshStateRef.current = "requesting";
     setRefreshState("requesting");
-    setRefreshMessage("Requesting the latest proof details…");
     try {
       if (!demoEnabled) await requestProofRefresh();
       refreshPollAttempts.current = 0;
+      refreshStateRef.current = "queued";
       setRefreshState("queued");
-      setRefreshMessage("Refresh queued. You can keep reviewing while Vornan checks Lift for updates.");
       scheduleRefreshReload();
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
         terminateSession();
         return;
       }
-      setRefreshState("error");
-      setRefreshMessage(error instanceof Error ? error.message : "Proof refresh could not be requested.");
+      failProofVerification();
     }
   };
 
@@ -1327,6 +1403,7 @@ export function App() {
   useEffect(() => () => {
     if (refreshPollTimer.current !== null) window.clearTimeout(refreshPollTimer.current);
     if (backgroundPollTimer.current !== null) window.clearTimeout(backgroundPollTimer.current);
+    if (refreshOutcomeTimer.current !== null) window.clearTimeout(refreshOutcomeTimer.current);
   }, []);
 
   useEffect(() => {
@@ -1414,7 +1491,12 @@ export function App() {
     selectedTask?.versions.find((version) => version.version_id === selectedVersionId) ?? selectedTask?.current_version ?? null;
   const selectedAsset = proofAsset(selectedVersion);
   const showHighResolutionFormatInfo = highResolutionFormatDiffers(selectedVersion?.filename, selectedAsset.display_kind);
-  const artworkRefreshing = refreshState === "requesting" || refreshState === "queued";
+  const artworkRefreshing = refreshState === "requesting" || refreshState === "queued" || backgroundRefreshPending;
+  const freshnessBlocked = refreshState === "error"
+    ? "Vornan could not confirm the latest proof version. Try the update check again before taking a review action."
+    : artworkRefreshing
+      ? "Vornan is checking for proof updates. Review actions will resume automatically."
+      : null;
   const completion = order ? proofOrderCompletion(order) : null;
   const completionEmpty = Boolean(completion && filter === "open" && !searchQuery.trim());
   const emptyState = completionEmpty ? completion : order ? queueEmptyMessage(filter, order.tasks, searchQuery) : null;
@@ -1577,7 +1659,16 @@ export function App() {
     setHistoryByTask((current) => ({ ...current, [taskId]: { status: "loading", versions: current[taskId]?.versions ?? cached } }));
     try {
       const history = demoEnabled ? { task_id: taskId, versions: cached } : await loadProofHistory(taskId);
-      setHistoryByTask((current) => ({ ...current, [taskId]: { status: "ready", versions: history.versions } }));
+      const preserveAssets = loadStateRef.current.status === "ready" && loadStateRef.current.order.health === "stale";
+      setHistoryByTask((current) => ({
+        ...current,
+        [taskId]: {
+          status: "ready",
+          versions: preserveAssets
+            ? preserveDisplayedHistoryAssets(current[taskId]?.versions ?? cached, history.versions)
+            : history.versions
+        }
+      }));
     } catch (error) {
       if (error instanceof ProofApiError && error.status === 401) {
         terminateSession();
@@ -1812,6 +1903,13 @@ export function App() {
       </section>
 
       <div className="notice-stack">
+        {refreshState === "error" ? (
+          <div className="order-health-notice refresh-error-notice" role="alert">
+            <AlertTriangle aria-hidden="true" />
+            <span><strong>We couldn’t check for updates.</strong> Your last synced proofs remain visible; review actions are temporarily paused.</span>
+            <button className="button secondary compact" type="button" onClick={() => void refresh()}>Try again</button>
+          </div>
+        ) : null}
         {orderHealthMessage ? (
           <div className={`order-health-notice ${order!.health}`} role="status">
             <AlertTriangle aria-hidden="true" />
@@ -1840,17 +1938,20 @@ export function App() {
               <span className="eyebrow">Proof queue</span>
               <h2>{visibleGroups.length} {visibleGroups.length === 1 ? "line" : "lines"}</h2>
             </div>
-            <button
-              className={`icon-button subtle ${refreshState === "requesting" ? "refreshing" : ""}`}
-              type="button"
-              aria-label="Request latest proof details"
-              disabled={refreshState === "requesting" || refreshState === "queued"}
-              onClick={() => void refresh()}
-            >
-              <RefreshCw aria-hidden="true" />
-            </button>
+            <div className="queue-refresh-actions">
+              {artworkRefreshing ? <span className="proof-sync-status" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" />Checking for proof updates…</span> : null}
+              {refreshMessage && refreshState === "idle" ? <span className="proof-sync-status complete" role="status" aria-live="polite"><CheckCircle2 aria-hidden="true" />{refreshMessage}</span> : null}
+              <button
+                className="icon-button subtle"
+                type="button"
+                aria-label="Request latest proof details"
+                disabled={artworkRefreshing}
+                onClick={() => void refresh()}
+              >
+                <RefreshCw aria-hidden="true" />
+              </button>
+            </div>
           </div>
-          {refreshMessage ? <p className={`refresh-status ${refreshState}`} role="status">{refreshMessage}</p> : null}
           <div className="segmented" role="group" aria-label="Filter proof queue">
             {(["open", "all", "approved"] as QueueFilter[]).map((value) => (
               <button key={value} type="button" aria-pressed={filter === value} onClick={() => changeFilter(value)}>{queueFilterLabel(value)}</button>
@@ -1900,8 +2001,6 @@ export function App() {
           id="proof-detail"
           tabIndex={0}
           aria-label="Selected proof details"
-          aria-live="polite"
-          aria-atomic="false"
         >
           {selectedTask ? (
             <>
@@ -1959,6 +2058,7 @@ export function App() {
                 onSaveDraft={(draft) => saveQuantityReview(selectedGroup?.group_id ?? selectedTask.task_id, draft)}
                 demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
                 decisionsEnabled={order!.access.decisions_enabled}
+                freshnessBlocked={freshnessBlocked}
                 reviewExperience={order!.access.review_experience}
                 revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                 participantIdentified={Boolean(participant)}
@@ -1982,15 +2082,19 @@ export function App() {
         <div className="mobile-dock">
           <div className="mobile-dock-heading">
             <div><span className="eyebrow">Proof inbox</span><strong>{visibleGroups.length} {visibleGroups.length === 1 ? "line" : "lines"}</strong></div>
-            <button
-              className={`icon-button subtle ${refreshState === "requesting" ? "refreshing" : ""}`}
-              type="button"
-              aria-label="Request latest proof details"
-              disabled={refreshState === "requesting" || refreshState === "queued"}
-              onClick={() => void refresh()}
-            >
-              <RefreshCw aria-hidden="true" />
-            </button>
+            <div className="queue-refresh-actions">
+              {artworkRefreshing ? <span className="proof-sync-status" role="status" aria-live="polite"><span className="spinner" aria-hidden="true" />Checking for updates…</span> : null}
+              {refreshMessage && refreshState === "idle" ? <span className="proof-sync-status complete" role="status" aria-live="polite"><CheckCircle2 aria-hidden="true" />{refreshMessage}</span> : null}
+              <button
+                className="icon-button subtle"
+                type="button"
+                aria-label="Request latest proof details"
+                disabled={artworkRefreshing}
+                onClick={() => void refresh()}
+              >
+                <RefreshCw aria-hidden="true" />
+              </button>
+            </div>
           </div>
           <div className="segmented" role="group" aria-label="Filter mobile proof feed">
             {(["open", "all", "approved"] as QueueFilter[]).map((value) => (
@@ -1998,7 +2102,6 @@ export function App() {
             ))}
           </div>
           <QueueSearch value={searchQuery} onChange={changeSearch} />
-          {refreshMessage ? <p className={`refresh-status ${refreshState}`} role="status">{refreshMessage}</p> : null}
         </div>
 
         <div className="mobile-feed">
@@ -2044,6 +2147,7 @@ export function App() {
                   onSaveDraft={(draft) => saveQuantityReview(group.group_id, draft)}
                   demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
                   decisionsEnabled={order!.access.decisions_enabled}
+                  freshnessBlocked={freshnessBlocked}
                   reviewExperience={order!.access.review_experience}
                   revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                   participantIdentified={Boolean(participant)}

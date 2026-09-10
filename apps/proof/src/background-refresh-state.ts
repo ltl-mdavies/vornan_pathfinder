@@ -8,13 +8,23 @@ export function proofBackgroundCheckAllowed(input: {
   visible: boolean;
   ready: boolean;
   in_flight: boolean;
+  refreshing?: boolean;
   refresh_state: "idle" | "requesting" | "queued" | "error";
 }) {
   return input.visible &&
     input.ready &&
     !input.in_flight &&
+    !input.refreshing &&
     input.refresh_state !== "requesting" &&
     input.refresh_state !== "queued";
+}
+
+export function proofBackgroundPollAllowed(input: {
+  visible: boolean;
+  ready: boolean;
+  in_flight: boolean;
+}) {
+  return input.visible && input.ready && !input.in_flight;
 }
 
 export function proofBackgroundLiftRefreshDue(input: {
