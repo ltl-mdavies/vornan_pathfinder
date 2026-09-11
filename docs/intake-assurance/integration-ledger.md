@@ -595,3 +595,16 @@ production smoke test.
   Corrected-head independent review is required before merge.
 - Corrected validation: all 567 API tests, 137 deployment contract tests,
   all-workspace typecheck/build and whitespace checks passed.
+
+## Independent corrected capture-configuration review — source head e254252
+
+- Development and Live Support independently reviewed exact corrected source head
+  `e254252f442b8664491e0bb94ee3ea8682b158c0` against `8ae1ad0` and returned
+  source-merge GO with no remaining correctness blocker. Both confirmed the
+  ephemeral-storage gap closed by the template and independent Lambda guard.
+- Development independently reran 11 focused API/runtime tests and all 137
+  deployment contract tests. Current-head CI and user approval remain merge gates.
+- Parameter/NoEcho preservation, exact change-set review, actual environment
+  headroom, retained-table posture, workload/scope selection, history/cursor
+  inventory, review ownership, alarms/telemetry and all deployment/activation
+  decisions remain holds. Neither reviewer performed production/provider actions.
