@@ -557,3 +557,25 @@ production smoke test.
   NoEcho preservation, exact change-set review, actual environment headroom,
   physical name availability, deployment-role verification and rollback/import
   preparation. No review authorized or performed deployment or activation.
+
+## Default-off capture configuration slice
+
+- Approved PR #336 merged after successful CI at main
+  `8ae1ad0f9f1d6cd9a4327a7b18c40f65f2243088`.
+- Added an independent false-default capture parameter plus eight empty-default
+  scope/budget settings. Enabling requires retained storage, safe exact IDs and
+  bounded settings matching runtime constraints. Concurrent scheduled intake must
+  match the capture customer/method. Capture bindings require both gates; false
+  adds no environment keys or resource changes, even with retained parameter values.
+- Tightened runtime customer/method identifiers to the same safe-ID contract as
+  connection IDs, including rejection of trailing newline/whitespace. Template-to-
+  runtime tests verify real emitted bindings and rejection of missing/invalid fields.
+- No other capability, schedule, IAM, API/UI gate, provider behavior or deployment
+  path is introduced. Complete prior template fingerprint remains checked against
+  the reviewed storage merge after removing exactly the capture additions.
+- Synthetic fixture environment: 3,791 bytes, with 305 bytes remaining. Added a
+  sanitized offline full-candidate environment byte checker; production completeness
+  and actual headroom are not asserted. All release/activation holds remain.
+- Validation: 566 API tests, 137 deployment contract tests, all-workspace typecheck
+  and build, and whitespace checks passed. Independent source review is pending;
+  no production read, deployment or real provider action was performed.

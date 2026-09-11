@@ -230,3 +230,43 @@ storage condition as a routine operational stop switch. The standard hand-mainta
 API deployment workflow remains held pending authoritative current-template and
 complete parameter preservation, including NoEcho UsePrevious values, and exact
 change-set review. No production manifest count is inferred from repository defaults.
+
+## Capture configuration source preparation
+
+The first capability wiring is capture only. `IntakeAssuranceCaptureEnabled`
+defaults false, independently of storage. With capture false, all nine new capture
+environment bindings are omitted, even if parameter values are retained. Capture
+true requires storage true plus explicit customer, import method and saved
+connection IDs, SLA (60–604800 seconds), candidate cap (1–1000), complete-history
+snapshot cap (1–10000), and per-discovery request/time limits (1–256 requests,
+1–120000 ms). All eight setting parameters default to empty; no operating values
+are selected. Identifier restrictions match the runtime guard. If existing scheduled
+intake is enabled too, its customer/method must match capture; existing schedule,
+submit/writeback behavior, permissions and other gates are unchanged.
+
+This adds no recovery, notification, feedback, repair, operator-review or UI gate,
+no schedule, no new IAM and no deployment workflow variables. The prior storage
+fixture fingerprint is advanced to the reviewed storage merge `8ae1ad0`; the new
+capture delta test removes only the new parameters/condition/rules/environment
+bindings before comparing every previous template property. Existing storage
+branch tests remain in place. Tests also pass emitted capture values into the real
+runtime parser and check missing fields, identifier rejection and numeric bounds.
+
+The synthetic capture fixture uses 3,791 environment bytes, leaving only 305 bytes
+under 4,096. This is not production headroom: actual identifiers, existing enabled
+flags and resolved resource names can exceed the limit. Before any release, create
+a complete candidate variables JSON map from authoritative effective settings and
+run `node scripts/intake-environment-preflight.mjs /path/to/candidate-variables.json`.
+The offline command reports only UTF-8 byte totals/counts, refuses oversized maps,
+and does not fetch production or print environment names/values. It cannot prove
+that a supplied map is complete or that other Lambda/CloudFormation constraints
+are satisfied; those remain change-set review responsibilities.
+
+Discovery limits cover each full discovery, not an entire multi-candidate
+invocation or recovery lease. There is no runtime SLA-to-discovery or lease-to-
+discovery numeric relationship to invent in this template. Choose total invocation
+bounds against repeated discovery/preparation, downstream evidence work, the
+300-second Lambda timeout, current cadence and credential rotation. Retain the
+separate operating-value, exact status/workbook scope, manual-review ownership,
+legacy/cursor inventory, parameter-preservation, actual headroom and rollout holds.
+This source preparation does not authorize capture activation.

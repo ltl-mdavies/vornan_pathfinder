@@ -18,7 +18,7 @@ export function getWrikeAssuranceCaptureConfig(environment: NodeJS.ProcessEnv, s
   const snapshotLimit = Number(environment.PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT);
   const sla = Number(environment.PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS);
   const max = Number(environment.PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES);
-  if (!customer || !method || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(connection) ||
+  if (![customer, method, connection].every(value => value === value.trim() && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(value)) ||
     !Number.isInteger(snapshotLimit) || snapshotLimit < 1 || snapshotLimit > 10000 || customer !== scheduled.customer_id || method !== scheduled.import_method_id ||
     !Number.isInteger(sla) || sla < 60 || sla > 604800 || !Number.isInteger(max) || max < 1 || max > 1000) {
     throw new Error("Intake assurance capture requires an exact scheduled scope and explicit bounded SLA and candidate limits");
