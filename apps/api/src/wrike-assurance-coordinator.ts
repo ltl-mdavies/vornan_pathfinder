@@ -1,3 +1,4 @@
+import { validateWrikeProviderLimits, type WrikeProviderLimits } from "./wrike-provider-budget.js";
 import type { createSharedWrikeCapture, SharedWrikeCaptureResult } from "./wrike-shared-capture.js";
 import { WRIKE_ORDER_INTENT_LABEL } from "@pathfinder/wrike-adapter";
 import { intakeAttemptId, type IntakeAttempt, type IntakeEvent, type IntakeLedger } from "./intake-assurance.js";
@@ -5,10 +6,12 @@ import { captureWrikeIntakeIntents, projectWrikeAssuranceOutcome, wrikeIntakeInt
   type WrikeAssuranceOutcome, type WrikeAssuranceScope } from "./wrike-intake-assurance.js";
 import type { WrikeScopedIntakeDiscoveryResult } from "@pathfinder/wrike-adapter";
 
-export interface WrikeAssuranceCaptureConfig { enabled: boolean; customer_id: string; import_method_id: string; connection_id: string; snapshot_limit: number; sla_seconds: number; max_candidates: number }
+export interface WrikeAssuranceCaptureConfig { enabled: boolean; customer_id: string; import_method_id: string; connection_id: string; snapshot_limit: number; discovery_limits: WrikeProviderLimits; sla_seconds: number; max_candidates: number }
 export function getWrikeAssuranceCaptureConfig(environment: NodeJS.ProcessEnv, scheduled: { customer_id: string; import_method_id: string }): WrikeAssuranceCaptureConfig {
-  const disabled = { enabled: false, customer_id: "", import_method_id: "", connection_id: "", snapshot_limit: 0, sla_seconds: 0, max_candidates: 0 };
+  const disabled = { enabled: false, customer_id: "", import_method_id: "", connection_id: "", snapshot_limit: 0, discovery_limits: { max_requests: 0, max_elapsed_ms: 0 }, sla_seconds: 0, max_candidates: 0 };
   if (environment.PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE !== "true") return disabled;
+  const discoveryLimits = { max_requests: Number(environment.PATHFINDER_INTAKE_DISCOVERY_MAX_REQUESTS), max_elapsed_ms: Number(environment.PATHFINDER_INTAKE_DISCOVERY_MAX_ELAPSED_MS) };
+  validateWrikeProviderLimits(discoveryLimits);
   const customer = environment.PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID ?? "";
   const method = environment.PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID ?? "";
   const connection = environment.PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID ?? "";
@@ -20,7 +23,7 @@ export function getWrikeAssuranceCaptureConfig(environment: NodeJS.ProcessEnv, s
     !Number.isInteger(sla) || sla < 60 || sla > 604800 || !Number.isInteger(max) || max < 1 || max > 1000) {
     throw new Error("Intake assurance capture requires an exact scheduled scope and explicit bounded SLA and candidate limits");
   }
-  return { enabled: true, customer_id: customer, import_method_id: method, connection_id: connection, snapshot_limit: snapshotLimit, sla_seconds: sla, max_candidates: max };
+  return { enabled: true, customer_id: customer, import_method_id: method, connection_id: connection, snapshot_limit: snapshotLimit, discovery_limits: discoveryLimits, sla_seconds: sla, max_candidates: max };
 }
 /** Guard before connection/secret lookup and any provider discovery in either entry point. */
 export function withWrikeAssuranceConnection<T>(config: WrikeAssuranceCaptureConfig | null, savedConnectionId: string, action: () => T): T {

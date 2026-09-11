@@ -1,3 +1,4 @@
+import { discoverWrikeCaptureScope } from "./wrike-capture-discovery.js";
 import { createSharedWrikeCapture } from "./wrike-shared-capture.js";
 import { recordWrikeIntentObservation, reserveWrikeCursorAttempt, readIntakeRecoverySnapshot } from "./store.js";
 import cors from "cors";
@@ -6153,13 +6154,9 @@ async function captureManualWrikeAssurance(customerId: string, methodId: string,
   if (!connection || connection.connection_id !== captureConfig.connection_id || connection.provider !== "wrike" || connection.status !== "Active") throw new WrikeIntakeRequestError(409, "The approved active Wrike connection is required.");
   const secrets = (await readCustomerSourceConnectionSecrets(customerId, connection.connection_id)).wrike ?? {};
   if (!secrets.oauth) throw new WrikeIntakeRequestError(409, "Wrike credentials are unavailable.");
-  const discovery = await discoverScopedWrikeIntakeTasks(secrets.oauth as WrikeOAuthCredentials, config, { max_pages: 10, max_tasks: 10000 }).catch(async error => {
-    if (error instanceof WrikeConnectionError && error.rotated_credentials) {
-      await writeCustomerSourceConnectionSecrets(customerId, connection.connection_id, { provider: "wrike", wrike: { ...secrets, oauth: error.rotated_credentials } });
-    }
-    throw error;
-  });
-  await writeCustomerSourceConnectionSecrets(customerId, connection.connection_id, { provider: "wrike", wrike: { ...secrets, oauth: discovery.credentials } });
+  const discovery = await discoverWrikeCaptureScope({ credentials: secrets.oauth as WrikeOAuthCredentials, source: config,
+    limits: captureConfig.discovery_limits, mode: "manual",
+    saveCredentials: oauth => writeCustomerSourceConnectionSecrets(customerId, connection.connection_id, { provider: "wrike", wrike: { ...secrets, oauth } }) });
   const cycle = createWrikeAssuranceCycle({ config: captureConfig, ledger: intakeLedger, sharedCapture: sharedWrikeCapture });
   await cycle.capture({ customer_id: customerId, import_method_id: methodId, connection_id: connection.connection_id,
     configured_status_id: config.trigger_status_id, configured_status_label: config.trigger_status_label },
@@ -6806,19 +6803,16 @@ async function runConfiguredWrikeIntakeCore(args: {
           "Wrike OAuth credentials are not configured."
         );
       }
-      const scopedDiscovery = await discoverScopedWrikeIntakeTasks(oauth, config, {
-        max_pages: 10,
-        max_tasks: 10_000
-      });
+      const scopedDiscovery = assuranceConfig?.enabled
+        ? await discoverWrikeCaptureScope({ credentials: oauth, source: config, limits: assuranceConfig.discovery_limits,
+            mode: args.markScheduled ? "scheduled" : "manual_batch",
+            saveCredentials: oauth => writeCustomerSourceConnectionSecrets(customer!.lift_customer_id, connection!.connection_id,
+              { provider: "wrike", wrike: { ...existingSecrets, oauth } }) })
+        : await discoverScopedWrikeIntakeTasks(oauth, config, { max_pages: 10, max_tasks: 10_000 });
       discovery = scopedDiscovery;
-      await writeCustomerSourceConnectionSecrets(
-        customer.lift_customer_id,
-        connection.connection_id,
-        {
-          provider: "wrike",
-          wrike: { ...existingSecrets, oauth: scopedDiscovery.credentials }
-        }
-      );
+      if (!assuranceConfig?.enabled) await writeCustomerSourceConnectionSecrets(
+        customer.lift_customer_id, connection.connection_id,
+        { provider: "wrike", wrike: { ...existingSecrets, oauth: scopedDiscovery.credentials } });
       existingSecrets = { ...existingSecrets, oauth: scopedDiscovery.credentials };
       await assurance?.capture({
         customer_id: args.config.customer_id,

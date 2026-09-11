@@ -426,3 +426,14 @@ crash or racing exit from reserving an unintended generation. The service reads
 bounded current history and retains existing one-source-order safeguards. No new
 Lift path, operator override, task reuse permission or legacy migration is provided.
 All gates remain default-off; independent review and production readiness remain.
+
+## Follow-up: aggregate discovery budgets and telemetry
+
+Capture-enabled manual, scheduled and manual-batch discovery share an explicit
+request/time budget over the complete upstream scan. OAuth, pagination, roots and
+metadata reads all count before manual task filtering. Exhaustion rejects the result
+before cursor capture, including optional-metadata fallback paths and delayed
+credential persistence. Safe aggregate telemetry records mode/count/time/exhaustion.
+The provider budget primitive is shared with feedback without changing its limits.
+All settings remain unset by default; production whole-invocation sizing and rollout
+decisions remain separate from this per-discovery guard.

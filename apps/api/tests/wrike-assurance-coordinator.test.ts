@@ -6,7 +6,7 @@ import type { WrikeScopedIntakeDiscoveryResult } from "@pathfinder/wrike-adapter
 import type { ProcessingJobPreview, SubmitAttempt } from "../src/store.js";
 const time = "2026-09-10T10:00:00Z";
 const scope = { customer_id: "synthetic", import_method_id: "method", connection_id: "connection", configured_status_id: "status", configured_status_label: "Sent to Print – LTL" };
-const environment = { PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: "connection", PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: "100", PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE: "true", PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: "synthetic", PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: "method", PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: "3600", PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES: "10" };
+const environment = { PATHFINDER_INTAKE_DISCOVERY_MAX_REQUESTS: "100", PATHFINDER_INTAKE_DISCOVERY_MAX_ELAPSED_MS: "10000", PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: "connection", PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: "100", PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE: "true", PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: "synthetic", PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: "method", PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: "3600", PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES: "10" };
 const discovery = { checked_at: time, order_candidates: [{ task_id: "task", custom_status_id: "status" }], pending_order_candidates: [], summary: { resolved_order_status_ids: ["status"] } } as unknown as WrikeScopedIntakeDiscoveryResult;
 const job = () => ({ customer_id: "synthetic", job_id: "job", import_method_id: "method", source_evidence: { provider: "wrike", task_id: "task", connection_id: "connection" }, state: "Ready", target_order_number: null, lift_payload: { order: { ext_id: "EXACT" } }, wrike_status_writebacks: [] }) as unknown as ProcessingJobPreview;
 const submit = () => ({ customer_id: "synthetic", job_id: "job", attempt_id: "submit", state: "Submission Uncertain", transport_mode: "live", external_submit_enabled: true, ext_id: "EXACT", company_id: "91", request_fingerprint: "fingerprint", response: { status: "error", lift_order_id: null } }) as SubmitAttempt;
@@ -34,6 +34,8 @@ test("capture requires a separate gate, exact scheduled scope and explicit bound
     { PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: "other" }, { PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: "other" },
     { PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: undefined }, { PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: "0" },
     { PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES: "1001" },
+    { PATHFINDER_INTAKE_DISCOVERY_MAX_REQUESTS: undefined }, { PATHFINDER_INTAKE_DISCOVERY_MAX_ELAPSED_MS: undefined },
+    { PATHFINDER_INTAKE_DISCOVERY_MAX_REQUESTS: "257" }, { PATHFINDER_INTAKE_DISCOVERY_MAX_ELAPSED_MS: "120001" },
     { PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: undefined }, { PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: " " },
     { PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: undefined }, { PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: "0" }, { PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: "10001" }
   ]) assert.throws(() => getWrikeAssuranceCaptureConfig({ ...environment, ...overrides }, scope));
