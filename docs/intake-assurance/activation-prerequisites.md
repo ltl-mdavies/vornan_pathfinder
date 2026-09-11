@@ -270,3 +270,9 @@ bounds against repeated discovery/preparation, downstream evidence work, the
 separate operating-value, exact status/workbook scope, manual-review ownership,
 legacy/cursor inventory, parameter-preservation, actual headroom and rollout holds.
 This source preparation does not authorize capture activation.
+
+Enabled capture additionally requires `StorageDriver=dynamodb`; provisioning a
+retained table alone is insufficient. The Lambda runtime checks the driver and
+nonempty trimmed table binding before parsing scope/discovery settings. An absent
+application runtime marker does not bypass the guard when AWS supplies its Lambda
+function-name marker. Intentional non-Lambda development fixtures remain local.

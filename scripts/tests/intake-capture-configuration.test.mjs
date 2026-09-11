@@ -19,6 +19,7 @@ test("capture is independently default-off and omits all configuration even with
     assert.deepEqual(result, evaluate({ IntakeAssuranceStorageEnabled: storage }));
   }
   assert.throws(() => evaluate({ ...captureParameters, IntakeAssuranceStorageEnabled: "false" }), /Rule failed/);
+  assert.throws(() => evaluate({ ...captureParameters, StorageDriver: "local" }), /DynamoDB persistence driver/);
   // The resource condition also omits capture env even if rule evaluation is bypassed.
   const bypass = evaluateTemplate(template, { ...captureParameters, IntakeAssuranceStorageEnabled: "false" });
   for (const key of keys) assert.ok(!(key in vars(bypass)));

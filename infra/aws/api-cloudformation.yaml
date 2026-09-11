@@ -528,6 +528,8 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
         AssertDescription: Intake capture requires retained intake storage.
+      - Assert: !Equals [!Ref StorageDriver, "dynamodb"]
+        AssertDescription: Intake capture requires the DynamoDB persistence driver.
       - Assert: !Not [!Equals [!Ref IntakeAssuranceCustomerId, ""]]
         AssertDescription: Intake capture requires explicit IntakeAssuranceCustomerId.
       - Assert: !Not [!Equals [!Ref IntakeAssuranceImportMethodId, ""]]

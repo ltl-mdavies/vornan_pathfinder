@@ -579,3 +579,19 @@ production smoke test.
 - Validation: 566 API tests, 137 deployment contract tests, all-workspace typecheck
   and build, and whitespace checks passed. Independent source review is pending;
   no production read, deployment or real provider action was performed.
+
+## Capture configuration review correction
+
+- Live Support returned source-merge GO on `84d3539`. Development identified a
+  durability blocker: storage provisioned with `StorageDriver=local` still let
+  enabled capture use ephemeral persistence. The template now explicitly requires
+  `StorageDriver=dynamodb` when capture is enabled.
+- The runtime independently rejects enabled Lambda capture without the exact
+  DynamoDB driver and nonempty trimmed intake table binding. Lambda is recognized
+  by the application runtime marker or AWS function-name marker; intentional local
+  development fixtures remain supported. Disabled capture remains unchanged.
+- Regression tests cover local/absent/invalid drivers, missing/empty/whitespace
+  table names, both Lambda markers, template-rule bypass, and local development.
+  Corrected-head independent review is required before merge.
+- Corrected validation: all 567 API tests, 137 deployment contract tests,
+  all-workspace typecheck/build and whitespace checks passed.
