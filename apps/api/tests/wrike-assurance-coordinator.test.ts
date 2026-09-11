@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createIntakeAttempt, transitionIntake, type IntakeAttempt, type IntakeLedger } from "../src/intake-assurance.js";
-import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, wrapWrikeAssurancePreparation } from "../src/wrike-assurance-coordinator.js";
+import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, withWrikeAssuranceConnection, wrapWrikeAssurancePreparation } from "../src/wrike-assurance-coordinator.js";
 import type { WrikeScopedIntakeDiscoveryResult } from "@pathfinder/wrike-adapter";
 import type { ProcessingJobPreview, SubmitAttempt } from "../src/store.js";
 const time = "2026-09-10T10:00:00Z";
 const scope = { customer_id: "synthetic", import_method_id: "method", connection_id: "connection", configured_status_id: "status", configured_status_label: "Sent to Print – LTL" };
-const environment = { PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE: "true", PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: "synthetic", PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: "method", PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: "3600", PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES: "10" };
+const environment = { PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: "connection", PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: "100", PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE: "true", PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: "synthetic", PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: "method", PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: "3600", PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES: "10" };
 const discovery = { checked_at: time, order_candidates: [{ task_id: "task", custom_status_id: "status" }], pending_order_candidates: [], summary: { resolved_order_status_ids: ["status"] } } as unknown as WrikeScopedIntakeDiscoveryResult;
 const job = () => ({ customer_id: "synthetic", job_id: "job", import_method_id: "method", source_evidence: { provider: "wrike", task_id: "task", connection_id: "connection" }, state: "Ready", target_order_number: null, lift_payload: { order: { ext_id: "EXACT" } }, wrike_status_writebacks: [] }) as unknown as ProcessingJobPreview;
 const submit = () => ({ customer_id: "synthetic", job_id: "job", attempt_id: "submit", state: "Submission Uncertain", transport_mode: "live", external_submit_enabled: true, ext_id: "EXACT", company_id: "91", request_fingerprint: "fingerprint", response: { status: "error", lift_order_id: null } }) as SubmitAttempt;
@@ -33,7 +33,9 @@ test("capture requires a separate gate, exact scheduled scope and explicit bound
   for (const overrides of [
     { PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: "other" }, { PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: "other" },
     { PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: undefined }, { PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: "0" },
-    { PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES: "1001" }
+    { PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES: "1001" },
+    { PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: undefined }, { PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: " " },
+    { PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: undefined }, { PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: "0" }, { PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: "10001" }
   ]) assert.throws(() => getWrikeAssuranceCaptureConfig({ ...environment, ...overrides }, scope));
 });
 test("preparation wrapper preserves the disabled callback and records failure before returning it to the scheduler", async () => {
@@ -105,4 +107,19 @@ test("a previously confirmed or terminal intent cannot silently regress or resta
   await f.ledger.transition(scope.customer_id, current.attempt_id, { event_id: "withdraw", expected_revision: 0, occurred_at: time, state: "withdrawn", reason: null, next_action_at: null });
   await f.cycle.observe({ jobs: [job()], submits: [submit()] });
   assert.equal(f.current().state, "withdrawn");
+});
+
+test("manual and scheduled connection boundary rejects before discovery or capture effects", async () => {
+  for (const entryPoint of ["manual", "scheduled"]) {
+    const f = fixture(); let providerCalls = 0; let cursorCalls = 0;
+    const config = getWrikeAssuranceCaptureConfig(environment, scope);
+    const work = async () => { providerCalls++; cursorCalls++; await f.cycle.capture(scope, discovery); };
+    await assert.rejects(async () => withWrikeAssuranceConnection(config, "changed-connection", work), /approved capture scope/, entryPoint);
+    assert.equal(providerCalls, 0); assert.equal(cursorCalls, 0); assert.equal(f.records.size, 0);
+    await assert.rejects(f.cycle.capture({ ...scope, connection_id: "changed-connection" }, discovery), /scope mismatch/);
+    assert.equal(f.records.size, 0);
+    await withWrikeAssuranceConnection(config, "connection", work);
+    assert.equal(providerCalls, 1); assert.equal(f.records.size, 1);
+  }
+  assert.equal(withWrikeAssuranceConnection(null, "other", () => "existing path"), "existing path");
 });

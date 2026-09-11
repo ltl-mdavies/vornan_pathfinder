@@ -455,3 +455,21 @@ production smoke test.
   cursor inventory, explicit history snapshot bounds, manual discovery cost,
   infrastructure and all deployment/activation decisions remain holds. No deployment,
   provisioning or real provider action occurred.
+
+## Shared capture review correction
+
+- Live Support reviewed source head `4434411` with source-merge GO; its additional
+  discovery-budget, complete-history, cursor-inventory and review-ownership activation
+  requirements are recorded in the activation dossier.
+- Development requested changes: enabled capture ignored the approved connection
+  ID. The correction adds connection and snapshot-limit validation to enabled
+  configuration, guards saved connection lookup before provider discovery in manual
+  and scheduled/shared-batch paths, and rechecks connection at cycle capture before
+  any cursor/intake mutation. The disabled path retains its prior behavior.
+- Focused tests cover missing/invalid configuration, mismatched connections with
+  zero guarded discovery/capture effects, cycle mismatch, and allowed/disabled
+  paths. Independent Development re-review remains required before merge.
+- Validation: 560/560 API tests passed on the final rerun; all-workspace
+  typecheck/build and whitespace checks passed. The preceding run had one Proof
+  HTTP `ECONNRESET`; its 23-test file and the full matrix passed on rerun without
+  code changes. No Proof fixture changes were made.

@@ -7,7 +7,7 @@ import { reconcileStoredIntakeDelivery } from "./store.js";
 import { readWrikeIntakeFeedbackScope } from "./store.js";
 import { getIntakeStatusRepairConfig, runIntakeStatusRepairs } from "./intake-status-repair-runtime.js";
 import { intakeLedger, listIntakeAttemptsPage, listIntakeDeliveriesPage, readStore } from "./store.js";
-import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, wrapWrikeAssurancePreparation } from "./wrike-assurance-coordinator.js";
+import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, withWrikeAssuranceConnection, wrapWrikeAssurancePreparation } from "./wrike-assurance-coordinator.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -6149,8 +6149,8 @@ async function captureManualWrikeAssurance(customerId: string, methodId: string,
   const method = workspace.import_methods.find(row => row.import_method_id === methodId);
   if (!method || method.source !== "Wrike" || method.status !== "Active") throw new WrikeIntakeRequestError(409, "An active Wrike Import Method is required.");
   const config = normalizeWrikeSourceConfig(method.source_config.wrike);
-  const connection = await findCustomerSourceConnection(customer, config.connection_id);
-  if (!connection || connection.provider !== "wrike" || connection.status !== "Active") throw new WrikeIntakeRequestError(409, "An active Wrike connection is required.");
+  const connection = await withWrikeAssuranceConnection(captureConfig, config.connection_id, () => findCustomerSourceConnection(customer, config.connection_id));
+  if (!connection || connection.connection_id !== captureConfig.connection_id || connection.provider !== "wrike" || connection.status !== "Active") throw new WrikeIntakeRequestError(409, "The approved active Wrike connection is required.");
   const secrets = (await readCustomerSourceConnectionSecrets(customerId, connection.connection_id)).wrike ?? {};
   if (!secrets.oauth) throw new WrikeIntakeRequestError(409, "Wrike credentials are unavailable.");
   const discovery = await discoverScopedWrikeIntakeTasks(secrets.oauth as WrikeOAuthCredentials, config, { max_pages: 10, max_tasks: 10000 }).catch(async error => {
@@ -6740,7 +6740,9 @@ async function runConfiguredWrikeIntakeCore(args: {
   config: ReturnType<typeof getWrikeScheduledIntakeConfig>;
   markScheduled: boolean;
 }) {
-  const assuranceConfig = args.markScheduled && args.config.enabled
+  const assuranceConfig = args.config.enabled && (args.markScheduled ||
+    (process.env.PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID === args.config.customer_id &&
+      process.env.PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID === args.config.import_method_id))
     ? getWrikeAssuranceCaptureConfig(process.env, args.config) : null;
   const assurance = assuranceConfig?.enabled
     ? createWrikeAssuranceCycle({ config: assuranceConfig, ledger: intakeLedger, sharedCapture: sharedWrikeCapture }) : null;
@@ -6785,8 +6787,8 @@ async function runConfiguredWrikeIntakeCore(args: {
           "Save an active Wrike connection on this Import Method before running discovery."
         );
       }
-      connection = await findCustomerSourceConnection(customer, config.connection_id);
-      if (!connection || connection.provider !== "wrike" || connection.status !== "Active") {
+      connection = await withWrikeAssuranceConnection(assuranceConfig, config.connection_id, () => findCustomerSourceConnection(customer!, config.connection_id));
+      if (!connection || (assuranceConfig?.enabled && connection.connection_id !== assuranceConfig.connection_id) || connection.provider !== "wrike" || connection.status !== "Active") {
         throw new WrikeIntakeRequestError(
           400,
           "Reconnect the customer Wrike connection before running discovery."

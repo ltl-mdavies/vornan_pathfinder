@@ -122,9 +122,22 @@ caller re-resolves from durable state. No job or provider transaction is implied
 
 The existing capture flag controls both entry points. Full history snapshots require
 an explicit `PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT`; there is no operating default.
+Enabled capture also requires `PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID`.
+Connection identity and history bounds are validated up front; the saved active
+connection must match before lookup/discovery, and capture checks it again before
+cursor or intake effects. Changing the method's connection does not extend the
+approved capture scope. The guarded discovery core also covers manual batch intake.
 Manual metadata read cost, observation/candidate bounds and freshness must be included
 in rollout sizing. Shared integration remains subject to independent review, source
 validation and production QA. All deployment/activation approvals remain separate.
+
+Live Support's integration review additionally requires aggregate request/time
+budgeting and telemetry for manual and scheduled discovery before activation.
+Filtering manual discovery to one requested task happens after the bounded upstream
+folder scan, so it does not reduce that scan's provider/credential-rotation cost.
+The history limit must cover complete retained tenant job/submit partitions or fail
+closed. Name an owner for initially-ready/legacy manual-review items and inventory
+pre-baseline cursor rows. Table transaction and condition-check IAM remains required.
 
 ## Infrastructure preparation
 
