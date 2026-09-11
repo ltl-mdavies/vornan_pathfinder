@@ -521,3 +521,39 @@ production smoke test.
 - Production values, whole-invocation sizing, alert ownership, history completeness,
   cursor inventory, infrastructure/IAM and all release/activation decisions remain
   holds. Neither reviewer performed or authorized production/provider actions.
+
+## Default-off storage infrastructure slice
+
+- User-approved PR #335 merged after successful CI at main
+  `24d0fd40a2a9dd5c9c8b5cfdf441a2d8e1185d17`.
+- `IntakeAssuranceStorageEnabled` defaults false. True provisions one encrypted,
+  PITR-enabled, deletion-protected, retained customer/attempt Dynamo table and
+  binds its name to the API. A separate conditional statement grants only
+  GetItem/PutItem/Query/TransactWriteItems/ConditionCheckItem on that table ARN.
+- False creates no table, environment binding, output or IAM grant. All prior
+  template properties remain unchanged, checked against a parsed historical
+  template fingerprint. Both branches are evaluated offline with fixture values;
+  these checks do not replace CloudFormation validation/change-set review.
+- Fixture API environment uses 3,316 bytes disabled and 3,378 enabled, a 62-byte
+  increase. These are not production measurements; the complete effective
+  production environment and selected table name must be checked before release.
+- No capability wiring, schedule, provider action, production read or deployment
+  is included. Existing deployment parameter-preservation hazards remain held.
+  Independent Development/Live Support review is required before source merge.
+- Validation: all 130 deployment contract tests and whitespace checks passed.
+  Existing table-retention and transaction-count checks were updated for the
+  single additional conditional table/grant. Runtime source is unchanged.
+
+## Independent storage-infrastructure review — source head da5d41c
+
+- Development and Live Support independently reviewed exact source head
+  `da5d41c0f4099cd4be60126bd130a7e1016594f1` against `24d0fd4` and returned
+  source-merge GO with no correctness or scope blocker. Development independently
+  reran all 130 deployment contract tests successfully.
+- Both confirmed the default-off omission, exact protected table and scoped IAM,
+  preserved existing template, fixture-only headroom evidence, and retention/import
+  rollback warning. Merge requires user approval and successful current-head CI.
+- Release remains held for authoritative deployed template/complete parameter and
+  NoEcho preservation, exact change-set review, actual environment headroom,
+  physical name availability, deployment-role verification and rollback/import
+  preparation. No review authorized or performed deployment or activation.

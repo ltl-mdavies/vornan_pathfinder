@@ -203,3 +203,30 @@ Release order remains default-off infrastructure/code, approved read-only visibi
 bounded capture/recovery, a separate internal-notification window, then separately
 approved feedback or repair. Rollback disables only new gates/rules and preserves
 all intake, delivery and writeback records, especially uncertain receipts.
+
+## Storage-only source preparation
+
+The API template now proposes an independently default-false
+`IntakeAssuranceStorageEnabled` parameter. Its true branch creates only the intake
+attempts table, narrowly scoped API IAM, `PATHFINDER_INTAKE_ATTEMPTS_TABLE` binding
+and `IntakeAssuranceTableName` output. It does not activate any capability.
+All capability/scope/budget values, schedules, notification/feedback/repair and
+production deployment remain held. No existing scheduler, queue, alarm, provider,
+Secrets or API behavior is changed.
+
+Run `npm run test:proof-deploy` for the offline template contract checks. The
+historical fingerprint in `scripts/tests/fixtures/intake-storage-baseline.json`
+records the pre-storage template; later intentional infrastructure changes must
+review and update this contract explicitly. The test evaluator uses fixture
+resource identifiers and parameter defaults: its environment byte count is only
+fixture evidence, not a production headroom assertion. Check the complete actual
+candidate environment (UTF-8 keys plus values, maximum 4,096 bytes) before release.
+
+Rollback after provisioning disables capability gates/rules while retaining the
+storage binding and table. Turning the storage condition off retains the physical
+table but detaches it from the stack; turning it on again can cause a table-name
+collision and require an explicitly reviewed resource import. Do not use the
+storage condition as a routine operational stop switch. The standard hand-maintained
+API deployment workflow remains held pending authoritative current-template and
+complete parameter preservation, including NoEcho UsePrevious values, and exact
+change-set review. No production manifest count is inferred from repository defaults.
