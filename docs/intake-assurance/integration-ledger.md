@@ -507,3 +507,17 @@ production smoke test.
   multi-candidate invocation sizing, alarms, cursor inventory, infrastructure/IAM
   and all release/activation decisions remain holds. No deployment, provisioning
   or real provider action occurred.
+
+## Independent discovery-budget review — source head cd6740d
+
+- Development and Live Support independently reviewed exact source head
+  `cd6740d65cc7397f1e12f2ad5356427fdd100d75` against `fb0b866` and returned
+  source-merge GO with no correctness/operational merge blocker. Both confirmed
+  the per-discovery budgeting engineering condition closed at source level.
+- Development's non-blocking duplicated-word diagnostic was corrected; the seven
+  focused provider-budget/discovery tests and whitespace checks passed afterward.
+  Enforcement behavior is unchanged. Merge requires successful current-head CI
+  and user approval.
+- Production values, whole-invocation sizing, alert ownership, history completeness,
+  cursor inventory, infrastructure/IAM and all release/activation decisions remain
+  holds. Neither reviewer performed or authorized production/provider actions.

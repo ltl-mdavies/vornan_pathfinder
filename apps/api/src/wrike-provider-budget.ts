@@ -21,13 +21,13 @@ export function createWrikeProviderBudget(limits: WrikeProviderLimits, options: 
   const elapsed = () => Math.max(0, now() - started);
   function check() {
     if (deadline.aborted || elapsed() >= limits.max_elapsed_ms) exhausted = "elapsed";
-    if (exhausted) throw new Error("Wrike provider provider budget exhausted");
+    if (exhausted) throw new Error("Wrike provider budget exhausted");
   }
   function canRequest() {
     check();
     if (requests >= limits.max_requests) {
       exhausted = "requests";
-      throw new Error("Wrike provider provider budget exhausted");
+      throw new Error("Wrike provider budget exhausted");
     }
   }
   const fetchImpl: typeof fetch = async (input, init) => {
