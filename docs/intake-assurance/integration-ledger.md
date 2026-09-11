@@ -543,3 +543,17 @@ production smoke test.
 - Validation: all 130 deployment contract tests and whitespace checks passed.
   Existing table-retention and transaction-count checks were updated for the
   single additional conditional table/grant. Runtime source is unchanged.
+
+## Independent storage-infrastructure review — source head da5d41c
+
+- Development and Live Support independently reviewed exact source head
+  `da5d41c0f4099cd4be60126bd130a7e1016594f1` against `24d0fd4` and returned
+  source-merge GO with no correctness or scope blocker. Development independently
+  reran all 130 deployment contract tests successfully.
+- Both confirmed the default-off omission, exact protected table and scoped IAM,
+  preserved existing template, fixture-only headroom evidence, and retention/import
+  rollback warning. Merge requires user approval and successful current-head CI.
+- Release remains held for authoritative deployed template/complete parameter and
+  NoEcho preservation, exact change-set review, actual environment headroom,
+  physical name availability, deployment-role verification and rollback/import
+  preparation. No review authorized or performed deployment or activation.
