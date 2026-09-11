@@ -2,6 +2,11 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Pathfinder production API shell - HTTP API Gateway plus Lambda.
 
 Parameters:
+  IntakeAssuranceStorageEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Provision retained intake storage only; does not activate intake capabilities.
   EnvironmentName:
     Type: String
     Default: prod
@@ -724,6 +729,7 @@ Rules:
         AssertDescription: Proof core table name and ARN must either both be present or both be absent.
 
 Conditions:
+  IntakeAssuranceStorageActive: !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
   WrikeScheduledIntakeActive: !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
   WrikeCustomFieldDiscoveryActive: !Equals [!Ref WrikeCustomFieldDiscoveryEnabled, "true"]
   WrikeDiscoveryPreviewActive: !Equals [!Ref WrikeDiscoveryPreviewEnabled, "true"]
@@ -1067,6 +1073,17 @@ Resources:
                   - !If [HasProofCoreTable, !Ref ProofCoreTableArn, !Ref "AWS::NoValue"]
                   - !If [HasProofCoreTable, !Sub "${ProofCoreTableArn}/index/*", !Ref "AWS::NoValue"]
               - !If
+                - IntakeAssuranceStorageActive
+                - Effect: Allow
+                  Action:
+                    - dynamodb:GetItem
+                    - dynamodb:PutItem
+                    - dynamodb:Query
+                    - dynamodb:TransactWriteItems
+                    - dynamodb:ConditionCheckItem
+                  Resource: !GetAtt PathfinderIntakeAttemptsTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
                 - HasProofAuditTable
                 - Effect: Allow
                   Action:
@@ -1169,6 +1186,7 @@ Resources:
         Variables:
           NODE_OPTIONS: "--enable-source-maps"
           PATHFINDER_RUNTIME: "lambda"
+          PATHFINDER_INTAKE_ATTEMPTS_TABLE: !If [IntakeAssuranceStorageActive, !Ref PathfinderIntakeAttemptsTable, !Ref "AWS::NoValue"]
           PATHFINDER_CUSTOMER_SEED_FILE: "/var/task/data/lift-customers.sample.csv"
           PATHFINDER_ALLOWED_ORIGINS: !Ref AllowedOrigins
           PATHFINDER_PUBLIC_STATUS_BASE_URL: !Ref PublicStatusBaseUrl
@@ -1413,6 +1431,35 @@ Resources:
       Threshold: 0
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
+
+  PathfinderIntakeAttemptsTable:
+    Type: AWS::DynamoDB::Table
+    Condition: IntakeAssuranceStorageActive
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DeletionProtectionEnabled: true
+      TableName: !Sub "${DataTablePrefix}-IntakeAttempts-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: attempt_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: attempt_id
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
 
   PathfinderCustomersTable:
     Type: AWS::DynamoDB::Table
@@ -1831,6 +1878,10 @@ Resources:
       Stage: !Ref PathfinderApiStage
 
 Outputs:
+  IntakeAssuranceTableName:
+    Condition: IntakeAssuranceStorageActive
+    Description: Retained intake storage; provisioning does not activate capabilities.
+    Value: !Ref PathfinderIntakeAttemptsTable
   ApiEndpoint:
     Description: HTTP API endpoint.
     Value: !GetAtt PathfinderHttpApi.ApiEndpoint

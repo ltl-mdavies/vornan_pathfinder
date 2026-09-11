@@ -214,6 +214,7 @@ test("scheduled Wrike automation is default-off, independently gated, and exactl
 
 test("production Pathfinder tables are deletion-protected and retained", () => {
   const protectedTables = [
+    "PathfinderIntakeAttemptsTable",
     "PathfinderCustomersTable",
     "PathfinderCustomerWorkspacesTable",
     "PathfinderTargetsTable",
@@ -233,7 +234,7 @@ test("production Pathfinder tables are deletion-protected and retained", () => {
     assert.match(
       template,
       new RegExp(
-        `${logicalId}:\\n    Type: AWS::DynamoDB::Table\\n    DeletionPolicy: Retain\\n    UpdateReplacePolicy: Retain\\n    Properties:\\n      DeletionProtectionEnabled: true`
+        `${logicalId}:\\n    Type: AWS::DynamoDB::Table\\n(?:    Condition: IntakeAssuranceStorageActive\\n)?    DeletionPolicy: Retain\\n    UpdateReplacePolicy: Retain\\n    Properties:\\n      DeletionProtectionEnabled: true`
       ),
       `${logicalId} must remain protected from deletion and replacement`
     );
@@ -444,7 +445,7 @@ test("operator-only Proof action QA remains independently dark and narrowly scop
     /HasProofTables: !And[\s\S]*?!Condition HasProofCoreTable[\s\S]*?!Condition HasProofAuditTable/
   );
   const transactionActions = template.match(/dynamodb:TransactWriteItems/g) ?? [];
-  assert.equal(transactionActions.length, 3);
+  assert.equal(transactionActions.length, 4);
   assert.match(
     template,
     /- !If\n\s+- HasProofTables\n\s+- Effect: Allow\n\s+Action:\n\s+- dynamodb:TransactWriteItems\n\s+Resource:\n\s+- !Ref ProofCoreTableArn\n\s+- !Ref ProofAuditTableArn\n\s+- !Ref "AWS::NoValue"/
