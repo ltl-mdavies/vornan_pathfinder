@@ -435,3 +435,56 @@ production smoke test.
   Shared capture integration, legacy/current identity reconciliation, post-transport
   policy and cursor-to-attempt crash recovery remain separate implementation gates.
   No deployment, provisioning or activation accompanied either review.
+
+## Shared manual/scheduled capture integration
+
+- User-approved PR #333 merged after successful CI at main
+  `3dfb2a5c1e7485bc271e63f2863c2cfb08cf7341`. This slice connects both preparation
+  entry points to one observation/admission service under the existing capture gate.
+- Development's cutover constraint is enforced: only a qualified non-ready baseline
+  followed by a strictly newer first entry can prepare. Persisted baseline evidence
+  is validated. Initial-ready tasks, reuse, legacy identities and unsafe history
+  require sticky manual review; no legacy/current record is silently rebound.
+- Cursor data/revision and intake Put share one Dynamo transaction or local
+  serialized mutation. Exact signal replay and restart recovery preserve identity;
+  stale handoffs fail closed. Existing preparation/transport safeguards remain.
+- Final validation: 559 API tests, all-workspace typecheck/build and whitespace
+  checks passed. Synthetic coverage includes shared cycle ordering, admission
+  policy, guarded handoff races/crash recovery, local replay, and baseline corruption.
+- Independent integration review remains required. Production metadata/cutover QA,
+  cursor inventory, explicit history snapshot bounds, manual discovery cost,
+  infrastructure and all deployment/activation decisions remain holds. No deployment,
+  provisioning or real provider action occurred.
+
+## Shared capture review correction
+
+- Live Support reviewed source head `4434411` with source-merge GO; its additional
+  discovery-budget, complete-history, cursor-inventory and review-ownership activation
+  requirements are recorded in the activation dossier.
+- Development requested changes: enabled capture ignored the approved connection
+  ID. The correction adds connection and snapshot-limit validation to enabled
+  configuration, guards saved connection lookup before provider discovery in manual
+  and scheduled/shared-batch paths, and rechecks connection at cycle capture before
+  any cursor/intake mutation. The disabled path retains its prior behavior.
+- Focused tests cover missing/invalid configuration, mismatched connections with
+  zero guarded discovery/capture effects, cycle mismatch, and allowed/disabled
+  paths. Independent Development re-review remains required before merge.
+- Validation: 560/560 API tests passed on the final rerun; all-workspace
+  typecheck/build and whitespace checks passed. The preceding run had one Proof
+  HTTP `ECONNRESET`; its 23-test file and the full matrix passed on rerun without
+  code changes. No Proof fixture changes were made.
+
+## Shared capture focused re-review — source head 77653b4
+
+- Development and Live Support independently reviewed exact source head
+  `77653b4ef7bdc1de9b0e5b82121a75f3916c07ac`. Both returned GO; Development
+  confirmed the connection-scope merge blocker resolved with no remaining
+  correctness blocker. Live Support's earlier operational findings are unchanged.
+- Enabled configuration requires exact customer/method/connection and bounded
+  snapshot/SLA/candidate settings. Saved connection checks precede connection and
+  secret lookup/provider discovery, and the capture cycle independently checks
+  scope before cursor/intake mutation. Disabled behavior remains unchanged.
+- Merge remains conditional on successful current-head CI and user approval.
+  Discovery budgets/telemetry, history sizing, cursor inventory, review ownership,
+  infrastructure/IAM and production activation decisions remain holds. Neither
+  review authorized or performed deployment, provisioning or provider actions.

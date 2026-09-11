@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 test("local observation survives restart, serializes racing entries and rejects corrupt state", async () => {
   const directory = await mkdtemp(join(tmpdir(), "wrike-observation-"));
   const path = join(directory, "store.json");
-  const prelude = `const { recordWrikeIntentObservation, getWrikeIntentCursor } = await import(${JSON.stringify(new URL("../src/store.ts", import.meta.url).href)});
+  const prelude = `const { recordWrikeIntentObservation, getWrikeIntentCursor, reserveWrikeCursorAttempt, getIntakeAttempt } = await import(${JSON.stringify(new URL("../src/store.ts", import.meta.url).href)});
     const scope = { customer_id: 'synthetic', connection_id: 'connection', import_method_id: 'method', task_id: 'TASK', trigger_status_id: 'READY' };
     const observation = (second, status = 'READY') => ({ task_id: 'TASK', custom_status_id: status, source_updated_at: '2026-09-10T10:00:0'+second+'Z', observed_at: '2026-09-10T10:01:0'+second+'Z', scope_verified: true, identity_matches: true });
     const assert = (await import('node:assert/strict')).default;`;
@@ -28,6 +28,13 @@ test("local observation survives restart, serializes racing entries and rejects 
     assert.equal(data.intake_attempts?.length ?? 0, 0);
     run(`assert.equal((await getWrikeIntentCursor(scope)).attempt_id, ${JSON.stringify(cursor.attempt_id)});
       assert.equal((await recordWrikeIntentObservation(scope, observation(2))).generation, 2);`);
+    run(`const cursor = await getWrikeIntentCursor(scope);
+      const attempt = await reserveWrikeCursorAttempt(cursor, '2026-09-10T11:01:02Z', false);
+      assert.equal(attempt.state, 'manual_review');
+      assert.deepEqual(await reserveWrikeCursorAttempt(cursor, '2026-09-10T11:01:02Z', false), attempt);
+      await recordWrikeIntentObservation(scope, observation(3, 'OTHER'));
+      await assert.rejects(reserveWrikeCursorAttempt(cursor, '2026-09-10T11:01:02Z', false));
+      assert.equal((await getIntakeAttempt('synthetic', cursor.attempt_id)).state, 'manual_review');`);
     cursor.generation = -1;
     const corrupted = JSON.stringify(data);
     await writeFile(path, corrupted);

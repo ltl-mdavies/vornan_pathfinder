@@ -1,3 +1,5 @@
+import { createSharedWrikeCapture } from "./wrike-shared-capture.js";
+import { recordWrikeIntentObservation, reserveWrikeCursorAttempt, readIntakeRecoverySnapshot } from "./store.js";
 import cors from "cors";
 import { createIntakeExceptionsRouter } from "./intake-exceptions-router.js";
 import { createIntakeDeliveryReviewRouter } from "./intake-delivery-review-router.js";
@@ -5,7 +7,7 @@ import { reconcileStoredIntakeDelivery } from "./store.js";
 import { readWrikeIntakeFeedbackScope } from "./store.js";
 import { getIntakeStatusRepairConfig, runIntakeStatusRepairs } from "./intake-status-repair-runtime.js";
 import { intakeLedger, listIntakeAttemptsPage, listIntakeDeliveriesPage, readStore } from "./store.js";
-import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, wrapWrikeAssurancePreparation } from "./wrike-assurance-coordinator.js";
+import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, withWrikeAssuranceConnection, wrapWrikeAssurancePreparation } from "./wrike-assurance-coordinator.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -6135,6 +6137,39 @@ app.post(
   }
 );
 
+const sharedWrikeCapture = createSharedWrikeCapture({ ledger: intakeLedger, record: recordWrikeIntentObservation,
+  reserve: reserveWrikeCursorAttempt, snapshot: customerId => readIntakeRecoverySnapshot(customerId, Number(process.env.PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT)) });
+
+async function captureManualWrikeAssurance(customerId: string, methodId: string, taskId: string) {
+  if (process.env.PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE !== "true" ||
+    process.env.PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID !== customerId || process.env.PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID !== methodId) return null;
+  const captureConfig = getWrikeAssuranceCaptureConfig(process.env, { customer_id: customerId, import_method_id: methodId });
+  const customer = await findLiftCustomer(customerId);
+  const workspace = await getOrCreateWorkspace(customer);
+  const method = workspace.import_methods.find(row => row.import_method_id === methodId);
+  if (!method || method.source !== "Wrike" || method.status !== "Active") throw new WrikeIntakeRequestError(409, "An active Wrike Import Method is required.");
+  const config = normalizeWrikeSourceConfig(method.source_config.wrike);
+  const connection = await withWrikeAssuranceConnection(captureConfig, config.connection_id, () => findCustomerSourceConnection(customer, config.connection_id));
+  if (!connection || connection.connection_id !== captureConfig.connection_id || connection.provider !== "wrike" || connection.status !== "Active") throw new WrikeIntakeRequestError(409, "The approved active Wrike connection is required.");
+  const secrets = (await readCustomerSourceConnectionSecrets(customerId, connection.connection_id)).wrike ?? {};
+  if (!secrets.oauth) throw new WrikeIntakeRequestError(409, "Wrike credentials are unavailable.");
+  const discovery = await discoverScopedWrikeIntakeTasks(secrets.oauth as WrikeOAuthCredentials, config, { max_pages: 10, max_tasks: 10000 }).catch(async error => {
+    if (error instanceof WrikeConnectionError && error.rotated_credentials) {
+      await writeCustomerSourceConnectionSecrets(customerId, connection.connection_id, { provider: "wrike", wrike: { ...secrets, oauth: error.rotated_credentials } });
+    }
+    throw error;
+  });
+  await writeCustomerSourceConnectionSecrets(customerId, connection.connection_id, { provider: "wrike", wrike: { ...secrets, oauth: discovery.credentials } });
+  const cycle = createWrikeAssuranceCycle({ config: captureConfig, ledger: intakeLedger, sharedCapture: sharedWrikeCapture });
+  await cycle.capture({ customer_id: customerId, import_method_id: methodId, connection_id: connection.connection_id,
+    configured_status_id: config.trigger_status_id, configured_status_label: config.trigger_status_label },
+    { ...discovery, order_candidates: discovery.order_candidates.filter(row => row.task_id === taskId),
+      pending_order_candidates: discovery.pending_order_candidates.filter(row => row.task_id === taskId) });
+  try { cycle.assertPreparationAllowed(taskId); }
+  catch { throw new WrikeIntakeRequestError(409, "This Wrike request requires manual review before preparation. Review Intake Exceptions."); }
+  return cycle;
+}
+
 async function prepareWrikeOrderForTask(args: {
   liftCustomerId: string;
   methodId: string;
@@ -6142,6 +6177,7 @@ async function prepareWrikeOrderForTask(args: {
   triggerStatusId?: string;
   prequalifiedScope?: WrikePrequalifiedTaskScope;
 }) {
+  const assurance = await captureManualWrikeAssurance(args.liftCustomerId, args.methodId, args.taskId);
   let orderContext:
     | {
         contract_number: string;
@@ -6314,6 +6350,15 @@ async function prepareWrikeOrderForTask(args: {
         job_state: preview.job.state
       };
     }
+  }).then(async result => {
+    if (assurance) {
+      const snapshot = await readIntakeRecoverySnapshot(args.liftCustomerId, Number(process.env.PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT));
+      await assurance.observe({ jobs: snapshot.jobs, submits: snapshot.submits });
+    }
+    return result;
+  }, async error => {
+    await assurance?.preparationFailed(args.taskId);
+    throw error;
   });
 }
 
@@ -6695,10 +6740,12 @@ async function runConfiguredWrikeIntakeCore(args: {
   config: ReturnType<typeof getWrikeScheduledIntakeConfig>;
   markScheduled: boolean;
 }) {
-  const assuranceConfig = args.markScheduled && args.config.enabled
+  const assuranceConfig = args.config.enabled && (args.markScheduled ||
+    (process.env.PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID === args.config.customer_id &&
+      process.env.PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID === args.config.import_method_id))
     ? getWrikeAssuranceCaptureConfig(process.env, args.config) : null;
   const assurance = assuranceConfig?.enabled
-    ? createWrikeAssuranceCycle({ config: assuranceConfig, ledger: intakeLedger }) : null;
+    ? createWrikeAssuranceCycle({ config: assuranceConfig, ledger: intakeLedger, sharedCapture: sharedWrikeCapture }) : null;
   if (
     args.config.enabled &&
     (!wrikeWorkbookEvidenceEnabled ||
@@ -6740,8 +6787,8 @@ async function runConfiguredWrikeIntakeCore(args: {
           "Save an active Wrike connection on this Import Method before running discovery."
         );
       }
-      connection = await findCustomerSourceConnection(customer, config.connection_id);
-      if (!connection || connection.provider !== "wrike" || connection.status !== "Active") {
+      connection = await withWrikeAssuranceConnection(assuranceConfig, config.connection_id, () => findCustomerSourceConnection(customer!, config.connection_id));
+      if (!connection || (assuranceConfig?.enabled && connection.connection_id !== assuranceConfig.connection_id) || connection.provider !== "wrike" || connection.status !== "Active") {
         throw new WrikeIntakeRequestError(
           400,
           "Reconnect the customer Wrike connection before running discovery."

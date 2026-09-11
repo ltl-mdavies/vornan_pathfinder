@@ -79,7 +79,7 @@ import {
 import { readTargetSecrets, writeTargetSecrets, type TargetSecrets } from "./secrets-store.js";
 import { assertLocalStorageDriver, getPathfinderPersistenceRuntimeConfig } from "./runtime-config.js";
 import { createIntakeAttempt, transitionIntake, validatePersistedIntakeAttempt, type IntakeAttempt, type IntakeEvent, type IntakeSignal, type IntakeLedger } from "./intake-assurance.js";
-import { wrikeIntentCursorId, observeWrikeIntent, validateWrikeIntentCursor, type WrikeIntentCursor, type WrikeIntentScope, type WrikeIntentObservation } from "./wrike-intent-observation.js";
+import { wrikeIntentCursorId, wrikeIntentSignal, observeWrikeIntent, validateWrikeIntentCursor, type WrikeIntentCursor, type WrikeIntentScope, type WrikeIntentObservation } from "./wrike-intent-observation.js";
 import { intakeSweepId, sweepTime, validateSweepCheckpoint, IntakeSweepLeaseLostError,
   type IntakeSweepCheckpoint, type IntakeSweepScope, type IntakeSweepFence } from "./intake-recovery-sweep.js";
 import { intakeDeliveryId, prepareIntakeDelivery, claimIntakeDelivery, acknowledgeIntakeDelivery, validateIntakeDelivery, IntakeDeliveryConflictError,
@@ -8872,4 +8872,46 @@ export async function recordWrikeIntentObservation(scope: WrikeIntentScope, obse
     } catch (error) { if (!isConditionalCheckFailure(error)) throw error; }
   }
   throw new Error("Wrike intent observation contention requires a fresh read");
+}
+
+
+/** Cursor CAS and deterministic attempt handoff share one transaction/mutation. */
+export async function reserveWrikeCursorAttempt(cursor: WrikeIntentCursor, deadline: string, reviewRequired: boolean) {
+  validateWrikeIntentCursor(cursor, cursor.scope);
+  if (!cursor.in_intent) throw new Error("Wrike intent is no longer ready");
+  reviewRequired = reviewRequired || !cursor.entry_proven || cursor.generation > 1;
+  const signal = wrikeIntentSignal(cursor)!;
+  const nextAttempt = (current: IntakeAttempt | null) => {
+    let next = current ?? createIntakeAttempt(signal, deadline);
+    if (next.attempt_id !== cursor.attempt_id || Object.keys(signal).some(key => next.signal[key as keyof IntakeSignal] !== signal[key as keyof IntakeSignal])) throw new Error("Wrike cursor handoff identity mismatch");
+    if (reviewRequired && !["confirmed", "withdrawn", "superseded", "manual_review"].includes(next.state) && !next.submit_attempt_id && !next.confirmed_order_number) {
+      next = transitionIntake(next, { event_id: `${next.attempt_id}:capture-review:${next.revision + 1}`, expected_revision: next.revision,
+        occurred_at: cursor.observed_at, state: "manual_review", reason: "reconciliation_ambiguity", next_action_at: next.next_action_at });
+    }
+    return next;
+  };
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver !== "dynamodb") {
+    return mutateLocalIntake(store => {
+      const saved = validateWrikeIntentCursor(store.wrike_intent_cursors?.[cursor.cursor_id], cursor.scope);
+      if (saved.revision !== cursor.revision || !saved.in_intent || JSON.stringify(saved) !== JSON.stringify(cursor)) throw new Error("Wrike cursor handoff conflict");
+      const index = (store.intake_attempts ?? []).findIndex(row => row.attempt_id === cursor.attempt_id && row.signal.customer_id === cursor.scope.customer_id);
+      const current = index < 0 ? null : validatePersistedIntakeAttempt(store.intake_attempts![index]);
+      const next = nextAttempt(current);
+      if (index < 0) store.intake_attempts = [...(store.intake_attempts ?? []), next];
+      else store.intake_attempts![index] = next;
+      return next;
+    });
+  }
+  const current = await getIntakeAttempt(cursor.scope.customer_id, cursor.attempt_id!);
+  const next = nextAttempt(current);
+  await getDynamoClient().send(new TransactWriteItemsCommand({ TransactItems: [
+    { ConditionCheck: { TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Key: wrikeIntentStorageKey(cursor.scope),
+      ConditionExpression: "#revision = :expected AND #data = :cursor", ExpressionAttributeNames: { "#revision": "revision", "#data": "data" },
+      ExpressionAttributeValues: { ":expected": { N: String(cursor.revision) }, ":cursor": dynamoString(JSON.stringify(cursor)) } } },
+    { Put: { TableName: requireEnv("PATHFINDER_INTAKE_ATTEMPTS_TABLE"), Item: intakeItem(next),
+      ...(current ? { ConditionExpression: "#revision = :expected", ExpressionAttributeNames: { "#revision": "revision" },
+        ExpressionAttributeValues: { ":expected": { N: String(current.revision) } } }
+        : { ConditionExpression: "attribute_not_exists(customer_id) AND attribute_not_exists(attempt_id)" }) } }
+  ] }));
+  return next;
 }

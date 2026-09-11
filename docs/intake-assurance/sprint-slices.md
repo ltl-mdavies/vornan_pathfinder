@@ -411,3 +411,18 @@ and is stable across retries and restarts. It is an identity proposal, not permi
 to create an intake, prepare a job or submit. No live capture path calls it yet.
 The shared manual/scheduled integration and post-transport policy remain the next
 review boundary. All existing gates and the current capture behavior are unchanged.
+
+## Follow-up: shared manual/scheduled capture
+
+The capture-enabled runtime now supplies the shared cursor service to the scheduled
+cycle, while exact-task manual preparation uses the same service before downloading
+evidence. Qualified non-ready observations establish a durable baseline. Only the
+first strictly newer ready entry may proceed automatically; initial-ready tasks,
+reuse, legacy identities and unsafe history are visible as manual-review intakes.
+Automatic recovery cannot promote those review records back into preparation.
+
+Cursor proof, exact signal replay and transactional/local atomic handoff prevent a
+crash or racing exit from reserving an unintended generation. The service reads
+bounded current history and retains existing one-source-order safeguards. No new
+Lift path, operator override, task reuse permission or legacy migration is provided.
+All gates remain default-off; independent review and production readiness remain.
