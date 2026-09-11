@@ -27,7 +27,7 @@ function fixture() {
         occurred_at: cursor.observed_at, state: "manual_review", reason: "reconciliation_ambiguity", next_action_at: row.next_action_at });
       return row;
     } });
-  const cycle = () => createWrikeAssuranceCycle({ config: { enabled: true, connection_id: scope.connection_id, snapshot_limit: 100, customer_id: scope.customer_id, import_method_id: scope.import_method_id, sla_seconds: 3600, max_candidates: 10 }, ledger, sharedCapture: shared });
+  const cycle = () => createWrikeAssuranceCycle({ config: { enabled: true, connection_id: scope.connection_id, snapshot_limit: 100, discovery_limits: { max_requests: 100, max_elapsed_ms: 10000 }, customer_id: scope.customer_id, import_method_id: scope.import_method_id, sla_seconds: 3600, max_candidates: 10 }, ledger, sharedCapture: shared });
   return { shared, ledger, attempts, jobs, submits, cycle, cursor: () => cursor };
 }
 test("manual and scheduled cycles share prospective entry, identity and deadline", async () => {

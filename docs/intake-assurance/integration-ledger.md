@@ -488,3 +488,36 @@ production smoke test.
   Discovery budgets/telemetry, history sizing, cursor inventory, review ownership,
   infrastructure/IAM and production activation decisions remain holds. Neither
   review authorized or performed deployment, provisioning or provider actions.
+
+## Capture discovery budget slice
+
+- User-approved PR #334 merged after successful current-head CI at main
+  `fb0b866ea9babfe601f018d06887ae15e57150e0`. This slice budgets full capture
+  discovery in manual, scheduled and manual-batch modes under the existing gate.
+- Explicit discovery request/time limits use the shared provider budget primitive
+  also used by feedback. All upstream OAuth/root/page/metadata requests count
+  before manual filtering. Late/partial results are rejected before capture;
+  returned credential rotations are persisted without racing local storage.
+- Mode/count/elapsed/exhaustion telemetry contains no source identifiers or provider
+  error text. Capture-disabled discovery retains its existing path and bounds.
+- Validation: 564 API tests, 55 Wrike adapter tests, all-workspace typecheck/build
+  and whitespace checks passed. Adapter-backed tests cover two roots/six pages,
+  ten-request success, pagination/metadata exhaustion, timeout and rotation handling.
+- Independent review remains required. Production per-discovery values, total
+  multi-candidate invocation sizing, alarms, cursor inventory, infrastructure/IAM
+  and all release/activation decisions remain holds. No deployment, provisioning
+  or real provider action occurred.
+
+## Independent discovery-budget review — source head cd6740d
+
+- Development and Live Support independently reviewed exact source head
+  `cd6740d65cc7397f1e12f2ad5356427fdd100d75` against `fb0b866` and returned
+  source-merge GO with no correctness/operational merge blocker. Both confirmed
+  the per-discovery budgeting engineering condition closed at source level.
+- Development's non-blocking duplicated-word diagnostic was corrected; the seven
+  focused provider-budget/discovery tests and whitespace checks passed afterward.
+  Enforcement behavior is unchanged. Merge requires successful current-head CI
+  and user approval.
+- Production values, whole-invocation sizing, alert ownership, history completeness,
+  cursor inventory, infrastructure/IAM and all release/activation decisions remain
+  holds. Neither reviewer performed or authorized production/provider actions.

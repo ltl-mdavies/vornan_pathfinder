@@ -139,6 +139,29 @@ The history limit must cover complete retained tenant job/submit partitions or f
 closed. Name an owner for initially-ready/legacy manual-review items and inventory
 pre-baseline cursor rows. Table transaction and condition-check IAM remains required.
 
+The discovery-budget source slice now requires explicit
+`PATHFINDER_INTAKE_DISCOVERY_MAX_REQUESTS` (1–256) and
+`PATHFINDER_INTAKE_DISCOVERY_MAX_ELAPSED_MS` (1–120000) when capture is enabled.
+The same provider budget implementation serves feedback and capture discovery.
+One counter/deadline covers each complete upstream scan: OAuth, all roots/pages,
+workflow/status and custom-field metadata, and any enabled shipping metadata.
+Manual filtering occurs only after the full budgeted result is accepted.
+
+The shared helper is used for manual, scheduled and manual-batch capture discovery;
+capture-disabled discovery retains its existing path. Returned credential rotations
+are persisted on success or adapter error. Credential persistence is not raced or
+cancelled; a final budget check prevents accepting a result after that persistence
+exceeds the deadline. Partial scans and budget exhaustion never reach cursor capture.
+Telemetry contains only mode, attempted provider requests, elapsed milliseconds and
+exhaustion category. A shared abort deadline supplements the 15-second fetch timeout.
+
+Independent review and production budget selection remain required. These limits
+apply per discovery, not to a whole multi-candidate ingestion run. Existing page/task
+ceilings remain 10 pages per root and 10,000 tasks; candidate count and repeated
+manual preflight scans must be included in whole-invocation timeout, cadence and
+credential-rotation workload sizing. No production limits or alarm thresholds have
+been selected, and no infrastructure/deployment/activation is implied.
+
 ## Infrastructure preparation
 
 Live Support's repository-only assessment found no Intake Assurance table, runtime
