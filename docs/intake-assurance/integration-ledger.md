@@ -473,3 +473,18 @@ production smoke test.
   typecheck/build and whitespace checks passed. The preceding run had one Proof
   HTTP `ECONNRESET`; its 23-test file and the full matrix passed on rerun without
   code changes. No Proof fixture changes were made.
+
+## Shared capture focused re-review — source head 77653b4
+
+- Development and Live Support independently reviewed exact source head
+  `77653b4ef7bdc1de9b0e5b82121a75f3916c07ac`. Both returned GO; Development
+  confirmed the connection-scope merge blocker resolved with no remaining
+  correctness blocker. Live Support's earlier operational findings are unchanged.
+- Enabled configuration requires exact customer/method/connection and bounded
+  snapshot/SLA/candidate settings. Saved connection checks precede connection and
+  secret lookup/provider discovery, and the capture cycle independently checks
+  scope before cursor/intake mutation. Disabled behavior remains unchanged.
+- Merge remains conditional on successful current-head CI and user approval.
+  Discovery budgets/telemetry, history sizing, cursor inventory, review ownership,
+  infrastructure/IAM and production activation decisions remain holds. Neither
+  review authorized or performed deployment, provisioning or provider actions.
