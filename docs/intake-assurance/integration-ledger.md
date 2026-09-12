@@ -759,3 +759,193 @@ production smoke test.
   decisions remain held. Next proposed step is separately authorized read-only
   collection of deployed stack/template/parameter/function/environment evidence;
   no deployment, publication, provider or activation action is included.
+
+## Authorized deployed evidence collection — 2026-09-12
+
+- Approved PR #341 merged after green final-head CI at main
+  `6c247a271a576377fcc8b56d2238bdf9dc441bdb`.
+- Read-only AWS collection verified account/stack/function mapping, captured the
+  deployed original template, complete parameter/resource inventories and complete
+  Lambda environment. Raw responses and sealed packets remain private outside Git;
+  file permissions and raw manifest hashes were checked.
+- Actual baseline: 99 parameters including one NoEcho, 37 resources, 69 Lambda
+  variables using 3,596 bytes with 500 remaining; no intake flags/table binding.
+- Baseline, all-new-default-off and storage-only packets pass offline preservation
+  checks. Both source candidates preserve all 99 existing parameters/artifacts and
+  explicitly declare 15 new values. All-off has no evaluated resource/environment
+  delta. Storage-only adds the protected table, scoped IAM, environment binding and
+  table output; candidate environment is 3,658 bytes with 438 remaining.
+- Exact offline reconstruction confirms no other evaluated storage-only changes.
+  This does not replace AWS validation, a fresh baseline, deployed-code compatibility
+  checks or an actual reviewed change set. Details and rollback limitations are in
+  `deployment-evidence-review.md`.
+- Live Support independently validated the storage packet and supports technical
+  preparation of one nonexecuting storage-only change set, subject to user approval,
+  freshness, table-name availability and the exact limited resource scope.
+- No change set, AWS mutation, provider action, deployment, publication or capability
+  activation occurred. Change-set creation and execution remain separate approvals.
+- Development independently verified raw-response lineage, normalized template/source
+  equality, all preservation packets and the exact storage resource delta. It also
+  supports separately authorized nonexecuting preparation. Exact deployed artifact
+  compatibility with the added binding is an explicit execution hold.
+- The sanitized report is committed locally. Automatic approval review rejected its
+  push because production metadata disclosure to the remote repository was outside
+  the read-only collection approval. No push or report PR occurred; publication
+  requires explicit user authorization.
+
+## Approved nonexecuting storage-only change set
+
+- User explicitly approved report publication and change-set creation. The report
+  branch was pushed and draft PR #342 opened; its initial documentation CI passed.
+- Fresh deployed template/parameters/resources/Lambda revision/environment exactly
+  match the reviewed baseline. Proposed table name is available. The exact source
+  template was staged under a unique key in the existing artifact bucket; AWS
+  validation passed. No Lambda artifact was uploaded or changed.
+- `intake-storage-only-20260912-12a7b32645d4` is CREATE_COMPLETE/AVAILABLE, unexecuted.
+  AWS reports only the expected table Add and API function/role in-place Modify,
+  with no removals or replacements. Complete contexts preserve Code/other function
+  properties and existing IAM; only the table binding and scoped statement differ.
+- One existing environment value is masked; new table binding/IAM references remain
+  AWS known-after-apply markers. The complete candidate byte count is an offline
+  derivation, not an entirely resolved CloudFormation response.
+- Exact deployed artifact compatibility, reference resolution review, retained-table
+  recovery planning and fresh execution checks remain held. Next proposed work is
+  read-only exact-artifact review, not change-set execution.
+- Development and Live Support independently returned preparation-complete GO with
+  execution held. Complete table protections/schema, exact function/role contexts
+  and request parameter preservation were verified. Private preparation artifacts
+  are collectively hash-bound with restrictive file permissions.
+- Automatic approval review rejected publication of the expanded change-set report
+  as additional production metadata beyond the prior publication scope. The original
+  report remains in PR #342; these updates remain local awaiting explicit approval.
+
+## Approved exact deployed-artifact review
+
+- User authorized publication of the expanded change-set report and read-only
+  deployed-package retrieval/review. PR #342 now contains that report at `43f6460`,
+  with successful CI. No merge or change-set execution occurred.
+- Downloaded package SHA-256 and size match Lambda metadata; identity/revision/code
+  hash/environment match the reviewed baseline. Raw responses, package and manifests
+  remain private with restrictive permissions.
+- Exact bundle has no new intake table-binding or assurance-flag references. Static
+  review covers fixed and indexed environment reads and configuration functions
+  receiving the environment map. The current artifact ignores the added binding;
+  this establishes no readiness for later assurance activation or runtime delivery.
+- Node syntax checking passed without invoking the package. A private review
+  manifest binds all downloaded/extracted evidence and the access inventory.
+- Local `deployed-artifact-review.md` records the bounded finding and concrete
+  one-shot execution, read-only pre/post validation and retained-table recovery
+  boundary. Live Support independently supports the compatibility premise.
+- The new artifact assessment remains local pending publication authorization.
+  Change-set execution and capability activation remain unauthorized.
+- Development independently verified archive/extracted-file integrity and the full
+  static compatibility case, including dependency-level environment processing.
+  It supports asking for combined publication and one-shot execution authorization
+  under the concrete pre/post checks. Neither reviewer performed production actions.
+
+## Approved storage-only execution — 2026-09-12
+
+- User approved artifact-review publication and one-shot execution with documented
+  safeguards. The report was pushed to PR #342 at `e2bbf74`.
+- Both coordinating tasks cleared the release window. Exact fresh baseline and
+  change-set checks passed; five alarms OK, queues empty, table name available.
+- One execution request was accepted, with SDK retries disabled and an exclusive
+  attempt marker. Stack UPDATE_COMPLETE / change set EXECUTE_COMPLETE; only the
+  expected table creation and role/function modifications appear in update events.
+- Postchecks passed: 114 exact parameters, 38 resources with all existing physical
+  IDs unchanged, unchanged code/configuration, one resolved table binding, exact
+  scoped IAM, protected/encrypted/PITR-enabled ACTIVE table and unchanged scheduler.
+  Actual environment is 70 variables / 3,658 bytes / 438 remaining. Five alarms
+  remain OK and both queues are empty.
+- All new assurance capabilities remain off. The unchanged runtime predates
+  assurance; no provider action or customer job submission occurred. Execution
+  evidence is privately hash-bound. `storage-execution-review.md` records results
+  and the next runtime-preparation boundary; this new record remains local pending
+  publication authorization.
+- Development and Live Support independently verified all 33 sealed execution
+  evidence files and complete pre/post comparisons, returning storage-foundation
+  deployment GO. No capability activation or provider smoke was included.
+- Next recommended boundary: immutable API runtime-only artifact preparation and
+  separately reviewed nonexecuting change set, preserving all current storage,
+  environment and separate Proof-worker state. Expected future resource scope is
+  API Code only; runtime execution and activation require separate authorization.
+
+## Approved API runtime-only preparation
+
+- User approved storage-record publication and runtime artifact/nonexecuting
+  change-set preparation. PR #342 includes the storage record at `645b610`.
+- Isolated exact-main `6c247a2` build with clean lockfile installation passed all
+  1,050 workspace and 152 deployment tests, typechecks, builds and packaging.
+  All 88 mapped app/package sources match the isolated source. Bundled Proof worker
+  executable/map are unchanged; its independent deployed artifact stays preserved.
+- Fresh baseline matches post-storage state. Sealed runtime packet preserves 113
+  parameters and changes only the API artifact key; all 70 environment variables,
+  storage=true, NoEcho and Proof worker are preserved. S3 artifact checksum verified.
+- Nonexecuting `intake-runtime-only-20260912-46d1824b4a54` is CREATE_COMPLETE/AVAILABLE.
+  It reuses the deployed template. Exact AWS property comparison shows only API
+  Code.S3Key modification, no replacement or other resource changes.
+- Existing dependency advisories remain in the lockfile and deployed dependency
+  sources, including xlsx; no dependency remediation is claimed. Private manifests
+  bind validation, attribution, advisory and AWS evidence. Local
+  `runtime-release-review.md` records the candidate and remaining review boundary.
+- Runtime execution, new report publication and all capability activation remain
+  separate approvals. No runtime/provider action occurred in this preparation.
+- Development and Live Support independently verified the exact artifact,
+  source attribution, manifest and one-resource change set and returned conditional
+  execution-readiness GO. Both confirmed default-off paths add no startup/provider
+  writes. Development bounded the only global adapter changes to the approved
+  status-label variant tolerance and additive nullable timestamp.
+- Inherited dependency advisories are explicit review evidence, not a clean-audit
+  claim or an automatic-upgrade mandate. Both support requesting separate approval
+  for sanitized report publication and one-shot runtime execution under fresh checks.
+
+## Approved runtime-only execution — 2026-09-12
+
+- User approved runtime-review publication and one-shot execution; PR #342 includes
+  the review at `74f38b1`. Both coordinating tasks cleared the release window.
+- Fresh identity/artifact/change-set/parameter/environment/resource/health checks
+  passed. One execution request was accepted with SDK retries disabled and an
+  exclusive local marker. Stack UPDATE_COMPLETE / change set EXECUTE_COMPLETE;
+  events show only stack and API function updates.
+- Deployed code hash/size match the exact reviewed candidate. All other parameters,
+  complete 70-variable environment, 38 resource identities, IAM, table protections,
+  separate Proof worker, scheduler and queues are unchanged. Five alarms remain OK.
+- Provider-free health/auth-boundary checks passed (200/401/401). No authenticated
+  customer workflow, provider smoke or assurance activation occurred. Private
+  execution evidence is sealed. New local `runtime-execution-review.md` records
+  results and proposed single-customer visibility readiness planning.
+- New execution-record publication and any subsequent capability/customer/Admin
+  changes remain separate approval boundaries. Storage and runtime are provisioned;
+  all Intake Assurance capabilities remain off.
+- Development and Live Support independently verified all 54 sealed evidence files
+  and complete pre/post comparisons, returning runtime deployment GO. The release
+  may close; no activation is authorized.
+- Next recommended readiness check: separately authorized read-only observation of
+  an ordinary scheduler cadence through existing logs/metrics, without manual
+  invocation, followed by a single-customer activation dossier. Keep every gate off.
+
+## Approved ordinary scheduler observation
+
+- User approved runtime-record publication and read-only cadence validation. PR #342
+  now includes the runtime outcome at `85432d2`; no activation was authorized.
+- Bounded window 18:51:52.476Z–19:03:46.026Z includes one ordinary scheduled run
+  completed at 18:57:56.660Z. Complete retrieval examined 14 log events, with no
+  scheduled/candidate failures or new assurance events.
+- Lambda metrics show four total invocations, zero errors/throttles; EventBridge
+  has one invocation. FailedInvocations returned no datapoints, which is explicitly
+  distinguished from measured zero. All five alarms remain OK; queues are empty.
+- Full Lambda/stack parameter baseline, rule/targets and table description remain
+  unchanged. A consistent count-only table scan returns zero items/no continuation.
+  No manual invoke, provider action or capability activation occurred.
+- Private evidence is manifest-bound. Local `runtime-cadence-review.md` records
+  the bounded finding and proposed exact-one-customer readiness dossier; publication
+  and any subsequent activation remain separate boundaries.
+- Development and Live Support independently passed the bounded cadence review.
+  Development identified a first-pilot prerequisite: current capture can block
+  preparation for unproven status entry and replace discovery with a budgeted path
+  that can fail ordinary intake. It is not a no-impact observation mode.
+- Hold current capture activation. Next recommended source slice is default-off
+  shadow observation/enforcement separation, reusing existing discovery with bounded
+  tenant-scoped table writes and no additional provider calls or changed live
+  preparation/submission/writeback outcomes. Validate failure isolation before any
+  later runtime deployment or customer activation approval.
