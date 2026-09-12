@@ -41,10 +41,22 @@ export function wrikeShadowKey(scope: WrikeIntentScope) {
     scope.customer_id, scope.import_method_id, scope.connection_id, scope.task_id, scope.trigger_status_id
   ])).digest("hex")}` };
 }
+function validateOutcomes(value: WrikeShadowRecord["outcomes"]) {
+  if (!value || ![null, "created", "replayed", "failed"].includes(value.preparation) ||
+    !Array.isArray(value.jobs) || value.jobs.length > 25 || !value.jobs.every(safeId) || new Set(value.jobs).size !== value.jobs.length ||
+    !Array.isArray(value.submits) || !Array.isArray(value.writebacks) || value.submits.length > 25 || value.writebacks.length > 25 ||
+    JSON.stringify(value).length > 16000) throw new Error("Invalid shadow outcomes");
+  for (const [rows, allowed] of [[value.submits, ["submitted", "replayed", "reconciliation_needed", "reconciled", "failed"]],
+    [value.writebacks, ["posted", "replayed", "failed"]]] as const) {
+    if (new Set(rows.map(row => row.job_id)).size !== rows.length ||
+      rows.some(row => !value.jobs.includes(row.job_id) || !allowed.some(outcome => outcome === row.outcome))) throw new Error("Invalid shadow outcome links");
+  }
+}
 function validate(row: WrikeShadowRecord, scope: WrikeIntentScope) {
-  if (row.schema_version !== 1 || !Number.isSafeInteger(row.revision) || row.revision < 1 ||
+  if (!row || JSON.stringify(row).length > 32000 || row.schema_version !== 1 || !Number.isSafeInteger(row.revision) || row.revision < 1 ||
     JSON.stringify(wrikeShadowKey(row.scope)) !== JSON.stringify(wrikeShadowKey(scope))) throw new Error("Invalid shadow record");
   validateWrikeIntentCursor(row.cursor, scope);
+  validateOutcomes(row.outcomes);
   if (row.attempt) {
     validatePersistedIntakeAttempt(row.attempt);
     if (row.attempt.attempt_id !== row.cursor.attempt_id || row.attempt.state !== "manual_review") throw new Error("Invalid shadow attempt");
@@ -110,7 +122,8 @@ export async function observeWrikeShadow(args: {
     const seen = new Set<string>();
     // Validate the entire batch and copy only bounded existing results before any persistence.
     const rows = tasks.map(task => {
-      if (!task.account_id || !task.root_folder_ids?.length || !task.updated_at || seen.has(task.task_id)) throw new Error("Incomplete shadow evidence");
+      if (!task.account_id || !task.root_folder_ids?.length || !task.updated_at || task.updated_at.length > 64 ||
+        discovery.checked_at.length > 64 || seen.has(task.task_id)) throw new Error("Incomplete shadow evidence");
       seen.add(task.task_id);
       const identity: WrikeIntentScope = { customer_id: c.customer, import_method_id: c.method, connection_id: c.connection, task_id: task.task_id, trigger_status_id: c.status };
       wrikeShadowKey(identity);
@@ -124,7 +137,7 @@ export async function observeWrikeShadow(args: {
       const outcomes = { preparation: matches[0]?.outcome ?? null, jobs,
         submits: (result.scheduled_submit.outcomes ?? []).filter(r => jobs.includes(r.job_id)).map(r => ({ job_id: r.job_id, outcome: r.outcome })),
         writebacks: (result.status_writeback.outcomes ?? []).filter(r => jobs.includes(r.job_id)).map(r => ({ job_id: r.job_id, outcome: r.outcome })) };
-      if (outcomes.submits.length > 25 || outcomes.writebacks.length > 25 || JSON.stringify(outcomes).length > 16000) throw new Error("Shadow outcome overflow");
+      validateOutcomes(outcomes);
       return { identity, observation, outcomes };
     });
     const remaining = args.remainingTimeMs?.();

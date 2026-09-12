@@ -128,6 +128,14 @@ test("shared abort deadline stops a stalled read and starts no later write", asy
       write: async () => { writes++; } }), report: () => {} });
   assert.equal(aborted, true); assert.equal(writes, 0); assert.deepEqual(run.input, run.frozen);
 });
+test("corrupt persisted outcome links fail in isolation before another write", async () => {
+  const f = memory(); const run = await ordinary();
+  await observeWrikeShadow({ environment, input: run.input, store: f.factory, report: () => {} });
+  const row = [...f.rows.values()][0]!; row.outcomes.submits.push({ job_id: "other-customer-job", outcome: "submitted" });
+  const reports: Array<{ status: string }> = [];
+  await observeWrikeShadow({ environment, input: run.input, store: f.factory, report: x => reports.push(x) });
+  assert.equal(f.counts().writes, 1); assert.equal(reports[0]!.status, "failed"); assert.deepEqual(run.input, run.frozen);
+});
 test("Lambda skips when completion margin is insufficient or unavailable", async () => {
   for (const remainingTimeMs of [undefined, () => 2000, () => NaN, () => { throw Error("bad context"); }]) {
     const f = memory(); const run = await ordinary();
