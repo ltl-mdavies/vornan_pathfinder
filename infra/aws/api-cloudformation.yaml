@@ -2,6 +2,26 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Pathfinder production API shell - HTTP API Gateway plus Lambda.
 
 Parameters:
+  IntakeShadowEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable bounded shadow observation only after separate activation approval.
+  IntakeShadowStatusId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+    Description: Exact approved Wrike custom status ID for shadow observation.
+  IntakeShadowMaxCandidates:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^(?:[1-9]|1[0-9]|2[0-5])$"
+    Description: Explicit shadow candidate cap per scheduled cycle, 1 through 25.
+  IntakeShadowMaxElapsedMs:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^(?:[5-9][0-9]|[1-9][0-9]{2}|1000)$"
+    Description: Explicit shadow storage deadline in milliseconds, 50 through 1000.
   IntakeAssuranceVisibilityEnabled:
     Type: String
     Default: "false"
@@ -548,6 +568,39 @@ Parameters:
     Description: Public origin used only when producing a one-time Proof fragment link.
 
 Rules:
+  IntakeShadowRequiresIsolatedScheduledScope:
+    RuleCondition: !Equals [!Ref IntakeShadowEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
+        AssertDescription: Shadow observation requires IntakeAssuranceStorageEnabled to be true.
+      - Assert: !Equals [!Ref StorageDriver, "dynamodb"]
+        AssertDescription: Shadow observation requires StorageDriver to be dynamodb.
+      - Assert: !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
+        AssertDescription: Shadow observation requires WrikeScheduledIntakeEnabled to be true.
+      - Assert: !Equals [!Ref IntakeAssuranceCaptureEnabled, "false"]
+        AssertDescription: Shadow observation requires IntakeAssuranceCaptureEnabled to be false.
+      - Assert: !Equals [!Ref IntakeAssuranceRecoveryEnabled, "false"]
+        AssertDescription: Shadow observation requires IntakeAssuranceRecoveryEnabled to be false.
+      - Assert: !Equals [!Ref IntakeAssuranceVisibilityEnabled, "false"]
+        AssertDescription: Shadow observation requires IntakeAssuranceVisibilityEnabled to be false.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceCustomerId, ""]]
+        AssertDescription: Shadow observation requires explicit IntakeAssuranceCustomerId.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceImportMethodId, ""]]
+        AssertDescription: Shadow observation requires explicit IntakeAssuranceImportMethodId.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceConnectionId, ""]]
+        AssertDescription: Shadow observation requires explicit IntakeAssuranceConnectionId.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceSlaSeconds, ""]]
+        AssertDescription: Shadow observation requires explicit IntakeAssuranceSlaSeconds.
+      - Assert: !Not [!Equals [!Ref IntakeShadowStatusId, ""]]
+        AssertDescription: Shadow observation requires explicit IntakeShadowStatusId.
+      - Assert: !Not [!Equals [!Ref IntakeShadowMaxCandidates, ""]]
+        AssertDescription: Shadow observation requires explicit IntakeShadowMaxCandidates.
+      - Assert: !Not [!Equals [!Ref IntakeShadowMaxElapsedMs, ""]]
+        AssertDescription: Shadow observation requires explicit IntakeShadowMaxElapsedMs.
+      - Assert: !Equals [!Ref IntakeAssuranceCustomerId, !Ref WrikeScheduledIntakeCustomerId]
+        AssertDescription: Shadow observation must match the ordinary scheduled intake scope.
+      - Assert: !Equals [!Ref IntakeAssuranceImportMethodId, !Ref WrikeScheduledIntakeImportMethodId]
+        AssertDescription: Shadow observation must match the ordinary scheduled intake scope.
   IntakeVisibilityRequiresAuthenticatedStorage:
     RuleCondition: !Equals [!Ref IntakeAssuranceVisibilityEnabled, "true"]
     Assertions:
@@ -874,6 +927,14 @@ Rules:
         AssertDescription: Proof core table name and ARN must either both be present or both be absent.
 
 Conditions:
+  IntakeShadowActive: !And
+    - !Equals [!Ref IntakeShadowEnabled, "true"]
+    - !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
+    - !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
+    - !Equals [!Ref StorageDriver, "dynamodb"]
+    - !Equals [!Ref IntakeAssuranceCaptureEnabled, "false"]
+    - !Equals [!Ref IntakeAssuranceRecoveryEnabled, "false"]
+    - !Equals [!Ref IntakeAssuranceVisibilityEnabled, "false"]
   IntakeAssuranceVisibilityActive: !And
     - !Equals [!Ref IntakeAssuranceVisibilityEnabled, "true"]
     - !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
@@ -1343,6 +1404,9 @@ Resources:
         Variables:
           NODE_OPTIONS: "--enable-source-maps"
           PATHFINDER_RUNTIME: "lambda"
+          PATHFINDER_ENABLE_INTAKE_SHADOW: !If [IntakeShadowActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_SHADOW_SCOPE: !If [IntakeShadowActive, !Sub "1|${IntakeAssuranceCustomerId}|${IntakeAssuranceImportMethodId}|${IntakeAssuranceConnectionId}|${IntakeShadowStatusId}", !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_SHADOW_LIMITS: !If [IntakeShadowActive, !Sub "1|${IntakeShadowMaxCandidates}|${IntakeAssuranceSlaSeconds}|${IntakeShadowMaxElapsedMs}", !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_INTAKE_EXCEPTIONS: !If [IntakeAssuranceVisibilityActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_EXCEPTIONS_CUSTOMER_IDS: !If [IntakeAssuranceVisibilityActive, !Ref IntakeAssuranceCustomerId, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_RECOVERY_LIMITS: !If [IntakeAssuranceRecoveryActive, !Sub "1|${IntakeSweepPageSize}|${IntakeSweepMaxPages}|${IntakeSweepLeaseSeconds}", !Ref "AWS::NoValue"]
