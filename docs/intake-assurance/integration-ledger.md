@@ -668,3 +668,19 @@ production smoke test.
   provider action or production read occurred. All release/activation holds remain.
 - Validation: all 573 API tests, 142 deployment contract tests, all-workspace
   typecheck/build and whitespace checks passed. Independent source review pending.
+
+## Independent compact-budget review — source head 77eff19
+
+- Development and Live Support independently reviewed exact source head
+  `77eff19ee5322ecda10edcc199ff5e83d26f119f` against `b5b66a1` and returned
+  source-merge GO with no correctness blocker. Development independently passed
+  all 573 API tests, 142 deployment contract tests, typecheck/build and reconstructed
+  the prior template with exact canonical equality.
+- Both confirmed strict grammar, complete legacy compatibility, exact mixed-value
+  checks, inactive independence, no environment mutation and the 154-byte saving.
+  Current-head CI and user approval remain merge gates.
+- Actual headroom, authoritative parameter/NoEcho preservation, exact change set,
+  storage/operating-scope/inventory/ownership and deployment/activation holds remain.
+  Older-runtime rollback requires legacy budget bindings. Neither review performed
+  production/provider actions. Next source slice: default-off read-only intake
+  visibility, subject to complete environment-size validation.
