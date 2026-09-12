@@ -869,3 +869,32 @@ production smoke test.
   separately reviewed nonexecuting change set, preserving all current storage,
   environment and separate Proof-worker state. Expected future resource scope is
   API Code only; runtime execution and activation require separate authorization.
+
+## Approved API runtime-only preparation
+
+- User approved storage-record publication and runtime artifact/nonexecuting
+  change-set preparation. PR #342 includes the storage record at `645b610`.
+- Isolated exact-main `6c247a2` build with clean lockfile installation passed all
+  1,050 workspace and 152 deployment tests, typechecks, builds and packaging.
+  All 88 mapped app/package sources match the isolated source. Bundled Proof worker
+  executable/map are unchanged; its independent deployed artifact stays preserved.
+- Fresh baseline matches post-storage state. Sealed runtime packet preserves 113
+  parameters and changes only the API artifact key; all 70 environment variables,
+  storage=true, NoEcho and Proof worker are preserved. S3 artifact checksum verified.
+- Nonexecuting `intake-runtime-only-20260912-46d1824b4a54` is CREATE_COMPLETE/AVAILABLE.
+  It reuses the deployed template. Exact AWS property comparison shows only API
+  Code.S3Key modification, no replacement or other resource changes.
+- Existing dependency advisories remain in the lockfile and deployed dependency
+  sources, including xlsx; no dependency remediation is claimed. Private manifests
+  bind validation, attribution, advisory and AWS evidence. Local
+  `runtime-release-review.md` records the candidate and remaining review boundary.
+- Runtime execution, new report publication and all capability activation remain
+  separate approvals. No runtime/provider action occurred in this preparation.
+- Development and Live Support independently verified the exact artifact,
+  source attribution, manifest and one-resource change set and returned conditional
+  execution-readiness GO. Both confirmed default-off paths add no startup/provider
+  writes. Development bounded the only global adapter changes to the approved
+  status-label variant tolerance and additive nullable timestamp.
+- Inherited dependency advisories are explicit review evidence, not a clean-audit
+  claim or an automatic-upgrade mandate. Both support requesting separate approval
+  for sanitized report publication and one-shot runtime execution under fresh checks.
