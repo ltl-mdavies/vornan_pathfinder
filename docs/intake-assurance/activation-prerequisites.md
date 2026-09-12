@@ -391,3 +391,14 @@ API and Vite gates/customer scope must be reviewed together for any future read-
 window, alongside token/domain access, retained-table/schema/inventory, authoritative
 parameter/NoEcho preservation and exact change-set review. No browser publication,
 API deployment, repository setting change or production smoke was performed.
+
+## Offline parameter and rollback evidence validation
+
+The read-only `scripts/intake-deployment-preflight.mjs` now checks supplied complete
+parameter inventories, declared deltas, NoEcho preservation, full environment maps
+and exact original-value rollback. See `deployment-preflight.md` for the packet
+schema, canonical digest definition, synthetic example, restrictions and remaining
+review obligations. No production evidence has been collected. A passing packet
+establishes internal consistency only; it never approves deployment, evaluates the
+change set, proves provenance/freshness or replaces real environment derivation.
+The standard API workflow remains held pending authoritative parameter preservation.
