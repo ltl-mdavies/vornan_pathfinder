@@ -21,7 +21,7 @@ test("enabled feedback requires explicit aggregate limits shorter than its lease
     assert.throws(() => getWrikeIntakeFeedbackConfig({ ...env, ...patch }));
   }
 });
-for (const variant of ["safe", "moved", "renamed", "type", "moved_after_claim", "renamed_after_claim", "type_after_claim", "deep_before_budget", "deep_after_budget", "deep_safe"]) test(`actual feedback Lambda validates live task scope: ${variant}`, async () => {
+for (const variant of ["safe", "moved", "renamed", "type", "moved_after_claim", "renamed_after_claim", "type_after_claim", "deep_before_budget", "deep_after_budget", "deep_safe"]) test(`Lambda rejects local persistence; local feedback handler validates task scope: ${variant}`, async () => {
   const directory = await mkdtemp(join(tmpdir(), "wrike-feedback-"));
   try {
     const script = `
@@ -67,6 +67,9 @@ for (const variant of ["safe", "moved", "renamed", "type", "moved_after_claim", 
       await fs.writeFile(process.env.PATHFINDER_LOCAL_STORE_PATH, JSON.stringify(data));
       await writeCustomerSourceConnectionSecrets('synthetic', 'connection', { provider: 'wrike', wrike: { oauth: { client_id: 'synthetic', client_secret: 'synthetic', refresh_token: 'synthetic', access_token: 'synthetic', access_token_expires_at: new Date(Date.now() + 3600000).toISOString(), host: 'www.wrike.com', scope: 'wsReadWrite' } } });
       Object.assign(process.env, { PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK: 'true', PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: 'synthetic', PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: 'connection', PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: 'method', PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: '3600', PATHFINDER_INTAKE_SWEEP_PAGE_SIZE: '10', PATHFINDER_INTAKE_SWEEP_MAX_PAGES: '1', PATHFINDER_INTAKE_SWEEP_LEASE_SECONDS: '30', PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: '100', PATHFINDER_INTAKE_FEEDBACK_MAX_COMMENTS: '1' });
+      await assert.rejects(handler(event, {}), /DynamoDB driver/); assert.equal(requests, 0); assert.equal(comments, 0);
+      // Keep provider/receipt scenarios as explicit non-Lambda local simulations.
+      process.env.PATHFINDER_RUNTIME = 'local'; delete process.env.AWS_LAMBDA_FUNCTION_NAME;
       const first = await handler(event, {});
       const receipts = await store.listIntakeDeliveriesPage('synthetic');
       if (variant === 'safe' || variant === 'deep_safe') {

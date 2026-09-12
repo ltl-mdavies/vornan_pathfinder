@@ -608,3 +608,43 @@ production smoke test.
   headroom, retained-table posture, workload/scope selection, history/cursor
   inventory, review ownership, alarms/telemetry and all deployment/activation
   decisions remain holds. Neither reviewer performed production/provider actions.
+
+## Default-off recovery configuration slice
+
+- Approved PR #337 merged after successful CI at main
+  `6e01febc93b7ce1d7199aeeef572b197ce0c4ccd`.
+- Independent false-default recovery gate and three empty-default bounded page/lease
+  controls reuse five shared scope/SLA/snapshot settings. Rules require retained
+  DynamoDB persistence, explicit settings and concurrent scheduled scope parity.
+- Shared Lambda persistence guard preserves capture behavior and protects enabled
+  sweep parsers (including existing consumers); trailing-whitespace recovery IDs
+  fail closed. No other capability is enabled and no pagination algorithm changes.
+- Four-state template/runtime tests, strict parameter bounds and an exact reviewed-
+  capture template fingerprint prove the allowed delta. Existing schedule, IAM,
+  provider, submit/writeback and deployment workflow remain unchanged.
+- Complete synthetic combined environment is 3,943 bytes (153 remaining); recovery
+  alone is 3,763. Long valid IDs exceed 4KB and are rejected by the offline checker.
+  Actual production headroom and operating/workload values remain release holds.
+- The first full API run exposed 11 synthetic handler fixtures using a Lambda
+  marker with local persistence. Those fixtures now assert fail-closed rejection
+  before any send/provider work, then explicitly switch to non-Lambda local
+  simulation for their existing receipt/retry/scope scenarios. No production
+  bypass was added. Disabled adjacent capability parsers remain storage-independent.
+- Final validation: 570 API tests, 141 deployment contract tests, all-workspace
+  typecheck/build and whitespace checks passed. Independent review remains required.
+  No production read, provisioning, deployment or real provider action occurred.
+
+## Independent recovery configuration review — source head da74ebc
+
+- Development and Live Support independently reviewed exact source head
+  `da74ebc20c7ea7bcf8b22c7ad18c61a50db83bdb` against `6e01feb` and returned
+  source-merge GO with no correctness blocker. Development independently passed
+  all 570 API tests, 141 deployment contract tests, typecheck and build.
+- Both confirmed four-mode omission, durable persistence guard, disabled adjacent
+  behavior, exact template delta and unchanged recovery/provider/schedule behavior.
+  Successful current-head CI and user approval remain merge gates.
+- Actual environment headroom, authoritative parameter/NoEcho preservation,
+  change-set/table/import review, workload/scope/lease selection, inventory,
+  operations ownership and all deployment/activation decisions remain holds.
+  Next source preparation should address configuration size before adding more
+  capability wiring. Neither review performed production/provider actions.

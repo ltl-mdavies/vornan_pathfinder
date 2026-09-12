@@ -276,3 +276,44 @@ retained table alone is insufficient. The Lambda runtime checks the driver and
 nonempty trimmed table binding before parsing scope/discovery settings. An absent
 application runtime marker does not bypass the guard when AWS supplies its Lambda
 function-name marker. Intentional non-Lambda development fixtures remain local.
+
+## Recovery configuration source preparation
+
+`IntakeAssuranceRecoveryEnabled` independently defaults false and creates no
+schedule. When enabled it requires retained storage, `StorageDriver=dynamodb`,
+explicit safe customer/method/connection IDs, SLA and complete-history snapshot
+limit, plus empty-default page size (1–100), page count (1–10), and lease duration
+(30–900 seconds). An enabled existing scheduled intake must match its customer and
+method. Recovery may remain enabled with capture disabled for an independently
+approved durable-outcome observation window.
+
+The five shared scope/SLA/snapshot bindings emit when capture OR recovery is active.
+Recovery's four gate/page/count/lease bindings emit only when recovery is active;
+capture-only candidate/discovery settings remain absent in recovery-only mode.
+Both active conditions require storage. CloudFormation separately requires the
+DynamoDB driver, and the shared Lambda runtime guard independently checks driver
+and table binding before enabled capture or sweep configuration becomes usable.
+Because notification/feedback/repair reuse the sweep parser, that guard also
+protects their enabled configurations; this slice does not enable those capabilities.
+Recovery identifiers now reject trailing whitespace/newlines as capture does.
+
+Synthetic complete environment totals: 3,316 bytes all off, 3,378 storage only,
+3,791 capture only, 3,763 recovery only, and 3,943 combined (153 bytes remaining).
+Valid longer IDs can overflow the 4KB limit; the candidate-environment checker
+rejects that case. No production headroom is asserted. Further capability wiring
+must address cumulative environment size before any activation; do not assume
+all capabilities will fit concurrently. No identifiers or operating values have
+been selected for production.
+
+The existing recovery algorithm remains bounded by page size/count (at most 1,000
+attempts per segment), complete-history snapshot limit and durable lease/fencing.
+Existing tests cover overlap, lease expiry, replay, page caps, filtered pages,
+repeated cursor and snapshot failure. This slice adds no provider discovery,
+transport, job creation, writeback, schedule, IAM or deadline algorithm. The 300s
+Lambda timeout, whole-invocation workload sizing, cadence and selected lease remain
+release checks; a lease limit is not a promise every selected workload finishes
+before timeout. Keep authoritative parameter/NoEcho preservation, exact change-set
+review, environment proof, table/import posture, inventory and isolated recovery QA
+as separate holds. The historical fingerprint now compares the approved capture
+merge `6e01feb` after removing only recovery additions and restoring the five prior
+capture-only environment conditions.

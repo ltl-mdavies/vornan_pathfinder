@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import test from "node:test";
 import { parseTemplate, evaluateTemplate, environmentBytes } from "../intake-storage-template.mjs";
 import { captureParameters, captureFields, captureRanges, captureValidation, captureVariables as vars } from "./fixtures/intake-capture-config.mjs";
@@ -58,16 +57,6 @@ test("capture and active scheduled intake must have the same customer and method
   const scheduled = { ...captureParameters, WrikeScheduledIntakeEnabled: "true", WrikeScheduledIntakeCustomerId: "synthetic", WrikeScheduledIntakeImportMethodId: "method" };
   assert.doesNotThrow(() => evaluate(scheduled));
   for (const name of ["WrikeScheduledIntakeCustomerId", "WrikeScheduledIntakeImportMethodId"]) assert.throws(() => evaluate({ ...scheduled, [name]: "different" }), /IntakeCaptureMatchesScheduledScope/);
-});
-
-test("all prior template properties match reviewed storage base after only capture additions are removed", () => {
-  const original = structuredClone(template);
-  for (const name of ["IntakeAssuranceCaptureEnabled", ...Object.keys(captureFields)]) delete original.Parameters[name];
-  delete original.Conditions.IntakeAssuranceCaptureActive;
-  for (const name of captureValidation.rules) delete original.Rules[name];
-  for (const key of keys) delete vars(original)[key];
-  const baseline = JSON.parse(readFileSync(new URL("./fixtures/intake-storage-baseline.json", import.meta.url), "utf8"));
-  assert.equal(createHash("sha256").update(JSON.stringify(original)).digest("hex"), baseline.sha256, `Unexpected delta from ${baseline.source_commit}`);
 });
 
 test("capture fixture fits the Lambda environment limit with an explicit byte delta", () => {
