@@ -6,10 +6,12 @@ the existing operations snapshot. It consumes that run's discovery and results;
 it does not discover again, refresh credentials, call a provider or replace a
 preparation callback. Manual intake is unchanged.
 
-The default flag is absent/off. No infrastructure parameter, schedule, IAM, UI or
-deployment workflow change is included. This source slice cannot be interpreted as
-activation authority; future template wiring, environment evidence and release
-review are still required.
+CloudFormation wiring is included and defaults off: `IntakeShadowEnabled` defaults
+to false, and the three shadow environment bindings are absent while disabled.
+The source configuration section below describes the four new parameters. No
+schedule, IAM, UI or deployment workflow change is included. This source slice
+does not authorize activation; resolved environment evidence and release review
+are still required before deployment, followed by a separate activation review.
 
 ## Configuration contract
 
@@ -82,3 +84,24 @@ change, exact-one-customer approval, real environment byte calculation and an
 ordinary-cycle comparison. Keep all other gates off. Rollback disables only shadow
 observation and preserves table records; inspect ambiguous/partial observations
 without replaying customer or provider operations.
+
+## Source configuration wiring
+
+`IntakeShadowEnabled` defaults to false. Enabling it requires retained intake storage,
+DynamoDB, the existing ordinary Wrike scheduler, and capture, recovery and visibility
+all disabled. It reuses the explicit assurance customer, import method, connection
+and SLA parameters. Customer and method must match the scheduler. The saved connection
+and exact custom status are checked again against ordinary discovery at runtime.
+
+Three additional empty-default parameters require explicit values: `IntakeShadowStatusId`,
+`IntakeShadowMaxCandidates` (1–25) and `IntakeShadowMaxElapsedMs` (50–1000).
+Only the three shadow environment bindings become present; the shared enforcing
+scope bindings remain absent. No resource, IAM permission, schedule, UI or provider
+setting is added. The existing storage grants already cover shadow GetItem/PutItem.
+
+This is source wiring only. Before deployment, preserve every current parameter and
+validate the full resolved Lambda environment against 4096 bytes using real candidate
+values. Synthetic fixture headroom is not production headroom. Keep shadow disabled
+for any runtime rollout. Activation requires a separate exact customer/method/connection/
+status scope, per-cycle bounds, observation window, cumulative write allowance and stop
+criteria review. Disabling shadow removes its three bindings; retain storage and its data.

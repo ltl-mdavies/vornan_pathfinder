@@ -1,3 +1,4 @@
+import { withoutShadow } from "./fixtures/intake-shadow-config.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -36,7 +37,7 @@ test("visibility requires explicit safe customer, authentication, storage and Dy
 });
 
 test("visibility changes only its parameter, rule, condition and environment bindings", () => {
-  const prior = structuredClone(template);
+  const prior = withoutShadow(template);
   delete prior.Parameters.IntakeAssuranceVisibilityEnabled;
   delete prior.Rules.IntakeVisibilityRequiresAuthenticatedStorage;
   delete prior.Conditions.IntakeAssuranceVisibilityActive;
