@@ -2,6 +2,26 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Pathfinder production API shell - HTTP API Gateway plus Lambda.
 
 Parameters:
+  IntakeAssuranceRecoveryEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable durable outcome recovery only after separately approved activation; creates no schedule.
+  IntakeSweepPageSize:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^(?:[1-9][0-9]?|100)$"
+    Description: Explicit recovery page size, 1 through 100.
+  IntakeSweepMaxPages:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^(?:[1-9]|10)$"
+    Description: Explicit recovery page count, 1 through 10.
+  IntakeSweepLeaseSeconds:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^(?:[3-9][0-9]|[1-8][0-9]{2}|900)$"
+    Description: Explicit recovery lease in seconds, 30 through 900.
   IntakeAssuranceCaptureEnabled:
     Type: String
     Default: "false"
@@ -523,6 +543,38 @@ Parameters:
     Description: Public origin used only when producing a one-time Proof fragment link.
 
 Rules:
+  IntakeRecoveryRequiresDurableScope:
+    RuleCondition: !Equals [!Ref IntakeAssuranceRecoveryEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
+        AssertDescription: Intake recovery requires retained intake storage.
+      - Assert: !Equals [!Ref StorageDriver, "dynamodb"]
+        AssertDescription: Intake recovery requires the DynamoDB persistence driver.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceCustomerId, ""]]
+        AssertDescription: Intake recovery requires explicit IntakeAssuranceCustomerId.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceImportMethodId, ""]]
+        AssertDescription: Intake recovery requires explicit IntakeAssuranceImportMethodId.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceConnectionId, ""]]
+        AssertDescription: Intake recovery requires explicit IntakeAssuranceConnectionId.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceSlaSeconds, ""]]
+        AssertDescription: Intake recovery requires explicit IntakeAssuranceSlaSeconds.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceSnapshotLimit, ""]]
+        AssertDescription: Intake recovery requires explicit IntakeAssuranceSnapshotLimit.
+      - Assert: !Not [!Equals [!Ref IntakeSweepPageSize, ""]]
+        AssertDescription: Intake recovery requires explicit IntakeSweepPageSize.
+      - Assert: !Not [!Equals [!Ref IntakeSweepMaxPages, ""]]
+        AssertDescription: Intake recovery requires explicit IntakeSweepMaxPages.
+      - Assert: !Not [!Equals [!Ref IntakeSweepLeaseSeconds, ""]]
+        AssertDescription: Intake recovery requires explicit IntakeSweepLeaseSeconds.
+  IntakeRecoveryMatchesScheduledScope:
+    RuleCondition: !And
+      - !Equals [!Ref IntakeAssuranceRecoveryEnabled, "true"]
+      - !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref IntakeAssuranceCustomerId, !Ref WrikeScheduledIntakeCustomerId]
+        AssertDescription: Enabled scheduled intake must match the approved recovery customer.
+      - Assert: !Equals [!Ref IntakeAssuranceImportMethodId, !Ref WrikeScheduledIntakeImportMethodId]
+        AssertDescription: Enabled scheduled intake must match the approved recovery import method.
   IntakeCaptureRequiresStorageAndScope:
     RuleCondition: !Equals [!Ref IntakeAssuranceCaptureEnabled, "true"]
     Assertions:
@@ -806,6 +858,12 @@ Rules:
         AssertDescription: Proof core table name and ARN must either both be present or both be absent.
 
 Conditions:
+  IntakeAssuranceRecoveryActive: !And
+    - !Equals [!Ref IntakeAssuranceRecoveryEnabled, "true"]
+    - !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
+  IntakeAssuranceScopeActive: !Or
+    - !Condition IntakeAssuranceCaptureActive
+    - !Condition IntakeAssuranceRecoveryActive
   IntakeAssuranceCaptureActive: !And
     - !Equals [!Ref IntakeAssuranceCaptureEnabled, "true"]
     - !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
@@ -1266,13 +1324,17 @@ Resources:
         Variables:
           NODE_OPTIONS: "--enable-source-maps"
           PATHFINDER_RUNTIME: "lambda"
+          PATHFINDER_ENABLE_INTAKE_ASSURANCE_SWEEP: !If [IntakeAssuranceRecoveryActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_SWEEP_PAGE_SIZE: !If [IntakeAssuranceRecoveryActive, !Ref IntakeSweepPageSize, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_SWEEP_MAX_PAGES: !If [IntakeAssuranceRecoveryActive, !Ref IntakeSweepMaxPages, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_SWEEP_LEASE_SECONDS: !If [IntakeAssuranceRecoveryActive, !Ref IntakeSweepLeaseSeconds, !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE: !If [IntakeAssuranceCaptureActive, "true", !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceCustomerId, !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceImportMethodId, !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceConnectionId, !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceSlaSeconds, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceCustomerId, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceImportMethodId, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceConnectionId, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceSlaSeconds, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceMaxCandidates, !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceSnapshotLimit, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceSnapshotLimit, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_DISCOVERY_MAX_REQUESTS: !If [IntakeAssuranceCaptureActive, !Ref IntakeDiscoveryMaxRequests, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_DISCOVERY_MAX_ELAPSED_MS: !If [IntakeAssuranceCaptureActive, !Ref IntakeDiscoveryMaxElapsedMs, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_ATTEMPTS_TABLE: !If [IntakeAssuranceStorageActive, !Ref PathfinderIntakeAttemptsTable, !Ref "AWS::NoValue"]

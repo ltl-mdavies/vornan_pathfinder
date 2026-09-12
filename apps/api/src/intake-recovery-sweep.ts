@@ -1,3 +1,4 @@
+import { assertIntakeLambdaPersistence } from "./intake-runtime-persistence.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { IntakeAttempt, IntakeLedger } from "./intake-assurance.js";
 import { intakePageRequest, type IntakePage } from "./intake-exceptions.js";
@@ -19,7 +20,7 @@ export function intakeSweepId(scope: IntakeSweepScope) {
     if (!["internal_notification", "source_feedback", "status_link_repair"].includes(scope.purpose)) throw new Error("Invalid intake sweep purpose");
     values.push(scope.purpose);
   }
-  if (values.some((value) => typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(value))) throw new Error("Invalid intake recovery scope");
+  if (values.some((value) => typeof value !== "string" || value !== value.trim() || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(value))) throw new Error("Invalid intake recovery scope");
   return `sweep_${createHash("sha256").update(JSON.stringify(values)).digest("hex")}`;
 }
 export function sweepTime(value: string) {
@@ -56,7 +57,10 @@ export function getIntakeSweepConfig(env: NodeJS.ProcessEnv): IntakeSweepConfig 
   const config = { enabled, scope, page_size: Number(env.PATHFINDER_INTAKE_SWEEP_PAGE_SIZE), max_pages: Number(env.PATHFINDER_INTAKE_SWEEP_MAX_PAGES),
     lease_seconds: Number(env.PATHFINDER_INTAKE_SWEEP_LEASE_SECONDS), snapshot_limit: Number(env.PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT),
     sla_seconds: Number(env.PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS) };
-  if (enabled) validateSweepConfig(config);
+  if (enabled) {
+    assertIntakeLambdaPersistence(env, "recovery");
+    validateSweepConfig(config);
+  }
   return config;
 }
 export function validateSweepConfig(config: IntakeSweepConfig) {

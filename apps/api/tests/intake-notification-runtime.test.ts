@@ -14,7 +14,7 @@ test("notification gate is independent, bounded and uses a separate durable curs
   assert.equal(isIntakeNotificationEvent({ source: "pathfinder.intake", "detail-type": "Intake Assurance Notifications", detail: { automation: "notify_internal" } }), true);
   assert.equal(isIntakeNotificationEvent({ source: "pathfinder.intake", "detail-type": "Intake Assurance Sweep", detail: { automation: "notify_internal" } }), false);
 });
-test("real Lambda is dark by default; bounded synthetic SES dispatch persists receipts and does not resend", async () => {
+test("Lambda rejects local persistence; local handler simulation persists bounded synthetic SES receipts", async () => {
   const directory = await mkdtemp(join(tmpdir(), "intake-notifications-"));
   try {
     const script = `
@@ -33,6 +33,9 @@ test("real Lambda is dark by default; bounded synthetic SES dispatch persists re
       assert.equal((await handler(event, {})).status, 'disabled');
       await assert.rejects(fs.access(process.env.PATHFINDER_LOCAL_STORE_PATH)); assert.equal(sends, 0);
       Object.assign(process.env, { PATHFINDER_ENABLE_INTAKE_INTERNAL_NOTIFICATIONS: 'true', PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: 'synthetic', PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: 'connection', PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: 'method', PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: '3600', PATHFINDER_INTAKE_SWEEP_PAGE_SIZE: '10', PATHFINDER_INTAKE_SWEEP_MAX_PAGES: '1', PATHFINDER_INTAKE_SWEEP_LEASE_SECONDS: '30', PATHFINDER_INTAKE_NOTIFICATION_MAX_SENDS: '1', PATHFINDER_STATUS_EMAIL_MODE: 'log' });
+      await assert.rejects(handler(event, {}), /DynamoDB driver/); assert.equal(sends, 0);
+      // Continue existing dispatch coverage as an explicit non-Lambda local simulation.
+      process.env.PATHFINDER_RUNTIME = 'local'; delete process.env.AWS_LAMBDA_FUNCTION_NAME;
       await assert.rejects(handler(event, {}), /SES mode/);
       await assert.rejects(fs.access(process.env.PATHFINDER_LOCAL_STORE_PATH));
       const store = await import(${JSON.stringify(new URL("../src/store.ts", import.meta.url).href)});
