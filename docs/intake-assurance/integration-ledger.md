@@ -923,3 +923,29 @@ production smoke test.
 - Next recommended readiness check: separately authorized read-only observation of
   an ordinary scheduler cadence through existing logs/metrics, without manual
   invocation, followed by a single-customer activation dossier. Keep every gate off.
+
+## Approved ordinary scheduler observation
+
+- User approved runtime-record publication and read-only cadence validation. PR #342
+  now includes the runtime outcome at `85432d2`; no activation was authorized.
+- Bounded window 18:51:52.476Z–19:03:46.026Z includes one ordinary scheduled run
+  completed at 18:57:56.660Z. Complete retrieval examined 14 log events, with no
+  scheduled/candidate failures or new assurance events.
+- Lambda metrics show four total invocations, zero errors/throttles; EventBridge
+  has one invocation. FailedInvocations returned no datapoints, which is explicitly
+  distinguished from measured zero. All five alarms remain OK; queues are empty.
+- Full Lambda/stack parameter baseline, rule/targets and table description remain
+  unchanged. A consistent count-only table scan returns zero items/no continuation.
+  No manual invoke, provider action or capability activation occurred.
+- Private evidence is manifest-bound. Local `runtime-cadence-review.md` records
+  the bounded finding and proposed exact-one-customer readiness dossier; publication
+  and any subsequent activation remain separate boundaries.
+- Development and Live Support independently passed the bounded cadence review.
+  Development identified a first-pilot prerequisite: current capture can block
+  preparation for unproven status entry and replace discovery with a budgeted path
+  that can fail ordinary intake. It is not a no-impact observation mode.
+- Hold current capture activation. Next recommended source slice is default-off
+  shadow observation/enforcement separation, reusing existing discovery with bounded
+  tenant-scoped table writes and no additional provider calls or changed live
+  preparation/submission/writeback outcomes. Validate failure isolation before any
+  later runtime deployment or customer activation approval.
