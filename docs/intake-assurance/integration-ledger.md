@@ -724,3 +724,23 @@ production smoke test.
   deployment/publication/activation decisions remain held. Neither review performed
   production/provider actions. Next source preparation: offline deployment-preflight
   and rollback checks for authoritative parameter preservation.
+
+## Offline deployment-preflight and rollback evidence slice
+
+- Approved PR #340 merged after successful CI at main
+  `98446c7418dea2c48a1f7c26a864bc3d592607f6`.
+- Added a read-only supplied-evidence validator with complete deployed/candidate/
+  rollback inventories, explicit intended deltas, NoEcho previous-value preservation,
+  full environment equality/byte checks and exact changed-value restoration.
+- Every evidence document requires a canonical SHA-256 binding. CLI rejects duplicate
+  JSON keys and malformed files without printing contents, names, values or paths.
+  Output is counts/totals plus explicit no-authorization status and remaining checks.
+- New parameters require declared values; omitted/default fallback, unsupported
+  parameter semantics/types/transforms, secret updates and recognizable unresolved
+  values fail closed. No resource/rule evaluation or production truth is inferred.
+- Added synthetic example and preparation/rollback guidance, including the distinction
+  between parameter restoration and retained-resource rollback. The existing deploy
+  workflow is unchanged and remains held.
+- Validation: all 152 deployment contract tests, the synthetic CLI example and
+  whitespace checks passed. No runtime/template changes, production reads, AWS/HTTP
+  calls, provider actions, change-set execution, deployment or activation occurred.

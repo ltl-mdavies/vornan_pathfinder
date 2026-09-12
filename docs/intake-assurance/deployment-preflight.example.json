@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "deployed_template": {
+    "Parameters": {
+      "Code": {
+        "Type": "String"
+      },
+      "Secret": {
+        "Type": "String",
+        "NoEcho": true
+      },
+      "Mode": {
+        "Type": "String",
+        "Default": "default-must-not-win"
+      }
+    },
+    "Resources": {}
+  },
+  "candidate_template": {
+    "Parameters": {
+      "Code": {
+        "Type": "String"
+      },
+      "Secret": {
+        "Type": "String",
+        "NoEcho": true
+      },
+      "Mode": {
+        "Type": "String",
+        "Default": "default-must-not-win"
+      },
+      "IntakeEnabled": {
+        "Type": "String",
+        "Default": "false"
+      }
+    },
+    "Resources": {}
+  },
+  "current_parameters": [
+    {
+      "ParameterKey": "Code",
+      "ParameterValue": "old-artifact"
+    },
+    {
+      "ParameterKey": "Secret",
+      "ParameterValue": "****"
+    },
+    {
+      "ParameterKey": "Mode",
+      "ParameterValue": "retained-mode"
+    }
+  ],
+  "candidate_parameters": [
+    {
+      "ParameterKey": "Code",
+      "ParameterValue": "new-artifact"
+    },
+    {
+      "ParameterKey": "Secret",
+      "UsePreviousValue": true
+    },
+    {
+      "ParameterKey": "Mode",
+      "UsePreviousValue": true
+    },
+    {
+      "ParameterKey": "IntakeEnabled",
+      "ParameterValue": "false"
+    }
+  ],
+  "rollback_parameters": [
+    {
+      "ParameterKey": "Code",
+      "ParameterValue": "old-artifact"
+    },
+    {
+      "ParameterKey": "Secret",
+      "UsePreviousValue": true
+    },
+    {
+      "ParameterKey": "Mode",
+      "UsePreviousValue": true
+    }
+  ],
+  "intended_parameter_changes": {
+    "Code": "new-artifact",
+    "IntakeEnabled": "false"
+  },
+  "current_environment": {
+    "SAFE": "before",
+    "PRIVATE_CANARY": "secret-canary"
+  },
+  "candidate_environment": {
+    "SAFE": "after",
+    "PRIVATE_CANARY": "secret-canary",
+    "INTAKE_STATE": "false"
+  },
+  "rollback_environment": {
+    "SAFE": "before",
+    "PRIVATE_CANARY": "secret-canary"
+  },
+  "intended_environment_changes": {
+    "SAFE": "after",
+    "INTAKE_STATE": "false"
+  },
+  "evidence_sha256": {
+    "deployed_template": "b3735af7f544f94f08b25e97c1c2b2614b5f0df9dd55ed91f4962240e53515c5",
+    "candidate_template": "bfa480700ebe7c6210a209dac526b1c71c05c69af95323811f28acbc931e4911",
+    "current_parameters": "620d8fcce581c05ec48b3e872f78887ab4a21d2d77ea37c9eaeffaefc83ed748",
+    "candidate_parameters": "cdfcc3242bf0ceede04c7aad098b8d31b8a9bce6f976d8f1c6fa1ee66258a4cb",
+    "rollback_parameters": "71cf364304020a15a32aaecb6147707f0f924f16b87fd518a371fc5c1a5ddc6a",
+    "intended_parameter_changes": "e1805de3d8975363c409be36fdfed153ccc89e1a4003a6bfd8eccdc128cdd88e",
+    "current_environment": "eee2c444006c90c4886beec0f1fdce408d3f9e44ed5217ec46966a8408c31cc3",
+    "candidate_environment": "306770321059c3e1a9795af91f60c6f1c0c5d0b72cb993bdb4113e2a447e8de7",
+    "rollback_environment": "eee2c444006c90c4886beec0f1fdce408d3f9e44ed5217ec46966a8408c31cc3",
+    "intended_environment_changes": "bff25dad1686332d71f21e23b7c35db749c59bf844cac1c7c4385d573eceb6e8"
+  }
+}
