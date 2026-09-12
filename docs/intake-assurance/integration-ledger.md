@@ -759,3 +759,28 @@ production smoke test.
   decisions remain held. Next proposed step is separately authorized read-only
   collection of deployed stack/template/parameter/function/environment evidence;
   no deployment, publication, provider or activation action is included.
+
+## Authorized deployed evidence collection — 2026-09-12
+
+- Approved PR #341 merged after green final-head CI at main
+  `6c247a271a576377fcc8b56d2238bdf9dc441bdb`.
+- Read-only AWS collection verified account/stack/function mapping, captured the
+  deployed original template, complete parameter/resource inventories and complete
+  Lambda environment. Raw responses and sealed packets remain private outside Git;
+  file permissions and raw manifest hashes were checked.
+- Actual baseline: 99 parameters including one NoEcho, 37 resources, 69 Lambda
+  variables using 3,596 bytes with 500 remaining; no intake flags/table binding.
+- Baseline, all-new-default-off and storage-only packets pass offline preservation
+  checks. Both source candidates preserve all 99 existing parameters/artifacts and
+  explicitly declare 15 new values. All-off has no evaluated resource/environment
+  delta. Storage-only adds the protected table, scoped IAM, environment binding and
+  table output; candidate environment is 3,658 bytes with 438 remaining.
+- Exact offline reconstruction confirms no other evaluated storage-only changes.
+  This does not replace AWS validation, a fresh baseline, deployed-code compatibility
+  checks or an actual reviewed change set. Details and rollback limitations are in
+  `deployment-evidence-review.md`.
+- Live Support independently validated the storage packet and supports technical
+  preparation of one nonexecuting storage-only change set, subject to user approval,
+  freshness, table-name availability and the exact limited resource scope.
+- No change set, AWS mutation, provider action, deployment, publication or capability
+  activation occurred. Change-set creation and execution remain separate approvals.
