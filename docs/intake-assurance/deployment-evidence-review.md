@@ -65,6 +65,16 @@ gates while preserving storage and records.
 
 ## Proposed next boundary
 
+Development and Live Support independently support this preparation boundary.
+Development reproduced raw-response lineage, intrinsic normalization, packet/source
+equality, parameter/environment preservation and the one-add/two-modify resource
+comparison. Both independently revalidated the storage-only packet. Their technical
+GO is not user authorization to create or execute a change set.
+
+Execution has a specific deployed-code hold: prove the exact deployed CodeSha256
+and runtime safely handle or ignore the new table binding with all intake gates
+off. Preserving artifact parameters alone does not prove that compatibility.
+
 Prepare and review a **nonexecuting storage-only CloudFormation change set**, with
 all existing parameters/artifacts preserved and every intake capability off.
 Separate user authorization is required before creating it. Confirm evidence

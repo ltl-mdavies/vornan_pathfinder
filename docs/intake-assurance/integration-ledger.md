@@ -784,3 +784,11 @@ production smoke test.
   freshness, table-name availability and the exact limited resource scope.
 - No change set, AWS mutation, provider action, deployment, publication or capability
   activation occurred. Change-set creation and execution remain separate approvals.
+- Development independently verified raw-response lineage, normalized template/source
+  equality, all preservation packets and the exact storage resource delta. It also
+  supports separately authorized nonexecuting preparation. Exact deployed artifact
+  compatibility with the added binding is an explicit execution hold.
+- The sanitized report is committed locally. Automatic approval review rejected its
+  push because production metadata disclosure to the remote repository was outside
+  the read-only collection approval. No push or report PR occurred; publication
+  requires explicit user authorization.
