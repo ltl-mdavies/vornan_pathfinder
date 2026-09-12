@@ -779,3 +779,20 @@ production smoke test.
 - No template, IAM, scheduler, deployment workflow, UI or production setting changes.
   Runtime deployment, shadow activation and report of real pilot identities remain
   separate approval boundaries. See `shadow-observation.md` for the source contract.
+
+## Independent shadow source review — f79045d
+
+- Development and Live Support reviewed exact source
+  `f79045de6132d4d36fb4aa37fd23972e1bf485e5` against `6c247a2` and returned
+  source-merge GO. The initial out-of-status observation allowance was removed:
+  only canonical exact-status candidates with unambiguous discovery resolution may
+  touch storage. No unobserved status exit/re-entry is inferred.
+- Persisted outcome shape, membership, enums, uniqueness and serialized bounds are
+  validated on reads and writes. Corrupt rows fail in isolation. Reviewer-confirmed
+  boundaries include end-of-run reuse, separate tenant partitions, shared abort,
+  one-attempt persistence, remaining-time margin and aggregate-only telemetry.
+- Final corrected source passed 1,061 workspace tests, 152 deployment tests,
+  workspace typechecks/builds and diff hygiene. All 17 browser tests passed before
+  the backend-only selection/validation corrections; no frontend changed.
+- Final hosted CI and user approval remain merge gates. No template/environment
+  wiring, package, deployment, customer pilot or capability activation is included.
