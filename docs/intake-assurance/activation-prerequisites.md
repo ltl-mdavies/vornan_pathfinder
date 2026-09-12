@@ -354,3 +354,40 @@ budget entries through a reviewed parameter-preserving template/environment chan
 never leave an older binary with only compact entries. Default-off gates, actual
 headroom proof, deployed parameter/NoEcho preservation, exact change-set review,
 retained storage and separate deployment/activation approval remain required.
+
+## Read-only visibility configuration
+
+`IntakeAssuranceVisibilityEnabled` independently defaults false. Enabling requires
+retained storage, `StorageDriver=dynamodb`, `RequireFirebaseAuth=true`, and one safe
+explicit `IntakeAssuranceCustomerId`. Only the existing API visibility flag and
+`PATHFINDER_INTAKE_EXCEPTIONS_CUSTOMER_IDS` singleton allowlist are added; the same
+customer parameter is reused without emitting duplicate capture/recovery scope.
+Visibility-only emits no method/connection/SLA/snapshot/budget settings and enables
+no capture, recovery, delivery review, notification, feedback or repair capability.
+
+The API configuration guard returns disabled before inspecting any other setting.
+Enabled visibility requires exact auth=true and one safe, trim-stable customer ID;
+comma-separated multiple IDs are rejected. Lambda additionally requires DynamoDB
+and a nonempty trimmed attempts-table binding. Existing Firebase token/domain
+middleware remains ahead of the unchanged read-only exceptions/deliveries router.
+UI state never authorizes API access. Requests for another customer are rejected
+before reads; existing pagination, cursor, projection/redaction and no-store behavior
+remain. No write or operator-attestation route is enabled.
+
+Admin builds use `VITE_ENABLE_INTAKE_EXCEPTIONS` (default false) and
+`VITE_INTAKE_EXCEPTIONS_CUSTOMER_ID` (default empty). Existing workflow source maps
+these from `PATHFINDER_ENABLE_INTAKE_EXCEPTIONS_UI` and
+`PATHFINDER_INTAKE_EXCEPTIONS_UI_CUSTOMER_ID`; no repository variable was changed.
+Local deployment source supplies the same defaults. Absent/malformed flags are off.
+Navigation and component mounting require an authenticated session, exact safe
+configured customer match, and agreement between selected and resolved customer
+identity. On mismatch the fetch-owning component is not mounted. The existing
+components expose only read/refresh/pagination controls.
+
+Synthetic complete Lambda environment totals are 3,467 bytes for visibility only
+and 3,878 for capture+recovery+visibility (218 remaining). Actual IDs and other
+production flags may overflow 4KB; full candidate measurement remains required.
+API and Vite gates/customer scope must be reviewed together for any future read-only
+window, alongside token/domain access, retained-table/schema/inventory, authoritative
+parameter/NoEcho preservation and exact change-set review. No browser publication,
+API deployment, repository setting change or production smoke was performed.

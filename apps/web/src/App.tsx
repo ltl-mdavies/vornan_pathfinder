@@ -1,3 +1,4 @@
+import { isIntakeVisibilityAvailable } from "./intake-visibility";
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { IntakeExceptions } from "./IntakeExceptions";
 import {
@@ -6875,9 +6876,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     artworkCatalogInternalPilotEnabled,
     selectedCustomerId
   );
+  const intakeVisibilityAvailable = selectedCustomerId === selectedCustomer.lift_customer_id && isIntakeVisibilityAvailable(import.meta.env.VITE_ENABLE_INTAKE_EXCEPTIONS, import.meta.env.VITE_INTAKE_EXCEPTIONS_CUSTOMER_ID, selectedCustomerId, Boolean(authSession));
   const visibleCustomerNavItems = customerNavItems.filter(
     (item) => (item.label !== "Artwork Catalog" || artworkCatalogInternalPilotAvailable) &&
-      (item.label !== "Intake Exceptions" || import.meta.env.VITE_ENABLE_INTAKE_EXCEPTIONS === "true")
+      (item.label !== "Intake Exceptions" || intakeVisibilityAvailable)
   );
   const artworkCatalogFocusedShell = shouldUseArtworkCatalogFocusedShell({
     activeGlobalView,
@@ -11055,7 +11057,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </header> : null}
 
-            {activeCustomerView === "Intake Exceptions" && import.meta.env.VITE_ENABLE_INTAKE_EXCEPTIONS === "true" ? (
+            {activeCustomerView === "Intake Exceptions" && intakeVisibilityAvailable ? (
               <IntakeExceptions key={selectedCustomer.lift_customer_id} customerId={selectedCustomer.lift_customer_id} apiBaseUrl={apiBaseUrl} />
             ) : null}
             {activeCustomerView === "Overview" ? (
