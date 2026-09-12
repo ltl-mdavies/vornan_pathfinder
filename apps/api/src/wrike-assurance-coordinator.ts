@@ -10,6 +10,12 @@ export interface WrikeAssuranceCaptureConfig { enabled: boolean; customer_id: st
 export function getWrikeAssuranceCaptureConfig(environment: NodeJS.ProcessEnv, scheduled: { customer_id: string; import_method_id: string }): WrikeAssuranceCaptureConfig {
   const disabled = { enabled: false, customer_id: "", import_method_id: "", connection_id: "", snapshot_limit: 0, discovery_limits: { max_requests: 0, max_elapsed_ms: 0 }, sla_seconds: 0, max_candidates: 0 };
   if (environment.PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE !== "true") return disabled;
+  if ((environment.PATHFINDER_RUNTIME === "lambda" || environment.AWS_LAMBDA_FUNCTION_NAME) &&
+    (environment.PATHFINDER_STORAGE_DRIVER !== "dynamodb" ||
+      !environment.PATHFINDER_INTAKE_ATTEMPTS_TABLE ||
+      environment.PATHFINDER_INTAKE_ATTEMPTS_TABLE !== environment.PATHFINDER_INTAKE_ATTEMPTS_TABLE.trim())) {
+    throw new Error("Lambda intake capture requires the DynamoDB driver and an intake table binding");
+  }
   const discoveryLimits = { max_requests: Number(environment.PATHFINDER_INTAKE_DISCOVERY_MAX_REQUESTS), max_elapsed_ms: Number(environment.PATHFINDER_INTAKE_DISCOVERY_MAX_ELAPSED_MS) };
   validateWrikeProviderLimits(discoveryLimits);
   const customer = environment.PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID ?? "";
@@ -18,7 +24,7 @@ export function getWrikeAssuranceCaptureConfig(environment: NodeJS.ProcessEnv, s
   const snapshotLimit = Number(environment.PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT);
   const sla = Number(environment.PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS);
   const max = Number(environment.PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES);
-  if (!customer || !method || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(connection) ||
+  if (![customer, method, connection].every(value => value === value.trim() && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$/.test(value)) ||
     !Number.isInteger(snapshotLimit) || snapshotLimit < 1 || snapshotLimit > 10000 || customer !== scheduled.customer_id || method !== scheduled.import_method_id ||
     !Number.isInteger(sla) || sla < 60 || sla > 604800 || !Number.isInteger(max) || max < 1 || max > 1000) {
     throw new Error("Intake assurance capture requires an exact scheduled scope and explicit bounded SLA and candidate limits");

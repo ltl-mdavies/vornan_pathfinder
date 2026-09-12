@@ -13,10 +13,20 @@ export function parseTemplate(source) {
 }
 
 const omitted = Symbol("AWS::NoValue");
-export function evaluateTemplate(template, overrides = {}) {
+export function evaluateTemplate(template, overrides = {}, { validateParameters = false, rules = [] } = {}) {
   const parameters = Object.fromEntries(Object.entries(template.Parameters).map(([key, value]) =>
     [key, value.Default ?? `fixture-${key}`]));
   Object.assign(parameters, { "AWS::Region": "us-east-1", "AWS::AccountId": "123456789012", "AWS::Partition": "aws" }, overrides);
+  if (validateParameters) {
+    for (const [name, definition] of Object.entries(template.Parameters)) {
+      const value = parameters[name];
+      if (definition.AllowedValues && !definition.AllowedValues.includes(value)) throw new Error(`Invalid parameter: ${name}`);
+      if (definition.AllowedPattern && !new RegExp(`^(?:${definition.AllowedPattern})$`).test(String(value))) throw new Error(`Invalid parameter: ${name}`);
+      if (definition.Type === "Number" && (!Number.isFinite(Number(value)) ||
+        (definition.MinValue !== undefined && Number(value) < definition.MinValue) ||
+        (definition.MaxValue !== undefined && Number(value) > definition.MaxValue))) throw new Error(`Invalid parameter: ${name}`);
+    }
+  }
   const condition = (name) => evaluate(template.Conditions[name]);
   const ref = (name) => {
     if (name === "AWS::NoValue") return omitted;
@@ -57,6 +67,15 @@ export function evaluateTemplate(template, overrides = {}) {
       return resolved === omitted ? [] : [[key, resolved]];
     }));
   };
+  for (const name of rules) {
+    const rule = template.Rules[name];
+    if (!rule) throw new Error(`Unknown rule: ${name}`);
+    if (!rule.RuleCondition || evaluate(rule.RuleCondition)) {
+      for (const assertion of rule.Assertions) {
+        if (!evaluate(assertion.Assert)) throw new Error(`Rule failed: ${name}: ${assertion.AssertDescription}`);
+      }
+    }
+  }
   const section = (entries) => Object.fromEntries(Object.entries(entries).filter(([, value]) =>
     !value.Condition || condition(value.Condition)).map(([key, value]) => [key, evaluate(value)]));
   return { Resources: section(template.Resources), Outputs: section(template.Outputs) };

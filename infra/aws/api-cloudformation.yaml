@@ -2,6 +2,51 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Pathfinder production API shell - HTTP API Gateway plus Lambda.
 
 Parameters:
+  IntakeAssuranceCaptureEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable scoped intake capture only after a separately approved activation review.
+  IntakeAssuranceCustomerId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+    Description: Exact approved customer ID.
+  IntakeAssuranceImportMethodId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+    Description: Exact approved import method ID.
+  IntakeAssuranceConnectionId:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$"
+    Description: Exact approved saved Wrike connection ID.
+  IntakeAssuranceSlaSeconds:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^(?:[6-9][0-9]|[1-9][0-9]{2,4}|[1-5][0-9]{5}|60[0-3][0-9]{3}|604[0-7][0-9]{2}|604800)$"
+    Description: Explicit SLA in seconds, 60 through 604800.
+  IntakeAssuranceMaxCandidates:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^(?:[1-9][0-9]{0,2}|1000)$"
+    Description: Explicit candidate cap, 1 through 1000.
+  IntakeAssuranceSnapshotLimit:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^(?:[1-9][0-9]{0,3}|10000)$"
+    Description: Explicit complete-history snapshot cap, 1 through 10000.
+  IntakeDiscoveryMaxRequests:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^(?:[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-6])$"
+    Description: Explicit aggregate requests per discovery, 1 through 256.
+  IntakeDiscoveryMaxElapsedMs:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^(?:[1-9][0-9]{0,4}|1[01][0-9]{4}|120000)$"
+    Description: Explicit aggregate milliseconds per discovery, 1 through 120000.
   IntakeAssuranceStorageEnabled:
     Type: String
     Default: "false"
@@ -478,6 +523,38 @@ Parameters:
     Description: Public origin used only when producing a one-time Proof fragment link.
 
 Rules:
+  IntakeCaptureRequiresStorageAndScope:
+    RuleCondition: !Equals [!Ref IntakeAssuranceCaptureEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
+        AssertDescription: Intake capture requires retained intake storage.
+      - Assert: !Equals [!Ref StorageDriver, "dynamodb"]
+        AssertDescription: Intake capture requires the DynamoDB persistence driver.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceCustomerId, ""]]
+        AssertDescription: Intake capture requires explicit IntakeAssuranceCustomerId.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceImportMethodId, ""]]
+        AssertDescription: Intake capture requires explicit IntakeAssuranceImportMethodId.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceConnectionId, ""]]
+        AssertDescription: Intake capture requires explicit IntakeAssuranceConnectionId.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceSlaSeconds, ""]]
+        AssertDescription: Intake capture requires explicit IntakeAssuranceSlaSeconds.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceMaxCandidates, ""]]
+        AssertDescription: Intake capture requires explicit IntakeAssuranceMaxCandidates.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceSnapshotLimit, ""]]
+        AssertDescription: Intake capture requires explicit IntakeAssuranceSnapshotLimit.
+      - Assert: !Not [!Equals [!Ref IntakeDiscoveryMaxRequests, ""]]
+        AssertDescription: Intake capture requires explicit IntakeDiscoveryMaxRequests.
+      - Assert: !Not [!Equals [!Ref IntakeDiscoveryMaxElapsedMs, ""]]
+        AssertDescription: Intake capture requires explicit IntakeDiscoveryMaxElapsedMs.
+  IntakeCaptureMatchesScheduledScope:
+    RuleCondition: !And
+      - !Equals [!Ref IntakeAssuranceCaptureEnabled, "true"]
+      - !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref IntakeAssuranceCustomerId, !Ref WrikeScheduledIntakeCustomerId]
+        AssertDescription: Enabled scheduled intake must match the approved capture customer.
+      - Assert: !Equals [!Ref IntakeAssuranceImportMethodId, !Ref WrikeScheduledIntakeImportMethodId]
+        AssertDescription: Enabled scheduled intake must match the approved capture import method.
   WrikeScheduledIntakeRequiresPreparedEvidence:
     RuleCondition: !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
     Assertions:
@@ -729,6 +806,9 @@ Rules:
         AssertDescription: Proof core table name and ARN must either both be present or both be absent.
 
 Conditions:
+  IntakeAssuranceCaptureActive: !And
+    - !Equals [!Ref IntakeAssuranceCaptureEnabled, "true"]
+    - !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
   IntakeAssuranceStorageActive: !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
   WrikeScheduledIntakeActive: !Equals [!Ref WrikeScheduledIntakeEnabled, "true"]
   WrikeCustomFieldDiscoveryActive: !Equals [!Ref WrikeCustomFieldDiscoveryEnabled, "true"]
@@ -1186,6 +1266,15 @@ Resources:
         Variables:
           NODE_OPTIONS: "--enable-source-maps"
           PATHFINDER_RUNTIME: "lambda"
+          PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE: !If [IntakeAssuranceCaptureActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceCustomerId, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceImportMethodId, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceConnectionId, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceSlaSeconds, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceMaxCandidates, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceSnapshotLimit, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_DISCOVERY_MAX_REQUESTS: !If [IntakeAssuranceCaptureActive, !Ref IntakeDiscoveryMaxRequests, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_DISCOVERY_MAX_ELAPSED_MS: !If [IntakeAssuranceCaptureActive, !Ref IntakeDiscoveryMaxElapsedMs, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_ATTEMPTS_TABLE: !If [IntakeAssuranceStorageActive, !Ref PathfinderIntakeAttemptsTable, !Ref "AWS::NoValue"]
           PATHFINDER_CUSTOMER_SEED_FILE: "/var/task/data/lift-customers.sample.csv"
           PATHFINDER_ALLOWED_ORIGINS: !Ref AllowedOrigins

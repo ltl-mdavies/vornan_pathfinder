@@ -557,3 +557,54 @@ production smoke test.
   NoEcho preservation, exact change-set review, actual environment headroom,
   physical name availability, deployment-role verification and rollback/import
   preparation. No review authorized or performed deployment or activation.
+
+## Default-off capture configuration slice
+
+- Approved PR #336 merged after successful CI at main
+  `8ae1ad0f9f1d6cd9a4327a7b18c40f65f2243088`.
+- Added an independent false-default capture parameter plus eight empty-default
+  scope/budget settings. Enabling requires retained storage, safe exact IDs and
+  bounded settings matching runtime constraints. Concurrent scheduled intake must
+  match the capture customer/method. Capture bindings require both gates; false
+  adds no environment keys or resource changes, even with retained parameter values.
+- Tightened runtime customer/method identifiers to the same safe-ID contract as
+  connection IDs, including rejection of trailing newline/whitespace. Template-to-
+  runtime tests verify real emitted bindings and rejection of missing/invalid fields.
+- No other capability, schedule, IAM, API/UI gate, provider behavior or deployment
+  path is introduced. Complete prior template fingerprint remains checked against
+  the reviewed storage merge after removing exactly the capture additions.
+- Synthetic fixture environment: 3,791 bytes, with 305 bytes remaining. Added a
+  sanitized offline full-candidate environment byte checker; production completeness
+  and actual headroom are not asserted. All release/activation holds remain.
+- Validation: 566 API tests, 137 deployment contract tests, all-workspace typecheck
+  and build, and whitespace checks passed. Independent source review is pending;
+  no production read, deployment or real provider action was performed.
+
+## Capture configuration review correction
+
+- Live Support returned source-merge GO on `84d3539`. Development identified a
+  durability blocker: storage provisioned with `StorageDriver=local` still let
+  enabled capture use ephemeral persistence. The template now explicitly requires
+  `StorageDriver=dynamodb` when capture is enabled.
+- The runtime independently rejects enabled Lambda capture without the exact
+  DynamoDB driver and nonempty trimmed intake table binding. Lambda is recognized
+  by the application runtime marker or AWS function-name marker; intentional local
+  development fixtures remain supported. Disabled capture remains unchanged.
+- Regression tests cover local/absent/invalid drivers, missing/empty/whitespace
+  table names, both Lambda markers, template-rule bypass, and local development.
+  Corrected-head independent review is required before merge.
+- Corrected validation: all 567 API tests, 137 deployment contract tests,
+  all-workspace typecheck/build and whitespace checks passed.
+
+## Independent corrected capture-configuration review — source head e254252
+
+- Development and Live Support independently reviewed exact corrected source head
+  `e254252f442b8664491e0bb94ee3ea8682b158c0` against `8ae1ad0` and returned
+  source-merge GO with no remaining correctness blocker. Both confirmed the
+  ephemeral-storage gap closed by the template and independent Lambda guard.
+- Development independently reran 11 focused API/runtime tests and all 137
+  deployment contract tests. Current-head CI and user approval remain merge gates.
+- Parameter/NoEcho preservation, exact change-set review, actual environment
+  headroom, retained-table posture, workload/scope selection, history/cursor
+  inventory, review ownership, alarms/telemetry and all deployment/activation
+  decisions remain holds. Neither reviewer performed production/provider actions.
