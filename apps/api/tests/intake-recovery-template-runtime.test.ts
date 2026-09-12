@@ -1,3 +1,4 @@
+import { legacyFixtureVariables } from "../../../scripts/tests/fixtures/intake-budget-serialization.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -11,7 +12,7 @@ import { captureParameters, captureVariables } from "../../../scripts/tests/fixt
 import { recoveryParameters, recoveryFields, sharedFields, recoveryRanges, recoveryValidation } from "../../../scripts/tests/fixtures/intake-recovery-config.mjs";
 const template = parseTemplate(readFileSync(new URL("../../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8"));
 const emitted = (parameters: Record<string, string>) => Object.fromEntries(Object.entries(captureVariables(evaluateTemplate(template, parameters, recoveryValidation))).map(([key, value]) => [key, String(value)]));
-const environment = emitted(recoveryParameters);
+const environment = legacyFixtureVariables(emitted(recoveryParameters));
 
 test("disabled adjacent capabilities require no persistence or scope even when recovery is enabled", () => {
   const env = { PATHFINDER_RUNTIME: "lambda", PATHFINDER_ENABLE_INTAKE_ASSURANCE_SWEEP: "true", PATHFINDER_STORAGE_DRIVER: "local" };

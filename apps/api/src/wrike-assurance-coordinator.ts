@@ -1,3 +1,4 @@
+import { resolveIntakeBudgetEnvironment } from "./intake-compact-budgets.js";
 import { assertIntakeLambdaPersistence } from "./intake-runtime-persistence.js";
 import { validateWrikeProviderLimits, type WrikeProviderLimits } from "./wrike-provider-budget.js";
 import type { createSharedWrikeCapture, SharedWrikeCaptureResult } from "./wrike-shared-capture.js";
@@ -12,6 +13,7 @@ export function getWrikeAssuranceCaptureConfig(environment: NodeJS.ProcessEnv, s
   const disabled = { enabled: false, customer_id: "", import_method_id: "", connection_id: "", snapshot_limit: 0, discovery_limits: { max_requests: 0, max_elapsed_ms: 0 }, sla_seconds: 0, max_candidates: 0 };
   if (environment.PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE !== "true") return disabled;
   assertIntakeLambdaPersistence(environment, "capture");
+  environment = resolveIntakeBudgetEnvironment(environment, "capture");
   const discoveryLimits = { max_requests: Number(environment.PATHFINDER_INTAKE_DISCOVERY_MAX_REQUESTS), max_elapsed_ms: Number(environment.PATHFINDER_INTAKE_DISCOVERY_MAX_ELAPSED_MS) };
   validateWrikeProviderLimits(discoveryLimits);
   const customer = environment.PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID ?? "";

@@ -648,3 +648,39 @@ production smoke test.
   operations ownership and all deployment/activation decisions remain holds.
   Next source preparation should address configuration size before adding more
   capability wiring. Neither review performed production/provider actions.
+
+## Compact budget configuration slice
+
+- Approved PR #338 merged after successful current-head CI at main
+  `b5b66a1ade0f985360f0063383af4aa79651b380`.
+- Replaced six individual budget environment bindings with two versioned ordered
+  numeric tuples, independently conditional on capture/recovery. All existing
+  parameters, gates, rules, scope, persistence, schedule and IAM behavior remain.
+- Active runtime parsers accept compact or complete legacy settings; mixed settings
+  require all three legacy fields with exact matching values. Malformed versions,
+  counts, syntax, ranges, partial/conflicting settings fail with sanitized errors.
+  Inactive and unrelated tuples are ignored; process environment is not mutated.
+- Four-mode template/runtime checks and canonical full-template fingerprint against
+  reviewed recovery base permit only the serialization delta. Complete environment
+  savings: 88 capture bytes plus 66 recovery bytes; combined fixture is 3,789 bytes
+  with 307 remaining. Long valid IDs still require actual headroom verification.
+- Documented artifact/template rollback compatibility; no deployment, provisioning,
+  provider action or production read occurred. All release/activation holds remain.
+- Validation: all 573 API tests, 142 deployment contract tests, all-workspace
+  typecheck/build and whitespace checks passed. Independent source review pending.
+
+## Independent compact-budget review — source head 77eff19
+
+- Development and Live Support independently reviewed exact source head
+  `77eff19ee5322ecda10edcc199ff5e83d26f119f` against `b5b66a1` and returned
+  source-merge GO with no correctness blocker. Development independently passed
+  all 573 API tests, 142 deployment contract tests, typecheck/build and reconstructed
+  the prior template with exact canonical equality.
+- Both confirmed strict grammar, complete legacy compatibility, exact mixed-value
+  checks, inactive independence, no environment mutation and the 154-byte saving.
+  Current-head CI and user approval remain merge gates.
+- Actual headroom, authoritative parameter/NoEcho preservation, exact change set,
+  storage/operating-scope/inventory/ownership and deployment/activation holds remain.
+  Older-runtime rollback requires legacy budget bindings. Neither review performed
+  production/provider actions. Next source slice: default-off read-only intake
+  visibility, subject to complete environment-size validation.

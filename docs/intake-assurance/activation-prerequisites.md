@@ -317,3 +317,40 @@ review, environment proof, table/import posture, inventory and isolated recovery
 as separate holds. The historical fingerprint now compares the approved capture
 merge `6e01feb` after removing only recovery additions and restoring the five prior
 capture-only environment conditions.
+
+## Compact budget serialization
+
+The template now serializes the same explicit numeric parameters into two entries:
+
+- `PATHFINDER_INTAKE_CAPTURE_LIMITS`: `1|max_candidates|max_requests|max_elapsed_ms`.
+- `PATHFINDER_INTAKE_RECOVERY_LIMITS`: `1|page_size|max_pages|lease_seconds`.
+
+The leading `1` is the format version; remaining fields are ordered positive decimal
+integers within the existing runtime ranges. The template emits each entry only
+under its existing active condition and omits its three old individual budget keys.
+All parameters, patterns, rules, gates, shared scope/SLA/snapshot fields, storage
+requirements, schedules and IAM remain unchanged. These entries cannot enable a
+capability or select its scope. Each active parser reads only its own entry.
+
+Complete legacy individual settings remain supported. If compact and legacy values
+coexist, all three legacy fields must be present and textually identical to the
+compact values; partial or conflicting mixed settings fail closed. Unknown versions,
+wrong field counts, blank fields, whitespace, exponent/decimal/leading-zero syntax,
+invalid bounds and oversized payloads are rejected without echoing contents. No
+process environment mutation or global expansion is performed. Disabled parsers
+ignore malformed inactive entries. Adjacent enabled sweep consumers use the same
+recovery budget parser, preserving their independent capability gates.
+
+The complete synthetic combined environment is now 3,789 bytes, leaving 307 bytes;
+capture-only is 3,703 and recovery-only is 3,697. The all-off/storage-only totals
+remain 3,316/3,378. Savings are 88 capture bytes and 66 recovery bytes for both short
+and long scope IDs. Valid long IDs can still exceed the limit, so actual full
+candidate verification remains mandatory. This is additional headroom, not proof
+that every future capability or production configuration fits.
+
+Any later release must package a runtime that understands version 1 with this
+compact template. A rollback to a pre-compact runtime must restore complete legacy
+budget entries through a reviewed parameter-preserving template/environment change;
+never leave an older binary with only compact entries. Default-off gates, actual
+headroom proof, deployed parameter/NoEcho preservation, exact change-set review,
+retained storage and separate deployment/activation approval remain required.

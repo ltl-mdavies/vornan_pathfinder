@@ -1,3 +1,4 @@
+import { legacyFixtureVariables } from "../../../scripts/tests/fixtures/intake-budget-serialization.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -5,13 +6,14 @@ import { getWrikeAssuranceCaptureConfig } from "../src/wrike-assurance-coordinat
 import { parseTemplate, evaluateTemplate } from "../../../scripts/intake-storage-template.mjs";
 import { captureParameters, captureFields, captureRanges, captureValidation, captureVariables } from "../../../scripts/tests/fixtures/intake-capture-config.mjs";
 const template = parseTemplate(readFileSync(new URL("../../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8"));
-const environment = Object.fromEntries(Object.entries(captureVariables(evaluateTemplate(template, captureParameters, captureValidation))).map(([key, value]) => [key, String(value)]));
+const compactEnvironment = Object.fromEntries(Object.entries(captureVariables(evaluateTemplate(template, captureParameters, captureValidation))).map(([key, value]) => [key, String(value)]));
+const environment = legacyFixtureVariables(compactEnvironment);
 const scope = { customer_id: "synthetic", import_method_id: "method" };
 
 test("actual template environment satisfies the runtime capture contract", () => {
   assert.equal(environment.PATHFINDER_STORAGE_DRIVER, "dynamodb");
   assert.ok(environment.PATHFINDER_INTAKE_ATTEMPTS_TABLE);
-  const config = getWrikeAssuranceCaptureConfig(environment, scope);
+  const config = getWrikeAssuranceCaptureConfig(compactEnvironment, scope);
   assert.deepEqual(config, { enabled: true, ...scope, connection_id: "connection", snapshot_limit: 100, sla_seconds: 3600, max_candidates: 10, discovery_limits: { max_requests: 100, max_elapsed_ms: 10000 } });
   for (const storage of ["false", "true"]) {
     const env = captureVariables(evaluateTemplate(template, { IntakeAssuranceStorageEnabled: storage }, captureValidation));
