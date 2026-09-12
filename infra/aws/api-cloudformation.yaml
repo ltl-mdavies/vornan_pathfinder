@@ -2,6 +2,11 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Pathfinder production API shell - HTTP API Gateway plus Lambda.
 
 Parameters:
+  IntakeAssuranceVisibilityEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable authenticated read-only intake visibility for one explicitly approved customer.
   IntakeAssuranceRecoveryEnabled:
     Type: String
     Default: "false"
@@ -543,6 +548,17 @@ Parameters:
     Description: Public origin used only when producing a one-time Proof fragment link.
 
 Rules:
+  IntakeVisibilityRequiresAuthenticatedStorage:
+    RuleCondition: !Equals [!Ref IntakeAssuranceVisibilityEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
+        AssertDescription: Intake visibility requires retained intake storage.
+      - Assert: !Equals [!Ref StorageDriver, "dynamodb"]
+        AssertDescription: Intake visibility requires the DynamoDB persistence driver.
+      - Assert: !Equals [!Ref RequireFirebaseAuth, "true"]
+        AssertDescription: Intake visibility requires API authentication.
+      - Assert: !Not [!Equals [!Ref IntakeAssuranceCustomerId, ""]]
+        AssertDescription: Intake visibility requires one explicit customer ID.
   IntakeRecoveryRequiresDurableScope:
     RuleCondition: !Equals [!Ref IntakeAssuranceRecoveryEnabled, "true"]
     Assertions:
@@ -858,6 +874,9 @@ Rules:
         AssertDescription: Proof core table name and ARN must either both be present or both be absent.
 
 Conditions:
+  IntakeAssuranceVisibilityActive: !And
+    - !Equals [!Ref IntakeAssuranceVisibilityEnabled, "true"]
+    - !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
   IntakeAssuranceRecoveryActive: !And
     - !Equals [!Ref IntakeAssuranceRecoveryEnabled, "true"]
     - !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
@@ -1324,6 +1343,8 @@ Resources:
         Variables:
           NODE_OPTIONS: "--enable-source-maps"
           PATHFINDER_RUNTIME: "lambda"
+          PATHFINDER_ENABLE_INTAKE_EXCEPTIONS: !If [IntakeAssuranceVisibilityActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_EXCEPTIONS_CUSTOMER_IDS: !If [IntakeAssuranceVisibilityActive, !Ref IntakeAssuranceCustomerId, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_RECOVERY_LIMITS: !If [IntakeAssuranceRecoveryActive, !Sub "1|${IntakeSweepPageSize}|${IntakeSweepMaxPages}|${IntakeSweepLeaseSeconds}", !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_CAPTURE_LIMITS: !If [IntakeAssuranceCaptureActive, !Sub "1|${IntakeAssuranceMaxCandidates}|${IntakeDiscoveryMaxRequests}|${IntakeDiscoveryMaxElapsedMs}", !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_INTAKE_ASSURANCE_SWEEP: !If [IntakeAssuranceRecoveryActive, "true", !Ref "AWS::NoValue"]

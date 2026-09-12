@@ -1,3 +1,4 @@
+import { getIntakeVisibilityConfig } from "./intake-visibility-config.js";
 import { discoverWrikeCaptureScope } from "./wrike-capture-discovery.js";
 import { createSharedWrikeCapture } from "./wrike-shared-capture.js";
 import { recordWrikeIntentObservation, reserveWrikeCursorAttempt, readIntakeRecoverySnapshot } from "./store.js";
@@ -4842,8 +4843,7 @@ app.use("/api", createIntakeDeliveryReviewRouter({
   reconcile: reconcileStoredIntakeDelivery
 }));
 app.use("/api", createIntakeExceptionsRouter({
-  enabled: process.env.PATHFINDER_ENABLE_INTAKE_EXCEPTIONS === "true",
-  customer_ids: (process.env.PATHFINDER_INTAKE_EXCEPTIONS_CUSTOMER_IDS ?? "").split(",").map((value) => value.trim()).filter(Boolean),
+  ...getIntakeVisibilityConfig(process.env),
   list: listIntakeAttemptsPage,
   listDeliveries: listIntakeDeliveriesPage
 }));

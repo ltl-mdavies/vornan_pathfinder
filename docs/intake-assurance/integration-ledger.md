@@ -684,3 +684,26 @@ production smoke test.
   Older-runtime rollback requires legacy budget bindings. Neither review performed
   production/provider actions. Next source slice: default-off read-only intake
   visibility, subject to complete environment-size validation.
+
+## Default-off read-only visibility slice
+
+- Approved PR #339 merged after successful CI at main
+  `ca0f83a948f4c64aed23e68864d7ee2930ec8b2e`.
+- Added independent default-false visibility parameter and conditional API flag plus
+  singleton allowlist using the existing customer parameter. Rules require retained
+  DynamoDB storage, authentication and safe explicit customer scope.
+- Runtime independently validates auth/single customer/Lambda persistence; default
+  off ignores missing/invalid settings. Existing authenticated GET-only routes,
+  pagination, redaction and projections remain unchanged. Actual-server no-token
+  tests return 401 before ledger/provider calls; off-customer reads are blocked.
+- Admin source build wiring defaults flag false/customer empty. Navigation and
+  mounting require authenticated exact configured/selected/resolved customer match.
+  API remains independently gated. No delivery-review/write controls enabled.
+- Eight-mode template/runtime tests and exact prior-template fingerprint cover the
+  allowed delta. Complete fixture: visibility only 3,467 bytes; all three features
+  3,878 (218 remaining). Actual production/build environment evidence remains held.
+- First full API run had one unrelated manual-preview 405 failure; that test passed
+  in isolation without changes. A full rerun is being checked before review.
+- Final validation: full API rerun 577/577, web 144/144, deployment contracts
+  146/146, all-workspace typecheck/build, shell syntax and whitespace checks passed.
+  No production read, provider action, publishing, deployment or activation occurred.
