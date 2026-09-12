@@ -46,7 +46,7 @@ test("scheduled Lambda coalesces full-store reads within one invocation", async 
   const source = await readFile(new URL("../src/lambda.ts", import.meta.url), "utf8");
   assert.match(
     source,
-    /withPathfinderStoreReadScope\(\(\) => runConfiguredWrikeScheduledIntake\(\)\)/
+    /withPathfinderStoreReadScope\(\(\) => runConfiguredWrikeScheduledIntake\(\{[\s\S]*remainingTimeMs:/
   );
   assert.match(source, /recordConfiguredWrikeScheduledIntakeFailure/);
   assert.match(

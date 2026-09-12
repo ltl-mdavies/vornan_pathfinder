@@ -10,6 +10,7 @@ import { readWrikeIntakeFeedbackScope } from "./store.js";
 import { getIntakeStatusRepairConfig, runIntakeStatusRepairs } from "./intake-status-repair-runtime.js";
 import { intakeLedger, listIntakeAttemptsPage, listIntakeDeliveriesPage, readStore } from "./store.js";
 import { createWrikeAssuranceCycle, getWrikeAssuranceCaptureConfig, withWrikeAssuranceConnection, wrapWrikeAssurancePreparation } from "./wrike-assurance-coordinator.js";
+import { observeWrikeShadow, type WrikeShadowInput } from "./wrike-shadow-observation.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { applicationDefault, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -6758,6 +6759,7 @@ async function runConfiguredWrikeIntakeCore(args: {
   let connection: CustomerSourceConnection | null = null;
   let existingSecrets: WrikeConnectorSecrets | null = null;
   let discovery: WrikeScopedIntakeDiscoveryResult | null = null;
+  let shadowScope: WrikeShadowInput["scope"] | null = null;
   const intakeResult = await runWrikeScheduledIntake({
     config: args.config,
     discover: async () => {
@@ -6810,6 +6812,9 @@ async function runConfiguredWrikeIntakeCore(args: {
               { provider: "wrike", wrike: { ...existingSecrets, oauth } }) })
         : await discoverScopedWrikeIntakeTasks(oauth, config, { max_pages: 10, max_tasks: 10_000 });
       discovery = scopedDiscovery;
+      shadowScope = { customer_id: args.config.customer_id, import_method_id: args.config.import_method_id,
+        connection_id: connection.connection_id, configured_status_id: config.trigger_status_id,
+        configured_status_label: config.trigger_status_label };
       if (!assuranceConfig?.enabled) await writeCustomerSourceConnectionSecrets(
         customer.lift_customer_id, connection.connection_id,
         { provider: "wrike", wrike: { ...existingSecrets, oauth: scopedDiscovery.credentials } });
@@ -6909,12 +6914,13 @@ async function runConfiguredWrikeIntakeCore(args: {
   return {
     customer,
     discovery: discovery as WrikeScopedIntakeDiscoveryResult | null,
+    shadowScope: shadowScope as WrikeShadowInput["scope"] | null,
     intakeResult,
     assurance
   };
 }
 
-export async function runConfiguredWrikeScheduledIntake() {
+export async function runConfiguredWrikeScheduledIntake(options: { remainingTimeMs?: () => number } = {}) {
   const core = await runConfiguredWrikeIntakeCore({
     config: wrikeScheduledIntakeConfig,
     markScheduled: true
@@ -7098,6 +7104,8 @@ export async function runConfiguredWrikeScheduledIntake() {
     });
   }
 
+  await observeWrikeShadow({ environment: process.env, remainingTimeMs: options.remainingTimeMs,
+    input: core.shadowScope && core.discovery ? { scope: core.shadowScope, discovery: core.discovery, result } : null });
   return result;
 }
 

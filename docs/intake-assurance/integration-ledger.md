@@ -759,3 +759,40 @@ production smoke test.
   decisions remain held. Next proposed step is separately authorized read-only
   collection of deployed stack/template/parameter/function/environment evidence;
   no deployment, publication, provider or activation action is included.
+
+## Source-only shadow observation correction
+
+- Added a separate default-off scheduled shadow observer. It runs after ordinary
+  work, reuses existing discovery/results and never calls the enforcing preparation
+  assertion or provider-budget discovery path.
+- Writes isolated tenant shadow records containing cursor/manual-review evidence
+  and existing outcomes. No active attempt/cursor promotion; existing recovery and
+  delivery readers cannot consume these partitions. No provider calls added.
+- Exact scope/full-batch validation, per-cycle candidate and outcome bounds,
+  one-attempt conditional Dynamo writes, a shared abort deadline and Lambda remaining
+  time margin isolate failures. Fixed aggregate telemetry contains no task/customer
+  identities or exception text. Invalid/co-enabled modes skip shadow only.
+- Targeted tests cover outcome/call-count preservation, first-seen/reused intents,
+  dedupe, scope/overflow/metadata rejection, failure/abort isolation and SDK tenant/CAS
+  requests. Workspace regression, deployment contracts, typecheck/build and all 17
+  local browser checks passed; final-head verification is recorded with review.
+- No template, IAM, scheduler, deployment workflow, UI or production setting changes.
+  Runtime deployment, shadow activation and report of real pilot identities remain
+  separate approval boundaries. See `shadow-observation.md` for the source contract.
+
+## Independent shadow source review — f79045d
+
+- Development and Live Support reviewed exact source
+  `f79045de6132d4d36fb4aa37fd23972e1bf485e5` against `6c247a2` and returned
+  source-merge GO. The initial out-of-status observation allowance was removed:
+  only canonical exact-status candidates with unambiguous discovery resolution may
+  touch storage. No unobserved status exit/re-entry is inferred.
+- Persisted outcome shape, membership, enums, uniqueness and serialized bounds are
+  validated on reads and writes. Corrupt rows fail in isolation. Reviewer-confirmed
+  boundaries include end-of-run reuse, separate tenant partitions, shared abort,
+  one-attempt persistence, remaining-time margin and aggregate-only telemetry.
+- Final corrected source passed 1,061 workspace tests, 152 deployment tests,
+  workspace typechecks/builds and diff hygiene. All 17 browser tests passed before
+  the backend-only selection/validation corrections; no frontend changed.
+- Final hosted CI and user approval remain merge gates. No template/environment
+  wiring, package, deployment, customer pilot or capability activation is included.
