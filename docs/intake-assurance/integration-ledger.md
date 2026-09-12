@@ -648,3 +648,23 @@ production smoke test.
   operations ownership and all deployment/activation decisions remain holds.
   Next source preparation should address configuration size before adding more
   capability wiring. Neither review performed production/provider actions.
+
+## Compact budget configuration slice
+
+- Approved PR #338 merged after successful current-head CI at main
+  `b5b66a1ade0f985360f0063383af4aa79651b380`.
+- Replaced six individual budget environment bindings with two versioned ordered
+  numeric tuples, independently conditional on capture/recovery. All existing
+  parameters, gates, rules, scope, persistence, schedule and IAM behavior remain.
+- Active runtime parsers accept compact or complete legacy settings; mixed settings
+  require all three legacy fields with exact matching values. Malformed versions,
+  counts, syntax, ranges, partial/conflicting settings fail with sanitized errors.
+  Inactive and unrelated tuples are ignored; process environment is not mutated.
+- Four-mode template/runtime checks and canonical full-template fingerprint against
+  reviewed recovery base permit only the serialization delta. Complete environment
+  savings: 88 capture bytes plus 66 recovery bytes; combined fixture is 3,789 bytes
+  with 307 remaining. Long valid IDs still require actual headroom verification.
+- Documented artifact/template rollback compatibility; no deployment, provisioning,
+  provider action or production read occurred. All release/activation holds remain.
+- Validation: all 573 API tests, 142 deployment contract tests, all-workspace
+  typecheck/build and whitespace checks passed. Independent source review pending.

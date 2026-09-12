@@ -1,3 +1,4 @@
+import { resolveIntakeBudgetEnvironment } from "./intake-compact-budgets.js";
 import { assertIntakeLambdaPersistence } from "./intake-runtime-persistence.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { IntakeAttempt, IntakeLedger } from "./intake-assurance.js";
@@ -52,6 +53,7 @@ export interface IntakeSweepConfig {
 }
 export function getIntakeSweepConfig(env: NodeJS.ProcessEnv): IntakeSweepConfig {
   const enabled = env.PATHFINDER_ENABLE_INTAKE_ASSURANCE_SWEEP === "true";
+  if (enabled) env = resolveIntakeBudgetEnvironment(env, "recovery");
   const scope = { customer_id: env.PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID ?? "", provider: "wrike",
     connection_id: env.PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID ?? "", import_method_id: env.PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID ?? "" };
   const config = { enabled, scope, page_size: Number(env.PATHFINDER_INTAKE_SWEEP_PAGE_SIZE), max_pages: Number(env.PATHFINDER_INTAKE_SWEEP_MAX_PAGES),

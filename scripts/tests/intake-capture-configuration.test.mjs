@@ -1,3 +1,4 @@
+import { budgetGroups } from "./fixtures/intake-budget-serialization.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -6,7 +7,7 @@ import { captureParameters, captureFields, captureRanges, captureValidation, cap
 const template = parseTemplate(readFileSync(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8"));
 const evaluate = (overrides = {}) => evaluateTemplate(template, overrides, captureValidation);
 const gate = "PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE";
-const keys = [gate, ...Object.values(captureFields)];
+const keys = [gate, ...Object.values(captureFields).filter(key => !budgetGroups.capture.fields.includes(key)), budgetGroups.capture.compact];
 
 test("capture is independently default-off and omits all configuration even with stored values", () => {
   assert.equal(template.Parameters.IntakeAssuranceCaptureEnabled.Default, "false");
@@ -27,7 +28,8 @@ test("capture is independently default-off and omits all configuration even with
 test("enabled capture adds exactly its runtime bindings without changing existing resources", () => {
   const result = evaluate(captureParameters);
   assert.equal(vars(result)[gate], "true");
-  for (const [name, env] of Object.entries(captureFields)) assert.equal(vars(result)[env], captureParameters[name]);
+  for (const [name, env] of Object.entries(captureFields)) if (!budgetGroups.capture.fields.includes(env)) assert.equal(vars(result)[env], captureParameters[name]);
+  assert.equal(vars(result)[budgetGroups.capture.compact], "1|10|100|10000");
   for (const key of keys) delete vars(result)[key];
   assert.deepEqual(result, evaluate({ IntakeAssuranceStorageEnabled: "true" }));
 });

@@ -1324,19 +1324,15 @@ Resources:
         Variables:
           NODE_OPTIONS: "--enable-source-maps"
           PATHFINDER_RUNTIME: "lambda"
+          PATHFINDER_INTAKE_RECOVERY_LIMITS: !If [IntakeAssuranceRecoveryActive, !Sub "1|${IntakeSweepPageSize}|${IntakeSweepMaxPages}|${IntakeSweepLeaseSeconds}", !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_CAPTURE_LIMITS: !If [IntakeAssuranceCaptureActive, !Sub "1|${IntakeAssuranceMaxCandidates}|${IntakeDiscoveryMaxRequests}|${IntakeDiscoveryMaxElapsedMs}", !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_INTAKE_ASSURANCE_SWEEP: !If [IntakeAssuranceRecoveryActive, "true", !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_SWEEP_PAGE_SIZE: !If [IntakeAssuranceRecoveryActive, !Ref IntakeSweepPageSize, !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_SWEEP_MAX_PAGES: !If [IntakeAssuranceRecoveryActive, !Ref IntakeSweepMaxPages, !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_SWEEP_LEASE_SECONDS: !If [IntakeAssuranceRecoveryActive, !Ref IntakeSweepLeaseSeconds, !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE: !If [IntakeAssuranceCaptureActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceCustomerId, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_ASSURANCE_IMPORT_METHOD_ID: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceImportMethodId, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_ASSURANCE_CONNECTION_ID: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceConnectionId, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceSlaSeconds, !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_ASSURANCE_MAX_CANDIDATES: !If [IntakeAssuranceCaptureActive, !Ref IntakeAssuranceMaxCandidates, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceSnapshotLimit, !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_DISCOVERY_MAX_REQUESTS: !If [IntakeAssuranceCaptureActive, !Ref IntakeDiscoveryMaxRequests, !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_DISCOVERY_MAX_ELAPSED_MS: !If [IntakeAssuranceCaptureActive, !Ref IntakeDiscoveryMaxElapsedMs, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_ATTEMPTS_TABLE: !If [IntakeAssuranceStorageActive, !Ref PathfinderIntakeAttemptsTable, !Ref "AWS::NoValue"]
           PATHFINDER_CUSTOMER_SEED_FILE: "/var/task/data/lift-customers.sample.csv"
           PATHFINDER_ALLOWED_ORIGINS: !Ref AllowedOrigins
