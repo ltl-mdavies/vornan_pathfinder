@@ -99,10 +99,14 @@ export async function observeWrikeShadow(args: {
     const c = config(args.environment); const { scope, discovery, result } = args.input;
     if (scope.customer_id !== c.customer || scope.import_method_id !== c.method || scope.connection_id !== c.connection || scope.configured_status_id !== c.status ||
       result.customer_id !== c.customer || result.import_method_id !== c.method) throw new Error("Shadow scope mismatch");
-    wrikeIntakeIntentCandidates({ ...scope, approved_status_label: WRIKE_ORDER_INTENT_LABEL }, discovery);
-    const tasks = [...discovery.order_candidates.map(t => ({ ...t, identity_matches: true, reasons: [] })), ...discovery.pending_order_candidates]
-      .filter(t => t.identity_matches && (t.custom_status_id === c.status || t.reasons.every(r => r.code === "trigger_status")));
-    if (tasks.length > c.max) throw new Error("Shadow candidate overflow");
+    const candidates = wrikeIntakeIntentCandidates({ ...scope, approved_status_label: WRIKE_ORDER_INTENT_LABEL }, discovery);
+    if (candidates.length > c.max) throw new Error("Shadow candidate overflow");
+    const discovered = [...discovery.order_candidates, ...discovery.pending_order_candidates];
+    const tasks = candidates.map(candidate => {
+      const matches = discovered.filter(task => task.task_id === candidate.signal.source_id);
+      if (matches.length !== 1 || matches[0]!.custom_status_id !== c.status) throw new Error("Ambiguous shadow discovery");
+      return matches[0]!;
+    });
     const seen = new Set<string>();
     // Validate the entire batch and copy only bounded existing results before any persistence.
     const rows = tasks.map(task => {

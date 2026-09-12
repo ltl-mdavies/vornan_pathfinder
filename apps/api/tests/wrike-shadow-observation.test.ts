@@ -47,7 +47,7 @@ test("dark mode has zero persistence/telemetry/config I/O and preserves ordinary
   assert.deepEqual(f.counts(), { reads: 0, writes: 0, factories: 0 }); assert.equal(logs, 0);
   assert.deepEqual(run.input, run.frozen); assert.deepEqual(run.calls, { discovery: 1, preparation: 1, submission: 1, writeback: 1 });
 });
-test("first-seen intent and later generation are observational, never block live outcomes", async () => {
+test("first-seen and repeated intent remain observational, without inferring unseen status exits", async () => {
   const f = memory();
   for (const [second, ready] of [[0, true], [1, false], [2, true]] as const) {
     const run = await ordinary(discovery(1, ready, second));
@@ -56,10 +56,24 @@ test("first-seen intent and later generation are observational, never block live
     assert.deepEqual(run.calls, { discovery: 1, preparation: ready ? 1 : 0, submission: ready ? 1 : 0, writeback: ready ? 1 : 0 });
   }
   const row = [...f.rows.values()][0]!;
-  assert.equal(row.cursor.generation, 2); assert.equal(row.attempt!.state, "manual_review"); assert.equal(row.attempt!.next_action_at, "2026-09-10T13:00:02.000Z");
+  assert.equal(row.cursor.generation, 1); assert.equal(row.cursor.entry_proven, false);
+  assert.equal(row.attempt!.state, "manual_review"); assert.equal(row.attempt!.next_action_at, "2026-09-10T13:00:00.000Z");
   assert.deepEqual(row.outcomes.jobs, ["job-TASK0"]); assert.equal(row.outcomes.submits[0]!.outcome, "submitted");
   assert.equal(row.outcomes.writebacks[0]!.outcome, "posted");
   assert.equal(wrikeShadowKey(row.scope).customer_id, "intake-shadow#customer");
+});
+test("out-of-status pending records never touch storage; mixed batches persist exact-status tasks only", async () => {
+  const f = memory(); const outside = await ordinary(discovery(1, false));
+  await observeWrikeShadow({ environment, input: outside.input, store: f.factory, report: () => {} });
+  assert.deepEqual(f.counts(), { reads: 0, writes: 0, factories: 0 }); assert.deepEqual(outside.input, outside.frozen);
+  const mixed = discovery(1); mixed.pending_order_candidates = discovery(2, false).pending_order_candidates.slice(1);
+  const run = await ordinary(mixed);
+  await observeWrikeShadow({ environment, input: run.input, store: f.factory, report: () => {} });
+  assert.equal(f.rows.size, 1); assert.equal([...f.rows.values()][0]!.scope.task_id, "TASK0");
+  assert.deepEqual(run.input, run.frozen); assert.deepEqual(run.calls, { discovery: 1, preparation: 1, submission: 1, writeback: 1 });
+  const ambiguous = await ordinary(discovery(1)); ambiguous.input.discovery.pending_order_candidates = discovery(1, false).pending_order_candidates;
+  const g = memory(); await observeWrikeShadow({ environment, input: ambiguous.input, store: g.factory, report: () => {} });
+  assert.deepEqual(g.counts(), { reads: 0, writes: 0, factories: 0 });
 });
 test("same discovery/outcomes replay without a second write and bounded batch has one row per task", async () => {
   const f = memory(); const run = await ordinary(discovery(3));

@@ -37,8 +37,12 @@ are deterministic hashes of customer/method/connection/task/status. The normal
 attempt reader uses the exact customer partition, so shadow rows cannot become
 actionable recovery/delivery records or alter the enforcing intent cursor.
 
-Each row holds a prospective cursor, an embedded manual-review attempt (when in
-intent) and bounded existing preparation/job/submit/writeback outcomes. Its SLA
+Each row holds an observed cursor, an embedded manual-review attempt and bounded
+existing preparation/job/submit/writeback outcomes. Only exact-status candidates
+from the canonical validated selector are eligible. Each must resolve to exactly
+one discovery record; out-of-status observations are not persisted. This pilot
+cannot prove a status exit/re-entry it did not observe, and does not infer one.
+Its SLA
 deadline is observational; no worker reads this partition for action. First-seen,
 unproven entry and later-generation evidence never authorizes or blocks a live
 operation. No auto-promotion from shadow to active attempts is provided.
