@@ -6,10 +6,12 @@ the existing operations snapshot. It consumes that run's discovery and results;
 it does not discover again, refresh credentials, call a provider or replace a
 preparation callback. Manual intake is unchanged.
 
-The default flag is absent/off. No infrastructure parameter, schedule, IAM, UI or
-deployment workflow change is included. This source slice cannot be interpreted as
-activation authority; future template wiring, environment evidence and release
-review are still required.
+CloudFormation wiring is included and defaults off: `IntakeShadowEnabled` defaults
+to false, and the three shadow environment bindings are absent while disabled.
+The source configuration section below describes the four new parameters. No
+schedule, IAM, UI or deployment workflow change is included. This source slice
+does not authorize activation; resolved environment evidence and release review
+are still required before deployment, followed by a separate activation review.
 
 ## Configuration contract
 
