@@ -792,3 +792,29 @@ production smoke test.
   push because production metadata disclosure to the remote repository was outside
   the read-only collection approval. No push or report PR occurred; publication
   requires explicit user authorization.
+
+## Approved nonexecuting storage-only change set
+
+- User explicitly approved report publication and change-set creation. The report
+  branch was pushed and draft PR #342 opened; its initial documentation CI passed.
+- Fresh deployed template/parameters/resources/Lambda revision/environment exactly
+  match the reviewed baseline. Proposed table name is available. The exact source
+  template was staged under a unique key in the existing artifact bucket; AWS
+  validation passed. No Lambda artifact was uploaded or changed.
+- `intake-storage-only-20260912-12a7b32645d4` is CREATE_COMPLETE/AVAILABLE, unexecuted.
+  AWS reports only the expected table Add and API function/role in-place Modify,
+  with no removals or replacements. Complete contexts preserve Code/other function
+  properties and existing IAM; only the table binding and scoped statement differ.
+- One existing environment value is masked; new table binding/IAM references remain
+  AWS known-after-apply markers. The complete candidate byte count is an offline
+  derivation, not an entirely resolved CloudFormation response.
+- Exact deployed artifact compatibility, reference resolution review, retained-table
+  recovery planning and fresh execution checks remain held. Next proposed work is
+  read-only exact-artifact review, not change-set execution.
+- Development and Live Support independently returned preparation-complete GO with
+  execution held. Complete table protections/schema, exact function/role contexts
+  and request parameter preservation were verified. Private preparation artifacts
+  are collectively hash-bound with restrictive file permissions.
+- Automatic approval review rejected publication of the expanded change-set report
+  as additional production metadata beyond the prior publication scope. The original
+  report remains in PR #342; these updates remain local awaiting explicit approval.

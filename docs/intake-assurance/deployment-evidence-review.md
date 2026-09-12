@@ -87,3 +87,65 @@ Runtime artifact delivery, Admin publication, customer selection, visibility,
 capture, recovery and provider writes require their own compatible release and
 activation evidence. No AWS mutation, change set, provider operation, deployment,
 publication or activation occurred during this evidence collection.
+
+## Approved nonexecuting change-set preparation
+
+The user subsequently authorized publishing this sanitized report and creating,
+but not executing, the storage-only change set. The report is in draft PR #342.
+Fresh collection matched the prior template, all parameters, resource inventory,
+Lambda revision and environment exactly. The proposed physical table name was
+available; the existing artifact bucket was accessible in the expected account.
+
+The exact 90,495-byte source YAML was uploaded to a unique content-addressed key
+in that bucket because it exceeds the inline template limit. No runtime artifact
+was uploaded or changed. AWS template validation passed, including the complete
+114-parameter inventory. The request explicitly preserves all 99 existing values
+and sets all 15 new parameters, with storage alone enabled.
+
+Change set `intake-storage-only-20260912-12a7b32645d4` reached `CREATE_COMPLETE`
+and `AVAILABLE`. It has **not been executed**. The complete response has no
+pagination continuation and contains exactly:
+
+- `PathfinderIntakeAttemptsTable`: Add.
+- `PathfinderApiFunction`: Modify, replacement False, Environment only.
+- `PathfinderApiRole`: Modify, replacement False, Policies only.
+
+Function before/after properties are identical after removing the single new
+environment binding; Code and all other properties are unchanged. Role contexts
+are identical after removing the one added five-action table permission. The table
+context confirms its deterministic name and retention/deletion protection.
+
+AWS masks one unchanged existing environment value and reports the new table
+binding and IAM resource as `{{changeSet:KNOWN_AFTER_APPLY}}`. These markers are
+retained in the private response. The source Ref/GetAtt and table properties bound
+the offline proposed values; the response does not provide a fully resolved
+candidate environment or IAM ARN. The measured 3,658-byte candidate remains an
+offline derivation from the complete live baseline and deterministic table name.
+
+Remaining execution holds include exact deployed artifact compatibility with the
+new binding, explicit treatment of the unresolved references, retained-table
+recovery/import planning, and a fresh pre-execution state check. The next proposed
+work is read-only retrieval and review of the exact deployed artifact, followed by
+an execution-readiness report. No change-set execution is requested at this stage.
+
+Live Support independently returned preparation-complete/inspection GO. It
+requires keeping known-after-apply markers only at the two predicted references,
+without treating them as wildcards. If execution is later authorized, verification
+must compare the actual resolved binding and table-scoped ARN, unchanged prior
+environment and code SHA, dark capability gates, table protections/schema and
+operational health. Freshness and retained-table recovery remain pre-execution
+requirements. This describes a future verification contract, not permission to
+execute the change set.
+
+Development independently returned preparation GO / execution NO-GO after verifying
+fresh evidence lineage, template/upload/request binding, all effective parameters,
+exact function/role deltas and the complete table protections/schema. Preparation
+artifacts are collectively SHA-256-bound in a separate private preparation manifest,
+in addition to the original raw collection manifest and sealed preservation packet.
+Use the unique change-set ID retained in the private creation response for later
+inspection; the human-readable name above is only a report identifier.
+
+Publication status: the original sanitized report is published in PR #342. Automatic
+approval review blocked pushing this expanded change-set report because publication
+of the additional production metadata was not clearly included in the earlier
+approval. These new findings remain local pending explicit publication approval.
