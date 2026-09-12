@@ -818,3 +818,27 @@ production smoke test.
 - Automatic approval review rejected publication of the expanded change-set report
   as additional production metadata beyond the prior publication scope. The original
   report remains in PR #342; these updates remain local awaiting explicit approval.
+
+## Approved exact deployed-artifact review
+
+- User authorized publication of the expanded change-set report and read-only
+  deployed-package retrieval/review. PR #342 now contains that report at `43f6460`,
+  with successful CI. No merge or change-set execution occurred.
+- Downloaded package SHA-256 and size match Lambda metadata; identity/revision/code
+  hash/environment match the reviewed baseline. Raw responses, package and manifests
+  remain private with restrictive permissions.
+- Exact bundle has no new intake table-binding or assurance-flag references. Static
+  review covers fixed and indexed environment reads and configuration functions
+  receiving the environment map. The current artifact ignores the added binding;
+  this establishes no readiness for later assurance activation or runtime delivery.
+- Node syntax checking passed without invoking the package. A private review
+  manifest binds all downloaded/extracted evidence and the access inventory.
+- Local `deployed-artifact-review.md` records the bounded finding and concrete
+  one-shot execution, read-only pre/post validation and retained-table recovery
+  boundary. Live Support independently supports the compatibility premise.
+- The new artifact assessment remains local pending publication authorization.
+  Change-set execution and capability activation remain unauthorized.
+- Development independently verified archive/extracted-file integrity and the full
+  static compatibility case, including dependency-level environment processing.
+  It supports asking for combined publication and one-shot execution authorization
+  under the concrete pre/post checks. Neither reviewer performed production actions.
