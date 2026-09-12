@@ -64,7 +64,11 @@ export async function handler(event: unknown, context: unknown) {
   }
   if (isWrikeScheduledIntakeEvent(event)) {
     try {
-      const result = await withPathfinderStoreReadScope(() => runConfiguredWrikeScheduledIntake());
+      const remaining = context && typeof context === "object" && "getRemainingTimeInMillis" in context
+        ? context.getRemainingTimeInMillis : undefined;
+      const result = await withPathfinderStoreReadScope(() => runConfiguredWrikeScheduledIntake({
+        remainingTimeMs: typeof remaining === "function" ? () => remaining.call(context) as number : undefined
+      }));
       console.log(JSON.stringify(buildWrikeScheduledIntakeCompletionLog(result)));
       return result;
     } catch (error) {

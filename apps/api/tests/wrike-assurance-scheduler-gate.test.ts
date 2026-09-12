@@ -24,6 +24,7 @@ test("the actual disabled scheduler does not activate capture or provider access
       cwd: process.cwd(), encoding: "utf8", env: { ...process.env, PATHFINDER_RUNTIME: "lambda", PATHFINDER_STORAGE_DRIVER: "local", PATHFINDER_SECRETS_DRIVER: "local",
         PATHFINDER_LOCAL_STORE_PATH: join(directory, "store.json"), PATHFINDER_LOCAL_SECRETS_PATH: join(directory, "secrets.json"),
         PATHFINDER_WRIKE_SCHEDULED_INTAKE: "false||||false|false", PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE: "true",
+        PATHFINDER_ENABLE_INTAKE_SHADOW: "true",
         PATHFINDER_INTAKE_ASSURANCE_CUSTOMER_ID: "", PATHFINDER_ENABLE_LIFT_SUBMIT: "false" }
     });
     assert.equal(result.status, 0, result.stderr || result.stdout);

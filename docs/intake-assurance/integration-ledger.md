@@ -759,3 +759,23 @@ production smoke test.
   decisions remain held. Next proposed step is separately authorized read-only
   collection of deployed stack/template/parameter/function/environment evidence;
   no deployment, publication, provider or activation action is included.
+
+## Source-only shadow observation correction
+
+- Added a separate default-off scheduled shadow observer. It runs after ordinary
+  work, reuses existing discovery/results and never calls the enforcing preparation
+  assertion or provider-budget discovery path.
+- Writes isolated tenant shadow records containing cursor/manual-review evidence
+  and existing outcomes. No active attempt/cursor promotion; existing recovery and
+  delivery readers cannot consume these partitions. No provider calls added.
+- Exact scope/full-batch validation, per-cycle candidate and outcome bounds,
+  one-attempt conditional Dynamo writes, a shared abort deadline and Lambda remaining
+  time margin isolate failures. Fixed aggregate telemetry contains no task/customer
+  identities or exception text. Invalid/co-enabled modes skip shadow only.
+- Targeted tests cover outcome/call-count preservation, first-seen/reused intents,
+  dedupe, scope/overflow/metadata rejection, failure/abort isolation and SDK tenant/CAS
+  requests. Workspace regression, deployment contracts, typecheck/build and all 17
+  local browser checks passed; final-head verification is recorded with review.
+- No template, IAM, scheduler, deployment workflow, UI or production setting changes.
+  Runtime deployment, shadow activation and report of real pilot identities remain
+  separate approval boundaries. See `shadow-observation.md` for the source contract.
