@@ -842,3 +842,30 @@ production smoke test.
   static compatibility case, including dependency-level environment processing.
   It supports asking for combined publication and one-shot execution authorization
   under the concrete pre/post checks. Neither reviewer performed production actions.
+
+## Approved storage-only execution — 2026-09-12
+
+- User approved artifact-review publication and one-shot execution with documented
+  safeguards. The report was pushed to PR #342 at `e2bbf74`.
+- Both coordinating tasks cleared the release window. Exact fresh baseline and
+  change-set checks passed; five alarms OK, queues empty, table name available.
+- One execution request was accepted, with SDK retries disabled and an exclusive
+  attempt marker. Stack UPDATE_COMPLETE / change set EXECUTE_COMPLETE; only the
+  expected table creation and role/function modifications appear in update events.
+- Postchecks passed: 114 exact parameters, 38 resources with all existing physical
+  IDs unchanged, unchanged code/configuration, one resolved table binding, exact
+  scoped IAM, protected/encrypted/PITR-enabled ACTIVE table and unchanged scheduler.
+  Actual environment is 70 variables / 3,658 bytes / 438 remaining. Five alarms
+  remain OK and both queues are empty.
+- All new assurance capabilities remain off. The unchanged runtime predates
+  assurance; no provider action or customer job submission occurred. Execution
+  evidence is privately hash-bound. `storage-execution-review.md` records results
+  and the next runtime-preparation boundary; this new record remains local pending
+  publication authorization.
+- Development and Live Support independently verified all 33 sealed execution
+  evidence files and complete pre/post comparisons, returning storage-foundation
+  deployment GO. No capability activation or provider smoke was included.
+- Next recommended boundary: immutable API runtime-only artifact preparation and
+  separately reviewed nonexecuting change set, preserving all current storage,
+  environment and separate Proof-worker state. Expected future resource scope is
+  API Code only; runtime execution and activation require separate authorization.

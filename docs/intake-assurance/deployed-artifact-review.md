@@ -1,5 +1,9 @@
 # Deployed artifact compatibility and storage execution boundary
 
+Subsequent status: the user approved this plan, and the storage-only execution
+completed successfully. See `storage-execution-review.md` for the postchecks.
+The authorization holds below describe the pre-execution review checkpoint.
+
 ## Authorized retrieval and bounded finding
 
 The user authorized read-only retrieval/review of the exact deployed Lambda
