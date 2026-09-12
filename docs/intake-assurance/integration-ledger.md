@@ -898,3 +898,28 @@ production smoke test.
 - Inherited dependency advisories are explicit review evidence, not a clean-audit
   claim or an automatic-upgrade mandate. Both support requesting separate approval
   for sanitized report publication and one-shot runtime execution under fresh checks.
+
+## Approved runtime-only execution — 2026-09-12
+
+- User approved runtime-review publication and one-shot execution; PR #342 includes
+  the review at `74f38b1`. Both coordinating tasks cleared the release window.
+- Fresh identity/artifact/change-set/parameter/environment/resource/health checks
+  passed. One execution request was accepted with SDK retries disabled and an
+  exclusive local marker. Stack UPDATE_COMPLETE / change set EXECUTE_COMPLETE;
+  events show only stack and API function updates.
+- Deployed code hash/size match the exact reviewed candidate. All other parameters,
+  complete 70-variable environment, 38 resource identities, IAM, table protections,
+  separate Proof worker, scheduler and queues are unchanged. Five alarms remain OK.
+- Provider-free health/auth-boundary checks passed (200/401/401). No authenticated
+  customer workflow, provider smoke or assurance activation occurred. Private
+  execution evidence is sealed. New local `runtime-execution-review.md` records
+  results and proposed single-customer visibility readiness planning.
+- New execution-record publication and any subsequent capability/customer/Admin
+  changes remain separate approval boundaries. Storage and runtime are provisioned;
+  all Intake Assurance capabilities remain off.
+- Development and Live Support independently verified all 54 sealed evidence files
+  and complete pre/post comparisons, returning runtime deployment GO. The release
+  may close; no activation is authorized.
+- Next recommended readiness check: separately authorized read-only observation of
+  an ordinary scheduler cadence through existing logs/metrics, without manual
+  invocation, followed by a single-customer activation dossier. Keep every gate off.

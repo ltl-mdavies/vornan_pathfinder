@@ -1,5 +1,9 @@
 # API runtime-only release preparation — 2026-09-12
 
+Subsequent status: the user approved this candidate's execution, and the runtime-only
+deployment completed with postchecks passing. See `runtime-execution-review.md`.
+The authorization holds below describe the earlier preparation checkpoint.
+
 The user approved publishing the storage execution record and preparing an API
 runtime-only artifact plus a separate nonexecuting change set. The storage record
 is published in PR #342 at `645b610`. This new runtime assessment remains local
