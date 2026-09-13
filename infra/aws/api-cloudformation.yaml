@@ -7,6 +7,11 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: Enable bounded shadow observation only after separate activation approval.
+  IntakeShadowExpiresAtMs:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[1-9][0-9]{12}$"
+    Description: Absolute Unix millisecond expiry; runtime requires a future value within one hour.
   IntakeShadowStatusId:
     Type: String
     Default: ""
@@ -591,6 +596,8 @@ Rules:
         AssertDescription: Shadow observation requires explicit IntakeAssuranceConnectionId.
       - Assert: !Not [!Equals [!Ref IntakeAssuranceSlaSeconds, ""]]
         AssertDescription: Shadow observation requires explicit IntakeAssuranceSlaSeconds.
+      - Assert: !Not [!Equals [!Ref IntakeShadowExpiresAtMs, ""]]
+        AssertDescription: Shadow observation requires an explicit absolute expiry.
       - Assert: !Not [!Equals [!Ref IntakeShadowStatusId, ""]]
         AssertDescription: Shadow observation requires explicit IntakeShadowStatusId.
       - Assert: !Not [!Equals [!Ref IntakeShadowMaxCandidates, ""]]
@@ -1406,7 +1413,7 @@ Resources:
           PATHFINDER_RUNTIME: "lambda"
           PATHFINDER_ENABLE_INTAKE_SHADOW: !If [IntakeShadowActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_SHADOW_SCOPE: !If [IntakeShadowActive, !Sub "1|${IntakeAssuranceCustomerId}|${IntakeAssuranceImportMethodId}|${IntakeAssuranceConnectionId}|${IntakeShadowStatusId}", !Ref "AWS::NoValue"]
-          PATHFINDER_INTAKE_SHADOW_LIMITS: !If [IntakeShadowActive, !Sub "1|${IntakeShadowMaxCandidates}|${IntakeAssuranceSlaSeconds}|${IntakeShadowMaxElapsedMs}", !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_SHADOW_LIMITS: !If [IntakeShadowActive, !Sub "2|${IntakeShadowMaxCandidates}|${IntakeAssuranceSlaSeconds}|${IntakeShadowMaxElapsedMs}|${IntakeShadowExpiresAtMs}", !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_INTAKE_EXCEPTIONS: !If [IntakeAssuranceVisibilityActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_EXCEPTIONS_CUSTOMER_IDS: !If [IntakeAssuranceVisibilityActive, !Ref IntakeAssuranceCustomerId, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_RECOVERY_LIMITS: !If [IntakeAssuranceRecoveryActive, !Sub "1|${IntakeSweepPageSize}|${IntakeSweepMaxPages}|${IntakeSweepLeaseSeconds}", !Ref "AWS::NoValue"]

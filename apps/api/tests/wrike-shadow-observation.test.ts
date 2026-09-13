@@ -7,7 +7,7 @@ import type { WrikeScopedIntakeDiscoveryResult } from "@pathfinder/wrike-adapter
 
 const environment = { PATHFINDER_ENABLE_INTAKE_SHADOW: "true", PATHFINDER_STORAGE_DRIVER: "dynamodb",
   PATHFINDER_INTAKE_ATTEMPTS_TABLE: "synthetic-intake", PATHFINDER_INTAKE_SHADOW_SCOPE: "1|customer|method|connection|READY",
-  PATHFINDER_INTAKE_SHADOW_LIMITS: "1|3|3600|100" };
+  get PATHFINDER_INTAKE_SHADOW_LIMITS() { return `2|3|3600|100|${Date.now() + 1_800_000}`; } };
 const scope = { customer_id: "customer", import_method_id: "method", connection_id: "connection", configured_status_id: "READY", configured_status_label: "Sent to Print – LTL" };
 function discovery(count = 1, inStatus = true, second = 0): WrikeScopedIntakeDiscoveryResult {
   const tasks = Array.from({ length: count }, (_, i) => ({ task_id: `TASK${i}`, custom_status_id: inStatus ? "READY" : "OTHER", updated_at: `2026-09-10T12:00:0${second}Z`,
@@ -101,7 +101,7 @@ test("scope, status, metadata, duplicate and candidate limits fail before any ta
 });
 test("invalid/dual-mode configuration skips observation, without wrapping preparation", async () => {
   for (const patch of [
-    { PATHFINDER_INTAKE_SHADOW_LIMITS: "1|1000|3600|100" }, { PATHFINDER_INTAKE_SHADOW_LIMITS: "1|3|3600|1001" },
+    { PATHFINDER_INTAKE_SHADOW_LIMITS: `2|1000|3600|100|${Date.now()+1_800_000}` }, { PATHFINDER_INTAKE_SHADOW_LIMITS: `2|3|3600|1001|${Date.now()+1_800_000}` },
     { PATHFINDER_INTAKE_SHADOW_SCOPE: "1|customer|method|connection|READY|extra" },
     { PATHFINDER_ENABLE_INTAKE_ASSURANCE_CAPTURE: "true" }, { PATHFINDER_ENABLE_INTAKE_RECOVERY_SWEEP: "true" },
     { PATHFINDER_STORAGE_DRIVER: "local" }
@@ -123,7 +123,7 @@ test("persistence, CAS and telemetry failures are aggregate-only and do not chan
 });
 test("shared abort deadline stops a stalled read and starts no later write", async () => {
   const run = await ordinary(); let aborted = false; let writes = 0;
-  await observeWrikeShadow({ environment: { ...environment, PATHFINDER_INTAKE_SHADOW_LIMITS: "1|3|3600|50" }, input: run.input,
+  await observeWrikeShadow({ environment: { ...environment, PATHFINDER_INTAKE_SHADOW_LIMITS: `2|3|3600|50|${Date.now() + 1_800_000}` }, input: run.input,
     store: () => ({ read: async (_scope, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => { aborted = true; reject(Error("aborted")); }, { once: true })),
       write: async () => { writes++; } }), report: () => {} });
   assert.equal(aborted, true); assert.equal(writes, 0); assert.deepEqual(run.input, run.frozen);
@@ -174,4 +174,50 @@ test("Dynamo adapter uses only scoped Get/conditional Put and forwards the share
     conflict = true; const before = requests.length; await assert.rejects(store.write(row, 1, abort.signal));
     assert.equal(requests.length - before, 1);
   } finally { store.close?.(); }
+});
+
+test("expiry fails closed before scope, store, or telemetry access", async () => {
+  const run = await ordinary(); const time = 1_789_300_000_000;
+  for (const limits of [undefined, "1|3|3600|100", `2|3|3600|100|${time}`, `2|3|3600|100|${time-1}`, `2|3|3600|100|${time+3_600_001}`, "2|3|3600|100|1e12", `2|3|3600|100|${time+100} `]) {
+    const accesses: PropertyKey[] = []; let stores = 0, reports = 0;
+    const env = new Proxy({}, { get: (_o, key) => {
+      accesses.push(key);
+      if (key === "PATHFINDER_ENABLE_INTAKE_SHADOW") return "true";
+      assert.equal(key, "PATHFINDER_INTAKE_SHADOW_LIMITS"); return limits;
+    } });
+    await observeWrikeShadow({ environment: env, input: run.input, now: () => time,
+      store: () => { stores++; return memory().store; }, report: () => { reports++; } });
+    assert.deepEqual(accesses, ["PATHFINDER_ENABLE_INTAKE_SHADOW", "PATHFINDER_INTAKE_SHADOW_LIMITS"]);
+    assert.equal(stores, 0); assert.equal(reports, 0);
+  }
+  assert.deepEqual(run.input, run.frozen);
+});
+test("exact expiry between read and write prevents write and telemetry, and closes store", async () => {
+  const run = await ordinary(); let now = 1_789_300_000_000; const expiry = now + 100; let reads = 0, writes = 0, closed = 0, reports = 0;
+  await observeWrikeShadow({ environment: { ...environment, PATHFINDER_INTAKE_SHADOW_LIMITS: `2|3|3600|1000|${expiry}` }, input: run.input, now: () => now,
+    store: () => ({ read: async () => { reads++; now = expiry; return null; }, write: async () => { writes++; }, close: () => { closed++; throw Error("cleanup isolated"); } }), report: () => { reports++; } });
+  assert.deepEqual({ reads, writes, closed, reports }, { reads: 1, writes: 0, closed: 1, reports: 0 });
+  assert.deepEqual(run.input, run.frozen);
+});
+test("expiry aborts an in-flight read before the longer storage budget", async () => {
+  const run = await ordinary(); const start = Date.now(); let aborted = false, writes = 0;
+  await observeWrikeShadow({ environment: { ...environment, PATHFINDER_INTAKE_SHADOW_LIMITS: `2|3|3600|1000|${start+40}` }, input: run.input,
+    store: () => ({ read: async (_scope, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => { aborted = true; reject(Error("expiry")); }, { once: true })), write: async () => { writes++; } }), report: () => {} });
+  assert.equal(aborted, true); assert.equal(writes, 0); assert.ok(Date.now()-start < 900);
+});
+test("clock failure and expiry during store construction start no operation", async () => {
+  const run = await ordinary(); const start = 1_789_300_000_000;
+  for (const value of [start+100, NaN]) {
+    let now = start; let reads = 0, writes = 0, reports = 0;
+    await observeWrikeShadow({ environment: { ...environment, PATHFINDER_INTAKE_SHADOW_LIMITS: `2|3|3600|100|${start+100}` }, input: run.input, now: () => now,
+      store: () => { now = value; return { read: async () => { reads++; return null; }, write: async () => { writes++; } }; }, report: () => { reports++; } });
+    assert.equal(reads, 0); assert.equal(writes, 0); assert.equal(reports, 0);
+  }
+});
+
+test("exact maximum future expiry is accepted with unchanged ordinary behavior", async () => {
+  const run = await ordinary(); const f = memory(); const now = 1_789_300_000_000;
+  await observeWrikeShadow({ environment: { ...environment, PATHFINDER_INTAKE_SHADOW_LIMITS: `2|3|3600|100|${now+3_600_000}` }, now: () => now, input: run.input, store: f.factory, report: () => {} });
+  assert.equal(f.counts().writes, 1); assert.deepEqual(run.input, run.frozen);
+  assert.deepEqual(run.calls, { discovery: 1, preparation: 1, submission: 1, writeback: 1 });
 });
