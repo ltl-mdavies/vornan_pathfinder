@@ -14,7 +14,7 @@ function config(env: NodeJS.ProcessEnv): Config {
   const [version, customer, method, connection, status] = scope;
   const [budgetVersion, max, sla, elapsed] = limits;
   if (scope.length !== 5 || version !== "1" || ![customer, method, connection, status].every(v => v && safeId(v)) ||
-    limits.length !== 4 || budgetVersion !== "1" || ![max, sla, elapsed].every(v => v && /^[1-9][0-9]*$/.test(v)) ||
+    limits.length !== 5 || budgetVersion !== "2" || ![max, sla, elapsed].every(v => v && /^[1-9][0-9]*$/.test(v)) ||
     Number(max) > 25 || Number(sla) < 60 || Number(sla) > 604800 || Number(elapsed) < 50 || Number(elapsed) > 1000 ||
     env.PATHFINDER_STORAGE_DRIVER !== "dynamodb" || !env.PATHFINDER_INTAKE_ATTEMPTS_TABLE?.trim() ||
     env.PATHFINDER_INTAKE_ATTEMPTS_TABLE !== env.PATHFINDER_INTAKE_ATTEMPTS_TABLE.trim()) throw new Error("Invalid shadow configuration");
@@ -100,10 +100,23 @@ type Summary = { event: "intake_shadow_observation"; status: "observed" | "skipp
 export async function observeWrikeShadow(args: {
   environment: NodeJS.ProcessEnv; input: WrikeShadowInput | null;
   remainingTimeMs?: () => number;
+  now?: () => number;
   store?: (table: string) => WrikeShadowStore;
   report?: (summary: Summary) => void;
 }): Promise<void> {
   if (args.environment.PATHFINDER_ENABLE_INTAKE_SHADOW !== "true" || !args.input || args.input.result.status !== "completed") return;
+  const now = args.now ?? Date.now;
+  let expiresAt: number;
+  // Parse only the expiry envelope before touching scope, persistence or telemetry.
+  // Legacy limits deliberately fail closed: every enabled pilot needs an absolute expiry.
+  try {
+    const limits = (args.environment.PATHFINDER_INTAKE_SHADOW_LIMITS ?? "").split("|");
+    const started = now();
+    expiresAt = Number(limits[4]);
+    if (limits.length !== 5 || limits[0] !== "2" || !/^[1-9][0-9]{12}$/.test(limits[4] ?? "") ||
+      !Number.isFinite(started) || expiresAt <= started || expiresAt - started > 3_600_000) return;
+  } catch { return; }
+  const beforeExpiry = () => { const current = now(); return Number.isFinite(current) && current < expiresAt; };
   const summary: Summary = { event: "intake_shadow_observation", status: "failed", observed: 0, written: 0, replayed: 0 };
   let store: WrikeShadowStore | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -147,10 +160,19 @@ export async function observeWrikeShadow(args: {
     }
     if (!rows.length) { summary.status = "observed"; return; }
     const controller = new AbortController();
-    timer = setTimeout(() => controller.abort(), c.elapsed);
+    const current = now();
+    if (!Number.isFinite(current) || current >= expiresAt) return;
+    const deadline = Math.min(current + c.elapsed, expiresAt);
+    const checkDeadline = () => {
+      const time = now();
+      if (!Number.isFinite(time) || time >= deadline) controller.abort();
+      controller.signal.throwIfAborted();
+    };
+    timer = setTimeout(() => controller.abort(), deadline - current);
+    checkDeadline();
     store = (args.store ?? createDynamoWrikeShadowStore)(c.table);
     for (const row of rows) {
-      controller.signal.throwIfAborted();
+      checkDeadline();
       const previous = await store.read(row.identity, controller.signal);
       if (previous) validate(previous, row.identity);
       const cursor = observeWrikeIntent(previous?.cursor ?? null, row.identity, row.observation);
@@ -165,7 +187,7 @@ export async function observeWrikeShadow(args: {
             state: "manual_review", reason: "reconciliation_ambiguity", next_action_at: initial.next_action_at });
         }
       }
-      controller.signal.throwIfAborted();
+      checkDeadline();
       await store.write({ schema_version: 1, revision: (previous?.revision ?? 0) + 1, scope: row.identity, cursor, attempt, outcomes: row.outcomes }, previous?.revision ?? null, controller.signal);
       summary.observed++; summary.written++;
     }
@@ -174,6 +196,6 @@ export async function observeWrikeShadow(args: {
   finally {
     if (timer) clearTimeout(timer);
     try { store?.close?.(); } catch { /* cleanup cannot change ordinary completion */ }
-    try { (args.report ?? (value => console.info(JSON.stringify(value))))(summary); } catch { /* telemetry is isolated too */ }
+    try { if (beforeExpiry()) (args.report ?? (value => console.info(JSON.stringify(value))))(summary); } catch { /* telemetry is isolated too */ }
   }
 }

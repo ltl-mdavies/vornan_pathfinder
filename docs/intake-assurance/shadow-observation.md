@@ -8,7 +8,7 @@ preparation callback. Manual intake is unchanged.
 
 CloudFormation wiring is included and defaults off: `IntakeShadowEnabled` defaults
 to false, and the three shadow environment bindings are absent while disabled.
-The source configuration section below describes the four new parameters. No
+The source configuration section below describes the five new parameters. No
 schedule, IAM, UI or deployment workflow change is included. This source slice
 does not authorize activation; resolved environment evidence and release review
 are still required before deployment, followed by a separate activation review.
@@ -19,8 +19,12 @@ are still required before deployment, followed by a separate activation review.
   observation. Anything else returns before configuration, persistence or telemetry.
 - `PATHFINDER_INTAKE_SHADOW_SCOPE`: `1|customer|method|connection|status_id`.
   All four IDs must be exact safe identifiers and match the verified existing run.
-- `PATHFINDER_INTAKE_SHADOW_LIMITS`: `1|max_candidates|sla_seconds|max_elapsed_ms`.
+- `PATHFINDER_INTAKE_SHADOW_LIMITS`: `2|max_candidates|sla_seconds|max_elapsed_ms|expires_at_ms`.
   Bounds are 1–25 tasks, 60–604800 seconds and 50–1000 milliseconds respectively.
+  Expiry is an absolute 13-digit Unix millisecond timestamp, strictly in the future
+  and at most one hour away when observation starts. Version 1 is rejected.
+  Missing, invalid, expired or overly distant expiry returns before scope parsing,
+  store creation and telemetry. The enabled flag still defaults off.
 - Existing DynamoDB storage and the intake table binding are required. Local-file
   persistence is intentionally unsupported for this mode.
 
@@ -58,7 +62,7 @@ discovery/result is a read-only replay; changed observations update through CAS.
 The limit is per cycle, not a lifetime tenant retention limit.
 
 A dedicated DynamoDB client uses one SDK attempt. The whole batch shares an abort
-deadline, and no operation starts after cancellation. Lambda supplies its remaining
+deadline at the earlier of the storage timeout or absolute expiry, and no operation starts after cancellation. Lambda supplies its remaining
 time; observation skips without a reliable remaining-time value or the configured
 budget plus a two-second completion margin. The client is destroyed after the batch.
 No unawaited background persistence or Promise.race timeout is used.
@@ -93,8 +97,9 @@ all disabled. It reuses the explicit assurance customer, import method, connecti
 and SLA parameters. Customer and method must match the scheduler. The saved connection
 and exact custom status are checked again against ordinary discovery at runtime.
 
-Three additional empty-default parameters require explicit values: `IntakeShadowStatusId`,
-`IntakeShadowMaxCandidates` (1–25) and `IntakeShadowMaxElapsedMs` (50–1000).
+Four additional empty-default parameters require explicit values: `IntakeShadowStatusId`,
+`IntakeShadowMaxCandidates` (1–25) and `IntakeShadowMaxElapsedMs` (50–1000), and `IntakeShadowExpiresAtMs`.
+CloudFormation validates expiry shape and presence; runtime validates its time range.
 Only the three shadow environment bindings become present; the shared enforcing
 scope bindings remain absent. No resource, IAM permission, schedule, UI or provider
 setting is added. The existing storage grants already cover shadow GetItem/PutItem.
@@ -105,3 +110,25 @@ values. Synthetic fixture headroom is not production headroom. Keep shadow disab
 for any runtime rollout. Activation requires a separate exact customer/method/connection/
 status scope, per-cycle bounds, observation window, cumulative write allowance and stop
 criteria review. Disabling shadow removes its three bindings; retain storage and its data.
+
+
+## Expiry rollout and pilot stop
+
+Expiry is packed into version 2 of the existing limits binding, adding 14 bytes
+compared with version 1 for a 13-digit timestamp. No extra environment key is added.
+Keep shadow disabled while deploying this runtime and template contract; the older
+runtime rejects version 2 and the new runtime rejects version 1. Review the exact
+candidate environment again before activation. Set the final absolute time near
+activation, allowing for deployment duration without exceeding the one-hour horizon.
+Do not extend or refresh expiry automatically.
+
+The observer checks its clock before constructing the store and before each read
+and write. Invalid time stops work. Expiry cancels the shared request signal and
+suppresses subsequent telemetry; cleanup still runs. Timer dispatch can be delayed
+by the event loop, and a request sent before cancellation can have an uncertain or
+committed outcome. Expiry is a boundary for starting operations and requesting
+cancellation, not a guarantee that DynamoDB cannot commit an in-flight request later.
+Read-only after-checks must account for that uncertainty without retrying writes.
+
+The pilot's 10-write allowance remains a staffed monitoring threshold, not an atomic
+cumulative quota. A hard cumulative maximum requires a separate durable quota design.
