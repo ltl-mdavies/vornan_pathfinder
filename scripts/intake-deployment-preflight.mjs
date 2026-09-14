@@ -97,6 +97,9 @@ export function validateIntakeDeploymentEvidence(bundle) {
   const currentEnv = environment(bundle.current_environment);
   const candidateEnv = environment(bundle.candidate_environment);
   const rollbackEnv = environment(bundle.rollback_environment);
+  const assuranceActive = Object.entries(bundle.candidate_environment).some(([key, value]) =>
+    value === "true" && (key.startsWith("PATHFINDER_ENABLE_INTAKE_") || key === "PATHFINDER_ENABLE_WRIKE_INTAKE_FEEDBACK"));
+  if (assuranceActive && candidateEnv.remaining_bytes < 256) fail("ACTIVATION_ENVIRONMENT_HEADROOM_REQUIRED");
   if (!record(bundle.intended_environment_changes)) fail("INVALID_ENVIRONMENT_INTENT");
   const expected = new Map(Object.entries(bundle.current_environment));
   for (const [key, value] of Object.entries(bundle.intended_environment_changes)) {

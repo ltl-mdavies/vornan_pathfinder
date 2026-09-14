@@ -96,3 +96,19 @@ test("CLI rejects malformed and duplicate-key JSON and never prints supplied con
     }
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("assurance activation requires 256 serialized bytes of headroom without blocking dark rollback evidence", () => {
+  for (const remaining of [255,256]) {
+    const b = syntheticEvidence();
+    const flag = "PATHFINDER_ENABLE_INTAKE_SHADOW";
+    const env = { ...b.candidate_environment, [flag]: "true", PADDING: "" };
+    env.PADDING = "x".repeat(4096-remaining-Buffer.byteLength(JSON.stringify(env)));
+    b.candidate_environment = env;
+    b.intended_environment_changes = { ...b.intended_environment_changes, [flag]: "true", PADDING: env.PADDING };
+    if (remaining===255) assert.throws(() => validateIntakeDeploymentEvidence(sealEvidence(b)), /ACTIVATION_ENVIRONMENT_HEADROOM_REQUIRED/);
+    else assert.equal(validateIntakeDeploymentEvidence(sealEvidence(b)).environment.candidate.remaining_bytes,256);
+  }
+  const b=syntheticEvidence();const env={ PADDING: "x".repeat(4082) };
+  b.current_environment=env;b.candidate_environment=env;b.rollback_environment=env;b.intended_environment_changes={};
+  assert.equal(validateIntakeDeploymentEvidence(sealEvidence(b)).environment.candidate.remaining_bytes,0);
+});
