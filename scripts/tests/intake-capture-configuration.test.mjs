@@ -61,12 +61,12 @@ test("capture and active scheduled intake must have the same customer and method
   for (const name of ["WrikeScheduledIntakeCustomerId", "WrikeScheduledIntakeImportMethodId"]) assert.throws(() => evaluate({ ...scheduled, [name]: "different" }), /IntakeCaptureMatchesScheduledScope/);
 });
 
-test("capture fixture byte delta includes serialization and exposes overflow", () => {
+test("capture fixture byte delta includes serialization after workspace packing", () => {
   const strings = (env) => Object.fromEntries(Object.entries(env).map(([key, value]) => [key, String(value)]));
   const before = environmentBytes(strings(vars(evaluate({ IntakeAssuranceStorageEnabled: "true" }))));
   const after = environmentBytes(strings(vars(evaluate(captureParameters))));
   const additions = Object.fromEntries(keys.map((key) => [key, String(vars(evaluate(captureParameters))[key])]));
   assert.equal(after - before, environmentBytes(additions) - 1);
-  assert.equal(after, 4130);
-  assert.ok(after > 4096);
+  assert.equal(after, 3675);
+  assert.ok(after <= 4096);
 });
