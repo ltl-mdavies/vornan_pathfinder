@@ -1,3 +1,4 @@
+import { resolveWorkspaceTables } from "./workspace-table-namespace.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -2333,16 +2334,17 @@ function requireEnv(name: string) {
 }
 
 function getDynamoTableConfig(): DynamoTableConfig {
+  const workspaceTables = resolveWorkspaceTables(process.env, ["customers", "workspaces", "import_methods", "output_routes", "product_mappings", "jobs", "order_ids", "submit_attempts"]);
   return {
-    customers: requireEnv("PATHFINDER_CUSTOMERS_TABLE"),
-    workspaces: requireEnv("PATHFINDER_CUSTOMER_WORKSPACES_TABLE"),
+    customers: workspaceTables.customers,
+    workspaces: workspaceTables.workspaces,
     targets: requireEnv("PATHFINDER_TARGETS_TABLE"),
-    import_methods: requireEnv("PATHFINDER_IMPORT_METHODS_TABLE"),
-    output_routes: requireEnv("PATHFINDER_OUTPUT_ROUTES_TABLE"),
-    product_mappings: requireEnv("PATHFINDER_PRODUCT_MAPPINGS_TABLE"),
-    jobs: requireEnv("PATHFINDER_JOBS_TABLE"),
-    order_ids: requireEnv("PATHFINDER_ORDER_IDS_TABLE"),
-    submit_attempts: requireEnv("PATHFINDER_SUBMIT_ATTEMPTS_TABLE"),
+    import_methods: workspaceTables.import_methods,
+    output_routes: workspaceTables.output_routes,
+    product_mappings: workspaceTables.product_mappings,
+    jobs: workspaceTables.jobs,
+    order_ids: workspaceTables.order_ids,
+    submit_attempts: workspaceTables.submit_attempts,
     lift_product_cache: requireEnv("PATHFINDER_LIFT_PRODUCT_CACHE_TABLE"),
     order_status_tokens: requireEnv("PATHFINDER_ORDER_STATUS_TOKENS_TABLE"),
     order_status_snapshots: requireEnv("PATHFINDER_ORDER_STATUS_SNAPSHOTS_TABLE"),
@@ -8705,9 +8707,10 @@ export async function readIntakeRecoverySnapshot(customerId: string, maxRecords:
     } while (cursor);
     return values;
   }
+  const recoveryTables = resolveWorkspaceTables(process.env, ["jobs", "submit_attempts"]);
   const [jobs, submits] = await Promise.all([
-    partition<ProcessingJobPreview>(requireEnv("PATHFINDER_JOBS_TABLE")),
-    partition<SubmitAttempt>(requireEnv("PATHFINDER_SUBMIT_ATTEMPTS_TABLE"))
+    partition<ProcessingJobPreview>(recoveryTables.jobs),
+    partition<SubmitAttempt>(recoveryTables.submit_attempts)
   ]);
   return { checked_at, jobs, submits };
 }
@@ -8802,9 +8805,10 @@ export async function readWrikeIntakeFeedbackScope(scope: IntakeSweepScope) {
   let workspace: PathfinderCustomerWorkspace | null;
   let method: ImportMethod | null;
   if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const feedbackTables = resolveWorkspaceTables(process.env, ["workspaces", "import_methods"]);
     const [workspaceResponse, methodResponse] = await Promise.all([
-      getDynamoClient().send(new GetItemCommand({ TableName: requireEnv("PATHFINDER_CUSTOMER_WORKSPACES_TABLE"), Key: { customer_id: dynamoString(scope.customer_id) }, ConsistentRead: true })),
-      getDynamoClient().send(new GetItemCommand({ TableName: requireEnv("PATHFINDER_IMPORT_METHODS_TABLE"), Key: { customer_id: dynamoString(scope.customer_id), import_method_id: dynamoString(scope.import_method_id) }, ConsistentRead: true }))
+      getDynamoClient().send(new GetItemCommand({ TableName: feedbackTables.workspaces, Key: { customer_id: dynamoString(scope.customer_id) }, ConsistentRead: true })),
+      getDynamoClient().send(new GetItemCommand({ TableName: feedbackTables.import_methods, Key: { customer_id: dynamoString(scope.customer_id), import_method_id: dynamoString(scope.import_method_id) }, ConsistentRead: true }))
     ]);
     workspace = workspaceResponse.Item ? parseDynamoData<PathfinderCustomerWorkspace>(workspaceResponse.Item) : null;
     const saved = methodResponse.Item ? parseDynamoData<ImportMethod & { customer_id: string }>(methodResponse.Item) : null;

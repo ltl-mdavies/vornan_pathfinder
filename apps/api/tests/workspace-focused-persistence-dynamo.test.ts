@@ -1,3 +1,4 @@
+import { workspaceTableBindings } from "../src/workspace-table-namespace.js";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
@@ -37,6 +38,11 @@ const tableNames = {
   orderStatusSnapshots: "Pathfinder-ORDER_STATUS_SNAPSHOTS-focused",
   canonicalRegistry: "Pathfinder-CANONICAL_REGISTRY-focused"
 };
+
+if (process.env.PATHFINDER_TEST_COMPACT_TABLES === "true") {
+  const fixtureKeys = { customers: "customers", workspaces: "workspaces", import_methods: "importMethods", output_routes: "outputRoutes", product_mappings: "productMappings", jobs: "jobs", order_ids: "orderIds", submit_attempts: "submitAttempts" } as const;
+  for (const key of Object.keys(fixtureKeys) as Array<keyof typeof fixtureKeys>) tableNames[fixtureKeys[key]] = `Pathfinder-${workspaceTableBindings[key][1]}-focused`;
+}
 
 const customer = {
   lift_customer_id: "1249",
@@ -116,6 +122,10 @@ before(async () => {
     PATHFINDER_CANONICAL_REGISTRY_TABLE: tableNames.canonicalRegistry
   });
 
+  if (process.env.PATHFINDER_TEST_COMPACT_TABLES === "true") {
+    for (const [binding] of Object.values(workspaceTableBindings)) delete process.env[binding];
+    process.env.PATHFINDER_TABLE_NAMESPACE = "1|Pathfinder|focused";
+  }
   const target = {
     target_id: "lift-standard-graphics",
     updated_at: "2026-08-14T00:00:00.000Z"
