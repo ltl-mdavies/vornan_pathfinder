@@ -7,9 +7,9 @@ import test from "node:test";
 import { checkCandidateEnvironment } from "../intake-environment-preflight.mjs";
 
 test("complete candidate byte check counts UTF-8, accepts exact limit and rejects oversize or malformed maps", () => {
-  assert.deepEqual(checkCandidateEnvironment({ KEY: "é" }), { bytes: 5, remaining_bytes: 4091, variable_count: 1 });
-  assert.equal(checkCandidateEnvironment({ K: "x".repeat(4095) }).remaining_bytes, 0);
-  assert.throws(() => checkCandidateEnvironment({ K: "x".repeat(4096) }), /exceeds/);
+  assert.deepEqual(checkCandidateEnvironment({ KEY: "é" }), { bytes: 12, remaining_bytes: 4084, variable_count: 1 });
+  assert.equal(checkCandidateEnvironment({ K: "x".repeat(4088) }).remaining_bytes, 0);
+  assert.throws(() => checkCandidateEnvironment({ K: "x".repeat(4089) }), /exceeds/);
   for (const invalid of [null, [], { K: 1 }, { K: {} }]) assert.throws(() => checkCandidateEnvironment(invalid));
 });
 
@@ -25,4 +25,17 @@ test("CLI output contains only totals or sanitized failures, never environment c
       assert.doesNotMatch(result.stdout + result.stderr, /PRIVATE_KEY|secret-canary/);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("serialized overhead rejects a many-key map whose raw payload appears to fit", () => {
+  const env = Object.fromEntries(Array.from({ length: 73 }, (_, i) => [`K${String(i).padStart(2, "0")}`, "x".repeat(i === 0 ? 105 : 49)]));
+  assert.equal(Object.entries(env).reduce((n,[k,v]) => n+Buffer.byteLength(k+v),0), 3852);
+  assert.equal(Buffer.byteLength(JSON.stringify(env)), 4291);
+  assert.throws(() => checkCandidateEnvironment(env), /4291/);
+});
+test("serialization counts quotes, backslashes and control characters", () => {
+  for (const value of ['"', "\\", "\n", "\u0000", "é"]) {
+    const env = { KEY: value };
+    assert.equal(checkCandidateEnvironment(env).bytes, Buffer.byteLength(JSON.stringify(env)));
+  }
 });

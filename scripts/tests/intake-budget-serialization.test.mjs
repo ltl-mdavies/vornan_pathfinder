@@ -15,6 +15,6 @@ test("four modes emit only active compact budgets and reduce the complete enviro
     assert.equal(env[budgetGroups.recovery.compact], recovery ? "1|10|2|60" : undefined);
     for (const group of Object.values(budgetGroups)) for (const field of group.fields) assert.ok(!(field in env));
     const saved = bytes(legacyFixtureVariables(env)) - bytes(env);
-    assert.equal(saved, (capture ? 88 : 0) + (recovery ? 66 : 0));
+    assert.equal(saved, (capture ? 100 : 0) + (recovery ? 78 : 0));
   }
 });
