@@ -1,3 +1,4 @@
+import { withoutWorkspacePacking } from "./fixtures/workspace-table-packing.mjs";
 import { withoutShadow } from "./fixtures/intake-shadow-config.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -44,13 +45,13 @@ test("visibility changes only its parameter, rule, condition and environment bin
   for (const key of visibilityKeys) delete vars(prior)[key];
   const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
   const baseline = JSON.parse(readFileSync(new URL("./fixtures/intake-storage-baseline.json", import.meta.url), "utf8"));
-  assert.equal(createHash("sha256").update(JSON.stringify(canonical(prior))).digest("hex"), baseline.sha256, baseline.source_commit);
+  assert.equal(createHash("sha256").update(JSON.stringify(canonical(withoutWorkspacePacking(prior)))).digest("hex"), baseline.sha256, baseline.source_commit);
 });
 
-test("visibility alone fits while combined serialized environments reject overflow", () => {
+test("packed visibility combinations fit and oversized scopes are rejected", () => {
   const check = parameters => checkCandidateEnvironment(Object.fromEntries(Object.entries(vars(evaluate(parameters))).map(([key,value])=>[key,String(value)])));
   assert.ok(check(visibilityParameters).remaining_bytes > 0);
-  for (const params of [{ ...captureParameters, ...visibilityParameters }, { ...recoveryParameters, ...visibilityParameters }, { ...captureParameters, ...recoveryParameters, ...visibilityParameters }]) assert.throws(() => check(params), /exceeds/);
+  for (const params of [{ ...captureParameters, ...visibilityParameters }, { ...recoveryParameters, ...visibilityParameters }, { ...captureParameters, ...recoveryParameters, ...visibilityParameters }]) assert.ok(check(params).remaining_bytes > 0);
   assert.throws(() => check({ ...captureParameters, ...recoveryParameters, ...visibilityParameters, IntakeAssuranceCustomerId: "a".repeat(256), IntakeAssuranceConnectionId: "b".repeat(256), IntakeAssuranceImportMethodId: "c".repeat(256) }), /exceeds/);
 });
 

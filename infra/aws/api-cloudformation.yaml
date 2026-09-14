@@ -1491,15 +1491,8 @@ Resources:
           PATHFINDER_STORAGE_DRIVER: !Ref StorageDriver
           PATHFINDER_SECRETS_DRIVER: !Ref SecretsDriver
           PATHFINDER_SECRET_PREFIX: !Ref SecretPrefix
-          PATHFINDER_CUSTOMERS_TABLE: !Ref PathfinderCustomersTable
-          PATHFINDER_CUSTOMER_WORKSPACES_TABLE: !Ref PathfinderCustomerWorkspacesTable
+          PATHFINDER_TABLE_NAMESPACE: !Sub "1|${DataTablePrefix}|${EnvironmentName}"
           PATHFINDER_TARGETS_TABLE: !Ref PathfinderTargetsTable
-          PATHFINDER_IMPORT_METHODS_TABLE: !Ref PathfinderImportMethodsTable
-          PATHFINDER_OUTPUT_ROUTES_TABLE: !Ref PathfinderOutputRoutesTable
-          PATHFINDER_PRODUCT_MAPPINGS_TABLE: !Ref PathfinderProductMappingsTable
-          PATHFINDER_JOBS_TABLE: !Ref PathfinderJobsTable
-          PATHFINDER_ORDER_IDS_TABLE: !Ref PathfinderOrderIdsTable
-          PATHFINDER_SUBMIT_ATTEMPTS_TABLE: !Ref PathfinderSubmitAttemptsTable
           PATHFINDER_LIFT_PRODUCT_CACHE_TABLE: !Ref PathfinderLiftProductCacheTable
           PATHFINDER_ORDER_STATUS_TOKENS_TABLE: !Ref PathfinderOrderStatusTokensTable
           PATHFINDER_ORDER_STATUS_SNAPSHOTS_TABLE: !Ref PathfinderOrderStatusSnapshotsTable

@@ -1,8 +1,9 @@
 # Workspace table namespace resolver
 
-This source slice adds a pure resolver. It does not change the deployed template
-or its environment bindings. Deploy and validate compatible runtime code with the
-existing explicit settings before separately preparing template packing.
+The compatible runtime has been deployed with the eight explicit bindings and
+validated through five natural scheduled intake cycles. This template slice replaces
+those bindings with the namespace below. Production template deployment remains a
+separate reviewed change, retaining the exact already-deployed API and worker code.
 
 The optional `PATHFINDER_TABLE_NAMESPACE` binding is `1|prefix|environment`.
 It derives exactly eight fixed suffixes: Customers, CustomerWorkspaces, ImportMethods,
@@ -23,7 +24,7 @@ reads all use this resolver. Source inventory tests reject any direct access to 
 eight old binding names outside the resolver. Dynamo fixtures cover compact-only
 ordinary persistence and focused reads, including conflicts before access.
 
-Future packing must remove exactly those eight bindings and add the namespace,
+Template packing removes exactly those eight bindings and adds the namespace,
 while proving all physical table names, IAM, partitions and resources unchanged.
 Deploy resolver-compatible code first, observe a natural scheduled cycle, then
 separately deploy template-only packing with the same code and all shadow gates off.
@@ -34,3 +35,19 @@ New assurance activation evidence requires at least 256 bytes remaining in the
 serialized full environment map. This is separate from the absolute 4096-byte limit;
 read-only baseline and dark rollback evidence can describe lower existing headroom.
 Recalculate from fresh real values. No old expiry or rejected candidate can be reused.
+
+## Template release checks
+
+Compare the candidate against a fresh deployed template and configuration. Require
+only the API environment to change: remove the eight legacy bindings and add the
+namespace. Resolve every derived table name against its prior explicit value.
+Preserve all parameters (including both code artifact keys), table definitions,
+physical resource IDs, IAM policies, scheduler settings and other environment values.
+Keep assurance and shadow gates off. Recalculate full serialized environment bytes
+from private production values; do not put those values in the PR.
+
+The production change set must show only API Environment modification without
+replacement. After deployment, verify code hashes and the complete environment,
+health/auth checks, alarms, queues and a natural scheduled cycle. Rollback is a
+separate template-only change restoring the exact prior eight bindings and removing
+the namespace, while retaining the compatible runtime until rollback is validated.

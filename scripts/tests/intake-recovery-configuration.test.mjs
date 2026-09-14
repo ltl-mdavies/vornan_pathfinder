@@ -53,9 +53,9 @@ test("enabled scheduled intake must match recovery scope without requiring captu
   for (const name of ["WrikeScheduledIntakeCustomerId", "WrikeScheduledIntakeImportMethodId"]) assert.throws(() => evaluate({ ...values, [name]: "other" }), /IntakeRecoveryMatchesScheduledScope/);
 });
 
-test("serialized recovery/capture fixtures exceeding 4KB are rejected", () => {
+test("packed recovery/capture fixtures fit and oversized scopes are rejected", () => {
   const check = (values) => checkCandidateEnvironment(Object.fromEntries(Object.entries(vars(evaluate(values))).map(([key, value]) => [key, String(value)])));
   assert.ok(check({}).bytes <= 4096);
-  for (const values of [recoveryParameters, captureParameters, { ...captureParameters, ...recoveryParameters }]) assert.throws(() => check(values), /exceeds/);
+  for (const values of [recoveryParameters, captureParameters, { ...captureParameters, ...recoveryParameters }]) assert.ok(check(values).remaining_bytes > 0);
   assert.throws(() => check({ ...captureParameters, ...recoveryParameters, IntakeAssuranceCustomerId: "a".repeat(256), IntakeAssuranceImportMethodId: "b".repeat(256), IntakeAssuranceConnectionId: "c".repeat(256) }), /exceeds/);
 });

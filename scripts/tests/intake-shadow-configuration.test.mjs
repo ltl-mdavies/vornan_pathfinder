@@ -1,3 +1,4 @@
+import { withoutWorkspacePacking } from "./fixtures/workspace-table-packing.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -14,7 +15,7 @@ const params = { IntakeShadowExpiresAtMs: "1789300000000", WrikeLiftDocumentDeli
 
 test("shadow adds only five parameters, one rule, one condition and three bindings", () => {
   const baseline = JSON.parse(readFileSync(new URL("./fixtures/intake-shadow-baseline.json", import.meta.url), "utf8"));
-  assert.equal(createHash("sha256").update(JSON.stringify(canonical(prior))).digest("hex"), baseline.sha256, baseline.source_commit);
+  assert.equal(createHash("sha256").update(JSON.stringify(canonical(withoutWorkspacePacking(prior)))).digest("hex"), baseline.sha256, baseline.source_commit);
   for (const storage of ["false", "true"]) assert.deepEqual(evaluate({ IntakeAssuranceStorageEnabled: storage }), evaluateTemplate(prior, { IntakeAssuranceStorageEnabled: storage }));
 });
 test("enabled shadow adds only compact bindings to the ordinary scheduled environment", () => {
