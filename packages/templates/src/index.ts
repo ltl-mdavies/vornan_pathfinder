@@ -932,14 +932,26 @@ function configuredHeaderSignatureEntries(columns: string[]) {
 }
 
 const optionalConfiguredHeaderAliases = new Set(["pointsmith sku"]);
+// Some hardware grids repeat order context in a column that was blank in the saved
+// signature. Ignore only this candidate-side label; every configured hardware anchor
+// must still retain its exact label and position.
+const optionalHardwareCandidateHeaderAliases = new Set(["contract #"]);
 
 function withoutOptionalConfiguredHeaders(columns: string[]) {
   return columns.filter((column) => !optionalConfiguredHeaderAliases.has(normalizeHeaderAlias(column)));
 }
 
-function matchesExactConfiguredHeaderSignature(expectedColumns: string[], candidateColumns: string[]) {
+function matchesExactConfiguredHeaderSignature(
+  expectedColumns: string[],
+  candidateColumns: string[],
+  optionalCandidateAliases?: ReadonlySet<string>
+) {
   const expected = configuredHeaderSignatureEntries(expectedColumns);
-  const candidate = configuredHeaderSignatureEntries(candidateColumns);
+  const candidate = configuredHeaderSignatureEntries(candidateColumns).filter(
+    (entry) =>
+      !optionalCandidateAliases?.has(entry.value) ||
+      expected.some((expectedEntry) => expectedEntry.index === entry.index && expectedEntry.value === entry.value)
+  );
 
   if (expected.length < 2 || expected.length !== candidate.length) {
     return false;
@@ -952,14 +964,30 @@ function matchesExactConfiguredHeaderSignature(expectedColumns: string[], candid
   );
 }
 
-function matchesConfiguredHeaderSignature(expectedColumns: string[], candidateColumns: string[]) {
+function matchesConfiguredHeaderSignature(
+  expectedColumns: string[],
+  candidateColumns: string[],
+  lineKind: WorkbookLineKind
+) {
   if (matchesExactConfiguredHeaderSignature(expectedColumns, candidateColumns)) {
     return true;
   }
 
-  return matchesExactConfiguredHeaderSignature(
+  if (matchesExactConfiguredHeaderSignature(
     withoutOptionalConfiguredHeaders(expectedColumns),
     withoutOptionalConfiguredHeaders(candidateColumns)
+  )) {
+    return true;
+  }
+
+  if (lineKind !== "hardware") {
+    return false;
+  }
+
+  return matchesExactConfiguredHeaderSignature(
+    withoutOptionalConfiguredHeaders(expectedColumns),
+    withoutOptionalConfiguredHeaders(candidateColumns),
+    optionalHardwareCandidateHeaderAliases
   );
 }
 
@@ -974,7 +1002,7 @@ function configuredSectionHeaderIndexes(matrix: unknown[][], section: WorkbookSe
       return [];
     }
     const candidateColumns = headerColumnsForRows(matrix, rowIndex, section.headerRowCount);
-    return matchesConfiguredHeaderSignature(signature, candidateColumns) ? [rowIndex] : [];
+    return matchesConfiguredHeaderSignature(signature, candidateColumns, section.lineKind) ? [rowIndex] : [];
   });
 }
 
