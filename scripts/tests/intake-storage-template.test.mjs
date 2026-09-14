@@ -50,10 +50,10 @@ test("enabled storage creates exactly one protected table and only scoped access
 });
 
 test("fixture environment stays within 4KB and disabled storage adds zero bytes", () => {
-  const expectedDelta = Buffer.byteLength(envKey + variables(on)[envKey]);
+  const expectedDelta = Buffer.byteLength(JSON.stringify(envKey) + ":" + JSON.stringify(variables(on)[envKey])) + 1;
   assert.equal(bytes(on) - bytes(off), expectedDelta);
   assert.ok(bytes(on) <= 4096, `Fixture environment uses ${bytes(on)} bytes`);
-  assert.equal(environmentBytes({ KEY: "é" }), 5);
+  assert.equal(environmentBytes({ KEY: "é" }), 12);
   assert.throws(() => environmentBytes({ KEY: 1 }), /strings/);
   assert.throws(() => environmentBytes(null), /map/);
   const custom = evaluateTemplate(template, { IntakeAssuranceStorageEnabled: "true", DataTablePrefix: "test", EnvironmentName: "staging" });

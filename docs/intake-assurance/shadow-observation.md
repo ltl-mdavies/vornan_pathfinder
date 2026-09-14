@@ -105,7 +105,7 @@ scope bindings remain absent. No resource, IAM permission, schedule, UI or provi
 setting is added. The existing storage grants already cover shadow GetItem/PutItem.
 
 This is source wiring only. Before deployment, preserve every current parameter and
-validate the full resolved Lambda environment against 4096 bytes using real candidate
+validate the serialized JSON of the full resolved Lambda environment against 4096 UTF-8 bytes using real candidate
 values. Synthetic fixture headroom is not production headroom. Keep shadow disabled
 for any runtime rollout. Activation requires a separate exact customer/method/connection/
 status scope, per-cycle bounds, observation window, cumulative write allowance and stop

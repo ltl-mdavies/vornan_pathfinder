@@ -47,9 +47,10 @@ test("visibility changes only its parameter, rule, condition and environment bin
   assert.equal(createHash("sha256").update(JSON.stringify(canonical(prior))).digest("hex"), baseline.sha256, baseline.source_commit);
 });
 
-test("complete visibility environments fit for fixture values and reject long-scope overflow", () => {
+test("visibility alone fits while combined serialized environments reject overflow", () => {
   const check = parameters => checkCandidateEnvironment(Object.fromEntries(Object.entries(vars(evaluate(parameters))).map(([key,value])=>[key,String(value)])));
-  for (const params of [visibilityParameters, { ...captureParameters, ...visibilityParameters }, { ...recoveryParameters, ...visibilityParameters }, { ...captureParameters, ...recoveryParameters, ...visibilityParameters }]) assert.ok(check(params).remaining_bytes > 0);
+  assert.ok(check(visibilityParameters).remaining_bytes > 0);
+  for (const params of [{ ...captureParameters, ...visibilityParameters }, { ...recoveryParameters, ...visibilityParameters }, { ...captureParameters, ...recoveryParameters, ...visibilityParameters }]) assert.throws(() => check(params), /exceeds/);
   assert.throws(() => check({ ...captureParameters, ...recoveryParameters, ...visibilityParameters, IntakeAssuranceCustomerId: "a".repeat(256), IntakeAssuranceConnectionId: "b".repeat(256), IntakeAssuranceImportMethodId: "c".repeat(256) }), /exceeds/);
 });
 

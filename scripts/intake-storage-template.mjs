@@ -83,8 +83,10 @@ export function evaluateTemplate(template, overrides = {}, { validateParameters 
 
 export function environmentBytes(variables) {
   if (!variables || typeof variables !== "object" || Array.isArray(variables)) throw new Error("Expected environment variable map");
-  return Object.entries(variables).reduce((total, [key, value]) => {
+  for (const value of Object.values(variables)) {
     if (typeof value !== "string") throw new Error("Environment values must be strings");
-    return total + Buffer.byteLength(key, "utf8") + Buffer.byteLength(value, "utf8");
-  }, 0);
+  }
+  // Lambda measures the UTF-8 JSON map, including punctuation and escaped values.
+  // Summing raw key/value bytes undercounts six bytes per entry plus the braces.
+  return Buffer.byteLength(JSON.stringify(variables), "utf8");
 }

@@ -65,7 +65,7 @@ though output is sanitized.
   the tool cannot prove the stability of externally resolved values.
 - Candidate environment additions, removals and replacements must exactly match
   declared intent. Rollback must reproduce the complete original map. All three
-  maps must contain resolved strings and fit the 4,096-byte UTF-8 key/value limit.
+  maps must contain resolved strings and fit the 4,096-byte serialized UTF-8 JSON-map limit.
   Recognizable unresolved dynamic references or tokens are rejected.
 
 ## Required checks outside this tool
@@ -84,3 +84,9 @@ outside stack management after rollback; restoring parameters alone is not a dat
 or resource rollback. Restore the original runtime and full environment together,
 including legacy budget entries when reverting to a pre-compact runtime. Keep all
 storage records and preserve separate deployment/publication/activation approvals.
+
+Environment sizing includes JSON braces, separators, quoted keys/values and escaped
+characters: `Buffer.byteLength(JSON.stringify(variables), "utf8")`. Raw key/value sums
+are insufficient. A 73-entry map with 3,852 raw bytes serializes to at least 4,291
+bytes and must be rejected before deployment. Earlier evidence using raw sums must
+be recalculated; a passing historical raw-byte check is not an activation gate.
