@@ -152,6 +152,155 @@ test("detects a second hardware section and excludes a populated catalog row wit
   assert.equal(parsed.reference_rows[0].values.Description, "20x12 / Clip Frames");
 });
 
+test("keeps an adjacent hardware-only order in its configured section when Contract # fills a saved blank header", async () => {
+  const printHeader = [
+    "OPS SKU",
+    "Contract #",
+    "DESCRIPTION",
+    "Creative",
+    "SIGN TYPE",
+    "Formatting size (w/ bleed) (Make sure to add 0.25\" to each side if the size is not below)",
+    "Final Size Width",
+    "Final Size Length",
+    "STOCK",
+    "PRINT",
+    "FINISHING",
+    "Print QTY",
+    "Ship Date",
+    "Delivery Date",
+    "Media Type",
+    "Campaign Start Date",
+    "Notes"
+  ];
+  const savedHardwareHeader = [
+    "Column 1",
+    "Column 2",
+    "Hardware",
+    "PS SKU",
+    "SIGN TYPE",
+    "Item SKU",
+    "Description",
+    "Column 8",
+    "Column 9",
+    "Column 10",
+    "PS Part Number",
+    "Qty. Needed",
+    "Column 13",
+    "Column 14",
+    "Column 15",
+    "Column 16",
+    "Notes"
+  ];
+  const currentHardwareHeader = [
+    null,
+    "Contract #",
+    "Hardware",
+    "PS SKU",
+    "SIGN TYPE",
+    "Item SKU",
+    "Description",
+    null,
+    null,
+    null,
+    "PS Part Number",
+    "Qty. Needed",
+    null,
+    null,
+    null,
+    null,
+    "Notes"
+  ];
+  const options = {
+    sheetConfigs: {
+      "Order Form": {
+        role: "order_lines" as const,
+        enabled: true,
+        sections: [
+          {
+            sectionId: "print-products",
+            label: "Print products",
+            lineKind: "print" as const,
+            headerRow: 1,
+            headerRowCount: 1 as const,
+            headerSignature: printHeader,
+            quantityColumn: "Print QTY",
+            missingQuantityBehavior: "reference" as const,
+            required: true
+          },
+          {
+            sectionId: "hardware-products",
+            label: "Hardware",
+            lineKind: "hardware" as const,
+            headerRow: 13,
+            headerRowCount: 1 as const,
+            headerSignature: savedHardwareHeader,
+            quantityColumn: "Qty. Needed",
+            missingQuantityBehavior: "block" as const,
+            required: false
+          }
+        ]
+      }
+    }
+  };
+  const parsed = await parseWorkbookArrayBuffer(
+    workbookBuffer({
+      "Order Form": [
+        printHeader,
+        currentHardwareHeader,
+        [null, "C000000", "One Sheet Frames", "AOM402", "Hardware", null, null, null, null, null, null, 5]
+      ]
+    }),
+    options
+  );
+
+  const [sheet] = parsed.source_sheets;
+  assert.deepEqual(sheet.sections.map((section) => [section.section_id, section.header_row, section.order_row_count]), [
+    ["print-products", 1, 0],
+    ["hardware-products", 2, 1]
+  ]);
+  assert.deepEqual(sheet.ignored_header_rows, []);
+  assert.equal(parsed.parsed_order_rows.length, 1);
+  assert.equal(parsed.parsed_order_rows[0].row_number, 3);
+  assert.equal(parsed.parsed_order_rows[0].scope_id, "Order Form::hardware-products");
+  assert.equal(parsed.parsed_order_rows[0].line_kind, "hardware");
+  assert.equal(parsed.parsed_order_rows[0].values["Contract #"], "C000000");
+  assert.equal(parsed.parsed_order_rows[0].values.Hardware, "One Sheet Frames");
+  assert.equal(parsed.parsed_order_rows[0].values["PS SKU"], "AOM402");
+  assert.equal(parsed.parsed_order_rows[0].values["Qty. Needed"], 5);
+
+  const unexpectedContextHeader = [...currentHardwareHeader];
+  unexpectedContextHeader[1] = "PO Number";
+  const unmatched = await parseWorkbookArrayBuffer(
+    workbookBuffer({
+      "Order Form": [
+        printHeader,
+        unexpectedContextHeader,
+        [null, "PO-000", "One Sheet Frames", "AOM402", "Hardware", null, null, null, null, null, null, 5]
+      ]
+    }),
+    options
+  );
+  assert.deepEqual(unmatched.source_sheets[0].sections.map((section) => section.section_id), ["print-products"]);
+  assert.equal(unmatched.parsed_order_rows[0].line_kind, "print");
+
+  await assert.rejects(
+    () =>
+      parseWorkbookArrayBuffer(
+        workbookBuffer({
+          "Order Form": [
+            printHeader,
+            currentHardwareHeader,
+            [null, "C000000", "One Sheet Frames", "AOM402", "Hardware", null, null, null, null, null, null, 5],
+            currentHardwareHeader,
+            [null, "C000001", "Second Frame", "AOM403", "Hardware", null, null, null, null, null, null, 2]
+          ]
+        }),
+        options
+      ),
+    /matched multiple header rows: 2, 4/
+  );
+});
+
 test("includes only AMZ Locker rows with a whole quantity of one or greater", async () => {
   const parsed = await parseWorkbookArrayBuffer(
     workbookBuffer({
