@@ -123,7 +123,7 @@ jobs:
               ProofAssetScanWorkerCodeS3Key="${{ steps.artifact.outputs.scan_worker_key }}" \
               AllowedOrigins="${{ inputs.allowed_origins }}" \
               PublicStatusBaseUrl="${{ inputs.public_status_base_url }}" \
-              PublicStatusTokenDays="${{ vars.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS || '30' }}" \
+              PublicStatusTokenDays="${{ vars.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS || '60' }}" \
               PublicStatusReturnLink="${{ vars.PATHFINDER_PUBLIC_STATUS_RETURN_LINK || 'false' }}" \
               PublicStatusEmailMode="${{ vars.PATHFINDER_STATUS_EMAIL_MODE || 'log' }}" \
               PublicStatusEmailDebugReturnLink="${{ vars.PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK || 'false' }}" \

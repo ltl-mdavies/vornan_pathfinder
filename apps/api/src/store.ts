@@ -1147,6 +1147,8 @@ export interface OrderStatusTokenRecord {
   updated_at: string;
   expires_at: string;
   expires_at_epoch: number;
+  /** DynamoDB cleanup deadline. Access still ends at expires_at. */
+  purge_at_epoch?: number;
   created_by_email?: string | null;
   requested_email_hash?: string | null;
   requested_email_masked?: string | null;
@@ -4228,7 +4230,7 @@ export async function persistOrderStatusToken(tokenRecord: OrderStatusTokenRecor
       tables.order_status_tokens,
       { token_hash: tokenRecord.token_hash },
       tokenRecord,
-      { expires_at_epoch: { N: String(tokenRecord.expires_at_epoch) } }
+      { expires_at_epoch: { N: String(tokenRecord.purge_at_epoch ?? tokenRecord.expires_at_epoch) } }
     );
     return tokenRecord;
   }
@@ -4292,7 +4294,7 @@ export async function rebindActiveOrderStatusTokensForJob(args: {
     const tokens: OrderStatusTokenRecord[] = [];
     for (const item of items) {
       const token = parseDynamoData<OrderStatusTokenRecord>(item);
-      if (!token || token.status !== "Active") continue;
+      if (!token || token.status !== "Active" || Date.parse(token.expires_at) <= Date.now()) continue;
       const rebound = rebindStatusTokenRecord(token, { ...args, updated_at: updatedAt });
       if (rebound) tokens.push(rebound);
     }
@@ -4303,7 +4305,7 @@ export async function rebindActiveOrderStatusTokensForJob(args: {
   const store = await readStore();
   let rebound = 0;
   store.order_status_tokens = (store.order_status_tokens ?? []).map((token) => {
-    if (token.status !== "Active") return token;
+    if (token.status !== "Active" || Date.parse(token.expires_at) <= Date.now()) return token;
     const next = rebindStatusTokenRecord(token, { ...args, updated_at: updatedAt });
     if (!next) return token;
     rebound += 1;

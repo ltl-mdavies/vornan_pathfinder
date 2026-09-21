@@ -38,7 +38,7 @@ aws cloudformation deploy \
     ProofAssetScanWorkerCodeS3Key="${scan_worker_artifact_key}" \
     AllowedOrigins="${PATHFINDER_ALLOWED_ORIGINS:-https://pathfinder.vornan.co,https://status.vornan.co}" \
     PublicStatusBaseUrl="${PATHFINDER_PUBLIC_STATUS_BASE_URL:-https://status.vornan.co}" \
-    PublicStatusTokenDays="${PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS:-30}" \
+    PublicStatusTokenDays="${PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS:-60}" \
     PublicStatusReturnLink="${PATHFINDER_PUBLIC_STATUS_RETURN_LINK:-false}" \
     PublicStatusEmailMode="${PATHFINDER_STATUS_EMAIL_MODE:-log}" \
     PublicStatusEmailDebugReturnLink="${PATHFINDER_STATUS_EMAIL_DEBUG_RETURN_LINK:-false}" \

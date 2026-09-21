@@ -181,6 +181,18 @@ type StatusRequestResponse = {
   debug_status_url?: string;
 };
 
+type StatusEmailCapability = {
+  available: boolean;
+  order_identifier: string;
+  contact_email: string;
+  message: string;
+};
+
+type PublicStatusErrorResponse = {
+  error?: string;
+  order_numbers?: string[];
+};
+
 function tokenFromLocation() {
   const url = new URL(window.location.href);
   const queryToken = url.searchParams.get("token");
@@ -350,12 +362,59 @@ function parseOrderNumbers(value: string) {
     });
 }
 
-function StatusRequestForm() {
-  const [orderNumberInput, setOrderNumberInput] = useState("");
+function StatusRequestForm({ initialOrderNumbers = [] }: { initialOrderNumbers?: string[] }) {
+  const [orderNumberInput, setOrderNumberInput] = useState(initialOrderNumbers.join("\n"));
   const [email, setEmail] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [message, setMessage] = useState("");
   const [debugLink, setDebugLink] = useState("");
+  const [emailCapability, setEmailCapability] = useState<
+    { state: "checking" } | { state: "ready"; value: StatusEmailCapability } | { state: "unavailable"; value: StatusEmailCapability | null }
+  >({ state: "checking" });
+
+  useEffect(() => {
+    let ignore = false;
+    void fetch(`${apiBaseUrl}/public/status/email-capability`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("status_email_capability_unavailable");
+        return response.json() as Promise<StatusEmailCapability>;
+      })
+      .then((value) => {
+        if (!ignore) {
+          setEmailCapability(value.available ? { state: "ready", value } : { state: "unavailable", value });
+        }
+      })
+      .catch(() => {
+        if (!ignore) setEmailCapability({ state: "unavailable", value: null });
+      });
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  if (emailCapability.state !== "ready") {
+    const checking = emailCapability.state === "checking";
+    const contactEmail = emailCapability.state === "unavailable"
+      ? emailCapability.value?.contact_email
+      : null;
+    return (
+      <div className="status-email-availability" role="status" aria-live="polite">
+        <div className="request-form-header">
+          <span>Private status link</span>
+          <strong>{checking ? "Checking availability" : "Contact Vornan"}</strong>
+        </div>
+        <h2>{checking ? "Checking secure email delivery…" : "Email delivery is temporarily unavailable."}</h2>
+        <p>
+          {checking
+            ? "Please wait while we confirm that private status links can be delivered."
+            : "We are not accepting email-link requests until delivery is fully operational."}
+        </p>
+        {!checking && contactEmail ? (
+          <a className="status-email-contact" href={`mailto:${contactEmail}`}>Request a new link from {contactEmail}</a>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <form
@@ -409,7 +468,7 @@ function StatusRequestForm() {
         <span>Private status link</span>
         <strong>Sent by email</strong>
       </div>
-      <label htmlFor="order-numbers">Order numbers</label>
+      <label htmlFor="order-numbers">Lift order numbers</label>
       <textarea
         id="order-numbers"
         value={orderNumberInput}
@@ -417,7 +476,7 @@ function StatusRequestForm() {
         placeholder={"A0219986\nA0219987"}
         autoComplete="off"
       />
-      <small className="field-hint">One per line, up to 10 orders.</small>
+      <small className="field-hint">Use the A-number shown in Lift or your Wrike confirmation. One per line, up to 10.</small>
       <label htmlFor="request-email">Email address</label>
       <input
         id="request-email"
@@ -446,7 +505,7 @@ function StatusRequest() {
       <div>
         <p className="eyebrow">Order Status</p>
         <h1>Check your order status.</h1>
-        <p>Enter one or more order numbers and your email. We will send one private link when the request matches our records.</p>
+        <p>Enter one or more Lift order numbers and your email. We will send one private link when the request matches our records.</p>
         <p className="request-note">Order details, proof files, and shipment updates are shown when available.</p>
       </div>
       <StatusRequestForm />
@@ -806,6 +865,7 @@ function App() {
   const [state, setState] = useState<"idle" | "loading" | "error">(initialToken ? "loading" : "idle");
   const [refreshState, setRefreshState] = useState<PublicStatusRefreshState>("checking");
   const [message, setMessage] = useState("");
+  const [recoveryOrderNumbers, setRecoveryOrderNumbers] = useState<string[]>([]);
 
   useEffect(() => {
     if (!initialToken) {
@@ -855,8 +915,12 @@ function App() {
           cache: "no-store"
         });
         responseStatus = response.status;
-        const rawData = await response.json().catch(() => ({}));
+        const rawData = await response.json().catch(() => ({})) as PublicStatusResponse | PublicStatusErrorResponse;
         if (!response.ok) {
+          const errorPayload = rawData as PublicStatusErrorResponse;
+          if (response.status === 410 && Array.isArray(errorPayload.order_numbers)) {
+            setRecoveryOrderNumbers(errorPayload.order_numbers.filter((value) => typeof value === "string"));
+          }
           throw new Error("public_status_request_failed");
         }
         if (!ignore) {
@@ -963,7 +1027,7 @@ function App() {
             <h1>This link could not be opened.</h1>
             <p>{message || "Request a new secure link to see the latest available order status."}</p>
           </div>
-          <StatusRequestForm />
+          <StatusRequestForm initialOrderNumbers={recoveryOrderNumbers} />
         </section>
       ) : null}
 

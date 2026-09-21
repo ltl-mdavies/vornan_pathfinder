@@ -127,7 +127,7 @@ Parameters:
     Default: "https://status.vornan.co"
   PublicStatusTokenDays:
     Type: Number
-    Default: 30
+    Default: 60
   PublicStatusReturnLink:
     Type: String
     Default: "false"
