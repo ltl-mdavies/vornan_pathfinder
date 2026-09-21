@@ -256,6 +256,7 @@ import {
   updateOutputRoute,
   updateStatusAccessPolicy,
   updateCustomerProofCapabilityPolicy,
+  withPathfinderStoreReadScope,
   verifyCustomerProofCustomerIdentity,
   resolveCustomerProofCapabilityForOrder,
   upsertCustomerProofOrderOverride,
@@ -2562,13 +2563,19 @@ function rawBodyOrderCandidates(rawBody: unknown) {
   ];
 }
 
-function jobOrderLookupCandidates(job: ProcessingJobPreview, attempts: SubmitAttempt[]) {
+function directJobOrderLookupCandidates(job: ProcessingJobPreview) {
   return [
     job.target_order_number,
     job.lift_payload.order.ext_id,
     job.canonical_order.order.external_order_id,
     job.canonical_order.source.source_record_id,
-    job.submit_request_masked.headers.Ext_ID,
+    job.submit_request_masked.headers.Ext_ID
+  ].filter(Boolean);
+}
+
+function jobOrderLookupCandidates(job: ProcessingJobPreview, attempts: SubmitAttempt[]) {
+  return [
+    ...directJobOrderLookupCandidates(job),
     ...attempts.flatMap((attempt) => [
       attempt.response.lift_order_id,
       attempt.ext_id,
@@ -3069,15 +3076,7 @@ async function findPathfinderJobByOrderNumber(orderNumber: string) {
 
 async function findPathfinderJobsByOrderNumbers(orderNumbers: string[]) {
   const requestedOrderNumbers = new Set(orderNumbers.map(normalizeOrderLookupValue).filter(Boolean));
-  const matches = new Map<
-    string,
-    {
-      customer: LiftCustomer;
-      workspace: PathfinderCustomerWorkspace;
-      job: ProcessingJobPreview;
-      attempts: SubmitAttempt[];
-    }
-  >();
+  const matchedJobs = new Map<string, ProcessingJobPreview>();
 
   if (!requestedOrderNumbers.size) {
     return [];
@@ -3085,31 +3084,67 @@ async function findPathfinderJobsByOrderNumbers(orderNumbers: string[]) {
 
   const jobs = [...(await listJobs())].sort((first, second) => Date.parse(second.updated_at) - Date.parse(first.updated_at));
 
+  // Most public recovery requests use the confirmed Lift A-number already saved
+  // on the job. Resolve those from the single jobs read before loading customer
+  // workspaces or submit history; the previous per-job hydration made older
+  // orders exceed API Gateway's request timeout.
   for (const job of jobs) {
-    if (matches.size === requestedOrderNumbers.size) {
+    if (matchedJobs.size === requestedOrderNumbers.size) {
       break;
     }
-
-    const customer = await findLiftCustomer(job.customer_id);
-    const workspace = await getOrCreateWorkspace(customer);
-    const attempts = await listSubmitAttemptsForJob(customer, job.job_id);
-    const matchedOrderNumber = jobOrderLookupCandidates(job, attempts)
+    const matchedOrderNumber = directJobOrderLookupCandidates(job)
       .map(normalizeOrderLookupValue)
-      .find((candidate) => requestedOrderNumbers.has(candidate) && !matches.has(candidate));
+      .find((candidate) => requestedOrderNumbers.has(candidate) && !matchedJobs.has(candidate));
 
     if (matchedOrderNumber) {
-      matches.set(matchedOrderNumber, {
-        customer,
-        workspace,
-        job,
-        attempts
-      });
+      matchedJobs.set(matchedOrderNumber, job);
     }
   }
 
-  return orderNumbers
-    .map((orderNumber) => matches.get(normalizeOrderLookupValue(orderNumber)))
-    .filter((match): match is NonNullable<typeof match> => Boolean(match));
+  const customerCache = new Map<string, LiftCustomer>();
+  const workspaceCache = new Map<string, PathfinderCustomerWorkspace>();
+  const customerForJob = async (job: ProcessingJobPreview) => {
+    const cached = customerCache.get(job.customer_id);
+    if (cached) return cached;
+    const customer = await findLiftCustomer(job.customer_id);
+    customerCache.set(job.customer_id, customer);
+    return customer;
+  };
+  const workspaceForJob = async (job: ProcessingJobPreview) => {
+    const cached = workspaceCache.get(job.customer_id);
+    if (cached) return cached;
+    const workspace = await getOrCreateWorkspace(await customerForJob(job));
+    workspaceCache.set(job.customer_id, workspace);
+    return workspace;
+  };
+
+  // Retain the legacy Ext ID / submit-response lookup for older unreconciled
+  // jobs, but only after the direct Lift-order pass and from cached workspaces.
+  if (matchedJobs.size < requestedOrderNumbers.size) {
+    for (const job of jobs) {
+      if (matchedJobs.size === requestedOrderNumbers.size) break;
+      const workspace = await workspaceForJob(job);
+      const attempts = (workspace.submit_attempts ?? []).filter((attempt) => attempt.job_id === job.job_id);
+      const matchedOrderNumber = jobOrderLookupCandidates(job, attempts)
+        .map(normalizeOrderLookupValue)
+        .find((candidate) => requestedOrderNumbers.has(candidate) && !matchedJobs.has(candidate));
+      if (matchedOrderNumber) matchedJobs.set(matchedOrderNumber, job);
+    }
+  }
+
+  const matches = await Promise.all(orderNumbers.map(async (orderNumber) => {
+    const job = matchedJobs.get(normalizeOrderLookupValue(orderNumber));
+    if (!job) return null;
+    const customer = await customerForJob(job);
+    const workspace = await workspaceForJob(job);
+    return {
+      customer,
+      workspace,
+      job,
+      attempts: (workspace.submit_attempts ?? []).filter((attempt) => attempt.job_id === job.job_id)
+    };
+  }));
+  return matches.filter((match): match is NonNullable<typeof match> => Boolean(match));
 }
 
 async function createPublicStatusLinkForJobs(args: {
@@ -4356,7 +4391,7 @@ app.get("/public/status/:token/proof-asset", async (req, res) => {
   }
 });
 
-app.post("/public/status/request-link", async (req, res) => {
+async function handlePublicStatusLinkRequest(req: Request, res: Response) {
   const acceptedResponse = {
     status: "accepted",
     message: "If we can match this request, we will send a secure order status link."
@@ -4458,6 +4493,10 @@ app.post("/public/status/request-link", async (req, res) => {
     });
     res.status(202).json(acceptedResponse);
   }
+}
+
+app.post("/public/status/request-link", async (req, res) => {
+  await withPathfinderStoreReadScope(() => handlePublicStatusLinkRequest(req, res));
 });
 
 app.get("/public/intake/:publicKey", async (req, res) => {
