@@ -722,13 +722,33 @@ a:hover {
   background: #fbfcfa;
 }
 
-.status-request form {
+.status-request form,
+.status-email-availability {
   display: grid;
   gap: 12px;
   padding: 22px;
   border: 1px solid #dce5d8;
   border-radius: 8px;
   background: #f7faf4;
+}
+
+.status-email-availability h2 {
+  margin: 2px 0 0;
+  color: #315c3b;
+  font-size: 1.2rem;
+}
+
+.status-email-availability p {
+  margin: 0;
+  color: #657160;
+}
+
+.status-email-contact {
+  width: fit-content;
+  color: #25613a;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .request-form-header {

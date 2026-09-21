@@ -90,7 +90,7 @@ Use handler `lambda.handler` with Node.js 20.x and set
 Public order status links:
 
 - `PATHFINDER_PUBLIC_STATUS_BASE_URL=https://status.vornan.co`
-- `PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS=30`
+- `PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS=60`
 - `PATHFINDER_STATUS_EMAIL_MODE=log|ses` controls local log mode versus SES delivery.
 - `PATHFINDER_EMAIL_FROM=Vornan Updates <notifications@notify.vornan.co>`
 - `PATHFINDER_STATUS_REPLY_TO=support@vornan.co`

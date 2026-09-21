@@ -1,4 +1,9 @@
 import { getIntakeVisibilityConfig } from "./intake-visibility-config.js";
+import {
+  DEFAULT_PUBLIC_STATUS_EXPIRED_TOKEN_RETENTION_DAYS,
+  DEFAULT_PUBLIC_STATUS_TOKEN_DAYS,
+  publicStatusTokenDeadlines
+} from "./public-status-token-policy.js";
 import { discoverWrikeCaptureScope } from "./wrike-capture-discovery.js";
 import { createSharedWrikeCapture } from "./wrike-shared-capture.js";
 import { recordWrikeIntentObservation, reserveWrikeCursorAttempt, readIntakeRecoverySnapshot } from "./store.js";
@@ -382,7 +387,12 @@ const wrikeOAuthRedirectUri = process.env.PATHFINDER_WRIKE_OAUTH_REDIRECT_URI ??
 const pathfinderAppBaseUrl = process.env.PATHFINDER_APP_BASE_URL ??
   (process.env.PATHFINDER_RUNTIME === "lambda" ? "https://pathfinder.vornan.co" : "http://127.0.0.1:5183");
 const wrikeOAuthStateTtlMs = 10 * 60 * 1000;
-const publicStatusTokenDays = Number(process.env.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS ?? 30);
+const publicStatusTokenDays = Number(
+  process.env.PATHFINDER_PUBLIC_STATUS_TOKEN_DAYS ?? DEFAULT_PUBLIC_STATUS_TOKEN_DAYS
+);
+const publicStatusExpiredTokenRetentionDays = Number(
+  DEFAULT_PUBLIC_STATUS_EXPIRED_TOKEN_RETENTION_DAYS
+);
 const maxPublicStatusOrdersPerRequest = 10;
 const publicStatusReturnLink =
   process.env.PATHFINDER_PUBLIC_STATUS_RETURN_LINK === "true" &&
@@ -2413,7 +2423,7 @@ type PublicStatusOrderBinding = {
 };
 
 async function activePublicStatusToken(rawToken: string | undefined): Promise<
-  | { error: string; status: 400 | 404 | 410 }
+  | { error: string; status: 400 | 404 | 410; recovery_order_numbers?: string[] }
   | { tokenRecord: OrderStatusTokenRecord; orders: PublicStatusOrderBinding[] }
 > {
   const token = rawToken?.trim();
@@ -2425,10 +2435,6 @@ async function activePublicStatusToken(rawToken: string | undefined): Promise<
   if (!tokenRecord || tokenRecord.status !== "Active") {
     return { error: "Order status link was not found.", status: 404 };
   }
-  if (Date.parse(tokenRecord.expires_at) <= Date.now()) {
-    return { error: "Order status link has expired.", status: 410 };
-  }
-
   const orders: PublicStatusOrderBinding[] = tokenRecord.orders?.length
     ? tokenRecord.orders
     : [{
@@ -2437,6 +2443,14 @@ async function activePublicStatusToken(rawToken: string | undefined): Promise<
         job_id: tokenRecord.job_id,
         order_number: tokenRecord.order_number
       }];
+
+  if (Date.parse(tokenRecord.expires_at) <= Date.now()) {
+    return {
+      error: "Order status link has expired.",
+      status: 410,
+      recovery_order_numbers: Array.from(new Set(orders.map((order) => order.order_number).filter(Boolean)))
+    };
+  }
 
   return {
     tokenRecord,
@@ -3136,7 +3150,10 @@ async function createPublicStatusLinkForJobs(args: {
   const primaryResult = results[0];
   const rawToken = randomBytes(32).toString("base64url");
   const nowIso = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + Math.max(1, publicStatusTokenDays) * 24 * 60 * 60 * 1000);
+  const tokenDeadlines = publicStatusTokenDeadlines({
+    activeDays: publicStatusTokenDays,
+    expiredRetentionDays: publicStatusExpiredTokenRetentionDays
+  });
   const emailMode = args.requestedEmail ? getEmailRuntimeConfig().mode : null;
   const tokenRecord = {
     token_hash: hashStatusToken(rawToken),
@@ -3153,8 +3170,9 @@ async function createPublicStatusLinkForJobs(args: {
     status: "Active" as const,
     created_at: nowIso,
     updated_at: nowIso,
-    expires_at: expiresAt.toISOString(),
-    expires_at_epoch: Math.floor(expiresAt.getTime() / 1000),
+    expires_at: tokenDeadlines.expires_at,
+    expires_at_epoch: tokenDeadlines.expires_at_epoch,
+    purge_at_epoch: tokenDeadlines.purge_at_epoch,
     created_by_email: args.createdByEmail ?? null,
     requested_email_hash: args.requestedEmail ? hashPublicLogValue(args.requestedEmail) : null,
     requested_email_masked: args.requestedEmail ? maskEmailAddress(args.requestedEmail) : null,
@@ -4151,11 +4169,30 @@ app.get("/health", (_req, res) => {
   });
 });
 
+app.get("/public/status/email-capability", (_req, res) => {
+  const config = getEmailRuntimeConfig();
+  const available = config.mode === "ses";
+  res.set("Cache-Control", "public, max-age=60");
+  res.json({
+    available,
+    order_identifier: "Lift order number",
+    contact_email: config.statusReplyTo,
+    message: available
+      ? "Secure status links can be delivered by email."
+      : "Email delivery is temporarily unavailable. Contact Vornan for a new status link."
+  });
+});
+
 app.get("/public/status/:token", async (req, res) => {
   try {
     const lookup = await activePublicStatusToken(req.params.token);
     if ("error" in lookup) {
-      res.status(lookup.status).json({ error: lookup.error });
+      res.status(lookup.status).json({
+        error: lookup.error,
+        ...(lookup.recovery_order_numbers?.length
+          ? { order_numbers: lookup.recovery_order_numbers }
+          : {})
+      });
       return;
     }
 
@@ -4200,7 +4237,12 @@ app.post("/public/status/:token/refresh", async (req, res) => {
   try {
     const lookup = await activePublicStatusToken(req.params.token);
     if ("error" in lookup) {
-      res.status(lookup.status).json({ error: lookup.error });
+      res.status(lookup.status).json({
+        error: lookup.error,
+        ...(lookup.recovery_order_numbers?.length
+          ? { order_numbers: lookup.recovery_order_numbers }
+          : {})
+      });
       return;
     }
 
@@ -4321,6 +4363,13 @@ app.post("/public/status/request-link", async (req, res) => {
   };
 
   try {
+    if (getEmailRuntimeConfig().mode !== "ses") {
+      res.status(503).json({
+        error: "Email delivery is temporarily unavailable. Contact Vornan for a new status link."
+      });
+      return;
+    }
+
     const orderNumbers = requestedPublicStatusOrderNumbers(req.body);
     const email = valueAsString(req.body?.email).toLowerCase();
 

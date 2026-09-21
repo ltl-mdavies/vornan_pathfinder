@@ -88,8 +88,23 @@ test("verified Lift order associations are replay-safe, replaceable, audited, an
         status: "Active",
         created_at: "2026-08-03T18:06:00.000Z",
         updated_at: "2026-08-03T18:06:00.000Z",
-        expires_at: "2026-09-03T18:06:00.000Z",
-        expires_at_epoch: 1788458760
+        expires_at: "2099-09-03T18:06:00.000Z",
+        expires_at_epoch: 4092141960,
+        purge_at_epoch: 4099917960
+      });
+
+      await persistOrderStatusToken({
+        token_hash: "expired-status-token-hash",
+        order_key: "284619:job-timeout-recovery:A0227641",
+        customer_id: "284619",
+        job_id: "job-timeout-recovery",
+        order_number: "A0227641",
+        status: "Active",
+        created_at: "2026-08-03T18:06:00.000Z",
+        updated_at: "2026-08-03T18:06:00.000Z",
+        expires_at: "2000-09-03T18:06:00.000Z",
+        expires_at_epoch: 968001960,
+        purge_at_epoch: 4099917960
       });
 
       const replaced = await associateJobWithLiftOrder(customer, {
@@ -116,6 +131,9 @@ test("verified Lift order associations are replay-safe, replaceable, audited, an
       const token = await getOrderStatusToken("status-token-hash");
       assert.equal(token.order_number, "A0228000");
       assert.equal(token.order_key, "284619:job-timeout-recovery:A0228000");
+      const expiredToken = await getOrderStatusToken("expired-status-token-hash");
+      assert.equal(expiredToken.order_number, "A0227641");
+      assert.equal(expiredToken.order_key, "284619:job-timeout-recovery:A0227641");
 
       await assert.rejects(
         associateJobWithLiftOrder(customer, {
