@@ -1,3 +1,16 @@
+# Lift E-commerce Orders template validation — 2026-09-28
+
+Builds on local `13f42a2`. See [ECOMMERCE_TEMPLATE.md](ECOMMERCE_TEMPLATE.md) for exact scope and runtime/target acceptance limits. Created a local Draft artifact and explicit e-commerce projection; nothing is inserted into live config or selected by routes.
+
+- 664 API tests, 15 Lift adapter tests and 29 template tests passed.
+- All workspace type checks and API Lambda packaging passed. Final nine focused clone/preview tests and all workspace checks passed after required mapping refinement and the derived prepaid-label presence flag. Refreshed origin/main remains `14ff397b9b1bc317d9c22cb6023b95ba2360a5f7`.
+- High End Work seed body compared to prior commit: unchanged after extraction to a pure factory. Default selection, normalization, empty-template fallback and ThinkDifferentPrint code are unchanged.
+- Added optional canonical registry fields; tested uniqueness, global optionality and complete expansion mapping coverage.
+- Added tests for immutable clone/custom mapping preservation, opt-in projection, four-line values, source/target distinctions, document separation and mismatched-line rejection. Updated the existing production projection expectation to include the newly requested source material/finish/shape fields; all final tests pass.
+- No server, route, customer config, dependency, credentials, document grant, target order, submission/association or scheduler changes. Production installation/execution/field acceptance remain unverified. Full UI/browser and production smoke were not run.
+
+---
+
 # Lift-preview validation — 2026-09-28
 
 Local slice 5a builds on `b8f7598`. Refreshed origin/main remains `14ff397b9b1bc317d9c22cb6023b95ba2360a5f7`; no intervening main changes. See [LIFT_PREVIEW.md](LIFT_PREVIEW.md) and the reproducible sanitized sample packet. Full slice 5 is still open pending authoritative mappings and a sanctioned target test.

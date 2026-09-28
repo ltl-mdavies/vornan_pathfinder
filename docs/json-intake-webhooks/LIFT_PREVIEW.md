@@ -1,5 +1,7 @@
 # Lift translation review — local slice 5a
 
+Update: [ECOMMERCE_TEMPLATE.md](ECOMMERCE_TEMPLATE.md) adds the requested Lift E-commerce Orders Draft and explicit expanded projection to this local preview. The original release gates below remain open; production evidence now appears in both the proposed payload and the review packet, with target field acceptance still unverified.
+
 The pure `buildJsonLiftPreview` adapter reuses the existing shared `generateLiftPayload` and `validateLiftPayload` functions without changing them or the existing Momentara export path. The committed [sample packet](lift-preview.sample.json) is generated exclusively from the sanitized four-line fixture. It is a review artifact, not a request accepted by a submit route. `review_only: true` and `submission_allowed: false` are unconditional. The preview job/canonical IDs are labels, not persisted jobs. No target endpoint, credentials, HTTP request, order, document grant, submit attempt or confirmation is created.
 
 Reproduce the sample from the repository root:

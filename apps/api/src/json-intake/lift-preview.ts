@@ -1,4 +1,4 @@
-import { generateLiftPayload, validateLiftPayload } from '@pathfinder/lift-adapter';
+import { generateLiftPayload, validateLiftPayload, projectLiftEcommercePayload, LIFT_ECOMMERCE_TEMPLATE_ID } from '@pathfinder/lift-adapter';
 import type { CanonicalJsonLine } from '@pathfinder/canonical';
 import { sha256, stableJson } from './adapter.js';
 import type { Receipt } from './local-store.js';
@@ -120,9 +120,9 @@ export function buildJsonLiftPreview(receipt: LiftPreviewReceipt, mapping: LiftP
       preview: source.preview ? {format: source.preview.format, purpose: source.preview.purpose, reference_only: true} : null
     };
   });
-  const candidate = generateLiftPayload(canonical, {
+  const candidate = projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID, generateLiftPayload(canonical, {
     jobId: 'job_preview_only', canonicalOrderId: 'co_preview_only', extIdStrategy: 'customer_order_id'
-  });
+  }), receipt.adapted.canonical);
   if (candidate.order.ext_id !== receipt.adapted.canonical.order.external_order_id) throw new Error('EXT_ID changed');
   const validation = validateLiftPayload(candidate, {product_identifier_type: mapping.product_identifier});
   for (const finding of validation) if (finding.severity === 'FAIL') gap(finding.code, finding.field ?? '*');
@@ -135,6 +135,7 @@ export function buildJsonLiftPreview(receipt: LiftPreviewReceipt, mapping: LiftP
   const packet = {
     schema: 'pathfinder.json-lift-preview.v1' as const,
     review_only: true as const,
+    output_template_id: LIFT_ECOMMERCE_TEMPLATE_ID,
     submission_allowed: false as const,
     scope: previewScope(receipt),
     receipt_id: receipt.receipt_id,

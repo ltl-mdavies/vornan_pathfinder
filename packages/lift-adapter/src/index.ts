@@ -1188,3 +1188,5 @@ export async function submitLiftOrder(
     };
   }
 }
+
+export { LIFT_ECOMMERCE_TEMPLATE_ID, projectLiftEcommercePayload } from './ecommerce.js';

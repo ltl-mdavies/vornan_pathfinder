@@ -47,7 +47,7 @@ test('exact scoped mappings populate only the selected Lift identifier and revie
   assert.ok(!p.gaps.some(g=>g.code==='LIFT_PRODUCT_MAPPING_UNRESOLVED'));
   assert.equal(p.candidate.lines[2].unit_number,p.candidate.lines[3].unit_number);
   assert.notEqual(p.candidate.lines[0].unit_number,p.candidate.lines[1].unit_number);
-  assert.deepEqual(p.candidate.lines[0].production,m.products[0].production);
+  assert.deepEqual(p.candidate.lines[0].production,{...m.products[0].production,material_code:'white_bopp',finish:'gloss',shape:'square'});
   assert.equal(p.evidence.lines[0].production?.material,'White BOPP');
   m.product_identifier='lift_product_id';const product=buildJsonLiftPreview(r,m);
   assert.equal(product.candidate.lines[0].product_id,m.products[0].target_id);assert.equal(product.candidate.lines[0].unit_number,'');

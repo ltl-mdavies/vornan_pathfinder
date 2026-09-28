@@ -18,6 +18,7 @@ export interface JsonSourceApproval {
   artwork_sha256: string;
 }
 export interface CanonicalJsonLine extends CanonicalOrderLine {
+  document_delivery?: { preview_url?: string | null };
   source_line: {
     external_line_id: string;
     store_product: string;
@@ -36,8 +37,10 @@ export interface CanonicalJsonOrder extends CanonicalOrder {
   };
   order: CanonicalOrder['order'] & {
     order_type_name: string; market: string; priority: string;
+    document_delivery?: { prepaid_label_url?: string | null };
     shipping_policy: {
       mode: 'supplier_ships'; blind_ship: boolean; ship_from_name: string;
+      prepaid_label_supplied?: boolean;
       label_url: string | null; label_precedence: 'prepaid_required_when_supplied';
       missing_ship_date: 'configured_turnaround';
     };

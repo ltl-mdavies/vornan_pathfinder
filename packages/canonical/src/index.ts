@@ -1,3 +1,5 @@
+import { ecommerceOutputFields } from './ecommerce-fields.js';
+export { ecommerceOutputFields } from './ecommerce-fields.js';
 export type ProcessingState =
   | "Discovered"
   | "Received"
@@ -264,7 +266,13 @@ export const canonicalFieldRegistry = [
   canonicalField("lines[].shipping.phone", "lines", "Line Phone", "string", { repeatable: true }),
   canonicalField("lines[].shipping.email", "lines", "Line Email", "string", { repeatable: true }),
   canonicalField("lines[].shipping.instructions", "lines", "Line Shipping Instructions", "string", { repeatable: true }),
-  canonicalField("lines[].line_note", "lines", "Line Note", "string", { repeatable: true })
+  canonicalField("lines[].line_note", "lines", "Line Note", "string", { repeatable: true }),
+  canonicalField("lines[].production.material_code", "lines", "Source material code", "string"),
+  canonicalField("lines[].production.finish", "lines", "Source finish", "string"),
+  canonicalField("lines[].production.shape", "lines", "Source shape", "string"),
+  ...ecommerceOutputFields.filter(([,path]) => !['lines[].production.material_code','lines[].production.finish','lines[].production.shape'].includes(path)).map(([,path,type]) =>
+    canonicalField(path, path.startsWith('lines[]') ? 'lines' : path.startsWith('source.') ? 'source' : 'order',
+      path.split('.').slice(-2).join(' '), type, {description: 'Optional e-commerce source evidence; target acceptance requires review.'}))
 ] as const satisfies CanonicalFieldDefinition[];
 
 export type CanonicalFieldPath = (typeof canonicalFieldRegistry)[number]["path"];
