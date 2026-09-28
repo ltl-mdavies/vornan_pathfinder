@@ -1,3 +1,19 @@
+# Lift-preview validation — 2026-09-28
+
+Local slice 5a builds on `b8f7598`. Refreshed origin/main remains `14ff397b9b1bc317d9c22cb6023b95ba2360a5f7`; no intervening main changes. See [LIFT_PREVIEW.md](LIFT_PREVIEW.md) and the reproducible sanitized sample packet. Full slice 5 is still open pending authoritative mappings and a sanctioned target test.
+
+| Check | Result |
+| --- | --- |
+| New `json-lift-preview.test.ts` | Five tests passed: complete four-line evidence/quantity/dimension/note preservation, no mutation and stable fingerprint; exact selectors and unit/product-ID alternatives; scope/production/unrelated-customer/duplicate rejection; access URL exclusion and prepaid/false-boolean handling; retained hash/size/line binding and rejection of unsupported or mismatched inspection claims. |
+| API + Lift adapter regression | 660 API tests and 15 Lift adapter tests passed. Final focused tests passed after tightening inspection-result binding. |
+| Type checks | All workspace checks passed; final API check passed after resolving a TypeScript narrowing error in the inspection projection. |
+| Sample regeneration | Regenerated sample compares byte-for-byte with the committed candidate. Uses only the existing sanitized fixture and unresolved mappings; no private payload/artwork access. |
+| Diff/source review | `git diff --check` passed; no shared runtime/exporter/store/dependency changes, no structured access URLs or private retained paths in the sample. |
+
+The initial test helper called a nonexistent adapter method and was corrected to the actual validated adapter API; all final tests pass. No browser or deployment/packaging rerun was needed for this unmounted pure adapter; previous package checks do not establish production readiness. No customer/catalog network verification, submit request, job, document grant, target order, production config change, external callback, push, merge or deploy. The actual numeric customer ID, target products/materials and field acceptance remain unverified. Local review hashes are not production submit-integrity approvals. Existing asset/security/release gates remain open.
+
+---
+
 # Webhook-slice validation — 2026-09-28
 
 Builds on local asset commit `4baa706`. Refreshed origin/main remains `14ff397b9b1bc317d9c22cb6023b95ba2360a5f7`; no intervening main changes. Branch remains `codex/json-intake-foundation`. Scope, contract review details and remaining gates are in [WEBHOOKS.md](WEBHOOKS.md).
