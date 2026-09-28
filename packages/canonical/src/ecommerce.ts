@@ -4,14 +4,16 @@ import type { JsonSourceArtwork, JsonSourceApproval } from './json-intake.js';
 /** Decimal strings preserve source precision; null means unmapped, not zero. */
 export type EcommerceMoney = string | null;
 export interface EcommerceLine extends CanonicalOrderLine {
-  pricing?: { unit_price?: EcommerceMoney; markup_price?: EcommerceMoney };
+  /** Per-item cost and selling price; not extended line totals. */
+  pricing?: { item_base_price?: EcommerceMoney; customer_price?: EcommerceMoney };
   roll_finishing?: {
     specification: 'max_roll_diameter' | 'max_labels_per_roll';
     value: number;
-    unit: 'in' | 'mm' | 'labels';
+    // Optional source evidence; omitted diameter units mean inches under this contract.
+    unit?: 'in' | 'labels';
     unwind_direction?: string | null;
     spacing?: number | null;
-    spacing_unit?: 'in' | 'mm' | null;
+    spacing_unit?: 'in' | null;
   };
   sample?: boolean | null;
   proof_status?: string | null;

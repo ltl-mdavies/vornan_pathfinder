@@ -4,7 +4,7 @@ This review combines the Sticker Press fields with the WooCommerce XML field inv
 
 ## Output grouping refinement
 
-The latest draft orders line identity as `line_number`, `unit_number`, `product_id`, `customer_sku`, `product_name`, `description`, then quantity. Unmapped product ID, customer SKU and description remain visible as null; `sku` is no longer a second alias. Dimensions appear as `final_height`, `final_width`, `live_height`, `live_width`, `bleed`, then unit. Unmapped live dimensions stay visible as null rather than being inferred from trim or final size.
+The latest draft orders line identity as `line_number`, `unit_number`, `product_id`, `customer_sku`, `product_name`, `description`, then quantity. Unmapped product ID, customer SKU and description remain visible as null; `sku` is no longer a second alias. Dimensions appear as `final_height`, `final_width`, `live_height`, `live_width`, `bleed`, with all dimensional measurements in inches. Unmapped live dimensions stay visible as null rather than being inferred from trim or final size.
 
 Production starts with `material`, `laminate`, `varnish`. Only material is exported; source material code remains private mapping/evidence data. Source finish feeds laminate when no reviewed target laminate is supplied, with no second finish output. Cut type, shape, complexity and die reference reside only in `cut`; complexity carries square/radius-corner details, so no separate corner description is exported. Andy's current source contract has no additional corner-description requirement. Reviewed target cut/laminate values take precedence over source fallback values.
 
@@ -17,7 +17,7 @@ Order fields are grouped into identity/scheduling, billing/shipping, documents a
 - Use the existing artwork file name, URL and checksum fields. Andy's PDF/hash/approval evidence remains an extension enforced by his intake adapter; generic e-commerce orders do not require those source-specific objects merely to render a preview.
 - Retain optional requested ship date. It means a future requested shipping date, not delivery date. Both requested ship date and due date stay visible in this draft as null when unmapped; no turnaround/due date is manufactured. The input fields remain optional. Source-specific date parsing/timezone and Lift date formatting remain route configuration.
 - Keep billing/address-book fields, sample, production and account/payment references. Omit XML `Product_Variation`, `Non_variation_attributes` and `login_link`. Andy's separate stable `store_variation_id` remains a source identity, not the excluded descriptive variation string.
-- Defer `Custom_Area_Price` and `Original_Price`. Preserve an optional `markup_price` slot without interpreting it as margin or calculating it.
+- Defer `Custom_Area_Price` and `Original_Price`. Line pricing now uses `item_base_price` (calculated cost per item) and `customer_price` (selling price per item), as explicitly requested. Neither is calculated by the exporter; the older unit_price/markup_price output names are removed.
 
 ## Organization and source coverage
 
@@ -32,11 +32,11 @@ Order fields are grouped into identity/scheduling, billing/shipping, documents a
 | `order.payment` | Payment method, authorized/charged amounts, authorization reference |
 | `order.coupons` | Optional array of code/amount records; the source sample had no populated coupons, so this is a proposed normalized representation |
 | `lines[]` | Target product identity, source SKU/line ID, name/description/line note, quantity; label description can use existing description or line note |
-| `lines[].pricing` | `unit_price` is selling price per label/item; optional `markup_price` preserves a supplied shop value |
+| `lines[].pricing` | `item_base_price` is cost per label/item; `customer_price` is the marked-up selling price per label/item |
 | `lines[].dimensions`, `.artwork`, `.approval`, `.area` | High End Work dimensions/artwork plus Andy's PDF geometry, exact hash/provenance, cut and rectangular area semantics |
 | `lines[].production` | Existing material/laminate/coating/ink/cut fields; material, laminate, varnish, orientation and white-ink flag; no material-code/finish/cut duplicates |
 | `lines[].cut` | Type, shape, complexity (including corner detail), die reference, method and Andy's embedded spot/layer metadata |
-| `lines[].roll_finishing` | Specification, numeric value and explicit unit; unwind direction, spacing and spacing unit |
+| `lines[].roll_finishing` | Specification and numeric value, unwind direction and spacing; diameter and spacing are always inches |
 | `lines[].sample`, `.approval.proof_status` | Optional sample flag and shop proof workflow status, grouped with but distinct from approval provenance |
 | Existing reference-proof / preview fields | Optional sample/reference proof can map to the existing reference-proof or line preview delivery field after its meaning/publication is reviewed; no extra login or raw-download fields |
 
@@ -49,16 +49,18 @@ The output always contains `order.pricing` and each line's `pricing`, even witho
 Exactly one finished-roll mode applies per line:
 
 ```json
-{"specification":"max_roll_diameter","value":14,"unit":"in"}
+{"specification":"max_roll_diameter","value":14}
 ```
 
 or
 
 ```json
-{"specification":"max_labels_per_roll","value":500,"unit":"labels"}
+{"specification":"max_labels_per_roll","value":500}
 ```
 
-Diameter accepts positive measurements with an explicit `in` or `mm` unit. Label count requires a positive safe integer and unit `labels`. Conflicting/unsupported specifications, missing measurement units or fractional label counts fail validation. Spacing, when supplied, requires a nonnegative measurement and explicit unit. Example units are illustrative; the XML's unqualified diameter must receive a reviewed source-unit mapping.
+Marcus confirmed that TDP roll diameters are always inches. The e-commerce contract therefore fixes dimensions, roll diameter and spacing to inches; area is square inches. No separate `unit` or `spacing_unit` output fields are needed. The roll specification itself distinguishes a diameter from a quantity of labels. Label count requires a positive safe integer; diameter a positive measurement; spacing a nonnegative measurement. Missing source unit tags are valid under this convention, while conflicting supplied tags (such as millimeters) are rejected rather than relabeled. No conversion from other units is implemented here.
+
+Pricing remains in two intentional sections: order-level currency/subtotal/discount/shipping/tax/refund/total, and line-level `item_base_price`/`customer_price`. Both line prices are per item, not extended totals, and use the order currency. Legacy shop Item_Price represents the customer selling price. No cost value is inferred from Custom_Area_Price, Original_Price or an old markup field. Unmapped cost and selling prices remain null; totals, costs and markups are never calculated by this exporter.
 
 ## Scope and validation
 

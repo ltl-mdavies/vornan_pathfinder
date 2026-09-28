@@ -89,8 +89,7 @@
           "final_width": 1.85,
           "live_height": null,
           "live_width": null,
-          "bleed": 0.125,
-          "unit": "in"
+          "bleed": 0.125
         },
         "production": {
           "material": null,
@@ -131,12 +130,11 @@
         },
         "area": {
           "value": 171.13,
-          "unit": "sq_in",
           "basis": "bounding_box_times_quantity"
         },
         "pricing": {
-          "unit_price": null,
-          "markup_price": null
+          "item_base_price": null,
+          "customer_price": null
         },
         "line_note": "Sanitized fixture"
       },
@@ -156,8 +154,7 @@
           "final_width": 3,
           "live_height": null,
           "live_width": null,
-          "bleed": 0.125,
-          "unit": "in"
+          "bleed": 0.125
         },
         "production": {
           "material": null,
@@ -198,12 +195,11 @@
         },
         "area": {
           "value": 450,
-          "unit": "sq_in",
           "basis": "bounding_box_times_quantity"
         },
         "pricing": {
-          "unit_price": null,
-          "markup_price": null
+          "item_base_price": null,
+          "customer_price": null
         },
         "line_note": "Sanitized fixture"
       },
@@ -223,8 +219,7 @@
           "final_width": 2.5,
           "live_height": null,
           "live_width": null,
-          "bleed": 0.125,
-          "unit": "in"
+          "bleed": 0.125
         },
         "production": {
           "material": null,
@@ -265,12 +260,11 @@
         },
         "area": {
           "value": 122.25,
-          "unit": "sq_in",
           "basis": "bounding_box_times_quantity"
         },
         "pricing": {
-          "unit_price": null,
-          "markup_price": null
+          "item_base_price": null,
+          "customer_price": null
         },
         "line_note": "Sanitized fixture"
       },
@@ -290,8 +284,7 @@
           "final_width": 1.999,
           "live_height": null,
           "live_width": null,
-          "bleed": 0.125,
-          "unit": "in"
+          "bleed": 0.125
         },
         "production": {
           "material": null,
@@ -332,12 +325,11 @@
         },
         "area": {
           "value": 165.12,
-          "unit": "sq_in",
           "basis": "bounding_box_times_quantity"
         },
         "pricing": {
-          "unit_price": null,
-          "markup_price": null
+          "item_base_price": null,
+          "customer_price": null
         },
         "line_note": "Sanitized fixture"
       }
@@ -736,5 +728,5 @@
     "SANCTIONED_TARGET_TEST",
     "EXPLICIT_ACTIVATION"
   ],
-  "preview_sha256": "ec06ba2caa3f6d1a72e76c61b079097fe2a678ffc615fe90e093649dbadcc058"
+  "preview_sha256": "98f215e21c34eba9a9b3e838c248162184507e02f5204e41c89793a54c7a7a81"
 }

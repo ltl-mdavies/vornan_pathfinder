@@ -17,12 +17,12 @@ source.order.coupons=[];
 for(const line of source.lines) {
   // Remove access links from this internal review; no document has been published for this example.
   line.artwork={file_name:line.artwork?.file_name,checksum:line.artwork?.checksum};
-  line.pricing={unit_price:'0.10900',markup_price:null};line.sample=false;
+  line.pricing={item_base_price:null,customer_price:'0.10900'};line.sample=false;
   line.production={...line.production,varnish:'Semi-gloss',orientation:null,die_reference:null,cut_complexity:'Radius corners',white_ink_required:false};
   line.proof_status='approved';
 }
-source.lines[0].roll_finishing={specification:'max_roll_diameter',value:14,unit:'in',unwind_direction:'3-Right',spacing:0.125,spacing_unit:'in'};
-source.lines[1].roll_finishing={specification:'max_labels_per_roll',value:500,unit:'labels',unwind_direction:'3-Right',spacing:0.125,spacing_unit:'in'};
+source.lines[0].roll_finishing={specification:'max_roll_diameter',value:14,unwind_direction:'3-Right',spacing:0.125};
+source.lines[1].roll_finishing={specification:'max_labels_per_roll',value:500,unwind_direction:'3-Right',spacing:0.125};
 // Keep approval provenance distinct from current shop workflow status; examples are not production approval.
 const payload=projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,generateLiftPayload(source),source);
 process.stdout.write(JSON.stringify({review_only:true,submission_allowed:false,fixture_only:true,output_template_id:LIFT_ECOMMERCE_TEMPLATE_ID,payload},null,2)+'\n');

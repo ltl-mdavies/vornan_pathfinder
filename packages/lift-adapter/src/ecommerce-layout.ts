@@ -24,9 +24,13 @@ export function organizeEcommerceLine(input: Record<string, any>): Record<string
     ...keys.filter(k=>object[k]!==undefined).map(k=>[k,object[k]]),
     ...Object.entries(object).filter(([k,v])=>!keys.includes(k)&&v!==undefined)
   ]);
+  if(line.roll_finishing) {delete line.roll_finishing.unit;delete line.roll_finishing.spacing_unit;}
+  if(line.area)delete line.area.unit;
+  if(line.pricing) {delete line.pricing.unit_price;delete line.pricing.markup_price;}
   const dimensions=line.dimensions ?? {};
+  delete dimensions.unit;
   dimensions.live_height ??= null;dimensions.live_width ??= null;
-  line.dimensions=ordered(dimensions,['final_height','final_width','live_height','live_width','bleed','unit']);
+  line.dimensions=ordered(dimensions,['final_height','final_width','live_height','live_width','bleed']);
   production.material ??= null;production.varnish ??= null;
   line.production=ordered(production,['material','laminate','varnish','coating','premask','ink','white_ink_required','orientation']);
   line.cut=ordered(cut,['type','shape','complexity','die_reference','method','spot_name','layer_name','in_file']);

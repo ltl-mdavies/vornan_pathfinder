@@ -101,8 +101,7 @@
           "final_width": 1.85,
           "live_height": null,
           "live_width": null,
-          "bleed": 0.125,
-          "unit": "in"
+          "bleed": 0.125
         },
         "production": {
           "material": "White BOPP",
@@ -124,10 +123,8 @@
         "roll_finishing": {
           "specification": "max_roll_diameter",
           "value": 14,
-          "unit": "in",
           "unwind_direction": "3-Right",
-          "spacing": 0.125,
-          "spacing_unit": "in"
+          "spacing": 0.125
         },
         "artwork": {
           "file_name": "01-a-anchor-walk-1p85in.pdf",
@@ -156,12 +153,11 @@
         },
         "area": {
           "value": 171.13,
-          "unit": "sq_in",
           "basis": "bounding_box_times_quantity"
         },
         "pricing": {
-          "unit_price": "0.10900",
-          "markup_price": null
+          "item_base_price": null,
+          "customer_price": "0.10900"
         },
         "sample": false,
         "line_note": "Sanitized fixture"
@@ -182,8 +178,7 @@
           "final_width": 3,
           "live_height": null,
           "live_width": null,
-          "bleed": 0.125,
-          "unit": "in"
+          "bleed": 0.125
         },
         "production": {
           "material": "White BOPP",
@@ -205,10 +200,8 @@
         "roll_finishing": {
           "specification": "max_labels_per_roll",
           "value": 500,
-          "unit": "labels",
           "unwind_direction": "3-Right",
-          "spacing": 0.125,
-          "spacing_unit": "in"
+          "spacing": 0.125
         },
         "artwork": {
           "file_name": "02-b-bk-run-circle-3in.pdf",
@@ -237,12 +230,11 @@
         },
         "area": {
           "value": 450,
-          "unit": "sq_in",
           "basis": "bounding_box_times_quantity"
         },
         "pricing": {
-          "unit_price": "0.10900",
-          "markup_price": null
+          "item_base_price": null,
+          "customer_price": "0.10900"
         },
         "sample": false,
         "line_note": "Sanitized fixture"
@@ -263,8 +255,7 @@
           "final_width": 2.5,
           "live_height": null,
           "live_width": null,
-          "bleed": 0.125,
-          "unit": "in"
+          "bleed": 0.125
         },
         "production": {
           "material": "White BOPP",
@@ -310,12 +301,11 @@
         },
         "area": {
           "value": 122.25,
-          "unit": "sq_in",
           "basis": "bounding_box_times_quantity"
         },
         "pricing": {
-          "unit_price": "0.10900",
-          "markup_price": null
+          "item_base_price": null,
+          "customer_price": "0.10900"
         },
         "sample": false,
         "line_note": "Sanitized fixture"
@@ -336,8 +326,7 @@
           "final_width": 1.999,
           "live_height": null,
           "live_width": null,
-          "bleed": 0.125,
-          "unit": "in"
+          "bleed": 0.125
         },
         "production": {
           "material": "White BOPP",
@@ -383,12 +372,11 @@
         },
         "area": {
           "value": 165.12,
-          "unit": "sq_in",
           "basis": "bounding_box_times_quantity"
         },
         "pricing": {
-          "unit_price": "0.10900",
-          "markup_price": null
+          "item_base_price": null,
+          "customer_price": "0.10900"
         },
         "sample": false,
         "line_note": "Sanitized fixture"

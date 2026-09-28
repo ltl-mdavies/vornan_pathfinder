@@ -55,6 +55,7 @@ test('explicit projection preserves all four lines, numeric and boolean values, 
   assert.equal(result.lines[0].production.application_type,undefined);
   assert.equal(source.lines[0].production!.application_type,'source-only');
   assert.equal(result.lines[0].artwork.pages,1);assert.equal(result.lines[0].cut.in_file,true);
+  assert.equal(result.lines[0].area.unit,undefined);assert.equal(result.lines[0].dimensions.unit,undefined);
   assert.equal(result.lines[0].area.value,171.13);assert.equal(result.lines[0].area.basis,'bounding_box_times_quantity');
   assert.equal(result.lines[2].dimensions.final_height,0.978);assert.equal(result.lines[0].approval.artwork_sha256,undefined);
   assert.equal(result.lines[0].artwork.checksum,source.lines[0].source_line.approval.artwork_sha256);
@@ -86,7 +87,7 @@ test('standard ecommerce orders use High End Work dimensions/artwork without And
   assert.deepEqual(result.lines[0].dimensions,{...base.lines[0].dimensions,live_height:null,live_width:null});
   assert.deepEqual(result.customer,base.customer);
   assert.equal(result.order.pricing.currency,null);assert.equal(result.order.pricing.total,null);
-  assert.equal(result.lines[0].pricing.unit_price,null);assert.equal(result.lines[0].approval,undefined);
+  assert.equal(result.lines[0].pricing.customer_price,null);assert.equal(result.lines[0].approval,undefined);
   assert.equal(result.order.requested_ship_date,null);
   const invalid=structuredClone(fixture);delete invalid.lines[0].approval;
   assert.throws(()=>stickerPressV1.validate(invalid,{customer_id:'synthetic',customer_name:'Sticker Press',integration_id:'synthetic-json',store:'ltlco',environment:'test',schema:'stickerpress.order.v1'}));
@@ -96,13 +97,15 @@ test('billing, payment and decimal price precision survive projection without in
   source.order.pricing={subtotal:'0.00000',shipping:'0',total:null};
   source.order.payment={method:'Use My Account',authorized_amount:null,charged_amount:'0.00'};
   source.order.coupons=[{code:'SYNTHETIC',amount:'0.00'}];
-  source.lines[0].pricing={unit_price:'0.10900',markup_price:null};
+  source.lines[0].pricing={item_base_price:'0.08000',customer_price:'0.10900'};
   source.lines[0].proof_status='pending';source.order.due_date='2026-12-15';
   source.lines[0].sample=false;source.lines[1].sample=null;source.lines[0].production!.white_ink_required=false;
   const result=projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,generateLiftPayload(source),source) as any;
   assert.equal(result.order.pricing.currency,null);assert.equal(result.order.pricing.total,null);
   assert.equal(result.order.pricing.subtotal,'0.00000');assert.equal(result.order.pricing.shipping,'0');
-  assert.equal(result.lines[0].pricing.unit_price,'0.10900');assert.equal(result.lines[0].sample,false);
+  assert.equal(result.lines[0].pricing.customer_price,'0.10900');
+  assert.equal(result.lines[0].pricing.item_base_price,'0.08000');
+  assert.equal(result.lines[0].pricing.unit_price,undefined);assert.equal(result.lines[0].pricing.markup_price,undefined);assert.equal(result.lines[0].sample,false);
   assert.equal(result.lines[0].approval.proof_status,'pending');assert.equal(result.lines[0].proof_status,undefined);
   assert.equal(result.order.due_date,'2026-12-15');
   const orderKeys=Object.keys(result.order);assert.equal(orderKeys[orderKeys.indexOf('requested_ship_date')+1],'due_date');
@@ -112,17 +115,21 @@ test('billing, payment and decimal price precision survive projection without in
   assert.deepEqual(result.order.payment,source.order.payment);assert.deepEqual(result.order.coupons,source.order.coupons);
 });
 test('roll diameter and label count enforce distinct measurement and quantity semantics',()=>{
-  const source=canonical();source.lines[0].roll_finishing={specification:'max_roll_diameter',value:14,unit:'in',unwind_direction:'3-Right',spacing:0.125,spacing_unit:'in'};
-  source.lines[1].roll_finishing={specification:'max_labels_per_roll',value:500,unit:'labels'};
+  const source=canonical();source.lines[0].roll_finishing={specification:'max_roll_diameter',value:14,unwind_direction:'3-Right',spacing:0.125};
+  source.lines[1].roll_finishing={specification:'max_labels_per_roll',value:500};
   let result=projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,generateLiftPayload(source),source) as any;
   assert.deepEqual(result.lines[0].roll_finishing,source.lines[0].roll_finishing);assert.deepEqual(result.lines[1].roll_finishing,source.lines[1].roll_finishing);
+  source.lines[0].roll_finishing!.unit='in';source.lines[0].roll_finishing!.spacing_unit='in';
+  result=projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,generateLiftPayload(source),source) as any;
+  assert.equal(result.lines[0].roll_finishing.unit,undefined);assert.equal(result.lines[0].roll_finishing.spacing_unit,undefined);
   for(const roll of [
     {specification:'max_labels_per_roll',value:10.5,unit:'labels'},
     {specification:'max_labels_per_roll',value:10,unit:'in'},
     {specification:'max_roll_diameter',value:14,unit:'labels'},
     {specification:'max_roll_diameter',value:0,unit:'in'},
     {specification:'unknown',value:14,unit:'in'},
-    {specification:'max_roll_diameter',value:14,unit:'in',spacing:0.125}
+    {specification:'max_roll_diameter',value:14,unit:'mm',spacing:0.125},
+    {specification:'max_roll_diameter',value:14,spacing:0.125,spacing_unit:'mm'}
   ]) {source.lines[0].roll_finishing=roll as any;assert.throws(()=>projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,generateLiftPayload(source),source));}
 });
 test('invalid money and unrecognized XML passthrough fields cannot silently enter the export',()=>{
@@ -131,6 +138,6 @@ test('invalid money and unrecognized XML passthrough fields cannot silently ente
   const result=projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,generateLiftPayload(source),source);
   for(const field of ['Product_Variation','Non_variation_attributes','login_link','Custom_Area_Price','Original_Price'])assert.ok(!JSON.stringify(result).includes(field));
   for(const value of [0.109,'1e3','-0.01','NaN','']){
-    source.lines[0].pricing={unit_price:value};assert.throws(()=>projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,generateLiftPayload(source),source));
+    source.lines[0].pricing={customer_price:value};assert.throws(()=>projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,generateLiftPayload(source),source));
   }
 });

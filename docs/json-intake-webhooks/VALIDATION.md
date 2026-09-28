@@ -1,3 +1,13 @@
+# Fixed measurement convention and line pricing — 2026-09-28
+
+Applied Marcus's confirmation that roll diameter is inches. Removed exported dimensions/area/roll/spacing unit tags, retaining internal source evidence. Omitted tags now use the explicit contract convention; supplied conflicting tags are rejected. Order pricing retains currency/totals/adjustments; line pricing is item_base_price/customer_price, both decimal per-item values with null when unmapped. No price calculations or legacy cost inference added.
+
+- 668 API, 15 Lift adapter and 29 template tests passed; all workspace type checks passed.
+- Thirteen focused cases passed, including unit-free roll inputs, conflicting-tag rejection, correct per-item price projection, null/zero/precision preservation and removal of legacy output price names.
+- Regenerated Draft and both samples; no runtime route/config, target writes, new dependencies, customer synchronization, push or deployment. Source reader/registry evidence remains available; legacy High End Work output unchanged.
+
+---
+
 # Single exported checksum — 2026-09-28
 
 Removed output approval.artwork_sha256 and production.application_type from the Draft, projection and generated examples. Kept canonical source fields and original approval evidence. The projector explicitly rejects any supplied approval hash that does not match the exported line artwork.checksum; intake requirements remain unchanged.

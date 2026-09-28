@@ -22,7 +22,7 @@ export function projectLiftEcommercePayload(templateId:string, base:LiftOrderPay
   const result=structuredClone(base);
   // Keep pricing sections visible even when the source has no pricing integration.
   result.order.pricing={currency:null,discount:null,subtotal:null,shipping:null,refund:null,tax:null,total:null};
-  for(const line of result.lines) (line as unknown as Record<string,unknown>).pricing={unit_price:null,markup_price:null};
+  for(const line of result.lines) (line as unknown as Record<string,unknown>).pricing={item_base_price:null,customer_price:null};
   source=structuredClone(source);
   if(source.order.shipping_policy)source.order.shipping_policy.prepaid_label_supplied=Boolean(source.order.shipping_policy.label_url);
   const read=(obj:unknown,path:string):unknown=>path.split('.').reduce<unknown>((v,key)=>v && typeof v==='object'?(v as Record<string,unknown>)[key]:undefined,obj);
@@ -60,16 +60,19 @@ function validateEcommerceValues(source:CanonicalEcommerceOrder) {
   money(source.order.payment?.authorized_amount);money(source.order.payment?.charged_amount);
   for(const coupon of source.order.coupons??[]) {if(!coupon.code.trim())throw new Error('Coupon code required');money(coupon.amount);}
   for(const line of source.lines) {
-    money(line.pricing?.unit_price);money(line.pricing?.markup_price);
+    money(line.pricing?.item_base_price);money(line.pricing?.customer_price);
+    if(line.source_line?.dimensions_unit!=null && line.source_line.dimensions_unit!=='in')throw new Error('E-commerce dimensions must be normalized to inches');
+    if(line.source_line?.area?.unit!=null && line.source_line.area.unit!=='sq_in')throw new Error('E-commerce area must be normalized to square inches');
     if(line.sample!=null && typeof line.sample!=='boolean')throw new Error('Sample must be boolean');
     if(line.production?.white_ink_required!=null && typeof line.production.white_ink_required!=='boolean')throw new Error('White ink must be boolean');
     const roll=line.roll_finishing;if(!roll)continue;
     if(!Number.isFinite(roll.value)||roll.value<=0)throw new Error('Roll specification value must be positive');
     if(roll.specification==='max_labels_per_roll') {
-      if(!Number.isSafeInteger(roll.value)||roll.unit!=='labels')throw new Error('Max labels per roll requires an integer label quantity');
+      if(!Number.isSafeInteger(roll.value)||(roll.unit!=null && roll.unit!=='labels'))throw new Error('Max labels per roll requires an integer label quantity');
     } else if(roll.specification==='max_roll_diameter') {
-      if(!['in','mm'].includes(roll.unit))throw new Error('Max roll diameter requires an explicit measurement unit');
+      if(roll.unit!=null && roll.unit!=='in')throw new Error('Max roll diameter must be in inches');
     } else throw new Error('Unsupported finished roll specification');
-    if(roll.spacing!=null && (!Number.isFinite(roll.spacing)||roll.spacing<0||!['in','mm'].includes(roll.spacing_unit??'')))throw new Error('Roll spacing requires a nonnegative measurement and unit');
+    if(roll.spacing_unit!=null && roll.spacing_unit!=='in')throw new Error('Roll spacing must be in inches');
+    if(roll.spacing!=null && (!Number.isFinite(roll.spacing)||roll.spacing<0))throw new Error('Roll spacing requires a nonnegative inch measurement');
   }
 }

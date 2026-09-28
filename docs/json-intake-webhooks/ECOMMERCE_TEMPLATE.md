@@ -10,6 +10,8 @@ Latest field cleanup: the [combined review](COMBINED_ECOMMERCE_REVIEW.md) supers
 
 Latest checksum cleanup: output uses only `artwork.checksum`; the source approval hash remains internal and must match before export. `application_type` is omitted.
 
+Latest unit/pricing convention: dimensions, diameter and spacing are inches, area is square inches; redundant unit tags are removed. Order pricing retains totals/adjustments, while line pricing uses item_base_price and customer_price. See the combined review for exact semantics.
+
 ## Expanded coverage
 
 The draft retains the base customer, contacts, source trace, order, shipping address, product, quantity, dimensions, production, artwork and note fields. It removes Momentara example values in favor of mapped tokens and preserves environment credential references and matching body/header EXT_ID. Like the existing Lift route, it marks `product_id` as the required target product identifier; source SKU/store variation never substitutes for it.
