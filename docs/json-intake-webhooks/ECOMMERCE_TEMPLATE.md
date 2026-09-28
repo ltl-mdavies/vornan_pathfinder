@@ -1,5 +1,7 @@
 # Lift E-commerce Orders — Draft output template
 
+Updated with the agreed WooCommerce + Sticker Press [combined field model](COMBINED_ECOMMERCE_REVIEW.md) and [synthetic JSON sample](lift-ecommerce-combined.sample.json). It adds billing, visible nullable pricing, payment references, sample/production fields and typed roll finishing. Custom-area/original pricing is deferred; variation text, non-variation attributes and login links are excluded.
+
 Created a distinct reusable Draft with ID `template-lift-ecommerce-orders`, cloned from the repository's **Lift High End Work** definition. The [template record](lift-ecommerce-orders.template.json) contains the body, headers, canonical mappings and filename pattern in Pathfinder's existing OutputTemplate format. The [four-line preview](lift-preview.sample.json) exercises the expanded projection using Andy's sanitized fixture.
 
 This is a local draft artifact. It has not been inserted into the live Lift ERP target, selected by any route or activated. The current deployed High End Work configuration was not fetched; the generator can accept an exported, reviewed template to preserve its custom mappings. No target read, normalization, bootstrap or save automatically inserts this draft. Existing High End Work defaults, empty-template fallback and the separate ThinkDifferentPrint template remain unchanged.

@@ -1,3 +1,16 @@
+# Combined e-commerce field model — 2026-09-28
+
+Builds on `88e6779`, implementing Marcus's clarified WooCommerce/Sticker Press field decisions. See [COMBINED_ECOMMERCE_REVIEW.md](COMBINED_ECOMMERCE_REVIEW.md) for normalization, omissions and remaining target/runtime boundaries.
+
+- 668 API tests, 15 Lift adapter tests and 29 template tests passed; all workspace type checks passed.
+- Thirteen focused template/preview tests passed, including generic e-commerce without Andy evidence, unchanged strict Sticker Press rejection, explicit null/zero/false/omitted handling, decimal precision, both roll modes and invalid/conflicting units/counts, and excluded XML passthrough fields.
+- Reproducible synthetic combined preview and regenerated template/Andy preview; no raw XML, customer details or external artwork copied from the supplied XML into the repository.
+- Pricing sections are always present with null unmapped values; no currency, totals or prices inferred. Shipping dates remain optional. Original/custom-area pricing deferred.
+- Shared High End Work generator/runtime routes/registration remain unchanged. Generic export projection is still restricted to the explicit e-commerce template ID and cannot authorize submission.
+- No live config/data/target writes, source URL calls, XML ingestion, customer creation/synchronization, push, merge or deploy. No new dependency or persistence migration. Existing production packaging/security/field-acceptance gates remain open; this iteration did not rerun packaging or browser tests.
+
+---
+
 # Lift E-commerce Orders template validation — 2026-09-28
 
 Builds on local `13f42a2`. See [ECOMMERCE_TEMPLATE.md](ECOMMERCE_TEMPLATE.md) for exact scope and runtime/target acceptance limits. Created a local Draft artifact and explicit e-commerce projection; nothing is inserted into live config or selected by routes.

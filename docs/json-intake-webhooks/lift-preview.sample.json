@@ -50,6 +50,15 @@
         "postal_code": "45000",
         "country": "US"
       },
+      "pricing": {
+        "currency": null,
+        "discount": null,
+        "subtotal": null,
+        "shipping": null,
+        "refund": null,
+        "tax": null,
+        "total": null
+      },
       "order_type_name": "Custom Stickers",
       "market": "web",
       "priority": "standard",
@@ -90,6 +99,10 @@
           "unit": "in"
         },
         "line_note": "Sanitized fixture",
+        "pricing": {
+          "unit_price": null,
+          "markup_price": null
+        },
         "external_line_id": "SAMPLE-FACTORY-TEST-01",
         "store_product": "die-cut-sticker-rc",
         "store_variation_id": "11197",
@@ -148,6 +161,10 @@
           "unit": "in"
         },
         "line_note": "Sanitized fixture",
+        "pricing": {
+          "unit_price": null,
+          "markup_price": null
+        },
         "external_line_id": "SAMPLE-FACTORY-TEST-02",
         "store_product": "die-cut-sticker-rc",
         "store_variation_id": "11203",
@@ -206,6 +223,10 @@
           "unit": "in"
         },
         "line_note": "Sanitized fixture",
+        "pricing": {
+          "unit_price": null,
+          "markup_price": null
+        },
         "external_line_id": "SAMPLE-FACTORY-TEST-03",
         "store_product": "die-cut-sticker-rc",
         "store_variation_id": "11193",
@@ -264,6 +285,10 @@
           "unit": "in"
         },
         "line_note": "Sanitized fixture",
+        "pricing": {
+          "unit_price": null,
+          "markup_price": null
+        },
         "external_line_id": "SAMPLE-FACTORY-TEST-04",
         "store_product": "die-cut-sticker-rc",
         "store_variation_id": "11193",
@@ -690,5 +715,5 @@
     "SANCTIONED_TARGET_TEST",
     "EXPLICIT_ACTIVATION"
   ],
-  "preview_sha256": "55640ee2e15198506bc3c5b9b2e77d0753ab72bf022a78ca536d0727397d58e9"
+  "preview_sha256": "7b4f5cfc93461e8801a4f76a3bacad299a2ab23da7e9774d7eb18e14a85ab8b4"
 }

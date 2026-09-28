@@ -1,4 +1,5 @@
-import type { CanonicalOrder, CanonicalOrderLine } from './index.js';
+import type { CanonicalOrder } from './index.js';
+import type { CanonicalEcommerceOrder, EcommerceLine } from './ecommerce.js';
 
 /** Additive source evidence. This does not confer a target mapping or a Proof approval. */
 export interface JsonSourceArtwork {
@@ -17,7 +18,7 @@ export interface JsonSourceApproval {
   approved_at: string;
   artwork_sha256: string;
 }
-export interface CanonicalJsonLine extends CanonicalOrderLine {
+export interface CanonicalJsonLine extends EcommerceLine {
   document_delivery?: { preview_url?: string | null };
   source_line: {
     external_line_id: string;
@@ -31,11 +32,11 @@ export interface CanonicalJsonLine extends CanonicalOrderLine {
     area: { value: number; unit: 'sq_in'; basis: 'bounding_box_times_quantity' };
   };
 }
-export interface CanonicalJsonOrder extends CanonicalOrder {
+export interface CanonicalJsonOrder extends CanonicalEcommerceOrder {
   source: CanonicalOrder['source'] & {
     schema: string; integration_id: string; store: string; created_at: string;
   };
-  order: CanonicalOrder['order'] & {
+  order: CanonicalEcommerceOrder['order'] & {
     order_type_name: string; market: string; priority: string;
     document_delivery?: { prepaid_label_url?: string | null };
     shipping_policy: {

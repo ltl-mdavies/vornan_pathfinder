@@ -1,0 +1,60 @@
+# Combined e-commerce payload — agreed field model
+
+This review combines the Sticker Press fields with the WooCommerce XML field inventory and Marcus's clarified decisions. JSON is the output format. The raw XML and its customer/contact/artwork data have not been copied into the repository. The [combined sample](lift-ecommerce-combined.sample.json) is synthetic, and the [Draft template record](lift-ecommerce-orders.template.json) contains the full mapping structure. Nothing has been installed in a live target.
+
+## Decisions applied
+
+- Use the existing High End Work customer/destination model. Do not infer a Lift customer from the overloaded WooCommerce Customer Number or implement customer creation/synchronization here.
+- Use existing `dimensions.final_width`, `final_height`, optional live dimensions and bleed. Andy's explicit inch unit and PDF page/trim evidence remain available. Do not reproduce predefined/custom/product/shape width and height variants from the XML.
+- Use the existing artwork file name, URL and checksum fields. Andy's PDF/hash/approval evidence remains an extension enforced by his intake adapter; generic e-commerce orders do not require those source-specific objects merely to render a preview.
+- Retain optional requested ship date. It means a future requested shipping date, not delivery date. Missing dates stay absent; no turnaround date is manufactured. Source-specific date parsing/timezone and Lift date formatting remain route configuration.
+- Keep billing/address-book fields, sample, production and account/payment references. Omit XML `Product_Variation`, `Non_variation_attributes` and `login_link`. Andy's separate stable `store_variation_id` remains a source identity, not the excluded descriptive variation string.
+- Defer `Custom_Area_Price` and `Original_Price`. Preserve an optional `markup_price` slot without interpreting it as margin or calculating it.
+
+## Organization and source coverage
+
+| JSON section | Coverage |
+| --- | --- |
+| `customer`, `contacts`, `source` | Existing High End Work customer/contact/trace model; source order number, store, schema, integration and dates |
+| `order` | Title, PO, customer note, optional requested ship date, source status, reference number, account representative, invoice email |
+| `order.billing` | First/last name, company, address lines, city/state/postcode/country, email/phone, address-book reference |
+| `order.shipping` | Existing ship-to and shipping method/account/billing postcode/country fields; first/last ship-to names can map into existing attention-to |
+| `order.shipping_policy` | Andy's supplier/blind-shipping/sender/prepaid-label policy and published label reference |
+| `order.pricing` | Currency, discount, subtotal, shipping, refund, tax, total |
+| `order.payment` | Payment method, authorized/charged amounts, authorization reference |
+| `order.coupons` | Optional array of code/amount records; the source sample had no populated coupons, so this is a proposed normalized representation |
+| `lines[]` | Target product identity, source SKU/line ID, name/description/line note, quantity; label description can use existing description or line note |
+| `lines[].pricing` | `unit_price` is selling price per label/item; optional `markup_price` preserves a supplied shop value |
+| `lines[].dimensions`, `.artwork`, `.approval`, `.area` | High End Work dimensions/artwork plus Andy's PDF geometry, exact hash/provenance, cut and rectangular area semantics |
+| `lines[].production` | Existing material/laminate/coating/ink/cut fields; source material code/finish/shape; varnish, orientation, application type, die reference, cut complexity, corner description, white-ink flag |
+| `lines[].roll_finishing` | Specification, numeric value and explicit unit; unwind direction, spacing and spacing unit |
+| `lines[].sample`, `.proof_status` | Optional sample flag and shop proof workflow status, distinct from approval provenance |
+| Existing reference-proof / preview fields | Optional sample/reference proof can map to the existing reference-proof or line preview delivery field after its meaning/publication is reviewed; no extra login or raw-download fields |
+
+`item_download_url`, `Download_URL` and `artwork_file` are alternative source references for the existing artwork delivery model, not three competing output URL fields. Their source precedence is future adapter configuration. Empty `attribute_size`/predefined/custom/shape geometry variants are not carried as redundant production dimensions. Optional blank laminate/varnish values must not be silently converted into production defaults. No source pricing, currency, die or customer ID is guessed from SKU, area or other labels.
+
+## Pricing and roll semantics
+
+The output always contains `order.pricing` and each line's `pricing`, even without mappings. Unmapped price slots are `null`; explicit zero is preserved as a decimal string. Decimal strings retain sub-cent precision such as `"0.10900"` without binary floating-point rounding. No totals, margin or currency are inferred. Currency is optional and must be explicitly mapped before financial use. Other optional fields retain omitted versus null versus false distinctions.
+
+Exactly one finished-roll mode applies per line:
+
+```json
+{"specification":"max_roll_diameter","value":14,"unit":"in"}
+```
+
+or
+
+```json
+{"specification":"max_labels_per_roll","value":500,"unit":"labels"}
+```
+
+Diameter accepts positive measurements with an explicit `in` or `mm` unit. Label count requires a positive safe integer and unit `labels`. Conflicting/unsupported specifications, missing measurement units or fractional label counts fail validation. Spacing, when supplied, requires a nonnegative measurement and explicit unit. Example units are illustrative; the XML's unqualified diameter must receive a reviewed source-unit mapping.
+
+## Scope and validation
+
+The explicit e-commerce projection now accepts a reusable optional `CanonicalEcommerceOrder` extension. The strict `stickerpress.order.v1` intake contract is unchanged: expanding the output model does not permit missing approval/artwork evidence in Andy's submissions. Source proof status does not approve an artifact or clear a production hold. Document publication and target job/submission/association paths remain unimplemented here.
+
+Extended template fields are optional across the combined draft; core target product/quantity/dimension requirements remain. Source-specific constraints belong to each intake adapter. No XML parser/import workflow, source URL fetching, customer synchronization, pricing calculation, live template installation or submission was added. High End Work exports, routes, default selections and target registration remain unchanged. Runtime installation and Lift import-field acceptance still require the review described in ECOMMERCE_TEMPLATE.md.
+
+Reproduce the synthetic combined example with `node --import tsx/esm scripts/lift-ecommerce-combined-preview.ts`. The four-line example illustrates both roll modes plus cut/approval metadata. Its workflow values, pricing and requested date are examples only; the wrapper is explicitly `review_only`, `fixture_only` and `submission_allowed: false`.

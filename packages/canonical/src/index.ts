@@ -526,3 +526,5 @@ export const sampleCanonicalOrder: CanonicalOrder = {
 };
 
 export type { CanonicalJsonOrder, CanonicalJsonLine, JsonSourceArtwork, JsonSourceApproval } from './json-intake.js';
+
+export type { CanonicalEcommerceOrder, EcommerceLine, EcommerceMoney } from './ecommerce.js';

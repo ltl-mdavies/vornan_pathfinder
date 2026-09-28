@@ -217,10 +217,10 @@ export function createLiftEcommerceOutputTemplate(base: OutputTemplate, timestam
   for(const [output,canonical] of ecommerceOutputFields) {
     set(output,`{{${canonical}}}`);
     template.canonical_mappings=template.canonical_mappings.filter(m=>m.sourceColumn!==`body:${output}`);
-    template.canonical_mappings.push({sourceColumn:`body:${output}`,targetField:canonical,required:!canonical.includes('.preview.') && !canonical.includes('.document_delivery.')});
+    template.canonical_mappings.push({sourceColumn:`body:${output}`,targetField:canonical,required:false});
   }
   const required = new Set(['body:lines[].product_id','body:lines[].line_number','body:lines[].artwork.file_name',
-    'body:lines[].artwork.file_url','body:lines[].artwork.checksum','body:lines[].dimensions.final_height',
+    'body:lines[].artwork.file_url','body:lines[].dimensions.final_height',
     'body:lines[].dimensions.final_width','body:lines[].dimensions.bleed','body:order.order_title']);
   template.canonical_mappings=template.canonical_mappings.map(m=>m.sourceColumn==='body:lines[].unit_number'?{...m,required:false}:required.has(m.sourceColumn)?{...m,required:true}:m);
   const headers=JSON.parse(template.header_template);
