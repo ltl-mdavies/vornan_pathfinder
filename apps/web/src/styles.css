@@ -1656,6 +1656,13 @@ button:disabled {
   text-align: left;
 }
 
+.customer-directory-message {
+  margin: 8px 6px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .customer-option-active {
   background: rgba(171, 198, 95, 0.12);
   border-color: rgba(171, 198, 95, 0.22);
