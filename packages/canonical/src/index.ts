@@ -516,3 +516,5 @@ export const sampleCanonicalOrder: CanonicalOrder = {
     }
   ]
 };
+
+export type { CanonicalJsonOrder, CanonicalJsonLine, JsonSourceArtwork, JsonSourceApproval } from './json-intake.js';
