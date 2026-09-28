@@ -10,6 +10,8 @@ The local event producer currently supports only `order.received`, `order.action
 
 Required next shipping work:
 
+Live source inspection of two Marcus-supplied orders is recorded in [SHIPPING_SOURCE_VERIFICATION.md](SHIPPING_SOURCE_VERIFICATION.md). It confirms package-versus-line report differences and identifies an unresolved completion discrepancy; it does not establish launch readiness.
+
 - Bind authoritative shipment records to the verified customer, receipt, Lift association, external line IDs and shipped quantities. Use stable shipment identities and committed revisions; preserve existing outbox signing/retry/deduplication behavior.
 - Emit package-level tracking/state/corrections through `shipment.updated`. Label creation or receipt of a prepaid label is not evidence of dispatch.
 - Emit `order.shipped` only when all expected non-cancelled quantities are authoritatively accounted for as shipped. Unknown completeness must not be inferred from a tracking number, one package or a missing row.
