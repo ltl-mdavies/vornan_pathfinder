@@ -1,3 +1,14 @@
+# E-commerce grouping cleanup — 2026-09-28
+
+Updated the isolated Draft/projection and regenerated both preview artifacts to match Marcus's grouping decisions. Live dimensions now appear after final dimensions; SKU is a single field below unit number; production starts material/laminate/varnish; cut type/shape/complexity/die reference are consolidated in `cut`. No material-code/finish/corner-description duplicates are exported. Source registry/evidence and High End Work remain intact.
+
+- 668 API, 15 Lift adapter and 29 template tests passed.
+- Final 13 focused tests passed after order grouping and explicit-null preservation refinements; all workspace type checks passed.
+- Existing checks now verify supplied live dimensions, SKU mapping, output order, cut consolidation, reviewed target cut/laminate precedence and unchanged legacy generation.
+- No live configuration, routes, customer data, target writes, deployment, dependency changes or migrations. Packaging/browser checks not repeated for this local output cleanup.
+
+---
+
 # Combined e-commerce field model — 2026-09-28
 
 Builds on `88e6779`, implementing Marcus's clarified WooCommerce/Sticker Press field decisions. See [COMBINED_ECOMMERCE_REVIEW.md](COMBINED_ECOMMERCE_REVIEW.md) for normalization, omissions and remaining target/runtime boundaries.

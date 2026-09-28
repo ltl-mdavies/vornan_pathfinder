@@ -6,6 +6,8 @@ Created a distinct reusable Draft with ID `template-lift-ecommerce-orders`, clon
 
 This is a local draft artifact. It has not been inserted into the live Lift ERP target, selected by any route or activated. The current deployed High End Work configuration was not fetched; the generator can accept an exported, reviewed template to preserve its custom mappings. No target read, normalization, bootstrap or save automatically inserts this draft. Existing High End Work defaults, empty-template fallback and the separate ThinkDifferentPrint template remain unchanged.
 
+Latest field cleanup: the [combined review](COMBINED_ECOMMERCE_REVIEW.md) supersedes the initial groupings below. SKU follows unit number; live dimensions are explicit; material/laminate/varnish are adjacent; all cut fields are consolidated; material code, finish, corner description and customer_sku are not duplicated in the output.
+
 ## Expanded coverage
 
 The draft retains the base customer, contacts, source trace, order, shipping address, product, quantity, dimensions, production, artwork and note fields. It removes Momentara example values in favor of mapped tokens and preserves environment credential references and matching body/header EXT_ID. Like the existing Lift route, it marks `product_id` as the required target product identifier; source SKU/store variation never substitutes for it.

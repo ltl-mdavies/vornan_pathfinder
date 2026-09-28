@@ -1,3 +1,4 @@
+import { organizeEcommerceLine, organizeEcommerceOrder } from './ecommerce-layout.js';
 import { ecommerceOutputFields, type CanonicalEcommerceOrder } from '@pathfinder/canonical';
 import type { LiftOrderPayload } from './index.js';
 export const LIFT_ECOMMERCE_TEMPLATE_ID = 'template-lift-ecommerce-orders';
@@ -30,6 +31,14 @@ export function projectLiftEcommercePayload(templateId:string, base:LiftOrderPay
     });
     else {const value=read(source,canonical);if(value!==undefined)write(result,output,value);}
   }
+  result.lines=result.lines.map((line,i)=>{
+    // Preserve reviewed target laminate/cut values; use the source values only when unmapped.
+    line.production ??= {};
+    line.production.laminate ??= source.lines[i].production?.finish ?? null;
+    line.production.cut_type ??= source.lines[i].source_line?.cut?.type ?? null;
+    return organizeEcommerceLine(line) as typeof line;
+  });
+  result.order=organizeEcommerceOrder(result.order) as typeof result.order;
   // Source download/label/preview access URLs are never projected. Publication is a separate reviewed boundary.
   return result;
 }

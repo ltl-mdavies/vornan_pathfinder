@@ -2,6 +2,14 @@
 
 This review combines the Sticker Press fields with the WooCommerce XML field inventory and Marcus's clarified decisions. JSON is the output format. The raw XML and its customer/contact/artwork data have not been copied into the repository. The [combined sample](lift-ecommerce-combined.sample.json) is synthetic, and the [Draft template record](lift-ecommerce-orders.template.json) contains the full mapping structure. Nothing has been installed in a live target.
 
+## Output grouping refinement
+
+The latest draft places `sku` immediately after `unit_number` and removes the duplicate `customer_sku` output name; canonical input still uses `customer_sku`. Dimensions appear as `final_height`, `final_width`, `live_height`, `live_width`, `bleed`, then unit. Unmapped live dimensions stay visible as null rather than being inferred from trim or final size.
+
+Production starts with `material`, `laminate`, `varnish`. Only material is exported; source material code remains private mapping/evidence data. Source finish feeds laminate when no reviewed target laminate is supplied, with no second finish output. Cut type, shape, complexity and die reference reside only in `cut`; complexity carries square/radius-corner details, so no separate corner description is exported. Andy's current source contract has no additional corner-description requirement. Reviewed target cut/laminate values take precedence over source fallback values.
+
+Order fields are grouped into identity/scheduling, billing/shipping, documents and pricing/payment. Line fields are grouped into identity, dimensions, production/cut/roll finishing, artwork/approval/reference, pricing and notes. Layer versus spot name, and artwork versus approval hash, remain distinct because they represent different production/provenance checks even when their values match. High End Work and retained canonical source evidence are unchanged.
+
 ## Decisions applied
 
 - Use the existing High End Work customer/destination model. Do not infer a Lift customer from the overloaded WooCommerce Customer Number or implement customer creation/synchronization here.
@@ -26,7 +34,8 @@ This review combines the Sticker Press fields with the WooCommerce XML field inv
 | `lines[]` | Target product identity, source SKU/line ID, name/description/line note, quantity; label description can use existing description or line note |
 | `lines[].pricing` | `unit_price` is selling price per label/item; optional `markup_price` preserves a supplied shop value |
 | `lines[].dimensions`, `.artwork`, `.approval`, `.area` | High End Work dimensions/artwork plus Andy's PDF geometry, exact hash/provenance, cut and rectangular area semantics |
-| `lines[].production` | Existing material/laminate/coating/ink/cut fields; source material code/finish/shape; varnish, orientation, application type, die reference, cut complexity, corner description, white-ink flag |
+| `lines[].production` | Existing material/laminate/coating/ink/cut fields; material, laminate, varnish, orientation, application type and white-ink flag; no material-code/finish/cut duplicates |
+| `lines[].cut` | Type, shape, complexity (including corner detail), die reference, method and Andy's embedded spot/layer metadata |
 | `lines[].roll_finishing` | Specification, numeric value and explicit unit; unwind direction, spacing and spacing unit |
 | `lines[].sample`, `.proof_status` | Optional sample flag and shop proof workflow status, distinct from approval provenance |
 | Existing reference-proof / preview fields | Optional sample/reference proof can map to the existing reference-proof or line preview delivery field after its meaning/publication is reviewed; no extra login or raw-download fields |

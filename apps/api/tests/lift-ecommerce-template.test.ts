@@ -14,7 +14,7 @@ test('clone is a separate Draft with core mappings, neutral tokens and complete 
   assert.deepEqual(base,before);assert.equal(base.status,'Active');assert.equal(clone.status,'Draft');assert.equal(clone.name,'Lift E-commerce Orders');
   assert.equal(clone.output_template_id,LIFT_ECOMMERCE_TEMPLATE_ID);assert.equal(clone.destination_method,base.destination_method);
   const mapped=new Set(clone.canonical_mappings.map(m=>m.sourceColumn));
-  for(const m of base.canonical_mappings)assert.ok(mapped.has(m.sourceColumn));
+  for(const m of base.canonical_mappings)assert.ok(mapped.has(m.sourceColumn==='body:lines[].customer_sku'?'body:lines[].sku':m.sourceColumn));
   assert.equal(new Set(clone.canonical_mappings.map(m=>m.sourceColumn)).size,clone.canonical_mappings.length);
   const registered=new Set(canonicalFieldRegistry.map(f=>f.path));
   assert.equal(registered.size,canonicalFieldRegistry.length);
@@ -32,10 +32,22 @@ test('cloning preserves reviewed custom base output mappings and cannot repurpos
 });
 test('explicit projection preserves all four lines, numeric and boolean values, approval and source/target distinctions',()=>{
   const source=canonical();source.order.shipping_policy.blind_ship=false;
+  source.lines[0].dimensions.live_height=1.5;source.lines[0].dimensions.live_width=1.6;source.lines[0].customer_sku='TEST-SKU';
+  source.lines[0].production!.cut_complexity='1/8 inch radius corners';
   const base=generateLiftPayload(source),before=structuredClone(base);base.lines[0].production!.material='Reviewed target material';
   const result=projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,base,source) as any;
   assert.equal(result.order.shipping_policy.blind_ship,false);assert.equal(result.lines.length,4);
-  assert.equal(result.lines[0].production.material,'Reviewed target material');assert.equal(result.lines[0].production.material_code,'white_bopp');
+  assert.equal(result.lines[0].production.material,'Reviewed target material');assert.equal(result.lines[0].production.material_code,undefined);
+  assert.equal(result.lines[0].production.laminate,'gloss');
+  assert.equal(result.lines[0].cut.shape,'square');
+  assert.equal(result.lines[0].production.cut_type,undefined);
+  assert.equal(result.lines[0].cut.complexity,'1/8 inch radius corners');
+  assert.equal(result.lines[0].sku,'TEST-SKU');assert.equal(result.lines[0].customer_sku,undefined);
+  assert.equal(result.lines[0].dimensions.live_height,1.5);assert.equal(result.lines[0].dimensions.live_width,1.6);
+  assert.deepEqual(Object.keys(result.lines[0].dimensions).slice(0,5),['final_height','final_width','live_height','live_width','bleed']);
+  assert.deepEqual(Object.keys(result.lines[0].production).slice(0,3),['material','laminate','varnish']);
+  assert.deepEqual(Object.keys(result.lines[0]).slice(0,3),['line_number','unit_number','sku']);
+  assert.equal(result.lines[0].production.shape,undefined);
   assert.equal(result.lines[0].artwork.pages,1);assert.equal(result.lines[0].cut.in_file,true);
   assert.equal(result.lines[0].area.value,171.13);assert.equal(result.lines[0].area.basis,'bounding_box_times_quantity');
   assert.equal(result.lines[2].dimensions.final_height,0.978);assert.equal(result.lines[0].approval.artwork_sha256,source.lines[0].source_line.approval.artwork_sha256);
@@ -62,7 +74,7 @@ test('standard ecommerce orders use High End Work dimensions/artwork without And
   for(const line of source.lines)delete line.source_line;
   const base=generateLiftPayload(source),result=projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,base,source) as any;
   assert.deepEqual(result.lines[0].artwork,base.lines[0].artwork);
-  assert.deepEqual(result.lines[0].dimensions,base.lines[0].dimensions);
+  assert.deepEqual(result.lines[0].dimensions,{...base.lines[0].dimensions,live_height:null,live_width:null});
   assert.deepEqual(result.customer,base.customer);
   assert.equal(result.order.pricing.currency,null);assert.equal(result.order.pricing.total,null);
   assert.equal(result.lines[0].pricing.unit_price,null);assert.equal(result.lines[0].approval,undefined);

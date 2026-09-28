@@ -270,7 +270,9 @@ export const canonicalFieldRegistry = [
   canonicalField("lines[].production.material_code", "lines", "Source material code", "string"),
   canonicalField("lines[].production.finish", "lines", "Source finish", "string"),
   canonicalField("lines[].production.shape", "lines", "Source shape", "string"),
-  ...ecommerceOutputFields.filter(([,path]) => !['lines[].production.material_code','lines[].production.finish','lines[].production.shape'].includes(path)).map(([,path,type]) =>
+  canonicalField("lines[].source_line.cut.type", "lines", "Source cut type", "string"),
+  canonicalField("lines[].production.corner_description", "lines", "Source corner description", "string"),
+  ...ecommerceOutputFields.filter(([,path]) => !['lines[].production.material_code','lines[].production.finish','lines[].production.shape','lines[].production.cut_type'].includes(path)).map(([,path,type]) =>
     canonicalField(path, path.startsWith('lines[]') ? 'lines' : path.startsWith('source.') ? 'source' : 'order',
       path.split('.').slice(-2).join(' '), type, {description: 'Optional e-commerce source evidence; target acceptance requires review.'}))
 ] as const satisfies CanonicalFieldDefinition[];

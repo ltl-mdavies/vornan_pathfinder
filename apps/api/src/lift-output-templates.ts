@@ -1,5 +1,5 @@
 import { ecommerceOutputFields } from '@pathfinder/canonical';
-import { LIFT_ECOMMERCE_TEMPLATE_ID } from '@pathfinder/lift-adapter';
+import { LIFT_ECOMMERCE_TEMPLATE_ID, organizeEcommerceLine, organizeEcommerceOrder } from '@pathfinder/lift-adapter';
 import type { OutputTemplate } from './store.js';
 
 export function createSeedOutputTemplate(timestamp = new Date().toISOString()): OutputTemplate {
@@ -219,6 +219,18 @@ export function createLiftEcommerceOutputTemplate(base: OutputTemplate, timestam
     template.canonical_mappings=template.canonical_mappings.filter(m=>m.sourceColumn!==`body:${output}`);
     template.canonical_mappings.push({sourceColumn:`body:${output}`,targetField:canonical,required:false});
   }
+  body.order=organizeEcommerceOrder(body.order);
+  body.lines=body.lines.map((line:Record<string,unknown>)=>organizeEcommerceLine(line));
+  const moved:Record<string,string>={
+    'body:lines[].customer_sku':'body:lines[].sku',
+    'body:lines[].production.cut_type':'body:lines[].cut.type',
+    'body:lines[].production.shape':'body:lines[].cut.shape',
+    'body:lines[].production.cut_complexity':'body:lines[].cut.complexity',
+    'body:lines[].production.die_reference':'body:lines[].cut.die_reference'
+  };
+  const removed=new Set(['body:lines[].production.material_code','body:lines[].production.finish','body:lines[].production.corner_description']);
+  template.canonical_mappings=Array.from(new Map(template.canonical_mappings.filter(m=>!removed.has(m.sourceColumn))
+    .map(m=>{const mapping={...m,sourceColumn:moved[m.sourceColumn]??m.sourceColumn};return [mapping.sourceColumn,mapping] as const;})).values());
   const required = new Set(['body:lines[].product_id','body:lines[].line_number','body:lines[].artwork.file_name',
     'body:lines[].artwork.file_url','body:lines[].dimensions.final_height',
     'body:lines[].dimensions.final_width','body:lines[].dimensions.bleed','body:order.order_title']);
