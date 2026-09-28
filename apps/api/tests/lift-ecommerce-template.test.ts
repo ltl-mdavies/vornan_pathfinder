@@ -34,6 +34,7 @@ test('explicit projection preserves all four lines, numeric and boolean values, 
   const source=canonical();source.order.shipping_policy.blind_ship=false;
   source.lines[0].dimensions.live_height=1.5;source.lines[0].dimensions.live_width=1.6;source.lines[0].customer_sku='TEST-SKU';
   source.lines[0].production!.cut_complexity='1/8 inch radius corners';
+  source.lines[0].production!.application_type='source-only';
   const base=generateLiftPayload(source),before=structuredClone(base);base.lines[0].production!.material='Reviewed target material';
   const result=projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,base,source) as any;
   assert.equal(result.order.shipping_policy.blind_ship,false);assert.equal(result.lines.length,4);
@@ -51,9 +52,14 @@ test('explicit projection preserves all four lines, numeric and boolean values, 
   assert.deepEqual(Object.keys(result.lines[0].production).slice(0,3),['material','laminate','varnish']);
   assert.deepEqual(Object.keys(result.lines[0]).slice(0,4),['line_number','unit_number','product_id','customer_sku']);
   assert.equal(result.lines[0].production.shape,undefined);
+  assert.equal(result.lines[0].production.application_type,undefined);
+  assert.equal(source.lines[0].production!.application_type,'source-only');
   assert.equal(result.lines[0].artwork.pages,1);assert.equal(result.lines[0].cut.in_file,true);
   assert.equal(result.lines[0].area.value,171.13);assert.equal(result.lines[0].area.basis,'bounding_box_times_quantity');
-  assert.equal(result.lines[2].dimensions.final_height,0.978);assert.equal(result.lines[0].approval.artwork_sha256,source.lines[0].source_line.approval.artwork_sha256);
+  assert.equal(result.lines[2].dimensions.final_height,0.978);assert.equal(result.lines[0].approval.artwork_sha256,undefined);
+  assert.equal(result.lines[0].artwork.checksum,source.lines[0].source_line.approval.artwork_sha256);
+  const mismatched=structuredClone(source);mismatched.lines[0].source_line.approval.artwork_sha256='0'.repeat(64);
+  assert.throws(()=>projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,base,mismatched),/Approved artwork/);
   assert.equal(result.lines[0].external_line_id,fixture.lines[0].external_line_id);
   assert.equal(result.lines[0].preview.file_url,undefined);assert.equal(result.order.shipping_policy.prepaid_label_url,undefined);
   assert.equal((before.lines[0] as any).cut,undefined);assert.equal((base.lines[0] as any).cut,undefined);

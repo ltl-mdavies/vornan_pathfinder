@@ -109,8 +109,7 @@
           "laminate": "gloss",
           "varnish": "Semi-gloss",
           "white_ink_required": false,
-          "orientation": null,
-          "application_type": null
+          "orientation": null
         },
         "cut": {
           "type": "thru_cut",
@@ -149,8 +148,7 @@
           "proof_status": "approved",
           "provider": "stickerpress.order.v1",
           "approved_by": "operator",
-          "approved_at": "2026-09-27T12:00:00Z",
-          "artwork_sha256": "d78e427f06131243065312fe857302ec0de9f1a6f16d1bb3f8b6484affa9c4fa"
+          "approved_at": "2026-09-27T12:00:00Z"
         },
         "preview": {
           "format": "png",
@@ -192,8 +190,7 @@
           "laminate": "gloss",
           "varnish": "Semi-gloss",
           "white_ink_required": false,
-          "orientation": null,
-          "application_type": null
+          "orientation": null
         },
         "cut": {
           "type": "thru_cut",
@@ -232,8 +229,7 @@
           "proof_status": "approved",
           "provider": "stickerpress.order.v1",
           "approved_by": "operator",
-          "approved_at": "2026-09-27T12:00:00Z",
-          "artwork_sha256": "56f02e07450bf89c65bfc713c8317d671b5d25a4e6cf9d75c064fae23969dad8"
+          "approved_at": "2026-09-27T12:00:00Z"
         },
         "preview": {
           "format": "png",
@@ -275,8 +271,7 @@
           "laminate": "gloss",
           "varnish": "Semi-gloss",
           "white_ink_required": false,
-          "orientation": null,
-          "application_type": null
+          "orientation": null
         },
         "cut": {
           "type": "thru_cut",
@@ -307,8 +302,7 @@
           "proof_status": "approved",
           "provider": "stickerpress.order.v1",
           "approved_by": "operator",
-          "approved_at": "2026-09-27T12:00:00Z",
-          "artwork_sha256": "270f39c97ac55f742030525da99d48b1cd87dae269c7d3e0bfc9e5fdb2e6f5d4"
+          "approved_at": "2026-09-27T12:00:00Z"
         },
         "preview": {
           "format": "png",
@@ -350,8 +344,7 @@
           "laminate": "gloss",
           "varnish": "Semi-gloss",
           "white_ink_required": false,
-          "orientation": null,
-          "application_type": null
+          "orientation": null
         },
         "cut": {
           "type": "thru_cut",
@@ -382,8 +375,7 @@
           "proof_status": "approved",
           "provider": "stickerpress.order.v1",
           "approved_by": "operator",
-          "approved_at": "2026-09-27T12:00:00Z",
-          "artwork_sha256": "556e04642bc66d451817c36012079938281c73e12f468391c891d51f9f5c4a50"
+          "approved_at": "2026-09-27T12:00:00Z"
         },
         "preview": {
           "format": "png",

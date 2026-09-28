@@ -18,7 +18,7 @@ for(const line of source.lines) {
   // Remove access links from this internal review; no document has been published for this example.
   line.artwork={file_name:line.artwork?.file_name,checksum:line.artwork?.checksum};
   line.pricing={unit_price:'0.10900',markup_price:null};line.sample=false;
-  line.production={...line.production,varnish:'Semi-gloss',orientation:null,application_type:null,die_reference:null,cut_complexity:'Radius corners',white_ink_required:false};
+  line.production={...line.production,varnish:'Semi-gloss',orientation:null,die_reference:null,cut_complexity:'Radius corners',white_ink_required:false};
   line.proof_status='approved';
 }
 source.lines[0].roll_finishing={specification:'max_roll_diameter',value:14,unit:'in',unwind_direction:'3-Right',spacing:0.125,spacing_unit:'in'};

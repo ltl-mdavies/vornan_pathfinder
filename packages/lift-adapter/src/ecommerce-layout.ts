@@ -10,6 +10,7 @@ export function organizeEcommerceLine(input: Record<string, any>): Record<string
     line.approval.proof_status=line.proof_status;
     delete line.proof_status;
   }
+  if(line.approval)delete line.approval.artwork_sha256;
   const production=line.production ?? {};
   const cut=line.cut ?? {};
   cut.type=production.cut_type ?? cut.type;
@@ -17,7 +18,7 @@ export function organizeEcommerceLine(input: Record<string, any>): Record<string
   if(!('complexity' in cut))cut.complexity=production.cut_complexity;
   if(!('die_reference' in cut))cut.die_reference=production.die_reference;
   production.laminate=production.laminate ?? production.finish ?? null;
-  for(const key of ['cut_type','shape','cut_complexity','die_reference','corner_description','material_code','finish'])delete production[key];
+  for(const key of ['cut_type','shape','cut_complexity','die_reference','corner_description','material_code','finish','application_type'])delete production[key];
   delete cut.corner_description;
   const ordered=(object:Record<string,any>,keys:string[])=>Object.fromEntries([
     ...keys.filter(k=>object[k]!==undefined).map(k=>[k,object[k]]),
@@ -27,7 +28,7 @@ export function organizeEcommerceLine(input: Record<string, any>): Record<string
   dimensions.live_height ??= null;dimensions.live_width ??= null;
   line.dimensions=ordered(dimensions,['final_height','final_width','live_height','live_width','bleed','unit']);
   production.material ??= null;production.varnish ??= null;
-  line.production=ordered(production,['material','laminate','varnish','coating','premask','ink','white_ink_required','orientation','application_type']);
+  line.production=ordered(production,['material','laminate','varnish','coating','premask','ink','white_ink_required','orientation']);
   line.cut=ordered(cut,['type','shape','complexity','die_reference','method','spot_name','layer_name','in_file']);
   return ordered(line,['line_number','unit_number','product_id','customer_sku','product_name','description','quantity',
     'external_line_id','store_product','store_variation_id','dimensions','production','cut','roll_finishing',

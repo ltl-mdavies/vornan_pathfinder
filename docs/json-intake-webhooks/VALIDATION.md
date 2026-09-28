@@ -1,3 +1,13 @@
+# Single exported checksum — 2026-09-28
+
+Removed output approval.artwork_sha256 and production.application_type from the Draft, projection and generated examples. Kept canonical source fields and original approval evidence. The projector explicitly rejects any supplied approval hash that does not match the exported line artwork.checksum; intake requirements remain unchanged.
+
+- 668 API, 15 Lift adapter and 29 template tests passed; all workspace type checks passed.
+- Thirteen focused cases passed with amended assertions for single-checksum output, approval mismatch rejection, excluded application type and preserved source evidence.
+- No shared High End Work/runtime/registration changes, live data/config/target writes, pushes or deployments. Existing release gates remain open.
+
+---
+
 # E-commerce field naming and provenance — 2026-09-28
 
 Removed output order_type_name; due_date follows requested_ship_date with null for unmapped dates. Line identity now uses unit_number, product_id, customer_sku, product_name and description. Shop proof_status moved to approval.proof_status without changing approval semantics. Field origins and PDF page/trim versus final/live dimensions are documented in COMBINED_ECOMMERCE_REVIEW.md. Questioned source_status, market, priority and orientation remain optional, not silently removed.

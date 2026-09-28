@@ -229,7 +229,7 @@ export function createLiftEcommerceOutputTemplate(base: OutputTemplate, timestam
     'body:lines[].production.cut_complexity':'body:lines[].cut.complexity',
     'body:lines[].production.die_reference':'body:lines[].cut.die_reference'
   };
-  const removed=new Set(['body:order.order_type_name','body:lines[].production.material_code','body:lines[].production.finish','body:lines[].production.corner_description']);
+  const removed=new Set(['body:lines[].production.application_type','body:lines[].approval.artwork_sha256','body:order.order_type_name','body:lines[].production.material_code','body:lines[].production.finish','body:lines[].production.corner_description']);
   template.canonical_mappings=Array.from(new Map(template.canonical_mappings.filter(m=>!removed.has(m.sourceColumn))
     .map(m=>{const mapping={...m,sourceColumn:moved[m.sourceColumn]??m.sourceColumn};return [mapping.sourceColumn,mapping] as const;})).values());
   const required = new Set(['body:lines[].product_id','body:lines[].line_number','body:lines[].artwork.file_name',

@@ -8,7 +8,7 @@ The latest draft orders line identity as `line_number`, `unit_number`, `product_
 
 Production starts with `material`, `laminate`, `varnish`. Only material is exported; source material code remains private mapping/evidence data. Source finish feeds laminate when no reviewed target laminate is supplied, with no second finish output. Cut type, shape, complexity and die reference reside only in `cut`; complexity carries square/radius-corner details, so no separate corner description is exported. Andy's current source contract has no additional corner-description requirement. Reviewed target cut/laminate values take precedence over source fallback values.
 
-Order fields are grouped into identity/scheduling, billing/shipping, documents and pricing/payment. Line fields are grouped into identity, dimensions, production/cut/roll finishing, artwork/approval/reference, pricing and notes. Layer versus spot name, and artwork versus approval hash, remain distinct because they represent different production/provenance checks even when their values match. High End Work and retained canonical source evidence are unchanged.
+Order fields are grouped into identity/scheduling, billing/shipping, documents and pricing/payment. Line fields are grouped into identity, dimensions, production/cut/roll finishing, artwork/approval/reference, pricing and notes. Layer and spot names remain distinct production metadata. The output now carries only artwork.checksum; the original approval hash is retained and checked internally before exporting approval metadata. High End Work and retained canonical source evidence are unchanged.
 
 ## Decisions applied
 
@@ -34,7 +34,7 @@ Order fields are grouped into identity/scheduling, billing/shipping, documents a
 | `lines[]` | Target product identity, source SKU/line ID, name/description/line note, quantity; label description can use existing description or line note |
 | `lines[].pricing` | `unit_price` is selling price per label/item; optional `markup_price` preserves a supplied shop value |
 | `lines[].dimensions`, `.artwork`, `.approval`, `.area` | High End Work dimensions/artwork plus Andy's PDF geometry, exact hash/provenance, cut and rectangular area semantics |
-| `lines[].production` | Existing material/laminate/coating/ink/cut fields; material, laminate, varnish, orientation, application type and white-ink flag; no material-code/finish/cut duplicates |
+| `lines[].production` | Existing material/laminate/coating/ink/cut fields; material, laminate, varnish, orientation and white-ink flag; no material-code/finish/cut duplicates |
 | `lines[].cut` | Type, shape, complexity (including corner detail), die reference, method and Andy's embedded spot/layer metadata |
 | `lines[].roll_finishing` | Specification, numeric value and explicit unit; unwind direction, spacing and spacing unit |
 | `lines[].sample`, `.approval.proof_status` | Optional sample flag and shop proof workflow status, grouped with but distinct from approval provenance |
@@ -79,3 +79,8 @@ Reproduce the synthetic combined example with `node --import tsx/esm scripts/lif
 - `dimensions.final_height/final_width` describe ordered finished size. `trim_in` should agree with those within the separately reviewed metadata policy, but retaining both supports source/PDF validation. In Andy's first example, final/trim is 1.85 by 1.85 inches and page is 2.1 by 2.1 inches, allowing 0.125-inch bleed on each side.
 - `live_height/live_width` are separate values from High End Work. The source contracts reviewed here do not define a derivation from PDF page or trim, so they remain null unless mapped. Neither PDF box is used to fill them automatically.
 - `approval.proof_status` now groups the shop workflow status with approval information. It remains distinct from the upstream approval actor/time/hash; moving it does not approve an artifact or satisfy any intake/production gate.
+
+
+## Single exported artwork checksum
+
+The latest draft removes `approval.artwork_sha256` and `production.application_type`. `artwork.checksum` is the single exported file hash for the line. If source approval supplies an artwork hash, the projector requires it to match that checksum and rejects a mismatch before constructing the export. The original source approval/hash remains in canonical receipt evidence for audit and validation; Sticker Press input requirements are unchanged. Approval provider, actor category, timestamp and proof status remain available in the output. This is output simplification, not permission to approve changed artwork.

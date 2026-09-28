@@ -8,6 +8,8 @@ This is a local draft artifact. It has not been inserted into the live Lift ERP 
 
 Latest field cleanup: the [combined review](COMBINED_ECOMMERCE_REVIEW.md) supersedes the initial groupings below. product_id follows unit_number, then customer_sku; description is explicit; due_date follows requested_ship_date; live dimensions are explicit; material/laminate/varnish are adjacent; all cut fields are consolidated; material code, finish, corner description and sku aliases are not duplicated in the output. order_type_name is omitted and proof_status is grouped under approval.
 
+Latest checksum cleanup: output uses only `artwork.checksum`; the source approval hash remains internal and must match before export. `application_type` is omitted.
+
 ## Expanded coverage
 
 The draft retains the base customer, contacts, source trace, order, shipping address, product, quantity, dimensions, production, artwork and note fields. It removes Momentara example values in favor of mapped tokens and preserves environment credential references and matching body/header EXT_ID. Like the existing Lift route, it marks `product_id` as the required target product identifier; source SKU/store variation never substitutes for it.

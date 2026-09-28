@@ -11,6 +11,13 @@ export function projectLiftEcommercePayload(templateId:string, base:LiftOrderPay
     base.lines.some((line,i)=>line.line_number!==source.lines[i].line_number || line.quantity!==source.lines[i].quantity || (source.lines[i].source_line?.artwork?.artwork_sha256 !== undefined && line.artwork?.checksum!==source.lines[i].source_line?.artwork?.artwork_sha256))) {
     throw new Error('E-commerce source and target identity mismatch');
   }
+  // A single exported checksum is safe only after any supplied approval is bound to that file.
+  source.lines.forEach((line,i)=>{
+    const approvedHash=line.source_line?.approval?.artwork_sha256;
+    if(approvedHash!==undefined && (typeof approvedHash!=='string' || !/^[a-f0-9]{64}$/.test(approvedHash) || base.lines[i].artwork?.checksum!==approvedHash)) {
+      throw new Error('Approved artwork does not match exported checksum');
+    }
+  });
   validateEcommerceValues(source);
   const result=structuredClone(base);
   // Keep pricing sections visible even when the source has no pricing integration.
