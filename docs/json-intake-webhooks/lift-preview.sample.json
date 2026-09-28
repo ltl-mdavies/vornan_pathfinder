@@ -39,9 +39,10 @@
     "order": {
       "ext_id": "json_2268154ec4afdc95b77ad8b6739cb02e45504b8deef1d7ad582fb1b001f1fe3e",
       "order_title": "SAMPLE-FACTORY-TEST (sample)",
-      "order_type_name": "Custom Stickers",
       "market": "web",
       "priority": "standard",
+      "requested_ship_date": null,
+      "due_date": null,
       "order_note": "Sanitized fixture",
       "shipping": {
         "attention_to": "Test Recipient",
@@ -75,8 +76,10 @@
       {
         "line_number": 1,
         "unit_number": "",
-        "sku": null,
+        "product_id": null,
+        "customer_sku": null,
         "product_name": "Square Sticker",
+        "description": null,
         "quantity": 50,
         "external_line_id": "SAMPLE-FACTORY-TEST-01",
         "store_product": "die-cut-sticker-rc",
@@ -141,8 +144,10 @@
       {
         "line_number": 2,
         "unit_number": "",
-        "sku": null,
+        "product_id": null,
+        "customer_sku": null,
         "product_name": "Circle Sticker",
+        "description": null,
         "quantity": 50,
         "external_line_id": "SAMPLE-FACTORY-TEST-02",
         "store_product": "die-cut-sticker-rc",
@@ -207,8 +212,10 @@
       {
         "line_number": 3,
         "unit_number": "",
-        "sku": null,
+        "product_id": null,
+        "customer_sku": null,
         "product_name": "Die-Cut Sticker",
+        "description": null,
         "quantity": 50,
         "external_line_id": "SAMPLE-FACTORY-TEST-03",
         "store_product": "die-cut-sticker-rc",
@@ -273,8 +280,10 @@
       {
         "line_number": 4,
         "unit_number": "",
-        "sku": null,
+        "product_id": null,
+        "customer_sku": null,
         "product_name": "Die-Cut Sticker",
+        "description": null,
         "quantity": 50,
         "external_line_id": "SAMPLE-FACTORY-TEST-04",
         "store_product": "die-cut-sticker-rc",
@@ -731,5 +740,5 @@
     "SANCTIONED_TARGET_TEST",
     "EXPLICIT_ACTIVATION"
   ],
-  "preview_sha256": "5c173688b8a38069ee241793215540a51b9b139eb12436319fc2601f28fbb4f4"
+  "preview_sha256": "d927ec6ca5c1c579347339b772ae4b37636a25d5f941993598b61dbcdb717356"
 }

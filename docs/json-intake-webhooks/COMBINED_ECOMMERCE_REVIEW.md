@@ -4,7 +4,7 @@ This review combines the Sticker Press fields with the WooCommerce XML field inv
 
 ## Output grouping refinement
 
-The latest draft places `sku` immediately after `unit_number` and removes the duplicate `customer_sku` output name; canonical input still uses `customer_sku`. Dimensions appear as `final_height`, `final_width`, `live_height`, `live_width`, `bleed`, then unit. Unmapped live dimensions stay visible as null rather than being inferred from trim or final size.
+The latest draft orders line identity as `line_number`, `unit_number`, `product_id`, `customer_sku`, `product_name`, `description`, then quantity. Unmapped product ID, customer SKU and description remain visible as null; `sku` is no longer a second alias. Dimensions appear as `final_height`, `final_width`, `live_height`, `live_width`, `bleed`, then unit. Unmapped live dimensions stay visible as null rather than being inferred from trim or final size.
 
 Production starts with `material`, `laminate`, `varnish`. Only material is exported; source material code remains private mapping/evidence data. Source finish feeds laminate when no reviewed target laminate is supplied, with no second finish output. Cut type, shape, complexity and die reference reside only in `cut`; complexity carries square/radius-corner details, so no separate corner description is exported. Andy's current source contract has no additional corner-description requirement. Reviewed target cut/laminate values take precedence over source fallback values.
 
@@ -15,7 +15,7 @@ Order fields are grouped into identity/scheduling, billing/shipping, documents a
 - Use the existing High End Work customer/destination model. Do not infer a Lift customer from the overloaded WooCommerce Customer Number or implement customer creation/synchronization here.
 - Use existing `dimensions.final_width`, `final_height`, optional live dimensions and bleed. Andy's explicit inch unit and PDF page/trim evidence remain available. Do not reproduce predefined/custom/product/shape width and height variants from the XML.
 - Use the existing artwork file name, URL and checksum fields. Andy's PDF/hash/approval evidence remains an extension enforced by his intake adapter; generic e-commerce orders do not require those source-specific objects merely to render a preview.
-- Retain optional requested ship date. It means a future requested shipping date, not delivery date. Missing dates stay absent; no turnaround date is manufactured. Source-specific date parsing/timezone and Lift date formatting remain route configuration.
+- Retain optional requested ship date. It means a future requested shipping date, not delivery date. Both requested ship date and due date stay visible in this draft as null when unmapped; no turnaround/due date is manufactured. The input fields remain optional. Source-specific date parsing/timezone and Lift date formatting remain route configuration.
 - Keep billing/address-book fields, sample, production and account/payment references. Omit XML `Product_Variation`, `Non_variation_attributes` and `login_link`. Andy's separate stable `store_variation_id` remains a source identity, not the excluded descriptive variation string.
 - Defer `Custom_Area_Price` and `Original_Price`. Preserve an optional `markup_price` slot without interpreting it as margin or calculating it.
 
@@ -37,7 +37,7 @@ Order fields are grouped into identity/scheduling, billing/shipping, documents a
 | `lines[].production` | Existing material/laminate/coating/ink/cut fields; material, laminate, varnish, orientation, application type and white-ink flag; no material-code/finish/cut duplicates |
 | `lines[].cut` | Type, shape, complexity (including corner detail), die reference, method and Andy's embedded spot/layer metadata |
 | `lines[].roll_finishing` | Specification, numeric value and explicit unit; unwind direction, spacing and spacing unit |
-| `lines[].sample`, `.proof_status` | Optional sample flag and shop proof workflow status, distinct from approval provenance |
+| `lines[].sample`, `.approval.proof_status` | Optional sample flag and shop proof workflow status, grouped with but distinct from approval provenance |
 | Existing reference-proof / preview fields | Optional sample/reference proof can map to the existing reference-proof or line preview delivery field after its meaning/publication is reviewed; no extra login or raw-download fields |
 
 `item_download_url`, `Download_URL` and `artwork_file` are alternative source references for the existing artwork delivery model, not three competing output URL fields. Their source precedence is future adapter configuration. Empty `attribute_size`/predefined/custom/shape geometry variants are not carried as redundant production dimensions. Optional blank laminate/varnish values must not be silently converted into production defaults. No source pricing, currency, die or customer ID is guessed from SKU, area or other labels.
@@ -67,3 +67,15 @@ The explicit e-commerce projection now accepts a reusable optional `CanonicalEco
 Extended template fields are optional across the combined draft; core target product/quantity/dimension requirements remain. Source-specific constraints belong to each intake adapter. No XML parser/import workflow, source URL fetching, customer synchronization, pricing calculation, live template installation or submission was added. High End Work exports, routes, default selections and target registration remain unchanged. Runtime installation and Lift import-field acceptance still require the review described in ECOMMERCE_TEMPLATE.md.
 
 Reproduce the synthetic combined example with `node --import tsx/esm scripts/lift-ecommerce-combined-preview.ts`. The four-line example illustrates both roll modes plus cut/approval metadata. Its workflow values, pricing and requested date are examples only; the wrapper is explicitly `review_only`, `fixture_only` and `submission_allowed: false`.
+
+
+## Field origins and PDF dimension clarification
+
+- `order_type_name` was in Andy's source payload. It is now omitted from the e-commerce output, with source evidence retained. This does not alter Lift route/order-type configuration.
+- `source_status` maps the WooCommerce XML `Order_Status` (the supplied example says Processing); it is not a field from Andy's order.
+- `market` and `priority` were supplied by Andy (`web` and `standard`). They remain optional output fields pending a decision to remove them; they are not invented production defaults.
+- `production.orientation` maps the XML `attribute_orientation`, empty in all 16 source lines. Its business meaning is not established by that example, and it must not be equated with unwind direction. It remains optional pending a decision on its use.
+- `artwork.page_in` and `artwork.trim_in` came from Andy's per-line artwork metadata. The local inspector compares page against the PDF MediaBox and trim against TrimBox. These are declared file measurements, not a replacement for order dimensions.
+- `dimensions.final_height/final_width` describe ordered finished size. `trim_in` should agree with those within the separately reviewed metadata policy, but retaining both supports source/PDF validation. In Andy's first example, final/trim is 1.85 by 1.85 inches and page is 2.1 by 2.1 inches, allowing 0.125-inch bleed on each side.
+- `live_height/live_width` are separate values from High End Work. The source contracts reviewed here do not define a derivation from PDF page or trim, so they remain null unless mapped. Neither PDF box is used to fill them automatically.
+- `approval.proof_status` now groups the shop workflow status with approval information. It remains distinct from the upstream approval actor/time/hash; moving it does not approve an artifact or satisfy any intake/production gate.

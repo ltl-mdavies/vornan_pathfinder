@@ -6,7 +6,7 @@ Created a distinct reusable Draft with ID `template-lift-ecommerce-orders`, clon
 
 This is a local draft artifact. It has not been inserted into the live Lift ERP target, selected by any route or activated. The current deployed High End Work configuration was not fetched; the generator can accept an exported, reviewed template to preserve its custom mappings. No target read, normalization, bootstrap or save automatically inserts this draft. Existing High End Work defaults, empty-template fallback and the separate ThinkDifferentPrint template remain unchanged.
 
-Latest field cleanup: the [combined review](COMBINED_ECOMMERCE_REVIEW.md) supersedes the initial groupings below. SKU follows unit number; live dimensions are explicit; material/laminate/varnish are adjacent; all cut fields are consolidated; material code, finish, corner description and customer_sku are not duplicated in the output.
+Latest field cleanup: the [combined review](COMBINED_ECOMMERCE_REVIEW.md) supersedes the initial groupings below. product_id follows unit_number, then customer_sku; description is explicit; due_date follows requested_ship_date; live dimensions are explicit; material/laminate/varnish are adjacent; all cut fields are consolidated; material code, finish, corner description and sku aliases are not duplicated in the output. order_type_name is omitted and proof_status is grouped under approval.
 
 ## Expanded coverage
 

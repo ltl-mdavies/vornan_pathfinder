@@ -1,3 +1,13 @@
+# E-commerce field naming and provenance — 2026-09-28
+
+Removed output order_type_name; due_date follows requested_ship_date with null for unmapped dates. Line identity now uses unit_number, product_id, customer_sku, product_name and description. Shop proof_status moved to approval.proof_status without changing approval semantics. Field origins and PDF page/trim versus final/live dimensions are documented in COMBINED_ECOMMERCE_REVIEW.md. Questioned source_status, market, priority and orientation remain optional, not silently removed.
+
+- 668 API, 15 Lift adapter and 29 template tests passed; all workspace type checks passed.
+- Thirteen focused template/preview cases passed, including required field ordering, explicit unmapped values, due-date preservation and proof-status placement.
+- Regenerated Draft record and both synthetic previews. Source canonical registry/evidence and legacy High End Work/runtime routes remain intact; no live target/config/data changes, external writes, push or deploy.
+
+---
+
 # E-commerce grouping cleanup — 2026-09-28
 
 Updated the isolated Draft/projection and regenerated both preview artifacts to match Marcus's grouping decisions. Live dimensions now appear after final dimensions; SKU is a single field below unit number; production starts material/laminate/varnish; cut type/shape/complexity/die reference are consolidated in `cut`. No material-code/finish/corner-description duplicates are exported. Source registry/evidence and High End Work remain intact.

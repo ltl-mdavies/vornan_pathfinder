@@ -26,12 +26,12 @@
     "order": {
       "ext_id": "json_15ef775f24ee214c7a7dd3068547215b58102f26441222a5a95c98c6ef9037e1",
       "order_title": "SAMPLE-FACTORY-TEST (sample)",
-      "order_type_name": "Custom Stickers",
       "reference_number": null,
       "source_status": "Processing",
       "market": "web",
       "priority": "standard",
       "requested_ship_date": "2026-12-01",
+      "due_date": null,
       "order_note": "Sanitized fixture",
       "account_rep": null,
       "invoice_email": "billing@example.invalid",
@@ -88,8 +88,10 @@
       {
         "line_number": 1,
         "unit_number": "",
-        "sku": null,
+        "product_id": null,
+        "customer_sku": null,
         "product_name": "Square Sticker",
+        "description": null,
         "quantity": 50,
         "external_line_id": "SAMPLE-FACTORY-TEST-01",
         "store_product": "die-cut-sticker-rc",
@@ -144,6 +146,7 @@
           }
         },
         "approval": {
+          "proof_status": "approved",
           "provider": "stickerpress.order.v1",
           "approved_by": "operator",
           "approved_at": "2026-09-27T12:00:00Z",
@@ -163,14 +166,15 @@
           "markup_price": null
         },
         "sample": false,
-        "proof_status": "approved",
         "line_note": "Sanitized fixture"
       },
       {
         "line_number": 2,
         "unit_number": "",
-        "sku": null,
+        "product_id": null,
+        "customer_sku": null,
         "product_name": "Circle Sticker",
+        "description": null,
         "quantity": 50,
         "external_line_id": "SAMPLE-FACTORY-TEST-02",
         "store_product": "die-cut-sticker-rc",
@@ -225,6 +229,7 @@
           }
         },
         "approval": {
+          "proof_status": "approved",
           "provider": "stickerpress.order.v1",
           "approved_by": "operator",
           "approved_at": "2026-09-27T12:00:00Z",
@@ -244,14 +249,15 @@
           "markup_price": null
         },
         "sample": false,
-        "proof_status": "approved",
         "line_note": "Sanitized fixture"
       },
       {
         "line_number": 3,
         "unit_number": "",
-        "sku": null,
+        "product_id": null,
+        "customer_sku": null,
         "product_name": "Die-Cut Sticker",
+        "description": null,
         "quantity": 50,
         "external_line_id": "SAMPLE-FACTORY-TEST-03",
         "store_product": "die-cut-sticker-rc",
@@ -298,6 +304,7 @@
           }
         },
         "approval": {
+          "proof_status": "approved",
           "provider": "stickerpress.order.v1",
           "approved_by": "operator",
           "approved_at": "2026-09-27T12:00:00Z",
@@ -317,14 +324,15 @@
           "markup_price": null
         },
         "sample": false,
-        "proof_status": "approved",
         "line_note": "Sanitized fixture"
       },
       {
         "line_number": 4,
         "unit_number": "",
-        "sku": null,
+        "product_id": null,
+        "customer_sku": null,
         "product_name": "Die-Cut Sticker",
+        "description": null,
         "quantity": 50,
         "external_line_id": "SAMPLE-FACTORY-TEST-04",
         "store_product": "die-cut-sticker-rc",
@@ -371,6 +379,7 @@
           }
         },
         "approval": {
+          "proof_status": "approved",
           "provider": "stickerpress.order.v1",
           "approved_by": "operator",
           "approved_at": "2026-09-27T12:00:00Z",
@@ -390,7 +399,6 @@
           "markup_price": null
         },
         "sample": false,
-        "proof_status": "approved",
         "line_note": "Sanitized fixture"
       }
     ]

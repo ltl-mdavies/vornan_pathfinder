@@ -38,7 +38,7 @@ test('unmapped four-line preview preserves evidence and fails closed without gue
     assert.equal(e.preview?.reference_only,true);
   }
   assert.equal(p.evidence.shipping.blind_ship,true);assert.equal(p.evidence.shipping.return_address_configured,false);
-  assert.equal(p.evidence.shipping.prepaid_label_supplied,false);assert.equal(p.candidate.order.requested_ship_date,undefined);
+  assert.equal(p.evidence.shipping.prepaid_label_supplied,false);assert.equal(p.candidate.order.requested_ship_date,null);
   assert.equal(p.preview_sha256,buildJsonLiftPreview(r,mapping(r)).preview_sha256);
 });
 test('exact scoped mappings populate only the selected Lift identifier and reviewed production fields',()=>{
