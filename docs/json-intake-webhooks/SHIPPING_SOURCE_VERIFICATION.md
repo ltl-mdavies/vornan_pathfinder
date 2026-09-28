@@ -1,6 +1,6 @@
 # Live shipping-source verification — 2026-09-28
 
-Marcus supplied A0230405 as fully shipped with multiple tracking numbers to one location, and A0231011 as fully shipped to multiple locations/methods. Reads were limited to these exact orders using the repository-configured Package Details (`p0`), Shipping Report (`p1`) and AS360Orders (`p0`) report parameters. All six final reads returned HTTP 200. Shipping Report initially timed out; one retry succeeded. No mutations, carrier requests, label purchases, customer callbacks or configuration changes were made.
+Marcus supplied A0230405 as fully shipped with multiple tracking numbers to one location. After reviewing the report findings, he confirmed A0231011 is partially shipped: lines 2 and 3 shipped, line 1 still outstanding, and the order remains `In Production`. This supersedes its initial fully-shipped description. Reads were limited to these exact orders using the repository-configured Package Details (`p0`), Shipping Report (`p1`) and AS360Orders (`p0`) report parameters. All six final reads returned HTTP 200. Shipping Report initially timed out; one retry succeeded. No mutations, carrier requests, label purchases, customer callbacks or configuration changes were made.
 
 Raw responses are private local evidence under `/tmp/pathfinder-shipping-verification`, not source-controlled. This note omits customer addresses, tracking numbers, negotiated rates and delivery-recipient details. These are read-time snapshots, not proof of future report stability or atomic consistency across reports.
 
@@ -22,7 +22,9 @@ This sample supports combining package-level tracking/allocations with line-leve
 - Shipping Report: three line rows. Line 2 has actual ship date 2026-09-18; line 3 has 2026-09-28. Both have tracking and a destination. Package messages indicate delivered for line 2 and picked up for line 3.
 - Line 1 (`ORDER_LINE_ID` 10105705, Window Perf, quantity 2) has method `TBD`, no tracking, no actual ship date and no destination. No Package Details row accounts for it. Known package allocations total 2 versus ordered quantity 4.
 
-This conflicts with the supplied fully-shipped/multiple-method description. Do not classify the business order as partial solely from this snapshot, and do not emit full-order completion. Marcus was asked whether line 1 was cancelled/replaced, collected/delivered another way, or should have shipping details. Exclusion or completion requires authoritative evidence, not an inferred exception.
+Marcus subsequently confirmed this is a partial shipment: line 1 has not shipped, while lines 2 and 3 have shipped. The live report evidence agrees with that confirmation. Line 1 remains part of the expected quantity; it must not be excluded as cancelled, replaced or non-shipping.
+
+Required regression scenario: expected line quantities are 2, 1 and 1; shipped allocations cover only lines 2 and 3 with quantity 1 each. Produce applicable `shipment.updated` events with order fulfillment `partially_shipped`, and withhold `order.shipped` while line 1's quantity 2 remains outstanding. Delivery of one package does not complete the order. This is a confirmed source example for future sanitized fixtures, not a claim that the shipping event producer is implemented or that callbacks were sent.
 
 ## Required implementation and verification
 
@@ -31,7 +33,7 @@ This conflicts with the supplied fully-shipped/multiple-method description. Do n
 3. Confirm whether an actual ship date is populated at physical dispatch or earlier when labels are created. Current snapshots cannot establish that timing.
 4. Verify stable identities and updates through correction/repacking, and obtain authoritative cancellation/non-shipping-line semantics before excluding quantities from completeness.
 5. Do not derive carrier identity or normalized status solely from service strings or tracking-number shape. Explicit carrier/state mapping remains required.
-6. Still obtain a known partial-shipment example and a prepaid-label example. Synthetic tests can cover withholding completion meanwhile, but cannot prove live source semantics.
+6. The partial-shipment example is now confirmed as A0231011. A prepaid-label example remains outstanding, along with a representative label/sticker packaging example. Synthetic tests cannot by themselves prove live source semantics.
 7. Maintain customer/order/receipt association checks. These example orders are source-behavior evidence; do not attach them to Silicon Pasture or create partner events from them.
 
 UPS live rates from Shipping Intelligence are not a dependency of these outbound tracking callbacks. Rate shopping/label purchase is a separate integration. Reuse that application's reviewed carrier integration if rate or purchase functionality becomes part of this workflow; do not introduce a second rating implementation solely for callbacks.
