@@ -15,6 +15,7 @@ export interface Receipt {
   previews?: { external_line_id: string; status: 'retained' | 'unavailable'; code?: string; sha256?: string; bytes?: number; retained_ref?: string }[];
   retry_attempts?: number; next_retry_at?: string | null;
   issues: FieldIssue[];
+  confirmation?: {job_id:string;submit_attempt_id:string;order_number:string;confirmed_at:string;intake_revision:number;evidence_sha256:string};
   ledger_projection?: { attempt_id: string; expected_revision: number; before_state: IntakeState; before_event_id: string | null; event_id: string; state: IntakeState };
   asset_status: 'pending' | 'integrity_verified' | 'action_required' | 'internal_action_required';
 }
@@ -95,6 +96,19 @@ export class LocalReceiptStore implements ReceiptStore {
     let ids: string[];
     try { ids = await readdir(join(this.root, 'receipts')); } catch (e) { if (isMissing(e)) return; throw e; }
     for (const id of ids.filter(validId)) { const r = await this.get(id); if (r?.work === 'pending') yield r; }
+  }
+  /** Immutable receipt history is the recoverable event source; never prune before outbox retention is designed. */
+  async *history(): AsyncIterable<Receipt> {
+    let ids:string[];
+    try {ids=await readdir(join(this.root,'receipts'));} catch(e){if(isMissing(e))return;throw e;}
+    for(const id of ids.filter(validId).sort()){
+      const latest=await this.get(id);if(!latest)continue;
+      for(let revision=0;revision<=latest.revision;revision++){
+        const row=JSON.parse(await readFile(join(this.folder(id),`${revision}.json`),'utf8')) as Receipt;
+        if(row.receipt_id!==id || row.revision!==revision || row.version!==1)throw new Error('Corrupt receipt history');
+        yield row;
+      }
+    }
   }
   async retain(scope: string, bytes: Buffer, format: 'pdf' | 'png' | 'jpg' = 'pdf') {
     if (!['pdf','png','jpg'].includes(format)) throw new Error('Unsupported retained format');

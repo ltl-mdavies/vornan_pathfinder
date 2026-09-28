@@ -1,3 +1,19 @@
+# Webhook-slice validation — 2026-09-28
+
+Builds on local asset commit `4baa706`. Refreshed origin/main remains `14ff397b9b1bc317d9c22cb6023b95ba2360a5f7`; no intervening main changes. Branch remains `codex/json-intake-foundation`. Scope, contract review details and remaining gates are in [WEBHOOKS.md](WEBHOOKS.md).
+
+| Check | Result |
+| --- | --- |
+| `json-webhooks.test.ts` final focused run | 14 passed. Exact sent raw-byte HMAC vector; mutation/key/time/store/header checks; crash before/after insert and concurrent materialization; stable bytes and key rotation; endpoint scope/config/destination pinning; ten-attempt schedule, Retry-After, permanent failures and exhaustion; uncertain claim recovery and stale acknowledgement; timeout/error redaction; resolved-issue suppression/history; replay identity/audit/destination binding; actual local HTTP receiver and durable dedup; confirmation association mismatches and cross-read drift; out-of-order consumer example; real process restart/cross-process CAS; authenticated status ownership before webhook reads. |
+| `npm run test --workspace @pathfinder/api` | 654 passed, zero failures/skips, including the first 13 webhook tests. The final focused run adds the 14th authenticated status test and extra crash/replay assertions. |
+| `npm run check` | All workspace type checks passed after final source changes. |
+| `npm run package:api-lambda` | Existing API package built. Inspection found none of the new webhook transport/event markers in the artifact: the module remains unmounted. This does not validate a future production webhook bundle. |
+| Main refresh / diff | Origin main unchanged; `git diff --check` passed. Source-only file allowlist excludes handoff, artwork, runtime/output data, secrets and private payloads. |
+
+The local receiver required approved loopback-capable test execution. No external destination was contacted. No push, merge, deployment, production data/config/credential changes, Lift/Wrike writes, notifications or partner callbacks occurred. No dependency or shared runtime changes. Local confirmation fields are additive; new journals require their current reader/worker and preserved history. Production durability, scheduling, key/endpoint registration, incident routing, authoritative target adapters and all prior asset/release gates remain open. No browser/UI changes were made.
+
+---
+
 # Asset-slice validation — 2026-09-28
 
 This section records the next local slice on top of `38daa0cc683073e7aa352059458bca7a1e48a010`. Refreshed origin/main remains `14ff397b9b1bc317d9c22cb6023b95ba2360a5f7`; no intervening main changes. Branch remains `codex/json-intake-foundation`. Scope/limitations and exact dependency sources are in [ASSET_REVIEW.md](ASSET_REVIEW.md).

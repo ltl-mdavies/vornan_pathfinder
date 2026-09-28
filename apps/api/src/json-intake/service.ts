@@ -202,8 +202,8 @@ export function receiptResponse(r: Receipt, replayed: boolean) {
 }
 export function statusResponse(r: Receipt) {
   return {schema_version: 'pathfinder.order-status.v1', ...receiptResponse(r,false),
-    order_revision: r.revision, intake_status: r.asset_status === 'action_required' ? 'manual_review' : r.asset_status === 'internal_action_required' ? 'internal_action_required' : 'processing',
-    asset_status: r.asset_status, review_required: true, production_status: null, fulfillment_status: null, lift_order_number: null,
+    order_revision: r.revision+1, intake_status: r.confirmation ? 'confirmed' : r.asset_status === 'action_required' ? 'manual_review' : r.asset_status === 'internal_action_required' ? 'internal_action_required' : 'processing',
+    asset_status: r.asset_status, review_required: true, production_status: null, fulfillment_status: null, lift_order_number: r.confirmation?.order_number??null, confirmed_at:r.confirmation?.confirmed_at??null,
     received_at: r.received_at, updated_at: r.updated_at, issues: r.issues,
     lines: r.adapted.canonical.lines.map(l => ({external_line_id:l.source_line.external_line_id, ordered_quantity:l.quantity,
       retained: r.assets.some(a => a.external_line_id === l.source_line.external_line_id), inspection: r.assets.find(a=>a.external_line_id===l.source_line.external_line_id)?.inspection??'not_run',

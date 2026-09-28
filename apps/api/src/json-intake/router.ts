@@ -1,10 +1,11 @@
 import express from 'express';
 import { authenticate, type TestCredential } from './auth.js';
 import { IntakeError } from './adapter.js';
+import type { Receipt } from './local-store.js';
 import { JsonIntakeService, receiptResponse, statusResponse } from './service.js';
 
 /** Unmounted factory. Enabling this local test router cannot activate Lift or outbound delivery. */
-export function createJsonIntakeRouter(options: {enabled?: boolean; credentials: readonly TestCredential[]; service: JsonIntakeService}) {
+export function createJsonIntakeRouter(options: {enabled?: boolean; credentials: readonly TestCredential[]; service: JsonIntakeService; webhookStatus?:(receipt:Receipt)=>Promise<Record<string,unknown>>}) {
   const router = express.Router();
   router.use((_req,res,next) => { res.set('Cache-Control','private, no-store'); if (!options.enabled) {res.status(404).json({code:'NOT_FOUND'}); return;} next(); });
   router.use((req,res,next) => {
@@ -21,7 +22,7 @@ export function createJsonIntakeRouter(options: {enabled?: boolean; credentials:
     } catch (e) {next(e);}
   });
   router.get('/orders/:receiptId', async (req,res,next) => {
-    try {res.json(statusResponse(await options.service.lookup(res.locals.identity,req.params.receiptId)));} catch (e) {next(e);}
+    try {const receipt=await options.service.lookup(res.locals.identity,req.params.receiptId);res.json({...statusResponse(receipt),...(options.webhookStatus?await options.webhookStatus(receipt):{})});} catch (e) {next(e);}
   });
   router.use((error: unknown,_req: express.Request,res: express.Response,_next: express.NextFunction) => {
     if (error instanceof IntakeError) {res.status(error.status).json({code:error.code,...(error.issues.length ? {issues:error.issues} : {})}); return;}
