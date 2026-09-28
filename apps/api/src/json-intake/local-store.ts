@@ -1,6 +1,7 @@
-import { mkdir, open, link, unlink, readdir, readFile } from 'node:fs/promises';
+import { mkdir, open, link, unlink, readdir, readFile, stat } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { PdfInspection } from './pdf-inspection.js';
 import type { IntakeSignal, IntakeState } from '../intake-assurance.js';
 import { sha256, type AdaptedOrder, type FieldIssue, type IntegrationIdentity } from './adapter.js';
 
@@ -10,7 +11,9 @@ export interface Receipt {
   adapted: AdaptedOrder; signal: IntakeSignal; deadline: string;
   work: 'pending' | 'complete';
   claim: { token: string; until: string } | null;
-  assets: { external_line_id: string; sha256: string; bytes: number; retained_ref: string; inspection: 'not_run' }[];
+  assets: { external_line_id: string; sha256: string; bytes: number; retained_ref: string; inspection: 'not_run' | 'metadata_pass' | 'metadata_fail'; inspection_result?: PdfInspection }[];
+  previews?: { external_line_id: string; status: 'retained' | 'unavailable'; code?: string; sha256?: string; bytes?: number; retained_ref?: string }[];
+  retry_attempts?: number; next_retry_at?: string | null;
   issues: FieldIssue[];
   ledger_projection?: { attempt_id: string; expected_revision: number; before_state: IntakeState; before_event_id: string | null; event_id: string; state: IntakeState };
   asset_status: 'pending' | 'integrity_verified' | 'action_required' | 'internal_action_required';
@@ -93,11 +96,21 @@ export class LocalReceiptStore implements ReceiptStore {
     try { ids = await readdir(join(this.root, 'receipts')); } catch (e) { if (isMissing(e)) return; throw e; }
     for (const id of ids.filter(validId)) { const r = await this.get(id); if (r?.work === 'pending') yield r; }
   }
-  async retain(scope: string, bytes: Buffer) {
+  async retain(scope: string, bytes: Buffer, format: 'pdf' | 'png' | 'jpg' = 'pdf') {
+    if (!['pdf','png','jpg'].includes(format)) throw new Error('Unsupported retained format');
     const digest = sha256(bytes);
-    const ref = `assets/${sha256(scope)}/${digest}.pdf`;
+    const ref = `assets/${sha256(scope)}/${digest}.${format}`;
     const path = join(this.root, ref);
     if (!await publishImmutable(path, bytes) && sha256(await readFile(path)) !== digest) throw new Error('Corrupt retained asset');
     return ref;
   }
+  async readRetained(scope: string, ref: string) {
+    const match = /^assets\/([a-f0-9]{64})\/([a-f0-9]{64})\.(pdf|png|jpg)$/.exec(ref);
+    if (!match || match[1] !== sha256(scope)) throw new Error('Retained asset scope mismatch');
+    if ((await stat(join(this.root,ref))).size>25*1024*1024) throw new Error('Retained asset byte limit');
+    const bytes = await readFile(join(this.root, ref));
+    if (sha256(bytes) !== match[2]) throw new Error('Corrupt retained asset');
+    return bytes;
+  }
+
 }

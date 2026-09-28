@@ -137,7 +137,7 @@ test('bad bytes/expiry are customer issues, transient failure is internal and re
       return mode==='hash'?Buffer.alloc(bytes.length):mode==='size'?Buffer.from('small'):bytes;
     }});
     const r=(await h.store.get(receipt.receipt_id))!;assert.equal(r.issues[0].code,code);assert.ok(!JSON.stringify(statusResponse(r)).includes('secret query'));
-    if(mode==='transient'){assert.equal(r.work,'pending');await h.service.recover(h.transport);assert.equal((await h.store.get(receipt.receipt_id))?.asset_status,'integrity_verified');}
+    if(mode==='transient'){assert.equal(r.work,'pending');h.setTime('2026-09-28T12:02:00Z');await h.service.recover(h.transport);assert.equal((await h.store.get(receipt.receipt_id))?.asset_status,'integrity_verified');}
   }
 });
 test('URL refresh updates existing receipt, preserves original evidence and clears expired-access failures',async t=>{

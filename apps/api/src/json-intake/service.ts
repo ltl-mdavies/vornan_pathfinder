@@ -1,3 +1,8 @@
+import type { CanonicalJsonLine } from '@pathfinder/canonical';
+import type { PdfInspection } from './pdf-inspection.js';
+import type { AssetReadOptions } from './https-assets.js';
+import { AssetCheckError } from './asset-errors.js';
+export { AssetCheckError } from './asset-errors.js';
 import { randomUUID } from 'node:crypto';
 import type { IntakeLedger, IntakeAttempt, IntakeState } from '../intake-assurance.js';
 import { intakeAttemptId } from '../intake-assurance.js';
@@ -5,13 +10,12 @@ import { IntakeError, sha256, stableJson, type IntegrationIdentity, type JsonOrd
 import type { Receipt, ReceiptStore } from './local-store.js';
 
 export interface LocalAssetTransport {
-  /** Must be an explicit in-memory/local fixture map. A network transport is outside this milestone. */
-  kind: 'local-fixture';
-  read(url: string): Promise<Buffer>;
-  retain(scope: string, bytes: Buffer): Promise<string>;
-}
-export class AssetCheckError extends Error {
-  constructor(readonly code: string) { super(code); }
+  kind: 'local-fixture' | 'review-assets';
+  read(url: string, options?: AssetReadOptions): Promise<Buffer>;
+  retain(scope: string, bytes: Buffer, format?: 'pdf' | 'png' | 'jpg'): Promise<string>;
+  readRetained?(scope: string, ref: string): Promise<Buffer>;
+  inspect?(bytes: Buffer, line: CanonicalJsonLine): Promise<PdfInspection>;
+  inspection_profile?: {engine:string; policy_id:string};
 }
 const owned = (r: Receipt, id: IntegrationIdentity) => r.identity.customer_id === id.customer_id && r.identity.integration_id === id.integration_id && r.identity.environment === id.environment && r.identity.store === id.store;
 const after = (now: string, ms: number) => new Date(Date.parse(now) + ms).toISOString();
@@ -39,7 +43,7 @@ export class JsonIntakeService {
       if (stableJson(current.adapted) === stableJson(adapted)) return {receipt: current, replayed: true};
       if (current.claim && Date.parse(current.claim.until) > Date.parse(now)) throw new IntakeError(503, 'RETRY_AFTER_ASSET_WORK');
       const refresh: Receipt = {...current, revision: current.revision + 1, updated_at: now, adapted,
-        ...(current.asset_status !== 'integrity_verified' ? {work: 'pending' as const, claim: null, asset_status: 'pending' as const} : {})};
+        ...((current.asset_status !== 'integrity_verified' || current.previews?.some(p=>p.status==='unavailable')) ? {work: 'pending' as const, claim: null, next_retry_at: null, asset_status: 'pending' as const} : {})};
       if (await this.store.compareAndSet(current, refresh)) return {receipt: refresh, replayed: true};
     }
     throw new IntakeError(503, 'RECEIPT_BUSY');
@@ -51,12 +55,13 @@ export class JsonIntakeService {
   }
   /** Explicit local recovery driver. Never invoked by POST or the Wrike scheduler. */
   async process(receiptId: string, transport: LocalAssetTransport) {
-    if (transport.kind !== 'local-fixture') throw new Error('Only local fixture assets are supported');
+    if (!['local-fixture','review-assets'].includes(transport.kind) || (transport.kind === 'review-assets' && (!transport.inspect || !transport.readRetained || !transport.inspection_profile))) throw new Error('Reviewed assets require inspection and private retained reads');
     let r = await this.store.get(receiptId);
     const now = this.now();
-    if (!r || r.work === 'complete' || (r.claim && Date.parse(r.claim.until) > Date.parse(now))) return false;
+    if (!r || r.work === 'complete' || (r.next_retry_at && Date.parse(r.next_retry_at)>Date.parse(now)) || (r.claim && Date.parse(r.claim.until) > Date.parse(now))) return false;
+    const budgetExhausted=(r.retry_attempts??0)>=3;
     const claim = {token: randomUUID(), until: after(now, 30 * 60 * 1000)};
-    const claimed: Receipt = {...r, revision: r.revision+1, claim, updated_at: now};
+    const claimed: Receipt = {...r, revision: r.revision+1, claim, updated_at: now, retry_attempts:Math.min((r.retry_attempts??0)+1,3), next_retry_at:null};
     if (!await this.store.compareAndSet(r, claimed)) return false;
     r = claimed;
     const assertClaim = async () => {
@@ -95,26 +100,74 @@ export class JsonIntakeService {
     const virgin = attempt.state === 'received' && attempt.revision === 0 && attempt.last_event === null;
     if (!virgin && !ownsProjection(attempt)) throw new Error('Shared intake ownership conflict');
     if (attempt.state !== 'preparing') await project(attempt, 'preparing', null);
-    const assets: Receipt['assets'] = []; const issues: FieldIssue[] = [];
-    for (const [index,line] of r.adapted.canonical.lines.entries()) {
+    const assets: Receipt['assets'] = [...r.assets]; const issues: FieldIssue[] = budgetExhausted ? [{issue_id:`iss_${sha256(receiptId+':retry-exhausted').slice(0,24)}`,code:'ASSET_RETRY_EXHAUSTED',field:'lines',owner:'internal',retryable:false,message:'The asset processing retry budget is exhausted.',corrective_action:'Internal review is required before further processing.'}] : [];
+    const previews: NonNullable<Receipt['previews']> = [...(r.previews ?? [])];
+    const scope=stableJson([r.identity.customer_id,r.identity.integration_id]);
+    const checkpoint=async()=>{
+      await assertClaim();
+      const next:Receipt={...r!,revision:r!.revision+1,assets:[...assets],previews:[...previews],updated_at:this.now()};
+      if(!await this.store.compareAndSet(r!,next))throw new Error('Receipt claim lost');
+      r=next;
+    };
+    for (const [index,line] of (budgetExhausted?[]:r.adapted.canonical.lines).entries()) {
       const art = line.source_line.artwork;
       try {
         await assertClaim();
-        if (Date.parse(art.artwork_expires_at) <= Date.parse(this.now())) throw new AssetCheckError('ARTWORK_URL_EXPIRED');
-        const bytes = await transport.read(art.download_url);
+        const existing=assets.find(a=>a.external_line_id===line.source_line.external_line_id && a.sha256===art.artwork_sha256 && a.bytes===art.bytes);
+        let bytes:Buffer;
+        if(existing && transport.readRetained)bytes=await transport.readRetained(scope,existing.retained_ref);
+        else {
+          if (Date.parse(art.artwork_expires_at) <= Date.parse(this.now())) throw new AssetCheckError('ARTWORK_URL_EXPIRED');
+          bytes = await transport.read(art.download_url,{max_bytes:art.bytes,content_types:['application/pdf']});
+        }
         if (bytes.length > 25 * 1024 * 1024 || bytes.length !== art.bytes) throw new AssetCheckError('ARTWORK_SIZE_MISMATCH');
         if (sha256(bytes) !== art.artwork_sha256 || sha256(bytes) !== line.source_line.approval.artwork_sha256) throw new AssetCheckError('ARTWORK_CHECKSUM_MISMATCH');
         if (!bytes.subarray(0,5).equals(Buffer.from('%PDF-'))) throw new AssetCheckError('ARTWORK_SIGNATURE_INVALID');
         await assertClaim();
-        const retained_ref = await transport.retain(stableJson([r.identity.customer_id,r.identity.integration_id]), bytes);
-        assets.push({external_line_id: line.source_line.external_line_id, sha256: art.artwork_sha256, bytes: bytes.length, retained_ref, inspection: 'not_run'});
+        let asset=existing;
+        if(!asset){
+          const retained_ref=await transport.retain(scope,bytes);
+          asset={external_line_id:line.source_line.external_line_id,sha256:art.artwork_sha256,bytes:bytes.length,retained_ref,inspection:'not_run'};
+          const old=assets.findIndex(a=>a.external_line_id===asset!.external_line_id);
+          if(old>=0)assets[old]=asset;else assets.push(asset);
+          // Durable retained reference precedes inspection: recovery no longer depends on the source URL.
+          await checkpoint();
+        }
+        if(transport.inspect){
+          const cached=asset.inspection_result;
+          const profile=transport.inspection_profile;
+          const result=cached && profile && cached.sha256===asset.sha256 && cached.engine===profile.engine && cached.policy_id===profile.policy_id ? cached : await transport.inspect(bytes,line);
+          if(result.sha256!==asset.sha256 || (profile && (result.engine!==profile.engine || result.policy_id!==profile.policy_id)))throw new AssetCheckError('PDF_INSPECTION_BINDING_MISMATCH',false,'internal');
+          asset.inspection_result=result;asset.inspection=result.verdict==='pass'?'metadata_pass':'metadata_fail';
+          await checkpoint();
+          if(result.verdict!=='pass')throw new AssetCheckError(result.findings[0]??'PDF_INSPECTION_FAILED');
+        }
       } catch (e) {
         await assertClaim();
         const code = e instanceof AssetCheckError ? e.code : 'ASSET_TRANSPORT_FAILURE';
         issues.push({issue_id: `iss_${sha256(`${receiptId}:${line.source_line.external_line_id}:${code}`).slice(0,24)}`, code,
           field: `lines[${index}].artwork`, external_line_id: line.source_line.external_line_id,
-          owner: e instanceof AssetCheckError ? 'customer' : 'internal', message: 'Production artwork has not passed retention checks.',
-          corrective_action: e instanceof AssetCheckError ? 'Provide access to the unchanged approved PDF or request review of replacement content.' : 'Internal review or retry is required.'});
+          owner: e instanceof AssetCheckError ? e.owner : 'internal', retryable:e instanceof AssetCheckError ? e.retryable : true,
+          message: 'Production artwork has not passed retention or metadata checks.',
+          corrective_action: e instanceof AssetCheckError && e.owner==='customer' ? 'Provide access to the unchanged approved PDF or request review of replacement content.' : 'Internal review or bounded retry is required.'});
+      }
+      // Optional reference preview is separate from the approved production original and cannot block it.
+      if(transport.kind==='review-assets' && line.source_line.preview){
+        const preview=line.source_line.preview;
+        const prior=previews.find(p=>p.external_line_id===line.source_line.external_line_id);
+        if(prior?.status==='retained')continue;
+        let outcome:NonNullable<Receipt['previews']>[number];
+        try{
+          await assertClaim();
+          if(Date.parse(preview.expires_at)<=Date.parse(this.now()))throw new AssetCheckError('PREVIEW_URL_EXPIRED');
+          const format=preview.format==='png'?'png':'jpg';
+          const bytes=await transport.read(preview.url,{max_bytes:5*1024*1024,content_types:[format==='png'?'image/png':'image/jpeg']});
+          if(bytes.length>5*1024*1024 || (format==='png'?!bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])):!(bytes[0]===255&&bytes[1]===216&&bytes[2]===255)))throw new AssetCheckError('PREVIEW_SIGNATURE_INVALID');
+          await assertClaim();
+          outcome={external_line_id:line.source_line.external_line_id,status:'retained',sha256:sha256(bytes),bytes:bytes.length,retained_ref:await transport.retain(scope,bytes,format)};
+        }catch(e){await assertClaim();outcome={external_line_id:line.source_line.external_line_id,status:'unavailable',code:e instanceof AssetCheckError?e.code:'PREVIEW_UNAVAILABLE'};}
+        const index=previews.findIndex(p=>p.external_line_id===outcome.external_line_id);if(index<0)previews.push(outcome);else previews[index]=outcome;
+        await checkpoint();
       }
     }
     await assertClaim();
@@ -129,8 +182,11 @@ export class JsonIntakeService {
     const finalAttempt = await this.ledger.get(r.identity.customer_id, intakeAttemptId(r.signal));
     if (!finalAttempt || !ownsProjection(finalAttempt)) throw new Error('Shared intake ownership conflict');
     assertAssociation(finalAttempt);
+    const attempts=r.retry_attempts??1;
+    const retry=issues.some(i=>i.retryable) && attempts<3;
     const complete: Receipt = {...r, revision: r.revision + 1, claim: null, updated_at: this.now(),
-      work: internal ? 'pending' : 'complete', assets, issues,
+      work: retry ? 'pending' : 'complete', assets, previews, issues, retry_attempts:attempts,
+      next_retry_at:retry?after(this.now(),60_000 * attempts):null,
       asset_status: issues.length ? internal ? 'internal_action_required' : 'action_required' : 'integrity_verified'};
     if (!await this.store.compareAndSet(r, complete)) throw new Error('Receipt claim lost');
     return true;
@@ -150,6 +206,9 @@ export function statusResponse(r: Receipt) {
     asset_status: r.asset_status, review_required: true, production_status: null, fulfillment_status: null, lift_order_number: null,
     received_at: r.received_at, updated_at: r.updated_at, issues: r.issues,
     lines: r.adapted.canonical.lines.map(l => ({external_line_id:l.source_line.external_line_id, ordered_quantity:l.quantity,
-      retained: r.assets.some(a => a.external_line_id === l.source_line.external_line_id), inspection: 'not_run'})),
+      retained: r.assets.some(a => a.external_line_id === l.source_line.external_line_id), inspection: r.assets.find(a=>a.external_line_id===l.source_line.external_line_id)?.inspection??'not_run',
+      inspection_details:r.assets.find(a=>a.external_line_id===l.source_line.external_line_id)?.inspection_result??null,
+      inspection_findings:r.assets.find(a=>a.external_line_id===l.source_line.external_line_id)?.inspection_result?.findings??[],
+      preview_status:r.previews?.find(p=>p.external_line_id===l.source_line.external_line_id)?.status??'not_run'})),
     shipments: [], status_page: null};
 }

@@ -60,3 +60,9 @@ At kickoff: share scope, default-disabled posture, expected overlaps and owner t
 Before shared-file work: identify precise contract/files and proposed compatibility strategy.
 Before release: candidate/merge SHA, intervening changes reviewed, gates/config diff, tests, affected deployments, current service baselines, smoke/rollback plan.
 After release: workflow/artifact evidence, observed existing-customer behavior, test integration result, remaining limits and live flag posture.
+
+## Open asset-slice gates (local implementation, September 28)
+
+The isolated PDF inspector is explicitly local-only and refuses Lambda construction. Before merge/release of a runtime integration, complete dependency security/advisory review (including upstream pdf-lib issue 1773), licensed worker packaging with actual packaged-runtime tests, and process-level parser resource/security containment. The full repository npm audit was rejected by automatic approval review because it could disclose private dependency names; do not bypass that boundary or claim a clean audit. Public-source research and bounded worker tests are partial evidence only. See ASSET_REVIEW.md for exact scope, URLs, licenses and limitations.
+
+The 0.001-inch comparison policy is provisional/local. Named resource declarations do not prove a painted cut contour; metadata pass is not manufacturing, malware, color-policy or Proof approval. Obtain production policy decisions and complete structural/content validation appropriate to the activated route before any production release. The router remains unmounted/default-disabled/test-only, no customer URLs have been fetched, and all existing release gates still apply.

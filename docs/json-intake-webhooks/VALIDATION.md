@@ -1,3 +1,25 @@
+# Asset-slice validation — 2026-09-28
+
+This section records the next local slice on top of `38daa0cc683073e7aa352059458bca7a1e48a010`. Refreshed origin/main remains `14ff397b9b1bc317d9c22cb6023b95ba2360a5f7`; no intervening main changes. Branch remains `codex/json-intake-foundation`. Scope/limitations and exact dependency sources are in [ASSET_REVIEW.md](ASSET_REVIEW.md).
+
+| Check | Result |
+| --- | --- |
+| New `json-intake-assets.test.ts` | 18 passed. Covers URL/host/private IP/DNS/redirect checks; actual Node request pinning/TLS options/remote socket guard via injected socket; streamed bounds, DNS/body deadlines and safe errors; compressed/uncompressed PDFs; malformed/truncated/encrypted/multipage/invalid boxes/UserUnit/rotation; nested Form/DeviceN and catalog-only/unused resources; provisional geometry tolerance; real worker termination and compressed object-stream allocation guard; checkpoint recovery; separate previews; concurrent/crashed/exhausted retry budget. |
+| Existing `json-intake.test.ts` | All 16 continue passing; internal transient test now advances the clock for explicit backoff. |
+| `npm run test --workspace @pathfinder/api` | 641 tests passed, zero failures/skips. |
+| `npm run check` | All workspace type checks passed. |
+| `npm run package:api-lambda` | Existing API package built. Artifact inspection confirms this unmounted JSON/worker code is not included. **Not a packaged-runtime validation of the new inspector.** Local worker refuses Lambda until that separate integration is reviewed. |
+| Private four-reference review | All four unchanged local PDFs passed checksum/approval binding, single-page box comparison, named page/Form spot/layer presence using explicit local 0.001-inch policy. No network fetch; no PDF rewritten; no manufacturing or malware approval claimed. |
+| Manifest/lock | Only pinned pdf-lib 1.17.1 and its dependency closure added; existing dependency versions unchanged. Public license metadata recorded in ASSET_REVIEW.md. |
+| Dependency advisory review | Partial public-name-only research recorded, including upstream issue 1773 and reachability limits. Full repository npm audit was blocked by automatic approval review over private dependency metadata disclosure and was not bypassed. Security clearance remains open. |
+| Diff/privacy | `git diff --check` passed; source-safe allowlist excludes handoff/artwork/runtime/output artifacts. |
+
+No push, merge, deployment, customer network calls, production data/config/credential changes or external order/notification writes. No shared Proof/artwork inspection/ledger/runtime/deployment file changes. Local receipt additions are optional fields; previous foundation snapshots remain readable and explicitly retain `inspection: not_run`. A legacy reader can load JSON but will not enforce the new retry budget/inspection behavior: do not run older workers over these local receipts. This is not a production schema migration or rollback certification.
+
+Open gates: full dependency/security review, process-level parser containment, actual worker artifact/notice/dependency packaging and packaged-runtime tests, approved metadata/color/cut policy, authenticated production store/caller config, actual host allowlist, customer/Lift mapping, and existing release smoke/browser/deploy compatibility matrix. No code here enables production.
+
+---
+
 # Local validation record — 2026-09-28
 
 Baseline and refreshed origin/main: `14ff397b9b1bc317d9c22cb6023b95ba2360a5f7`. Branch: `codex/json-intake-foundation`. The accompanying foundation commit is the local candidate; record an exact release/merge SHA separately if later proposed for release.

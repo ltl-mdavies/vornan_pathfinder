@@ -9,7 +9,7 @@ export interface IntegrationIdentity {
 }
 export interface FieldIssue {
   issue_id: string; code: string; field: string; external_line_id?: string;
-  message: string; corrective_action: string; owner: IntakeOwner;
+  message: string; corrective_action: string; owner: IntakeOwner; retryable?: boolean;
 }
 export class IntakeError extends Error {
   constructor(public status: number, public code: string, public issues: FieldIssue[] = []) { super(code); }

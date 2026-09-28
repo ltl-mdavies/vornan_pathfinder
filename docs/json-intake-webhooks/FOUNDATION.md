@@ -1,5 +1,7 @@
 # JSON intake local foundation
 
+This document records the initial foundation at commit `38daa0c`; [ASSET_REVIEW.md](ASSET_REVIEW.md) describes the subsequent retained-asset slice and its updated behavior.
+
 This is the review-only foundation of a reusable intake module. The initial adapter is `stickerpress.order.v1`. It is not a deployed endpoint, customer activation, or production release candidate.
 
 ## Baseline and transfer
