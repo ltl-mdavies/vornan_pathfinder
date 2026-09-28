@@ -40,7 +40,7 @@ Verify Silicon Pasture numeric customer, import/export fields, actual product/ma
 
 ## Slice 5b — launch shipping callbacks
 
-Andy now requires `shipment.updated` and `order.shipped` at launch. See [PARTNER_LAUNCH_UPDATE.md](PARTNER_LAUNCH_UPDATE.md) for the reported receiver acceptance, existing draft semantics, prepaid-label tracking requirements and sandbox credential handoff. Implement source-backed package updates and full-order completeness before launch; preserve the accepted signing/envelope/retry contract. These events are not implemented by the existing three-event local producer.
+Andy now requires `shipment.updated` and `order.shipped` at launch. See [PARTNER_LAUNCH_UPDATE.md](PARTNER_LAUNCH_UPDATE.md) for the reported receiver acceptance, existing draft semantics, prepaid-label tracking requirements and sandbox credential handoff. The local receipt/outbox extension is implemented in [SHIPPING_CALLBACKS.md](SHIPPING_CALLBACKS.md), preserving the accepted signing/envelope/retry contract. Authoritative source adapters, dispatch policy, production bindings and activation remain open. Prepaid labels initially use a reviewed order attachment with a separate auditable dispatch procedure; no automatic shipping inference from label upload.
 
 ## Slice 6 — deployment and activation
 

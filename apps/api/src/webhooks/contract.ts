@@ -3,7 +3,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 export interface WebhookScope { customer_id:string; integration_id:string; store:string; environment:'test' }
 export const digest=(value:string|Buffer)=>createHash('sha256').update(value).digest('hex');
 export const scopeKey=(scope:WebhookScope)=>JSON.stringify([scope.customer_id,scope.integration_id,scope.store,scope.environment]);
-export type EventType='order.received'|'order.action_required'|'order.confirmed';
+export type EventType='order.received'|'order.action_required'|'order.confirmed'|'shipment.updated'|'order.shipped';
 export interface EventEnvelope {
   schema_version:'pathfinder.webhook.v1'; event_id:string; event_type:EventType; environment:'test';
   receipt_id:string; order_number:string; store:string; lift_order_number:string|null;

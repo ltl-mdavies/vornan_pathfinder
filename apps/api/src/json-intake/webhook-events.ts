@@ -4,6 +4,7 @@ import { webhookStatus,type LocalEndpoint } from '../webhooks/dispatch.js';
 import { intakeAttemptId,validatePersistedIntakeAttempt,type IntakeLedger } from '../intake-assurance.js';
 import { stableJson } from './adapter.js';
 import type { Receipt,ReceiptStore } from './local-store.js';
+import { projectShipping, shippingEvents } from './shipping-events.js';
 export interface ReceiptHistory { history():AsyncIterable<Receipt> }
 export const webhookScope=(r:Receipt):WebhookScope=>({customer_id:r.identity.customer_id,integration_id:r.identity.integration_id,store:r.identity.store,environment:r.identity.environment});
 const corrections:Record<string,string>={
@@ -35,6 +36,7 @@ export function actionableIssues(r:Receipt){
 /** Scan immutable commits; deterministic inserts are the cursor. Crash/restart can safely replay the full local journal. */
 export async function materializeReceiptEvents(history:ReceiptHistory,outbox:WebhookOutbox,endpoint:LocalEndpoint){
   const prior=new Map<string,string>(),confirmed=new Set<string>();
+  const priorShipping=new Map<string,ReturnType<typeof projectShipping>>();
   for await(const r of history.history()){
     if(scopeKey(webhookScope(r))!==scopeKey(endpoint.scope))continue;
     const base={receipt_id:r.receipt_id,order_number:r.adapted.canonical.source.source_record_id,lift_order_number:null,
@@ -49,12 +51,25 @@ export async function materializeReceiptEvents(history:ReceiptHistory,outbox:Web
     if(r.confirmation&&!confirmed.has(r.receipt_id)){await outbox.enqueue(committedEvent(webhookScope(r),`${r.receipt_id}:confirmed:${r.confirmation.evidence_sha256}:v1`,{
       ...base,occurred_at:r.confirmation.confirmed_at,event_type:'order.confirmed',lift_order_number:r.confirmation.order_number,
       data:{intake_status:'confirmed',confirmed_at:r.confirmation.confirmed_at,status_page_url:null,status_page_expires_at:null}}),binding);confirmed.add(r.receipt_id);}
+    if(r.shipping_review)priorShipping.delete(r.receipt_id);
+    else if(r.shipping){
+      for(const event of shippingEvents(r,priorShipping.get(r.receipt_id)))await outbox.enqueue(event,binding);
+      priorShipping.set(r.receipt_id,projectShipping(r));
+    }
   }
 }
 export function currentReceiptEvent(store:ReceiptStore){return async(event:CommittedWebhookEvent)=>{
   const r=await store.get(event.envelope.receipt_id);if(!r || scopeKey(webhookScope(r))!==scopeKey(event.scope))return false;
   if(event.envelope.event_type==='order.action_required')return stableJson(actionableIssues(r))===stableJson(event.envelope.data.issues);
   if(event.envelope.event_type==='order.confirmed')return r.confirmation?.order_number===event.envelope.lift_order_number;
+  if(event.envelope.event_type==='shipment.updated'||event.envelope.event_type==='order.shipped'){
+    if(r.shipping_review || !r.shipping?.complete || r.confirmation?.order_number!==event.envelope.lift_order_number)return false;
+    const current=projectShipping(r);
+    if(event.envelope.event_type==='order.shipped')return current.all_items_shipped && stableJson(current)===stableJson(event.envelope.data);
+    const shipment=event.envelope.data.shipment as {shipment_id?:string}|undefined;
+    return current.fulfillment_status===event.envelope.data.fulfillment_status &&
+      current.shipments.some(s=>s.shipment_id===shipment?.shipment_id && stableJson(s)===stableJson(shipment));
+  }
   return true;
 };}
 /** Narrow read-only projection from authoritative job, submit and verified-association records; no live binding is installed. */

@@ -6,7 +6,7 @@ Marcus shared Andy's email accepting the sent draft and reporting successful loc
 
 Andy explicitly requires `shipment.updated` and `order.shipped` at launch because LTL will initially purchase labels and his customers need tracking. Promote these existing draft event shapes from follow-up scope into launch acceptance. Hold/resume/cancellation remain deferred. No envelope, X-Pathfinder header, HMAC, revision or retry change is requested.
 
-The local event producer currently supports only `order.received`, `order.action_required` and `order.confirmed`. Shipping implementation, authoritative source mapping and end-to-end verification remain open; this document does not claim activation.
+The local event producer now has a shipping extension alongside `order.received`, `order.action_required` and `order.confirmed`; see [SHIPPING_CALLBACKS.md](SHIPPING_CALLBACKS.md). Authoritative shipping source mapping, production bindings and end-to-end verification remain open; this document does not claim activation.
 
 Required next shipping work:
 

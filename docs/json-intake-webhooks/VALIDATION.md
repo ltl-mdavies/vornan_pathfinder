@@ -1,3 +1,14 @@
+# Local shipping event slice — 2026-09-28
+
+Added trusted shipping snapshot capture into receipt CAS history and materialization of shipment.updated/order.shipped through the existing local signed outbox. Source scope, confirmation binding, revisions, complete snapshots, explicit dispatch evidence and exact bounded quantities are validated. Prepaid attachments/pending labels never establish dispatch. Unsupported reversals and incomplete/conflicting/drifting observations create an internal review hold that blocks new and pending shipping events. No live report adapter, attachment publisher or review-resolution endpoint is installed.
+
+- 679 API tests passed; all workspace type checks passed.
+- 22 focused webhook cases passed (eight new shipping cases): full seven-package and partial scenarios, 2/1/1 confirmed-partial shape, exact 0.5+0.5 allocation, pending prepaid labels, identity/quantity rejection, timestamps, CAS races, interrupted materialization/restart, signature compatibility, tracking correction, stale-event suppression and review holds.
+- Existing signing fixture/envelope/retry rules preserved. Tests use synthetic source data and local loopback receivers only; the real example orders did not generate events.
+- No dependencies, server/store runtime bindings, customer routes/configuration, partner contract edits, live requests, label purchases, attachment publication, push or deployment. Browser and Lambda packaging checks were not repeated for this isolated local backend slice. Production persistence/source freshness/correction resolution and sanctioned end-to-end verification remain open.
+
+---
+
 # Approved-shape export preparation — 2026-09-28
 
 Added a pure, explicitly selected e-commerce preparation helper and connected the local JSON preview to the Draft's inherited scalar order mappings. Target date format is an optional trusted mapping setting. Invalid dates fail before a target format is chosen; valid dates are formatted only when configured. Date preparation preserves nested null pricing/live-dimension placeholders. Mapping and preview fingerprints include the format selection; submission remains unconditionally disabled.

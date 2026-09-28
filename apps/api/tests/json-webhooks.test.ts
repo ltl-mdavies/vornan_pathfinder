@@ -24,7 +24,7 @@ const event=()=>committedEvent(scope,'synthetic-order-received:v1',{event_type:'
 const binding=(e=endpoint)=>({id:e.id,revision:e.revision,url:e.url});
 async function harness(t:any){const root=await mkdtemp(join(tmpdir(),'json-webhooks-'));t.after(()=>rm(root,{recursive:true,force:true}));const outbox=new LocalWebhookOutbox(root);let time=start;const deps:DispatchDependencies={outbox,transport:{kind:'loopback-test',send:async()=>({status:204})},secret:async()=>secret,now:()=>time};return{root,outbox,deps,setTime:(t:string)=>time=t};}
 function ledger(){const rows=new Map<string,IntakeAttempt>();const api:IntakeLedger={async reserve(s,d){const a=createIntakeAttempt(s,d),old=rows.get(a.attempt_id);if(!old)rows.set(a.attempt_id,a);return{attempt:old??a,created:!old};},async get(c,id){const a=rows.get(id);return a?.signal.customer_id===c?a:null;},async transition(c,id,e){const a=rows.get(id)!;assert.equal(a.signal.customer_id,c);const n=transitionIntake(a,e);rows.set(id,n);return n;}};return{api,rows};}
-async function receiptHarness(t:any){const h=await harness(t),store=new LocalReceiptStore(h.root),l=ledger();const service=new JsonIntakeService(store,l.api,[stickerPressV1],()=>start);const p=JSON.parse(await readFile(new URL('./fixtures/json-intake/sample-factory-test.json',import.meta.url),'utf8'));const {receipt}=await service.receive({...scope,customer_name:'Synthetic',schema:'stickerpress.order.v1'},p,Buffer.from(JSON.stringify(p)));return{...h,store,l,service,receipt,p};}
+async function receiptHarness(t:any, mutate:(p:any)=>void=()=>{}){const h=await harness(t),store=new LocalReceiptStore(h.root),l=ledger();const service=new JsonIntakeService(store,l.api,[stickerPressV1],()=>start);const p=JSON.parse(await readFile(new URL('./fixtures/json-intake/sample-factory-test.json',import.meta.url),'utf8'));mutate(p);const {receipt}=await service.receive({...scope,customer_name:'Synthetic',schema:'stickerpress.order.v1'},p,Buffer.from(JSON.stringify(p)));return{...h,store,l,service,receipt,p};}
 
 // Exact previously sent synthetic vector copied as literals; the private sent draft remains untouched.
 const vectorBody=Buffer.from('{"schema_version":"pathfinder.webhook.v1","event_id":"evt_example_received_001","event_type":"order.received","environment":"test","receipt_id":"rcpt_example_factory_001","order_number":"SAMPLE-FACTORY-TEST","store":"ltlco","lift_order_number":null,"occurred_at":"2026-09-28T12:00:00.000Z","order_revision":1,"data":{"intake_status":"received","line_count":4,"status_url":"https://example.com/api/v1/intake/orders/rcpt_example_factory_001"}}');
@@ -179,4 +179,124 @@ test('authenticated status checks receipt ownership before loading webhook histo
   assert.equal(response.status,200);assert.equal(response.headers['cache-control'],'private, no-store');assert.equal(reads,1);
   assert.equal(response.body.webhooks.deliveries.length,1);assert.equal(response.body.order_revision,1);
   assert.ok(!JSON.stringify(response.body).includes('127.0.0.1'));
+});
+
+// Shipping uses the same receipt revision/outbox/signature contract as intake events.
+import { captureShippingSnapshot, projectShipping, shippingEvents, type ShippingSnapshot } from '../src/json-intake/shipping-events.js';
+async function shippingHarness(t:any, quantities?:number[]) {
+  const h=await receiptHarness(t,p=>{
+    if(quantities)p.lines=p.lines.slice(0,quantities.length).map((line:any,i:number)=>({...line,quantity:quantities[i],area_sq_in:Number((line.print_w_in*line.print_h_in*quantities[i]).toFixed(2))}));
+  });
+  const receipt={...h.receipt,revision:h.receipt.revision+1,confirmation:{job_id:'synthetic-job',submit_attempt_id:'synthetic-submit',order_number:'A0000001',confirmed_at:start,intake_revision:1,evidence_sha256:'a'.repeat(64)}};
+  assert.equal(await h.store.compareAndSet(h.receipt,receipt),true);
+  const snapshot:ShippingSnapshot={scope,receipt_id:receipt.receipt_id,lift_order_number:'A0000001',confirmation_sha256:'a'.repeat(64),source_revision:1,observed_at:start,complete:true,packages:[]};
+  const pkg=(index:number,amount=receipt.adapted.canonical.lines[index].quantity,id=`package-${index}`):ShippingSnapshot['packages'][number]=>({
+    package_id:id,package_number:index+1,carrier:'Synthetic Carrier',service:'Synthetic Ground',tracking_number:`SYNTHETIC-${id}`,
+    label_source:'purchased',status:'shipped',dispatch_evidence:'synthetic-dispatch-record',shipped_at:start,delivered_at:null,source_updated_at:start,
+    lines:[{external_line_id:receipt.adapted.canonical.lines[index].source_line.external_line_id,quantity:amount}]
+  });
+  return {...h,receipt,snapshot,pkg};
+}
+test('shipping distinguishes partial dispatch from attached prepaid labels and complete seven-package shipment',async t=>{
+  const h=await shippingHarness(t),s=h.snapshot;
+  s.packages=[h.pkg(1),h.pkg(2),{...h.pkg(0),label_source:'customer_prepaid',status:'pending',dispatch_evidence:null,shipped_at:null}];
+  (s as any).prepaid_label_url='https://private.invalid/label?secret=1';
+  let r={...h.receipt,shipping:s},p=projectShipping(r);
+  assert.equal(p.fulfillment_status,'partially_shipped');assert.equal(p.all_items_shipped,false);assert.equal(p.shipments.length,2);
+  assert.deepEqual(shippingEvents(r).map(e=>e.envelope.event_type),['shipment.updated','shipment.updated']);
+  assert.ok(!JSON.stringify(shippingEvents(r)).includes('private.invalid'));
+  s.packages=[h.pkg(0,25,'a'),h.pkg(0,25,'b'),h.pkg(1,25,'c'),h.pkg(1,25,'d'),h.pkg(2,25,'e'),h.pkg(2,25,'f'),h.pkg(3,50,'g')];
+  p=projectShipping(r);assert.equal(p.all_items_shipped,true);assert.equal(p.shipments.length,7);
+  assert.equal(shippingEvents(r).filter(e=>e.envelope.event_type==='order.shipped').length,1);
+  assert.equal(shippingEvents(r,p).length,0);
+  s.complete=false;assert.equal(projectShipping(r).all_items_shipped,false);assert.equal(shippingEvents(r).length,0);
+});
+test('fractional package allocations remain exact and unknown dispatch times stay null',async t=>{
+  const h=await shippingHarness(t);h.snapshot.packages=[h.pkg(0,0.5,'first'),h.pkg(0,49.5,'rest'),h.pkg(1),h.pkg(2),h.pkg(3)];
+  h.snapshot.packages[0].shipped_at=null;
+  const p=projectShipping(h.receipt,h.snapshot);assert.equal(p.all_items_shipped,true);
+  assert.equal(p.shipments.find(s=>s.tracking_number==='SYNTHETIC-first')?.shipped_at,null);
+  h.snapshot.packages[0].shipped_at='2026-09-28';assert.throws(()=>projectShipping(h.receipt,h.snapshot),/timestamp/);
+});
+test('shipping rejects cross-scope, wrong association, unknown lines, duplicate packages and invalid allocations',async t=>{
+  const h=await shippingHarness(t);h.snapshot.packages=[h.pkg(0)];
+  for(const edit of [
+    (s:ShippingSnapshot)=>s.scope={...scope,customer_id:'other'},
+    (s:ShippingSnapshot)=>s.confirmation_sha256='b'.repeat(64),
+    (s:ShippingSnapshot)=>s.lift_order_number='A0000002',
+    (s:ShippingSnapshot)=>s.receipt_id='other',
+    (s:ShippingSnapshot)=>s.packages.push(structuredClone(s.packages[0])),
+    (s:ShippingSnapshot)=>s.packages[0].lines[0].external_line_id='other',
+    (s:ShippingSnapshot)=>s.packages[0].lines[0].quantity=51,
+    (s:ShippingSnapshot)=>s.packages[0].lines[0].quantity=-1,
+    (s:ShippingSnapshot)=>s.packages[0].dispatch_evidence=null,
+    (s:ShippingSnapshot)=>s.packages[0].status='pending'
+  ]){const s=structuredClone(h.snapshot);edit(s);assert.throws(()=>projectShipping(h.receipt,s));}
+  assert.throws(()=>projectShipping({...h.receipt,confirmation:undefined},h.snapshot),/binding/);
+});
+test('shipping capture survives restart, replays idempotently, and uses the accepted signing contract',async t=>{
+  const h=await shippingHarness(t);h.snapshot.packages=[h.pkg(0),h.pkg(1),h.pkg(2),h.pkg(3)];
+  const first=await captureShippingSnapshot(h.store,h.receipt.receipt_id,async()=>h.snapshot);
+  const second=await captureShippingSnapshot(new LocalReceiptStore(h.root),h.receipt.receipt_id,async()=>h.snapshot);
+  assert.equal(first.revision,second.revision);
+  await materializeReceiptEvents(h.store,h.outbox,endpoint);
+  await materializeReceiptEvents(new LocalReceiptStore(h.root),new LocalWebhookOutbox(h.root),endpoint);
+  const rows=[];for await(const row of h.outbox.list(scope))rows.push(row);
+  const shipping=rows.filter(r=>['shipment.updated','order.shipped'].includes(r.event.envelope.event_type));
+  assert.equal(shipping.length,5);
+  for(const row of shipping){
+    const headers=deliveryHeaders(row.event,'test-key',secret,'1790596800',1);
+    const lower=Object.fromEntries(Object.entries(headers).map(([k,v])=>[k.toLowerCase(),v]));
+    assert.deepEqual(verifyDelivery(Buffer.from(row.event.body),lower,new Map([['test-key',secret]]),1790596800,scope.store),row.event.envelope);
+    assert.equal(await currentReceiptEvent(h.store)(row.event),true);
+    assert.equal(row.event.envelope.order_revision,first.revision+1);
+  }
+});
+test('shipping correction preserves package identity, invalidates stale pending events and never reuses changed revision',async t=>{
+  const h=await shippingHarness(t);h.snapshot.packages=[h.pkg(1)];
+  const first=await captureShippingSnapshot(h.store,h.receipt.receipt_id,async()=>h.snapshot),old=shippingEvents(first)[0];
+  const correction=structuredClone(h.snapshot);correction.source_revision=2;correction.packages[0].tracking_number='SYNTHETIC-CORRECTED';
+  const next=await captureShippingSnapshot(h.store,h.receipt.receipt_id,async()=>correction),event=shippingEvents(next,projectShipping(first))[0];
+  assert.equal((event.envelope.data.shipment as any).shipment_id,(old.envelope.data.shipment as any).shipment_id);
+  assert.notEqual(event.envelope.event_id,old.envelope.event_id);
+  assert.equal(await currentReceiptEvent(h.store)(old),false);assert.equal(await currentReceiptEvent(h.store)(event),true);
+  await assert.rejects(captureShippingSnapshot(h.store,h.receipt.receipt_id,async()=>h.snapshot),/Stale/);
+  correction.packages[0].tracking_number='CHANGED-SAME-REVISION';
+  await assert.rejects(captureShippingSnapshot(h.store,h.receipt.receipt_id,async()=>correction),/revision conflict/);
+});
+test('incomplete, drifting and reversed shipping evidence cannot overwrite a committed snapshot',async t=>{
+  const h=await shippingHarness(t);h.snapshot.packages=[h.pkg(0)];
+  const first=await captureShippingSnapshot(h.store,h.receipt.receipt_id,async()=>h.snapshot);
+  const next={...structuredClone(h.snapshot),source_revision:2};next.complete=false;
+  await assert.rejects(captureShippingSnapshot(h.store,h.receipt.receipt_id,async()=>next),/Incomplete/);
+  next.complete=true;next.packages=[];
+  await assert.rejects(captureShippingSnapshot(h.store,h.receipt.receipt_id,async()=>next),/reversal/);
+  next.packages=[h.pkg(0)];let reads=0;
+  await assert.rejects(captureShippingSnapshot(h.store,h.receipt.receipt_id,async()=>({...next,source_revision:++reads+1})),/changed/);
+  const held=await h.store.get(h.receipt.receipt_id);
+  assert.deepEqual(held?.shipping,first.shipping);assert.equal(held?.shipping_review?.code,'DRIFT');
+  assert.equal(shippingEvents(held!).length,0);
+  assert.equal(await currentReceiptEvent(h.store)(shippingEvents(first)[0]),false);
+});
+test('verified partial shape 2/1/1 and fractional 0.5+0.5 retain exact outstanding quantities',async t=>{
+  const h=await shippingHarness(t,[2,1,1]);h.snapshot.packages=[h.pkg(1),h.pkg(2)];
+  assert.equal(projectShipping(h.receipt,h.snapshot).all_items_shipped,false);
+  const complete=await shippingHarness(t,[1,1,1]);complete.snapshot.packages=[complete.pkg(0,0.5,'a'),complete.pkg(0,0.5,'b'),complete.pkg(1),complete.pkg(2)];
+  assert.equal(projectShipping(complete.receipt,complete.snapshot).all_items_shipped,true);
+});
+test('shipping CAS races and interrupted materialization recover without duplicate events',async t=>{
+  const h=await shippingHarness(t);h.snapshot.packages=[h.pkg(1),h.pkg(2)];
+  const attempts=await Promise.allSettled(Array.from({length:3},()=>captureShippingSnapshot(h.store,h.receipt.receipt_id,async()=>h.snapshot)));
+  assert.ok(attempts.some(r=>r.status==='fulfilled'));
+  const saved=await h.store.get(h.receipt.receipt_id);assert.equal(saved?.revision,h.receipt.revision+1);
+  let count=0;
+  const interrupted={get:h.outbox.get.bind(h.outbox),cas:h.outbox.cas.bind(h.outbox),list:h.outbox.list.bind(h.outbox),enqueue:async(...args:Parameters<LocalWebhookOutbox['enqueue']>)=>{
+    if(++count===4)throw new Error('synthetic crash');return h.outbox.enqueue(...args);
+  }};
+  await assert.rejects(materializeReceiptEvents(h.store,interrupted,endpoint),/synthetic crash/);
+  await materializeReceiptEvents(new LocalReceiptStore(h.root),new LocalWebhookOutbox(h.root),endpoint);
+  await materializeReceiptEvents(h.store,h.outbox,endpoint);
+  const rows=[];for await(const row of h.outbox.list(scope))rows.push(row);
+  assert.equal(rows.filter(r=>r.event.envelope.event_type==='shipment.updated').length,2);
+  assert.equal(rows.filter(r=>r.event.envelope.event_type==='order.shipped').length,0);
 });
