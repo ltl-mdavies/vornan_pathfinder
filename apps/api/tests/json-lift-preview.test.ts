@@ -3,6 +3,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { stickerPressV1, sha256 } from '../src/json-intake/adapter.js';
 import { buildJsonLiftPreview, type LiftPreviewMapping, type LiftPreviewReceipt } from '../src/json-intake/lift-preview.js';
+import { generateLiftPayload, prepareLiftEcommercePayload, LIFT_ECOMMERCE_TEMPLATE_ID } from '@pathfinder/lift-adapter';
 
 const fixture = JSON.parse(await readFile(new URL('./fixtures/json-intake/sample-factory-test.json', import.meta.url), 'utf8'));
 const identity = {customer_id: 'synthetic', customer_name: 'Sticker Press', integration_id: 'synthetic-json', store: 'ltlco', environment: 'test' as const, schema: 'stickerpress.order.v1'};
@@ -89,4 +90,59 @@ test('retained evidence is line/hash/size bound and metadata flag alone cannot c
   assert.equal(p.evidence.lines[0].artwork.inspection_result,null);
   r.assets[0].sha256='0'.repeat(64);p=buildJsonLiftPreview(r,resolved(r));assert.equal(p.evidence.lines[0].artwork.approved_original_retained,false);
   assert.equal(p.evidence.lines[0].artwork.inspection_result,null);assert.equal(p.submission_allowed,false);
+});
+
+test('reviewed date format changes the candidate and review hash without removing empty nested fields',()=>{
+  const r=receipt();
+  r.adapted.canonical.order.ship_date='2026-12-01';
+  r.adapted.canonical.order.due_date='2026-12-03';
+  r.adapted.canonical.lines[0].pricing={item_base_price:null,customer_price:'0.10900'};
+  const m=resolved(r),before=structuredClone(r),unreviewed=buildJsonLiftPreview(r,m);
+  assert.equal(unreviewed.candidate.order.requested_ship_date,'2026-12-01');
+  assert.ok(unreviewed.gaps.some(g=>g.code==='TARGET_DATE_FORMAT_UNREVIEWED'));
+  m.order_date_format='MM/DD/YYYY';
+  const reviewed=buildJsonLiftPreview(r,m);
+  assert.equal(reviewed.candidate.order.requested_ship_date,'12/01/2026');
+  assert.equal(reviewed.candidate.order.due_date,'12/03/2026');
+  assert.deepEqual((reviewed.candidate.lines[0] as any).pricing,{item_base_price:null,customer_price:'0.10900'});
+  assert.equal(reviewed.candidate.lines[0].dimensions.live_width,null);
+  assert.equal((reviewed.candidate.order.pricing as any).total,null);
+  assert.ok(!reviewed.gaps.some(g=>g.code==='TARGET_DATE_FORMAT_UNREVIEWED'));
+  assert.notEqual(reviewed.preview_sha256,unreviewed.preview_sha256);
+  assert.notEqual(reviewed.mapping_sha256,unreviewed.mapping_sha256);
+  assert.equal(reviewed.submission_allowed,false);
+  assert.ok(reviewed.gaps.some(g=>g.code==='ARTWORK_DELIVERY_UNCONFIGURED'));
+  assert.deepEqual(r,before);
+});
+
+test('impossible dates remain blocking even before a target format is reviewed',()=>{
+  const r=receipt();r.adapted.canonical.order.due_date='2026-02-30';
+  for(const format of [undefined,'MM/DD/YYYY','YYYY-MM-DD'] as const) {
+    const m=resolved(r);m.order_date_format=format;
+    const p=buildJsonLiftPreview(r,m);
+    assert.equal(p.candidate.order.due_date,null);
+    assert.ok(p.gaps.some(g=>g.code==='LIFT-ORDER-DATE-FORMAT' && g.field==='order.due_date'));
+    assert.equal(p.submission_allowed,false);
+  }
+  const m=resolved(r);(m as any).order_date_format='DD/MM/YYYY';
+  assert.throws(()=>buildJsonLiftPreview(r,m),/Unsupported Lift order date format/);
+});
+
+test('export preparation honors inherited order mapping before formatting and preserves source evidence',()=>{
+  const source=receipt().adapted.canonical,canonical=structuredClone(source);
+  canonical.order.ship_date='2026-12-01';canonical.order.due_date='2026-12-03';
+  canonical.lines[0].production={material:'Reviewed substrate',laminate:'Reviewed laminate',cut_type:'Reviewed cut'};
+  const base=generateLiftPayload(canonical),before=structuredClone({canonical,source,base});
+  const input={template_id:LIFT_ECOMMERCE_TEMPLATE_ID,base,canonical,source,
+    order_mappings:[{sourceColumn:'body:order.requested_ship_date',targetField:'order.due_date'}],
+    order_date_format:'MM/DD/YYYY' as const};
+  const result=prepareLiftEcommercePayload(input);
+  assert.equal(result.payload.order.requested_ship_date,'12/03/2026');
+  assert.equal(result.payload.lines[0].production?.laminate,'Reviewed laminate');
+  assert.equal((result.payload.lines[0] as any).cut.type,'Reviewed cut');
+  assert.equal((result.payload.lines[0] as any).approval.artwork_sha256,undefined);
+  assert.deepEqual({canonical,source,base},before);
+  assert.throws(()=>prepareLiftEcommercePayload({...input,template_id:'template-lift-standard-graphics'}),/explicit template/);
+  const changed=structuredClone(source);changed.lines[0].source_line.approval.artwork_sha256='0'.repeat(64);
+  assert.throws(()=>prepareLiftEcommercePayload({...input,source:changed}),/Approved artwork/);
 });

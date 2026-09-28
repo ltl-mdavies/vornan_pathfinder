@@ -2,6 +2,10 @@
 
 Update: [ECOMMERCE_TEMPLATE.md](ECOMMERCE_TEMPLATE.md) adds the requested Lift E-commerce Orders Draft and explicit expanded projection to this local preview. The original release gates below remain open; production evidence now appears in both the proposed payload and the review packet, with target field acceptance still unverified.
 
+Marcus approved the combined payload shape on 2026-09-28. The local preview now calls `prepareLiftEcommercePayload` with the Draft's inherited order mappings. Preparation applies the existing scalar order mapping rules before the dedicated nested projection, validates requested ship/due dates, and runs existing Lift payload validation. Nested fields still use the explicit e-commerce field list; this is not an arbitrary template interpreter. No registration or production preview/submit caller is added.
+
+Trusted review mappings can optionally specify `order_date_format` (`MM/DD/YYYY` or `YYYY-MM-DD`). Without it, valid source dates retain their spelling and the target-format gap remains. A supplied format removes only that gap and participates in the mapping/preview fingerprints. Invalid dates produce `LIFT-ORDER-DATE-FORMAT` failures and null output, even without a selected target format. Only formatted date values are copied from the legacy formatter, preserving the approved nested null placeholders. Format selection does not clear document, customer, product, policy or submission gates.
+
 The pure `buildJsonLiftPreview` adapter reuses the existing shared `generateLiftPayload` and `validateLiftPayload` functions without changing them or the existing Momentara export path. The committed [sample packet](lift-preview.sample.json) is generated exclusively from the sanitized four-line fixture. It is a review artifact, not a request accepted by a submit route. `review_only: true` and `submission_allowed: false` are unconditional. The preview job/canonical IDs are labels, not persisted jobs. No target endpoint, credentials, HTTP request, order, document grant, submit attempt or confirmation is created.
 
 Reproduce the sample from the repository root:
@@ -27,11 +31,11 @@ The real Silicon Pasture numeric customer ID and Lift product/material translati
 | Area | Preserve supplied value, square-inch unit and bounding-box-times-quantity basis | Review Lift destination; never substitute contour area |
 | Order type, market, priority and creation date | Evidence beside candidate | Confirm export destinations before submission |
 | Blind shipping, sender name, supplier mode and prepaid precedence | Explicit shipping evidence, including false/null-derived presence flags | Verify facility return address, ground method and packing/label exception workflow |
-| Blank ship date | Remains absent in existing export and marked unresolved | Configure agreed turnaround; no date fabricated |
+| Blank ship date | Remains null in the e-commerce candidate and marked unresolved | Configure agreed turnaround; no date fabricated |
 | Prepaid label | Presence recorded; supplied-label precedence retained | Verify/retain/deliver label; never buy a replacement or reuse one label for multiple packages |
 | Preview image | Format/purpose, explicitly reference-only | No approval/publication implied |
 
-The candidate is intentionally incomplete: structured artwork, preview and label access URLs and local retained paths are excluded. Core source metadata and production evidence remain in the private receipt. Candidate nulls follow the existing Lift exporter's omission behavior; evidence retains meaningful booleans and source approval values. This is an internal review packet, not a public status response: notes, names and ship-to fields are still business data. Do not publish real-customer packets.
+The candidate is intentionally incomplete: structured artwork, preview and label access URLs and local retained paths are excluded. Core source metadata and production evidence remain in the private receipt. The e-commerce projection retains the agreed null placeholders, including unmapped prices and live dimensions; evidence retains meaningful booleans and source approval values. This is an internal review packet, not a public status response: notes, names and ship-to fields are still business data. Do not publish real-customer packets.
 
 The packet and mapping have deterministic SHA-256 review fingerprints. These are review identifiers, not production `SubmitIntegritySnapshot` approvals. Future job persistence, export registry visibility, document publication and reviewed-submit integrity must be integrated together; this new hash does not bypass the existing integrity checks.
 

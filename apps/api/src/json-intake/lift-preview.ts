@@ -1,4 +1,5 @@
-import { generateLiftPayload, validateLiftPayload, projectLiftEcommercePayload, LIFT_ECOMMERCE_TEMPLATE_ID } from '@pathfinder/lift-adapter';
+import { generateLiftPayload, prepareLiftEcommercePayload, LIFT_ECOMMERCE_TEMPLATE_ID, type LiftOrderDateFormat } from '@pathfinder/lift-adapter';
+import { createLiftEcommerceOutputTemplate, createSeedOutputTemplate } from '../lift-output-templates.js';
 import type { CanonicalJsonLine } from '@pathfinder/canonical';
 import { sha256, stableJson } from './adapter.js';
 import type { Receipt } from './local-store.js';
@@ -20,6 +21,7 @@ export interface LiftPreviewMapping {
   scope: WebhookScope;
   revision: string;
   review_reference: string;
+  order_date_format?: LiftOrderDateFormat;
   customer: { lift_customer_id: string; legal_name: 'Silicon Pasture' } | null;
   product_identifier: 'lift_unit_number' | 'lift_product_id';
   products: Array<{
@@ -120,15 +122,23 @@ export function buildJsonLiftPreview(receipt: LiftPreviewReceipt, mapping: LiftP
       preview: source.preview ? {format: source.preview.format, purpose: source.preview.purpose, reference_only: true} : null
     };
   });
-  const candidate = projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID, generateLiftPayload(canonical, {
-    jobId: 'job_preview_only', canonicalOrderId: 'co_preview_only', extIdStrategy: 'customer_order_id'
-  }), receipt.adapted.canonical);
+  const template = createLiftEcommerceOutputTemplate(createSeedOutputTemplate());
+  const {payload: candidate, validation} = prepareLiftEcommercePayload({
+    template_id: template.output_template_id,
+    base: generateLiftPayload(canonical, {
+      jobId: 'job_preview_only', canonicalOrderId: 'co_preview_only', extIdStrategy: 'customer_order_id'
+    }),
+    canonical,
+    source: receipt.adapted.canonical,
+    order_mappings: template.canonical_mappings,
+    order_date_format: mapping.order_date_format,
+    validation_options: {product_identifier_type: mapping.product_identifier}
+  });
   if (candidate.order.ext_id !== receipt.adapted.canonical.order.external_order_id) throw new Error('EXT_ID changed');
-  const validation = validateLiftPayload(candidate, {product_identifier_type: mapping.product_identifier});
   for (const finding of validation) if (finding.severity === 'FAIL') gap(finding.code, finding.field ?? '*');
   if (!canonical.order.ship_date) gap('TURNAROUND_POLICY_UNCONFIGURED', 'order.requested_ship_date');
   gap('SHIPPING_POLICY_UNREVIEWED', 'order.shipping');
-  gap('TARGET_DATE_FORMAT_UNREVIEWED', 'order.requested_ship_date');
+  if (!mapping.order_date_format) gap('TARGET_DATE_FORMAT_UNREVIEWED', 'order.requested_ship_date');
   if (canonical.order.shipping_policy.label_url) gap('PREPAID_LABEL_DELIVERY_UNCONFIGURED', 'order.shipping_policy.label_url');
   gap('ORDER_METADATA_DESTINATION_UNREVIEWED', 'order');
   const {label_url, ...shippingPolicy} = canonical.order.shipping_policy;

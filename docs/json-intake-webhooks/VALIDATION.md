@@ -1,3 +1,14 @@
+# Approved-shape export preparation — 2026-09-28
+
+Added a pure, explicitly selected e-commerce preparation helper and connected the local JSON preview to the Draft's inherited scalar order mappings. Target date format is an optional trusted mapping setting. Invalid dates fail before a target format is chosen; valid dates are formatted only when configured. Date preparation preserves nested null pricing/live-dimension placeholders. Mapping and preview fingerprints include the format selection; submission remains unconditionally disabled.
+
+- 671 API tests and 15 Lift adapter tests passed; all workspace type checks passed.
+- 16 focused tests passed, including inherited mapping before formatting, impossible-date blocking, source immutability, review fingerprint changes, null/precision preservation, explicit template selection and approval/checksum conflict rejection.
+- Regenerated the sanitized preview to a temporary file and compared it byte-for-byte with the committed sample: unchanged under unconfigured defaults.
+- No production caller, route/config/registry change, dependency, migration, live order, push or deployment. Browser and Lambda packaging checks were not repeated for this pure preparation change. Production transport still has legacy null-omission behavior and must be integrated explicitly before the e-commerce template is activated.
+
+---
+
 # Fixed measurement convention and line pricing — 2026-09-28
 
 Applied Marcus's confirmation that roll diameter is inches. Removed exported dimensions/area/roll/spacing unit tags, retaining internal source evidence. Omitted tags now use the explicit contract convention; supplied conflicting tags are rejected. Order pricing retains currency/totals/adjustments; line pricing is item_base_price/customer_price, both decimal per-item values with null when unmapped. No price calculations or legacy cost inference added.

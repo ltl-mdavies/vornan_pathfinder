@@ -34,6 +34,8 @@ Run against a local test receiver first. Need approved destination and test acti
 
 Local preview portion implemented; see [LIFT_PREVIEW.md](LIFT_PREVIEW.md). Actual customer/catalog verification, production evidence destinations, shipping policy, authoritative bindings and sanctioned target test remain open.
 
+Payload shape approved by Marcus on 2026-09-28. Local export preparation now applies inherited order mappings, validates/formats requested ship and due dates using an optional reviewed target format, and preserves the approved nested null fields. The production registry, route and reviewed-submit integration remain separate work.
+
 Verify Silicon Pasture numeric customer, import/export fields, actual product/material translations in Lift, production notes, spot/approval representation, and document delivery. Do not drop required production information because an export field is unknown. Use a reviewed export preview and sanctioned test route first. Reuse strict EXT_ID reconciliation after uncertain submission, never blind resubmit. One input order = one verified target association. Test confirmation callback/status link generation only after correct association.
 
 ## Slice 6 — deployment and activation
