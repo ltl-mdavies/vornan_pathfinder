@@ -38,9 +38,13 @@ Payload shape approved by Marcus on 2026-09-28. Local export preparation now app
 
 Verify Silicon Pasture numeric customer, import/export fields, actual product/material translations in Lift, production notes, spot/approval representation, and document delivery. Do not drop required production information because an export field is unknown. Use a reviewed export preview and sanctioned test route first. Reuse strict EXT_ID reconciliation after uncertain submission, never blind resubmit. One input order = one verified target association. Test confirmation callback/status link generation only after correct association.
 
+## Slice 5b — launch shipping callbacks
+
+Andy now requires `shipment.updated` and `order.shipped` at launch. See [PARTNER_LAUNCH_UPDATE.md](PARTNER_LAUNCH_UPDATE.md) for the reported receiver acceptance, existing draft semantics, prepaid-label tracking requirements and sandbox credential handoff. Implement source-backed package updates and full-order completeness before launch; preserve the accepted signing/envelope/retry contract. These events are not implemented by the existing three-event local producer.
+
 ## Slice 6 — deployment and activation
 
-Follow RELEASE_COORDINATION.md. Deployment and customer activation are separate. Deploy default-disabled shared code only after release review, then enable bounded test intake for the verified customer; production submission comes after partner/production end-to-end acceptance. Shipments/holds/cancellations are separate source-backed slices unless Marcus explicitly includes them in launch.
+Follow RELEASE_COORDINATION.md. Deployment and customer activation are separate. Deploy default-disabled shared code only after release review, then enable bounded test intake for the verified customer; production submission comes after partner/production end-to-end acceptance. Shipping callbacks are now a launch requirement under slice 5b; holds/cancellations remain separate source-backed slices.
 
 ## Required handoff at each slice
 
