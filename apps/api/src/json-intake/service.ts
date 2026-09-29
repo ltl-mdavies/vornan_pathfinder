@@ -21,7 +21,7 @@ const owned = (r: Receipt, id: IntegrationIdentity) => r.identity.customer_id ==
 const after = (now: string, ms: number) => new Date(Date.parse(now) + ms).toISOString();
 
 export class JsonIntakeService {
-  constructor(readonly store: ReceiptStore, readonly ledger: IntakeLedger, readonly adapters: readonly JsonOrderAdapter[], readonly now = () => new Date().toISOString()) {}
+  constructor(readonly store: ReceiptStore, readonly ledger: IntakeLedger | null, readonly adapters: readonly JsonOrderAdapter[], readonly now = () => new Date().toISOString()) {}
   async receive(identity: IntegrationIdentity, payload: unknown, raw: Buffer) {
     if (identity.environment !== 'test') throw new IntakeError(403, 'TEST_ONLY');
     const adapter = this.adapters.find(a => a.schema === identity.schema);
@@ -55,6 +55,8 @@ export class JsonIntakeService {
   }
   /** Explicit local recovery driver. Never invoked by POST or the Wrike scheduler. */
   async process(receiptId: string, transport: LocalAssetTransport) {
+    const ledger = this.ledger;
+    if (!ledger) throw new Error('Receipt-only service cannot process assets');
     if (!['local-fixture','review-assets'].includes(transport.kind) || (transport.kind === 'review-assets' && (!transport.inspect || !transport.readRetained || !transport.inspection_profile))) throw new Error('Reviewed assets require inspection and private retained reads');
     let r = await this.store.get(receiptId);
     const now = this.now();
@@ -69,7 +71,7 @@ export class JsonIntakeService {
       if (current?.revision !== r!.revision || current.claim?.token !== claim.token || Date.parse(claim.until) <= Date.parse(this.now())) throw new Error('Receipt claim lost');
     };
     // This is a separate durable write: pending receipt/claim is the recovery source after any interruption.
-    const {attempt} = await this.ledger.reserve(r.signal, r.deadline);
+    const {attempt} = await ledger.reserve(r.signal, r.deadline);
     const ownsProjection = (current: IntakeAttempt) => {
       const p = r!.ledger_projection;
       return p?.attempt_id === current.attempt_id && (
@@ -92,7 +94,7 @@ export class JsonIntakeService {
       if (!await this.store.compareAndSet(r!,planned)) throw new Error('Receipt claim lost');
       r = planned;
       await assertClaim();
-      await this.ledger.transition(r.identity.customer_id, current.attempt_id, {
+      await ledger.transition(r.identity.customer_id, current.attempt_id, {
         event_id: eventId, expected_revision: current.revision, occurred_at: this.now(), state, reason, next_action_at: r.deadline});
     };
     await assertClaim();
@@ -173,13 +175,13 @@ export class JsonIntakeService {
     await assertClaim();
     const internal = issues.some(i => i.owner === 'internal');
     if (issues.length) {
-      const current = await this.ledger.get(r.identity.customer_id, intakeAttemptId(r.signal));
+      const current = await ledger.get(r.identity.customer_id, intakeAttemptId(r.signal));
       if (!current) throw new Error('Missing shared intake attempt');
       if (!ownsProjection(current)) throw new Error('Shared intake ownership conflict');
       await project(current, internal ? 'internal_action_required' : 'manual_review', internal ? 'pathfinder_failure' : null);
     }
     await assertClaim();
-    const finalAttempt = await this.ledger.get(r.identity.customer_id, intakeAttemptId(r.signal));
+    const finalAttempt = await ledger.get(r.identity.customer_id, intakeAttemptId(r.signal));
     if (!finalAttempt || !ownsProjection(finalAttempt)) throw new Error('Shared intake ownership conflict');
     assertAssociation(finalAttempt);
     const attempts=r.retry_attempts??1;
