@@ -1,3 +1,14 @@
+# Local Lift report adapter — 2026-09-29
+
+Added the isolated Lift rowset adapter and committed-reader capture wrapper. It verifies order/customer/EXT_ID and full line/quantity bindings, preserves ACTUAL_SHIP_DATE as date evidence, groups packages independently of repeated master tracking, collapses identical join allocations and rejects conflicting rows. Package dispatch/carrier/label-source review binds the projected evidence hash. Missing/changed review cannot produce a snapshot; read/validation failures place a source-unverified hold blocking old pending shipping/completion events. The proposed prepaid attachment/dispatch procedure is documented separately.
+
+- 686 API tests and all workspace type checks passed; seven new focused adapter tests passed.
+- Cases cover the 2/1/1 partial shape, seven boxes under one shipping ID, fractional allocation/deduplication, cross-scope/customer/order and pagination/coverage failures, changed tracking review, pending prepaid labels, deterministic evidence, receipt capture and stale-event blocking on source errors.
+- No live requests, source writes, real-customer events, attachments, credentials, runtime mounts, server/shared Lift normalizer changes, dependency updates, push or deployment. UI and Lambda packaging checks were not repeated for this isolated backend adapter.
+- Production pagination/freshness/reconciliation revisions, verified dispatch/identity authority, hold resolution, attachment publication and end-to-end sandbox checks remain open. Normalized input tests do not establish live source completeness or dispatch semantics.
+
+---
+
 # Local shipping event slice — 2026-09-28
 
 Added trusted shipping snapshot capture into receipt CAS history and materialization of shipment.updated/order.shipped through the existing local signed outbox. Source scope, confirmation binding, revisions, complete snapshots, explicit dispatch evidence and exact bounded quantities are validated. Prepaid attachments/pending labels never establish dispatch. Unsupported reversals and incomplete/conflicting/drifting observations create an internal review hold that blocks new and pending shipping events. No live report adapter, attachment publisher or review-resolution endpoint is installed.

@@ -44,6 +44,8 @@ Andy now requires `shipment.updated` and `order.shipped` at launch. See [PARTNER
 
 ## Slice 6 — deployment and activation
 
+Local Lift shipping report adapter completed on 2026-09-29; see [LIFT_SHIPPING_ADAPTER.md](LIFT_SHIPPING_ADAPTER.md). It preserves actual ship dates as evidence, reconciles package rows and line bindings, and connects reviewed snapshots to receipt capture. Production report collection/dispatch authority and the attachment publisher remain release gates; see [PREPAID_LABEL_PROCEDURE.md](PREPAID_LABEL_PROCEDURE.md).
+
 Follow RELEASE_COORDINATION.md. Deployment and customer activation are separate. Deploy default-disabled shared code only after release review, then enable bounded test intake for the verified customer; production submission comes after partner/production end-to-end acceptance. Shipping callbacks are now a launch requirement under slice 5b; holds/cancellations remain separate source-backed slices.
 
 ## Required handoff at each slice

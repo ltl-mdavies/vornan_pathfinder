@@ -1,5 +1,7 @@
 # Local shipping callback slice — 2026-09-28
 
+Update 2026-09-29: the [Lift report adapter](LIFT_SHIPPING_ADAPTER.md) now maps the inspected raw report shapes into this model through an injected committed reader. The [prepaid label procedure](PREPAID_LABEL_PROCEDURE.md) defines the attachment-first operating steps. Production fetching, dispatch authority, attachment publication and activation remain open.
+
 `json-intake/shipping-events.ts` adds local shipping evidence capture, quantity reconciliation and event projection. It extends the existing receipt history, event materializer, current-event check and signed outbox. No production reader, endpoint, scheduler or external callback transport is installed.
 
 ## Source boundary

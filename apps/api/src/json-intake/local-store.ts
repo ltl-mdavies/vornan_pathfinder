@@ -18,7 +18,7 @@ export interface Receipt {
   issues: FieldIssue[];
   confirmation?: {job_id:string;submit_attempt_id:string;order_number:string;confirmed_at:string;intake_revision:number;evidence_sha256:string};
   shipping?: ShippingSnapshot;
-  shipping_review?: { code: 'INCOMPLETE' | 'CONFLICT' | 'REVERSAL' | 'DRIFT'; source_revision:number };
+  shipping_review?: { code: 'INCOMPLETE' | 'CONFLICT' | 'REVERSAL' | 'DRIFT' | 'SOURCE_UNVERIFIED'; source_revision:number };
   ledger_projection?: { attempt_id: string; expected_revision: number; before_state: IntakeState; before_event_id: string | null; event_id: string; state: IntakeState };
   asset_status: 'pending' | 'integrity_verified' | 'action_required' | 'internal_action_required';
 }
