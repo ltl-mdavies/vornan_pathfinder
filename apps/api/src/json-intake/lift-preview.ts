@@ -4,8 +4,9 @@ import type { CanonicalJsonLine } from '@pathfinder/canonical';
 import { sha256, stableJson } from './adapter.js';
 import type { Receipt } from './local-store.js';
 import { scopeKey, type WebhookScope } from '../webhooks/contract.js';
+import { applyPrepaidOrderAttachment, type PrepaidLabelPublication } from './prepaid-label.js';
 
-export type LiftPreviewReceipt = Pick<Receipt, 'identity' | 'adapted' | 'assets' | 'receipt_id' | 'revision' | 'fingerprint'>;
+export type LiftPreviewReceipt = Pick<Receipt, 'identity' | 'adapted' | 'assets' | 'receipt_id' | 'revision' | 'fingerprint' | 'prepaid_label'>;
 const previewScope = (r: LiftPreviewReceipt): WebhookScope => ({customer_id: r.identity.customer_id, integration_id: r.identity.integration_id, store: r.identity.store, environment: r.identity.environment});
 
 export interface ProductSelector {
@@ -68,9 +69,10 @@ function validateMapping(r: LiftPreviewReceipt, mapping: LiftPreviewMapping) {
 }
 
 /** Pure, local review artifact. It cannot create a job, submit request, document grant or confirmation. */
-export function buildJsonLiftPreview(receipt: LiftPreviewReceipt, mapping: LiftPreviewMapping) {
+export function buildJsonLiftPreview(receipt: LiftPreviewReceipt, mapping: LiftPreviewMapping,
+  prepaid?: {publication:PrepaidLabelPublication;required_until:string}, now=new Date()) {
   validateMapping(receipt, mapping);
-  const canonical = structuredClone(receipt.adapted.canonical);
+  const canonical = prepaid ? applyPrepaidOrderAttachment(receipt,prepaid.publication,prepaid.required_until,now) : structuredClone(receipt.adapted.canonical);
   if (canonical.source.schema !== 'stickerpress.order.v1' ||
       canonical.customer.customer_id !== receipt.identity.customer_id ||
       canonical.source.integration_id !== receipt.identity.integration_id ||
@@ -80,7 +82,7 @@ export function buildJsonLiftPreview(receipt: LiftPreviewReceipt, mapping: LiftP
   if (!mapping.customer) gap('LIFT_CUSTOMER_UNVERIFIED', 'customer.lift_customer_id');
   canonical.customer.destination_customer_id = mapping.customer?.lift_customer_id;
   // The review candidate deliberately has no source access URLs or local storage references.
-  canonical.order.order_attachment = null;
+  if (!prepaid) canonical.order.order_attachment = null;
   canonical.order.artwork_folder_url = null;
   canonical.order.reference_proof_url = null;
   const lines = canonical.lines.map((line, index) => {
@@ -158,7 +160,8 @@ export function buildJsonLiftPreview(receipt: LiftPreviewReceipt, mapping: LiftP
     evidence: {
       source: {schema: canonical.source.schema, created_at: canonical.source.created_at, store: canonical.source.store},
       order: {order_type_name: canonical.order.order_type_name, market: canonical.order.market, priority: canonical.order.priority},
-      shipping: {...shippingPolicy, prepaid_label_supplied: Boolean(label_url), return_address_configured: false},
+      shipping: {...shippingPolicy, prepaid_label_supplied: Boolean(receipt.adapted.canonical.order.shipping_policy.label_url),
+        ...(prepaid ? {prepaid_publication:structuredClone(prepaid.publication)} : {}), return_address_configured: false},
       lines
     },
     gaps,

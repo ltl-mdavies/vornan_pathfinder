@@ -1,3 +1,14 @@
+# Prepaid label attachment preparation — 2026-09-29
+
+Added receipt-bound prepaid PDF retention, controlled immutable publication, checksum-verifying direct-download preflight and application to the same `order_attachment` field used for Momentara's order grid. The optional publication is visible in the local e-commerce Lift preview with the do-not-purchase instruction. Existing conflicting attachments reject instead of being replaced; source label URLs remain private. No tracking or dispatch state is inferred.
+
+- 697 API tests and all workspace type checks passed; six new focused cases passed.
+- Tested retained-byte replay/corruption, PDF/size rejection, immutable publication replay, mapper and preview output, disabled/cross-scope/wrong-order/unreviewed inputs, download corruption/redirects, expiry and existing-attachment conflicts. Storage and HTTP calls in the new tests were mocked.
+- No live source fetch, S3 write, Lift submission, partner event, runtime activation, dependency change, shared Wrike publisher change, push or deployment. Browser and Lambda packaging checks were not repeated for this backend-only slice.
+- Runtime retention/review storage, lifecycle configuration, final submit integrity binding and sanctioned end-to-end Lift verification remain open. Existing-order append/multiple-attachment behavior is not established by the order-creation field. See [PREPAID_LABEL_DELIVERY.md](PREPAID_LABEL_DELIVERY.md).
+
+---
+
 # Local Lift report collector — 2026-09-29
 
 Added an explicitly enabled test-scope collector for the three fixed Lift report endpoints and connected collected evidence to reviewed receipt capture. It checks report/order scope, explicit pagination policy, bounded response size/pages/rows, redirects, collection duration, evidence integrity and capture-time freshness. Documented the separate prepaid publisher requirements after inspecting the existing Wrike-specific path.

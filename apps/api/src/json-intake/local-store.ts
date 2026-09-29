@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PdfInspection } from './pdf-inspection.js';
 import type { ShippingSnapshot } from './shipping-events.js';
+import type { PrepaidLabelEvidence } from './prepaid-label.js';
 import type { IntakeSignal, IntakeState } from '../intake-assurance.js';
 import { sha256, type AdaptedOrder, type FieldIssue, type IntegrationIdentity } from './adapter.js';
 
@@ -18,6 +19,7 @@ export interface Receipt {
   issues: FieldIssue[];
   confirmation?: {job_id:string;submit_attempt_id:string;order_number:string;confirmed_at:string;intake_revision:number;evidence_sha256:string};
   shipping?: ShippingSnapshot;
+  prepaid_label?: PrepaidLabelEvidence;
   shipping_review?: { code: 'INCOMPLETE' | 'CONFLICT' | 'REVERSAL' | 'DRIFT' | 'SOURCE_UNVERIFIED'; source_revision:number };
   ledger_projection?: { attempt_id: string; expected_revision: number; before_state: IntakeState; before_event_id: string | null; event_id: string; state: IntakeState };
   asset_status: 'pending' | 'integrity_verified' | 'action_required' | 'internal_action_required';

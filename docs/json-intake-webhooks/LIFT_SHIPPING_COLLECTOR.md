@@ -16,7 +16,7 @@ The returned evidence includes receipt/order/confirmation bindings, start/end ti
 
 The existing `wrike-lift-document-publication.ts` is tied to Wrike source evidence, document roles and manifests. Its checksum verification, immutable publication records and controlled delivery URL pattern are useful precedents. Passing prepaid labels through it unchanged would bind them to the wrong source contract.
 
-Prepaid publication needs its own document role and receipt/confirmed-order association, retained checksum-verified label bytes, retry-safe attachment identity, and publication/attachment outcome evidence. The agreed [procedure](PREPAID_LABEL_PROCEDURE.md) remains the operational model: an attachment does not establish dispatch, and no automatic replacement label purchase is allowed. No attachment publisher or Lift attachment write was added here.
+The subsequent [prepaid delivery slice](PREPAID_LABEL_DELIVERY.md) reuses Momentara's `order_attachment` submission field, with its own prepaid role, receipt/external-order binding, retained checksum-verified bytes and immutable publication manifest. It remains local and is not mounted in the runtime. The agreed [procedure](PREPAID_LABEL_PROCEDURE.md) remains the operational model: an attachment does not establish dispatch, and no automatic replacement label purchase is allowed. No Lift attachment write was performed.
 
 ## Remaining integration
 
