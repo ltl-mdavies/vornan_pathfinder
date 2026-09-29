@@ -1,0 +1,386 @@
+{
+  "review_only": true,
+  "submission_allowed": false,
+  "fixture_only": true,
+  "output_template_id": "template-lift-ecommerce-orders",
+  "payload": {
+    "customer": {
+      "customer_name": "Example Label Customer"
+    },
+    "contacts": [],
+    "source": {
+      "platform": "Pathfinder",
+      "pathfinder_customer_id": "synthetic",
+      "source_system": "Synthetic combined-field example",
+      "source_customer": "synthetic",
+      "source_record_id": "SAMPLE-FACTORY-TEST",
+      "source_template": "stickerpress.order.v1",
+      "submitted_at": "2026-09-28T11:52:05.865Z",
+      "pathfinder_job_id": "job_preview",
+      "pathfinder_canonical_order_id": "co_preview",
+      "schema": "pathfinder.ecommerce-review.v1",
+      "integration_id": "combined-review",
+      "store": "ltlco",
+      "created_at": "2026-09-27T12:00:00Z"
+    },
+    "order": {
+      "ext_id": "json_15ef775f24ee214c7a7dd3068547215b58102f26441222a5a95c98c6ef9037e1",
+      "order_title": "SAMPLE-FACTORY-TEST (sample)",
+      "reference_number": null,
+      "source_status": "Processing",
+      "market": "web",
+      "priority": "standard",
+      "requested_ship_date": "2026-12-01",
+      "due_date": null,
+      "order_note": "Sanitized fixture",
+      "account_rep": null,
+      "invoice_email": "billing@example.invalid",
+      "billing": {
+        "first_name": "Example",
+        "last_name": "Buyer",
+        "company": "Example Label Customer",
+        "address_1": "123 Example Street",
+        "address_2": null,
+        "city": "Example City",
+        "state": "OH",
+        "postal_code": "45000",
+        "country": "US",
+        "email": "billing@example.invalid",
+        "phone": null,
+        "address_book_reference": "primary"
+      },
+      "shipping": {
+        "attention_to": "Test Recipient",
+        "company": "Test Company",
+        "address_1": "123 Example Street",
+        "address_2": "",
+        "city": "Example City",
+        "state": "OH",
+        "postal_code": "45000",
+        "country": "US"
+      },
+      "shipping_policy": {
+        "prepaid_label_supplied": false,
+        "mode": "supplier_ships",
+        "blind_ship": true,
+        "ship_from_name": "Sticker Press",
+        "label_precedence": "prepaid_required_when_supplied",
+        "missing_ship_date": "configured_turnaround"
+      },
+      "pricing": {
+        "currency": null,
+        "discount": null,
+        "subtotal": null,
+        "shipping": null,
+        "refund": null,
+        "tax": null,
+        "total": null
+      },
+      "payment": {
+        "method": "Use My Account",
+        "authorized_amount": null,
+        "charged_amount": null,
+        "authorization_code": null
+      },
+      "coupons": []
+    },
+    "lines": [
+      {
+        "line_number": 1,
+        "unit_number": "",
+        "product_id": null,
+        "customer_sku": null,
+        "product_name": "Square Sticker",
+        "description": null,
+        "quantity": 50,
+        "external_line_id": "SAMPLE-FACTORY-TEST-01",
+        "store_product": "die-cut-sticker-rc",
+        "store_variation_id": "11197",
+        "dimensions": {
+          "final_height": 1.85,
+          "final_width": 1.85,
+          "live_height": null,
+          "live_width": null,
+          "bleed": 0.125
+        },
+        "production": {
+          "material": "White BOPP",
+          "laminate": "gloss",
+          "varnish": "Semi-gloss",
+          "white_ink_required": false,
+          "orientation": null
+        },
+        "cut": {
+          "type": "thru_cut",
+          "shape": "square",
+          "complexity": "Radius corners",
+          "die_reference": null,
+          "method": "shape",
+          "spot_name": "Laser - Thru Cut",
+          "layer_name": "Laser - Thru Cut",
+          "in_file": true
+        },
+        "roll_finishing": {
+          "specification": "max_roll_diameter",
+          "value": 14,
+          "unwind_direction": "3-Right",
+          "spacing": 0.125
+        },
+        "artwork": {
+          "file_name": "01-a-anchor-walk-1p85in.pdf",
+          "checksum": "d78e427f06131243065312fe857302ec0de9f1a6f16d1bb3f8b6484affa9c4fa",
+          "format": "pdf",
+          "pages": 1,
+          "bytes": 34127,
+          "page_in": {
+            "w": 2.1,
+            "h": 2.1
+          },
+          "trim_in": {
+            "w": 1.85,
+            "h": 1.85
+          }
+        },
+        "approval": {
+          "proof_status": "approved",
+          "provider": "stickerpress.order.v1",
+          "approved_by": "operator",
+          "approved_at": "2026-09-27T12:00:00Z"
+        },
+        "preview": {
+          "format": "png",
+          "purpose": "visual reference only"
+        },
+        "area": {
+          "value": 171.13,
+          "basis": "bounding_box_times_quantity"
+        },
+        "pricing": {
+          "item_base_price": null,
+          "customer_price": "0.10900"
+        },
+        "sample": false,
+        "line_note": "Sanitized fixture"
+      },
+      {
+        "line_number": 2,
+        "unit_number": "",
+        "product_id": null,
+        "customer_sku": null,
+        "product_name": "Circle Sticker",
+        "description": null,
+        "quantity": 50,
+        "external_line_id": "SAMPLE-FACTORY-TEST-02",
+        "store_product": "die-cut-sticker-rc",
+        "store_variation_id": "11203",
+        "dimensions": {
+          "final_height": 3,
+          "final_width": 3,
+          "live_height": null,
+          "live_width": null,
+          "bleed": 0.125
+        },
+        "production": {
+          "material": "White BOPP",
+          "laminate": "gloss",
+          "varnish": "Semi-gloss",
+          "white_ink_required": false,
+          "orientation": null
+        },
+        "cut": {
+          "type": "thru_cut",
+          "shape": "circle",
+          "complexity": "Radius corners",
+          "die_reference": null,
+          "method": "shape",
+          "spot_name": "Laser - Thru Cut",
+          "layer_name": "Laser - Thru Cut",
+          "in_file": true
+        },
+        "roll_finishing": {
+          "specification": "max_labels_per_roll",
+          "value": 500,
+          "unwind_direction": "3-Right",
+          "spacing": 0.125
+        },
+        "artwork": {
+          "file_name": "02-b-bk-run-circle-3in.pdf",
+          "checksum": "56f02e07450bf89c65bfc713c8317d671b5d25a4e6cf9d75c064fae23969dad8",
+          "format": "pdf",
+          "pages": 1,
+          "bytes": 8203,
+          "page_in": {
+            "w": 3.25,
+            "h": 3.25
+          },
+          "trim_in": {
+            "w": 3,
+            "h": 3
+          }
+        },
+        "approval": {
+          "proof_status": "approved",
+          "provider": "stickerpress.order.v1",
+          "approved_by": "operator",
+          "approved_at": "2026-09-27T12:00:00Z"
+        },
+        "preview": {
+          "format": "png",
+          "purpose": "visual reference only"
+        },
+        "area": {
+          "value": 450,
+          "basis": "bounding_box_times_quantity"
+        },
+        "pricing": {
+          "item_base_price": null,
+          "customer_price": "0.10900"
+        },
+        "sample": false,
+        "line_note": "Sanitized fixture"
+      },
+      {
+        "line_number": 3,
+        "unit_number": "",
+        "product_id": null,
+        "customer_sku": null,
+        "product_name": "Die-Cut Sticker",
+        "description": null,
+        "quantity": 50,
+        "external_line_id": "SAMPLE-FACTORY-TEST-03",
+        "store_product": "die-cut-sticker-rc",
+        "store_variation_id": "11193",
+        "dimensions": {
+          "final_height": 0.978,
+          "final_width": 2.5,
+          "live_height": null,
+          "live_width": null,
+          "bleed": 0.125
+        },
+        "production": {
+          "material": "White BOPP",
+          "laminate": "gloss",
+          "varnish": "Semi-gloss",
+          "white_ink_required": false,
+          "orientation": null
+        },
+        "cut": {
+          "type": "thru_cut",
+          "shape": "diecut",
+          "complexity": "Radius corners",
+          "die_reference": null,
+          "method": "contour",
+          "spot_name": "Laser - Thru Cut",
+          "layer_name": "Laser - Thru Cut",
+          "in_file": true
+        },
+        "artwork": {
+          "file_name": "03-c-fdny-fire-truck-2p5in.pdf",
+          "checksum": "270f39c97ac55f742030525da99d48b1cd87dae269c7d3e0bfc9e5fdb2e6f5d4",
+          "format": "pdf",
+          "pages": 1,
+          "bytes": 31881,
+          "page_in": {
+            "w": 2.75,
+            "h": 1.228
+          },
+          "trim_in": {
+            "w": 2.5,
+            "h": 0.978
+          }
+        },
+        "approval": {
+          "proof_status": "approved",
+          "provider": "stickerpress.order.v1",
+          "approved_by": "operator",
+          "approved_at": "2026-09-27T12:00:00Z"
+        },
+        "preview": {
+          "format": "png",
+          "purpose": "visual reference only"
+        },
+        "area": {
+          "value": 122.25,
+          "basis": "bounding_box_times_quantity"
+        },
+        "pricing": {
+          "item_base_price": null,
+          "customer_price": "0.10900"
+        },
+        "sample": false,
+        "line_note": "Sanitized fixture"
+      },
+      {
+        "line_number": 4,
+        "unit_number": "",
+        "product_id": null,
+        "customer_sku": null,
+        "product_name": "Die-Cut Sticker",
+        "description": null,
+        "quantity": 50,
+        "external_line_id": "SAMPLE-FACTORY-TEST-04",
+        "store_product": "die-cut-sticker-rc",
+        "store_variation_id": "11193",
+        "dimensions": {
+          "final_height": 1.652,
+          "final_width": 1.999,
+          "live_height": null,
+          "live_width": null,
+          "bleed": 0.125
+        },
+        "production": {
+          "material": "White BOPP",
+          "laminate": "gloss",
+          "varnish": "Semi-gloss",
+          "white_ink_required": false,
+          "orientation": null
+        },
+        "cut": {
+          "type": "thru_cut",
+          "shape": "diecut",
+          "complexity": "Radius corners",
+          "die_reference": null,
+          "method": "contour",
+          "spot_name": "Laser - Thru Cut",
+          "layer_name": "Laser - Thru Cut",
+          "in_file": true
+        },
+        "artwork": {
+          "file_name": "04-d-rbl-geoode-2in.pdf",
+          "checksum": "556e04642bc66d451817c36012079938281c73e12f468391c891d51f9f5c4a50",
+          "format": "pdf",
+          "pages": 1,
+          "bytes": 4621613,
+          "page_in": {
+            "w": 2.249,
+            "h": 1.902
+          },
+          "trim_in": {
+            "w": 1.999,
+            "h": 1.652
+          }
+        },
+        "approval": {
+          "proof_status": "approved",
+          "provider": "stickerpress.order.v1",
+          "approved_by": "operator",
+          "approved_at": "2026-09-27T12:00:00Z"
+        },
+        "preview": {
+          "format": "png",
+          "purpose": "visual reference only"
+        },
+        "area": {
+          "value": 165.12,
+          "basis": "bounding_box_times_quantity"
+        },
+        "pricing": {
+          "item_base_price": null,
+          "customer_price": "0.10900"
+        },
+        "sample": false,
+        "line_note": "Sanitized fixture"
+      }
+    ]
+  }
+}

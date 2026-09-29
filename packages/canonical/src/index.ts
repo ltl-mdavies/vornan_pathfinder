@@ -1,3 +1,5 @@
+import { ecommerceOutputFields } from './ecommerce-fields.js';
+export { ecommerceOutputFields } from './ecommerce-fields.js';
 export type ProcessingState =
   | "Discovered"
   | "Received"
@@ -264,7 +266,24 @@ export const canonicalFieldRegistry = [
   canonicalField("lines[].shipping.phone", "lines", "Line Phone", "string", { repeatable: true }),
   canonicalField("lines[].shipping.email", "lines", "Line Email", "string", { repeatable: true }),
   canonicalField("lines[].shipping.instructions", "lines", "Line Shipping Instructions", "string", { repeatable: true }),
-  canonicalField("lines[].line_note", "lines", "Line Note", "string", { repeatable: true })
+  canonicalField("lines[].line_note", "lines", "Line Note", "string", { repeatable: true }),
+  canonicalField("lines[].production.material_code", "lines", "Source material code", "string"),
+  canonicalField("lines[].production.finish", "lines", "Source finish", "string"),
+  canonicalField("lines[].production.shape", "lines", "Source shape", "string"),
+  canonicalField("lines[].source_line.cut.type", "lines", "Source cut type", "string"),
+  canonicalField("lines[].production.corner_description", "lines", "Source corner description", "string"),
+  canonicalField("order.order_type_name", "order", "Source order type name", "string"),
+  canonicalField("lines[].production.application_type", "lines", "Source application type", "string"),
+  canonicalField("lines[].source_line.approval.artwork_sha256", "lines", "Approved source artwork SHA-256", "string"),
+  canonicalField("lines[].pricing.unit_price", "lines", "Legacy source unit price", "string"),
+  canonicalField("lines[].pricing.markup_price", "lines", "Legacy source markup price", "string"),
+  canonicalField("lines[].roll_finishing.unit", "lines", "Source roll unit", "string"),
+  canonicalField("lines[].roll_finishing.spacing_unit", "lines", "Source spacing unit", "string"),
+  canonicalField("lines[].source_line.dimensions_unit", "lines", "Source dimensions unit", "string"),
+  canonicalField("lines[].source_line.area.unit", "lines", "Source area unit", "string"),
+  ...ecommerceOutputFields.filter(([,path]) => !['lines[].production.material_code','lines[].production.finish','lines[].production.shape','lines[].production.cut_type'].includes(path)).map(([,path,type]) =>
+    canonicalField(path, path.startsWith('lines[]') ? 'lines' : path.startsWith('source.') ? 'source' : 'order',
+      path.split('.').slice(-2).join(' '), type, {description: 'Optional e-commerce source evidence; target acceptance requires review.'}))
 ] as const satisfies CanonicalFieldDefinition[];
 
 export type CanonicalFieldPath = (typeof canonicalFieldRegistry)[number]["path"];
@@ -516,3 +535,7 @@ export const sampleCanonicalOrder: CanonicalOrder = {
     }
   ]
 };
+
+export type { CanonicalJsonOrder, CanonicalJsonLine, JsonSourceArtwork, JsonSourceApproval } from './json-intake.js';
+
+export type { CanonicalEcommerceOrder, EcommerceLine, EcommerceMoney } from './ecommerce.js';

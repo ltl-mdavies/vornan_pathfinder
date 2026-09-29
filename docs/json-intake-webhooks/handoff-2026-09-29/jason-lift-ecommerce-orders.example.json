@@ -1,0 +1,430 @@
+{
+  "customer": {
+    "lift_customer_id": "17409",
+    "customer_name": "Silicon Pasture",
+    "crm_id": null
+  },
+  "contacts": [
+    {
+      "first_name": "Example",
+      "last_name": "Buyer",
+      "title": null,
+      "email": "buyer@example.invalid",
+      "mobile_phone": null,
+      "office_phone": null,
+      "home_phone": null,
+      "slack": null,
+      "fax": null
+    }
+  ],
+  "source": {
+    "platform": "Pathfinder",
+    "pathfinder_customer_id": "synthetic",
+    "source_system": "Synthetic combined e-commerce example",
+    "source_customer": "synthetic",
+    "source_record_id": "JASON-INTERFACE-EXAMPLE-001",
+    "source_record_url": null,
+    "source_template": "stickerpress.order.v1",
+    "submitted_at": "2026-09-28T11:52:05.865Z",
+    "pathfinder_job_id": "job_preview",
+    "pathfinder_canonical_order_id": "co_preview",
+    "schema": "pathfinder.ecommerce-review.v1",
+    "integration_id": "combined-review",
+    "store": "ltlco",
+    "created_at": "2026-09-27T12:00:00Z"
+  },
+  "order": {
+    "ext_id": "EXAMPLE-JASON-001",
+    "order_title": "INTERFACE EXAMPLE ONLY — labels and stickers",
+    "po_number": "EXAMPLE-PO-001",
+    "contract_number": null,
+    "reference_number": null,
+    "source_status": "Processing",
+    "market": "web",
+    "priority": "standard",
+    "requested_ship_date": "2026-12-01",
+    "due_date": "2026-12-03",
+    "order_note": "INTERFACE EXAMPLE ONLY. Customer-supplied prepaid label — do not purchase shipping.",
+    "account_rep": null,
+    "invoice_email": "billing@example.invalid",
+    "billing": {
+      "first_name": "Example",
+      "last_name": "Buyer",
+      "company": "Example Label Customer",
+      "address_1": "123 Example Street",
+      "address_2": null,
+      "city": "Example City",
+      "state": "OH",
+      "postal_code": "45000",
+      "country": "US",
+      "email": "billing@example.invalid",
+      "phone": null,
+      "address_book_reference": "primary"
+    },
+    "shipping": {
+      "method": null,
+      "account_number": null,
+      "acct_billing_zip": null,
+      "acct_billing_country": null,
+      "attention_to": "Test Recipient",
+      "company": "Test Company",
+      "address_1": "123 Example Street",
+      "address_2": "",
+      "city": "Example City",
+      "state": "OH",
+      "postal_code": "45000",
+      "country": "US",
+      "phone": null,
+      "email": null,
+      "instructions": null
+    },
+    "shipping_policy": {
+      "prepaid_label_url": null,
+      "prepaid_label_supplied": true,
+      "mode": "supplier_ships",
+      "blind_ship": true,
+      "ship_from_name": "Sticker Press",
+      "label_precedence": "prepaid_required_when_supplied",
+      "missing_ship_date": "configured_turnaround"
+    },
+    "order_attachment": "https://delivery.example.invalid/PREPAID_LABEL.pdf",
+    "artwork_folder_url": null,
+    "reference_proof_url": null,
+    "pricing": {
+      "currency": "USD",
+      "discount": "0.00",
+      "subtotal": "21.80",
+      "shipping": "8.00",
+      "refund": "0.00",
+      "tax": "1.53",
+      "total": "31.33"
+    },
+    "payment": {
+      "method": "Use My Account",
+      "authorized_amount": null,
+      "charged_amount": null,
+      "authorization_code": null
+    },
+    "coupons": []
+  },
+  "lines": [
+    {
+      "line_number": 1,
+      "unit_number": "",
+      "product_id": null,
+      "customer_sku": "EXAMPLE-SKU-01",
+      "product_name": "Square Sticker",
+      "description": "Synthetic line 1 for interface mapping",
+      "quantity": 50,
+      "external_line_id": "JASON-INTERFACE-EXAMPLE-001-01",
+      "store_product": "die-cut-sticker-rc",
+      "store_variation_id": "11197",
+      "dimensions": {
+        "final_height": 1.85,
+        "final_width": 1.85,
+        "live_height": null,
+        "live_width": null,
+        "bleed": 0.125
+      },
+      "production": {
+        "material": "White BOPP",
+        "laminate": "gloss",
+        "varnish": "Semi-gloss",
+        "coating": null,
+        "premask": null,
+        "ink": null,
+        "white_ink_required": false,
+        "orientation": null
+      },
+      "cut": {
+        "type": "thru_cut",
+        "shape": "square",
+        "complexity": "Radius corners",
+        "die_reference": null,
+        "method": "shape",
+        "spot_name": "Laser - Thru Cut",
+        "layer_name": "Laser - Thru Cut",
+        "in_file": true
+      },
+      "roll_finishing": {
+        "specification": "max_roll_diameter",
+        "value": 14,
+        "unwind_direction": "3-Right",
+        "spacing": 0.125
+      },
+      "artwork": {
+        "file_name": "01-a-anchor-walk-1p85in.pdf",
+        "file_url": "https://delivery.example.invalid/artwork-01.pdf",
+        "checksum": "d78e427f06131243065312fe857302ec0de9f1a6f16d1bb3f8b6484affa9c4fa",
+        "format": "pdf",
+        "pages": 1,
+        "bytes": 34127,
+        "page_in": {
+          "w": 2.1,
+          "h": 2.1
+        },
+        "trim_in": {
+          "w": 1.85,
+          "h": 1.85
+        }
+      },
+      "approval": {
+        "proof_status": "approved",
+        "provider": "stickerpress.order.v1",
+        "approved_by": "operator",
+        "approved_at": "2026-09-27T12:00:00Z"
+      },
+      "preview": {
+        "file_url": "https://delivery.example.invalid/preview-01.png",
+        "format": "png",
+        "purpose": "visual reference only"
+      },
+      "area": {
+        "value": 171.13,
+        "basis": "bounding_box_times_quantity"
+      },
+      "pricing": {
+        "item_base_price": null,
+        "customer_price": "0.10900"
+      },
+      "sample": false,
+      "line_note": "Sanitized fixture"
+    },
+    {
+      "line_number": 2,
+      "unit_number": "",
+      "product_id": null,
+      "customer_sku": "EXAMPLE-SKU-02",
+      "product_name": "Circle Sticker",
+      "description": "Synthetic line 2 for interface mapping",
+      "quantity": 50,
+      "external_line_id": "JASON-INTERFACE-EXAMPLE-001-02",
+      "store_product": "die-cut-sticker-rc",
+      "store_variation_id": "11203",
+      "dimensions": {
+        "final_height": 3,
+        "final_width": 3,
+        "live_height": null,
+        "live_width": null,
+        "bleed": 0.125
+      },
+      "production": {
+        "material": "White BOPP",
+        "laminate": "gloss",
+        "varnish": "Semi-gloss",
+        "coating": null,
+        "premask": null,
+        "ink": null,
+        "white_ink_required": false,
+        "orientation": null
+      },
+      "cut": {
+        "type": "thru_cut",
+        "shape": "circle",
+        "complexity": null,
+        "die_reference": null,
+        "method": "shape",
+        "spot_name": "Laser - Thru Cut",
+        "layer_name": "Laser - Thru Cut",
+        "in_file": true
+      },
+      "roll_finishing": {
+        "specification": "max_labels_per_roll",
+        "value": 500,
+        "unwind_direction": "3-Right",
+        "spacing": 0.125
+      },
+      "artwork": {
+        "file_name": "02-b-bk-run-circle-3in.pdf",
+        "file_url": "https://delivery.example.invalid/artwork-02.pdf",
+        "checksum": "56f02e07450bf89c65bfc713c8317d671b5d25a4e6cf9d75c064fae23969dad8",
+        "format": "pdf",
+        "pages": 1,
+        "bytes": 8203,
+        "page_in": {
+          "w": 3.25,
+          "h": 3.25
+        },
+        "trim_in": {
+          "w": 3,
+          "h": 3
+        }
+      },
+      "approval": {
+        "proof_status": "approved",
+        "provider": "stickerpress.order.v1",
+        "approved_by": "operator",
+        "approved_at": "2026-09-27T12:00:00Z"
+      },
+      "preview": {
+        "file_url": "https://delivery.example.invalid/preview-02.png",
+        "format": "png",
+        "purpose": "visual reference only"
+      },
+      "area": {
+        "value": 450,
+        "basis": "bounding_box_times_quantity"
+      },
+      "pricing": {
+        "item_base_price": null,
+        "customer_price": "0.10900"
+      },
+      "sample": false,
+      "line_note": "Sanitized fixture"
+    },
+    {
+      "line_number": 3,
+      "unit_number": "",
+      "product_id": null,
+      "customer_sku": "EXAMPLE-SKU-03",
+      "product_name": "Die-Cut Sticker",
+      "description": "Synthetic line 3 for interface mapping",
+      "quantity": 50,
+      "external_line_id": "JASON-INTERFACE-EXAMPLE-001-03",
+      "store_product": "die-cut-sticker-rc",
+      "store_variation_id": "11193",
+      "dimensions": {
+        "final_height": 0.978,
+        "final_width": 2.5,
+        "live_height": null,
+        "live_width": null,
+        "bleed": 0.125
+      },
+      "production": {
+        "material": "White BOPP",
+        "laminate": "gloss",
+        "varnish": "Semi-gloss",
+        "coating": null,
+        "premask": null,
+        "ink": null,
+        "white_ink_required": false,
+        "orientation": null
+      },
+      "cut": {
+        "type": "thru_cut",
+        "shape": "diecut",
+        "complexity": null,
+        "die_reference": null,
+        "method": "contour",
+        "spot_name": "Laser - Thru Cut",
+        "layer_name": "Laser - Thru Cut",
+        "in_file": true
+      },
+      "roll_finishing": null,
+      "artwork": {
+        "file_name": "03-c-fdny-fire-truck-2p5in.pdf",
+        "file_url": "https://delivery.example.invalid/artwork-03.pdf",
+        "checksum": "270f39c97ac55f742030525da99d48b1cd87dae269c7d3e0bfc9e5fdb2e6f5d4",
+        "format": "pdf",
+        "pages": 1,
+        "bytes": 31881,
+        "page_in": {
+          "w": 2.75,
+          "h": 1.228
+        },
+        "trim_in": {
+          "w": 2.5,
+          "h": 0.978
+        }
+      },
+      "approval": {
+        "proof_status": "approved",
+        "provider": "stickerpress.order.v1",
+        "approved_by": "operator",
+        "approved_at": "2026-09-27T12:00:00Z"
+      },
+      "preview": {
+        "file_url": "https://delivery.example.invalid/preview-03.png",
+        "format": "png",
+        "purpose": "visual reference only"
+      },
+      "area": {
+        "value": 122.25,
+        "basis": "bounding_box_times_quantity"
+      },
+      "pricing": {
+        "item_base_price": null,
+        "customer_price": "0.10900"
+      },
+      "sample": false,
+      "line_note": "Sanitized fixture"
+    },
+    {
+      "line_number": 4,
+      "unit_number": "",
+      "product_id": null,
+      "customer_sku": "EXAMPLE-SKU-04",
+      "product_name": "Die-Cut Sticker",
+      "description": "Synthetic line 4 for interface mapping",
+      "quantity": 50,
+      "external_line_id": "JASON-INTERFACE-EXAMPLE-001-04",
+      "store_product": "die-cut-sticker-rc",
+      "store_variation_id": "11193",
+      "dimensions": {
+        "final_height": 1.652,
+        "final_width": 1.999,
+        "live_height": null,
+        "live_width": null,
+        "bleed": 0.125
+      },
+      "production": {
+        "material": "White BOPP",
+        "laminate": "gloss",
+        "varnish": "Semi-gloss",
+        "coating": null,
+        "premask": null,
+        "ink": null,
+        "white_ink_required": false,
+        "orientation": null
+      },
+      "cut": {
+        "type": "thru_cut",
+        "shape": "diecut",
+        "complexity": null,
+        "die_reference": null,
+        "method": "contour",
+        "spot_name": "Laser - Thru Cut",
+        "layer_name": "Laser - Thru Cut",
+        "in_file": true
+      },
+      "roll_finishing": null,
+      "artwork": {
+        "file_name": "04-d-rbl-geoode-2in.pdf",
+        "file_url": "https://delivery.example.invalid/artwork-04.pdf",
+        "checksum": "556e04642bc66d451817c36012079938281c73e12f468391c891d51f9f5c4a50",
+        "format": "pdf",
+        "pages": 1,
+        "bytes": 4621613,
+        "page_in": {
+          "w": 2.249,
+          "h": 1.902
+        },
+        "trim_in": {
+          "w": 1.999,
+          "h": 1.652
+        }
+      },
+      "approval": {
+        "proof_status": "approved",
+        "provider": "stickerpress.order.v1",
+        "approved_by": "operator",
+        "approved_at": "2026-09-27T12:00:00Z"
+      },
+      "preview": {
+        "file_url": "https://delivery.example.invalid/preview-04.png",
+        "format": "png",
+        "purpose": "visual reference only"
+      },
+      "area": {
+        "value": 165.12,
+        "basis": "bounding_box_times_quantity"
+      },
+      "pricing": {
+        "item_base_price": null,
+        "customer_price": "0.10900"
+      },
+      "sample": false,
+      "line_note": "Sanitized fixture"
+    }
+  ]
+}

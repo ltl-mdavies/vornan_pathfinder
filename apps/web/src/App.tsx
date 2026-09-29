@@ -39,6 +39,7 @@ import {
   X
 } from "lucide-react";
 import type { LiftCustomer, LiftCustomerDirectory } from "@pathfinder/customer-directory";
+import { filterCustomers, reconcileCustomerDirectory } from "./customer-directory";
 import {
   validateCanonicalOrder,
   type CanonicalFieldDefinition,
@@ -4606,6 +4607,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [selectedSourceSchemaHistoryDetectedAt, setSelectedSourceSchemaHistoryDetectedAt] = useState("");
   const [customers, setCustomers] = useState<LiftCustomer[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const selectedCustomerIdRef = useRef(selectedCustomerId);
+  selectedCustomerIdRef.current = selectedCustomerId;
+  const customerDirectoryRequestRef = useRef(0);
   const [customerSearch, setCustomerSearch] = useState("");
   const [isCustomerPickerOpen, setIsCustomerPickerOpen] = useState(false);
   const [customerDirectory, setCustomerDirectory] = useState<Omit<LiftCustomerDirectory, "customers">>({
@@ -4840,24 +4844,27 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([]);
   const [openProductMapTool, setOpenProductMapTool] = useState<"preload" | "unit-library" | null>(null);
 
-  async function loadCustomers(refresh = false) {
+  async function loadCustomers() {
+    const requestId = ++customerDirectoryRequestRef.current;
     setCustomerImportState("loading");
     try {
-      const response = await fetch(`${apiBaseUrl}/api/lift/customers${refresh ? "?refresh=1" : ""}`);
+      const response = await fetch(`${apiBaseUrl}/api/lift/customers?refresh=1`);
       const directory = await readJsonResponse<LiftCustomerDirectory>(response);
+      if (requestId !== customerDirectoryRequestRef.current) return;
       if (directory.customers.length === 0) {
         throw new Error("Lift returned no customers for this workspace.");
       }
-      setCustomers(directory.customers);
+      const reconciled = reconcileCustomerDirectory(customers, directory, selectedCustomerIdRef.current);
+      setCustomers(reconciled.customers);
       setCustomerDirectory({
         source: directory.source,
         endpoint_url: directory.endpoint_url,
         status_endpoint_url: directory.status_endpoint_url,
         loaded_at: directory.loaded_at,
-        warning: directory.warning
+        warning: reconciled.warning
       });
       setSelectedCustomerId((current) => {
-        if (directory.customers.some((customer) => customer.lift_customer_id === current)) {
+        if (current) {
           return current;
         }
         const momentara = directory.customers.find((customer) =>
@@ -4866,12 +4873,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         return momentara?.lift_customer_id ?? directory.customers[0]?.lift_customer_id ?? "";
       });
     } catch (error) {
+      if (requestId !== customerDirectoryRequestRef.current) return;
       setCustomerDirectory((current) => ({
         ...current,
-        warning: error instanceof Error ? error.message : "Customer import failed."
+        warning: "Could not load Lift customers. Your current selection has been kept. Retry refresh."
       }));
     } finally {
-      setCustomerImportState("idle");
+      if (requestId === customerDirectoryRequestRef.current) setCustomerImportState("idle");
     }
   }
 
@@ -6931,27 +6939,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }, [activeCustomerView, activeGlobalView, lastPreviewJob?.job_id]);
 
   const filteredCustomers = useMemo(() => {
-    const query = customerSearch.trim().toLowerCase();
-    if (!query) {
-      return customers;
-    }
-    return customers.filter(
-      (customer) =>
-        customer.customer_name.toLowerCase().includes(query) ||
-        customer.lift_customer_id.includes(query) ||
-        (customer.customer_number ?? "").includes(query) ||
-        (customer.crm_id ?? "").toLowerCase().includes(query) ||
-        (customer.terms ?? "").toLowerCase().includes(query) ||
-        (customer.terms_status ?? "").toLowerCase().includes(query)
-    );
+    return filterCustomers(customers, customerSearch);
   }, [customerSearch, customers]);
-  const customerSelectOptions = useMemo(() => {
-    if (filteredCustomers.some((customer) => customer.lift_customer_id === selectedCustomer.lift_customer_id)) {
-      return filteredCustomers;
-    }
-    return [selectedCustomer, ...filteredCustomers];
-  }, [filteredCustomers, selectedCustomer]);
-  const visibleCustomerOptions = customerSelectOptions.slice(0, 8);
   const customerComboboxValue = isCustomerPickerOpen
     ? customerSearch
     : `${selectedCustomer.customer_name} · ${selectedCustomer.lift_customer_id}`;
@@ -10822,7 +10811,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             <button
               className="sidebar-icon-button"
               disabled={customerImportState === "loading"}
-              onClick={() => void loadCustomers(true)}
+              onClick={() => void loadCustomers()}
               title="Refresh Lift customers"
             >
               <RefreshCw size={15} />
@@ -10850,7 +10839,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             </label>
             {isCustomerPickerOpen ? (
               <div className="customer-options" role="listbox">
-                {visibleCustomerOptions.map((customer) => (
+                {filteredCustomers.length === 0 ? <p className="customer-directory-message">No matching customers.</p> : null}
+                {filteredCustomers.map((customer) => (
                   <button
                     className={
                       customer.lift_customer_id === selectedCustomer.lift_customer_id
@@ -10879,6 +10869,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             ) : null}
           </div>
+
+          {customerDirectory.warning ? (
+            <p className="customer-directory-message" role="status">{customerDirectory.warning}</p>
+          ) : null}
 
           <nav className="customer-nav" aria-label="Customer workspace">
             {visibleCustomerNavItems.map((item) => (

@@ -492,7 +492,7 @@ test("scheduled submit rechecks the exact Wrike status before reservation and Li
   assert.ok(start >= 0 && end > start);
   const submit = source.slice(start, end);
 
-  const preflight = submit.indexOf("preflightWrikeSubmitDocuments");
+  const preflight = submit.indexOf("preflightSubmitDocuments");
   const statusCheck = submit.indexOf("verifyWrikeTaskTriggerStatus");
   const reservation = submit.indexOf("reserveSubmitAttempt");
   const transport = submit.indexOf("submitLiftOrder");

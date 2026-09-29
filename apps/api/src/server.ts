@@ -1,3 +1,4 @@
+import { preflightSubmitDocuments } from "./json-intake/prepaid-submit.js";
 import { getIntakeVisibilityConfig } from "./intake-visibility-config.js";
 import {
   DEFAULT_PUBLIC_STATUS_EXPIRED_TOKEN_RETENTION_DAYS,
@@ -310,7 +311,6 @@ import {
   buildSubmitIdempotencyKey,
   buildSubmitIntegritySnapshot,
   classifySubmitAttemptState,
-  preflightWrikeSubmitDocuments,
   submitAttemptId,
   SubmitIntegrityError
 } from "./submit-integrity.js";
@@ -3628,7 +3628,8 @@ async function refreshJobSubmitCertification(customer: LiftCustomer, job: Proces
   const submitIntegrity = buildSubmitIntegritySnapshot({
     payload: job.lift_payload,
     submit_request_masked: submitRequestMasked,
-    source_document_publications: job.source_document_publications
+    source_document_publications: job.source_document_publications,
+    prepaid_submit_binding: job.prepaid_submit_binding
   });
 
   return persistJobSnapshot(customer, {
@@ -6694,7 +6695,7 @@ async function submitScheduledWrikeJobOnce(jobId: string) {
     throw new Error("WrikeScheduledSubmitAlreadyAttempted");
   }
 
-  const documentPreflight = await preflightWrikeSubmitDocuments({
+  const documentPreflight = await preflightSubmitDocuments({
     job,
     publication_enabled: wrikeLiftDocumentPublicationConfig.enabled,
     delivery_bucket_name: wrikeLiftDocumentPublicationConfig.bucket_name
@@ -9364,6 +9365,7 @@ async function createPreviewJobForRequest(
         payload: liftPayload,
         submit_request_masked: submitRequest,
         source_document_publications: options?.sourceDocumentPublications,
+        prepaid_submit_binding: options?.existingJob?.prepaid_submit_binding,
         reviewed_at: timestamp
       });
       return {
@@ -9516,6 +9518,7 @@ async function createPreviewJobForRequest(
         options?.sourceDocumentPublications ??
         options?.existingJob?.source_document_publications ??
         [],
+      prepaid_submit_binding: options?.existingJob?.prepaid_submit_binding,
       recovery_audit: recoveryAuditEntry
         ? [recoveryAuditEntry, ...(options?.existingJob?.recovery_audit ?? [])].slice(0, 50)
         : options?.existingJob?.recovery_audit ?? []
@@ -10897,7 +10900,7 @@ app.post("/api/customers/:liftCustomerId/jobs/:jobId/submit", async (req, res) =
 
     let documentPreflight: SubmitAttempt["document_preflight"];
     try {
-      documentPreflight = await preflightWrikeSubmitDocuments({
+      documentPreflight = await preflightSubmitDocuments({
         job,
         publication_enabled: wrikeLiftDocumentPublicationConfig.enabled,
         delivery_bucket_name: wrikeLiftDocumentPublicationConfig.bucket_name

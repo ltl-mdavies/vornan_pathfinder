@@ -29,3 +29,6 @@ outputs/
 !.env.example
 .vscode/
 .idea/
+
+# Private JSON intake handoff (source payloads and real artwork).
+/output/json-intake-webhooks-handoff-2026-09-28/

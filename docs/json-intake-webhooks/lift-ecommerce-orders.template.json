@@ -1,0 +1,758 @@
+{
+  "output_template_id": "template-lift-ecommerce-orders",
+  "name": "Lift E-commerce Orders",
+  "destination_method": "HTTP POST",
+  "output_format": "JSON",
+  "body_template": "{\n  \"customer\": {\n    \"lift_customer_id\": \"{{customer.destination_customer_id}}\",\n    \"customer_name\": \"{{customer.customer_name}}\",\n    \"crm_id\": \"{{customer.crm_id}}\"\n  },\n  \"contacts\": [\n    {\n      \"first_name\": \"{{contacts[].first_name}}\",\n      \"last_name\": \"{{contacts[].last_name}}\",\n      \"title\": \"{{contacts[].title}}\",\n      \"email\": \"{{contacts[].email}}\",\n      \"mobile_phone\": \"{{contacts[].mobile_phone}}\",\n      \"office_phone\": \"{{contacts[].office_phone}}\",\n      \"home_phone\": \"{{contacts[].home_phone}}\",\n      \"slack\": \"{{contacts[].slack}}\",\n      \"fax\": \"{{contacts[].fax}}\"\n    }\n  ],\n  \"source\": {\n    \"platform\": \"Pathfinder\",\n    \"pathfinder_customer_id\": \"{{customer.customer_id}}\",\n    \"source_system\": \"{{source.source_system}}\",\n    \"source_customer\": \"{{source.source_customer}}\",\n    \"source_record_id\": \"{{source.source_record_id}}\",\n    \"source_record_url\": \"{{source.source_record_url}}\",\n    \"source_template\": \"{{source.source_template}}\",\n    \"submitted_at\": \"{{source.submitted_at}}\",\n    \"pathfinder_job_id\": \"{{generated.pathfinder_job_id}}\",\n    \"pathfinder_canonical_order_id\": \"{{generated.pathfinder_canonical_order_id}}\",\n    \"schema\": \"{{source.schema}}\",\n    \"integration_id\": \"{{source.integration_id}}\",\n    \"store\": \"{{source.store}}\",\n    \"created_at\": \"{{source.created_at}}\"\n  },\n  \"order\": {\n    \"ext_id\": \"{{order.external_order_id}}\",\n    \"order_title\": \"{{order.order_title}}\",\n    \"po_number\": \"{{order.po_number}}\",\n    \"contract_number\": \"{{order.contract_number}}\",\n    \"reference_number\": \"{{order.reference_number}}\",\n    \"source_status\": \"{{order.source_status}}\",\n    \"market\": \"{{order.market}}\",\n    \"priority\": \"{{order.priority}}\",\n    \"requested_ship_date\": \"{{order.ship_date}}\",\n    \"due_date\": \"{{order.due_date}}\",\n    \"order_note\": \"{{order.order_note}}\",\n    \"account_rep\": \"{{order.account_rep}}\",\n    \"invoice_email\": \"{{order.invoice_email}}\",\n    \"billing\": {\n      \"first_name\": \"{{order.billing.first_name}}\",\n      \"last_name\": \"{{order.billing.last_name}}\",\n      \"company\": \"{{order.billing.company}}\",\n      \"address_1\": \"{{order.billing.address_1}}\",\n      \"address_2\": \"{{order.billing.address_2}}\",\n      \"city\": \"{{order.billing.city}}\",\n      \"state\": \"{{order.billing.state}}\",\n      \"postal_code\": \"{{order.billing.postal_code}}\",\n      \"country\": \"{{order.billing.country}}\",\n      \"email\": \"{{order.billing.email}}\",\n      \"phone\": \"{{order.billing.phone}}\",\n      \"address_book_reference\": \"{{order.billing.address_book_reference}}\"\n    },\n    \"shipping\": {\n      \"method\": \"{{order.shipping.method}}\",\n      \"account_number\": \"{{order.shipping.account_number}}\",\n      \"acct_billing_zip\": \"{{order.shipping.acct_billing_zip}}\",\n      \"acct_billing_country\": \"{{order.shipping.acct_billing_country}}\",\n      \"attention_to\": \"{{order.shipping.attention_to}}\",\n      \"company\": \"{{order.shipping.company}}\",\n      \"address_1\": \"{{order.shipping.address_1}}\",\n      \"address_2\": \"{{order.shipping.address_2}}\",\n      \"city\": \"{{order.shipping.city}}\",\n      \"state\": \"{{order.shipping.state}}\",\n      \"postal_code\": \"{{order.shipping.postal_code}}\",\n      \"country\": \"{{order.shipping.country}}\",\n      \"phone\": \"{{order.shipping.phone}}\",\n      \"email\": \"{{order.shipping.email}}\",\n      \"instructions\": \"{{order.shipping.instructions}}\"\n    },\n    \"shipping_policy\": {\n      \"prepaid_label_url\": \"{{order.document_delivery.prepaid_label_url}}\",\n      \"prepaid_label_supplied\": \"{{order.shipping_policy.prepaid_label_supplied}}\",\n      \"mode\": \"{{order.shipping_policy.mode}}\",\n      \"blind_ship\": \"{{order.shipping_policy.blind_ship}}\",\n      \"ship_from_name\": \"{{order.shipping_policy.ship_from_name}}\",\n      \"label_precedence\": \"{{order.shipping_policy.label_precedence}}\",\n      \"missing_ship_date\": \"{{order.shipping_policy.missing_ship_date}}\"\n    },\n    \"order_attachment\": \"{{order.order_attachment}}\",\n    \"artwork_folder_url\": \"{{order.artwork_folder_url}}\",\n    \"reference_proof_url\": \"{{order.reference_proof_url}}\",\n    \"pricing\": {\n      \"currency\": \"{{order.pricing.currency}}\",\n      \"discount\": \"{{order.pricing.discount}}\",\n      \"subtotal\": \"{{order.pricing.subtotal}}\",\n      \"shipping\": \"{{order.pricing.shipping}}\",\n      \"refund\": \"{{order.pricing.refund}}\",\n      \"tax\": \"{{order.pricing.tax}}\",\n      \"total\": \"{{order.pricing.total}}\"\n    },\n    \"payment\": {\n      \"method\": \"{{order.payment.method}}\",\n      \"authorized_amount\": \"{{order.payment.authorized_amount}}\",\n      \"charged_amount\": \"{{order.payment.charged_amount}}\",\n      \"authorization_code\": \"{{order.payment.authorization_code}}\"\n    },\n    \"coupons\": \"{{order.coupons}}\"\n  },\n  \"lines\": [\n    {\n      \"line_number\": \"{{lines[].line_number}}\",\n      \"unit_number\": \"{{lines[].unit_number}}\",\n      \"product_id\": \"{{lines[].product_id}}\",\n      \"customer_sku\": \"{{lines[].customer_sku}}\",\n      \"product_name\": \"{{lines[].product_name}}\",\n      \"description\": \"{{lines[].description}}\",\n      \"quantity\": \"{{lines[].quantity}}\",\n      \"external_line_id\": \"{{lines[].source_line.external_line_id}}\",\n      \"store_product\": \"{{lines[].source_line.store_product}}\",\n      \"store_variation_id\": \"{{lines[].source_line.store_variation_id}}\",\n      \"dimensions\": {\n        \"final_height\": \"{{lines[].dimensions.final_height}}\",\n        \"final_width\": \"{{lines[].dimensions.final_width}}\",\n        \"live_height\": \"{{lines[].dimensions.live_height}}\",\n        \"live_width\": \"{{lines[].dimensions.live_width}}\",\n        \"bleed\": \"{{lines[].dimensions.bleed}}\"\n      },\n      \"production\": {\n        \"material\": \"{{lines[].production.material}}\",\n        \"laminate\": \"{{lines[].production.laminate}}\",\n        \"varnish\": \"{{lines[].production.varnish}}\",\n        \"coating\": \"{{lines[].production.coating}}\",\n        \"premask\": \"{{lines[].production.premask}}\",\n        \"ink\": \"{{lines[].production.ink}}\",\n        \"white_ink_required\": \"{{lines[].production.white_ink_required}}\",\n        \"orientation\": \"{{lines[].production.orientation}}\"\n      },\n      \"cut\": {\n        \"type\": \"{{lines[].production.cut_type}}\",\n        \"shape\": \"{{lines[].production.shape}}\",\n        \"complexity\": \"{{lines[].production.cut_complexity}}\",\n        \"die_reference\": \"{{lines[].production.die_reference}}\",\n        \"method\": \"{{lines[].source_line.cut.method}}\",\n        \"spot_name\": \"{{lines[].source_line.cut.spot_name}}\",\n        \"layer_name\": \"{{lines[].source_line.cut.layer_name}}\",\n        \"in_file\": \"{{lines[].source_line.cut.in_file}}\"\n      },\n      \"roll_finishing\": {\n        \"specification\": \"{{lines[].roll_finishing.specification}}\",\n        \"value\": \"{{lines[].roll_finishing.value}}\",\n        \"unwind_direction\": \"{{lines[].roll_finishing.unwind_direction}}\",\n        \"spacing\": \"{{lines[].roll_finishing.spacing}}\"\n      },\n      \"artwork\": {\n        \"file_name\": \"{{lines[].artwork.file_name}}\",\n        \"file_url\": \"{{lines[].artwork.file_url}}\",\n        \"checksum\": \"{{lines[].artwork.checksum}}\",\n        \"format\": \"{{lines[].source_line.artwork.format}}\",\n        \"pages\": \"{{lines[].source_line.artwork.pages}}\",\n        \"bytes\": \"{{lines[].source_line.artwork.bytes}}\",\n        \"page_in\": {\n          \"w\": \"{{lines[].source_line.artwork.page_in.w}}\",\n          \"h\": \"{{lines[].source_line.artwork.page_in.h}}\"\n        },\n        \"trim_in\": {\n          \"w\": \"{{lines[].source_line.artwork.trim_in.w}}\",\n          \"h\": \"{{lines[].source_line.artwork.trim_in.h}}\"\n        }\n      },\n      \"approval\": {\n        \"proof_status\": \"{{lines[].proof_status}}\",\n        \"provider\": \"{{lines[].source_line.approval.provider}}\",\n        \"approved_by\": \"{{lines[].source_line.approval.approved_by}}\",\n        \"approved_at\": \"{{lines[].source_line.approval.approved_at}}\"\n      },\n      \"preview\": {\n        \"file_url\": \"{{lines[].document_delivery.preview_url}}\",\n        \"format\": \"{{lines[].source_line.preview.format}}\",\n        \"purpose\": \"{{lines[].source_line.preview.purpose}}\"\n      },\n      \"area\": {\n        \"value\": \"{{lines[].source_line.area.value}}\",\n        \"basis\": \"{{lines[].source_line.area.basis}}\"\n      },\n      \"pricing\": {\n        \"item_base_price\": \"{{lines[].pricing.item_base_price}}\",\n        \"customer_price\": \"{{lines[].pricing.customer_price}}\"\n      },\n      \"sample\": \"{{lines[].sample}}\",\n      \"line_note\": \"{{lines[].line_note}}\"\n    }\n  ]\n}",
+  "header_template": "{\n  \"Content-Type\": \"application/json\",\n  \"Ext_ID\": \"{{order.external_order_id}}\",\n  \"User\": \"{{environment.credentials.User}}\",\n  \"Password\": \"{{environment.credentials.Password}}\",\n  \"Company\": \"{{environment.headers.Company}}\"\n}",
+  "canonical_mappings": [
+    {
+      "sourceColumn": "body:customer.lift_customer_id",
+      "targetField": "customer.destination_customer_id",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:customer.customer_name",
+      "targetField": "customer.customer_name",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:customer.crm_id",
+      "targetField": "customer.crm_id",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:contacts[].first_name",
+      "targetField": "contacts[].first_name",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:contacts[].last_name",
+      "targetField": "contacts[].last_name",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:contacts[].title",
+      "targetField": "contacts[].title",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:contacts[].email",
+      "targetField": "contacts[].email",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:contacts[].mobile_phone",
+      "targetField": "contacts[].mobile_phone",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:contacts[].office_phone",
+      "targetField": "contacts[].office_phone",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:contacts[].home_phone",
+      "targetField": "contacts[].home_phone",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:contacts[].slack",
+      "targetField": "contacts[].slack",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:contacts[].fax",
+      "targetField": "contacts[].fax",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.pathfinder_customer_id",
+      "targetField": "customer.customer_id",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.source_customer",
+      "targetField": "source.source_customer",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.source_record_id",
+      "targetField": "source.source_record_id",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.source_record_url",
+      "targetField": "source.source_record_url",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.source_template",
+      "targetField": "source.source_template",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.submitted_at",
+      "targetField": "source.submitted_at",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.pathfinder_job_id",
+      "targetField": "generated.pathfinder_job_id",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.ext_id",
+      "targetField": "order.external_order_id",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:order.po_number",
+      "targetField": "order.po_number",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.contract_number",
+      "targetField": "order.contract_number",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.order_title",
+      "targetField": "order.order_title",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:order.order_note",
+      "targetField": "order.order_note",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.requested_ship_date",
+      "targetField": "order.ship_date",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.due_date",
+      "targetField": "order.due_date",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.order_attachment",
+      "targetField": "order.order_attachment",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.artwork_folder_url",
+      "targetField": "order.artwork_folder_url",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.reference_proof_url",
+      "targetField": "order.reference_proof_url",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.method",
+      "targetField": "order.shipping.method",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.acct_billing_zip",
+      "targetField": "order.shipping.acct_billing_zip",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.acct_billing_country",
+      "targetField": "order.shipping.acct_billing_country",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].line_number",
+      "targetField": "lines[].line_number",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:lines[].unit_number",
+      "targetField": "lines[].unit_number",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].customer_sku",
+      "targetField": "lines[].customer_sku",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].description",
+      "targetField": "lines[].description",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].product_id",
+      "targetField": "lines[].product_id",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:lines[].product_name",
+      "targetField": "lines[].product_name",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].quantity",
+      "targetField": "lines[].quantity",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:lines[].artwork.file_name",
+      "targetField": "lines[].artwork.file_name",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:lines[].artwork.file_url",
+      "targetField": "lines[].artwork.file_url",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:lines[].artwork.checksum",
+      "targetField": "lines[].artwork.checksum",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].dimensions.final_height",
+      "targetField": "lines[].dimensions.final_height",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:lines[].dimensions.final_width",
+      "targetField": "lines[].dimensions.final_width",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:lines[].dimensions.live_height",
+      "targetField": "lines[].dimensions.live_height",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].dimensions.live_width",
+      "targetField": "lines[].dimensions.live_width",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].dimensions.bleed",
+      "targetField": "lines[].dimensions.bleed",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:lines[].production.material",
+      "targetField": "lines[].production.material",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].production.laminate",
+      "targetField": "lines[].production.laminate",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].production.coating",
+      "targetField": "lines[].production.coating",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].production.premask",
+      "targetField": "lines[].production.premask",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].production.ink",
+      "targetField": "lines[].production.ink",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].line_note",
+      "targetField": "lines[].line_note",
+      "required": false
+    },
+    {
+      "sourceColumn": "header:Ext_ID",
+      "targetField": "order.external_order_id",
+      "required": true
+    },
+    {
+      "sourceColumn": "header:User",
+      "targetField": "environment.credentials.User",
+      "required": true
+    },
+    {
+      "sourceColumn": "header:Password",
+      "targetField": "environment.credentials.Password",
+      "required": true
+    },
+    {
+      "sourceColumn": "header:Company",
+      "targetField": "environment.headers.Company",
+      "required": true
+    },
+    {
+      "sourceColumn": "body:source.source_system",
+      "targetField": "source.source_system",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.pathfinder_canonical_order_id",
+      "targetField": "generated.pathfinder_canonical_order_id",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.account_number",
+      "targetField": "order.shipping.account_number",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.attention_to",
+      "targetField": "order.shipping.attention_to",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.company",
+      "targetField": "order.shipping.company",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.address_1",
+      "targetField": "order.shipping.address_1",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.address_2",
+      "targetField": "order.shipping.address_2",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.city",
+      "targetField": "order.shipping.city",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.state",
+      "targetField": "order.shipping.state",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.postal_code",
+      "targetField": "order.shipping.postal_code",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.country",
+      "targetField": "order.shipping.country",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.phone",
+      "targetField": "order.shipping.phone",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.email",
+      "targetField": "order.shipping.email",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping.instructions",
+      "targetField": "order.shipping.instructions",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].cut.type",
+      "targetField": "lines[].production.cut_type",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.source_status",
+      "targetField": "order.source_status",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.reference_number",
+      "targetField": "order.reference_number",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.account_rep",
+      "targetField": "order.account_rep",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.invoice_email",
+      "targetField": "order.invoice_email",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.first_name",
+      "targetField": "order.billing.first_name",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.last_name",
+      "targetField": "order.billing.last_name",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.company",
+      "targetField": "order.billing.company",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.address_1",
+      "targetField": "order.billing.address_1",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.address_2",
+      "targetField": "order.billing.address_2",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.city",
+      "targetField": "order.billing.city",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.state",
+      "targetField": "order.billing.state",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.postal_code",
+      "targetField": "order.billing.postal_code",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.country",
+      "targetField": "order.billing.country",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.email",
+      "targetField": "order.billing.email",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.phone",
+      "targetField": "order.billing.phone",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.billing.address_book_reference",
+      "targetField": "order.billing.address_book_reference",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.pricing.currency",
+      "targetField": "order.pricing.currency",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.pricing.discount",
+      "targetField": "order.pricing.discount",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.pricing.subtotal",
+      "targetField": "order.pricing.subtotal",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.pricing.shipping",
+      "targetField": "order.pricing.shipping",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.pricing.refund",
+      "targetField": "order.pricing.refund",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.pricing.tax",
+      "targetField": "order.pricing.tax",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.pricing.total",
+      "targetField": "order.pricing.total",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.payment.method",
+      "targetField": "order.payment.method",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.payment.authorized_amount",
+      "targetField": "order.payment.authorized_amount",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.payment.charged_amount",
+      "targetField": "order.payment.charged_amount",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.payment.authorization_code",
+      "targetField": "order.payment.authorization_code",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.coupons",
+      "targetField": "order.coupons",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].pricing.item_base_price",
+      "targetField": "lines[].pricing.item_base_price",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].pricing.customer_price",
+      "targetField": "lines[].pricing.customer_price",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].roll_finishing.specification",
+      "targetField": "lines[].roll_finishing.specification",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].roll_finishing.value",
+      "targetField": "lines[].roll_finishing.value",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].roll_finishing.unwind_direction",
+      "targetField": "lines[].roll_finishing.unwind_direction",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].roll_finishing.spacing",
+      "targetField": "lines[].roll_finishing.spacing",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].production.varnish",
+      "targetField": "lines[].production.varnish",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].production.orientation",
+      "targetField": "lines[].production.orientation",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].cut.die_reference",
+      "targetField": "lines[].production.die_reference",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].cut.complexity",
+      "targetField": "lines[].production.cut_complexity",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].production.white_ink_required",
+      "targetField": "lines[].production.white_ink_required",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].sample",
+      "targetField": "lines[].sample",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].approval.proof_status",
+      "targetField": "lines[].proof_status",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping_policy.prepaid_label_url",
+      "targetField": "order.document_delivery.prepaid_label_url",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].preview.file_url",
+      "targetField": "lines[].document_delivery.preview_url",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.schema",
+      "targetField": "source.schema",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.integration_id",
+      "targetField": "source.integration_id",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.store",
+      "targetField": "source.store",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:source.created_at",
+      "targetField": "source.created_at",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.market",
+      "targetField": "order.market",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.priority",
+      "targetField": "order.priority",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping_policy.prepaid_label_supplied",
+      "targetField": "order.shipping_policy.prepaid_label_supplied",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping_policy.mode",
+      "targetField": "order.shipping_policy.mode",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping_policy.blind_ship",
+      "targetField": "order.shipping_policy.blind_ship",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping_policy.ship_from_name",
+      "targetField": "order.shipping_policy.ship_from_name",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping_policy.label_precedence",
+      "targetField": "order.shipping_policy.label_precedence",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:order.shipping_policy.missing_ship_date",
+      "targetField": "order.shipping_policy.missing_ship_date",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].external_line_id",
+      "targetField": "lines[].source_line.external_line_id",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].store_product",
+      "targetField": "lines[].source_line.store_product",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].store_variation_id",
+      "targetField": "lines[].source_line.store_variation_id",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].cut.shape",
+      "targetField": "lines[].production.shape",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].cut.method",
+      "targetField": "lines[].source_line.cut.method",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].cut.spot_name",
+      "targetField": "lines[].source_line.cut.spot_name",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].cut.layer_name",
+      "targetField": "lines[].source_line.cut.layer_name",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].cut.in_file",
+      "targetField": "lines[].source_line.cut.in_file",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].artwork.format",
+      "targetField": "lines[].source_line.artwork.format",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].artwork.pages",
+      "targetField": "lines[].source_line.artwork.pages",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].artwork.bytes",
+      "targetField": "lines[].source_line.artwork.bytes",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].artwork.page_in.w",
+      "targetField": "lines[].source_line.artwork.page_in.w",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].artwork.page_in.h",
+      "targetField": "lines[].source_line.artwork.page_in.h",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].artwork.trim_in.w",
+      "targetField": "lines[].source_line.artwork.trim_in.w",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].artwork.trim_in.h",
+      "targetField": "lines[].source_line.artwork.trim_in.h",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].approval.provider",
+      "targetField": "lines[].source_line.approval.provider",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].approval.approved_by",
+      "targetField": "lines[].source_line.approval.approved_by",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].approval.approved_at",
+      "targetField": "lines[].source_line.approval.approved_at",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].area.value",
+      "targetField": "lines[].source_line.area.value",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].area.basis",
+      "targetField": "lines[].source_line.area.basis",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].preview.format",
+      "targetField": "lines[].source_line.preview.format",
+      "required": false
+    },
+    {
+      "sourceColumn": "body:lines[].preview.purpose",
+      "targetField": "lines[].source_line.preview.purpose",
+      "required": false
+    }
+  ],
+  "filename_format": "orders-%y-%m-%d-%h-%i-%s.json",
+  "status": "Draft",
+  "updated_at": "2026-09-28T00:00:00.000Z"
+}
