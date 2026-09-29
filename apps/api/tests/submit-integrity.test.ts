@@ -12,6 +12,7 @@ import {
   SubmitIntegrityError
 } from "../src/submit-integrity.js";
 import type { ProcessingJobPreview } from "../src/store.js";
+import { preflightSubmitDocuments } from "../src/json-intake/prepaid-submit.js";
 
 const gridUrl = "https://go.vornan.co/d/wd_1234567890abcdef/order_grid.xlsx";
 const proofUrl = "https://go.vornan.co/d/wd_abcdef1234567890/reference_proof.pdf";
@@ -171,8 +172,12 @@ test("binds one workbook and one proof to custom Lift output fields", () => {
 
 test("rechecks immutable S3 versions and direct HTTP 200 delivery immediately before submit", async () => {
   const commands: any[] = [];
-  const checked = await preflightWrikeSubmitDocuments({
-    job: job(),
+  const legacyJob=job();
+  legacyJob.lift_payload.order.order_note="An unrelated note about /d/pl_ must not select prepaid delivery.";
+  legacyJob.lift_payload.order.order_title="Legacy /d/pl_ text";
+  const checked = await preflightSubmitDocuments({
+    job: legacyJob,
+    prepaid_config: {enabled:false,delivery_bucket_name:null,manifest_bucket_name:null},
     publication_enabled: true,
     delivery_bucket_name: "synthetic-delivery-bucket",
     now: () => new Date("2026-08-01T12:10:00.000Z"),

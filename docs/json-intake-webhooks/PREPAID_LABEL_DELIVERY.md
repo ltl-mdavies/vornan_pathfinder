@@ -24,4 +24,22 @@ This slice prepares an attachment for order creation. It does not append documen
 
 The code does not purchase labels, infer tracking from PDFs, mark packages dispatched, or emit shipment callbacks. Follow [the prepaid procedure](PREPAID_LABEL_PROCEDURE.md) for staff checks and separate dispatch evidence.
 
-Before runtime activation: wire durable receipt/asset storage and the trusted label-review record, verify the delivery bucket policy/lifecycle and fulfillment window, connect publication manifests to the final submit integrity check, and run one sanctioned sandbox order through Lift attachment access and staff tracking/dispatch entry. No source download, S3 write, Lift order write, deployment or real callback was performed while implementing this slice.
+Before runtime activation: wire durable receipt/asset storage and the trusted label-review record, verify the delivery bucket policy/lifecycle and fulfillment window, and run one sanctioned sandbox order through Lift attachment access and staff tracking/dispatch entry. The final submit guard below now checks publication manifests. No source download, S3 write, Lift order write, deployment or real callback was performed while implementing these slices.
+
+## Final submit guard — 2026-09-29
+
+`prepaid-submit.ts` adds a trusted `prepaid_submit_binding` to the processing-job contract. It contains the retained label evidence, immutable publication and reviewed fulfillment deadline. `buildPrepaidSubmitBinding` prepares it only from a matching unconfirmed receipt/publication. This is internal job data, not an accepted partner request field. The receipt-to-job persistence adapter must still install that binding when creating an e-commerce job.
+
+The shared submit integrity fingerprint includes this binding when present. Jobs without it retain the previous fingerprint algorithm. Certification refresh and job regeneration preserve the binding. Both existing server submit paths now use the document dispatcher: ordinary jobs retain the Wrike preflight, and prepaid jobs require the dedicated check. A prepaid delivery URL without its binding is blocked.
+
+Immediately before submit intent reservation, the prepaid check verifies test scope, job customer and external order ID, the exact canonical/payload attachment URL and instruction, expiry/fulfillment coverage, stored manifest, object version/metadata and checksum of the directly downloaded file. It performs only GET/HEAD operations; a missing object cannot be silently republished. A shared 30-second abort deadline bounds storage/download operations, in addition to the download's eight-second timeout. Verification records the prepaid document role in the existing attempt audit. Changed in-memory job data during verification is rejected; this does not establish persisted-job concurrency protection. The future receipt-to-job workflow must preserve authoritative job-version/CAS integrity at dispatch. Existing uncertain-submit/reconciliation behavior is unchanged.
+
+Prepaid delivery remains disabled unless all three trusted runtime settings are configured:
+
+- `PATHFINDER_ENABLE_JSON_PREPAID_DOCUMENT_DELIVERY=true`
+- `PATHFINDER_JSON_PREPAID_DELIVERY_BUCKET`
+- `PATHFINDER_JSON_PREPAID_MANIFEST_BUCKET`
+
+These settings were not created or enabled. They supplement the existing submission gates and do not activate JSON intake, register the Draft template, authorize a Lift route, or make the preview submit-ready. The publisher's configured retention must match the delivery bucket lifecycle.
+
+Sandbox execution remains pending: no deployed JSON intake URL or active test credentials are verified in the project handoff; complete customer/product mapping, durable intake-to-job binding and a sanctioned test route are still required. The local tests use synthetic documents and mocked storage/download responses. No Lift sandbox order was submitted by this slice.

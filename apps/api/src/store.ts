@@ -1,4 +1,5 @@
 import { createSeedOutputTemplate } from './lift-output-templates.js';
+import type { PrepaidSubmitBinding } from './json-intake/prepaid-submit.js';
 import { resolveWorkspaceTables } from "./workspace-table-namespace.js";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
@@ -810,6 +811,7 @@ export interface ProcessingJobPreview {
   lift_validation: ValidationMessage[];
   submit_certification?: SubmitCertification;
   submit_integrity?: SubmitIntegritySnapshot;
+  prepaid_submit_binding?: PrepaidSubmitBinding;
   submit_request_masked: Omit<LiftSubmitRequest, "headers"> & {
     headers: Omit<LiftSubmitRequest["headers"], "Password"> & { Password: string };
   };
@@ -978,7 +980,7 @@ export interface SubmitAttempt {
     required: boolean;
     checked_at: string | null;
     documents: Array<{
-      document_role: "order_grid" | "reference_proof";
+      document_role: "order_grid" | "reference_proof" | "prepaid_label";
       publication_id: string;
       object_version_id: string;
       content_length: number;

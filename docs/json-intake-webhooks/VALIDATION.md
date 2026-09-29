@@ -1,3 +1,15 @@
+# Prepaid final-submit guard — 2026-09-29
+
+Added an optional receipt/publication/fulfillment binding to processing jobs and the shared submit integrity fingerprint. Both server submit paths use a document dispatcher that preserves Wrike preflight for ordinary jobs and checks prepaid manifest, object version, direct-download checksum, customer/order identity and retention coverage before submit reservation. Prepaid verification is disabled by default, read-only, and bounded by an abort deadline. Existing-job regeneration preserves the binding.
+
+- 702 API tests, all workspace type checks and API Lambda packaging passed. 37 focused prepaid/submit-integrity/scheduled-intake cases passed.
+- Includes a fixed legacy fingerprint vector, existing Wrike document checks with prepaid disabled and unrelated `/d/pl_` text in notes/title, missing binding, changed manifest/version/content, stale coverage, in-memory mutation and stalled S3 abort. Scheduled status-check/reservation/transport ordering remains covered.
+- Initial full run stalled at a static test referencing the old preflight function name; stopped only the identified test processes, updated that assertion to the dispatcher, and reran successfully. Subsequent review fixes were followed by a final complete passing run.
+- No seed/runtime configuration values changed. No live requests, storage writes, Lift orders, credentials, deployment, push or activation. Browser tests were not repeated for this backend-only change.
+- Durable receipt-to-job creation, persisted job-version integrity at dispatch, reviewed catalog/customer mappings and sandbox provisioning remain open. In-memory mutation checks do not solve concurrent persisted edits. No end-to-end Lift sandbox test is claimed.
+
+---
+
 # Prepaid label attachment preparation — 2026-09-29
 
 Added receipt-bound prepaid PDF retention, controlled immutable publication, checksum-verifying direct-download preflight and application to the same `order_attachment` field used for Momentara's order grid. The optional publication is visible in the local e-commerce Lift preview with the do-not-purchase instruction. Existing conflicting attachments reject instead of being replaced; source label URLs remain private. No tracking or dispatch state is inferred.
