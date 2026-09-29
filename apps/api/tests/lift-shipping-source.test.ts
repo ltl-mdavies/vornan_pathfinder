@@ -8,6 +8,7 @@ import { LocalReceiptStore, type Receipt } from '../src/json-intake/local-store.
 import { prepareLiftShippingSnapshot, captureLiftShippingReports, type LiftShippingReports, type LiftShippingReview } from '../src/json-intake/lift-shipping-source.js';
 import { projectShipping, shippingEvents } from '../src/json-intake/shipping-events.js';
 import { currentReceiptEvent } from '../src/json-intake/webhook-events.js';
+import { collectLiftShippingReports, captureCollectedLiftShipping } from '../src/json-intake/lift-shipping-collector.js';
 
 const sample=JSON.parse(await readFile(new URL('./fixtures/json-intake/sample-factory-test.json',import.meta.url),'utf8'));
 function fixture(quantities=[2,1,1]) {
@@ -35,6 +36,26 @@ function fixture(quantities=[2,1,1]) {
     status:'shipped',dispatch_evidence:'synthetic-operator-dispatch',shipped_at:null,delivered_at:null,source_updated_at:now}));};
   return {receipt,review,reports,row,approve};
 }
+test('fresh collected reports capture reviewed partial shipments without a completion event',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'lift-collected-shipping-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const h=fixture(),store=new LocalReceiptStore(root);await store.create(h.receipt);
+  (h.reports.packages as any).rowset=[h.row(2,1,1),h.row(3,1,2)];h.approve();
+  const pagination={kind:'single_response' as const,review_reference:'synthetic-reviewed-report-contract'};
+  const collected=await collectLiftShippingReports(h.receipt,{enabled:true,scope:h.review.scope,pagination:{order:pagination,packages:pagination,shipping:pagination}},{
+    credentials:async()=>null,now:()=>Date.parse(h.review.observed_at),
+    fetch:(async input=>{
+      const url=String(input),body=url.includes('PackageDetails')?h.reports.packages:url.includes('ShippingReport')?h.reports.shipping:h.reports.order;
+      return new Response(JSON.stringify(body),{headers:{'content-type':'application/json'}});
+    }) as typeof fetch
+  });
+  let reads=0;
+  const saved=await captureCollectedLiftShipping(store,h.receipt.receipt_id,collected,async(r,hash)=>{
+    reads++;assert.equal(r.receipt_id,h.receipt.receipt_id);assert.equal(hash,collected.evidence_sha256);return h.review;
+  },()=>Date.parse(h.review.observed_at));
+  assert.equal(reads,2);assert.equal(projectShipping(saved).fulfillment_status,'partially_shipped');
+  const events=shippingEvents(saved);assert.equal(events.length,2);
+  assert.ok(events.every(e=>e.envelope.event_type==='shipment.updated'));
+});
 test('partial Lift reports retain dates without inventing dispatch, then map reviewed packages to external lines',()=>{
   const h=fixture();(h.reports.packages as any).rowset=[h.row(2,1,1),h.row(3,1,2)];
   let p=prepareLiftShippingSnapshot(h.receipt,h.reports,h.review);

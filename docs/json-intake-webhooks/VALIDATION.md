@@ -1,3 +1,14 @@
+# Local Lift report collector — 2026-09-29
+
+Added an explicitly enabled test-scope collector for the three fixed Lift report endpoints and connected collected evidence to reviewed receipt capture. It checks report/order scope, explicit pagination policy, bounded response size/pages/rows, redirects, collection duration, evidence integrity and capture-time freshness. Documented the separate prepaid publisher requirements after inspecting the existing Wrike-specific path.
+
+- 691 API tests and all workspace type checks passed; 12 focused collector/adapter tests passed.
+- Five added cases cover scoped HTTP/auth handling, disabled/unbound configuration, ambiguous/repeated/cross-order/oversized pages, stale/modified evidence holds, and successful collected partial shipments without an order-completion event.
+- All HTTP responses in these added tests were mocked. No live requests, credentials provisioning, partner events, attachment writes, runtime mount, shared normalizer change, push or deployment. Browser and Lambda packaging checks were not repeated for this backend-only slice.
+- Live pagination semantics, durable reconciliation/review storage, collection-failure and send-time freshness handling, hold resolution and dedicated prepaid publication remain open. See [LIFT_SHIPPING_COLLECTOR.md](LIFT_SHIPPING_COLLECTOR.md).
+
+---
+
 # Local Lift report adapter — 2026-09-29
 
 Added the isolated Lift rowset adapter and committed-reader capture wrapper. It verifies order/customer/EXT_ID and full line/quantity bindings, preserves ACTUAL_SHIP_DATE as date evidence, groups packages independently of repeated master tracking, collapses identical join allocations and rejects conflicting rows. Package dispatch/carrier/label-source review binds the projected evidence hash. Missing/changed review cannot produce a snapshot; read/validation failures place a source-unverified hold blocking old pending shipping/completion events. The proposed prepaid attachment/dispatch procedure is documented separately.

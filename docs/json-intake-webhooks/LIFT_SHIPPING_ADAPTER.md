@@ -6,7 +6,7 @@
 
 The adapter verifies test/customer/integration/store scope, receipt, confirmed Lift order and confirmation hash. The order header must match the reviewed target customer ID and intake EXT_ID. An explicit one-to-one map connects every Lift ORDER_LINE_ID to an intake external line ID. Order-line quantities must match the canonical expected quantities; missing, extra, duplicated or changed order lines reject rather than becoming cancelled/non-shipping exclusions.
 
-The report collector must assert that all pages were read. A payload still marked `hasMore`/`has_more` true, an unsupported envelope, missing shipping-line coverage or a cross-order row rejects. HTTP success alone is not a completeness guarantee. The production collector's pagination and freshness policy still need implementation and verification.
+The report collector must assert that all pages were read. A payload still marked `hasMore`/`has_more` true, an unsupported envelope, missing shipping-line coverage or a cross-order row rejects. HTTP success alone is not a completeness guarantee. The isolated [collector](LIFT_SHIPPING_COLLECTOR.md) now implements bounded reads and capture freshness checks; production pagination semantics and runtime integration remain unverified.
 
 ## Package evidence and dispatch
 
