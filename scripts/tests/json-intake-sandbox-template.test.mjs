@@ -25,3 +25,9 @@ test('sandbox exposes only bounded receipt/status routes and retains encrypted p
  assert.ok(Object.values(r.Evidence.Properties.PublicAccessBlockConfiguration).every(v=>v===true));
  assert.equal(r.Receipts.Properties.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled,true);
 });
+
+test('bundle boundary rejects shared and nested parser imports',async()=>{
+ const {assertSandboxBundleInputs}=await import('../lib/sandbox-bundle-boundary.mjs');
+ for(const path of ['apps/api/src/server.ts','apps/api/src/store.ts','apps/api/src/json-intake/pdf-worker-source.ts','apps/api/src/json-intake/pdf-inspection.ts','node_modules/pdf-lib/es/index.js'])assert.throws(()=>assertSandboxBundleInputs([path]));
+ assert.doesNotThrow(()=>assertSandboxBundleInputs(['apps/api/src/json-intake/service.ts','apps/api/src/json-intake/sandbox-lambda.ts']));
+});
