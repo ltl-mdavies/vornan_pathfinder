@@ -4,13 +4,15 @@ The receipt-only test sandbox is live as of September 29, 2026. Use the agreed `
 
 `andy-intake-order.example.json` is a sanitized four-line reference. Its `.invalid` URLs are nonfunctional and its file metadata is illustrative. Replace the order/line IDs, timestamps and file metadata with your actual test values.
 
+The credential issued earlier for incorrect customer ID `17409` has been revoked. Use the replacement credential for verified customer `174094`; its expiry and permissions are unchanged. Customer number is `0000000549` (549).
+
 ## Sandbox access
 
 - Base URL: `https://0kh8s19cc5.execute-api.us-east-1.amazonaws.com`
 - Submit: `POST https://0kh8s19cc5.execute-api.us-east-1.amazonaws.com/api/v1/intake/orders`
 - Status: authenticated `GET /api/v1/intake/orders/{receipt_id}` on the same base URL.
 - Headers: `Content-Type: application/json` and `Authorization: Bearer <securely supplied token>`.
-- Credential scope: customer `17409` (Silicon Pasture), integration `stickerpress-sandbox`, store `ltlco`, environment `test`; order receipt read/write only.
+- Credential scope: customer `174094` (Silicone Pasture), integration `stickerpress-sandbox`, store `ltlco`, environment `test`; order receipt read/write only.
 - Current test credential expires October 29, 2026 at 13:34:55 UTC. Marcus will supply it separately through secure sharing. No credential is included in this packet.
 
 A new durable receipt returns HTTP 202. An identical replay returns HTTP 200 with the same receipt. Changed business content under the same order identity returns HTTP 409 for conflict review. A receipt is not a Lift order confirmation.
