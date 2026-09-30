@@ -13,7 +13,7 @@ async function setup(count=1){
  const payload=structuredClone(fixture);payload.lines=payload.lines.slice(0,count);const bytes=Buffer.from('%PDF-test');
  for(const l of payload.lines){l.artwork.bytes=bytes.length;l.artwork.artwork_sha256=sha256(bytes);l.approval.artwork_sha256=sha256(bytes);l.artwork.artwork_expires_at='2099-01-01T00:00:00Z';}
  let current:Receipt|null=null;
- const store:ReceiptStore={get:async()=>structuredClone(current),create:async r=>{current=structuredClone(r);return true;},compareAndSet:async(before,after)=>{if(current!.revision!==before.revision)return false;current=structuredClone(after);return true;},async *pending(){}};
+ const store:ReceiptStore={get:async()=>structuredClone(current),create:async r=>{if(current)return false;current=structuredClone(r);return true;},compareAndSet:async(before,after)=>{if(current!.revision!==before.revision)return false;current=structuredClone(after);return true;},async *pending(){}};
  const {receipt}=await new JsonIntakeService(store,null,[stickerPressV1]).receive(identity,payload,Buffer.from(JSON.stringify(payload)));
  let reads=0,retains=0;
  const inspection:any={schema:'pathfinder.pdf-metadata-review.v1',sha256:sha256(bytes),engine:'test',policy_id:'test',verdict:'pass',findings:[],measured:{},comparison_tolerance_in:0.001,production_approved:false,cut_path_verified:false,malware_scanned:false};
@@ -67,4 +67,38 @@ test('access refresh of already-inspected review cannot leave status pending or 
  await worker(s.receipt.receipt_id);
  s.set({...s.get(),work:'pending',asset_status:'pending'});
  assert.equal(await worker(s.receipt.receipt_id),'complete');assert.equal(s.get().asset_status,'action_required');assert.equal(s.counts().reads,1);
+});
+
+test('PDF lexical delimiters detect compact RGB operators and ignore strings, names, and comments',async()=>{
+ const inspect=createPdfInspector({policy_id:'lexical-test',metadata_tolerance_in:0.001,review_color:true});
+ const line:any={source_line:{artwork:{page_in:{w:3.25,h:2.25},trim_in:{w:3,h:2}},cut:{spot_name:'Laser - Thru Cut',layer_name:'Laser - Thru Cut'}},dimensions:{bleed:0.125}};
+ async function check(content:string){
+  const doc=await PDFDocument.create(),p=doc.addPage([234,162]);p.setTrimBox(9,9,216,144);p.setBleedBox(0,0,234,162);
+  p.node.set(PDFName.of('Resources'),doc.context.obj({ColorSpace:{Cut:[PDFName.of('Separation'),PDFName.of('Laser - Thru Cut'),PDFName.of('DeviceCMYK'),doc.context.obj({FunctionType:2,Domain:[0,1],C0:[0,0,0,0],C1:[1,0,0,0],N:1})]},Properties:{Cut:doc.context.obj({Type:'OCG',Name:PDFString.of('Laser - Thru Cut')})}}));
+  p.node.set(PDFName.of('Contents'),doc.context.register(doc.context.flateStream(content)));
+  return inspect(Buffer.from(await doc.save()),line);
+ }
+ for(const syntax of ['/DeviceRGB cs 1 0 0 scn','/#44eviceRGB CS 1 0 0 SCN','1 0 0 rg /Artifact BMC 9 9 216 144 re f EMC','1 0 0 rg/Artifact BMC 9 9 216 144 re f EMC','1 0 0 rg% comment\n/Artifact BMC 9 9 216 144 re f EMC'])assert.ok((await check(syntax)).findings.includes('PDF_RGB_PROFILE_MISSING'),syntax);
+ for(const syntax of ['% 1 0 0 rg\n0 0 0 1 k','(1 0 0 rg) Tj','(escaped \\( 1 0 0 rg) Tj','<3120302030207267> Tj','/rg MP'])assert.equal((await check(syntax)).verdict,'pass',syntax);
+ assert.ok((await check('BI /W 1 /H 1 ID 1 0 0 rg EI')).findings.includes('PDF_COLOR_REVIEW_REQUIRED'));
+ assert.ok((await check('1 0 0rg')).findings.includes('PDF_COLOR_REVIEW_REQUIRED'));
+});
+
+test('terminal internal hold survives access URL refresh, while customer expiry can be repaired',async()=>{
+ const s=await setup();s.transport.read=async()=>{throw Error('internal failure');};
+ const worker=createSandboxArtworkWorker({...s,customerId:'test',integrationId:'test-art'});
+ await worker(s.receipt.receipt_id);assert.equal(s.get().asset_status,'internal_action_required');
+ async function refresh(t:Awaited<ReturnType<typeof setup>>){const p=structuredClone(t.get().adapted.evidence) as any;p.lines[0].artwork.download_url+='?fresh=1';p.lines[0].artwork.artwork_expires_at='2099-01-01T00:00:00Z';return new JsonIntakeService(t.store,null,[stickerPressV1]).receive(identity,p,Buffer.from(JSON.stringify(p)));}
+ await refresh(s);assert.equal(s.get().work,'complete');assert.equal(s.get().asset_status,'internal_action_required');
+ assert.equal(await worker(s.receipt.receipt_id),'terminal');
+ const t=await setup();const p:any=structuredClone(t.get().adapted.evidence);p.lines[0].artwork.artwork_expires_at='2000-01-01T00:00:00Z';
+ await new JsonIntakeService(t.store,null,[stickerPressV1]).receive(identity,p,Buffer.from(JSON.stringify(p)));
+ const other=createSandboxArtworkWorker({...t,customerId:'test',integrationId:'test-art'});
+ await other(t.receipt.receipt_id);assert.equal(t.get().issues[0].code,'ARTWORK_URL_EXPIRED');
+ await refresh(t);await other(t.receipt.receipt_id);assert.equal(t.get().asset_status,'integrity_verified');assert.equal(t.get().issues.length,0);
+});
+test('mixed internal and customer issues remain internal-owned even after stale pending refresh',async()=>{
+ const s=await setup();s.set({...s.get(),issues:[{issue_id:'a',code:'ARTWORK_WORKER_FAILED',field:'lines',owner:'internal',message:'x',corrective_action:'x'},{issue_id:'b',code:'PDF_RGB_PROFILE_MISSING',field:'lines',owner:'customer',message:'x',corrective_action:'x'}]});
+ await createSandboxArtworkWorker({...s,customerId:'test',integrationId:'test-art'})(s.receipt.receipt_id);
+ assert.equal(s.get().asset_status,'internal_action_required');assert.equal(s.get().work,'complete');assert.equal(s.counts().reads,0);assert.equal(s.get().issues.length,2);
 });

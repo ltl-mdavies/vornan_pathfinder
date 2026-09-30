@@ -76,14 +76,44 @@ DecodeStream.prototype.ensureBuffer=function(requested){
     if(obj instanceof PDFArray){for(const v of obj.asArray())contentColors(v,defaultRgb);return;}
     if(!(obj instanceof PDFStream))return;
     const data=decoded(obj).toString('latin1');
-    // Conservative bounded token scan, not a full PDF graphics interpreter.
-    const tokens=data.split(/\s+/);if(tokens.length>200000)fail('PDF_RESOURCE_LIMIT');
-    const numeric=t=>typeof t==='string' && t.length<64 && /^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(t);
-    for(let i=0;i<tokens.length;i++){
-      const op=tokens[i];
-      if((op==='rg'||op==='RG') && tokens.slice(Math.max(0,i-3),i).length===3 && tokens.slice(i-3,i).every(numeric)){spaces.add('DeviceRGB');if(!defaultRgb)unprofiledRgb=true;}
-      if((op==='k'||op==='K') && i>=4 && tokens.slice(i-4,i).every(numeric))spaces.add('DeviceCMYK');
-      if(op==='BI')colorReview=true;
+    // PDF lexical boundaries include delimiters, not just whitespace. Literal/hex strings,
+    // names and comments are operands, never executable graphics operators.
+    const white=c=>c==='\0'||c==='\t'||c==='\n'||c==='\f'||c==='\r'||c===' ';
+    const delimiter=c=>'()<>[]{}/%'.includes(c);
+    const known=new Set('b B b* B* BDC BMC BT BX c cm CS cs d d0 d1 Do DP EMC ET EX f F f* G g gs h i ID EI j J K k l m M MP n q Q re RG rg ri s S SC sc SCN scn sh T* Tc Td TD Tf Tj TJ TL Tm Tr Ts Tw Tz v w W W* y true false null'.split(' '));
+    known.add("'");known.add('"');
+    let count=0,lastName=null;
+    for(let i=0;i<data.length;){
+      if(++count>200000)fail('PDF_RESOURCE_LIMIT');
+      const c=data[i];if(white(c)){i++;continue;}
+      if(c==='%'){while(i<data.length && data[i]!=='\n' && data[i]!=='\r')i++;continue;}
+      if(c==='('){
+        lastName=null;let depth=1;i++;
+        while(i<data.length && depth){
+          const ch=data[i++];
+          if(ch==='\\'){if(data[i]==='\r' && data[i+1]==='\n')i+=2;else if(i<data.length)i++;}
+          else if(ch==='('){if(++depth>32)fail('PDF_RESOURCE_LIMIT');}
+          else if(ch===')')depth--;
+        }
+        if(depth)colorReview=true;continue;
+      }
+      if(c==='<'){
+        lastName=null;if(data[i+1]==='<'){i+=2;continue;}
+        i++;let closed=false;
+        while(i<data.length){const ch=data[i++];if(ch==='>'){closed=true;break;}if(!white(ch) && !/[a-fA-F0-9]/.test(ch))colorReview=true;}
+        if(!closed)colorReview=true;continue;
+      }
+      if(c==='/'){const start=++i;while(i<data.length && !white(data[i]) && !delimiter(data[i]))i++;lastName=data.slice(start,i).replace(/#([a-fA-F0-9]{2})/g,(_,h)=>String.fromCharCode(parseInt(h,16)));continue;}
+      if(delimiter(c)){lastName=null;if(c===')')colorReview=true;i++;continue;}
+      const start=i;while(i<data.length && !white(data[i]) && !delimiter(data[i]))i++;
+      const op=data.slice(start,i);
+      if((op==='cs'||op==='CS') && lastName==='DeviceRGB'){spaces.add('DeviceRGB');if(!defaultRgb)unprofiledRgb=true;}
+      if((op==='cs'||op==='CS') && lastName==='DeviceCMYK')spaces.add('DeviceCMYK');
+      lastName=null;
+      if(op==='BI'){colorReview=true;break;} // Inline image byte boundaries need a full image parser.
+      if(op==='rg'||op==='RG'){spaces.add('DeviceRGB');if(!defaultRgb)unprofiledRgb=true;}
+      if(op==='k'||op==='K')spaces.add('DeviceCMYK');
+      if(!known.has(op) && !(op.length<64 && /^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(op)))colorReview=true;
     }
   }
   const seen=new Set();let visited=0;

@@ -42,8 +42,9 @@ export class JsonIntakeService {
       // Preserve first-seen timestamps/evidence. A separate access snapshot can refresh expired URL credentials.
       if (stableJson(current.adapted) === stableJson(adapted)) return {receipt: current, replayed: true};
       if (current.claim && Date.parse(current.claim.until) > Date.parse(now)) throw new IntakeError(503, 'RETRY_AFTER_ASSET_WORK');
+      const internalHold = current.work === 'complete' && (current.asset_status === 'internal_action_required' || current.issues.some(issue => issue.owner === 'internal'));
       const refresh: Receipt = {...current, revision: current.revision + 1, updated_at: now, adapted,
-        ...((current.asset_status !== 'integrity_verified' || current.previews?.some(p=>p.status==='unavailable')) ? {work: 'pending' as const, claim: null, next_retry_at: null, asset_status: 'pending' as const} : {})};
+        ...((!internalHold && (current.asset_status !== 'integrity_verified' || current.previews?.some(p=>p.status==='unavailable'))) ? {work: 'pending' as const, claim: null, next_retry_at: null, asset_status: 'pending' as const} : {})};
       if (await this.store.compareAndSet(current, refresh)) return {receipt: refresh, replayed: true};
     }
     throw new IntakeError(503, 'RECEIPT_BUSY');
