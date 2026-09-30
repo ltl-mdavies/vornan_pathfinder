@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Isolated sandbox artwork review worker. No Lift, Proof, shared API or callback access.
+Parameters:
+  CodeBucket: {Type: String}
+  CodeKey: {Type: String}
+  ReceiptTable: {Type: String}
+  ReceiptBucket: {Type: String}
+  CustomerId: {Type: String}
+  IntegrationId: {Type: String}
+  AllowedHost: {Type: String}
+  Enabled: {Type: String, Default: 'false', AllowedValues: ['true', 'false']}
+  ScheduleEnabled: {Type: String, Default: 'false', AllowedValues: ['true', 'false']}
+Conditions:
+  Active: !Equals [!Ref ScheduleEnabled, 'true']
+Resources:
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: !Sub '/aws/lambda/${AWS::StackName}', RetentionInDays: 30}
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - {Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: sts:AssumeRole}
+      Policies:
+        - PolicyName: IsolatedSandboxArtwork
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:Scan]
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ReceiptTable}'
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: [!Sub 'arn:${AWS::Partition}:s3:::${ReceiptBucket}/receipts/*', !Sub 'arn:${AWS::Partition}:s3:::${ReceiptBucket}/worker-originals/*']
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub '${Logs.Arn}:*'
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref AWS::StackName
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: artwork.handler
+      Role: !GetAtt Role.Arn
+      MemorySize: 512
+      Timeout: 120
+      ReservedConcurrentExecutions: 1
+      Code: {S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey}
+      Environment:
+        Variables:
+          SANDBOX_ARTWORK_WORKER: 'true'
+          ARTWORK_ENABLED: !Ref Enabled
+          SANDBOX_RECEIPTS_TABLE: !Ref ReceiptTable
+          SANDBOX_RECEIPTS_BUCKET: !Ref ReceiptBucket
+          ARTWORK_CUSTOMER_ID: !Ref CustomerId
+          ARTWORK_INTEGRATION_ID: !Ref IntegrationId
+          ARTWORK_ALLOWED_HOST: !Ref AllowedHost
+  Schedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(2 minutes)
+      State: !If [Active, ENABLED, DISABLED]
+      Targets:
+        - Id: Artwork
+          Arn: !GetAtt Function.Arn
+          RetryPolicy: {MaximumRetryAttempts: 0, MaximumEventAgeInSeconds: 60}
+  Invoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt Schedule.Arn
+  AsyncConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref Function
+      Qualifier: '$LATEST'
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 60
+Outputs:
+  WorkerName: {Value: !Ref Function}
