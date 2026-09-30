@@ -15,3 +15,9 @@ Validation:
 This is a local Admin frontend correction. No server/endpoint implementation, customer workspace creation, route/configuration, live customer verification or deployment changed. Admin deployment is required before the hosted application benefits. The live endpoint's completeness/pagination and live customer identity have not been independently verified by these mocked tests.
 
 Marcus supplied Silicon Pasture's Lift customer ID as 17409. Its provenance and the retained-original artwork delivery recommendation are recorded in `json-intake-webhooks/LIFT_PREVIEW.md`; no verified target mapping was fabricated.
+
+## Live endpoint repair — 2026-09-29
+
+The earlier customer identity above was incorrect. The verified record is Silicone Pasture / CUSTOMER_ID `174094` / CUSTOMER_NUMBER `0000000549` (549). Both deployed customer endpoint parameters were empty strings, causing live refresh to fall back despite the picker rendering all returned rows. A configuration-only CloudFormation update restored the existing template's customer-list and customer-status URLs using the deployed template and previous values for every other parameter. Repository release variables now carry the same verified URLs.
+
+The API code SHA stayed unchanged; a full before/after environment comparison found exactly the two intended URL changes, including byte-identical unrelated secret values. Refresh in the authenticated live Pathfinder session cleared both fallback warnings, kept Momentara selected, and searching Silicone returned the verified record. No workspace or order was created.

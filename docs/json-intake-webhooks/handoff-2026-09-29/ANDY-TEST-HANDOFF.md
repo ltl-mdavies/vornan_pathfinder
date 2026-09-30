@@ -1,42 +1,51 @@
 # Andy — first test payload
 
-We can review your real test JSON and artwork now. Please use the already agreed `stickerpress.order.v1` input shape; the separate Lift output example is for our internal importer and does not change your contract.
+The receipt-only test sandbox is live as of September 29, 2026. Use the agreed `stickerpress.order.v1` input shape. The separate Lift output example is for our internal importer and does not change your contract.
 
-`andy-intake-order.example.json` is a sanitized four-line reference. Its `.invalid` URLs are nonfunctional and its file metadata is illustrative. Replace the order/line IDs, timestamps and file metadata with your actual test values. It is not a ready-to-submit live order.
+`andy-intake-order.example.json` is a sanitized four-line reference. Its `.invalid` URLs are nonfunctional and its file metadata is illustrative. Replace the order/line IDs, timestamps and file metadata with your actual test values.
 
-## Send now for file-based validation
+The credential issued earlier for incorrect customer ID `17409` has been revoked. Use the replacement credential for verified customer `174094`; its expiry and permissions are unchanged. Customer number is `0000000549` (549).
 
-Send Marcus one clearly named test JSON file through your existing agreed exchange, with:
+## Sandbox access
+
+- Base URL: `https://0kh8s19cc5.execute-api.us-east-1.amazonaws.com`
+- Submit: `POST https://0kh8s19cc5.execute-api.us-east-1.amazonaws.com/api/v1/intake/orders`
+- Status: authenticated `GET /api/v1/intake/orders/{receipt_id}` on the same base URL.
+- Headers: `Content-Type: application/json` and `Authorization: Bearer <securely supplied token>`.
+- Credential scope: customer `174094` (Silicone Pasture), integration `stickerpress-sandbox`, store `ltlco`, environment `test`; order receipt read/write only.
+- Current test credential expires October 29, 2026 at 13:34:55 UTC. Marcus will supply it separately through secure sharing. No credential is included in this packet.
+
+A new durable receipt returns HTTP 202. An identical replay returns HTTP 200 with the same receipt. Changed business content under the same order identity returns HTTP 409 for conflict review. A receipt is not a Lift order confirmation.
+
+This endpoint validates the input schema and stores receipts durably. It does not download or inspect artwork, create Lift orders, buy labels, or deliver callbacks. Artwork status remains pending. The status route uses the same Bearer credential as submission.
+
+## Prepare the first order
+
+Send one clearly named test order using:
 
 - A unique test order number and stable unique external line IDs.
-- Actual reachable HTTPS URLs for the original one-page PDFs, expiry times far enough ahead for testing, exact byte counts and SHA-256 hashes. Provide the download hostname so we can configure the allowed host. Do not put API credentials in the JSON.
+- Actual reachable HTTPS URLs for the original one-page PDFs, expiry times far enough ahead for testing, exact byte counts and SHA-256 hashes. Provide the download hostname for future retrieval configuration. Do not put API credentials in the JSON.
 - Approval metadata whose artwork hash matches the corresponding original PDF exactly.
 - The RGB-derived PDF you offered, with its embedded profile retained and no color conversion, and its matching metadata in the JSON.
 - Optional reference previews with their real metadata; these are not production originals.
-- Your deployed callback receiver URL when ready.
+- Your deployed callback receiver URL when ready, supplied separately from the order unless already part of the agreed contract.
 
 For the first test use supplier-purchased shipping (`shipping.label_url: null`). Test a prepaid-label order separately afterward. The current contract supplies one optional label URL; do not add new tracking/package fields without agreeing an additive contract change.
 
-You may send the PDFs as accompanying files for initial inspection if live URLs are not ready, but end-to-end retrieval testing needs real URLs. We will report validation findings and preserve original bytes. Receipt/asset validation is separate from a Lift order being created or production being approved.
+You may send accompanying PDFs for initial inspection if live URLs are not ready, but subsequent retrieval testing needs real URLs. Original bytes must be preserved. Receipt validation is separate from artwork validation, Lift import and production approval.
 
-## API access — pending, not yet issued
+## First API checks
 
-We have not yet supplied a verified deployed intake endpoint or active credentials. Do not try to use a guessed Pathfinder URL or the published signature-fixture secret.
+1. Submit the test JSON and save the receipt ID.
+2. Repeat the exact request and verify HTTP 200 with the same receipt ID.
+3. Read authenticated status; expect a stored receipt, pending artwork and no Lift order yet.
+4. Coordinate a changed-content test under the same order identity; expect HTTP 409.
+5. Send Marcus the receipt ID and any validation error details, without credentials.
 
-The implemented relative routes are `POST /api/v1/intake/orders` and authenticated `GET /api/v1/intake/orders/{receipt_id}`. The final deployed base URL must be supplied after provisioning. Requests use `Content-Type: application/json` and a scoped Bearer token. A new durable receipt returns HTTP 202; an identical replay returns HTTP 200 with the same receipt. A changed business order under the same identity requires conflict review, not a new target order. A received response is not order confirmation.
+Outbound callback signing is a separate activation step. No active webhook signing secret has been issued for this sandbox. Intake Bearer authentication and outbound HMAC signing use different secrets. We will preserve the accepted X-Pathfinder/v1 signing contract; `shipment.updated` and `order.shipped` remain required for launch, including prepaid-label shipments.
 
-After deployment verification, Marcus will provide the exact base URL, a secure share for the test intake Bearer token, and a separate webhook signing secret/key ID. Intake authentication and outbound HMAC signing use different secrets. We will preserve the accepted X-Pathfinder/v1 signing contract; shipping callbacks remain required for launch.
-
-## Suggested first API checks once access is issued
-
-1. Submit the test JSON; save its receipt and status URL.
-2. Repeat the exact request; verify it returns the same receipt.
-3. Check authenticated status and artwork validation findings.
-4. Exercise agreed callback fixtures/receiver verification, then real test receipt events once outbound delivery is activated.
-5. After the Lift mapping is verified, submit a sanctioned sandbox order and verify confirmation and shipment callbacks. Use separate purchased-label and prepaid-label cases.
-
-No real credential, operational URL or promise of current live callback delivery is contained in this packet.
+After artwork processing, Lift mappings and outbound delivery are activated and verified, run a sanctioned end-to-end test with confirmation and shipping callbacks. Use separate purchased-label and prepaid-label cases.
 
 ## Message Marcus can send now
 
-Andy — we're ready to review a real test payload while we finish the sandbox setup. Please send me one uniquely named test order JSON using the v1 shape we agreed, along with the matching artwork URLs/file sizes/SHA-256 values and approval metadata. Please include the RGB-derived PDF with its profile intact. Start with us purchasing the shipping label; we'll run a separate prepaid-label test afterward. Please also send your receiver URL when deployed. I'll provide the verified intake URL and separate intake/webhook credentials through secure sharing once the sandbox is ready. Receiving and validating this first file won't create a production order.
+Andy — the receipt-only test endpoint is ready: `https://0kh8s19cc5.execute-api.us-east-1.amazonaws.com/api/v1/intake/orders`. I'll share your scoped Bearer token securely and separately; it expires October 29 at 13:34:55 UTC. Please submit one uniquely named test order using the v1 shape we agreed, with matching artwork URLs/file sizes/SHA-256 values and approval metadata. Include the RGB-derived PDF with its profile intact. Start with us purchasing the shipping label; we'll test prepaid separately. Please also send your receiver URL when deployed. This first step stores and validates the order payload; artwork processing, Lift creation and callbacks are not activated yet. Please send me the returned receipt ID so we can review it together.

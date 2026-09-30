@@ -2,7 +2,7 @@
 
 Please build/review the Lift import mapping against `jason-lift-ecommerce-orders.example.json`. This is the full proposed HTTP JSON body, without Pathfinder's internal review wrapper. It covers the approved combined Andy/WooCommerce field layout. `jason-field-mapping.md` lists all 146 template fields for recording Lift destinations and behavior.
 
-This is an interface-design example, not an order to import. Addresses, prices, dates, product references and document URLs are illustrative. `.invalid` URLs cannot be downloaded. File checksums/byte counts are copied from the sanitized fixture, and no corresponding artwork files are included. Customer `17409` / Silicon Pasture is Marcus's intended Lift customer; verify it in the chosen environment before testing. No actual Lift unit/product mappings have been supplied: `unit_number` is empty and `product_id` is null deliberately. Do not create an order or substitute a product from this example.
+This is an interface-design example, not an order to import. Addresses, prices, dates, product references and document URLs are illustrative. `.invalid` URLs cannot be downloaded. File checksums/byte counts are copied from the sanitized fixture, and no corresponding artwork files are included. Customer `174094` / Silicone Pasture, customer number `0000000549` (549), was confirmed in the live Lift directory on September 29, 2026. This supersedes the earlier incorrect ID `17409`. Verify the same identity in the chosen import environment before testing. No actual Lift unit/product mappings have been supplied: `unit_number` is empty and `product_id` is null deliberately. Do not create an order or substitute a product from this example.
 
 ## Body and identity
 
