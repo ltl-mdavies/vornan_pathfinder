@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Disabled isolated sandbox callback worker. Read-only receipt access; separate outbox and signing key.
+Parameters:
+  CodeBucket: {Type: String}
+  CodeKey: {Type: String}
+  ReceiptTable: {Type: String}
+  ReceiptBucket: {Type: String}
+  CustomerId: {Type: String}
+  IntegrationId: {Type: String}
+  EndpointId: {Type: String}
+  EndpointRevision: {Type: String}
+  EndpointUrl: {Type: String, Default: ''}
+  ReceiptIds: {Type: String, Default: '[]'}
+  KeyId: {Type: String}
+  SigningSecretArn: {Type: String, Default: ''}
+  Enabled: {Type: String, Default: 'false', AllowedValues: ['true', 'false']}
+  DeliveryEnabled: {Type: String, Default: 'false', AllowedValues: ['true', 'false']}
+  ScheduleEnabled: {Type: String, Default: 'false', AllowedValues: ['true', 'false']}
+Conditions:
+  Active: !And [!Equals [!Ref ScheduleEnabled, 'true'], !Equals [!Ref Enabled, 'true']]
+  HasSecret: !Not [!Equals [!Ref SigningSecretArn, '']]
+Resources:
+  Outbox:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions: [{AttributeName: pk, AttributeType: S}, {AttributeName: sk, AttributeType: S}]
+      KeySchema: [{AttributeName: pk, KeyType: HASH}, {AttributeName: sk, KeyType: RANGE}]
+      SSESpecification: {SSEEnabled: true}
+      PointInTimeRecoverySpecification: {PointInTimeRecoveryEnabled: true}
+  Logs:
+    Type: AWS::Logs::LogGroup
+    Properties: {LogGroupName: !Sub '/aws/lambda/${AWS::StackName}', RetentionInDays: 30}
+  Role:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - {Effect: Allow, Principal: {Service: lambda.amazonaws.com}, Action: sts:AssumeRole}
+      Policies:
+        - PolicyName: IsolatedSandboxCallbacks
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [dynamodb:GetItem]
+                Resource: !Sub 'arn:${AWS::Partition}:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ReceiptTable}'
+              - Effect: Allow
+                Action: [s3:GetObject]
+                Resource: !Sub 'arn:${AWS::Partition}:s3:::${ReceiptBucket}/receipts/*'
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:Query]
+                Resource: !GetAtt Outbox.Arn
+              - !If
+                - HasSecret
+                - Effect: Allow
+                  Action: [secretsmanager:GetSecretValue]
+                  Resource: !Ref SigningSecretArn
+                - !Ref AWS::NoValue
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !Sub '${Logs.Arn}:*'
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref AWS::StackName
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      Handler: webhooks.handler
+      Role: !GetAtt Role.Arn
+      MemorySize: 512
+      Timeout: 120
+      ReservedConcurrentExecutions: 1
+      Code: {S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey}
+      Environment:
+        Variables:
+          WEBHOOK_ENABLED: !Ref Enabled
+          WEBHOOK_DELIVERY_ENABLED: !Ref DeliveryEnabled
+          WEBHOOK_CUSTOMER_ID: !Ref CustomerId
+          WEBHOOK_INTEGRATION_ID: !Ref IntegrationId
+          WEBHOOK_ENDPOINT_ID: !Ref EndpointId
+          WEBHOOK_ENDPOINT_REVISION: !Ref EndpointRevision
+          WEBHOOK_ENDPOINT_URL: !Ref EndpointUrl
+          WEBHOOK_RECEIPT_IDS: !Ref ReceiptIds
+          WEBHOOK_KEY_ID: !Ref KeyId
+          WEBHOOK_SIGNING_SECRET_ARN: !Ref SigningSecretArn
+          WEBHOOK_OUTBOX_TABLE: !Ref Outbox
+          SANDBOX_RECEIPTS_TABLE: !Ref ReceiptTable
+          SANDBOX_RECEIPTS_BUCKET: !Ref ReceiptBucket
+  Schedule:
+    Type: AWS::Events::Rule
+    Properties:
+      ScheduleExpression: rate(2 minutes)
+      State: !If [Active, ENABLED, DISABLED]
+      Targets:
+        - Id: Callbacks
+          Arn: !GetAtt Function.Arn
+          RetryPolicy: {MaximumRetryAttempts: 0, MaximumEventAgeInSeconds: 60}
+  Invoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt Schedule.Arn
+  AsyncConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref Function
+      Qualifier: '$LATEST'
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 60
+Outputs:
+  WorkerName: {Value: !Ref Function}
+  OutboxTable: {Value: !Ref Outbox}

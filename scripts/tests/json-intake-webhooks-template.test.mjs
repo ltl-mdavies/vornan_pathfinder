@@ -1,0 +1,19 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {parse} from 'yaml';
+const raw=await readFile(new URL('../../infra/aws/json-intake-webhooks.yaml',import.meta.url),'utf8');
+const template=parse(raw,{customTags:['Ref','Sub','GetAtt'].map(k=>({tag:'!'+k,resolve:v=>({[k]:v})})).concat(['Equals','If','And','Not'].map(k=>({tag:'!'+k,collection:'seq',resolve:v=>({[k]:v.toJSON()})})))});
+test('callbacks have independent disabled gates, retained outbox and read-only receipt permissions',()=>{
+ for(const key of ['Enabled','DeliveryEnabled','ScheduleEnabled'])assert.equal(template.Parameters[key].Default,'false');
+ assert.equal(template.Parameters.ReceiptIds.Default,'[]');assert.equal(template.Parameters.EndpointUrl.Default,'');
+ assert.equal(template.Resources.Outbox.DeletionPolicy,'Retain');assert.equal(template.Resources.Outbox.UpdateReplacePolicy,'Retain');
+ assert.equal(template.Resources.Outbox.Properties.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled,true);
+ assert.equal(template.Resources.Function.Properties.ReservedConcurrentExecutions,1);
+ const statements=template.Resources.Role.Properties.Policies[0].PolicyDocument.Statement;
+ assert.deepEqual(statements[0].Action,['dynamodb:GetItem']);assert.deepEqual(statements[1].Action,['s3:GetObject']);
+ assert.deepEqual(statements[2].Resource,{GetAtt:'Outbox.Arn'});
+ assert.deepEqual(statements[3].If[1].Resource,{Ref:'SigningSecretArn'});
+ assert.ok(!/ses:|sqs:|apigateway|ImportValue|s3:PutObject|dynamodb:Scan/.test(raw));
+ assert.equal(template.Resources.AsyncConfig.Properties.MaximumRetryAttempts,0);
+});

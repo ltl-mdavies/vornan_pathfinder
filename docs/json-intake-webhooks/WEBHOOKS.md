@@ -1,5 +1,7 @@
 # Local webhook slice — September 28, 2026
 
+September 30 follow-up: a disabled dedicated sandbox HTTPS/durable-storage candidate is documented in [SANDBOX_CALLBACKS.md](SANDBOX_CALLBACKS.md). The historical implementation and gates below describe the original local slice; the new candidate has not been deployed.
+
 Launch-scope update: Andy reported accepting the sent receiver contract and requires both shipping events at launch. See [PARTNER_LAUNCH_UPDATE.md](PARTNER_LAUNCH_UPDATE.md). The intake implementation below now has a local shipping extension described in [SHIPPING_CALLBACKS.md](SHIPPING_CALLBACKS.md); neither is a deployed capability.
 
 Slice 4 adds reusable webhook event, signing, outbox and delivery modules under `apps/api/src/webhooks`, with a JSON receipt adapter in `json-intake/webhook-events.ts`. This builds on local asset commit `4baa706`. It is a local review implementation, not customer activation. The router remains unmounted/default-disabled/test-only. No shared Intake Assurance, Wrike, Proof, artwork, runtime store, scheduler, deployment or dependency files changed.

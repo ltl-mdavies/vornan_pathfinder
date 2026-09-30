@@ -12,6 +12,8 @@ const corrections:Record<string,string>={
   ARTWORK_CHECKSUM_MISMATCH:'Provide the exact approved PDF or request review of replacement artwork.',
   ARTWORK_SIZE_MISMATCH:'Correct the declared size or provide the exact approved PDF.',
   ARTWORK_SIGNATURE_INVALID:'Provide a valid production PDF matching its approval.',
+  PDF_RGB_PROFILE_MISSING:'Contact production to review untagged RGB handling. Preserve the original artwork until that review is complete.',
+  PDF_COLOR_REVIEW_REQUIRED:'Contact production for color review. Preserve the original artwork until that review is complete.',
   PDF_MALFORMED:'Provide a valid production PDF matching its approval.',
   PDF_ENCRYPTED:'Provide an unencrypted production PDF with matching approval evidence.',
   PDF_PAGE_COUNT:'Provide one approved single-page PDF per line.',
