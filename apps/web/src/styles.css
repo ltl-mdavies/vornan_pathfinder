@@ -11209,9 +11209,8 @@ td {
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 850;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .unit-catalog-focus small {
@@ -11383,6 +11382,16 @@ td {
 
 .unit-catalog-table td strong {
   font-weight: 850;
+}
+
+/* Product suffixes distinguish otherwise similar mapping candidates. */
+.unit-catalog-table td:first-child strong,
+.unit-catalog-table td:first-child span {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 
 .unit-catalog-table td span {
