@@ -114,7 +114,9 @@ export function proxyHighResolutionProofAssets<T extends TransientProofSnapshot>
             orderNumber: snapshot.order_number,
             lineNumber: line.line_number,
             filename,
-            assetKind: highResolutionAssetKind(proof.proof_link_high ?? filename),
+            // Lift may publish a PDF proof for a JPG creative. Without the asset URL,
+            // let the document viewer handle the resolved file instead of guessing.
+            assetKind: highResolutionAssetKind(proof.proof_link_high ?? ""),
             createdTs: proof.created_ts
           }),
           preview_kind: "image" as const

@@ -67,7 +67,7 @@ test("hydrates redacted initial proof metadata with token-bound thumbnail and vi
   const proof = snapshot?.lines[0]?.proofs[0];
   assert.match(proof?.proof_link_low ?? "", /order_number=A0230105/);
   assert.match(proof?.proof_link_low ?? "", /asset_kind=thumbnail/);
-  assert.match(proof?.proof_link_high ?? "", /asset_kind=image/);
+  assert.match(proof?.proof_link_high ?? "", /asset_kind=document/);
   assert.equal(proof?.preview_kind, "image");
 });
 
