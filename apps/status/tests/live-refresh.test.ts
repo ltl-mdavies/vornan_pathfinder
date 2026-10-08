@@ -25,7 +25,8 @@ test("routes high-resolution proof files through the token-bound inline viewer",
   }], "https://api.pathfinder.vornan.co/", "private/token");
 
   const proof = snapshot?.lines[0]?.proofs[0];
-  assert.equal(proof?.proof_link_low, "https://proof.example.invalid/low.jpg");
+  assert.match(proof?.proof_link_low ?? "", /\/proof-asset\?.*asset_kind=thumbnail/);
+  assert.equal(proof?.preview_kind, "image");
   assert.equal(
     proof?.proof_link_high,
     "https://api.pathfinder.vornan.co/public/status/private%2Ftoken/proof-asset?order_number=A0227641&line_number=1&filename=Proof+panel+1.jpg&asset_kind=pdf"

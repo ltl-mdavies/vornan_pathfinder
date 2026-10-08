@@ -3,6 +3,7 @@ import { IntakeExceptions } from "../../../apps/web/src/IntakeExceptions";
 import { createRoot } from "react-dom/client";
 import type { OrderRollupSnapshot } from "@pathfinder/order-rollup";
 import { OrderRollup } from "@pathfinder/order-rollup-ui";
+import { proxyHighResolutionProofAssets } from "../../../apps/status/src/live-refresh";
 import "@pathfinder/order-rollup-ui/styles.css";
 import { App as ProofApp } from "../../../apps/proof/src/App";
 import "../../../apps/proof/src/styles.css";
@@ -75,6 +76,7 @@ const statusFixture: OrderRollupSnapshot = {
 };
 
 function StatusProofCardFixture() {
+  const useRecovery = new URLSearchParams(window.location.search).get("recovery") === "true";
   const usePdf = new URLSearchParams(window.location.search).get("document") === "pdf";
   const snapshot = usePdf ? {
     ...statusFixture,
@@ -91,8 +93,13 @@ function StatusProofCardFixture() {
     <main className="browser-fixture-shell">
       <p className="browser-fixture-label">Deterministic non-customer fixture</p>
       <OrderRollup
-        snapshot={snapshot}
-        audience="internal"
+        snapshot={useRecovery ? proxyHighResolutionProofAssets([{ ...snapshot, order_key: "fixture",
+          lines: snapshot.lines.map((line) => ({ ...line, proofs: line.proofs.map((proof) => ({ ...proof,
+            proof_link_high: usePdf ? proof.proof_link_high : "https://assets.fixture.invalid/proof-high.jpg"
+          })) }))
+        }], "https://assets.fixture.invalid", "fixture-token")[0] : snapshot}
+        audience={useRecovery ? "public" : "internal"}
+        allowProofAssetLinks
         displayDate={(value) => value ?? "Not available"}
       />
     </main>
