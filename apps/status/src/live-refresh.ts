@@ -73,12 +73,14 @@ function tokenBoundProofAssetUrl(args: {
   lineNumber: number;
   filename: string;
   assetKind: "thumbnail" | "pdf" | "image" | "document";
+  createdTs?: string | null;
 }) {
   return `${args.base}/public/status/${encodeURIComponent(args.token)}/proof-asset?${new URLSearchParams({
     order_number: args.orderNumber,
     line_number: String(args.lineNumber),
     filename: args.filename,
-    asset_kind: args.assetKind
+    asset_kind: args.assetKind,
+    ...(args.createdTs ? { created_ts: args.createdTs } : {})
   }).toString()}`;
 }
 
@@ -95,16 +97,16 @@ export function proxyHighResolutionProofAssets<T extends TransientProofSnapshot>
       proofs: line.proofs.map((proof) => {
         const filename = proof.proof_filename?.trim();
         if (!filename || !snapshot.order_number) return proof;
-        const synthesizedThumbnail = !proof.proof_link_low;
         return {
           ...proof,
-          proof_link_low: proof.proof_link_low ?? tokenBoundProofAssetUrl({
+          proof_link_low: tokenBoundProofAssetUrl({
             base,
             token,
             orderNumber: snapshot.order_number,
             lineNumber: line.line_number,
             filename,
-            assetKind: "thumbnail"
+            assetKind: "thumbnail",
+            createdTs: proof.created_ts
           }),
           proof_link_high: tokenBoundProofAssetUrl({
             base,
@@ -112,9 +114,10 @@ export function proxyHighResolutionProofAssets<T extends TransientProofSnapshot>
             orderNumber: snapshot.order_number,
             lineNumber: line.line_number,
             filename,
-            assetKind: highResolutionAssetKind(proof.proof_link_high ?? filename)
+            assetKind: highResolutionAssetKind(proof.proof_link_high ?? filename),
+            createdTs: proof.created_ts
           }),
-          preview_kind: synthesizedThumbnail ? "image" as const : proof.preview_kind
+          preview_kind: "image" as const
         };
       })
     }))
