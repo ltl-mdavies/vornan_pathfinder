@@ -43,3 +43,10 @@ test("an expired retained token returns its Lift order number without exposing s
 test.after(async () => {
   await rm(directory, { recursive: true, force: true });
 });
+
+test("proof asset resolver rejects missing and expired tokens before contacting Lift", async () => {
+  await request(app).get("/public/status/unknown-token/proof-asset?order_number=A100&line_number=1&filename=proof.jpg").expect(404);
+  const response = await request(app).get("/public/status/expired-private-status-token/proof-asset?order_number=A0229017&line_number=1&filename=proof.jpg").expect(410);
+  assert.equal(response.headers.location, undefined);
+  assert.match(response.headers["cache-control"], /no-store/);
+});
