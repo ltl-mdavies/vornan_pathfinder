@@ -77,6 +77,7 @@ const statusFixture: OrderRollupSnapshot = {
 
 function StatusProofCardFixture() {
   const useRecovery = new URLSearchParams(window.location.search).get("recovery") === "true";
+  const redactedHighUrl = new URLSearchParams(window.location.search).get("redacted") === "true";
   const usePdf = new URLSearchParams(window.location.search).get("document") === "pdf";
   const snapshot = usePdf ? {
     ...statusFixture,
@@ -95,7 +96,7 @@ function StatusProofCardFixture() {
       <OrderRollup
         snapshot={useRecovery ? proxyHighResolutionProofAssets([{ ...snapshot, order_key: "fixture",
           lines: snapshot.lines.map((line) => ({ ...line, proofs: line.proofs.map((proof) => ({ ...proof,
-            proof_link_high: usePdf ? proof.proof_link_high : "https://assets.fixture.invalid/proof-high.jpg"
+            proof_link_high: redactedHighUrl ? null : usePdf ? proof.proof_link_high : "https://assets.fixture.invalid/proof-high.jpg"
           })) }))
         }], "https://assets.fixture.invalid", "fixture-token")[0] : snapshot}
         audience={useRecovery ? "public" : "internal"}

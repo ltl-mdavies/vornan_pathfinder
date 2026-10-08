@@ -25,3 +25,10 @@ test("retry preserves token, order, line, version, and file identity without cha
   const signed = "https://bucket.s3.amazonaws.com/originals/91/file.jpg?signature=secret";
   assert.equal(retryStatusProofAsset(signed, 1, 123), signed);
 });
+
+test("a JPG creative name does not imply its unavailable high-resolution proof URL is an image", () => {
+  const [snapshot] = proxyHighResolutionProofAssets([{ order_key: "key", order_number: "A100", lines: [{
+    line_number: 1, proofs: [{ proof_filename: "creative.jpg", proof_link_low: null, proof_link_high: null }]
+  }] }], "https://api.example.invalid", "token");
+  assert.equal(new URL(snapshot.lines[0].proofs[0].proof_link_high!).searchParams.get("asset_kind"), "document");
+});
