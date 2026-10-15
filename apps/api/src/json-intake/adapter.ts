@@ -70,12 +70,18 @@ export const stickerPressV1: JsonOrderAdapter = {
     const account = object(p.account, 'account', ['customer','store']);
     check(string(account.customer) && !!account.customer, 'account.customer');
     check(account.store === identity.store, 'account.store', 'STORE_SCOPE_MISMATCH');
-    const order = object(p.order, 'order', ['order_number','order_title','po_number','order_type_name','market','creation_date','requested_ship_date','priority','notes']);
+    const order = object(p.order, 'order', ['order_number','order_title','po_number','order_type_name','market','creation_date','requested_ship_date','priority','notes','pricing']);
     check(identifier(order.order_number), 'order.order_number');
     check(timestamp(order.creation_date), 'order.creation_date');
     for (const k of ['order_title','order_type_name','market','priority']) check(string(order[k]) && !!order[k], `order.${k}`);
     for (const k of ['po_number','notes']) check(order[k] == null || string(order[k]), `order.${k}`);
     check(order.requested_ship_date == null || order.requested_ship_date === '' || date(order.requested_ship_date), 'order.requested_ship_date');
+    const validatePricing=(value:any,path:string,keys:string[])=>{
+      if(value===undefined)return;
+      const prices=object(value,path,keys);
+      for(const [key,amount] of Object.entries(prices))check(amount===null || (key==='currency' ? typeof amount==='string'&&/^[A-Z]{3}$/.test(amount) : typeof amount==='string'&&/^\d{1,12}(?:\.\d{1,6})?$/.test(amount)),`${path}.${key}`,'INVALID_PRICE');
+    };
+    validatePricing(order.pricing,'order.pricing',['currency','subtotal','discount','shipping','refund','tax','total']);
     const ship = object(p.ship_to, 'ship_to', ['name','company','line1','line2','city','state','postal_code','country','phone','email']);
     for (const k of ['name','line1','city','state','postal_code','country']) check(string(ship[k]) && !!ship[k].trim(), `ship_to.${k}`);
     for (const k of ['company','line2','phone','email']) check(ship[k] == null || string(ship[k]), `ship_to.${k}`);
@@ -88,7 +94,7 @@ export const stickerPressV1: JsonOrderAdapter = {
     const ids = new Set<string>(); const numbers = new Set<number>();
     const lines = (Array.isArray(p.lines) ? p.lines.slice(0,100) : []).map((value: unknown, index: number) => {
       const path = `lines[${index}]`;
-      const l = object(value, path, ['line_number','external_line_id','product_name','store_product','store_variation_id','customer_sku','shape','print_w_in','print_h_in','quantity','material','material_code','finish','cut','bleed_in','artwork','preview','approval','area_sq_in','note']);
+      const l = object(value, path, ['line_number','external_line_id','product_name','store_product','store_variation_id','customer_sku','shape','print_w_in','print_h_in','quantity','material','material_code','finish','cut','bleed_in','artwork','preview','approval','area_sq_in','note','pricing']);
       const chk = (ok: boolean, field: string, code?: string) => check(ok, `${path}.${field}`, code, identifier(l.external_line_id) ? l.external_line_id : undefined);
       chk(identifier(l.external_line_id) && !ids.has(l.external_line_id), 'external_line_id'); ids.add(l.external_line_id);
       chk(Number.isSafeInteger(l.line_number) && l.line_number > 0 && !numbers.has(l.line_number), 'line_number'); numbers.add(l.line_number);
@@ -98,8 +104,11 @@ export const stickerPressV1: JsonOrderAdapter = {
       for (const k of ['print_w_in','print_h_in','quantity','area_sq_in']) chk(positive(l[k]), k);
       chk(Number.isSafeInteger(l.quantity), 'quantity');
       chk(['circle','oval','square','rectangle','rounded_rect','diecut'].includes(l.shape), 'shape');
-      chk(l.material_code === 'white_bopp', 'material_code', 'UNSUPPORTED_MATERIAL');
-      chk(l.material === 'White BOPP', 'material'); chk(l.finish === 'gloss', 'finish'); chk(l.bleed_in === 0.125, 'bleed_in');
+      // Legacy values remain valid for durable receipt replay; exact Lift strings pass through unchanged.
+      chk(l.material_code == null || identifier(l.material_code), 'material_code', 'UNSUPPORTED_MATERIAL');
+      chk(['White BOPP','White Bopp (Sticker)','Clear Bopp (Sticker)'].includes(l.material), 'material');
+      chk(['gloss','Gloss Laminate (.75 mil)','Matte Laminate (.71 mil)'].includes(l.finish), 'finish');
+      validatePricing(l.pricing,`${path}.pricing`,['item_base_price','customer_price']); chk(l.bleed_in === 0.125, 'bleed_in');
       const cut = object(l.cut, `${path}.cut`, ['type','method','spot_name','layer_name','in_file']);
       chk(cut.type === 'thru_cut', 'cut.type'); chk(['shape','contour'].includes(cut.method), 'cut.method');
       for (const k of ['spot_name','layer_name']) chk(cut[k] === 'Laser - Thru Cut', `cut.${k}`);
@@ -143,12 +152,15 @@ export const stickerPressV1: JsonOrderAdapter = {
         ship_date: order.requested_ship_date || null, order_type_name: order.order_type_name, market: order.market, priority: order.priority,
         shipping: {attention_to: ship.name, company: ship.company ?? null, address_1: ship.line1, address_2: ship.line2 ?? null,
           city: ship.city, state: ship.state, postal_code: ship.postal_code, country: ship.country, phone: ship.phone ?? null, email: ship.email ?? null},
+        ...(order.pricing!==undefined?{pricing:structuredClone(order.pricing)}:{}),
         shipping_policy: {...shipping, label_url: shipping.label_url ?? null, label_precedence: 'prepaid_required_when_supplied', missing_ship_date: 'configured_turnaround'} as CanonicalJsonOrder['order']['shipping_policy']},
       lines: lines.map(l => ({line_number: l.line_number, line_kind: 'print', unit_number: '', customer_sku: l.customer_sku ?? null,
         product_name: l.product_name, quantity: l.quantity, line_note: l.note ?? null,
         dimensions: {final_width: l.print_w_in, final_height: l.print_h_in, bleed: l.bleed_in},
         artwork: {file_name: l.artwork.filename, file_url: l.artwork.download_url, checksum: l.artwork.artwork_sha256},
-        production: {material: l.material, material_code: l.material_code, finish: l.finish, cut_type: l.cut.type, shape: l.shape},
+        ...(l.pricing!==undefined?{pricing:structuredClone(l.pricing)}:{}),
+        production: {material: l.material, ...(l.material_code!==undefined?{material_code:l.material_code}:{}), finish: l.finish,
+          ...(['Gloss Laminate (.75 mil)','Matte Laminate (.71 mil)'].includes(l.finish)?{laminate:l.finish}:{}), cut_type: l.cut.type, shape: l.shape},
         source_line: {external_line_id: l.external_line_id, store_product: l.store_product, store_variation_id: l.store_variation_id,
           artwork: l.artwork, approval: {...l.approval, provider: this.schema}, ...(l.preview ? {preview: l.preview} : {}), cut: l.cut,
           dimensions_unit: 'in', area: {value: l.area_sq_in, unit: 'sq_in', basis: 'bounding_box_times_quantity'}}}))

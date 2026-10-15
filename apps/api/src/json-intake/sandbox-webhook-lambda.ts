@@ -34,7 +34,7 @@ return async function(_event:unknown,context?:{getRemainingTimeInMillis():number
   }
   await materializeReceiptEvents({async *history(){yield* revisions;}},outbox,endpoint);
   let count=0;
-  if(env.WEBHOOK_DELIVERY_ENABLED==='true'){
+  if(env.WEBHOOK_DELIVERY_ENABLED==='true'&&ids.length){
     const client=deps.secrets;let secret:string|undefined;
     const loadSecret=async()=>{
       if(secret)return secret;

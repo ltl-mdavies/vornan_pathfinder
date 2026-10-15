@@ -137,3 +137,9 @@ test('strict 24-hour deadline takes precedence over tenth attempt when scheduler
   assert.equal(result,expected);assert.equal(sends,expected==='delivered'?1:0);
  }
 });
+test('empty receipt allowlist is an armed no-op and never reads data or signing secrets',async()=>{
+ let calls=0;const noCalls={async send(){calls++;throw Error('unexpected access');}};
+ const run=createSandboxWebhookHandler({env:{WEBHOOK_ENABLED:'true',WEBHOOK_DELIVERY_ENABLED:'true',WEBHOOK_CUSTOMER_ID:scope.customer_id,WEBHOOK_INTEGRATION_ID:scope.integration_id,WEBHOOK_ENDPOINT_ID:endpoint.id,WEBHOOK_ENDPOINT_REVISION:endpoint.revision,WEBHOOK_ENDPOINT_URL:url,WEBHOOK_KEY_ID:endpoint.active_key_id,WEBHOOK_RECEIPT_IDS:'[]',SANDBOX_RECEIPTS_TABLE:'receipts',SANDBOX_RECEIPTS_BUCKET:'bucket',WEBHOOK_OUTBOX_TABLE:'outbox'},db:noCalls,s3:noCalls,secrets:noCalls});
+ // Outbox enumeration must also be skipped for an empty trusted allowlist.
+ assert.deepEqual(await run({}),{enabled:true,delivery_enabled:true,attempted:0,receipts:[]});assert.equal(calls,0);
+});

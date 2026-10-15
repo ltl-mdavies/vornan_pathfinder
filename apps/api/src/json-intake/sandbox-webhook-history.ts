@@ -10,7 +10,7 @@ type Sender={send(command:any):Promise<any>};
 export class SandboxWebhookHistory {
   readonly store:DurableReceiptStore;
   constructor(readonly table:string,readonly bucket:string,readonly db:Sender,readonly s3:Sender,readonly scope:WebhookScope,readonly receiptIds:readonly string[]){
-    if(scope.environment!=='test'||!Array.isArray(receiptIds)||!receiptIds.length||receiptIds.length>20||new Set(receiptIds).size!==receiptIds.length||receiptIds.some(id=>!/^rcpt_[a-f0-9]{64}$/.test(id)))throw new Error('Invalid receipt allowlist');
+    if(scope.environment!=='test'||!Array.isArray(receiptIds)||receiptIds.length>20||new Set(receiptIds).size!==receiptIds.length||receiptIds.some(id=>!/^rcpt_[a-f0-9]{64}$/.test(id)))throw new Error('Invalid receipt allowlist');
     this.store=new DurableReceiptStore(table,bucket,db,s3);
   }
   async *history():AsyncIterable<Receipt>{

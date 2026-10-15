@@ -60,7 +60,7 @@ test('strict versioned adapter rejects invalid values with stable fields and no 
     ['lines[0].artwork.bytes',p=>p.lines[0].artwork.bytes=-1],['lines[0].artwork.pages',p=>p.lines[0].artwork.pages=2],
     ['lines[0].artwork.artwork_sha256',p=>p.lines[0].artwork.artwork_sha256='bad'],
     ['lines[0].approval.artwork_sha256',p=>p.lines[0].approval.artwork_sha256='0'.repeat(64)],
-    ['lines[0].material_code',p=>p.lines[0].material_code='clear_bopp'],['lines[0].artwork.download_url',p=>p.lines[0].artwork.download_url='http://127.0.0.1/a'],
+    ['lines[0].material_code',p=>p.lines[0].material_code='invalid material code'],['lines[0].artwork.download_url',p=>p.lines[0].artwork.download_url='http://127.0.0.1/a'],
     ['lines[0].artwork.download_url',p=>p.lines[0].artwork.download_url='https://[::1]/a'],
     ['order.requested_ship_date',p=>p.order.requested_ship_date='2026-02-30'],['order.creation_date',p=>p.order.creation_date='2026-02-30T00:00:00Z'],
     ['lines[0].unreviewed',p=>p.lines[0].unreviewed=true],['account.store',p=>p.account.store='other'],['schema',p=>p.schema='stickerpress.order.v2']
@@ -208,4 +208,17 @@ test('receipt retry never clears an unrelated operator review',async t=>{
   p.lines[0].artwork.download_url+='?renewed=1';await receive(h.service,p);
   await assert.rejects(h.service.process(receipt.receipt_id,h.transport),/ownership conflict/);
   assert.equal([...h.ledger.rows.values()][0].last_event?.event_id,'operator-review');
+});
+
+test('launch material and laminate values pass through with optional pricing and material code',()=>{
+ for(const material of ['White Bopp (Sticker)','Clear Bopp (Sticker)'])for(const finish of ['Gloss Laminate (.75 mil)','Matte Laminate (.71 mil)']){
+  const p=structuredClone(fixture);for(const line of p.lines){line.material=material;line.finish=finish;delete line.material_code;line.pricing={item_base_price:null,customer_price:'0.123450'};}
+  p.order.pricing={currency:'USD',subtotal:'24.69',shipping:null,total:'30.00'};
+  const result=stickerPressV1.validate(p,identity);
+  assert.equal(result.canonical.lines[0].production?.material,material);assert.equal(result.canonical.lines[0].production?.laminate,finish);
+  assert.deepEqual(result.canonical.lines[0].pricing,p.lines[0].pricing);assert.deepEqual(result.canonical.order.pricing,p.order.pricing);
+  const changed=structuredClone(p);changed.lines[0].pricing.customer_price='0.123451';assert.notEqual(stickerPressV1.validate(changed,identity).fingerprint,result.fingerprint);
+ }
+ const p=structuredClone(fixture);p.lines[0].pricing={customer_price:-1};assert.throws(()=>stickerPressV1.validate(p,identity),IntakeError);
+ p.lines[0].pricing={customer_price:'1.00',unexpected:'2.00'};assert.throws(()=>stickerPressV1.validate(p,identity),IntakeError);
 });
