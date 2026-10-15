@@ -7,7 +7,8 @@ export interface LocalEndpoint {
   url:string; active_key_id:string;
 }
 export interface LocalWebhookTransport {
-  kind:'loopback-test';
+  kind:'loopback-test'|'sandbox-https';
+  validate?(url:string):void;
   send(url:string,body:Buffer,headers:Record<string,string>,signal:AbortSignal):Promise<{status:number;retry_after?:string}>;
 }
 export const retryOffsets=[0,60,300,900,3600,10800,21600,43200,64800,86400] as const;
@@ -17,7 +18,7 @@ function loopbackUrl(value:string){
   if(url.protocol!=='http:' || url.hostname!=='127.0.0.1' || !url.port || url.username || url.password || url.hash)throw new Error('Only explicit IPv4 loopback test receivers are permitted');
   return url;
 }
-/** No external transport exists in this slice. Redirects are returned as failures, never followed. */
+/** Explicit local test transport; redirects are never followed. */
 export const loopbackTransport:LocalWebhookTransport={kind:'loopback-test',send:(value,body,headers,signal)=>new Promise((resolve,reject)=>{
   const url=loopbackUrl(value);
   const req=request(url,{method:'POST',headers:{...headers,'Content-Length':String(body.length)},signal,agent:false,maxHeaderSize:8192},res=>{
@@ -37,10 +38,15 @@ export interface DispatchDependencies {
   isCurrent?:(event:CommittedWebhookEvent)=>Promise<boolean>;
   timeout_ms?:number;
 }
+function validateEndpoint(endpoint:LocalEndpoint,transport:LocalWebhookTransport){
+  if(endpoint.scope.environment!=='test')throw new Error('Sandbox webhook transport only');
+  if(transport.kind==='loopback-test')loopbackUrl(endpoint.url);
+  else if(transport.kind==='sandbox-https' && transport.validate)transport.validate(endpoint.url);
+  else throw new Error('Unsupported webhook transport');
+}
 export async function dispatchWebhook(id:string,endpoint:LocalEndpoint,deps:DispatchDependencies){
   if(!endpoint.enabled)return 'disabled';
-  loopbackUrl(endpoint.url);
-  if(deps.transport.kind!=='loopback-test' || endpoint.scope.environment!=='test')throw new Error('Local webhook transport only');
+  validateEndpoint(endpoint,deps.transport);
   const now=deps.now??(()=>new Date().toISOString()),at=now(),ms=Date.parse(at);
   let r=await deps.outbox.get(id);if(!r)return 'missing';
   if(scopeKey(r.event.scope)!==scopeKey(endpoint.scope)||r.endpoint_id!==endpoint.id)throw new Error('Webhook endpoint scope mismatch');
@@ -103,9 +109,9 @@ export async function dispatchWebhook(id:string,endpoint:LocalEndpoint,deps:Disp
   return await deps.outbox.cas(r,next)?state:'stale';
 }
 /** Trusted local operator capability, intentionally not exposed on the partner router. Explicit replay starts an audited cycle. */
-export async function replayWebhook(outbox:WebhookOutbox,id:string,endpoint:LocalEndpoint,request:Omit<ReplayAudit,'cycle'|'endpoint_revision'|'destination_sha256'>){
+export async function replayWebhook(outbox:WebhookOutbox,id:string,endpoint:LocalEndpoint,request:Omit<ReplayAudit,'cycle'|'endpoint_revision'|'destination_sha256'>,transport:LocalWebhookTransport=loopbackTransport){
   if(!/^[A-Za-z0-9._:-]{1,128}$/.test(request.request_id)||!request.actor_id.trim()||!['endpoint_repaired','manual_retry'].includes(request.reason)||!Number.isFinite(Date.parse(request.at)))throw new Error('Invalid replay audit');
-  loopbackUrl(endpoint.url);
+  validateEndpoint(endpoint,transport);
   for(let i=0;i<10;i++){
     const r=await outbox.get(id);if(!r || scopeKey(r.event.scope)!==scopeKey(endpoint.scope)||r.endpoint_id!==endpoint.id)throw new Error('Webhook replay scope mismatch');
     const old=r.replays.find(a=>a.request_id===request.request_id);
