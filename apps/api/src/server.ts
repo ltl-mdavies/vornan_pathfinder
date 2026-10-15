@@ -88,7 +88,7 @@ import {
   type SourceConnectorProvider
 } from "@pathfinder/source-connections";
 import { projectLastMeaningfulActivity, projectLiftCreation } from "./job-operational-timestamps.js";
-import { ExpiringPromiseCache } from "./expiring-promise-cache.js";
+import { allowedLiftProofAssetUrl, boundStatusProofIdentity, matchingStatusProof, StatusProofBusyError, StatusProofReportCache } from "./public-status-proof-assets.js";
 import {
   appendOrderNameRetrySuffix,
   applyOrderNameResolution,
@@ -2281,7 +2281,7 @@ async function loadBoundedInternalOrderSnapshot(
 }
 
 const publicStatusPollAfterSeconds = 60;
-const publicProofAssetReportCache = new ExpiringPromiseCache(15_000);
+const publicProofAssetReportCache = new StatusProofReportCache<Awaited<ReturnType<typeof fetchLiftProofReport>>>();
 
 function emitPublicStatusRefreshTelemetry(args: {
   binding: { order_key: string; customer_id: string; job_id: string; order_number: string };
@@ -4311,26 +4311,14 @@ app.post("/public/status/:token/refresh", async (req, res) => {
   }
 });
 
-function allowedLiftProofAssetUrl(value: unknown) {
-  if (typeof value !== "string") return null;
-  try {
-    const url = new URL(value);
-    const isLiftS3Host = url.hostname.endsWith(".s3.amazonaws.com");
-    const isProofObject = /^\/(?:originals|thumbs)\/91\//.test(url.pathname);
-    return url.protocol === "https:" && !url.username && !url.password && isLiftS3Host && isProofObject
-      ? url
-      : null;
-  } catch {
-    return null;
-  }
-}
-
 function inlineProofFilename(value: string) {
   const safe = value.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^\.+/, "").slice(0, 180);
   return safe || "proof-file";
 }
 
 app.get("/public/status/:token/proof-asset", async (req, res) => {
+  const startedAt = Date.now();
+  res.setHeader("Cache-Control", "private, no-store, max-age=0");
   try {
     const lookup = await activePublicStatusToken(req.params.token);
     if ("error" in lookup) {
@@ -4347,11 +4335,19 @@ app.get("/public/status/:token/proof-asset", async (req, res) => {
       return;
     }
 
+    const snapshot = await getPublicOrderStatusSnapshot(binding.order_key);
+    const identity = boundStatusProofIdentity(snapshot, binding, {
+      lineNumber, filename, createdTs: valueAsString(req.query.created_ts)
+    });
+    if (!identity) {
+      res.status(404).json({ error: "Proof asset was not found for this status link." });
+      return;
+    }
     const customer = await findLiftCustomer(binding.customer_id);
-    const workspace = await getOrCreateWorkspace(customer);
-    const route =
-      workspace.output_routes.find((candidate) => candidate.output_route_id === workspace.primary_output_route_id) ??
-      workspace.output_routes.find((candidate) => Boolean(candidate.proof_report_url));
+    const [workspace, job] = await Promise.all([getOrCreateWorkspace(customer), getJob(customer, binding.job_id)]);
+    const route = workspace.status_access_policy.proof_visibility !== "off" && job
+      ? workspace.output_routes.find((candidate) => candidate.output_route_id === job.output_route_id)
+      : null;
     const target = route ? ((await getTarget(route.target_id, false)) as TargetConfig | null) : null;
     if (!route || !target || !route.proof_report_url) {
       res.status(404).json({ error: "Proof asset is unavailable." });
@@ -4359,18 +4355,16 @@ app.get("/public/status/:token/proof-asset", async (req, res) => {
     }
 
     const proofReport = await publicProofAssetReportCache.read(
-      `${target.target_id}:${route.output_route_id}:${binding.order_number}`,
-      () => fetchLiftProofReport({
-        target,
-        route,
-        orderNumber: binding.order_number
-      })
+      JSON.stringify([binding.customer_id, target.target_id, route.output_route_id, binding.order_number, identity.orderLineId]),
+      async () => {
+        const report = await fetchLiftProofReport({
+          target, route, orderNumber: binding.order_number, orderLineId: identity.orderLineId
+        });
+        if (!report.ok) throw new Error("proof_report_unavailable");
+        return report;
+      }
     );
-    const proof = proofReport.ok
-      ? proofReport.proofs.find((candidate) =>
-          String(candidate.line_number ?? "") === lineNumber && candidate.proof_filename === filename
-        )
-      : null;
+    const proof = matchingStatusProof(proofReport.proofs, identity);
     const assetUrl = publicStatusProofAssetCandidates(proof ?? {}, req.query.asset_kind)
       .map(allowedLiftProofAssetUrl)
       .find((candidate): candidate is URL => candidate != null) ?? null;
@@ -4383,9 +4377,13 @@ app.get("/public/status/:token/proof-asset", async (req, res) => {
     res.setHeader("Content-Disposition", `inline; filename="${inlineProofFilename(assetUrl.pathname.split("/").pop() ?? filename)}"`);
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.redirect(302, assetUrl.toString());
-  } catch {
+  } catch (error) {
+    console.info(JSON.stringify({ event: "public_status_proof_asset_failed",
+      reason: error instanceof StatusProofBusyError ? "busy" : statusReadFailureOutcome(error),
+      duration_ms: Date.now() - startedAt }));
     if (!res.headersSent) {
-      res.status(502).json({ error: "Current high-resolution proof could not be loaded." });
+      res.setHeader("Retry-After", "2");
+      res.status(error instanceof StatusProofBusyError ? 503 : 502).json({ error: "Current proof could not be loaded. Please retry shortly." });
     } else {
       res.end();
     }

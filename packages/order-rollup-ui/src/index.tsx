@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, CheckCircle2, ChevronDown, FileImage, LoaderCircle } from "lucide-react";
+import { isStatusProofAsset, useProofAssetRecovery } from "./proof-asset-recovery.js";
 import {
   buildCarrierTrackingUrl,
   buildOrderRollupShipmentSummary,
@@ -202,6 +203,21 @@ function proofStateLabel(proof: OrderRollupProof, creativeContext = false) {
   }
 }
 
+function RecoveringThumbnail({ url, compact = false }: { url: string; compact?: boolean }) {
+  const image = useProofAssetRecovery(url);
+  if (!isStatusProofAsset(url)) return <img src={url} alt="" loading="lazy" />;
+  const failed = image.state === "failed" && !image.retrying;
+  return <span className="order-rollup__recovering-thumbnail">
+    <img key={image.src} src={image.src} alt="" loading="lazy" onLoad={image.onLoad} onError={image.onError}
+      style={{ opacity: image.state === "ready" ? 1 : 0 }} />
+    {image.state !== "ready" ? <span className="order-rollup__image-note" role="status"
+      title={failed ? "Preview unavailable. Open the creative to retry." : "Loading current artwork"}>
+      {failed ? <FileImage aria-hidden="true" /> : <LoaderCircle aria-hidden="true" />}
+      {!compact ? <span>{failed ? "Open to retry" : "Loading artwork…"}</span> : null}
+    </span> : null}
+  </span>;
+}
+
 function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativeContext = false }: { proof: OrderRollupProof; displayDate: (value?: string | null) => string; allowAssetLinks: boolean; assetsLoading: boolean; creativeContext?: boolean }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewLoaded, setPreviewLoaded] = useState(false);
@@ -218,6 +234,9 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
     : null;
   const lightboxUrl = highResolutionUrl ?? previewUrl;
   const lightboxKind = proofAssetKind(lightboxUrl, filename);
+  const image = useProofAssetRecovery(lightboxUrl, previewOpen && lightboxKind === "image", isStatusProofAsset(lightboxUrl) ? 20_000 : 0);
+  const ready = lightboxKind === "image" ? image.state === "ready" : previewLoaded;
+  const failed = lightboxKind === "image" ? image.state === "failed" && !image.retrying : previewFailed;
   const proofCreatedAt = proof.created_ts
     ? displayProofTimestamp(proof.created_ts)
     : proof.creation_date
@@ -271,11 +290,11 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
         {previewUrl ? (
           lightboxUrl ? (
             <button className="order-rollup__proof-preview" type="button" onClick={() => setPreviewOpen(true)} aria-label={`Open high-resolution ${assetNoun} ${filename}`}>
-              <img src={previewUrl} alt="" loading="lazy" />
+              <RecoveringThumbnail key={previewUrl} url={previewUrl} />
             </button>
           ) : (
             <div className="order-rollup__proof-preview">
-              <img src={previewUrl} alt="" loading="lazy" />
+              <RecoveringThumbnail key={previewUrl} url={previewUrl} />
             </div>
           )
         ) : <div className={`order-rollup__proof-empty${assetsLoading ? " is-loading" : ""}`}>{assetsLoading ? "Loading current artwork…" : "Preview unavailable"}</div>}
@@ -299,20 +318,22 @@ function ProofCard({ proof, displayDate, allowAssetLinks, assetsLoading, creativ
                 <button ref={closeButtonRef} type="button" onClick={() => setPreviewOpen(false)}>Close</button>
               </div>
             </header>
-            <div className={`order-rollup__lightbox-canvas${previewLoaded ? " is-ready" : " is-loading"}${previewFailed ? " is-error" : ""}`}>
-              {!previewLoaded ? (
+            <div className={`order-rollup__lightbox-canvas${ready ? " is-ready" : " is-loading"}${failed ? " is-error" : ""}`}>
+              {!ready ? (
                 <div className="order-rollup__lightbox-loading" role="status" aria-live="polite">
-                  {previewFailed ? null : <LoaderCircle size={24} strokeWidth={2} aria-hidden="true" />}
-                  <strong>{previewFailed ? `${creativeContext ? "Creative" : "Proof"} preview unavailable` : `Loading high-resolution ${assetNoun}…`}</strong>
-                  <span>{previewFailed ? "Close this window and try again." : `Large ${assetNoun} files can take a few seconds to display.`}</span>
+                  {failed ? null : <LoaderCircle size={24} strokeWidth={2} aria-hidden="true" />}
+                  <strong>{failed ? `${creativeContext ? "Creative" : "Proof"} preview unavailable` : `Loading high-resolution ${assetNoun}…`}</strong>
+                  <span>{failed ? (isStatusProofAsset(lightboxUrl) ? "The file could not be loaded. Please retry shortly." : "Close this window and try again.") : `Large ${assetNoun} files can take a few seconds to display.`}</span>
+                  {failed && lightboxKind === "image" && isStatusProofAsset(lightboxUrl) ? <button type="button" onClick={image.retry}>Retry preview</button> : null}
                 </div>
               ) : null}
               {lightboxKind === "image" ? (
                 <img
-                  src={lightboxUrl}
+                  key={image.src}
+                  src={image.src}
                   alt={`High-resolution ${assetNoun} ${filename}`}
-                  onLoad={() => setPreviewLoaded(true)}
-                  onError={() => setPreviewFailed(true)}
+                  onLoad={image.onLoad}
+                  onError={image.onError}
                 />
               ) : (
                 <iframe
@@ -711,7 +732,7 @@ function LineProofThumbnail({ line, allowProofAssetLinks }: { line: OrderRollupL
       aria-label={`${proof ? `Latest creative: ${filename}` : "Creative preview not posted"}${showProofReviewRequired ? "; proof approval required" : ""}`}
     >
       <span className="order-rollup__line-thumbnail-frame">
-        {previewUrl ? <img src={previewUrl} alt="" loading="lazy" /> : <FileImage aria-hidden="true" />}
+        {previewUrl ? <RecoveringThumbnail key={previewUrl} url={previewUrl} compact /> : <FileImage aria-hidden="true" />}
       </span>
       {showProofReviewRequired ? <span className="order-rollup__line-proof-notice">Proof needs approval</span> : null}
     </span>
