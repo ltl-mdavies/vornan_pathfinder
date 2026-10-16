@@ -1384,6 +1384,10 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                 Resource: !Sub "${PathfinderSourceEvidenceBucket.Arn}/wrike/*"
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "${PathfinderSourceEvidenceBucket.Arn}/json-intake/artwork-publications/*"
               - !If
                 - HasWrikeLiftDocumentDeliveryBucket
                 - Effect: Allow
