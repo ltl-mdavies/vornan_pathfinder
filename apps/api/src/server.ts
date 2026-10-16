@@ -3629,6 +3629,7 @@ async function refreshJobSubmitCertification(customer: LiftCustomer, job: Proces
     payload: job.lift_payload,
     submit_request_masked: submitRequestMasked,
     source_document_publications: job.source_document_publications,
+    json_artwork_binding: job.json_artwork_binding,
     prepaid_submit_binding: job.prepaid_submit_binding
   });
 
@@ -9363,6 +9364,7 @@ async function createPreviewJobForRequest(
         payload: liftPayload,
         submit_request_masked: submitRequest,
         source_document_publications: options?.sourceDocumentPublications,
+        json_artwork_binding: options?.existingJob?.json_artwork_binding,
         prepaid_submit_binding: options?.existingJob?.prepaid_submit_binding,
         reviewed_at: timestamp
       });
@@ -9516,6 +9518,8 @@ async function createPreviewJobForRequest(
         options?.sourceDocumentPublications ??
         options?.existingJob?.source_document_publications ??
         [],
+      json_artwork_binding: options?.existingJob?.json_artwork_binding,
+      json_intake_binding: options?.existingJob?.json_intake_binding,
       prepaid_submit_binding: options?.existingJob?.prepaid_submit_binding,
       recovery_audit: recoveryAuditEntry
         ? [recoveryAuditEntry, ...(options?.existingJob?.recovery_audit ?? [])].slice(0, 50)

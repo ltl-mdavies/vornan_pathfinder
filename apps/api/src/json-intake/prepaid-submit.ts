@@ -1,3 +1,4 @@
+import {preflightArtwork,assertArtworkBinding} from './artwork-delivery.js';
 import { GetObjectCommand, HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import type { ProcessingJobPreview, SubmitAttempt } from '../store.js';
 import { preflightWrikeSubmitDocuments, SubmitIntegrityError } from '../submit-integrity.js';
@@ -54,6 +55,7 @@ export async function preflightSubmitDocuments(args:Omit<Parameters<typeof prefl
   s3_sender?:{send(command:unknown,options?:{abortSignal:AbortSignal}):Promise<any>};
   prepaid_config?:PrepaidSubmitConfig;
 }):Promise<NonNullable<SubmitAttempt['document_preflight']>> {
+  if(assertArtworkBinding(args.job,(args.now??(()=>new Date()))()))return (await preflightArtwork(args))!;
   const now=args.now??(()=>new Date()),checked=now(),expected=expectation(args.job,checked);
   if(!expected)return preflightWrikeSubmitDocuments(args);
   const reviewedState=stableJson(args.job);

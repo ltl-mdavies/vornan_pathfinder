@@ -1,3 +1,5 @@
+import type {JsonArtworkBinding} from './json-intake/artwork-delivery.js';
+import type {JsonReceiptJobBinding} from './json-intake/submission-job.js';
 import { createSeedOutputTemplate } from './lift-output-templates.js';
 import type { PrepaidSubmitBinding } from './json-intake/prepaid-submit.js';
 import { resolveWorkspaceTables } from "./workspace-table-namespace.js";
@@ -812,6 +814,8 @@ export interface ProcessingJobPreview {
   submit_certification?: SubmitCertification;
   submit_integrity?: SubmitIntegritySnapshot;
   prepaid_submit_binding?: PrepaidSubmitBinding;
+  json_intake_binding?: JsonReceiptJobBinding;
+  json_artwork_binding?: JsonArtworkBinding;
   submit_request_masked: Omit<LiftSubmitRequest, "headers"> & {
     headers: Omit<LiftSubmitRequest["headers"], "Password"> & { Password: string };
   };
@@ -980,7 +984,7 @@ export interface SubmitAttempt {
     required: boolean;
     checked_at: string | null;
     documents: Array<{
-      document_role: "order_grid" | "reference_proof" | "prepaid_label";
+      document_role: "order_grid" | "reference_proof" | "prepaid_label" | "production_artwork";
       publication_id: string;
       object_version_id: string;
       content_length: number;
