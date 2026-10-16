@@ -74,14 +74,16 @@ export function buildSubmitIntegritySnapshot(args: {
   submit_request_masked: ProcessingJobPreview["submit_request_masked"];
   source_document_publications?: ProcessingJobPreview["source_document_publications"];
   prepaid_submit_binding?: ProcessingJobPreview["prepaid_submit_binding"];
+  json_artwork_binding?: ProcessingJobPreview["json_artwork_binding"];
   reviewed_at?: string;
 }): SubmitIntegritySnapshot {
   const payloadSha256 = sha256(args.payload);
   const requestSha256 = sha256(args.submit_request_masked);
   const legacyDocuments = publicationIdentity(args.source_document_publications);
-  const documentSetSha256 = sha256(args.prepaid_submit_binding
+  const legacyBinding = args.prepaid_submit_binding
     ? {documents: legacyDocuments, prepaid: args.prepaid_submit_binding}
-    : legacyDocuments);
+    : legacyDocuments;
+  const documentSetSha256 = sha256(args.json_artwork_binding ? {documents:legacyBinding,artwork:args.json_artwork_binding} : legacyBinding);
   const fingerprint = createHash("sha256")
     .update(SUBMIT_INTEGRITY_NAMESPACE)
     .update("\0")
@@ -118,6 +120,7 @@ export function assertReviewedSubmitIntegrity(args: {
     submit_request_masked: args.current_submit_request_masked,
     source_document_publications: args.job.source_document_publications,
     prepaid_submit_binding: args.job.prepaid_submit_binding,
+    json_artwork_binding: args.job.json_artwork_binding,
     reviewed_at: saved.reviewed_at
   });
   if (

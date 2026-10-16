@@ -1,3 +1,4 @@
+import { withoutJsonArtworkRead } from "./fixtures/json-artwork-permission.mjs";
 import { withoutWorkspacePacking } from "./fixtures/workspace-table-packing.mjs";
 import { withoutShadow } from "./fixtures/intake-shadow-config.mjs";
 import assert from "node:assert/strict";
@@ -45,7 +46,7 @@ test("visibility changes only its parameter, rule, condition and environment bin
   for (const key of visibilityKeys) delete vars(prior)[key];
   const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
   const baseline = JSON.parse(readFileSync(new URL("./fixtures/intake-storage-baseline.json", import.meta.url), "utf8"));
-  assert.equal(createHash("sha256").update(JSON.stringify(canonical(withoutWorkspacePacking(prior)))).digest("hex"), baseline.sha256, baseline.source_commit);
+  assert.equal(createHash("sha256").update(JSON.stringify(canonical(withoutJsonArtworkRead(withoutWorkspacePacking(prior))))).digest("hex"), baseline.sha256, baseline.source_commit);
 });
 
 test("packed visibility combinations fit and oversized scopes are rejected", () => {
