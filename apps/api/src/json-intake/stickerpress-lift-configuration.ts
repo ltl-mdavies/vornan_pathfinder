@@ -42,7 +42,7 @@ export function createStickerPressLiftConfiguration(base: OutputTemplate, refere
 /** Trusted, customer-scoped single-product binding for receipt previews, independent of source SKU/variation.
  * The sandbox receipt-to-job bridge must explicitly use this binding before submission is enabled.
  */
-export function buildStickerPressConfiguredPreview(receipt: LiftPreviewReceipt,
+export function mapStickerPressReceiptToCanonical(receipt: LiftPreviewReceipt,
   config: {template: OutputTemplate; route: OutputRoute; product: CustomerProductMapping;
     order_date_format: TargetConfig['lift']['order_date_format']}) {
   assert.equal(receipt.identity.customer_id, '174094');
@@ -77,6 +77,12 @@ export function buildStickerPressConfiguredPreview(receipt: LiftPreviewReceipt,
     line.artwork = {file_name: line.source_line.artwork.filename, checksum: line.source_line.artwork.artwork_sha256};
     delete line.document_delivery;
   }
+  return canonical;
+}
+
+export function buildStickerPressConfiguredPreview(receipt: LiftPreviewReceipt,
+  config: Parameters<typeof mapStickerPressReceiptToCanonical>[1]) {
+  const canonical = mapStickerPressReceiptToCanonical(receipt, config);
   const result = prepareLiftEcommercePayload({template_id: config.template.output_template_id,
     base: generateLiftPayload(canonical, {jobId: 'job_preview_only', canonicalOrderId: 'co_preview_only', extIdStrategy: 'customer_order_id'}),
     canonical, source: canonical, order_mappings: config.template.canonical_mappings,
