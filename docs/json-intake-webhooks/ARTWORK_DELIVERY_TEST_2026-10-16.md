@@ -30,4 +30,14 @@ API-only release uses the current live CloudFormation template plus one read-onl
 
 ## Outcome
 
-Publication and read-only activation rehearsal completed. Shared API deployment and activation are pending at this commit. No Lift order has been submitted.
+Completed through normal API certification: job `JOB-197070` is Ready, can_submit=true, zero blocking items, zero submit attempts, and no Lift order number. The final payload is byte/structure-equivalent to the reviewed payload and its exact request/publication fingerprint is `893744db51f059833cf60ad1807df87502ec04268ccd11d9ed247f43f5dea3bd`. Pathfinder visibly offers Submit to Lift. The workspace header still reflects the pre-existing default QA1 route; this job's certification and masked request explicitly use the existing PROD environment, Company 91.
+
+PR [358](https://github.com/ltl-mdavies/vornan_pathfinder/pull/358) merged as `5d112d19abd6dc618c058664956faf90246b59ec`. Candidate CI [38950572641](https://github.com/ltl-mdavies/vornan_pathfinder/actions/runs/38950572641) and merged-main CI [38951169822](https://github.com/ltl-mdavies/vornan_pathfinder/actions/runs/38951169822) passed. Final counts: 1,230 workspace tests, 167 deployment contracts, 17 browser regressions; merged focused boundary suite 27/27. The first IAM candidate failed three historical whole-template hash checks; the correction verifies/removes exactly the new permission before retaining the original historical hashes. Final green evidence supersedes the initial incorrect 167-pass progress report.
+
+Executed reviewed change set `artwork-5d112d19abd6`: resolved before/after contexts change only API function Code.S3Key and the one API-role read statement, both without replacement. Stack UPDATE_COMPLETE; Lambda update successful at 18:59:16 UTC. Live CodeSha256 matches `ALJ/GwX1ViIYifTqJi7aVXKvLBSEgKsMR8nlX+f/cxE=`. Artifact: `api/pathfinder-api-lambda-5d112d19abd6dc618c058664956faf90246b59ec.zip`.
+
+Post-release verification: every API environment variable and non-code CloudFormation parameter unchanged; all other Pathfinder Lambda hashes unchanged; existing Momentara jobs unchanged; API/Proof/Status HTTP200 and unauthenticated API HTTP401. No frontend, Proof, Status, intake worker, callback worker or global-gate deployment. Activation reverified all three downloads and conditionally updated only the Ecomm template/status, Ecomm route/test profile and this job. Both existing High End Work route records and the remainder of the shared target record compare unchanged. Product mapping stays in the customer route.
+
+Scheduler observation: the existing rule remains ENABLED at rate(15 minutes); the last observed natural run completed successfully at 18:57:56 UTC, before deployment. No post-deployment completion had arrived by 19:03 UTC; none was manually triggered. This timing limitation is not an assertion of a post-deployment scheduler run.
+
+Actual Lift submission, import results, confirmation and shipping callbacks remain unperformed. The next operator action is the single controlled Submit to Lift test, followed by Jason's import verification and the existing uncertainty/reconciliation safeguards.
