@@ -132,6 +132,20 @@ export async function approveProof(input: {
   }, true);
 }
 
+export type AllocationSubmission = {
+  idempotency_key: string;
+  entries: Array<{ task_id: string; attachment_id: string; expected_task_version: number; expected_version_id: string; quantity: number }>;
+  note: string | null;
+};
+export type AllocationStatus = {
+  batch_id: string; state: "ready" | "checking" | "completed" | "paused"; automatic_retry: false;
+  source_line_number: string | null; line_quantity: number;
+  entries: Array<{ task_id: string; attachment_id: string; filename: string | null; quantity: number; state: "pending" | "submitted" | "confirmed"; resulting_line_number: string | null }>;
+};
+export const prepareProofAllocation = (input: AllocationSubmission) => api<{ batch: AllocationStatus }>("/api/public/proof/approval-batches", { method: "POST", body: JSON.stringify(input) }, true);
+export const advanceProofAllocation = (batchId: string) => api<{ batch: AllocationStatus }>(`/api/public/proof/approval-batches/${encodeURIComponent(batchId)}/advance`, { method: "POST" }, true);
+export const loadProofAllocations = () => api<{ batches: AllocationStatus[] }>("/api/public/proof/approval-batches");
+
 export async function requestProofChanges(input: {
   task_id: string;
   attachment_id: string;

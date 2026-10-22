@@ -41,6 +41,7 @@ aws cloudformation deploy \
     OperatorGrantCreationEnabled="${PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED:-false}" \
     GrantAllowedCustomerIds="${PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS:-}" \
     CustomerApprovalEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:-false}" \
+    CustomerAllocationEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_ALLOCATIONS:-false}" \
     CustomerRevisionUploadEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS:-false}" \
     ProofAssetUploadEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD:-false}" \
     ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \

@@ -32,6 +32,7 @@ import {
   persistProofOrder
 } from "./store.js";
 import { recordProofAuditEvent } from "./audit-service.js";
+import { claimProofAction } from "./customer-allocation-store.js";
 
 const TARGET_ID = "lift-standard-graphics";
 const ENVIRONMENT_ID = "env-lift-prod";
@@ -76,9 +77,10 @@ export interface ProofCustomerApprovalDependencies {
   audit?: typeof recordProofAuditEvent;
   persistOrder?: typeof persistProofOrder;
   now?: () => Date;
+  claimAction?: typeof claimProofAction;
 }
 
-function targetEnvironment(target: ProofActionTargetConfig | null) {
+export function targetEnvironment(target: ProofActionTargetConfig | null) {
   const environment = target?.environments.find(
     (candidate) => candidate.environment_id === ENVIRONMENT_ID && candidate.role === "PROD" && candidate.status === "Active"
   );
@@ -88,7 +90,7 @@ function targetEnvironment(target: ProofActionTargetConfig | null) {
   return environment;
 }
 
-function assertCredentialBoundary(
+export function assertCredentialBoundary(
   credentials: TargetProofingApiRuntimeCredentials,
   environmentEndpointUrl: string
 ) {
@@ -180,6 +182,7 @@ export function createProofCustomerApprovalService(
   const audit = dependencies.audit ?? recordProofAuditEvent;
   const persistOrder = dependencies.persistOrder ?? persistProofOrder;
   const now = dependencies.now ?? (() => new Date());
+  const claimAction = dependencies.claimAction ?? claimProofAction;
 
   async function decide(input: {
       session: ProofAccessSession;
@@ -279,6 +282,9 @@ export function createProofCustomerApprovalService(
       }
 
       let uncertain;
+      if (!await claimAction(order.order_number, task.attachment_id!, task.current_version!.version_id, `decision:${contract.idempotency_key}`)) {
+        throw new ProofCustomerApprovalError("conflict", "This proof already has an approval in progress. Refresh to check its status.");
+      }
       try {
         uncertain = await transition({
           order_number: order.order_number,

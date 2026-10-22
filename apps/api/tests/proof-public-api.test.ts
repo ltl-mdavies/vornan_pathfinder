@@ -150,6 +150,30 @@ after(async () => {
   await rm(testDirectory, { recursive: true, force: true });
 });
 
+test("allocation routes require a live session and CSRF before invoking the batch service", async () => {
+  const created = await access.createProofGrant({ order_number: order.order_number });
+  const exchange = await request(app).post("/api/public/proof/sessions").send({ token: created.access_url.split("/").at(-1)! }).expect(201);
+  const { cookie, csrf } = exchangeCredentials(exchange);
+  const calls: string[] = [];
+  const batchApp = express(); batchApp.use(express.json());
+  batchApp.use("/api/public/proof", createPublicRouter({ allocations: {
+    list: async ({ session }) => { calls.push(`list:${session.order_number}`); return []; },
+    prepare: async () => { calls.push("prepare"); return {} as never; },
+    advance: async () => { calls.push("advance"); return {} as never; }
+  } }));
+  for (const path of ["/approval-batches", "/approval-batches/pbatch_test/advance"]) {
+    await request(batchApp).post(`/api/public/proof${path}`).send({}).expect(401);
+    await request(batchApp).post(`/api/public/proof${path}`).set("Cookie", cookie).send({}).expect(403);
+  }
+  assert.deepEqual(calls, []);
+  await request(batchApp).post("/api/public/proof/approval-batches").set("Cookie", cookie).set("X-Vornan-Proof-Csrf", csrf).send({}).expect(200);
+  assert.deepEqual(calls, ["prepare"]);
+  await access.updateProofGrant(created.grant.grant_id, { action: "revoke" });
+  await request(batchApp).get("/api/public/proof/approval-batches").set("Cookie", cookie).expect(401);
+  await request(batchApp).post("/api/public/proof/approval-batches/pbatch_test/advance").set("Cookie", cookie).set("X-Vornan-Proof-Csrf", csrf).send({}).expect(401);
+  assert.deepEqual(calls, ["prepare"]);
+});
+
 test("rejects an unknown grant scope before it can be persisted", async () => {
   await assert.rejects(
     () => access.createProofGrant({ order_number: order.order_number, scope: "operator" } as never),

@@ -32,6 +32,7 @@ import {
 } from "./asset-upload-service.js";
 import type { ProofCustomerCapabilityAuthorityReader } from "./customer-capability-authority.js";
 import { ProofDetailedReportError, proofDetailedReportService } from "./detailed-report-service.js";
+import { customerAllocationService, customerAllocationsEnabled } from "./customer-quantity-service.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
 export const PROOF_SESSION_COOKIE_PATH = "/api/public/proof";
@@ -141,6 +142,7 @@ interface ProofPublicRouterDependencies {
   queueSync?: typeof queueProofSync;
   approveProof?: typeof proofCustomerApprovalService.approve;
   requestProofChanges?: typeof proofCustomerApprovalService.requestChanges;
+  allocations?: typeof customerAllocationService;
   prepareRevisionAsset?: ReturnType<typeof createProofAssetUploadService>["prepare"];
   revisionAssetStatus?: ReturnType<typeof createProofAssetUploadService>["status"];
   finalizeRevisionAsset?: ReturnType<typeof createProofAssetUploadService>["finalize"];
@@ -155,6 +157,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   const enqueueSync = dependencies.queueSync ?? queueProofSync;
   const approveProof = dependencies.approveProof ?? proofCustomerApprovalService.approve;
   const requestProofChanges = dependencies.requestProofChanges ?? proofCustomerApprovalService.requestChanges;
+  const allocations = dependencies.allocations ?? customerAllocationService;
   const revisionAssets = createProofAssetUploadService();
   const prepareRevisionAsset = dependencies.prepareRevisionAsset ?? revisionAssets.prepare;
   const revisionAssetStatus = dependencies.revisionAssetStatus ?? revisionAssets.status;
@@ -263,6 +266,9 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
           grant.capability?.access_mode === "review",
         revision_action_enabled: revisionUploadEnabled,
         review_experience: grant.capability?.review_experience ?? "simple"
+      });
+      Object.assign(publicOrder.access, {
+        allocation_enabled: customerAllocationsEnabled() && publicOrder.access.decisions_enabled && grant.capability?.review_experience === "advanced"
       });
       const feedbackStates = new Map(
         (await loadProofFeedbackStates(order, session)).map((state) => [state.task_id, state])
@@ -410,6 +416,27 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
     } catch (error) {
       handlePublicError(error, res, "Detailed report could not be opened.");
     }
+  });
+
+  router.get("/approval-batches", async (req, res) => {
+    try {
+      const { session } = await validateProofSession(cookieValue(req, PROOF_SESSION_COOKIE) ?? "", new Date(), readCustomerCapabilityWorkspace);
+      res.json({ batches: await allocations.list({ session, correlation_id: req.get("x-request-id") ?? session.session_id }) });
+    } catch (error) { handlePublicError(error, res, "Approval status could not be loaded. Please try again shortly."); }
+  });
+  router.post("/approval-batches", async (req, res) => {
+    try {
+      const { session } = await validateProofSession(cookieValue(req, PROOF_SESSION_COOKIE) ?? "", new Date(), readCustomerCapabilityWorkspace);
+      requireCsrf(req, session);
+      res.json({ batch: await allocations.prepare({ session, request: req.body, correlation_id: req.get("x-request-id") ?? session.session_id }) });
+    } catch (error) { handlePublicError(error, res, "Approval quantities could not be saved. Please try again shortly."); }
+  });
+  router.post("/approval-batches/:batchId/advance", async (req, res) => {
+    try {
+      const { session } = await validateProofSession(cookieValue(req, PROOF_SESSION_COOKIE) ?? "", new Date(), readCustomerCapabilityWorkspace);
+      requireCsrf(req, session);
+      res.json({ batch: await allocations.advance({ session, batch_id: req.params.batchId, correlation_id: req.get("x-request-id") ?? session.session_id }) });
+    } catch (error) { handlePublicError(error, res, "Approval status could not be checked. Your submitted approvals will not be sent again."); }
   });
 
   router.post("/tasks/:taskId/decisions/approve", async (req, res) => {

@@ -295,6 +295,7 @@ test("keeps the decision ledger isolated to the default-dark customer approval s
         "proof/decision-ledger-store.ts",
         "proof/decision-ledger.ts",
         "proof/customer-approval-service.ts",
+        "proof/customer-quantity-service.ts",
         "proof/public-router.ts"
       ].includes(path)
     );

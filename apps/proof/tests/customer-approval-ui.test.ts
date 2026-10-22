@@ -9,7 +9,10 @@ const proofUpdateSource = readFileSync(new URL("../src/proof-update-state.ts", i
 
 test("keeps customer decisions inside the current Proof portal and exposes only supported customer actions", () => {
   assert.match(appSource, /One current, unshared proof can be approved/);
-  assert.match(appSource, /Advanced approval remains unavailable/);
+  assert.match(appSource, /Creative approvals are not enabled for this review link/);
+  assert.match(appSource, /allocationEnabled/);
+  assert.match(appSource, /Review every creative, then confirm its quantity/);
+  assert.match(apiSource, /approval-batches/);
   assert.match(appSource, /Upload replacement artwork/);
   assert.match(appSource, /Choose how this proof should be corrected/);
   assert.match(appSource, /Ask production to revise this proof/);

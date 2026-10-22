@@ -187,7 +187,9 @@ export function demoOrderForHash(hash: string): ProofOrder {
       },
       versions: []
     };
-    const tasks = [...demoOrder.tasks.slice(0, -1), singleProofTask];
+    // This isolated quantity-workflow fixture starts after feedback review.
+    // The separate feedback fixture covers acknowledgement gating.
+    const tasks = [...demoOrder.tasks.slice(0, -1).map((task) => ({ ...task, feedback_acknowledged: true })), singleProofTask];
     return {
       ...demoOrder,
       access: { ...demoOrder.access, review_experience: "advanced" },

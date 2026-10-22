@@ -57,6 +57,8 @@ import { preserveDisplayedHistoryAssets, preserveDisplayedProofAssets, proofOrde
 import { DetailedReportButton } from "./detailed-report-button";
 import { isLiftProofUpdatedError, PROOF_UPDATED_MESSAGE, replacementProofTaskId } from "./proof-update-state";
 import { RevisionUploadDialog } from "./revision-upload-dialog";
+import { AllocationProgress } from "./creative-approval-progress";
+import type { AllocationSubmission } from "./api";
 import { usesAdvancedQuantityAllocation } from "./review-experience";
 import {
   quantityDraftMatches,
@@ -511,6 +513,9 @@ type ActionTransportProps = {
   draft: SavedQuantityDraft | null;
   onSaveDraft: (draft: SavedQuantityDraft) => void;
   demoBatchEnabled: boolean;
+  allocationEnabled: boolean;
+  allocationInProgress: boolean;
+  onApproveAllocation: (tasks: ProofTask[], values: Record<string, string>, note: string) => void;
   decisionsEnabled: boolean;
   freshnessBlocked: string | null;
   reviewExperience: "simple" | "advanced";
@@ -696,7 +701,7 @@ function ChangeRequestDialog({ open, task, note, productionBlocked, uploadBlocke
   );
 }
 
-function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, decisionsEnabled, freshnessBlocked, reviewExperience, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestChanges, onRequestRevision, mobile = false }: ActionTransportProps) {
+function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChange, onStageApproval, onUndoApproval, draft, onSaveDraft, demoBatchEnabled, allocationEnabled, allocationInProgress, onApproveAllocation, decisionsEnabled, freshnessBlocked, reviewExperience, revisionUploadEnabled, participantIdentified, onApproveSingle, onRequestChanges, onRequestRevision, mobile = false }: ActionTransportProps) {
   const actionableTasks = tasks.filter((task) => task.state === "pending" && task.current_version?.current);
   const multiProof = usesAdvancedQuantityAllocation(actionableTasks.length, reviewExperience);
   const selectedTask = tasks.find((task) => task.task_id === selectedTaskId) ?? tasks[0]!;
@@ -723,11 +728,25 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
   const assignmentOpener = useRef<HTMLButtonElement>(null);
   const summary = summarizeQuantityAssignment(lineQuantity, stagedTasks.map((task) => task.task_id), values);
   const saved = quantityDraftMatches(draft, stagedTasks, values);
+  const allocationBlocked = !allocationEnabled && !demoBatchEnabled ? "Creative approvals are not enabled for this review link."
+    : allocationInProgress ? "Creative approvals are being confirmed. Use View status to follow their progress."
+    : freshnessBlocked ?? (!participantIdentified && !demoBatchEnabled ? "Identify the reviewer before approving creatives."
+    : selectedTask.feedback_required && !selectedTask.feedback_acknowledged ? "Review and acknowledge this creative’s feedback first."
+    : actionableTasks.some((t) => t.shared_line_numbers && t.shared_line_numbers.length > 1) ? "A creative is shared across lines and needs a coordinated review."
+    : actionableTasks.some((t) => t.action_reconciliation_pending) ? "An approval is already being confirmed. Check its status before continuing."
+    : null);
+  const allocationReady = !allocationBlocked && summary.complete && stagedTasks.every((task) => !task.feedback_required || task.feedback_acknowledged) && (demoBatchEnabled || stagedTasks.length === actionableTasks.length);
   const saveDraft = () => {
     const savedDraft = saveQuantityDraft({ groupId: tasks[0]?.line_number ?? tasks[0]?.task_id ?? "line", tasks: stagedTasks, values, now: new Date() });
     onSaveDraft(savedDraft);
   };
   const beginProcessing = async () => {
+    if (!demoBatchEnabled) {
+      if (!allocationReady) return;
+      setBatchStage(null);
+      onApproveAllocation(stagedTasks, values, decisionMessage);
+      return;
+    }
     setBatchStage("processing");
     for (let index = 0; index < stagedTasks.length; index += 1) {
       setProcessingIndex(index);
@@ -747,6 +766,8 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         : `${Math.abs(summary.remaining)} over`;
   const quantityGuidance = stagedTasks.length === 0
     ? "Select each creative you want to approve, then assign its quantity."
+    : !demoBatchEnabled && stagedTasks.length !== actionableTasks.length
+      ? "Review and select every current creative before assigning the line quantity."
     : lineQuantity === null
       ? "Assign a quantity to each selected creative before final review."
       : `Assign the full line quantity across the ${stagedTasks.length} selected ${stagedTasks.length === 1 ? "creative" : "creatives"}, then review before submitting.`;
@@ -893,7 +914,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
         <strong>{multiProof ? "Creative decision" : "Review decision"}</strong>
         <small className="decision-lock-status" id={mobile ? undefined : "action-lock-message"}>
           <LockKeyhole aria-hidden="true" /> {multiProof
-            ? "Advanced approval remains unavailable"
+            ? allocationBlocked ?? "Review every creative, then confirm its quantity"
             : decisionsEnabled
               ? "One current, unshared proof can be approved"
               : "Approval is not enabled for this review link"}
@@ -914,7 +935,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
               {selectedIsStaged ? <span className="staged-status"><CheckCircle2 aria-hidden="true" /> Ready to submit</span> : null}
               {selectedIsStaged
                 ? <button className="button tertiary" type="button" onClick={undoSelectedApproval}>Undo</button>
-                : <button className="button primary" type="button" disabled={Boolean(freshnessBlocked)} title={freshnessBlocked ?? undefined} onClick={() => onStageApproval(selectedTask.task_id)}><ShieldCheck aria-hidden="true" /> Approve this creative</button>}
+                : <button className="button primary" type="button" disabled={Boolean(allocationBlocked)} title={allocationBlocked ?? undefined} onClick={() => onStageApproval(selectedTask.task_id)}><ShieldCheck aria-hidden="true" /> Approve this creative</button>}
               <button className="button secondary request-changes" type="button" disabled title="Multiple-proof revision requests require coordinated support."><Upload aria-hidden="true" /> Request changes</button>
             </span>
           </div>
@@ -935,10 +956,10 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
               className="button secondary"
               type="button"
               data-quantity-assignment-trigger
-              disabled={stagedTasks.length === 0 || Boolean(freshnessBlocked)}
-              onClick={() => summary.complete && demoBatchEnabled ? setBatchStage("confirm") : setAssignmentOpen(true)}
+              disabled={stagedTasks.length === 0 || Boolean(freshnessBlocked) || (!demoBatchEnabled && stagedTasks.length !== actionableTasks.length)}
+              onClick={() => allocationReady ? setBatchStage("confirm") : setAssignmentOpen(true)}
             >
-              {summary.complete && demoBatchEnabled ? "Review approvals" : "Assign quantities"}
+              {allocationReady ? "Review approvals" : "Assign quantities"}
             </button>
           </div>
         </>
@@ -1006,7 +1027,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
           onDone={saveDraft}
           onReview={() => setBatchStage("confirm")}
           saved={saved}
-          reviewEnabled={demoBatchEnabled}
+          reviewEnabled={allocationReady}
           onClose={() => {
             setAssignmentOpen(false);
             window.requestAnimationFrame(() => assignmentOpener.current?.focus({ preventScroll: true }));
@@ -1091,6 +1112,8 @@ export function App() {
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [quantityAssignments, setQuantityAssignments] = useState<Record<string, Record<string, string>>>({});
   const [quantityDrafts, setQuantityDrafts] = useState<Record<string, SavedQuantityDraft>>({});
+  const [allocationRequest, setAllocationRequest] = useState<AllocationSubmission | null>(null);
+  const [pendingCreativeAttachments, setPendingCreativeAttachments] = useState<string[]>([]);
   const [stagedApprovals, setStagedApprovals] = useState<Record<string, string[]>>({});
   const [refreshState, setRefreshState] = useState<RefreshState>("idle");
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
@@ -1542,6 +1565,16 @@ export function App() {
   const saveQuantityReview = (groupId: string, draft: SavedQuantityDraft) => {
     setQuantityDrafts((current) => ({ ...current, [groupId]: draft }));
   };
+  const approveAllocation = (tasks: ProofTask[], values: Record<string, string>, note: string) => {
+    if (tasks.some((task) => !task.attachment_id || !task.current_version?.version_id || !Number.isSafeInteger(task.version))) {
+      throw new Error("The proofs have changed. Refresh before assigning quantities.");
+    }
+    setAllocationRequest({
+      idempotency_key: `creative-approval-${crypto.randomUUID()}`,
+      entries: tasks.map((task) => ({ task_id: task.task_id, attachment_id: task.attachment_id!, expected_task_version: task.version!, expected_version_id: task.current_version!.version_id, quantity: Number(values[task.task_id]) })),
+      note: note.trim() || null
+    });
+  };
 
   const refreshAfterLiftProofUpdate = async (task: ProofTask) => {
     bootstrapPromise = null;
@@ -1903,6 +1936,13 @@ export function App() {
       </section>
 
       <div className="notice-stack">
+        {!demoEnabled && order!.access.allocation_enabled && participant ? <AllocationProgress
+          key={`${order!.order_number}:${participant.participant_id}`}
+          request={allocationRequest}
+          onPendingChange={setPendingCreativeAttachments}
+          onClose={() => setAllocationRequest(null)}
+          onComplete={() => { void loadProofOrder().then(applyProofLoad).catch(() => undefined); }}
+        /> : null}
         {refreshState === "error" ? (
           <div className="order-health-notice refresh-error-notice" role="alert">
             <AlertTriangle aria-hidden="true" />
@@ -2057,8 +2097,11 @@ export function App() {
                 draft={quantityDrafts[selectedGroup?.group_id ?? selectedTask.task_id] ?? null}
                 onSaveDraft={(draft) => saveQuantityReview(selectedGroup?.group_id ?? selectedTask.task_id, draft)}
                 demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
+                allocationEnabled={Boolean(order!.access.allocation_enabled)}
+                allocationInProgress={pendingCreativeAttachments.length > 0}
+                onApproveAllocation={approveAllocation}
                 decisionsEnabled={order!.access.decisions_enabled}
-                freshnessBlocked={freshnessBlocked}
+                freshnessBlocked={freshnessBlocked ?? ((selectedGroup?.tasks ?? [selectedTask]).some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? "")) ? "Creative approvals are being confirmed. Use View status to follow their progress." : null)}
                 reviewExperience={order!.access.review_experience}
                 revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                 participantIdentified={Boolean(participant)}
@@ -2146,8 +2189,11 @@ export function App() {
                   draft={quantityDrafts[group.group_id] ?? null}
                   onSaveDraft={(draft) => saveQuantityReview(group.group_id, draft)}
                   demoBatchEnabled={demoEnabled && window.location.hash === "#/proof/batch-qa"}
+                  allocationEnabled={Boolean(order!.access.allocation_enabled)}
+                  allocationInProgress={pendingCreativeAttachments.length > 0}
+                  onApproveAllocation={approveAllocation}
                   decisionsEnabled={order!.access.decisions_enabled}
-                  freshnessBlocked={freshnessBlocked}
+                  freshnessBlocked={freshnessBlocked ?? ((selectedGroup?.tasks ?? [selectedTask]).some((task) => pendingCreativeAttachments.includes(task.attachment_id ?? "")) ? "Creative approvals are being confirmed. Use View status to follow their progress." : null)}
                   reviewExperience={order!.access.review_experience}
                   revisionUploadEnabled={Boolean(order!.access.revision_upload_enabled)}
                   participantIdentified={Boolean(participant)}
