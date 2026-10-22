@@ -219,6 +219,8 @@ export function createLiftEcommerceOutputTemplate(base: OutputTemplate, timestam
     template.canonical_mappings=template.canonical_mappings.filter(m=>m.sourceColumn!==`body:${output}`);
     template.canonical_mappings.push({sourceColumn:`body:${output}`,targetField:canonical,required:false});
   }
+  delete body.ext_id;
+  template.canonical_mappings=template.canonical_mappings.filter(m=>m.sourceColumn!=='body:ext_id');
   body.order=organizeEcommerceOrder(body.order);
   body.lines=body.lines.map((line:Record<string,unknown>)=>organizeEcommerceLine(line));
   const moved:Record<string,string>={
@@ -227,7 +229,8 @@ export function createLiftEcommerceOutputTemplate(base: OutputTemplate, timestam
     'body:lines[].production.cut_type':'body:lines[].cut.type',
     'body:lines[].production.shape':'body:lines[].cut.shape',
     'body:lines[].production.cut_complexity':'body:lines[].cut.complexity',
-    'body:lines[].production.die_reference':'body:lines[].cut.die_reference'
+    'body:lines[].production.die_reference':'body:lines[].cut.die',
+    'body:lines[].cut.die_reference':'body:lines[].cut.die'
   };
   const removed=new Set(['body:lines[].pricing.unit_price','body:lines[].pricing.markup_price','body:lines[].roll_finishing.unit','body:lines[].roll_finishing.spacing_unit','body:lines[].dimensions.unit','body:lines[].area.unit','body:lines[].production.application_type','body:lines[].approval.artwork_sha256','body:order.order_type_name','body:lines[].production.material_code','body:lines[].production.finish','body:lines[].production.corner_description']);
   template.canonical_mappings=Array.from(new Map(template.canonical_mappings.filter(m=>!removed.has(m.sourceColumn))

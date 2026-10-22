@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {validateCanonicalOrder, type ValidationMessage} from '@pathfinder/canonical';
-import {generateLiftPayload, prepareLiftEcommercePayload, buildLiftSubmitRequest, maskLiftSubmitRequest} from '@pathfinder/lift-adapter';
+import {generateLiftPayload, liftEcommerceExternalId, prepareLiftEcommercePayload, buildLiftSubmitRequest, maskLiftSubmitRequest} from '@pathfinder/lift-adapter';
 import type {ProcessingJobPreview, TargetConfig, SubmitProfile} from '../store.js';
 import {sha256, stableJson} from './adapter.js';
 import type {Receipt} from './local-store.js';
@@ -98,6 +98,6 @@ export function assertReceiptJobReplay(existing:JsonReceiptJob, receipt:Receipt)
   assert.equal(b.integration_id,receipt.identity.integration_id);
   assert.equal(b.store,receipt.identity.store);assert.equal(b.environment,receipt.identity.environment);
   assert.equal(existing.output_route_id,stickerPressLiftRouteId);assert.equal(existing.sandbox,true);
-  assert.equal(existing.lift_payload.order.ext_id,receipt.adapted.canonical.order.external_order_id);
+  assert.ok([receipt.adapted.canonical.order.external_order_id,liftEcommerceExternalId(receipt.adapted.canonical.order.external_order_id)].includes(existing.lift_payload.order.ext_id));
   return existing;
 }

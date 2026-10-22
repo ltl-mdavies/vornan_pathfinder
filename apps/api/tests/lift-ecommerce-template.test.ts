@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { canonicalFieldRegistry, ecommerceOutputFields } from '@pathfinder/canonical';
-import { generateLiftPayload, projectLiftEcommercePayload, LIFT_ECOMMERCE_TEMPLATE_ID } from '@pathfinder/lift-adapter';
+import { generateLiftPayload, applyLiftOrderDateFormat, projectLiftEcommercePayload, LIFT_ECOMMERCE_TEMPLATE_ID } from '@pathfinder/lift-adapter';
 import { createSeedOutputTemplate, createLiftEcommerceOutputTemplate } from '../src/lift-output-templates.js';
 import { stickerPressV1 } from '../src/json-intake/adapter.js';
 const timestamp='2026-09-28T00:00:00.000Z';
 const fixture=JSON.parse(await readFile(new URL('./fixtures/json-intake/sample-factory-test.json',import.meta.url),'utf8'));
-function canonical() {return stickerPressV1.validate(fixture,{customer_id:'synthetic',customer_name:'Sticker Press',integration_id:'synthetic-json',store:'ltlco',environment:'test',schema:'stickerpress.order.v1'}).canonical;}
+function canonical() {const value=stickerPressV1.validate(fixture,{customer_id:'synthetic',customer_name:'Sticker Press',integration_id:'synthetic-json',store:'ltlco',environment:'test',schema:'stickerpress.order.v1'}).canonical;value.order.external_order_id=value.order.external_order_id.replace(/^json_/,'json-');return value;}
 
 test('clone is a separate Draft with core mappings, neutral tokens and complete registered expansion',()=>{
   const base=createSeedOutputTemplate(timestamp),before=structuredClone(base),clone=createLiftEcommerceOutputTemplate(base,timestamp);
@@ -140,4 +140,38 @@ test('invalid money and unrecognized XML passthrough fields cannot silently ente
   for(const value of [0.109,'1e3','-0.01','NaN','']){
     source.lines[0].pricing={customer_price:value};assert.throws(()=>projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,generateLiftPayload(source),source));
   }
+});
+
+test('Ecomm exports die for Diecut orders and a visible null when absent without changing legacy output',()=>{
+  const source=canonical();
+  source.lines[0].production={...source.lines[0].production,cut_type:'Diecut',die_reference:'DIE-123'};
+  const original=structuredClone(source),legacy=generateLiftPayload(source);
+  const output=projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,legacy,source) as any;
+  assert.equal(output.lines[0].cut.type,'Diecut');assert.equal(output.lines[0].cut.die,'DIE-123');
+  assert.equal(output.lines[1].cut.die,null);
+  const wire=applyLiftOrderDateFormat(output,'MM/DD/YYYY') as any;
+  assert.equal(wire.lines[0].cut.die,'DIE-123');assert.equal(wire.lines[1].cut.die,undefined);
+  assert.ok(!Object.hasOwn(output.lines[0].cut,'die_reference'));
+  assert.equal(legacy.lines[0].production?.die_reference,'DIE-123');assert.deepEqual(source,original);
+  const template=createLiftEcommerceOutputTemplate(createSeedOutputTemplate());
+  assert.equal(JSON.parse(template.body_template).lines[0].cut.die,'{{lines[].production.die_reference}}');
+  assert.ok(template.canonical_mappings.some(m=>m.sourceColumn==='body:lines[].cut.die'&&m.targetField==='lines[].production.die_reference'));
+  assert.ok(!template.canonical_mappings.some(m=>m.sourceColumn==='body:lines[].cut.die_reference'));
+});
+
+test('Ecomm identity stays nested and matches header identity without a root duplicate; legacy output stays unchanged',async()=>{
+  const {buildLiftSubmitRequest,sampleLiftTargetConfig,liftEcommerceExternalId}=await import('@pathfinder/lift-adapter');
+  const source=canonical();const legacy=generateLiftPayload(source),before=JSON.stringify(legacy);
+  const output=projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,legacy,source);
+  assert.ok(!Object.hasOwn(output,'ext_id'));assert.equal(Object.keys(output.order)[0],'ext_id');
+  // Transport preserves the nested identity and the existing Ext_ID header.
+  const request=buildLiftSubmitRequest(output,sampleLiftTargetConfig);const wire=request.body;assert.equal(request.headers.Ext_ID,wire.order.ext_id);
+  assert.ok(!Object.hasOwn(wire,'ext_id'));assert.equal(wire.order.ext_id,source.order.external_order_id);
+  assert.equal(JSON.stringify(legacy),before);assert.equal(Object.keys(legacy)[0],'customer');assert.ok(!('ext_id' in legacy));
+  const template=createLiftEcommerceOutputTemplate(createSeedOutputTemplate());assert.ok(!Object.hasOwn(JSON.parse(template.body_template),'ext_id'));assert.ok(!template.canonical_mappings.some(m=>m.sourceColumn==='body:ext_id'));
+  const legacyId='json_'+'a'.repeat(64);assert.equal(liftEcommerceExternalId(legacyId),'json-'+'a'.repeat(64));
+  assert.equal(liftEcommerceExternalId('ORDER-123'),'ORDER-123');
+  for(const invalid of ['order_123','order 123','order/123',''])assert.throws(()=>liftEcommerceExternalId(invalid));
+  const invalid=structuredClone(source);invalid.order.external_order_id=legacyId;
+  assert.throws(()=>projectLiftEcommercePayload(LIFT_ECOMMERCE_TEMPLATE_ID,generateLiftPayload(invalid),invalid),/Normalize legacy/);
 });

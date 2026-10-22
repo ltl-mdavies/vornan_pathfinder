@@ -3,6 +3,13 @@ import { ecommerceOutputFields, type CanonicalEcommerceOrder } from '@pathfinder
 import type { LiftOrderPayload } from './index.js';
 export const LIFT_ECOMMERCE_TEMPLATE_ID = 'template-lift-ecommerce-orders';
 
+/** Only migrate the known generated legacy prefix; never collapse arbitrary partner IDs. */
+export function liftEcommerceExternalId(value:string):string {
+  const result=/^json_[a-f0-9]{64}$/.test(value)?'json-'+value.slice(5):value;
+  if(!/^[A-Za-z0-9-]+$/.test(result))throw new Error('E-commerce Ext_ID requires letters, digits and hyphens only');
+  return result;
+}
+
 /** Dedicated opt-in projection; no generic runtime mapping behavior is changed. */
 export function projectLiftEcommercePayload(templateId:string, base:LiftOrderPayload, source:CanonicalEcommerceOrder):LiftOrderPayload {
   if(templateId!==LIFT_ECOMMERCE_TEMPLATE_ID)throw new Error('E-commerce projection requires its explicit template');
@@ -18,6 +25,7 @@ export function projectLiftEcommercePayload(templateId:string, base:LiftOrderPay
       throw new Error('Approved artwork does not match exported checksum');
     }
   });
+  if(liftEcommerceExternalId(source.order.external_order_id)!==source.order.external_order_id)throw new Error('Normalize legacy E-commerce Ext_ID upstream before export');
   validateEcommerceValues(source);
   const result=structuredClone(base);
   // Keep pricing sections visible even when the source has no pricing integration.
@@ -47,6 +55,7 @@ export function projectLiftEcommercePayload(templateId:string, base:LiftOrderPay
   });
   result.order=organizeEcommerceOrder(result.order) as typeof result.order;
   // Source download/label/preview access URLs are never projected. Publication is a separate reviewed boundary.
+  delete (result as LiftOrderPayload & {ext_id?:string}).ext_id;
   return result;
 }
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { generateLiftPayload, prepareLiftEcommercePayload, LIFT_ECOMMERCE_TEMPLATE_ID } from '@pathfinder/lift-adapter';
+import { generateLiftPayload, liftEcommerceExternalId, prepareLiftEcommercePayload, LIFT_ECOMMERCE_TEMPLATE_ID } from '@pathfinder/lift-adapter';
 import type { OutputTemplate, OutputRoute, CustomerProductMapping, TargetConfig } from '../store.js';
 import { createLiftEcommerceOutputTemplate } from '../lift-output-templates.js';
 import type { LiftPreviewReceipt } from './lift-preview.js';
@@ -64,6 +64,7 @@ export function mapStickerPressReceiptToCanonical(receipt: LiftPreviewReceipt,
   assert.equal(config.product.lift_product_id, '374549');
   assert.equal(config.product.product_identifier_value, '374549');
   const canonical = structuredClone(receipt.adapted.canonical);
+  canonical.order.external_order_id=liftEcommerceExternalId(canonical.order.external_order_id);
   canonical.customer.destination_customer_id = '174094';
   canonical.order.order_attachment = null;
   canonical.order.artwork_folder_url = null;
@@ -73,7 +74,13 @@ export function mapStickerPressReceiptToCanonical(receipt: LiftPreviewReceipt,
     line.unit_number = '';
     line.description ??= line.product_name;
     line.product_name = config.product.product_name!;
-    line.production = {...line.production, laminate: line.production?.laminate ?? line.production?.finish ?? null};
+    // Jason confirmed FLEX_FIELD37 expects the equipment/process value, not thru_cut.
+    // Current Sticker Press stickers all use Laser; retain the partner's cut in source_line.
+    const material = line.production?.material ?? null;
+    const laminate = line.production?.laminate ?? line.production?.finish ?? null;
+    line.production = {...line.production, cut_type: 'Laser',
+      material: material === 'White Bopp (Sticker)' ? 'White BOPP Sticker' : material,
+      laminate: laminate === 'Gloss Laminate (.75 mil)' ? 'Gloss' : laminate};
     line.artwork = {file_name: line.source_line.artwork.filename, checksum: line.source_line.artwork.artwork_sha256};
     delete line.document_delivery;
   }

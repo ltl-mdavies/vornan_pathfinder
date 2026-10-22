@@ -36,7 +36,7 @@ export const ecommerceOutputFields = [
   ['lines[].roll_finishing.spacing', 'lines[].roll_finishing.spacing', 'number'],
   ['lines[].production.varnish', 'lines[].production.varnish', 'string'],
   ['lines[].production.orientation', 'lines[].production.orientation', 'string'],
-  ['lines[].cut.die_reference', 'lines[].production.die_reference', 'string'],
+  ['lines[].cut.die', 'lines[].production.die_reference', 'string'],
   ['lines[].cut.complexity', 'lines[].production.cut_complexity', 'string'],
   ['lines[].production.white_ink_required', 'lines[].production.white_ink_required', 'boolean'],
   ['lines[].sample', 'lines[].sample', 'boolean'],

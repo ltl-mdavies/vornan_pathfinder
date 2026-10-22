@@ -16,7 +16,8 @@ export function organizeEcommerceLine(input: Record<string, any>): Record<string
   cut.type=production.cut_type ?? cut.type;
   if(!('shape' in cut))cut.shape=production.shape;
   if(!('complexity' in cut))cut.complexity=production.cut_complexity;
-  if(!('die_reference' in cut))cut.die_reference=production.die_reference;
+  cut.die ??= cut.die_reference ?? production.die_reference ?? null;
+  delete cut.die_reference;
   production.laminate=production.laminate ?? production.finish ?? null;
   for(const key of ['cut_type','shape','cut_complexity','die_reference','corner_description','material_code','finish','application_type'])delete production[key];
   delete cut.corner_description;
@@ -33,7 +34,7 @@ export function organizeEcommerceLine(input: Record<string, any>): Record<string
   line.dimensions=ordered(dimensions,['final_height','final_width','live_height','live_width','bleed']);
   production.material ??= null;production.varnish ??= null;
   line.production=ordered(production,['material','laminate','varnish','coating','premask','ink','white_ink_required','orientation']);
-  line.cut=ordered(cut,['type','shape','complexity','die_reference','method','spot_name','layer_name','in_file']);
+  line.cut=ordered(cut,['type','shape','complexity','die','method','spot_name','layer_name','in_file']);
   return ordered(line,['line_number','unit_number','product_id','customer_sku','product_name','description','quantity',
     'external_line_id','store_product','store_variation_id','dimensions','production','cut','roll_finishing',
     'artwork','approval','preview','area','pricing','sample','line_note']);

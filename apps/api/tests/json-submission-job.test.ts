@@ -25,7 +25,7 @@ test('normal submission job preserves receipt identity, all line bindings and ex
  const job=prepareReceiptSubmissionJob(receipt,config);
  assert.deepEqual({receipt,config},before);assert.equal(job.state,'Waiting');assert.equal(job.sandbox,true);
  assert.equal(job.submit_certification?.can_submit,false);assert.equal(job.submit_integrity,undefined);
- assert.equal(job.lift_payload.order.ext_id,receipt.adapted.canonical.order.external_order_id);
+ assert.equal(job.lift_payload.order.ext_id,receipt.adapted.canonical.order.external_order_id.replace(/^json_/, 'json-'));
  assert.equal(job.submit_request_masked.headers.Ext_ID,job.lift_payload.order.ext_id);
  assert.equal(job.lift_payload.source.pathfinder_job_id,job.job_id);
  assert.equal(job.json_intake_binding.artwork.length,4);assert.equal(job.product_resolution_results.length,4);
