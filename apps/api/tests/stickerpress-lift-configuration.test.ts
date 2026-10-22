@@ -39,13 +39,13 @@ test('every line maps to the single Lift product without source variation, mater
   const preview=buildStickerPressConfiguredPreview(receipt,config);
   assert.deepEqual(receipt,before);assert.equal(preview.submission_allowed,false);
   assert.equal(preview.payload.customer.lift_customer_id,'174094');assert.equal(preview.payload.order.po_number,'ANDY-PO');
-  assert.equal(preview.payload.order.ext_id,receipt.adapted.canonical.order.external_order_id);
+  assert.equal(preview.payload.order.ext_id,receipt.adapted.canonical.order.external_order_id.replace(/^json_/, 'json-'));
   preview.payload.lines.forEach((line:any,i)=>{
     assert.equal(line.product_id,'374549');assert.equal(line.product_name,'Sticker Press Sticker');
     assert.equal(line.description,payload.lines[i].product_name);assert.equal(line.external_line_id,payload.lines[i].external_line_id);
-    assert.equal(line.quantity,payload.lines[i].quantity);assert.equal(line.production.material,payload.lines[i].material);
-    assert.equal(line.production.laminate,payload.lines[i].finish);assert.equal(line.cut.shape,payload.lines[i].shape);
-    assert.equal(line.cut.type,payload.lines[i].cut.type);assert.equal(line.artwork.checksum,payload.lines[i].artwork.artwork_sha256);
+    assert.equal(line.quantity,payload.lines[i].quantity);assert.equal(line.production.material,'White BOPP Sticker');
+    assert.equal(line.production.laminate,'Gloss');assert.equal(line.cut.shape,payload.lines[i].shape);
+    assert.equal(line.cut.type,'Laser');assert.equal(line.artwork.checksum,payload.lines[i].artwork.artwork_sha256);
     assert.ok(!line.artwork.file_url);assert.equal(line.pricing.customer_price,null);
   });
   assert.ok(!JSON.stringify(preview).includes('download_url'));

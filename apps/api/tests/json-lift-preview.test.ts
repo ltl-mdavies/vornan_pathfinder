@@ -27,7 +27,7 @@ test('unmapped four-line preview preserves evidence and fails closed without gue
   assert.equal(p.candidate.customer.lift_customer_id,undefined);
   assert.ok(p.gaps.some(g=>g.code==='LIFT_CUSTOMER_UNVERIFIED'));
   assert.equal(p.gaps.filter(g=>g.code==='LIFT_PRODUCT_MAPPING_UNRESOLVED').length,4);
-  assert.equal(p.candidate.order.ext_id,r.adapted.canonical.order.external_order_id);
+  assert.equal(p.candidate.order.ext_id,r.adapted.canonical.order.external_order_id.replace(/^json_/, 'json-'));
   assert.equal(p.candidate.source.source_record_id,fixture.order.order_number);
   for(let i=0;i<4;i++){
     const line=p.candidate.lines[i],e=p.evidence.lines[i],source=fixture.lines[i];
@@ -129,7 +129,7 @@ test('impossible dates remain blocking even before a target format is reviewed',
 });
 
 test('export preparation honors inherited order mapping before formatting and preserves source evidence',()=>{
-  const source=receipt().adapted.canonical,canonical=structuredClone(source);
+  const source=receipt().adapted.canonical;source.order.external_order_id=source.order.external_order_id.replace(/^json_/,'json-');const canonical=structuredClone(source);
   canonical.order.ship_date='2026-12-01';canonical.order.due_date='2026-12-03';
   canonical.lines[0].production={material:'Reviewed substrate',laminate:'Reviewed laminate',cut_type:'Reviewed cut'};
   const base=generateLiftPayload(canonical),before=structuredClone({canonical,source,base});

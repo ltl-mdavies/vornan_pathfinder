@@ -1,3 +1,4 @@
+import { validateEcommSubmitIdentity } from './json-intake/ecomm-submit-validation.js';
 import { preflightSubmitDocuments } from "./json-intake/prepaid-submit.js";
 import { getIntakeVisibilityConfig } from "./intake-visibility-config.js";
 import {
@@ -3685,13 +3686,13 @@ function liftConfigForRoute(target: TargetConfig, route: OutputRoute): LiftTarge
   };
 }
 
-function validateSubmitReadiness(
+export function validateSubmitReadiness(
   request: LiftSubmitRequest,
   payload: LiftOrderPayload,
   profile: SubmitProfile,
   route: OutputRoute
 ): ValidationMessage[] {
-  const messages: ValidationMessage[] = [];
+  const messages: ValidationMessage[] = validateEcommSubmitIdentity(route.output_template_id, request, payload);
 
   if (!request.endpoint_url?.trim()) {
     messages.push({
@@ -3820,7 +3821,7 @@ function certificationItem(
   };
 }
 
-function buildSubmitCertification(args: {
+export function buildSubmitCertification(args: {
   state: ProcessingJobPreview["state"];
   canonicalValidation: ValidationMessage[];
   liftValidation: ValidationMessage[];

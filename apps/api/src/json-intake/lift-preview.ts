@@ -1,4 +1,4 @@
-import { generateLiftPayload, prepareLiftEcommercePayload, LIFT_ECOMMERCE_TEMPLATE_ID, type LiftOrderDateFormat } from '@pathfinder/lift-adapter';
+import { generateLiftPayload, liftEcommerceExternalId, prepareLiftEcommercePayload, LIFT_ECOMMERCE_TEMPLATE_ID, type LiftOrderDateFormat } from '@pathfinder/lift-adapter';
 import { createLiftEcommerceOutputTemplate, createSeedOutputTemplate } from '../lift-output-templates.js';
 import type { CanonicalJsonLine } from '@pathfinder/canonical';
 import { sha256, stableJson } from './adapter.js';
@@ -77,6 +77,7 @@ export function buildJsonLiftPreview(receipt: LiftPreviewReceipt, mapping: LiftP
       canonical.customer.customer_id !== receipt.identity.customer_id ||
       canonical.source.integration_id !== receipt.identity.integration_id ||
       canonical.source.store !== receipt.identity.store) throw new Error('Receipt canonical identity mismatch');
+  canonical.order.external_order_id=liftEcommerceExternalId(canonical.order.external_order_id);
   const gaps: PreviewGap[] = [];
   const gap = (code: string, field: string) => gaps.push({code, field});
   if (!mapping.customer) gap('LIFT_CUSTOMER_UNVERIFIED', 'customer.lift_customer_id');
@@ -131,12 +132,12 @@ export function buildJsonLiftPreview(receipt: LiftPreviewReceipt, mapping: LiftP
       jobId: 'job_preview_only', canonicalOrderId: 'co_preview_only', extIdStrategy: 'customer_order_id'
     }),
     canonical,
-    source: receipt.adapted.canonical,
+    source: {...receipt.adapted.canonical,order:{...receipt.adapted.canonical.order,external_order_id:canonical.order.external_order_id}},
     order_mappings: template.canonical_mappings,
     order_date_format: mapping.order_date_format,
     validation_options: {product_identifier_type: mapping.product_identifier}
   });
-  if (candidate.order.ext_id !== receipt.adapted.canonical.order.external_order_id) throw new Error('EXT_ID changed');
+  if (candidate.order.ext_id !== liftEcommerceExternalId(receipt.adapted.canonical.order.external_order_id)) throw new Error('EXT_ID changed');
   for (const finding of validation) if (finding.severity === 'FAIL') gap(finding.code, finding.field ?? '*');
   if (!canonical.order.ship_date) gap('TURNAROUND_POLICY_UNCONFIGURED', 'order.requested_ship_date');
   gap('SHIPPING_POLICY_UNREVIEWED', 'order.shipping');
