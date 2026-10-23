@@ -42,7 +42,7 @@ test("the primary route environment control never mutates the reusable target", 
 
   assert.match(changeSource, /saveOutputRoute\(\s*nextRoute/);
   assert.doesNotMatch(changeSource, /saveTarget\(|updateOutputRouteDraft\(|nextTarget|active_environment/);
-  assert.match(changeSource, /New previews will use this environment/);
+  assert.match(changeSource, /New previews use this environment; existing unsubmitted jobs may need review/);
   assert.match(source, /\{selectedCustomer\.customer_name\} · \{primaryOutputRoute\.name\}/);
   assert.match(source, /View reusable environments/);
 });
