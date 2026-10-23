@@ -11,6 +11,7 @@ dist_dir="apps/web/dist"
 echo "Building Pathfinder admin app for ${api_base_url}"
 VITE_API_BASE_URL="${api_base_url}" \
 VITE_AUTH_REQUIRED="${auth_required}" \
+VITE_ENABLE_OPERATIONS_WORKSPACE="${VITE_ENABLE_OPERATIONS_WORKSPACE:-false}" \
 VITE_ENABLE_INTAKE_EXCEPTIONS="${VITE_ENABLE_INTAKE_EXCEPTIONS:-false}" \
 VITE_INTAKE_EXCEPTIONS_CUSTOMER_ID="${VITE_INTAKE_EXCEPTIONS_CUSTOMER_ID:-}" \
 VITE_AUTH_ALLOWED_DOMAINS="${auth_allowed_domains}" \
@@ -23,8 +24,8 @@ VITE_FIREBASE_MESSAGING_SENDER_ID="${VITE_FIREBASE_MESSAGING_SENDER_ID:-}" \
 npm run build --workspace @pathfinder/web
 
 echo "Syncing static assets to s3://${bucket}"
+# Retain prior hashed chunks for already-open tabs and rollback.
 aws s3 sync "${dist_dir}" "s3://${bucket}" \
-  --delete \
   --exclude "index.html" \
   --cache-control "public,max-age=31536000,immutable"
 

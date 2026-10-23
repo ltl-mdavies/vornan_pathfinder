@@ -18,6 +18,15 @@ const appSource = readFileSync(
 const isInternalPilotEnabled = (repositoryValue) =>
   (repositoryValue || "false") === "true";
 
+test("Admin publishes assets before the entrypoint without deleting prior tab assets", () => {
+  for (const source of [workflow, deployScript]) {
+    assert.doesNotMatch(source, /--delete\b/);
+    assert.ok(source.indexOf("aws s3 sync") < source.indexOf("aws s3 cp"));
+    assert.match(source, /--exclude "index.html"/);
+    assert.match(source, /no-cache,no-store,must-revalidate/);
+  }
+});
+
 test("wires the Artwork Catalog internal pilot into Admin builds with a false default", () => {
   assert.match(
     workflow,

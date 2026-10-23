@@ -429,8 +429,8 @@ function initialQaOrders() {
   }
 }
 
-export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; authToken: string | null }) {
-  const [orderNumber, setOrderNumber] = useState("");
+export function ProofOpsPanel({ apiBaseUrl, authToken, initialOrderNumber, expectedCustomerId }: { apiBaseUrl: string; authToken: string | null; initialOrderNumber?: string; expectedCustomerId?: string }) {
+  const [orderNumber, setOrderNumber] = useState(initialOrderNumber ?? "");
   const [label, setLabel] = useState("");
   const [order, setOrder] = useState<ProofOrderSummary | null>(null);
   const [customerCapability, setCustomerCapability] =
@@ -661,6 +661,11 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
     }
   }
 
+  useEffect(() => {
+    // Queue navigation is read-only: no sync, access grant, or customer action.
+    if (initialOrderNumber) void inspectCachedOrder();
+  }, [initialOrderNumber]);
+
   async function inspectCachedOrder() {
     if (!/^A\d{7,8}$/.test(normalizedOrderNumber)) {
       setMessage("Enter a Lift order number in A######## format.");
@@ -676,6 +681,9 @@ export function ProofOpsPanel({ apiBaseUrl, authToken }: { apiBaseUrl: string; a
       }>(
         await request(`/api/proof/orders/${normalizedOrderNumber}`)
       );
+      if (expectedCustomerId && payload.order.customer_id !== expectedCustomerId) {
+        throw new Error("This proof order no longer matches the selected customer. Return to the queue and refresh.");
+      }
       setOrder(payload.order);
       setCustomerCapability(payload.customer_capability);
       await loadGrants(payload.order.order_number);

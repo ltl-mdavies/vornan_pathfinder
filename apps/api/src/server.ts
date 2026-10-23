@@ -334,6 +334,7 @@ import {
   type TransactionalEmailResult
 } from "./email.js";
 import { createProofAdminRouter } from "./proof/router.js";
+import { createOperationsRouter } from "./operations/router.js";
 import {
   listCustomerCapabilityProofGrants,
   listOrderProofGrants,
@@ -4938,6 +4939,7 @@ app.use("/api", createIntakeExceptionsRouter({
   listDeliveries: listIntakeDeliveriesPage
 }));
 app.use("/api/proof", createProofAdminRouter());
+app.use("/api/operations", createOperationsRouter());
 
 function preserveWrikeSecret(nextValue: unknown, existingValue: string | undefined) {
   if (typeof nextValue !== "string") {

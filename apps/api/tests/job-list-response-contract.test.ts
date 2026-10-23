@@ -124,3 +124,14 @@ test("list projection excludes full-detail evidence without mutating the durable
   assert.equal(job.lift_payload.lines.length, 8);
   assert.ok(JSON.stringify(job).includes("retained_heavy_evidence"));
 });
+
+test("compact global jobs identify source and intake without guessing an operator method", () => {
+  const wrike = heavyJob(1);
+  assert.equal(toJobListItem(wrike).intake_provider, "Wrike");
+  const json = { ...wrike, json_intake_binding: { source_order_number: "SP-100206" } } as ProcessingJobPreview;
+  assert.equal(toJobListItem(json).intake_provider, "JSON API");
+  assert.equal(toJobListItem(json).source_order_id, "SP-100206");
+  const manual = { ...wrike, source_evidence: undefined, import_method_name: "Customer workbook" };
+  assert.equal(toJobListItem(manual).intake_provider, "Customer workbook");
+  assert.equal(toJobListItem(wrike).target_order_number, wrike.target_order_number);
+});

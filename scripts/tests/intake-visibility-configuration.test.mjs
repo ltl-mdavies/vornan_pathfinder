@@ -1,3 +1,4 @@
+import { withoutOperationsWorkspace } from "./fixtures/operations-workspace.mjs";
 import { withoutJsonArtworkRead } from "./fixtures/json-artwork-permission.mjs";
 import { withoutWorkspacePacking } from "./fixtures/workspace-table-packing.mjs";
 import { withoutShadow } from "./fixtures/intake-shadow-config.mjs";
@@ -10,7 +11,7 @@ import { checkCandidateEnvironment } from "../intake-environment-preflight.mjs";
 import { captureParameters, captureVariables as vars } from "./fixtures/intake-capture-config.mjs";
 import { recoveryParameters } from "./fixtures/intake-recovery-config.mjs";
 import { visibilityParameters, visibilityKeys, visibilityValidation } from "./fixtures/intake-visibility-config.mjs";
-const template = parseTemplate(readFileSync(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8"));
+const template = withoutOperationsWorkspace(parseTemplate(readFileSync(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8")));
 const evaluate = (values = {}) => evaluateTemplate(template, values, visibilityValidation);
 
 test("visibility defaults off and adds only its two bindings across all eight modes", () => {

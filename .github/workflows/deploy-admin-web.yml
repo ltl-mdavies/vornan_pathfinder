@@ -43,6 +43,7 @@ jobs:
         env:
           VITE_API_BASE_URL: ${{ inputs.api_base_url }}
           VITE_AUTH_REQUIRED: "true"
+          VITE_ENABLE_OPERATIONS_WORKSPACE: ${{ vars.PATHFINDER_ENABLE_OPERATIONS_WORKSPACE_UI || 'false' }}
           VITE_ENABLE_INTAKE_EXCEPTIONS: ${{ vars.PATHFINDER_ENABLE_INTAKE_EXCEPTIONS_UI || 'false' }}
           VITE_INTAKE_EXCEPTIONS_CUSTOMER_ID: ${{ vars.PATHFINDER_INTAKE_EXCEPTIONS_UI_CUSTOMER_ID || '' }}
           VITE_AUTH_ALLOWED_DOMAINS: ${{ vars.PATHFINDER_ALLOWED_EMAIL_DOMAINS || 'ltlco.com,vornan.co' }}
@@ -62,8 +63,8 @@ jobs:
 
       - name: Sync immutable assets
         run: |
+          # Keep prior hashed chunks available for already-open tabs and rollback.
           aws s3 sync apps/web/dist "s3://${{ vars.PATHFINDER_ADMIN_BUCKET || 'vornan-pathfinder' }}" \
-            --delete \
             --exclude "index.html" \
             --cache-control "public,max-age=31536000,immutable"
 
