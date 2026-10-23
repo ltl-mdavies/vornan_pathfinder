@@ -2,6 +2,11 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: Pathfinder production API shell - HTTP API Gateway plus Lambda.
 
 Parameters:
+  OperationsWorkspaceEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable authenticated read-only operations queues; does not enable Proof actions or intake.
   IntakeShadowEnabled:
     Type: String
     Default: "false"
@@ -573,6 +578,11 @@ Parameters:
     Description: Public origin used only when producing a one-time Proof fragment link.
 
 Rules:
+  OperationsWorkspaceRequiresAuth:
+    RuleCondition: !Equals [!Ref OperationsWorkspaceEnabled, "true"]
+    Assertions:
+      - Assert: !Equals [!Ref RequireFirebaseAuth, "true"]
+        AssertDescription: Operations queues require existing Pathfinder authentication.
   IntakeShadowRequiresIsolatedScheduledScope:
     RuleCondition: !Equals [!Ref IntakeShadowEnabled, "true"]
     Assertions:
@@ -934,6 +944,7 @@ Rules:
         AssertDescription: Proof core table name and ARN must either both be present or both be absent.
 
 Conditions:
+  OperationsWorkspaceActive: !Equals [!Ref OperationsWorkspaceEnabled, "true"]
   IntakeShadowActive: !And
     - !Equals [!Ref IntakeShadowEnabled, "true"]
     - !Equals [!Ref IntakeAssuranceStorageEnabled, "true"]
@@ -1416,6 +1427,7 @@ Resources:
           NODE_OPTIONS: "--enable-source-maps"
           PATHFINDER_RUNTIME: "lambda"
           PATHFINDER_ENABLE_INTAKE_SHADOW: !If [IntakeShadowActive, "true", !Ref "AWS::NoValue"]
+          PATHFINDER_ENABLE_OPERATIONS_WORKSPACE: !If [OperationsWorkspaceActive, "true", !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_SHADOW_SCOPE: !If [IntakeShadowActive, !Sub "1|${IntakeAssuranceCustomerId}|${IntakeAssuranceImportMethodId}|${IntakeAssuranceConnectionId}|${IntakeShadowStatusId}", !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_SHADOW_LIMITS: !If [IntakeShadowActive, !Sub "2|${IntakeShadowMaxCandidates}|${IntakeAssuranceSlaSeconds}|${IntakeShadowMaxElapsedMs}|${IntakeShadowExpiresAtMs}", !Ref "AWS::NoValue"]
           PATHFINDER_ENABLE_INTAKE_EXCEPTIONS: !If [IntakeAssuranceVisibilityActive, "true", !Ref "AWS::NoValue"]

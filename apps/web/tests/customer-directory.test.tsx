@@ -45,3 +45,11 @@ test('preselected customer identity is retained when it has never appeared in th
   assert.equal(result.customers.at(-1)?.lift_customer_id, '174094');
   assert.match(result.warning!, /not returned/);
 });
+
+test('inactive Lift customers remain selectable regardless of Pathfinder workspace existence', () => {
+  const inactive = {lift_customer_id:'900001', customer_name:'Inactive account', customer_status:'Inactive'};
+  const all = [...customers, inactive];
+  assert.deepEqual(reconcileCustomerDirectory([], directory(all), '').customers, all);
+  assert.deepEqual(filterCustomers(all, '900001'), [inactive]);
+  assert.equal(filterCustomers(all, '').length, all.length);
+});

@@ -21,6 +21,7 @@ Never infer a production capability from merged code alone. Record repository-re
 
 ## Current handoffs
 
+- [Compact operations workspace — October 23 implementation](./COMPACT_OPERATIONS_WORKSPACE_2026-10-23.md) — isolated, feature-flagged Dashboard/Jobs/Proof/customer-Proof development based on `47246a0`; **not deployed**. Does not update or supersede production evidence below.
 - [Pathfinder live operations handoff](./PATHFINDER_LIVE_OPERATIONS_HANDOFF_2026-08-10.md) — production Wrike discovery, Lift submission, document delivery, status writeback, job recovery, and known operating debt.
 - [Vornan Proof go-live handoff](./VORNAN_PROOF_GO_LIVE_HANDOFF_2026-08-10.md) — current public-read boundary, source-ready work, deployed Proof stack, asset infrastructure, and the next QA sequence.
 - [Pathfinder live support runbook](./PATHFINDER_LIVE_SUPPORT_RUNBOOK.md) — incident triage, mutation boundaries, recovery procedure, and the contract for a dedicated support task.

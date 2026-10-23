@@ -1,3 +1,4 @@
+import { withoutOperationsWorkspace } from "./fixtures/operations-workspace.mjs";
 import { withoutJsonArtworkRead } from "./fixtures/json-artwork-permission.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -5,7 +6,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import { parseTemplate } from "../intake-storage-template.mjs";
 import { legacyWorkspaceBindings, withoutWorkspacePacking } from "./fixtures/workspace-table-packing.mjs";
-const template = parseTemplate(readFileSync(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8"));
+const template = withoutOperationsWorkspace(parseTemplate(readFileSync(new URL("../../infra/aws/api-cloudformation.yaml", import.meta.url), "utf8")));
 const canonical = v => Array.isArray(v) ? v.map(canonical) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map(k => [k, canonical(v[k])])) : v;
 test("packing changes only eight legacy bindings to one namespace in the validated runtime template", () => {
   const env = template.Resources.PathfinderApiFunction.Properties.Environment.Variables;

@@ -6,6 +6,8 @@ export interface JobListItem {
   customer_id: string;
   customer_name: string;
   import_method_name: string;
+  intake_provider: string;
+  source_order_id: string | null;
   output_route_name: string;
   state: ProcessingJobPreview["state"];
   source_file_name: string;
@@ -50,6 +52,8 @@ export function toJobListItem(job: ProcessingJobPreview): JobListItem {
     customer_id: job.customer_id,
     customer_name: job.customer_name,
     import_method_name: job.import_method_name,
+    intake_provider: job.json_intake_binding ? "JSON API" : job.source_evidence?.provider === "wrike" ? "Wrike" : job.public_intake?.channel === "customer_dropbox" ? "Customer Dropbox" : job.import_method_name,
+    source_order_id: job.json_intake_binding?.source_order_number ?? job.canonical_order.order.external_order_id ?? null,
     output_route_name: job.output_route_name,
     state: job.state,
     source_file_name: job.source_file_name,

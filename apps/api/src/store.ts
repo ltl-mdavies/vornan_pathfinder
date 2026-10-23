@@ -4520,6 +4520,72 @@ export async function getOrCreateWorkspace(customer: LiftCustomer) {
   return workspace;
 }
 
+/** Read-only directory membership. Never seeds storage, hydrates secrets, or loads jobs. */
+export async function listWorkspaceCustomerIds(): Promise<string[]> {
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const table = resolveWorkspaceTables(process.env, ["workspaces"]).workspaces;
+    const ids: string[] = [];
+    let cursor: Record<string, AttributeValue> | undefined;
+    do {
+      const page = await getDynamoClient().send(new ScanCommand({
+        TableName: table,
+        ProjectionExpression: "customer_id",
+        ConsistentRead: true,
+        ExclusiveStartKey: cursor
+      }));
+      for (const item of page.Items ?? []) {
+        if (!item.customer_id?.S) throw new Error("Invalid workspace identity");
+        ids.push(item.customer_id.S);
+      }
+      cursor = page.LastEvaluatedKey;
+    } while (cursor);
+    return ids;
+  }
+  assertLocalStorageDriver();
+  try {
+    const store = JSON.parse(await readFile(storePath, "utf8")) as PathfinderStore;
+    if (!store.workspaces || typeof store.workspaces !== "object" || Array.isArray(store.workspaces)) throw new Error("Invalid workspace directory");
+    return Object.keys(store.workspaces);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+/** Minimal saved-customer eligibility read for operations; no whole-store hydration or seeding. */
+export async function listOperationsCustomers(): Promise<Array<Pick<LiftCustomer, "lift_customer_id" | "customer_status">>> {
+  if (getPathfinderPersistenceRuntimeConfig().storage_driver === "dynamodb") {
+    const ids = new Set(await listWorkspaceCustomerIds());
+    const table = resolveWorkspaceTables(process.env, ["customers"]).customers;
+    const customers: Array<Pick<LiftCustomer, "lift_customer_id" | "customer_status">> = [];
+    let cursor: Record<string, AttributeValue> | undefined;
+    do {
+      const page = await getDynamoClient().send(new ScanCommand({ TableName: table,
+        ProjectionExpression: "#data", ExpressionAttributeNames: { "#data": "data" },
+        ConsistentRead: true, ExclusiveStartKey: cursor }));
+      for (const item of page.Items ?? []) {
+        const customer = parseDynamoData<LiftCustomer>(item);
+        if (!customer?.lift_customer_id) throw new Error("Invalid saved customer identity");
+        if (ids.has(customer.lift_customer_id)) customers.push({ lift_customer_id: customer.lift_customer_id, customer_status: customer.customer_status });
+      }
+      cursor = page.LastEvaluatedKey;
+    } while (cursor);
+    return customers;
+  }
+  assertLocalStorageDriver();
+  try {
+    const store = JSON.parse(await readFile(storePath, "utf8")) as PathfinderStore;
+    if (!store.workspaces || typeof store.workspaces !== "object" || Array.isArray(store.workspaces)) throw new Error("Invalid workspace directory");
+    return Object.values(store.workspaces).map(workspace => {
+      const customer = workspace.customer;
+      return { lift_customer_id: customer.lift_customer_id, customer_status: customer.customer_status };
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+}
+
 export async function getWorkspace(customerId: string) {
   const store = await readStore();
   const existing = store.workspaces[customerId];

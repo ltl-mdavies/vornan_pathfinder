@@ -3,13 +3,17 @@ interface WorkspaceLoadingProps {
   error?: string | null;
   onRetry?: () => void;
   actionLabel?: string;
+  onChooseCustomer?: () => void;
+  setupRequired?: boolean;
 }
 
 export function WorkspaceLoading({
   message = "Loading your current Pathfinder workspace…",
   error = null,
   onRetry,
-  actionLabel = "Try again"
+  actionLabel = "Try again",
+  onChooseCustomer,
+  setupRequired = false
 }: WorkspaceLoadingProps) {
   return (
     <main className="app-shell workspace-loading-shell" aria-busy={!error}>
@@ -26,6 +30,7 @@ export function WorkspaceLoading({
         </div>
       </aside>
       <section className="workspace workspace-loading-content">
+        {onChooseCustomer ? <button className="secondary-button" onClick={onChooseCustomer}>Back to customer directory</button> : null}
         <div
           className={error ? "workspace-loading-status workspace-loading-error" : "workspace-loading-status"}
           role={error ? "alert" : "status"}
@@ -33,7 +38,7 @@ export function WorkspaceLoading({
         >
           <span className="workspace-loading-spinner" aria-hidden="true" />
           <div>
-            <strong>{error ? "Pathfinder could not load this workspace." : message}</strong>
+            <strong>{setupRequired ? "Set up Pathfinder workspace" : error ? "Pathfinder could not load this workspace." : message}</strong>
             <p>{error ?? "Customer, route, and job data will appear together when it is ready."}</p>
           </div>
           {error && onRetry ? (
