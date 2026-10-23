@@ -2,6 +2,7 @@ import { digest, scopeKey, type WebhookScope } from '../webhooks/contract.js';
 import { stableJson } from './adapter.js';
 import type { Receipt, ReceiptStore } from './local-store.js';
 import { captureShippingSnapshot, projectShipping, type ShippingSnapshot } from './shipping-events.js';
+import { reviewedConfirmation } from './manual-confirmation.js';
 
 type Row = Record<string, unknown>;
 export interface LiftShippingReports {
@@ -75,10 +76,20 @@ export function prepareLiftShippingSnapshot(receipt: Receipt, reports: LiftShipp
     throw new Error('Lift shipping association mismatch');
   }
   if (reports.all_pages_read!==true) throw new Error('Lift report completeness unverified');
+  // Manually reconciled imports retain their exact verified destination identity.
+  // Never normalize the source receipt or infer a replacement identity from a retry title.
+  let externalOrderId=receipt.adapted.canonical.order.external_order_id;
+  const confirmation=receipt.confirmation;
+  if ('source' in confirmation && confirmation.source==='manual_verified') {
+    const verified=reviewedConfirmation(receipt,[{receipt_id:receipt.receipt_id,job_id:confirmation.job_id,
+      association_id:confirmation.association_id,order_number:confirmation.order_number,evidence_sha256:confirmation.evidence_sha256}]);
+    if(review.target_customer_id!==verified.evidence.scope.customer_id)throw new Error('Lift manual customer mismatch');
+    externalOrderId=verified.evidence.external_order_id;
+  }
   const orders=rows(reports.order), packageRows=rows(reports.packages), shippingRows=rows(reports.shipping);
   if (orders.length!==1 || text(orders[0].ORDER_NUMBER,'ORDER_NUMBER')!==review.lift_order_number ||
       text(orders[0].CUSTOMER_ID,'CUSTOMER_ID')!==review.target_customer_id ||
-      text(orders[0].EXT_ID,'EXT_ID')!==receipt.adapted.canonical.order.external_order_id || !Array.isArray(orders[0].LINES)) {
+      text(orders[0].EXT_ID,'EXT_ID')!==externalOrderId || !Array.isArray(orders[0].LINES)) {
     throw new Error('Lift order identity mismatch');
   }
   const bindings=new Map<string,string>(), external=new Set<string>();

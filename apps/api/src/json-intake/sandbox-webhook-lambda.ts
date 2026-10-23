@@ -4,9 +4,11 @@ import { SecretsManagerClient,GetSecretValueCommand } from '@aws-sdk/client-secr
 import { DurableWebhookOutbox } from '../webhooks/durable-outbox.js';
 import { createSandboxHttpsTransport } from '../webhooks/https-transport.js';
 import { dispatchWebhook,webhookStatus,type LocalEndpoint } from '../webhooks/dispatch.js';
-import { scopeKey } from '../webhooks/contract.js';
+import { scopeKey, committedEvent } from '../webhooks/contract.js';
 import { SandboxWebhookHistory } from './sandbox-webhook-history.js';
 import { materializeReceiptEvents,currentReceiptEvent } from './webhook-events.js';
+import { reviewedPartialShipping, type PartialShippingPermit } from './partial-shipping-permit.js';
+import { reviewedConfirmation, type ConfirmationPermit } from './manual-confirmation.js';
 
 /** No HTTP route. Trusted IAM invocation returns safe delivery status; schedule is independently gated. */
 export function createSandboxWebhookHandler(deps:{env:NodeJS.ProcessEnv;db:any;s3:any;secrets:any;transport?:ReturnType<typeof createSandboxHttpsTransport>}){
@@ -18,6 +20,10 @@ return async function(_event:unknown,context?:{getRemainingTimeInMillis():number
     scope:{customer_id:required('WEBHOOK_CUSTOMER_ID'),integration_id:required('WEBHOOK_INTEGRATION_ID'),store:'ltlco',environment:'test'},
     url:required('WEBHOOK_ENDPOINT_URL'),active_key_id:required('WEBHOOK_KEY_ID')};
   const ids=JSON.parse(required('WEBHOOK_RECEIPT_IDS')) as string[];
+  const permits=JSON.parse(env.WEBHOOK_CONFIRMATION_PERMITS??'[]') as ConfirmationPermit[];
+  if(!Array.isArray(permits)||permits.length>20||permits.some(p=>!p||!ids.includes(p.receipt_id)))throw new Error('Invalid confirmation permits');
+  const shippingPermits=JSON.parse(env.WEBHOOK_PARTIAL_SHIPPING_PERMITS??'[]') as PartialShippingPermit[];
+  if(!Array.isArray(shippingPermits)||shippingPermits.length>20||shippingPermits.some(p=>!p||!ids.includes(p.receipt_id)))throw new Error('Invalid partial shipping permits');
   const {db,s3}=deps;
   const history=new SandboxWebhookHistory(required('SANDBOX_RECEIPTS_TABLE'),required('SANDBOX_RECEIPTS_BUCKET'),db,s3,endpoint.scope,ids);
   const outbox=new DurableWebhookOutbox(required('WEBHOOK_OUTBOX_TABLE'),endpoint.scope,db);
@@ -26,8 +32,9 @@ return async function(_event:unknown,context?:{getRemainingTimeInMillis():number
   const revisions:import('./local-store.js').Receipt[]=[];let historyBytes=0;
   for await(const receipt of history.history()){
     if((context?.getRemainingTimeInMillis()??120000)<30000)throw new Error('Sandbox callback history deadline');
-    // This activation slice only permits received/artwork findings, not unbound Lift or shipping evidence.
-    if(receipt.confirmation||receipt.shipping||receipt.shipping_review)throw new Error('Sandbox callback source requires expanded review');
+    // Shipping is limited to an exact reviewed partial snapshot; full shipping stays blocked.
+    if(receipt.shipping||receipt.shipping_review)reviewedPartialShipping(receipt,shippingPermits);
+    if(receipt.confirmation)reviewedConfirmation(receipt,permits);
     historyBytes+=Buffer.byteLength(JSON.stringify(receipt));
     if(historyBytes>16*1024*1024||revisions.length>=500)throw new Error('Sandbox callback history budget');
     revisions.push(receipt);
@@ -45,10 +52,32 @@ return async function(_event:unknown,context?:{getRemainingTimeInMillis():number
       secret=value.secret;return secret!;
     };
     for await(const row of outbox.list(endpoint.scope)){
-      if(!ids.includes(row.event.envelope.receipt_id)||!['order.received','order.action_required'].includes(row.event.envelope.event_type))continue;
+      if(!ids.includes(row.event.envelope.receipt_id)||!['order.received','order.action_required','order.confirmed','shipment.updated'].includes(row.event.envelope.event_type))continue;
       if(count>=10||(context?.getRemainingTimeInMillis()??120000)<20000)break;
       if(['delivered','paused','exhausted','suppressed'].includes(row.state)||row.next_attempt_at&&Date.parse(row.next_attempt_at)>Date.now())continue;
-      await dispatchWebhook(row.event.envelope.event_id,endpoint,{outbox,transport,secret:loadSecret,isCurrent:currentReceiptEvent(history.store)});count++;
+      if(row.event.envelope.event_type==='shipment.updated'){
+        const latest=await history.store.get(row.event.envelope.receipt_id);
+        if(!latest)continue;
+        const reviewed=reviewedPartialShipping(latest,shippingPermits);
+        if(Date.now()>Date.parse(reviewed.permit.delivery_before)||reviewed.event.body!==row.event.body)continue;
+      }
+      await dispatchWebhook(row.event.envelope.event_id,endpoint,{outbox,transport,secret:loadSecret,isCurrent:async event=>{
+        if(event.envelope.event_type==='shipment.updated'){
+          const latest=await history.store.get(event.envelope.receipt_id);if(!latest)return false;
+          reviewedConfirmation(latest,permits);
+          const reviewed=reviewedPartialShipping(latest,shippingPermits);
+          if(Date.now()>Date.parse(reviewed.permit.delivery_before)||reviewed.event.body!==event.body)return false;
+        }
+        if(event.envelope.event_type==='order.confirmed'){
+          const latest=await history.store.get(event.envelope.receipt_id);if(!latest)return false;
+          const c=reviewedConfirmation(latest,permits);
+          if(c.order_number!==event.envelope.lift_order_number||c.confirmed_at!==event.envelope.occurred_at||
+            event.envelope.order_number!==latest.adapted.canonical.source.source_record_id)return false;
+          // Bind the queued event to the same proof, not merely the same Lift number.
+          if(event.envelope.event_id!==committedEvent(event.scope,`${latest.receipt_id}:confirmed:${c.evidence_sha256}:v1`,event.envelope).envelope.event_id)return false;
+        }
+        return currentReceiptEvent(history.store)(event);
+      }});count++;
     }
   }
   const receipts=[];

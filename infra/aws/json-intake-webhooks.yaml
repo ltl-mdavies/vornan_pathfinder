@@ -11,6 +11,8 @@ Parameters:
   EndpointRevision: {Type: String}
   EndpointUrl: {Type: String, Default: ''}
   ReceiptIds: {Type: String, Default: '[]'}
+  PartialShippingPermits: {Type: String, Default: '[]'}
+  ConfirmationPermits: {Type: String, Default: '[]'}
   KeyId: {Type: String}
   SigningSecretArn: {Type: String, Default: ''}
   Enabled: {Type: String, Default: 'false', AllowedValues: ['true', 'false']}
@@ -85,6 +87,8 @@ Resources:
           WEBHOOK_ENDPOINT_REVISION: !Ref EndpointRevision
           WEBHOOK_ENDPOINT_URL: !Ref EndpointUrl
           WEBHOOK_RECEIPT_IDS: !Ref ReceiptIds
+          WEBHOOK_PARTIAL_SHIPPING_PERMITS: !Ref PartialShippingPermits
+          WEBHOOK_CONFIRMATION_PERMITS: !Ref ConfirmationPermits
           WEBHOOK_KEY_ID: !Ref KeyId
           WEBHOOK_SIGNING_SECRET_ARN: !Ref SigningSecretArn
           WEBHOOK_OUTBOX_TABLE: !Ref Outbox

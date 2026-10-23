@@ -17,7 +17,7 @@ export interface Receipt {
   previews?: { external_line_id: string; status: 'retained' | 'unavailable'; code?: string; sha256?: string; bytes?: number; retained_ref?: string }[];
   retry_attempts?: number; next_retry_at?: string | null;
   issues: FieldIssue[];
-  confirmation?: {job_id:string;submit_attempt_id:string;order_number:string;confirmed_at:string;intake_revision:number;evidence_sha256:string};
+  confirmation?: {job_id:string;submit_attempt_id:string;order_number:string;confirmed_at:string;intake_revision:number;evidence_sha256:string} | import('./manual-confirmation.js').ManualConfirmation;
   shipping?: ShippingSnapshot;
   prepaid_label?: PrepaidLabelEvidence;
   shipping_review?: { code: 'INCOMPLETE' | 'CONFLICT' | 'REVERSAL' | 'DRIFT' | 'SOURCE_UNVERIFIED'; source_revision:number };
