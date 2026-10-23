@@ -46,21 +46,32 @@ test("cursor is bound to customer scope and malformed values are rejected", () =
   assert.throws(() => decodeQueueCursor(cursor, "1249"));
   assert.throws(() => decodeQueueCursor("not-json", ""));
 });
-function app(enabled: boolean, list = async () => ({ orders: [order(), order({ customer_id: "inactive" }), order({ customer_id: "1249", order_number: "A0233886" })], next_cursor: "next" as string | null })) {
-  return express().use("/api/operations", createOperationsRouter({ enabled, list, customers: async () => [{ lift_customer_id: "284619", customer_status: "Active" }, { lift_customer_id: "1249", customer_status: "Active" }, { lift_customer_id: "inactive", customer_status: "Inactive" }] }));
+function app(enabled: boolean, list = async () => ({ orders: [order(), order({ customer_id: "not-configured" }), order({ customer_id: "1249", order_number: "A0233886" })], next_cursor: "next" as string | null })) {
+  return express().use("/api/operations", createOperationsRouter({ enabled, list, customers: async () => [{ lift_customer_id: "284619", customer_status: "Regular" }, { lift_customer_id: "1249", customer_status: "Regular" }] }));
 }
 test("feature is default-dark and does not read when disabled", async () => {
   let reads = 0; const response = await request(app(false, async () => { reads++; return { orders: [], next_cursor: null }; })).get("/api/operations/proof-queue");
   assert.equal(response.status, 404); assert.equal(reads, 0);
 });
-test("global and fixed-customer queues enforce active workspace scope without provider calls", async () => {
+test("global and fixed-customer queues enforce saved Pathfinder workspace scope, not Lift status labels", async () => {
   const global = await request(app(true)).get("/api/operations/proof-queue");
   assert.equal(global.status, 200); assert.equal(global.body.lines.length, 2);
   assert.equal(global.body.coverage, "cached_orders_only"); assert.equal(global.body.next_cursor, "next");
   assert.equal(global.headers["cache-control"], "no-store");
   const customer = await request(app(true)).get("/api/operations/proof-queue?customer=1249");
   assert.equal(customer.body.lines.length, 1); assert.equal(customer.body.lines[0].customerId, "1249");
-  assert.equal((await request(app(true)).get("/api/operations/proof-queue?customer=inactive")).status, 403);
+  assert.equal((await request(app(true)).get("/api/operations/proof-queue?customer=not-configured")).status, 403);
+});
+
+test("Lift customer classification does not hide an existing Pathfinder workspace", async () => {
+  for (const customer_status of ["Regular", "Active", "Inactive", null]) {
+    const server = express().use(createOperationsRouter({ enabled: true,
+      customers: async () => [{ lift_customer_id: "284619", customer_status }],
+      list: async () => ({ orders: [order()], next_cursor: null }) }));
+    const result = await request(server).get("/proof-queue?customer=284619");
+    assert.equal(result.status, 200);
+    assert.equal(result.body.lines.length, 1);
+  }
 });
 test("queue returns sanitized source failures and rejects writes", async () => {
   const server = app(true, async () => { throw new Error("private-token"); });
