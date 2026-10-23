@@ -45,6 +45,16 @@ export interface JobListPage {
   page: JobListPageMetadata;
 }
 
+/** Prefer the customer's order identity; never expose the canonical mapping sentinel. */
+export function jobSourceOrderId(job: ProcessingJobPreview): string | null {
+  const jsonOrder = job.json_intake_binding?.source_order_number?.trim();
+  const contract = job.canonical_order.order.contract_number?.trim();
+  const external = job.canonical_order.order.external_order_id?.trim();
+  if (jsonOrder) return jsonOrder;
+  if (job.source_evidence?.provider === "wrike" && contract) return contract;
+  return (external && external !== "UNMAPPED-ORDER" ? external : contract) || null;
+}
+
 export function toJobListItem(job: ProcessingJobPreview): JobListItem {
   return {
     job_id: job.job_id,
@@ -53,7 +63,7 @@ export function toJobListItem(job: ProcessingJobPreview): JobListItem {
     customer_name: job.customer_name,
     import_method_name: job.import_method_name,
     intake_provider: job.json_intake_binding ? "JSON API" : job.source_evidence?.provider === "wrike" ? "Wrike" : job.public_intake?.channel === "customer_dropbox" ? "Customer Dropbox" : job.import_method_name,
-    source_order_id: job.json_intake_binding?.source_order_number ?? job.canonical_order.order.external_order_id ?? null,
+    source_order_id: jobSourceOrderId(job),
     output_route_name: job.output_route_name,
     state: job.state,
     source_file_name: job.source_file_name,

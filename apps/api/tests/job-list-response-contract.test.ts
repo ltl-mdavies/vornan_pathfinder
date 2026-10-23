@@ -135,3 +135,17 @@ test("compact global jobs identify source and intake without guessing an operato
   assert.equal(toJobListItem(manual).intake_provider, "Customer workbook");
   assert.equal(toJobListItem(wrike).target_order_number, wrike.target_order_number);
 });
+
+test("operations source labels retain Wrike contracts and never display the unmapped sentinel", () => {
+  const job = heavyJob(1);
+  job.canonical_order.order.external_order_id = "UNMAPPED-ORDER";
+  job.canonical_order.order.contract_number = "C317052";
+  assert.equal(toJobListItem(job).source_order_id, "C317052");
+  const json = { ...job, json_intake_binding: { source_order_number: "SP-100206" } } as ProcessingJobPreview;
+  assert.equal(toJobListItem(json).source_order_id, "SP-100206");
+  job.canonical_order.order.contract_number = "";
+  assert.equal(toJobListItem(job).source_order_id, null);
+  const manual = { ...job, source_evidence: undefined };
+  manual.canonical_order.order.external_order_id = "STORE-123";
+  assert.equal(toJobListItem(manual).source_order_id, "STORE-123");
+});
