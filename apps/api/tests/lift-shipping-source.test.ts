@@ -135,3 +135,25 @@ test('source failures block previously queued complete-shipment events without e
   assert.equal((await store.get(h.receipt.receipt_id))?.shipping_review?.code,'SOURCE_UNVERIFIED');
   assert.equal(await currentReceiptEvent(store)(completion),false);
 });
+
+test('manual reconciliation binds shipping to verified exact-case destination identity, not original raw external ID',async()=>{
+ const {stableJson}=await import('../src/json-intake/adapter.js');
+ const h=fixture(),r=h.receipt,at=r.received_at;
+ const evidence={source:'manual_verified' as const,scope:h.review.scope,receipt_id:r.receipt_id,business_fingerprint:r.fingerprint,raw_sha256:r.raw_sha256,
+ source_order_number:r.adapted.canonical.source.source_record_id,job_id:'job-test',association_id:'loa_'+'b'.repeat(64),external_order_id:'json_ExactRetryIdentity',
+ order_number:'A0000001',confirmed_at:at,verified_at:at,line_count:r.adapted.canonical.lines.length,provider_snapshot_sha256:'c'.repeat(64)};
+ r.confirmation={source:'manual_verified',job_id:evidence.job_id,association_id:evidence.association_id,order_number:evidence.order_number,confirmed_at:at,evidence_sha256:sha256(stableJson(evidence)),evidence};
+ h.review.confirmation_sha256=r.confirmation.evidence_sha256;h.review.target_customer_id=r.identity.customer_id;
+ const order=(h.reports.order as any).rowset[0];order.CUSTOMER_ID=r.identity.customer_id;order.EXT_ID=evidence.external_order_id;
+ const original=structuredClone(r.adapted);assert.ok(prepareLiftShippingSnapshot(r,h.reports,h.review).snapshot);assert.deepEqual(r.adapted,original);
+ order.EXT_ID=evidence.external_order_id.toUpperCase();assert.throws(()=>prepareLiftShippingSnapshot(r,h.reports,h.review),/identity mismatch/);
+ order.EXT_ID=evidence.external_order_id;r.confirmation.evidence.external_order_id='tampered';assert.throws(()=>prepareLiftShippingSnapshot(r,h.reports,h.review),/permit mismatch/);
+});
+test('12-package summaries fit the receiver; 13 packages hold without truncating or emitting a partial batch',()=>{
+ for(const count of [12,13]){
+  const h=fixture([count]);(h.reports.packages as any).rowset=Array.from({length:count},(_,i)=>h.row(1,1,i+1));h.approve();
+  const p=prepareLiftShippingSnapshot(h.receipt,h.reports,h.review);const r={...h.receipt,shipping:p.snapshot!};
+  if(count===12){const events=shippingEvents(r);assert.equal(events.length,13);assert.equal((events.at(-1)!.envelope.data.shipments as any[]).length,12);}
+  else assert.throws(()=>shippingEvents(r),/package limit/);
+ }
+});

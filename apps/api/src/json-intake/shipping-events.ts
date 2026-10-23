@@ -137,6 +137,9 @@ export async function captureShippingSnapshot(store: ReceiptStore, receiptId: st
 export function shippingEvents(r: Receipt, previous?: ReturnType<typeof projectShipping>) {
   if (!r.shipping || !r.shipping.complete || r.shipping_review) return [];
   const current = projectShipping(r);
+  // The reviewed sandbox receiver accepts at most 12 packages per event.
+  // Hold oversized projections before generating any batch; never truncate tracking.
+  if(current.shipments.length>12)throw new Error('Shipping callback package limit exceeded; review required');
   const base = {receipt_id:r.receipt_id,order_number:r.adapted.canonical.source.source_record_id,
     lift_order_number:r.confirmation!.order_number,occurred_at:r.shipping.observed_at,order_revision:r.revision+1};
   const events = current.shipments.filter(shipment => {

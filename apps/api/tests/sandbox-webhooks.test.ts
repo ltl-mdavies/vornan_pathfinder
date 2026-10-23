@@ -143,3 +143,94 @@ test('empty receipt allowlist is an armed no-op and never reads data or signing 
  // Outbox enumeration must also be skipped for an empty trusted allowlist.
  assert.deepEqual(await run({}),{enabled:true,delivery_enabled:true,attempted:0,receipts:[]});assert.equal(calls,0);
 });
+
+import { captureManualConfirmation, type ManualConfirmationEvidence } from '../src/json-intake/manual-confirmation.js';
+const manualEvidence=(r:Awaited<ReturnType<typeof receiptFixture>>['receipt']):ManualConfirmationEvidence=>({
+ source:'manual_verified',scope,receipt_id:r.receipt_id,business_fingerprint:r.fingerprint,raw_sha256:r.raw_sha256,
+ source_order_number:r.adapted.canonical.source.source_record_id,job_id:'job-synthetic',association_id:'loa_'+'a'.repeat(64),
+ external_order_id:'json_OriginalCase',order_number:'A1234567',confirmed_at:'2026-09-30T13:00:00Z',
+ verified_at:'2026-09-30T13:01:00Z',line_count:r.adapted.canonical.lines.length,provider_snapshot_sha256:'b'.repeat(64)
+});
+function confirmationWorker(f:Awaited<ReturnType<typeof receiptFixture>>,permits:unknown[]=[]){
+ const env:any={WEBHOOK_ENABLED:'true',WEBHOOK_DELIVERY_ENABLED:'true',WEBHOOK_CUSTOMER_ID:scope.customer_id,WEBHOOK_INTEGRATION_ID:scope.integration_id,WEBHOOK_ENDPOINT_ID:endpoint.id,WEBHOOK_ENDPOINT_REVISION:endpoint.revision,WEBHOOK_ENDPOINT_URL:url,WEBHOOK_KEY_ID:endpoint.active_key_id,WEBHOOK_RECEIPT_IDS:JSON.stringify([f.receipt.receipt_id]),WEBHOOK_CONFIRMATION_PERMITS:JSON.stringify(permits),SANDBOX_RECEIPTS_TABLE:'receipts',SANDBOX_RECEIPTS_BUCKET:'bucket',WEBHOOK_OUTBOX_TABLE:'outbox',WEBHOOK_SIGNING_SECRET_ARN:'synthetic'};
+ const sent:any[]=[];
+ const deps={env,db:f.db,s3:f.s3,secrets:{async send(){return {SecretString:JSON.stringify({scope,key_id:endpoint.active_key_id,endpoint_id:endpoint.id,endpoint_revision:endpoint.revision,destination:url,secret:'synthetic-independent-signing-secret'})};}},transport:{kind:'sandbox-https' as const,validate:()=>{},async send(_url:string,body:Buffer,headers:Record<string,string>){assert.equal(headers['X-Pathfinder-Signature'],signature('synthetic-independent-signing-secret',headers['X-Pathfinder-Timestamp'],body));sent.push(JSON.parse(body.toString()));return {status:204};}}};
+ return {env,sent,deps,run:createSandboxWebhookHandler(deps)};
+}
+test('manual reconciliation preserves receipt identity and history; exact permitted confirmation sends once across worker restarts',async()=>{
+ const f=await receiptFixture(),e=manualEvidence(f.receipt),worker=confirmationWorker(f);
+ await worker.run({});assert.equal(worker.sent.length,1);
+ const next=await captureManualConfirmation(f.store,f.receipt.receipt_id,async()=>e,()=>e.verified_at);
+ assert.equal(next.raw_sha256,f.receipt.raw_sha256);assert.deepEqual(next.adapted,f.receipt.adapted);assert.deepEqual(next.signal,f.receipt.signal);
+ assert.ok(!('submit_attempt_id' in next.confirmation!));assert.ok(!('intake_revision' in next.confirmation!));
+ await assert.rejects(worker.run({}),/permit mismatch/);assert.equal(worker.sent.length,1);
+ const permit={receipt_id:next.receipt_id,job_id:e.job_id,association_id:e.association_id,order_number:e.order_number,evidence_sha256:next.confirmation!.evidence_sha256};
+ worker.env.WEBHOOK_CONFIRMATION_PERMITS=JSON.stringify([permit]);
+ await worker.run({});await createSandboxWebhookHandler(worker.deps)({});await worker.run({});
+ assert.equal(worker.sent.length,2);const event=worker.sent[1];assert.equal(event.event_type,'order.confirmed');assert.equal(event.lift_order_number,e.order_number);
+ assert.equal(event.order_number,e.source_order_number);assert.equal(event.receipt_id,next.receipt_id);assert.equal(event.order_revision,2);assert.equal(event.occurred_at,e.confirmed_at);
+ assert.equal((await captureManualConfirmation(f.store,next.receipt_id,async()=>e)).revision,next.revision);
+ assert.equal((await f.outbox.get(event.event_id))?.state,'delivered');
+});
+test('manual evidence rejects mismatched receipt, tenant, source order, fingerprint, timestamp and drifting authority',async()=>{
+ for(const patch of [{receipt_id:'rcpt_other'},{scope:{...scope,customer_id:'other'}},{source_order_number:'OTHER'},
+   {business_fingerprint:'wrong'},{raw_sha256:'wrong'},{line_count:0},{confirmed_at:'2025-01-01'}, {provider_snapshot_sha256:'bad'}]){
+  const f=await receiptFixture(),e={...manualEvidence(f.receipt),...patch};
+  await assert.rejects(captureManualConfirmation(f.store,f.receipt.receipt_id,async()=>e),/evidence mismatch/);
+  assert.equal((await f.store.get(f.receipt.receipt_id))?.revision,0);
+ }
+ const f=await receiptFixture(),e=manualEvidence(f.receipt);let calls=0;
+ await assert.rejects(captureManualConfirmation(f.store,f.receipt.receipt_id,async()=>++calls===1?e:{...e,order_number:'A7654321'}),/evidence changed/);
+});
+test('worker rejects wrong order/job/association/proof permits, altered proof and shipping before any outbound send',async()=>{
+ for(const patch of [{order_number:'A7654321'},{job_id:'other'},{association_id:'loa_'+'c'.repeat(64)},{evidence_sha256:'d'.repeat(64)}]){
+  const f=await receiptFixture(),e=manualEvidence(f.receipt),r=await captureManualConfirmation(f.store,f.receipt.receipt_id,async()=>e);
+  const permit={receipt_id:r.receipt_id,job_id:e.job_id,association_id:e.association_id,order_number:e.order_number,evidence_sha256:r.confirmation!.evidence_sha256,...patch};
+  const w=confirmationWorker(f,[permit]);await assert.rejects(w.run({}),/permit mismatch/);assert.equal(w.sent.length,0);
+ }
+ const f=await receiptFixture(),e=manualEvidence(f.receipt),r=await captureManualConfirmation(f.store,f.receipt.receipt_id,async()=>e);
+ const permit={receipt_id:r.receipt_id,job_id:e.job_id,association_id:e.association_id,order_number:e.order_number,evidence_sha256:r.confirmation!.evidence_sha256};
+ await f.store.compareAndSet(r,{...r,revision:r.revision+1,shipping_review:{code:'INCOMPLETE',source_revision:1}});
+ const w=confirmationWorker(f,[permit]);await assert.rejects(w.run({}),/expanded review/);assert.equal(w.sent.length,0);
+ const g=await receiptFixture(),ge=manualEvidence(g.receipt),gr=await captureManualConfirmation(g.store,g.receipt.receipt_id,async()=>ge);
+ await g.store.compareAndSet(gr,{...gr,revision:gr.revision+1,confirmation:{...gr.confirmation!,confirmed_at:'2026-09-30T14:00:00Z'}});
+ await assert.rejects(confirmationWorker(g,[{...permit,receipt_id:gr.receipt_id,evidence_sha256:gr.confirmation!.evidence_sha256}]).run({}),/permit mismatch/);
+});
+
+import { captureShippingSnapshot, shippingEvents, type ShippingSnapshot } from '../src/json-intake/shipping-events.js';
+import { digest } from '../src/webhooks/contract.js';
+import { stableJson } from '../src/json-intake/adapter.js';
+async function partialFixture(){
+ const f=await receiptFixture(),e=manualEvidence(f.receipt);
+ const r=await captureManualConfirmation(f.store,f.receipt.receipt_id,async()=>e);
+ const w=confirmationWorker(f,[{receipt_id:r.receipt_id,job_id:e.job_id,association_id:e.association_id,order_number:e.order_number,evidence_sha256:r.confirmation!.evidence_sha256}]);
+ await w.run({});
+ const line=r.adapted.canonical.lines[0];
+ const snapshot:ShippingSnapshot={scope,receipt_id:r.receipt_id,lift_order_number:e.order_number,confirmation_sha256:r.confirmation!.evidence_sha256,source_revision:1,observed_at:'2026-09-30T14:00:00Z',complete:true,packages:[{package_id:'reviewed-package',package_number:1,carrier:'UPS',service:'Ground',tracking_number:'SYNTHETIC',label_source:'purchased',status:'shipped',dispatch_evidence:'reviewed synthetic dispatch',shipped_at:null,delivered_at:null,source_updated_at:'2026-09-30T14:00:00Z',lines:[{external_line_id:line.source_line.external_line_id,quantity:line.quantity/2}]}]};
+ const shipped=await captureShippingSnapshot(f.store,r.receipt_id,async()=>snapshot);
+ const event=shippingEvents(shipped)[0];
+ const permit={receipt_id:r.receipt_id,receipt_revision:shipped.revision,snapshot_sha256:digest(stableJson(snapshot)),event_id:event.envelope.event_id,delivery_before:new Date(Date.now()+3600000).toISOString()};
+ return {f,w,shipped,event,permit};
+}
+test('partial shipping requires exact permit, sends once with original identity and never sends order.shipped',async()=>{
+ const {f,w,shipped,event,permit}=await partialFixture();const prior=w.sent.length;
+ await assert.rejects(w.run({}),/permit mismatch/);assert.equal(w.sent.length,prior);
+ for(const patch of [{snapshot_sha256:'a'.repeat(64)},{receipt_revision:99},{event_id:'evt_wrong'}]){
+  w.env.WEBHOOK_PARTIAL_SHIPPING_PERMITS=JSON.stringify([{...permit,...patch}]);await assert.rejects(w.run({}),/permit mismatch/);
+ }
+ w.env.WEBHOOK_PARTIAL_SHIPPING_PERMITS=JSON.stringify([permit]);
+ await w.run({});await createSandboxWebhookHandler(w.deps)({});
+ assert.equal(w.sent.length,prior+1);assert.deepEqual(w.sent.at(-1),event.envelope);
+ assert.equal(event.envelope.order_number,shipped.adapted.canonical.source.source_record_id);
+ assert.equal(event.envelope.data.fulfillment_status,'partially_shipped');assert.equal(event.envelope.data.shipment.shipped_at,null);
+ assert.ok(!w.sent.some(e=>e.event_type==='order.shipped'));
+ assert.equal((await f.outbox.get(event.envelope.event_id))?.attempts.length,1);
+});
+test('expired permit queues but cannot send; changed/full snapshot cannot materialize',async()=>{
+ const {f,w,shipped,event,permit}=await partialFixture();const prior=w.sent.length;
+ w.env.WEBHOOK_PARTIAL_SHIPPING_PERMITS=JSON.stringify([{...permit,delivery_before:'2020-01-01T00:00:00Z'}]);
+ await w.run({});assert.equal(w.sent.length,prior);assert.equal((await f.outbox.get(event.envelope.event_id))?.state,'pending');
+ const snapshot=structuredClone(shipped.shipping!);snapshot.packages[0].lines=shipped.adapted.canonical.lines.map(l=>({external_line_id:l.source_line.external_line_id,quantity:l.quantity}));
+ await f.store.compareAndSet(shipped,{...shipped,revision:shipped.revision+1,shipping:snapshot});
+ await assert.rejects(w.run({}),/partial shipment/);assert.equal(w.sent.length,prior);
+});
