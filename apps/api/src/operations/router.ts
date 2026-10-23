@@ -29,11 +29,12 @@ export function createOperationsRouter(deps: {
     } catch { res.status(400).json({ error: "Invalid queue request." }); return; }
     try {
       const customers = await (deps.customers ?? listOperationsCustomers)();
-      // Missing status is not evidence of active customer eligibility.
-      const active = new Set(customers.filter(c => c.customer_status?.toLowerCase() === "active").map(c => c.lift_customer_id));
-      if (customer && !active.has(customer)) { res.status(403).json({ error: "The customer is not active in Pathfinder." }); return; }
+      // This reader already restricts to saved Pathfinder workspaces. Lift's status
+      // (e.g. "Regular") is not a Pathfinder activation flag or Proof capability.
+      const eligible = new Set(customers.map(c => c.lift_customer_id));
+      if (customer && !eligible.has(customer)) { res.status(403).json({ error: "The customer does not have a Pathfinder workspace." }); return; }
       const page = await (deps.list ?? readProofQueuePage)(customer, cursor);
-      const lines = page.orders.filter(order => order.customer_id && active.has(order.customer_id) && (!customer || customer === order.customer_id)).flatMap(order => projectProofQueue(order));
+      const lines = page.orders.filter(order => order.customer_id && eligible.has(order.customer_id) && (!customer || customer === order.customer_id)).flatMap(order => projectProofQueue(order));
       res.json({ lines, next_cursor: page.next_cursor, checked_at: new Date().toISOString(), coverage: "cached_orders_only" });
     } catch { res.status(503).json({ error: "Proof queue could not be loaded. Existing proof access is unchanged." }); }
   });
