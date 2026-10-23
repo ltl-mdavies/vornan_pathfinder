@@ -8542,7 +8542,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setOpenTopbarMenu(null);
     await saveOutputRoute(
       nextRoute,
-      `${selectedCustomer.customer_name}'s route now uses ${environment.name}. New previews will use this environment.`
+      `${selectedCustomer.customer_name}'s primary route now uses ${environment.name}. New previews use this environment; existing unsubmitted jobs may need review.`
     );
   }
 
@@ -10942,14 +10942,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     onClick={() => setOpenTopbarMenu(openTopbarMenu === "environment" ? null : "environment")}
                     aria-expanded={openTopbarMenu === "environment"}
                   >
-                    <span>Environment</span>
+                    <span>Route environment</span>
                     <strong>{primaryRouteEnvironment?.name ?? primaryRouteTarget?.lift.active_environment ?? "QA1"}</strong>
                     <ChevronDown size={16} />
                   </button>
                   {openTopbarMenu === "environment" ? (
                     <div className="topbar-popover environment-popover">
-                      <strong>Primary Route Environment</strong>
+                      <strong>Change primary route environment</strong>
                       <p>{selectedCustomer.customer_name} · {primaryOutputRoute.name}</p>
+                      <p>Choosing an environment saves it for this customer’s primary output route. New previews use it; existing unsubmitted jobs may need review.</p>
                       <div className="topbar-menu-list">
                         {(primaryRouteTarget?.environments ?? []).map((environment) => (
                           <button
