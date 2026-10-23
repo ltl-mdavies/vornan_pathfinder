@@ -32,7 +32,7 @@ export function prepareReceiptSubmissionJob(receipt:Receipt,
   config: Parameters<typeof mapStickerPressReceiptToCanonical>[1] & {target:TargetConfig}, now=new Date()):JsonReceiptJob {
   assert.ok(!receipt.confirmation,'Receipt is already confirmed');
   assert.equal(receipt.fingerprint,receipt.adapted.fingerprint);
-  const canonical=mapStickerPressReceiptToCanonical(receipt,config);
+  const canonical=mapStickerPressReceiptToCanonical(receipt,config,now);
   const profile=config.route.submit_profiles.find(p=>p.profile_id===stickerPressTestProfile.profile_id);
   assert.deepEqual(profile,stickerPressTestProfile);
   assert.equal(config.target.target_id,config.route.target_id);

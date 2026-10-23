@@ -3,6 +3,7 @@ import { generateLiftPayload, liftEcommerceExternalId, prepareLiftEcommercePaylo
 import type { OutputTemplate, OutputRoute, CustomerProductMapping, TargetConfig } from '../store.js';
 import { createLiftEcommerceOutputTemplate } from '../lift-output-templates.js';
 import type { LiftPreviewReceipt } from './lift-preview.js';
+import { stickerPressProofStatus } from './stickerpress-proof-status.js';
 
 export const stickerPressLiftRouteId = 'route-ltl-lift-91-ecomm-orders';
 export const stickerPressProductKey = 'STICKERPRESS_STICKER';
@@ -44,7 +45,7 @@ export function createStickerPressLiftConfiguration(base: OutputTemplate, refere
  */
 export function mapStickerPressReceiptToCanonical(receipt: LiftPreviewReceipt,
   config: {template: OutputTemplate; route: OutputRoute; product: CustomerProductMapping;
-    order_date_format: TargetConfig['lift']['order_date_format']}) {
+    order_date_format: TargetConfig['lift']['order_date_format']}, now = new Date()) {
   assert.equal(receipt.identity.customer_id, '174094');
   assert.equal(receipt.identity.integration_id, 'stickerpress-sandbox');
   assert.equal(receipt.identity.store, 'ltlco');
@@ -82,14 +83,21 @@ export function mapStickerPressReceiptToCanonical(receipt: LiftPreviewReceipt,
       material: material === 'White Bopp (Sticker)' ? 'White BOPP Sticker' : material,
       laminate: laminate === 'Gloss Laminate (.75 mil)' ? 'Gloss' : laminate};
     line.artwork = {file_name: line.source_line.artwork.filename, checksum: line.source_line.artwork.artwork_sha256};
+    line.proof_status = stickerPressProofStatus({
+      approval: line.source_line.approval,
+      artwork_sha256: line.source_line.artwork.artwork_sha256,
+      artwork_bytes: line.source_line.artwork.bytes,
+      retained: receipt.assets.filter(asset => asset.external_line_id === line.source_line.external_line_id),
+      existing_status: line.proof_status
+    }, now);
     delete line.document_delivery;
   }
   return canonical;
 }
 
 export function buildStickerPressConfiguredPreview(receipt: LiftPreviewReceipt,
-  config: Parameters<typeof mapStickerPressReceiptToCanonical>[1]) {
-  const canonical = mapStickerPressReceiptToCanonical(receipt, config);
+  config: Parameters<typeof mapStickerPressReceiptToCanonical>[1], now = new Date()) {
+  const canonical = mapStickerPressReceiptToCanonical(receipt, config, now);
   const result = prepareLiftEcommercePayload({template_id: config.template.output_template_id,
     base: generateLiftPayload(canonical, {jobId: 'job_preview_only', canonicalOrderId: 'co_preview_only', extIdStrategy: 'customer_order_id'}),
     canonical, source: canonical, order_mappings: config.template.canonical_mappings,
