@@ -5,6 +5,7 @@ import {createSeedOutputTemplate} from '../src/lift-output-templates.js';
 import {createStickerPressLiftConfiguration, buildStickerPressConfiguredPreview} from '../src/json-intake/stickerpress-lift-configuration.js';
 import {stickerPressV1} from '../src/json-intake/adapter.js';
 import type {OutputRoute} from '../src/store.js';
+import type {Receipt} from '../src/json-intake/local-store.js';
 const fixture=JSON.parse(await readFile(new URL('./fixtures/json-intake/sample-factory-test.json',import.meta.url),'utf8'));
 const route: OutputRoute={output_route_id:'old',name:'High End Work',target_id:'lift-standard-graphics',
   environment_id:'env-lift-prod',output_template_id:'template-lift-standard-graphics',target_system:'Lift ERP',
@@ -17,7 +18,7 @@ function setup(){
   payload.lines.forEach((line:any)=>{line.material='White Bopp (Sticker)';line.finish='Gloss Laminate (.75 mil)';delete line.material_code;});
   const identity={customer_id:'174094',customer_name:'Silicone Pasture',integration_id:'stickerpress-sandbox',store:'ltlco',environment:'test' as const,schema:'stickerpress.order.v1'};
   const adapted=stickerPressV1.validate(payload,identity);
-  const receipt={identity,adapted,receipt_id:'test-only',revision:1,fingerprint:adapted.fingerprint,assets:[]};
+  const receipt={identity,adapted,receipt_id:'test-only',revision:1,fingerprint:adapted.fingerprint,assets:[] as Receipt['assets']};
   const base=createSeedOutputTemplate();
   base.canonical_mappings.find(m=>m.sourceColumn==='body:order.po_number')!.targetField='order.contract_number';
   const config={...createStickerPressLiftConfiguration(base,route),order_date_format:'MM/DD/YYYY' as const};
@@ -33,6 +34,21 @@ test('separate draft preserves the existing template and connection while correc
   assert.ok(!('customer_id' in config.route));
   assert.equal(config.template.canonical_mappings.find(m=>m.sourceColumn==='body:order.po_number')!.targetField,'order.po_number');
   assert.equal(base.canonical_mappings.find(m=>m.sourceColumn==='body:order.po_number')!.targetField,'order.contract_number');
+});
+test('proof statuses export per line through the reusable Ecomm layout without changing source or High End configuration',()=>{
+  const {receipt,config,base}=setup();
+  receipt.assets=receipt.adapted.canonical.lines.map(line=>({external_line_id:line.source_line.external_line_id,
+    sha256:line.source_line.artwork.artwork_sha256,bytes:line.source_line.artwork.bytes,
+    retained_ref:'synthetic-retained-original',inspection:'metadata_pass'}));
+  receipt.adapted.canonical.lines.forEach(line=>{line.source_line.approval.approved_by='auto';});
+  receipt.adapted.canonical.lines[1].source_line.approval.approved_by='operator';
+  receipt.adapted.canonical.lines[2].proof_status='Pending';
+  const before=structuredClone({receipt,config,base,route});
+  const preview=buildStickerPressConfiguredPreview(receipt,config,new Date('2026-10-23T12:00:00Z'));
+  assert.deepEqual(preview.payload.lines.map(line=>(line as any).approval.proof_status),['Approved','Pending','Pending','Approved']);
+  assert.ok(preview.payload.lines.every(line=>!Object.hasOwn(line,'proof_status')));
+  assert.deepEqual({receipt,config,base,route},before);
+  assert.equal(preview.submission_allowed,false);
 });
 test('every line maps to the single Lift product without source variation, material code, price or artwork mutation',()=>{
   const {receipt,config,payload}=setup(),before=structuredClone(receipt);

@@ -31,6 +31,15 @@ test('normal submission job preserves receipt identity, all line bindings and ex
  assert.equal(job.json_intake_binding.artwork.length,4);assert.equal(job.product_resolution_results.length,4);
  assert.ok(job.lift_validation.some(v=>v.severity==='FAIL'&&v.code==='JSON-ARTWORK-PUBLICATION-PENDING'));
  assert.equal(job.json_intake_binding.configuration_sha256.length,64);
+ assert.ok(job.lift_payload.lines.every(line=>(line as any).approval.proof_status==='Pending'));
+});
+test('new prepared job carries Approved for auto and Pending for operator, while transport stays disabled',()=>{
+ const {receipt,config}=setup();receipt.adapted.canonical.lines[0].source_line.approval.approved_by='auto';
+ const before=structuredClone(receipt);
+ const job=prepareReceiptSubmissionJob(receipt,config,new Date('2026-10-23T12:00:00Z'));
+ assert.deepEqual(job.lift_payload.lines.map(line=>(line as any).approval.proof_status),['Approved','Pending','Pending','Pending']);
+ assert.equal(job.submit_certification?.can_submit,false);assert.equal(job.state,'Waiting');
+ assert.deepEqual(receipt,before);
 });
 test('replay returns the same job without resetting confirmed or uncertain state',()=>{
  const {receipt,config}=setup();const first=prepareReceiptSubmissionJob(receipt,config);
