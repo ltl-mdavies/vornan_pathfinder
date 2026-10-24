@@ -144,3 +144,19 @@ Open `http://127.0.0.1:5210/?submissionReview=network&manualImport&reviewCase=ma
 - `&previewSlow`: preview POST delay of eight seconds, for navigation during preview creation.
 
 Preview generation in this mode is an in-memory contract simulation, not an invocation of the production preview builder. First preview uses the original synthetic job; later previews get distinct IDs and independent outcomes. Additional previews live only until reload. Reconciliation/fail-next-read controls target the original job. All external/unsupported writes remain blocked; no server credentials or real customer files are used.
+
+## Provider-free sign-in review
+
+Run `PATHFINDER_UX_PORT=5214 npx vite --config tests/ux/vite.config.ts`.
+Open http://127.0.0.1:5214/auth.html?state=signed-out.
+Supported state values: `signed-out`, `checking`, `signing-in`, `error`,
+`expired`, `restricted`, `unconfigured`. The disclosure below the page
+provides a state selector. Google action only simulates busy; Sign out only
+returns to signed out. This entry imports the actual AuthScreen presentation,
+not AuthGate, Firebase or the application API. It does not authenticate, email,
+or alter live records. Auth preview is outside the production web build.
+
+Reference, screenshots, responsive checks and limits: ../../design-qa.md.
+The Google mark in public/brand is extracted unchanged from the prior auth
+component; the Vornan/scout logo is the existing official asset.
+Deployment remains held pending independent UX and user review.
