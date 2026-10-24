@@ -138,6 +138,8 @@ test("multipage PDFs disclose partial coverage and do not apply one page's geome
   assert.equal(result.verdict, "review");
   assert.equal(result.verdictDetail, "Partial PDF check");
   assert.match(result.verdictSummary, /Other pages are not previewed or individually inspected/);
+  assert.doesNotMatch(result.findings.map(finding => finding.recommendation).join(" "), /future|server inspection provider/);
+  assert.match(result.findings.find(finding => finding.id === "dimensions-indeterminate")?.recommendation ?? "", /prepress application/);
   const markup = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={result} actions={{onBack:()=>{},onDownloadReport:()=>{},onOpenAnalyzedArtwork:()=>{}}}/>);
   assert.match(markup, /of 2 · Preview only/);
   assert.match(markup, /Aspect match<\/dt><dd>Indeterminate<\/dd>/);

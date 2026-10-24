@@ -270,7 +270,7 @@ function buildFindings(parsed: ParsedArtwork, spec: ArtworkProductInspectionSpec
       push({ id: "aspect", severity: "needs-work", category: "Specification", title: "Artwork aspect ratio does not match", description: `The detected ratio differs from the ${formatter.format(spec.finishedWidthInches)} × ${formatter.format(spec.finishedHeightInches)} in product specification by ${formatter.format(variance * 100)}%.`, regionLabel: "Whole artwork", affectedArea: "Entire artwork", recommendation: "Confirm the intended product size or supply artwork with the matching aspect ratio." });
     }
   } else {
-    push({ id: "dimensions-indeterminate", severity: "review", category: "Dimensions", title: "Artwork dimensions are indeterminate", description: "This browser-local check could not reliably extract artwork dimensions from the file structure.", regionLabel: "File metadata", affectedArea: "Not applicable", recommendation: "Confirm dimensions in a prepress application or run the future server inspection provider." });
+    push({ id: "dimensions-indeterminate", severity: "review", category: "Dimensions", title: "Artwork dimensions are indeterminate", description: "This browser-local check could not reliably extract artwork dimensions from the file structure.", regionLabel: "File metadata", affectedArea: "Not applicable", recommendation: "Verify each page's dimensions against the product specification in a prepress application." });
   }
 
   const effectiveDpi = parsed.pixelWidth && parsed.pixelHeight
@@ -280,7 +280,7 @@ function buildFindings(parsed: ParsedArtwork, spec: ArtworkProductInspectionSpec
     push({ id: "effective-dpi", severity: "needs-work", category: "Resolution", title: `Effective resolution ${formatter.format(effectiveDpi)} DPI`, listLabel: "Effective resolution below target", description: `The raster artwork is below the ${formatter.format(spec.targetDpi)} DPI target at finished size.`, regionLabel: "Whole artwork", affectedArea: "Entire artwork", recommendation: "Supply higher-resolution artwork or confirm a lower product-scale resolution is acceptable." });
   }
   if (effectiveDpi === null) {
-    push({ id: "dpi-indeterminate", severity: "review", category: "Resolution", title: "Effective resolution is indeterminate", description: parsed.mediaType === "pdf" ? "PDF content may contain vector and raster elements. Browser-local inspection cannot reliably calculate placed-image effective DPI." : "Pixel dimensions could not be read.", regionLabel: "File content", affectedArea: "Not determined", recommendation: "Use the future server inspection provider for placed-element resolution analysis." });
+    push({ id: "dpi-indeterminate", severity: "review", category: "Resolution", title: "Effective resolution is indeterminate", description: parsed.mediaType === "pdf" ? "PDF content may contain vector and raster elements. Browser-local inspection cannot reliably calculate placed-image effective DPI." : "Pixel dimensions could not be read.", regionLabel: "File content", affectedArea: "Not determined", recommendation: "Verify image resolution at the intended print size in a prepress application." });
   }
 
   if (!parsed.colorSpace) {
