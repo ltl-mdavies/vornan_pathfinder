@@ -86,7 +86,14 @@ Independent UX presentation review passed on this source: desktop 1366, large
 1920 × 1080, mobile 390 × 844, and error 320 × 568; keyboard, busy, retry,
 expired, restricted sign-out, unconfigured and quiet checking all passed.
 UX evidence lives under the source reference's login-startup-review directory:
-login-checks.json, login-comparison.jpg and login-*.jpg. Integrated startup
-recheck remains with UX. No deployment authorization is implied by this pass.
+login-checks.json, login-comparison.jpg and login-*.jpg.
+
+Independent integrated startup recheck also passed on runtime freeze 9f69433:
+held targets/registry root and reload show no directory action or legacy panel;
+release reaches Dashboard; directory failure retries to Dashboard; supported
+Wrike customer return retries its scoped failure into LTL Demo Settings.
+Evidence: startup-integrated-checks.json and startup-integrated.jpg in the same
+UX directory. UX accepts this combined local candidate with no design findings.
+No actual provider OAuth/sign-out was exercised, and deployment remains held.
 
 Implementation checklist: complete. No additional P3 changes proposed.
