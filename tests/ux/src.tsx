@@ -6,6 +6,7 @@ import { App } from "../../apps/web/src/App";
 import "../../apps/web/src/styles.css";
 import "../../apps/web/src/pathfinder-shell.css";
 import { compactCatalogPilotProducts } from "../../apps/web/src/artwork-catalog/ArtworkCatalogInternalPilot";
+import { SOURCE_CONNECTOR_DEFINITIONS } from "../../packages/source-connections/src/index";
 
 // Actual App with an in-memory HTTP boundary. Never fall through to a real API.
 const configured = new Set(["284619","174094","1249"]);
@@ -65,6 +66,7 @@ if (query.has("catalogStress") && compactCatalogPilotProducts.length === 5) {
 }
 const calls: {url:string;method:string}[] = [];
 let jobReads = 0;
+let emailReads = 0;
 const proofReads = new Map<string, number>();
 Object.assign(window, { uxReviewRequests:calls });
 const response = (body:unknown,status=200) => Promise.resolve(new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json"}}));
@@ -81,7 +83,14 @@ window.fetch = async (input, init) => {
   if (url.pathname === "/api/lift/customers") return response({customers:fixtures.customers,source:"local-ux-fixtures",loaded_at:new Date().toISOString()});
   if (url.pathname === "/api/operations/customer-workspaces") return query.has("membershipError") ? response({error:"Synthetic membership outage"},503) : response({workspace_customer_ids:[...configured]});
   if (url.pathname.endsWith("/workspace") && customer) return configured.has(customer) ? response(fixtures.workspaces[customer]) : response({error:"Workspace not set up"},404);
-  if (url.pathname.endsWith("/source-connections")) return response({definitions:[],connections:[]});
+  if (url.pathname.endsWith("/source-connections")) return query.has("connectionsError") ? response({error:"Synthetic source-connection read denied"},403) : response({definitions:query.has("adminReview") ? SOURCE_CONNECTOR_DEFINITIONS : [],connections:[]});
+  if (url.pathname === "/api/email/status" && query.has("adminReview")) {
+    emailReads++;
+    if (query.has("emailSlow")) await new Promise(resolve=>setTimeout(resolve,2500));
+    if (query.has("emailError") || (query.has("emailStale") && emailReads > 1)) return response({error:"Synthetic email configuration read unavailable"},503);
+    const mode = query.has("emailSes") ? "ses" : "log";
+    return response({mode,sender:{from:"Vornan QA <updates@example.invalid>",from_domain:"example.invalid",status_reply_to:"support@example.invalid",status_reply_to_domain:"example.invalid"},ses:{region:"us-east-1",configuration_set:null},public_intake_email_verification:{gate_enabled:false,available:false,delivery_mode:mode,debug_code_enabled:false,code_ttl_minutes:10,max_attempts:5},readiness:{status:"Warning",items:[{item_id:"qa-isolation",status:"Warning",label:"Isolated review fixture",message:"No email is sent from this local review. Mode is simulated for presentation only."}]}});
+  }
   if (url.pathname.endsWith("/intake-exceptions")) return response({rows:[{attempt_id:"ux-request-no-job",provider:"wrike",source_id:"SAMPLE-REQUEST-ONLY",state:"action_required",owner:"customer",reason:"missing_contract_number",created_at:new Date().toISOString(),next_action_at:null,overdue:false,job_id:null,confirmed_order_number:null}],next_cursor:null,checked_at:new Date().toISOString()});
   if (url.pathname.endsWith("/intake-deliveries")) return response({rows:[{receipt_id:"ux-receipt",attempt_id:"ux-request-no-job",kind:"source_feedback",state:"sent",updated_at:new Date().toISOString(),dispatch_started_at:null,provider_message_id:"synthetic-ack",needs_review:false}],next_cursor:null});
   if (url.pathname === "/api/targets") return response({targets:fixtures.targets});

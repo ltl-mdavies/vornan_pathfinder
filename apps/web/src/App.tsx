@@ -4644,13 +4644,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [targetsAndJobsState, setTargetsAndJobsState] = useState<"loading" | "idle" | "error">("loading");
   const [canonicalRegistry, setCanonicalRegistry] = useState<CanonicalRegistryPayload | null>(null);
   const [canonicalRegistryState, setCanonicalRegistryState] = useState<"loading" | "idle" | "error">("loading");
+  const [canonicalFeedback, setCanonicalFeedback] = useState<{ message: string; error: boolean } | null>(null);
+  const canonicalFeedbackRef = useRef<HTMLParagraphElement>(null);
   const [emailStatus, setEmailStatus] = useState<EmailStatusPayload | null>(null);
+  const [emailStatusReadAt, setEmailStatusReadAt] = useState<string | null>(null);
   const [emailStatusState, setEmailStatusState] = useState<"idle" | "loading" | "error">("idle");
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
   const [sourceConnectorDefinitions, setSourceConnectorDefinitions] = useState<SourceConnectorDefinition[]>(
     SOURCE_CONNECTOR_DEFINITIONS
   );
   const [sourceConnections, setSourceConnections] = useState<CustomerSourceConnectionPayload[]>([]);
+  const [sourceConnectionsReadState, setSourceConnectionsReadState] = useState<"loading" | "ready" | "error">("loading");
+  const [sourceConnectionsReadMessage, setSourceConnectionsReadMessage] = useState<string | null>(null);
   const [selectedSourceConnectionId, setSelectedSourceConnectionId] = useState("");
   const [wrikeConnectionState, setWrikeConnectionState] = useState<"idle" | "loading" | "saving" | "authorizing" | "testing" | "error">("idle");
   const [wrikeConnectionMessage, setWrikeConnectionMessage] = useState<string | null>(null);
@@ -4747,6 +4752,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [newStatusDomain, setNewStatusDomain] = useState("");
   const [newStatusDomainStatus, setNewStatusDomainStatus] = useState<StatusAccessDomainStatus>("Approved");
   const [canonicalRegistrySearch, setCanonicalRegistrySearch] = useState("");
+  const [activeSettingsSection, setActiveSettingsSection] = useState<"Canonical registry" | "Transactional email" | "Governance">("Canonical registry");
   const [canonicalRegistrySectionFilter, setCanonicalRegistrySectionFilter] = useState("All");
   const [editingCanonicalFieldId, setEditingCanonicalFieldId] = useState<string | null>(null);
   const [isCreatingCanonicalField, setIsCreatingCanonicalField] = useState(false);
@@ -5302,7 +5308,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setCanonicalRegistry(registry);
       setCanonicalRegistryState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical registry load failed.");
+      reportCanonicalFeedback(error instanceof Error ? error.message : "Canonical registry load failed.", true);
       setCanonicalRegistryState("error");
     }
   }
@@ -5313,6 +5319,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const response = await fetch(`${apiBaseUrl}/api/email/status`);
       const payload = await readJsonResponse<EmailStatusPayload>(response);
       setEmailStatus(payload);
+      setEmailStatusReadAt(new Date().toISOString());
       setEmailStatusMessage(null);
       setEmailStatusState("idle");
     } catch (error) {
@@ -5355,6 +5362,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return;
     }
     const requestId = ++sourceConnectionsRequestIdRef.current;
+    setSourceConnectionsReadState("loading");
+    setSourceConnectionsReadMessage(null);
     setWrikeConnectionState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${encodeURIComponent(liftCustomerId)}/source-connections`);
@@ -5362,6 +5371,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       if (requestId !== sourceConnectionsRequestIdRef.current || liftCustomerId !== selectedCustomerIdRef.current) return;
       setSourceConnectorDefinitions(payload.definitions);
       setSourceConnections(payload.connections);
+      setSourceConnectionsReadState("ready");
       const selected = payload.connections.find((connection) => connection.connection_id === preferredConnectionId)
         ?? payload.connections.find((connection) => connection.connection_id === selectedSourceConnectionId)
         ?? payload.connections.find((connection) => connection.provider === "wrike")
@@ -5384,6 +5394,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWrikeConnectionState("idle");
     } catch (error) {
       if (requestId !== sourceConnectionsRequestIdRef.current || liftCustomerId !== selectedCustomerIdRef.current) return;
+      setSourceConnectionsReadState("error");
+      setSourceConnectionsReadMessage(error instanceof Error ? error.message : "Customer source connections could not be loaded.");
       setWrikeConnectionMessage(error instanceof Error ? error.message : "Customer source connections could not be loaded.");
       setWrikeConnectionState("error");
     }
@@ -6320,7 +6332,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
   }
 
+  function reportCanonicalFeedback(message: string, error = false) {
+    if (!operationsShell) setWorkspaceMessage(message);
+    setCanonicalFeedback({ message, error });
+  }
+
+  // Focus only newly reported registry feedback, never an unrelated Settings section.
+  useEffect(() => {
+    if (canonicalFeedback && operationsShell && activeGlobalView === "Settings" && activeSettingsSection === "Canonical registry") {
+      canonicalFeedbackRef.current?.focus();
+      canonicalFeedbackRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [canonicalFeedback]);
+
   function startCanonicalFieldEdit(field: CanonicalFieldDefinition) {
+    setCanonicalFeedback(null);
     setEditingCanonicalFieldId(field.field_id);
     setCanonicalFieldDraft({
       path: field.path,
@@ -6356,6 +6382,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function performCanonicalFieldEdit(field: CanonicalFieldDefinition) {
+    setCanonicalFeedback(null);
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}`, {
@@ -6371,15 +6398,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const registry = await readJsonResponse<CanonicalRegistryPayload>(response);
       setCanonicalRegistry(registry);
       setEditingCanonicalFieldId(null);
-      setWorkspaceMessage(`Canonical field saved: ${canonicalFieldDraft.label.trim() || field.label}.`);
+      reportCanonicalFeedback(`Canonical field saved: ${canonicalFieldDraft.label.trim() || field.label}.`);
       setWorkspaceState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field save failed.");
+      reportCanonicalFeedback(error instanceof Error ? error.message : "Canonical field save failed.", true);
       setWorkspaceState("error");
     }
   }
 
   async function createCanonicalRegistryField() {
+    setCanonicalFeedback(null);
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields`, {
@@ -6405,23 +6433,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         repeatable: false
       });
       setIsCreatingCanonicalField(false);
-      setWorkspaceMessage("Draft canonical field created.");
+      reportCanonicalFeedback("Draft canonical field created.");
       setWorkspaceState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field creation failed.");
+      reportCanonicalFeedback(error instanceof Error ? error.message : "Canonical field creation failed.", true);
       setWorkspaceState("error");
     }
   }
 
   function deleteCanonicalRegistryField(field: CanonicalRegistryField) {
     if (field.origin !== "custom" || field.status !== "Draft") {
-      setWorkspaceMessage("Only Draft custom canonical fields can be removed.");
+      reportCanonicalFeedback("Only Draft custom canonical fields can be removed.", true);
       return;
     }
     openCanonicalImpactReview("remove", field);
   }
 
   async function performCanonicalRegistryFieldDelete(field: CanonicalRegistryField) {
+    setCanonicalFeedback(null);
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}`, {
@@ -6430,10 +6459,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const registry = await readJsonResponse<CanonicalRegistryPayload>(response);
       setCanonicalRegistry(registry);
       setEditingCanonicalFieldId(null);
-      setWorkspaceMessage(`Draft canonical field removed: ${field.label}.`);
+      reportCanonicalFeedback(`Draft canonical field removed: ${field.label}.`);
       setWorkspaceState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field removal failed.");
+      reportCanonicalFeedback(error instanceof Error ? error.message : "Canonical field removal failed.", true);
       setWorkspaceState("error");
     }
   }
@@ -6441,7 +6470,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   function renameCanonicalRegistryFieldPath(field: CanonicalRegistryField) {
     const nextPath = canonicalFieldDraft.path.trim();
     if (field.origin !== "custom") {
-      setWorkspaceMessage("Only custom canonical fields can be renamed.");
+      reportCanonicalFeedback("Only custom canonical fields can be renamed.", true);
       return;
     }
     if (!nextPath || nextPath === field.path) {
@@ -6451,6 +6480,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function performCanonicalRegistryFieldPathRename(field: CanonicalRegistryField, nextPath: string) {
+    setCanonicalFeedback(null);
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}/path`, {
@@ -6464,10 +6494,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setCanonicalRegistry(registry);
       setEditingCanonicalFieldId(null);
       setCanonicalRegistrySearch(nextPath);
-      setWorkspaceMessage(`Canonical path renamed to ${nextPath}. ${registry.migration?.usage?.total ?? 0} saved references migrated.`);
+      reportCanonicalFeedback(`Canonical path renamed to ${nextPath}. ${registry.migration?.usage?.total ?? 0} saved references migrated.`);
       setWorkspaceState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical path rename failed.");
+      reportCanonicalFeedback(error instanceof Error ? error.message : "Canonical path rename failed.", true);
       setWorkspaceState("error");
     }
   }
@@ -7320,6 +7350,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWorkspace(null);
       setWorkspaceState("loading");
       setSourceConnections([]);
+      setSourceConnectionsReadState("loading");
+      setSourceConnectionsReadMessage(null);
       setSelectedSourceConnectionId("");
       setSelectedJobDetail(null);
       setSelectedCustomerId(customerId);
@@ -7468,6 +7500,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     targetOutputTemplates.find((template) => template.output_template_id === activeOutputTemplateId) ??
     targetOutputTemplates[0] ??
     null;
+  const selectedTargetTestDiagnostics = selectedTarget && selectedTargetTestRoute
+    ? buildRouteDiagnostics({ target: selectedTarget, route: selectedTargetTestRoute, environment: selectedTargetTestEnvironment, template: selectedTargetTestTemplate })
+    : null;
   const destructiveConfirmationCopy = destructiveConfirmation
     ? destructiveConfirmation.kind === "import-method"
       ? localDraftImportMethodIds.includes(destructiveConfirmation.method.import_method_id)
@@ -11054,7 +11089,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         </div>
       </aside> : null}
 
-      <section id="pathfinder-content" tabIndex={-1} className={artworkCatalogFocusedShell ? "workspace workspace-feature-focus" : "workspace"} data-customer-view={operationsShell && activeGlobalView === "Customers" ? activeCustomerView : undefined}>
+      <section id="pathfinder-content" tabIndex={-1} className={artworkCatalogFocusedShell ? "workspace workspace-feature-focus" : "workspace"} data-admin-view={operationsShell ? activeGlobalView : undefined} data-customer-view={operationsShell && activeGlobalView === "Customers" ? activeCustomerView : undefined}>
         {operationsWorkspaceEnabled && activeGlobalView === "Customer Directory" ? <OperationsCustomers customers={customers} workspaceIds={operationsWorkspaceIds} setupError={operationsSetupError} currentTab={activeCustomerView} updated={customerDirectory.loaded_at} refreshing={customerImportState === "loading"} warning={customerDirectory.warning} onSelect={operationsSelectCustomer} onRefresh={() => { void loadCustomers(); void loadOperationsWorkspaceIds(); }} /> : null}
         {activeGlobalView === "Customers" ? (
           <>
@@ -13389,20 +13424,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </label>
                     </div>
                     <div className="source-setup-callout">
-                      <strong>
-                        {detectedSourceSchema
-                          ? "Detected source columns are active for this method."
-                          : isUsingSampleSource
-                            ? "Sample columns are currently shown."
-                            : "Loaded workbook columns are active."}
-                      </strong>
-                      <span>
-                        {detectedSourceSchema
-                          ? "Matching field mappings were preserved and recognized new columns were mapped automatically. Re-upload after changing parser settings, then save the method."
-                          : isUsingSampleSource
-                            ? "Detect the customer's workbook template here before finalizing product resolution and field mapping."
-                            : "Column selectors below are based on the loaded workbook. Save this method when the parser behavior and mappings look right."}
-                      </span>
+                      <strong>{sourceColumnOrigin}</strong>
+                      <span>{sourceColumnOriginDetail}</span>
+                      {detectedSourceSchema || hasSourceContext ? <span>Re-detect after changing parser settings, then save this method when the mappings look right.</span> : null}
                     </div>
                     <div className="panel-action-footer">
                       <span>Detected schema, parser settings, and field mappings save together with this import method.</span>
@@ -16319,7 +16343,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <section className="workbench">
                   <div className="panel code-panel source-panel">
                     <PanelHeader icon={FileSpreadsheet} title="Source Grid" detail="Imported rows" />
-                    <div className="source-grid">
+                    <div className="source-grid" tabIndex={0} role="region" aria-label="Imported source rows">
                       {sourceGrid.columns.length ? (
                         <table>
                           <thead>
@@ -16436,12 +16460,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </p>
                     </div>
                     <span className="mini-pill mini-pill-neutral">
-                      {sourceConnections.length} connection{sourceConnections.length === 1 ? "" : "s"}
+                      {sourceConnectionsReadState === "ready"
+                        ? `${sourceConnections.length} connection${sourceConnections.length === 1 ? "" : "s"}`
+                        : sourceConnectionsReadState === "loading" ? "Loading connections" : "Connections unavailable"}
                     </span>
                   </div>
+                  {sourceConnectionsReadState === "error" ? <div className="email-health-error" role="alert"><AlertTriangle size={16} /><span>{sourceConnections.length ? "Showing previously loaded connections. " : "Connection count is unknown. "}{sourceConnectionsReadMessage}</span></div> : null}
 
                   <div className="source-connector-catalog" aria-label="Source connector templates">
-                    {sourceConnectorDefinitions.map((definition) => (
+                    {sourceConnectorDefinitions.filter(definition => !operationsShell || definition.availability === "Available").map((definition) => (
                       <div className="source-connector-card" key={definition.provider}>
                         <div>
                           <span>{definition.category}</span>
@@ -16463,6 +16490,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </div>
                     ))}
                   </div>
+                  {operationsShell && sourceConnectorDefinitions.some(definition => definition.availability !== "Available") ? <details className="pf-planned-connectors">
+                    <summary>Planned integrations · {sourceConnectorDefinitions.filter(definition => definition.availability !== "Available").length}</summary>
+                    <div className="source-connector-catalog" aria-label="Planned source connector templates">
+                      {sourceConnectorDefinitions.filter(definition => definition.availability !== "Available").map(definition => <div className="source-connector-card" key={definition.provider}>
+                        <div><span>{definition.category}</span><strong>{definition.name}</strong><p>{definition.description}</p></div>
+                        <span className="mini-pill mini-pill-neutral">Planned</span>
+                      </div>)}
+                    </div>
+                  </details> : null}
 
                   {sourceConnections.length ? (
                     <div className="source-connection-selector" role="list" aria-label="Saved customer source connections">
@@ -16479,13 +16515,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </button>
                       ))}
                     </div>
-                  ) : (
+                  ) : sourceConnectionsReadState === "ready" ? (
                     <p className="empty-state source-connections-empty">
                       No source connections are configured for this customer. Wrike is available now; the other templates are roadmap placeholders.
                     </p>
-                  )}
+                  ) : null}
 
-                  {!selectedWrikeConnection && wrikeConnectionMessage ? (
+                  {!selectedWrikeConnection && wrikeConnectionMessage && sourceConnectionsReadState !== "error" ? (
                     <div className={wrikeConnectionState === "error" ? "email-health-error" : "wrike-connection-message"}>
                       {wrikeConnectionState === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
                       <span>{wrikeConnectionMessage}</span>
@@ -17144,10 +17180,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <>
                 <header className="topbar targets-overview-header">
                   <div>
-                    <p className="eyebrow">Targets</p>
-                    <h1>Destination platforms</h1>
+                    {!operationsShell ? <p className="eyebrow">Targets</p> : null}
+                    <h1>{operationsShell ? "Targets" : "Destination platforms"}</h1>
                     <p className="page-intro">
-                      Configure the systems Pathfinder can send orders to, then combine environments and templates into reusable output routes.
+                      Destination platforms, environments and reusable output templates.
                     </p>
                   </div>
                   <button className="primary-button" onClick={() => requestGuardedNavigation(addTargetDraft)}>
@@ -17167,7 +17203,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <div className="status-step">
                     <CheckCircle2 size={18} />
                     <div>
-                      <strong>Active</strong>
+                      <strong>Configured</strong>
                       <span>{targetRows.filter((target) => target.status !== "Draft").length} ready or configured</span>
                     </div>
                   </div>
@@ -17181,14 +17217,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <div className="status-step">
                     <CheckCircle2 size={18} />
                     <div>
-                      <strong>Routes</strong>
-                      <span>{outputRoutes.length} customer route{outputRoutes.length === 1 ? "" : "s"}</span>
+                      <strong>Customer routes</strong>
+                      <span>{outputRoutes.length} · {selectedCustomer.customer_name}</span>
                     </div>
                   </div>
                 </section>
 
                 <section className="panel jobs-panel">
                   <PanelHeader icon={Database} title="Targets" detail="Reusable destination platforms" />
+                  <div className="pf-admin-table-scroll" tabIndex={0} role="region" aria-label="Destination platforms">
                   <table className="targets-overview-table">
                     <thead>
                       <tr>
@@ -17247,6 +17284,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </section>
               </>
             ) : (
@@ -17257,7 +17295,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     All targets
                   </button>
                   <div className="target-detail-heading">
-                    <p className="eyebrow">Reusable target</p>
+                    {!operationsShell ? <p className="eyebrow">Reusable target</p> : null}
                     <h1>{selectedTarget.name}</h1>
                     <span>Shared destination setup · {selectedTarget.target_type} · {selectedTarget.status}</span>
                   </div>
@@ -17307,6 +17345,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                 </header>
 
+                {operationsShell ? <p className="pf-admin-scope">Active environment: <strong>{selectedTarget.lift.active_environment}</strong> · Customer route context: <strong>{selectedCustomer.customer_name}</strong>. Configuration readiness is separate from observed health. Shared target saving is currently unavailable; customer route saves retain their existing safeguards.</p> : null}
                 {targetSaveFeedback ? (
                   <p
                     className={`target-save-feedback ${targetSaveFeedback.tone === "error" ? "import-error" : "import-warning"}`}
@@ -17321,6 +17360,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   {targetDetailTabs.map((tab) => (
                     <button
                       className={activeTargetsView === tab ? "target-tab target-tab-active" : "target-tab"}
+                      aria-current={activeTargetsView === tab ? "page" : undefined}
                       key={tab}
                       onClick={() => setActiveTargetsView(tab)}
                     >
@@ -18389,7 +18429,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       }, null, 2)}</pre>
                     </div>
                     <div className="panel-action-footer">
-                      <span>Route diagnostics are passing. Certified preview jobs use the enabled route submit profile.</span>
+                      <span>{selectedTargetTestDiagnostics
+                        ? `${selectedTargetTestDiagnostics.blocking_count} blocking · ${selectedTargetTestDiagnostics.warning_count} warning. ${selectedTargetTestDiagnostics.summary}`
+                        : "No customer route is configured; readiness has not been established."} This is a local configuration check, not a live provider test. Submit still requires a certified preview in Manual Import.</span>
                       <button
                         className="secondary-button"
                         disabled
@@ -19380,32 +19422,36 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         ) : null}
 
         {activeGlobalView === "Audit" ? (
+          <>
+          {operationsShell ? <header className="pf-admin-heading"><h1>Audit</h1><p>Platform administration summary · event history is not available in this view.</p></header> : null}
           <section className="panel customer-panel">
             <PanelHeader
               icon={History}
-              title="Audit"
-              detail="Platform administration"
+              title={operationsShell ? "Loaded platform context" : "Audit"}
+              detail="Read-only summary"
             />
             <dl className="customer-details">
               <DetailItem label="Scope" value="Global" />
               <DetailItem label="Targets" value={`${activeTargetCount}/${targetRows.length} active`} />
-              <DetailItem label="Jobs" value={`${allJobs.length} persisted`} />
+              <DetailItem label="Jobs in current view" value={customerJobReadUnavailable ? "Not available" : `${allJobs.length} loaded`} />
               <DetailItem label="Customer context" value={selectedCustomer.customer_name} />
             </dl>
+            {operationsShell ? <p className="pf-admin-scope">The job count follows the current global Jobs filters and loaded records. Customer context identifies the selected workspace, not the scope of an audit trail.</p> : null}
           </section>
+          </>
         ) : null}
 
         {activeGlobalView === "Settings" ? (
           <>
             <header className="topbar settings-header">
               <div>
-                <p className="eyebrow">Settings</p>
-                <h1>Canonical Order registry</h1>
+                {!operationsShell ? <p className="eyebrow">Settings</p> : null}
+                <h1>{operationsShell ? "Settings" : "Canonical Order registry"}</h1>
                 <p className="page-intro">
-                  Review the field contract Pathfinder uses between customer inputs, canonical orders, and output templates.
+                  Canonical order fields, transactional email and registry governance.
                 </p>
               </div>
-              <div className="settings-header-actions">
+              <div className="settings-header-actions" hidden={operationsShell && activeSettingsSection !== "Canonical registry"}>
                 <button className="secondary-button" onClick={() => downloadCanonicalRegistry("json")}>
                   <FileText size={16} />
                   Export JSON
@@ -19423,7 +19469,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </header>
 
-            <section className="metric-strip canonical-registry-metrics" aria-label="Canonical registry metrics">
+            {operationsShell ? <nav className="pf-admin-sections" aria-label="Settings sections">
+              {(["Canonical registry", "Transactional email", "Governance"] as const).map(section => <button key={section} type="button" aria-current={activeSettingsSection === section ? "page" : undefined} onClick={() => setActiveSettingsSection(section)}>{section}</button>)}
+            </nav> : null}
+
+            <section className="metric-strip canonical-registry-metrics" aria-label="Canonical registry metrics" hidden={operationsShell && activeSettingsSection !== "Canonical registry"}>
               {[
                 {
                   value: canonicalRegistry?.version ?? "Loading",
@@ -19463,13 +19513,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               ))}
             </section>
 
-            <section className="panel email-health-panel">
+            <section className="panel email-health-panel" hidden={operationsShell && activeSettingsSection !== "Transactional email"}>
               <div className="panel-header unit-map-panel-header">
                 <div className="panel-title">
                   <Bell size={18} strokeWidth={2.2} />
                   <h2>Transactional Email</h2>
                 </div>
                 <div className="email-health-header-actions">
+                  {emailStatusReadAt ? <span className="pf-email-read-time">Last read {displayTimestamp(emailStatusReadAt)}</span> : null}
                   {emailStatus ? <RouteDiagnosticPill status={emailStatus.readiness.status} /> : null}
                   <button
                     className="secondary-button table-inline-button"
@@ -19485,34 +19536,36 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <div className="email-health-grid">
                 <div className="email-health-summary">
                   <span>Delivery Mode</span>
-                  <strong>{emailStatus?.mode === "ses" ? "Amazon SES" : emailStatus?.mode === "log" ? "Log mode" : "Loading"}</strong>
+                  <strong>{emailStatus?.mode === "ses" ? "Amazon SES" : emailStatus?.mode === "log" ? "Log mode" : emailStatusState === "loading" ? "Checking" : "Not verified"}</strong>
                   <small>
                     {emailStatus?.mode === "ses"
                       ? "Status links are configured for delivery."
-                      : "Status links are recorded, not sent to customers yet."}
+                      : emailStatus?.mode === "log"
+                        ? "Status links are recorded, not sent to customers yet."
+                        : "Delivery mode is unknown until configuration can be read."}
                   </small>
                 </div>
                 <div className="email-health-summary">
                   <span>From</span>
-                  <strong>{emailStatus?.sender.from ?? "Pending"}</strong>
+                  <strong>{emailStatus?.sender.from ?? (emailStatusState === "loading" ? "Checking" : "Not verified")}</strong>
                   <small>{emailStatus?.sender.from_domain ?? "Sender domain unavailable"}</small>
                 </div>
                 <div className="email-health-summary">
                   <span>Reply-To</span>
-                  <strong>{emailStatus?.sender.status_reply_to ?? "Pending"}</strong>
+                  <strong>{emailStatus?.sender.status_reply_to ?? (emailStatusState === "loading" ? "Checking" : "Not verified")}</strong>
                   <small>{emailStatus?.sender.status_reply_to_domain ?? "Reply-to domain unavailable"}</small>
                 </div>
                 <div className="email-health-summary">
                   <span>SES Region</span>
-                  <strong>{emailStatus?.ses.region ?? "Pending"}</strong>
-                  <small>{emailStatus?.ses.configuration_set ?? "No configuration set"}</small>
+                  <strong>{emailStatus?.ses.region ?? (emailStatusState === "loading" ? "Checking" : "Not verified")}</strong>
+                  <small>{emailStatus ? emailStatus.ses.configuration_set ?? "No configuration set" : "Configuration not verified"}</small>
                 </div>
               </div>
 
               {emailStatusMessage ? (
-                <div className="email-health-error">
+                <div className="email-health-error" role="alert">
                   <AlertTriangle size={16} />
-                  <span>{emailStatusMessage}</span>
+                  <span>{emailStatus ? "Showing last loaded email configuration. " : ""}{emailStatusMessage}</span>
                 </div>
               ) : null}
 
@@ -19537,7 +19590,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </section>
 
-            <section className="panel canonical-governance-panel">
+            <section className="panel canonical-governance-panel" hidden={operationsShell && activeSettingsSection !== "Governance"}>
               <div className="panel-header unit-map-panel-header">
                 <div className="panel-title">
                   <History size={18} strokeWidth={2.2} />
@@ -19595,7 +19648,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </section>
 
-            <section className="panel canonical-registry-panel">
+            <section className="panel canonical-registry-panel" hidden={operationsShell && activeSettingsSection !== "Canonical registry"}>
               <div className="panel-header unit-map-panel-header">
                 <div className="panel-title">
                   <Braces size={18} strokeWidth={2.2} />
@@ -19603,6 +19656,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
                 <span>Stable field IDs, aliases, and paths for template mappings</span>
               </div>
+              {operationsShell && canonicalFeedback ? <p ref={canonicalFeedbackRef} tabIndex={-1} className={canonicalFeedback.error ? "import-error pf-canonical-feedback" : "import-warning pf-canonical-feedback"} role={canonicalFeedback.error ? "alert" : "status"}><strong>Canonical registry: </strong>{canonicalFeedback.message}</p> : null}
 
               {isCreatingCanonicalField ? (
                 <section className="canonical-field-create-panel" aria-label="Create canonical field">
@@ -19746,6 +19800,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <Search size={16} />
                   <input
                     value={canonicalRegistrySearch}
+                    aria-label="Search canonical fields"
                     placeholder="Search path, label, alias, or type"
                     onChange={(event) => setCanonicalRegistrySearch(event.target.value)}
                   />
@@ -19780,7 +19835,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 ))}
               </div>
 
-              <div className="unit-map-table-wrap">
+              <div className="unit-map-table-wrap" tabIndex={0} role="region" aria-label="Canonical fields">
                 <table className="canonical-registry-table">
                   <thead>
                     <tr>

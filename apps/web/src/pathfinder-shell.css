@@ -1,4 +1,96 @@
 /* Shared Admin shell only. Public Proof/Status and legacy opt-out are untouched. */
+/* Administration uses the same working scale as the reviewed customer workflows. */
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) .panel {border-radius:6px;box-shadow:none;margin-bottom:12px;min-width:0}
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) .panel-header {padding:12px 16px;min-height:48px;gap:12px;flex-wrap:wrap}
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) h2 {font-size:16px;line-height:1.4;color:#39523b}
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) :is(input,select,textarea,td,dd) {font-size:14px;line-height:1.45;font-weight:500}
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) :is(p,.cell-meta,.panel-header>span,dt,.setup-control>span) {font-size:12px;line-height:1.5;font-weight:500}
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) :is(.customer-details dd,.cell-meta) {white-space:normal;overflow-wrap:anywhere;text-overflow:clip;overflow:visible}
+.pf-shell :is(.targets-overview-header,.settings-header,.pf-admin-heading) {min-height:64px;margin:0 0 12px;padding:10px 0;gap:16px;align-items:center}
+.pf-shell :is(.targets-overview-header,.settings-header,.pf-admin-heading,.target-detail-heading) h1 {font-size:22px;line-height:1.25;margin:0;color:#191818}
+.pf-shell :is(.targets-overview-header,.settings-header,.pf-admin-heading) p {margin:4px 0 0;max-width:740px;font-size:12px;font-weight:500;color:#52634c}
+.pf-shell .settings-header-actions {gap:8px;flex-wrap:wrap;max-width:none}
+.pf-shell .settings-header-actions button {font-size:12px;min-height:34px;white-space:nowrap}
+.pf-shell .pf-admin-sections,.pf-shell [data-admin-view="Targets"] .target-tabs {display:flex;gap:24px;overflow-x:auto;flex-wrap:nowrap;margin:0 0 12px;padding:0;background:none;border:0;border-bottom:1px solid #d8dfd3;border-radius:0;min-height:40px}
+.pf-shell .pf-admin-sections button,.pf-shell [data-admin-view="Targets"] .target-tab {flex:none;padding:8px 0;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;box-shadow:none;font-size:14px;font-weight:500;color:#52634c;white-space:nowrap}
+.pf-shell .pf-admin-sections button[aria-current="page"],.pf-shell [data-admin-view="Targets"] .target-tab[aria-current="page"] {border-bottom-color:#39523b;color:#39523b;font-weight:800}
+.pf-shell .pf-admin-scope {margin:0;padding:10px 16px;font-size:12px;line-height:1.5;color:#52634c;background:#f3f7f1;overflow-wrap:anywhere}
+.pf-shell [data-admin-view="Targets"] .target-detail-header {padding:12px 0;margin:0 0 8px;min-height:56px;gap:16px;flex-wrap:wrap}
+.pf-shell [data-admin-view="Targets"] .target-detail-heading {min-width:220px;flex:1}
+.pf-shell [data-admin-view="Targets"] .target-detail-heading>span {font-size:12px;font-weight:500;line-height:1.5}
+.pf-shell [data-admin-view="Targets"] .target-header-status {gap:8px;flex-wrap:wrap}
+.pf-shell [data-admin-view="Targets"] .target-header-status :is(button,.health-chip,.method-save-state) {font-size:12px}
+.pf-shell [data-admin-view="Targets"] .target-tabs {margin-top:8px}
+.pf-shell [data-admin-view="Targets"] .target-status-strip {gap:0;margin:0 0 12px;border:1px solid #d8dfd3;border-radius:6px}
+.pf-shell [data-admin-view="Targets"] .status-step {min-width:0;padding:12px 16px;border:0;border-right:1px solid #d8dfd3;border-radius:0;box-shadow:none}
+.pf-shell [data-admin-view="Targets"] .status-step:last-child {border-right:0}
+.pf-shell [data-admin-view="Targets"] .status-step>svg {display:none}
+.pf-shell [data-admin-view="Targets"] .status-step strong {font-size:14px}
+.pf-shell [data-admin-view="Targets"] .status-step span {font-size:12px;font-weight:500;white-space:normal;overflow-wrap:anywhere}
+.pf-shell [data-admin-view="Targets"] .setup-panel {padding:0}
+.pf-shell [data-admin-view="Targets"] .setup-grid {padding:16px;gap:12px}
+.pf-shell [data-admin-view="Targets"] .target-config-card {margin:12px 16px;border-radius:6px;box-shadow:none;min-width:0}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table {min-width:900px}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table {table-layout:fixed;width:100%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td) {white-space:normal;overflow-wrap:anywhere}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(1) {width:21%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(2) {width:11%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(3) {width:17%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(4) {width:10%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(5) {width:19%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(6) {width:10%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(7) {width:12%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table td {padding:12px;vertical-align:top}
+.pf-shell .pf-admin-table-scroll {overflow:auto}
+.pf-shell :is(.pf-admin-table-scroll,.unit-map-table-wrap,.source-grid):focus-visible {outline:2px solid #39523b;outline-offset:-2px}
+.pf-shell [data-customer-view="Settings"] .customer-settings-stack {gap:12px}
+.pf-shell :is([data-customer-view="Settings"],[data-admin-view="Audit"]) .customer-details {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 24px;padding:16px}
+.pf-shell :is([data-customer-view="Settings"],[data-admin-view="Audit"]) .customer-details>div {padding:0;border:0;background:none;min-width:0}
+.pf-shell :is([data-customer-view="Settings"],[data-admin-view="Audit"]) .customer-details dd {margin:4px 0 0}
+.pf-shell [data-customer-view="Settings"] .source-connections-intro {padding:12px 16px;gap:12px}
+.pf-shell [data-customer-view="Settings"] .source-connections-intro strong {font-size:14px}
+.pf-shell [data-customer-view="Settings"] .source-connector-catalog:empty {display:none}
+.pf-shell [data-customer-view="Settings"] :is(.source-connector-card,.source-connection-detail,.wrike-connection-panel) {box-shadow:none;border-radius:6px}
+.pf-shell [data-customer-view="Settings"] .source-connector-catalog {padding:0 16px;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.pf-shell [data-customer-view="Settings"] .source-connector-card {min-height:0;padding:12px 16px;align-items:center}
+.pf-shell [data-customer-view="Settings"] .source-connector-card>div {min-height:0}
+.pf-shell [data-customer-view="Settings"] .source-connections-empty {padding:8px 16px 12px;margin:0}
+.pf-shell .pf-planned-connectors {margin:8px 16px 0;font-size:12px;color:#52634c}
+.pf-shell .pf-planned-connectors>summary {padding:8px 0;cursor:pointer}
+.pf-shell [data-customer-view="Settings"] .pf-planned-connectors .source-connector-catalog {padding:8px 0}
+.pf-shell .pf-canonical-feedback {margin:12px 16px;padding:10px 12px;font-size:14px}
+.pf-shell .pf-canonical-feedback:focus {outline:2px solid #39523b;outline-offset:2px}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics {gap:0;margin:0 0 12px;border:1px solid #d8dfd3;border-radius:6px}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics .metric-card {display:block;min-height:0;padding:12px 16px;border:0;border-right:1px solid #d8dfd3;border-radius:0;box-shadow:none}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics .metric-card:last-child {border-right:0}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics .metric-icon {display:none}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics strong {font-size:18px;line-height:1.35;white-space:normal}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics :is(span,small) {font-size:12px;line-height:1.4;margin-top:4px;font-weight:500}
+.pf-shell [data-admin-view="Settings"] :is(.email-health-grid,.canonical-governance-grid) {padding:16px;gap:16px}
+.pf-shell [data-admin-view="Settings"] .email-health-grid {grid-template-columns:repeat(4,minmax(0,1fr))}
+.pf-shell [data-admin-view="Settings"] .pf-email-read-time {font-size:12px;font-weight:500;color:#52634c}
+.pf-shell [data-admin-view="Settings"] :is(.email-health-summary,.canonical-governance-summary) {padding:0;border:0;background:none;min-width:0}
+.pf-shell [data-admin-view="Settings"] :is(.email-health-summary,.canonical-governance-summary) strong {font-size:14px;overflow-wrap:anywhere}
+.pf-shell [data-admin-view="Settings"] :is(.email-health-summary,.canonical-governance-summary) small {font-size:12px;font-weight:500;line-height:1.5}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-toolbar {padding:12px 16px;gap:12px}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-toolbar .unit-map-search {height:38px;min-height:38px}
+.pf-shell [data-admin-view="Settings"] .canonical-section-strip {padding:8px 16px;gap:8px;flex-wrap:wrap}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table {table-layout:fixed;width:100%;min-width:1040px}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th) {white-space:normal;overflow-wrap:anywhere;padding:10px 12px;vertical-align:top}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(1) {width:30%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(2) {width:9%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(3) {width:9%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(4) {width:12%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(5) {width:18%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(6) {width:9%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(7) {width:13%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table .table-input {min-width:0;width:100%}
+.pf-shell [data-customer-view="Manual Import"] .workbench {min-height:0}
+.pf-shell [data-customer-view="Manual Import"] .source-grid {height:auto;max-height:376px;overflow:auto}
+@media(max-width:1050px){
+ .pf-shell :is([data-customer-view="Settings"],[data-admin-view="Audit"]) .customer-details,.pf-shell [data-admin-view="Settings"] .email-health-grid {grid-template-columns:repeat(2,minmax(0,1fr))}
+ .pf-shell .settings-header {flex-wrap:wrap}
+}
 /* Customer workflow composition. No global form or public-app overrides. */
 .pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) {--pf-work-border:#d8dfd3}
 .pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) .panel {box-shadow:none;border-color:var(--pf-work-border);border-radius:6px}

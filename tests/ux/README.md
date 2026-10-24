@@ -30,6 +30,12 @@ Open http://127.0.0.1:5210. The generated JSON and evidence screenshots are igno
 | `?jobsError` | Job feed unavailable from first request; show error/retry, not successful zero results |
 | `?jobsStale` | Two successful job reads, then failure; retain loaded rows and last-success timestamp |
 | `?customerWorkflows` | Adds 12 synthetic product mappings with mixed states, dimensions and long names, plus paused/draft methods. Uses existing manual-XLSX method configuration; names are not proof of Wrike/JSON-specific editor coverage. All writes still fail closed with 423. |
+| `?customerWorkflows&adminReview` | Customer Settings includes the real connector definition catalog with no configured connections. Global Settings includes a synthetic log-mode email status. No emails or provider calls are sent. |
+| `?adminReview&emailSes` | Synthetic SES configuration; this is not proof that production SES is enabled or healthy. |
+| `?adminReview&emailError` | Email status fails from the first read; delivery mode must be unknown, not log mode. |
+| `?adminReview&emailStale` | First email read succeeds, subsequent Refresh fails; preserve the last read data and timestamp with a stale warning. Add `&emailSes` to test this for SES. |
+| `?adminReview&emailSlow` | Delays each email read by 2.5 seconds. |
+| `?adminReview&connectionsError` | Customer source-connection read returns a synthetic 403. |
 
 Example new customer 300001 is not configured initially. Opening it must not create a workspace. **Set up workspace** exercises the original frontend flow against the simulation only. Reload resets this setup.
 
