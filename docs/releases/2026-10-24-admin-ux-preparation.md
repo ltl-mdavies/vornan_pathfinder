@@ -1,8 +1,8 @@
 # Pathfinder Admin UX release preparation
 
-Prepared October 24, 2026 for Pathfinder Development. **Release is on hold following the [secondary acceptance pass](2026-10-24-admin-ux-secondary-acceptance.md).** The exercised scenarios passed, but Manual Import recovery needs a focused follow-up and authenticated production and native zoom checks remain unverified. **No push, merge, deployment, invalidation, provider write or configuration change has been performed.**
+Prepared October 24, 2026 for Pathfinder Development. **Release remains on hold.** Manual Import recovery has independent acceptance and a refreshed production-configured artifact. Authenticated Admin baseline checks now work; native 200% zoom and current public Proof/Status session checks remain open. **No push, merge, deployment, invalidation, provider write or configuration change has been performed.**
 
-The [focused Manual Import fix](2026-10-24-manual-import-recovery.md) at `d67dc12` has independent local acceptance from Pathfinder UX. The candidate manifest below is explicitly invalidated: its source, chunks and hashes describe the earlier build and must not be deployed. The focused build is validation-only, not a refreshed production-configured release artifact. Authenticated production/native zoom checks remain open. The rollback manifest remains historical evidence and must be revalidated against live state before release.
+The [focused Manual Import fix](2026-10-24-manual-import-recovery.md) at `d67dc12` has independent local acceptance from Pathfinder UX. The original candidate manifest remains invalidated. Use the [refreshed candidate manifest](2026-10-24-admin-ux-candidate-v2.json) for preparation only, subject to its release hold. The [latest verification record](2026-10-24-admin-ux-release-recheck.md) distinguishes live baseline checks from local candidate acceptance. Recheck live versions immediately before publication.
 
 ## Scope and ownership
 
@@ -51,9 +51,9 @@ Both intake-exception repository variables are absent, so their workflow default
 
 All five browser-public Firebase configuration fields were read from the deployed Admin bundle and used for the local candidate. The resulting bundle matches those fields exactly. Their values are deliberately omitted from this record. GitHub's corresponding secret names exist; deployment must continue using them, not replace them. Revalidate the built artifact against this configuration before publication.
 
-## Artifact and validation
+## Original artifact and validation
 
-The production-equivalent build used Node `22.16.0`, npm `10.9.2`, and a new output directory at `/private/tmp/pathfinder-admin-release-rOGVMn/candidate`. It contains 36 files. The [candidate manifest](2026-10-24-admin-ux-candidate.json) records the full source revision, non-secret flags and file hashes.
+The invalidated original production-equivalent build used Node `22.16.0`, npm `10.9.2`, and output directory `/private/tmp/pathfinder-admin-release-rOGVMn/candidate`. It contains 36 files. The [original candidate manifest](2026-10-24-admin-ux-candidate.json) records historical source and hashes; do not publish this artifact. The refreshed artifact is documented in the latest verification record above.
 
 - New application chunks: `App-gIvWvxJI.js`, `App-DK8XhgTp.css`, `icons-CS9jSigk.js`, `index-5C8IxPri.js`.
 - Candidate index SHA-256: `d0f350b5a17156da3d8921efbfea61fef43c072e0864591ede6e7c751efd3836`.
