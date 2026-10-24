@@ -7285,6 +7285,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     customerJobView.sortDirection
   );
   const activeCustomerJobs = customerJobsUnfiltered.filter((job) => !job.archived_at);
+  const customerJobReadUnavailable = targetsAndJobsState !== "idle" && !jobsLastRefreshedAt;
   const allJobsUnfiltered = operationsWorkspaceEnabled ? globalJobs : globalJobs.length ? globalJobs : customerJobsUnfiltered;
   // Global operations must never fall back to the selected customer's workspace.
   const operationsJobs: OperationsJob[] = globalJobs.map(job => ({
@@ -8251,7 +8252,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     {
       label: "Source",
       value: manualSourceReady ? `${sourceGrid.rows.length} rows loaded` : "No order source",
-      detail: manualSourceReady ? `${sourceName} · ${sheetName}` : "Upload the Momentara workbook or use the sample before preview.",
+      detail: manualSourceReady ? `${sourceName} · ${sheetName}` : "Upload the order workbook or use the sample before preview.",
       status: manualSourceReady ? "Passed" : "Blocked",
       actionLabel: manualSourceReady ? undefined : "Load source",
       action: manualSourceReady ? undefined : () => fileInputRef.current?.click()
@@ -8335,6 +8336,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         : "Warning"
     }
   ];
+  const credentialCertificationItem = submitCertification.items.find((item) => item.item_id === "credentials");
   const activeRoutePasswordSaved = Boolean(activeRouteEnvironment?.credentials.Password);
   const activeRouteUserSaved = Boolean(activeRouteEnvironment?.credentials.User);
   const extIdMatches = displayedSubmitRequest.headers.Ext_ID === displayedLiftPayload.order.ext_id;
@@ -8359,11 +8361,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     },
     {
       label: "Credentials",
-      value: activeRouteUserSaved && activeRoutePasswordSaved ? "Present" : "Missing",
-      detail: activeRouteUserSaved && activeRoutePasswordSaved
-        ? "Import user and saved secret are available for this environment."
-        : "Enter and save the Lift import user and password on the selected Target Environment.",
-      status: activeRouteUserSaved && activeRoutePasswordSaved ? "Passed" : "Blocked"
+      value: credentialCertificationItem?.status === "Passed"
+        ? "Configured"
+        : credentialCertificationItem?.status === "Blocked" ? "Needs setup" : "Not verified",
+      detail: credentialCertificationItem?.message ?? "Credential readiness has not been verified for this preview.",
+      status: credentialCertificationItem?.status ?? "Warning"
     },
     {
       label: "Submit Customer",
@@ -11052,12 +11054,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         </div>
       </aside> : null}
 
-      <section id="pathfinder-content" tabIndex={-1} className={artworkCatalogFocusedShell ? "workspace workspace-feature-focus" : "workspace"}>
+      <section id="pathfinder-content" tabIndex={-1} className={artworkCatalogFocusedShell ? "workspace workspace-feature-focus" : "workspace"} data-customer-view={operationsShell && activeGlobalView === "Customers" ? activeCustomerView : undefined}>
         {operationsWorkspaceEnabled && activeGlobalView === "Customer Directory" ? <OperationsCustomers customers={customers} workspaceIds={operationsWorkspaceIds} setupError={operationsSetupError} currentTab={activeCustomerView} updated={customerDirectory.loaded_at} refreshing={customerImportState === "loading"} warning={customerDirectory.warning} onSelect={operationsSelectCustomer} onRefresh={() => { void loadCustomers(); void loadOperationsWorkspaceIds(); }} /> : null}
         {activeGlobalView === "Customers" ? (
           <>
             {operationsShell ? <><CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory} tools={<button className="pf-customer-tools-toggle" aria-expanded={customerToolsOpen} aria-controls="customer-workspace-tools" onClick={() => setCustomerToolsOpen(!customerToolsOpen)}>Workspace tools</button>}/><CustomerRecordTabs tabs={visibleCustomerNavItems.filter(item => item.label !== "Intake Exceptions").map(item => item.label)} selected={activeCustomerView} onSelect={tab => requestGuardedNavigation(() => { closeJobDetail(); setOperationsProofOrder(null); setOpenTopbarMenu(null); setCustomerToolsOpen(false); setActiveCustomerView(tab as CustomerView); if (tab === "Import Methods") setIsImportMethodDetailOpen(false); })} onGlobalProof={() => { setOperationsProofOrder(null); shellNavigate("Proof"); }}/></> : null}
             {operationsWorkspaceEnabled && !visibleCustomerNavItems.some(item => item.label === activeCustomerView) ? <p className="ops-notice" role="status">{activeCustomerView} is not enabled for this customer. Your tab selection is preserved; choose another tab or switch customers.</p> : null}
+            {operationsShell && workspaceMessage && ["Import Methods", "Output Product Map", "Manual Import"].includes(activeCustomerView) ? <p className={workspaceState === "error" ? "import-error pf-workflow-feedback" : "import-warning pf-workflow-feedback"} role={workspaceState === "error" ? "alert" : "status"}>{workspaceMessage}</p> : null}
             {(operationsShell ? customerToolsOpen : !artworkCatalogFocusedShell && !operationsCustomerProof) ? <header id="customer-workspace-tools" className={operationsShell ? "topbar pf-customer-utilities" : "topbar"}>
               <div className="title-block">
                 <div className="headline-row">
@@ -11191,9 +11194,31 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             {activeCustomerView === "Intake Exceptions" && intakeVisibilityAvailable ? <><button className="ops-link" onClick={() => requestGuardedNavigation(() => setActiveCustomerView("Jobs"))}>Back to customer Jobs</button><IntakeExceptions key={selectedCustomer.lift_customer_id} customerId={selectedCustomer.lift_customer_id} apiBaseUrl={apiBaseUrl} /></> : null}
             {activeCustomerView === "Overview" ? (
               <>
+                {targetsAndJobsState !== "idle" || operationsRefreshError ? <p className="pf-customer-data-notice" role="status">{targetsAndJobsState === "loading" ? "Refreshing job activity…" : "Job activity could not be refreshed."} {jobsLastRefreshedAt ? `Showing the last loaded records from ${displayTimestamp(jobsLastRefreshedAt)}.` : "Counts are unavailable until job activity loads."}</p> : null}
+                <section className="metric-strip" aria-label="Customer KPIs">
+                  {[
+                    { value: String(activeCustomerJobs.length), label: "Tracked Orders", trend: "Unique current source orders", intent: "good", icon: FileText },
+                    { value: String(confirmedCustomerJobCount), label: "Confirmed in Lift", trend: `${customerOperationsSummary.confirmedSevenDays} in the last 7 days`, intent: "good", icon: Check },
+                    { value: String(readyCustomerJobCount), label: "Ready to Submit", trend: readyCustomerJobCount ? "Waiting for scheduled or operator submit" : "No orders waiting", intent: "good", icon: Send },
+                    { value: String(customerOperationsSummary.needsTriage), label: "Needs Attention", trend: customerAttentionDetail, intent: customerOperationsSummary.needsTriage ? "bad" : "good", icon: AlertTriangle }
+                  ].map(({ value, label, trend, intent, icon: Icon }) => (
+                    <div className="metric-card" key={label}>
+                      <div className="metric-icon">
+                        <Icon size={20} />
+                      </div>
+                      <div>
+                        <strong>{customerJobReadUnavailable ? "—" : value}</strong>
+                        <span>{label}</span>
+                        <small className={intent === "bad" ? "trend-bad" : "trend-good"}>{customerJobReadUnavailable ? "Job activity unavailable" : trend}</small>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+
                 <section className="customer-overview">
                   <div className="panel customer-panel">
                     <PanelHeader icon={Users} title="Customer Details" detail={customerDirectory.source === "lift-endpoint" ? "Lift directory" : "Saved Pathfinder record"} />
+                    <details className="pf-customer-record-details"><summary>Customer record details</summary>
                     <dl className="customer-detail-grid">
                       <DetailItem label="Customer Name" value={selectedCustomer.customer_name} />
                       <DetailItem label="Status" value={selectedCustomer.customer_status} />
@@ -11203,6 +11228,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <DetailItem label="Default Invoice Email" value={selectedCustomer.default_invoice_email_address} />
                       <DetailItem label="CRM ID" value={selectedCustomer.crm_id} />
                     </dl>
+                    </details>
                     <details className="account-status-details">
                       <summary>
                         <span>Account Status</span>
@@ -11250,89 +11276,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                 </section>
 
-                <section className="metric-strip" aria-label="Customer KPIs">
-                  {[
-                    { value: String(activeCustomerJobs.length), label: "Tracked Orders", trend: "Unique current source orders", intent: "good", icon: FileText },
-                    { value: String(confirmedCustomerJobCount), label: "Confirmed in Lift", trend: `${customerOperationsSummary.confirmedSevenDays} in the last 7 days`, intent: "good", icon: Check },
-                    { value: String(readyCustomerJobCount), label: "Ready to Submit", trend: readyCustomerJobCount ? "Waiting for scheduled or operator submit" : "No orders waiting", intent: "good", icon: Send },
-                    { value: String(customerOperationsSummary.needsTriage), label: "Needs Attention", trend: customerAttentionDetail, intent: customerOperationsSummary.needsTriage ? "bad" : "good", icon: AlertTriangle }
-                  ].map(({ value, label, trend, intent, icon: Icon }) => (
-                    <div className="metric-card" key={label}>
-                      <div className="metric-icon">
-                        <Icon size={20} />
-                      </div>
-                      <div>
-                        <strong>{value}</strong>
-                        <span>{label}</span>
-                        <small className={intent === "bad" ? "trend-bad" : "trend-good"}>{trend}</small>
-                      </div>
-                    </div>
-                  ))}
-                </section>
-
                 <section className="overview-grid overview-grid-two">
-                  <div className="panel method-panel">
-                    <div className="table-panel-header">
-                      <PanelHeader icon={Workflow} title="Active Import Methods" detail="" />
-                      <button className="primary-button table-header-action" onClick={createDraftImportMethod}>
-                        <Plus size={15} />
-                        New Import Method
-                      </button>
-                    </div>
-                    <table className="methods-table">
-                      <thead>
-                        <tr>
-                          <th>Method Name</th>
-                          <th>Type</th>
-                          <th>Source</th>
-                          <th>Product Maps</th>
-                          <th>Status</th>
-                          <th>Last Run</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {importMethods.map((method) => {
-                          const methodUnmappedCount = productMappings.filter(
-                            (mapping) => mapping.output_route_id === method.output_route_id && mapping.status !== "Mapped"
-                          ).length;
-                          return (
-                            <tr
-                              key={method.import_method_id}
-                              onClick={() => {
-                                setActiveCustomerView("Import Methods");
-                                setIsImportMethodDetailOpen(false);
-                              }}
-                            >
-                              <td>{method.name}</td>
-                              <td>{method.type}</td>
-                              <td>{method.source}</td>
-                              <td>{methodUnmappedCount ? `${methodUnmappedCount} unmapped` : "Clean"}</td>
-                              <td>
-                                <span className={method.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
-                                  {method.status}
-                                </span>
-                              </td>
-                              <td>{methodLastRun(method)}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                    <button
-                      className="table-footer-link"
-                      onClick={() => {
-                        setActiveCustomerView("Import Methods");
-                        setIsImportMethodDetailOpen(false);
-                      }}
-                    >
-                      View all import methods
-                      <ArrowGlyph />
-                    </button>
-                  </div>
-
                   <div className="panel jobs-panel">
                     <div className="table-panel-header">
-                      <PanelHeader icon={Archive} title="Recent Jobs" detail="" />
+                      <PanelHeader icon={Archive} title="Recent operational jobs" detail="Issues first, then newest Lift orders" />
                       <button
                         className="table-header-link"
                         onClick={() => {
@@ -11410,9 +11357,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     ))}
                       </tbody>
                     </table>
-                    {overviewJobs.length === 0 ? <p className="empty-state">No persisted preview jobs yet.</p> : null}
+                    {overviewJobs.length === 0 ? <p className="empty-state">{customerJobReadUnavailable ? "Job activity is unavailable." : "No persisted preview jobs yet."}</p> : null}
                     <div className="jobs-summary-footer">
-                      <span>Issues first, then newest Lift orders · showing {overviewJobs.length} of {activeCustomerJobs.length} tracked orders.</span>
+                      <span>{customerJobReadUnavailable ? "Waiting for job activity." : `Issues first, then newest Lift orders · showing ${overviewJobs.length} of ${activeCustomerJobs.length} tracked orders. Counts use loaded, non-archived jobs.`}</span>
                       <button
                         className="table-header-link"
                         onClick={() => {
@@ -11425,6 +11372,65 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </button>
                     </div>
                   </div>
+                  <div className="panel method-panel">
+                    <div className="table-panel-header">
+                      <PanelHeader icon={Workflow} title="Import Methods" detail="" />
+                      <button className="primary-button table-header-action" onClick={createDraftImportMethod}>
+                        <Plus size={15} />
+                        New Import Method
+                      </button>
+                    </div>
+                    <table className="methods-table">
+                      <thead>
+                        <tr>
+                          <th>Method Name</th>
+                          <th>Type</th>
+                          <th>Source</th>
+                          <th>Product Maps</th>
+                          <th>Status</th>
+                          <th>Last Run</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importMethods.map((method) => {
+                          const methodUnmappedCount = productMappings.filter(
+                            (mapping) => mapping.output_route_id === method.output_route_id && mapping.status !== "Mapped"
+                          ).length;
+                          return (
+                            <tr
+                              key={method.import_method_id}
+                              onClick={() => {
+                                setActiveCustomerView("Import Methods");
+                                setIsImportMethodDetailOpen(false);
+                              }}
+                            >
+                              <td>{method.name}</td>
+                              <td>{method.type}</td>
+                              <td>{method.source}</td>
+                              <td>{methodUnmappedCount ? `${methodUnmappedCount} unmapped` : "Clean"}</td>
+                              <td>
+                                <span className={method.status === "Active" ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+                                  {method.status}
+                                </span>
+                              </td>
+                              <td>{methodLastRun(method)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    <button
+                      className="table-footer-link"
+                      onClick={() => {
+                        setActiveCustomerView("Import Methods");
+                        setIsImportMethodDetailOpen(false);
+                      }}
+                    >
+                      View all import methods
+                      <ArrowGlyph />
+                    </button>
+                  </div>
+
                 </section>
               </>
             ) : null}
@@ -14265,59 +14271,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
             {activeCustomerView === "Output Product Map" ? (
               <>
-                <section className="metric-strip unit-map-metrics" aria-label="Output product map metrics">
-                  {[
-                    {
-                      value: selectedOutputMapRoute.status,
-                      label: "Output Route",
-                      trend: selectedOutputMapRoute.name,
-                      intent: selectedOutputMapRoute.status === "Active" ? "good" : "bad",
-                      icon: Workflow
-                    },
-                    {
-                      value: selectedOutputMapTarget?.name ?? "Target",
-                      label: selectedOutputMapTarget?.target_type ?? "Target",
-                      trend: `${selectedOutputMapTarget?.health_status ?? "Untested"} · ${selectedOutputMapTarget?.adapter ?? selectedOutputMapRoute.target_system}`,
-                      intent: selectedOutputMapTarget?.status === "Draft" ? "bad" : "good",
-                      icon: Database
-                    },
-                    {
-                      value: selectedOutputMapEnvironment?.name ?? "None",
-                      label: selectedOutputMapEnvironment?.role ?? "Environment",
-                      trend: selectedOutputMapEnvironment?.endpoint_url ? "Endpoint configured" : "Endpoint missing",
-                      intent: selectedOutputMapEnvironment?.endpoint_url ? "good" : "bad",
-                      icon: Gauge
-                    },
-                    {
-                      value: selectedOutputMapTemplate?.output_format ?? "Template",
-                      label: selectedOutputMapTemplate?.destination_method ?? "Output Template",
-                      trend: selectedOutputMapTemplate?.name ?? selectedOutputMapRoute.output_template,
-                      intent: selectedOutputMapTemplate?.status === "Active" ? "good" : "bad",
-                      icon: Braces
-                    },
-                    {
-                      value: `${routeMappedCount}/${routeProductMappings.length}`,
-                      label: "Mapped Keys",
-                      trend: routeBlockingCount
-                        ? `${routeBlockingCount} need ${selectedOutputMapRoute.product_identifier_label}`
-                        : `${routePreloadedCount} preloaded · ${routeSeenExampleCount} seen`,
-                      intent: routeBlockingCount ? "bad" : "good",
-                      icon: routeBlockingCount ? AlertTriangle : CheckCircle2
-                    }
-                  ].map(({ value, label, trend, intent, icon: Icon }) => (
-                    <div className="metric-card" key={label}>
-                      <div className="metric-icon">
-                        <Icon size={20} />
-                      </div>
-                      <div>
-                        <strong>{value}</strong>
-                        <span>{label}</span>
-                        <small className={intent === "bad" ? "trend-bad" : "trend-good"}>{trend}</small>
-                      </div>
-                    </div>
-                  ))}
-                </section>
-
                 <section className="panel unit-map-panel">
                   <div className="panel-header unit-map-panel-header">
                     <div className="panel-title">
@@ -14325,7 +14278,62 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <h2>Output Product Map</h2>
                     </div>
                     <div className="unit-map-header-actions">
-                      <span>Customer keys resolved per output route</span>
+                      <details className="pf-route-diagnostics">
+                        <summary><strong>{routeMappedCount} of {routeProductMappings.length} keys mapped</strong><span>{routeBlockingCount} unresolved · Route and target diagnostics</span></summary>
+                      <section className="metric-strip unit-map-metrics" aria-label="Output product map metrics">
+                        {[
+                          {
+                            value: selectedOutputMapRoute.status,
+                            label: "Output Route",
+                            trend: selectedOutputMapRoute.name,
+                            intent: selectedOutputMapRoute.status === "Active" ? "good" : "bad",
+                            icon: Workflow
+                          },
+                          {
+                            value: selectedOutputMapTarget?.name ?? "Target",
+                            label: selectedOutputMapTarget?.target_type ?? "Target",
+                            trend: `${selectedOutputMapTarget?.health_status ?? "Untested"} · ${selectedOutputMapTarget?.adapter ?? selectedOutputMapRoute.target_system}`,
+                            intent: selectedOutputMapTarget?.status === "Draft" ? "bad" : "good",
+                            icon: Database
+                          },
+                          {
+                            value: selectedOutputMapEnvironment?.name ?? "None",
+                            label: selectedOutputMapEnvironment?.role ?? "Environment",
+                            trend: selectedOutputMapEnvironment?.endpoint_url ? "Endpoint configured" : "Endpoint missing",
+                            intent: selectedOutputMapEnvironment?.endpoint_url ? "good" : "bad",
+                            icon: Gauge
+                          },
+                          {
+                            value: selectedOutputMapTemplate?.output_format ?? "Template",
+                            label: selectedOutputMapTemplate?.destination_method ?? "Output Template",
+                            trend: selectedOutputMapTemplate?.name ?? selectedOutputMapRoute.output_template,
+                            intent: selectedOutputMapTemplate?.status === "Active" ? "good" : "bad",
+                            icon: Braces
+                          },
+                          {
+                            value: `${routeMappedCount}/${routeProductMappings.length}`,
+                            label: "Mapped Keys",
+                            trend: routeBlockingCount
+                              ? `${routeBlockingCount} need ${selectedOutputMapRoute.product_identifier_label}`
+                              : `${routePreloadedCount} preloaded · ${routeSeenExampleCount} seen`,
+                            intent: routeBlockingCount ? "bad" : "good",
+                            icon: routeBlockingCount ? AlertTriangle : CheckCircle2
+                          }
+                        ].map(({ value, label, trend, intent, icon: Icon }) => (
+                          <div className="metric-card" key={label}>
+                            <div className="metric-icon">
+                              <Icon size={20} />
+                            </div>
+                            <div>
+                              <strong>{value}</strong>
+                              <span>{label}</span>
+                              <small className={intent === "bad" ? "trend-bad" : "trend-good"}>{trend}</small>
+                            </div>
+                          </div>
+                        ))}
+                      </section>
+
+                      </details>
                       <button
                         className="secondary-button"
                         onClick={() => {
@@ -14347,6 +14355,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <Search size={16} />
                       <input
                         value={unitMapSearch}
+                        aria-label="Search output product mappings"
                         placeholder="Search key, source value, route identifier, or product"
                         onChange={(event) => setUnitMapSearch(event.target.value)}
                       />
@@ -14463,6 +14472,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </div>
                   ) : null}
 
+                  <details className="pf-catalog-shortcuts">
+                    <summary>Pinned catalog shortcuts · {routeCatalogPresets.length} saved</summary>
                   <div className="catalog-preset-strip">
                     <div>
                       <span>Pinned Lift Catalogs</span>
@@ -14502,6 +14513,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       Manage Catalogs
                     </button>
                   </div>
+                  </details>
 
                   {openProductMapTool === "preload" ? (
                     <div
@@ -15390,7 +15402,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </aside>
                   ) : null}
 
-                  <div className="unit-map-bulkbar">
+                  {selectedUnitMappings.length > 0 ? <div className="unit-map-bulkbar">
                     <div className="unit-map-bulk-intro">
                       <strong>Bulk actions · {selectedUnitMappings.length} selected</strong>
                       <span>
@@ -15460,9 +15472,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         )}
                       </div>
                     </div>
-                  </div>
+                  </div> : null}
 
-                  <div className="unit-map-table-wrap">
+                  <div className="unit-map-table-wrap" tabIndex={0} role="region" aria-label="Output product mappings">
                     <table className="unit-map-table">
                       <thead>
                         <tr>
@@ -15531,6 +15543,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 <input
                                   className="table-input"
                                   value={draft.unit}
+                                  aria-label={`Product identifier for ${mapping.customer_product_key}`}
                                   placeholder={outputIdentifierPlaceholder(selectedOutputMapRoute)}
                                   onChange={(event) =>
                                     setProductMappingDrafts((current) => ({
@@ -15547,6 +15560,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 <input
                                   className="table-input"
                                   value={draft.product}
+                                  aria-label={`Product name for ${mapping.customer_product_key}`}
+                                  title={draft.product}
                                   placeholder="Lift product name"
                                   onChange={(event) =>
                                     setProductMappingDrafts((current) => ({
@@ -15580,6 +15595,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         })}
                       </tbody>
                     </table>
+                    {selectedUnitMappings.length === 0 ? <p className="pf-map-selection-hint">Select rows for bulk actions. Use Map Product for an individual assignment.</p> : null}
                     {filteredProductMappings.length === 0 ? (
                       <p className="empty-state">
                         {isMigrationQueueActive
@@ -15631,89 +15647,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   ))}
                 </section>
 
-                <section className="submit-readiness-grid" aria-label="Submit readiness audit">
-                  {submitReadinessCards.map((card) => (
-                    <article className={`submit-readiness-card submit-readiness-${card.status.toLowerCase()}`} key={card.label}>
-                      <div>
-                        <span>{card.label}</span>
-                        <strong>{card.value}</strong>
-                      </div>
-                      <p>{card.detail}</p>
-                      {card.action ? (
-                        <button className="certification-action" onClick={card.action} type="button">
-                          {card.actionLabel}
-                        </button>
-                      ) : null}
-                    </article>
-                  ))}
-                </section>
-
-                <section className="panel submit-preflight-panel">
-                  <PanelHeader
-                    icon={ShieldCheck}
-                    title="Lift Submit Preflight"
-                    detail={
-                      submitPreflightBlockedCount
-                        ? `${submitPreflightBlockedCount} blocker${submitPreflightBlockedCount === 1 ? "" : "s"}`
-                        : submitPreflightWarningCount
-                          ? `${submitPreflightWarningCount} review item${submitPreflightWarningCount === 1 ? "" : "s"}`
-                          : "Ready"
-                    }
-                  />
-                  <div className="submit-preflight-body">
-                    <div className="submit-preflight-intro">
-                      <strong>
-                        {submitPreflightBlockedCount
-                          ? "Submit test is not clear yet."
-                          : submitPreflightWarningCount
-                            ? "Submit test is technically clear, with review items."
-                            : "Submit test is clear from Pathfinder."}
-                      </strong>
-                      <span>
-                        {activeRouteIsProd && selectedSubmitProfile.mode === "sandbox_customer"
-                          ? prodSandboxSubmitConfirmed
-                            ? "PROD endpoint with sandbox customer is confirmed for this preview."
-                            : "PROD endpoint with sandbox customer is allowed here, but should be confirmed before clicking Submit."
-                          : "Use this check before the real Lift submit so the setup and payload are visible in one place."}
-                      </span>
-                      {prodSandboxConfirmationRequired ? (
-                        <label className="prod-sandbox-confirmation">
-                          <input
-                            type="checkbox"
-                            checked={prodSandboxSubmitConfirmed}
-                            onChange={(event) =>
-                              setConfirmedProdSandboxSubmitKey(event.target.checked ? prodSandboxConfirmationKey : null)
-                            }
-                          />
-                          <span>
-                            <strong>Confirm PROD sandbox lane</strong>
-                            <small>Use PROD endpoint, but submit this test under LTL Demo / 1249.</small>
-                          </span>
-                        </label>
-                      ) : null}
-                    </div>
-                    <div className="submit-preflight-items">
-                      {submitPreflightItems.map((item) => (
-                        <article className={`submit-preflight-item submit-preflight-${item.status.toLowerCase()}`} key={item.label}>
-                          <span>{item.label}</span>
-                          <strong>{item.value}</strong>
-                          <em>{item.detail}</em>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="panel-footer-row">
-                    <span>
-                      Export includes masked headers, canonical order, Lift payload, validation, product resolution, route, environment, and last attempt.
-                    </span>
-                    <button className="secondary-button" onClick={downloadSubmitPacket} type="button">
-                      <FileText size={16} />
-                      Download Submit Packet
-                    </button>
-                  </div>
-                </section>
-
-                <section className="manual-import-grid">
+                <div className="pf-manual-context" role="status"><strong>{activeOutputRoute.name} · {activeRouteEnvironmentLabel}</strong><span>{submitCertification.summary}</span><span>{submitPreflightBlockedCount} preflight blockers · {submitCertificationBlockingCount} certification blockers</span></div>
+                <section className="pf-manual-task-grid" aria-label="Load and validate order source">
                   <div className="panel upload-panel">
                     <PanelHeader icon={FileSpreadsheet} title="1. Upload Order Source" detail={sheetName} />
                     <div className="manual-import-basis">
@@ -15912,6 +15847,94 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       ))}
                     </div>
                   </div>
+                </section>
+                <details className="pf-readiness-details"><summary>Submission readiness details · {submitCertificationBlockingCount} certification blockers</summary>
+                <section className="submit-readiness-grid" aria-label="Submit readiness audit">
+                  {submitReadinessCards.map((card) => (
+                    <article className={`submit-readiness-card submit-readiness-${card.status.toLowerCase()}`} key={card.label}>
+                      <div>
+                        <span>{card.label}</span>
+                        <strong>{card.value}</strong>
+                      </div>
+                      <p>{card.detail}</p>
+                      {card.action ? (
+                        <button className="certification-action" onClick={card.action} type="button">
+                          {card.actionLabel}
+                        </button>
+                      ) : null}
+                    </article>
+                  ))}
+                </section>
+
+                </details>
+
+                <section className="panel submit-preflight-panel">
+                  <PanelHeader
+                    icon={ShieldCheck}
+                    title="Lift Submit Preflight"
+                    detail={
+                      submitPreflightBlockedCount
+                        ? `${submitPreflightBlockedCount} blocker${submitPreflightBlockedCount === 1 ? "" : "s"}`
+                        : submitPreflightWarningCount
+                          ? `${submitPreflightWarningCount} review item${submitPreflightWarningCount === 1 ? "" : "s"}`
+                          : "Ready"
+                    }
+                  />
+                  <div className="submit-preflight-body">
+                    <div className="submit-preflight-intro">
+                      <strong>
+                        {submitPreflightBlockedCount
+                          ? "Submit test is not clear yet."
+                          : submitPreflightWarningCount
+                            ? "Submit test is technically clear, with review items."
+                            : "Submit test is clear from Pathfinder."}
+                      </strong>
+                      <span>
+                        {activeRouteIsProd && selectedSubmitProfile.mode === "sandbox_customer"
+                          ? prodSandboxSubmitConfirmed
+                            ? "PROD endpoint with sandbox customer is confirmed for this preview."
+                            : "PROD endpoint with sandbox customer is allowed here, but should be confirmed before clicking Submit."
+                          : "Use this check before the real Lift submit so the setup and payload are visible in one place."}
+                      </span>
+                      {prodSandboxConfirmationRequired ? (
+                        <label className="prod-sandbox-confirmation">
+                          <input
+                            type="checkbox"
+                            checked={prodSandboxSubmitConfirmed}
+                            onChange={(event) =>
+                              setConfirmedProdSandboxSubmitKey(event.target.checked ? prodSandboxConfirmationKey : null)
+                            }
+                          />
+                          <span>
+                            <strong>Confirm PROD sandbox lane</strong>
+                            <small>Use PROD endpoint, but submit this test under LTL Demo / 1249.</small>
+                          </span>
+                        </label>
+                      ) : null}
+                    </div>
+                    <div className="submit-preflight-items">
+                      {submitPreflightItems.map((item) => (
+                        <article className={`submit-preflight-item submit-preflight-${item.status.toLowerCase()}`} key={item.label}>
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                          <em>{item.detail}</em>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="panel-footer-row">
+                    <span>
+                      Export includes masked headers, canonical order, Lift payload, validation, product resolution, route, environment, and last attempt.
+                    </span>
+                    <button className="secondary-button" onClick={downloadSubmitPacket} type="button">
+                      <FileText size={16} />
+                      Download Submit Packet
+                    </button>
+                  </div>
+                </section>
+
+                <section className="manual-import-grid pf-manual-review-grid">
+
 
                   <div className="panel request-panel">
                     <PanelHeader
@@ -16322,15 +16345,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </div>
                   </div>
 
-                  <div className="panel code-panel">
-                    <PanelHeader icon={Braces} title="Canonical Order" detail="Platform contract" />
+                  <details className="panel code-panel pf-raw-evidence">
+                    <summary>Canonical Order <span>Platform contract</span></summary>
                     <pre>{formatJson(displayedCanonicalOrder)}</pre>
-                  </div>
+                  </details>
 
-                  <div className="panel code-panel">
-                    <PanelHeader icon={Braces} title="Lift Payload" detail="Body + headers" />
+                  <details className="panel code-panel pf-raw-evidence">
+                    <summary>Lift Payload <span>Body + headers</span></summary>
                     <pre>{formatJson({ headers: displayedSubmitRequest.headers, body: displayedLiftPayload })}</pre>
-                  </div>
+                  </details>
                 </section>
               </>
             ) : null}

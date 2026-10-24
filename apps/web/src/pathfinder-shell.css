@@ -1,4 +1,113 @@
 /* Shared Admin shell only. Public Proof/Status and legacy opt-out are untouched. */
+/* Customer workflow composition. No global form or public-app overrides. */
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) {--pf-work-border:#d8dfd3}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) .panel {box-shadow:none;border-color:var(--pf-work-border);border-radius:6px}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) :is(.panel-header,.table-panel-header) {min-height:48px;padding:12px 16px;gap:12px;flex-wrap:wrap}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) .table-panel-header .panel-header {padding:0;min-height:0}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) h2 {font-size:16px;color:#39523b}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) :is(td,input,select,textarea) {font-size:14px;font-weight:500}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) :is(th,.cell-meta,.setup-control>span,.panel-header>span) {font-size:12px}
+.pf-shell [data-customer-view="Overview"] .metric-strip {gap:12px;margin:0 0 12px}
+.pf-shell .pf-customer-data-notice {padding:10px 12px;margin:0 0 12px;border-left:3px solid #abc65f;background:#f8faf5;font-size:12px;color:#39523b}
+.pf-shell .pf-workflow-feedback {margin:0 0 12px;font-size:14px;padding:10px 12px}
+.pf-shell [data-customer-view="Overview"] .metric-card {min-height:88px;padding:12px 16px;grid-template-columns:28px minmax(0,1fr);gap:12px;box-shadow:none;border-radius:6px}
+.pf-shell [data-customer-view="Overview"] .metric-icon {width:28px;height:28px;border-radius:5px}
+.pf-shell [data-customer-view="Overview"] .metric-card strong {font-size:24px;line-height:1.2}
+.pf-shell [data-customer-view="Overview"] .metric-card :is(span,small) {font-size:12px;line-height:1.4;margin-top:4px}
+.pf-shell [data-customer-view="Overview"] .metric-card small {font-weight:500;color:#687563}
+.pf-shell [data-customer-view="Overview"] .metric-card small.trend-bad {color:#8b601d}
+.pf-shell [data-customer-view="Overview"] .customer-overview {grid-template-columns:minmax(260px,.8fr) minmax(0,1.5fr);gap:12px;margin-bottom:12px;align-items:start}
+.pf-shell [data-customer-view="Overview"] .customer-detail-grid {padding:12px 16px;gap:12px}
+.pf-shell [data-customer-view="Overview"] .customer-detail-grid>div {padding:0;border:0;min-width:0}
+.pf-shell [data-customer-view="Overview"] :is(dd,.target-identity strong,.target-identity span) {white-space:normal;overflow-wrap:anywhere;overflow:visible;text-overflow:clip;font-size:14px}
+.pf-shell [data-customer-view="Overview"] :is(dt,.panel-header>span) {font-size:12px}
+.pf-shell [data-customer-view="Overview"] .primary-target-body {padding:10px 16px;gap:8px}
+.pf-shell [data-customer-view="Overview"] .target-identity {gap:10px;margin:0 0 8px}
+.pf-shell [data-customer-view="Overview"] .target-logo {width:36px;height:30px;font-size:12px}
+.pf-shell [data-customer-view="Overview"] .target-summary {display:grid;grid-template-columns:.5fr 1fr 1.4fr;gap:12px;margin:0}
+.pf-shell [data-customer-view="Overview"] .target-summary>div {padding:0;border:0;display:block;min-width:0;grid-column:auto}
+.pf-shell [data-customer-view="Overview"] .target-summary dd {margin:4px 0 0}
+.pf-shell [data-customer-view="Overview"] .overview-grid {gap:12px}
+.pf-shell [data-customer-view="Overview"] .jobs-panel {overflow:auto}
+.pf-shell [data-customer-view="Overview"] .customer-recent-jobs-table {min-width:1040px}
+.pf-shell [data-customer-view="Overview"] .customer-recent-jobs-table td {padding:10px 12px;vertical-align:top}
+.pf-shell [data-customer-view="Overview"] .job-identity-cell small {font-size:12px}
+.pf-shell :is(.pf-customer-record-details,.pf-readiness-details,.pf-route-diagnostics)>summary {cursor:pointer;padding:12px 16px;font-size:14px;color:#39523b;font-weight:800}
+.pf-shell :is(.pf-customer-record-details,.pf-readiness-details,.pf-route-diagnostics)>summary:focus-visible {outline:2px solid #39523b;outline-offset:-3px}
+.pf-shell .pf-route-diagnostics {min-width:0}
+.pf-shell .pf-route-diagnostics>summary {padding:6px 0;font-size:12px}
+.pf-shell .pf-route-diagnostics>summary span {display:block;margin:4px 0 0 14px;font-size:12px;font-weight:500}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-panel-header {flex-wrap:wrap;gap:8px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-header-actions {flex-wrap:wrap;gap:12px}
+.pf-shell .pf-route-diagnostics[open] {flex-basis:100%}
+.pf-shell :is(.pf-catalog-shortcuts,.pf-raw-evidence)>summary {cursor:pointer;padding:10px 16px;font-size:14px;font-weight:800;color:#39523b}
+.pf-shell :is(.pf-catalog-shortcuts,.pf-raw-evidence)>summary:focus-visible {outline:2px solid #39523b;outline-offset:-3px}
+.pf-shell .pf-catalog-shortcuts>summary {font-size:12px;font-weight:500}
+.pf-shell .pf-raw-evidence>summary span {margin-left:12px;font-size:12px;font-weight:500;color:#687563}
+.pf-shell [data-customer-view="Manual Import"] .workbench {grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+.pf-shell [data-customer-view="Manual Import"] .source-panel {grid-column:1/-1}
+.pf-shell .pf-raw-evidence pre {max-height:360px;overflow:auto}
+.pf-shell .pf-route-diagnostics .unit-map-metrics {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;padding:0 16px;margin:0 0 12px}
+.pf-shell .pf-route-diagnostics .metric-card {display:block;min-height:0;padding:8px 12px;border:0;border-left:1px solid #d8dfd3;border-radius:0;background:none;box-shadow:none}
+.pf-shell .pf-route-diagnostics .metric-icon {display:none}
+.pf-shell .pf-route-diagnostics .metric-card strong {font-size:14px;overflow-wrap:anywhere}
+.pf-shell .pf-route-diagnostics .metric-card :is(span,small) {font-size:12px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-toolbar {padding:12px 16px;gap:12px}
+.pf-shell [data-customer-view="Output Product Map"] .output-route-context {padding:10px 16px;gap:12px}
+.pf-shell [data-customer-view="Output Product Map"] .output-route-context>div {padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+.pf-shell [data-customer-view="Output Product Map"] .output-route-context :is(span,strong) {white-space:normal;overflow-wrap:anywhere;font-size:12px}
+.pf-shell [data-customer-view="Output Product Map"] .catalog-preset-strip {padding:10px 16px}
+.pf-shell .pf-map-selection-hint {margin:0;padding:8px 16px;font-size:12px;color:#687563;border-bottom:1px solid #d8dfd3}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-bulkbar {padding:12px 16px;gap:8px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table td {padding:10px 12px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table {table-layout:fixed;width:100%;min-width:1050px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td) {min-width:0;white-space:normal;overflow-wrap:anywhere;padding:10px 8px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(1) {width:3%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(2) {width:9%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(3) {width:11%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(4) {width:20%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):is(:nth-child(5),:nth-child(6)) {width:6%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(7) {width:12%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(8) {width:14%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(9) {width:6%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(10) {width:13%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(strong,.cell-meta) {white-space:normal;overflow-wrap:anywhere;overflow:visible;text-overflow:clip}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table .table-input {min-width:0;width:100%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table-wrap:focus-visible {outline:2px solid #39523b;outline-offset:-2px}
+.pf-shell [data-customer-view="Import Methods"] :is(.method-row,.method-table-header) {font-size:12px}
+.pf-shell [data-customer-view="Import Methods"] .method-select-area {font-size:14px}
+.pf-shell [data-customer-view="Import Methods"] .method-select-area {padding:10px 0}
+.pf-shell [data-customer-view="Import Methods"] .method-select-area strong {font-size:14px;line-height:1.45}
+.pf-shell [data-customer-view="Import Methods"] .method-select-area>span {font-size:14px;white-space:normal;overflow-wrap:anywhere;overflow:visible;text-overflow:clip}
+.pf-shell [data-customer-view="Import Methods"] .method-select-area .pill {font-size:12px}
+.pf-shell [data-customer-view="Import Methods"] :is(.method-identity strong,.method-name strong) {font-size:14px;white-space:normal;overflow-wrap:anywhere}
+.pf-shell [data-customer-view="Import Methods"] .method-step-strip {padding:10px 16px;gap:8px}
+.pf-shell [data-customer-view="Import Methods"] .setup-panel {padding:16px}
+.pf-shell [data-customer-view="Import Methods"] .setup-grid {gap:12px 16px}
+.pf-shell [data-customer-view="Manual Import"] .manual-flow-guide {margin:0 0 12px;gap:8px}
+.pf-shell [data-customer-view="Manual Import"] .manual-flow-step {min-height:64px;padding:10px 12px;gap:10px}
+.pf-shell [data-customer-view="Manual Import"] .manual-flow-step strong {font-size:14px}
+.pf-shell [data-customer-view="Manual Import"] .manual-flow-step small {font-size:12px;line-height:1.5}
+.pf-shell .pf-manual-context {display:flex;flex-wrap:wrap;gap:6px 16px;border-left:3px solid #abc65f;background:#f8faf5;padding:10px 12px;margin-bottom:12px;font-size:12px}
+.pf-shell .pf-manual-context>strong {flex-basis:100%;font-size:14px}
+.pf-shell .pf-manual-task-grid {display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,1fr);gap:12px;margin-bottom:12px;align-items:start}
+.pf-shell .pf-manual-task-grid>.panel {grid-area:auto;min-width:0}
+.pf-shell .pf-manual-task-grid .validation-list {max-height:430px;overflow:auto}
+.pf-shell .pf-manual-task-grid .manual-import-basis {padding:12px 16px}
+.pf-shell .pf-manual-task-grid .drop-zone {margin:12px 16px;min-height:100px;padding:16px}
+.pf-shell .pf-manual-task-grid .action-row {gap:8px;flex-wrap:wrap;padding:12px 16px}
+.pf-shell .pf-manual-task-grid .submit-profile-grid {gap:12px}
+.pf-shell .pf-manual-task-grid .submit-profile-grid>div {min-width:0}
+.pf-shell .pf-manual-task-grid .submit-profile-grid :is(strong,em) {white-space:normal;overflow-wrap:anywhere;font-size:12px}
+.pf-shell .pf-readiness-details {border:1px solid #d8dfd3;border-radius:6px;margin-bottom:12px}
+.pf-shell .pf-readiness-details .submit-readiness-grid {padding:0 12px 12px;margin:0;gap:12px}
+.pf-shell [data-customer-view="Manual Import"] .pf-manual-review-grid {grid-template-columns:minmax(280px,1fr) minmax(0,1.5fr);grid-template-areas:"target certification";gap:12px;margin:12px 0}
+.pf-shell [data-customer-view="Manual Import"] .request-panel dd {white-space:normal;overflow-wrap:anywhere}
+@media(max-width:1050px){
+ .pf-shell [data-customer-view="Overview"] .customer-overview,.pf-shell .pf-manual-task-grid,.pf-shell [data-customer-view="Manual Import"] .pf-manual-review-grid {grid-template-columns:minmax(0,1fr);grid-template-areas:none}
+ .pf-shell [data-customer-view="Manual Import"] .pf-manual-review-grid>.panel {grid-area:auto}
+ .pf-shell .pf-route-diagnostics .unit-map-metrics {grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 .pf-shell .pf-proof-queue{display:block}
 .pf-shell .pf-proof-queue .ops-tabs{display:flex;gap:22px;margin:0 0 12px;min-height:38px}
 .pf-shell .pf-proof-queue .ops-tabs button{font-size:13px;padding:8px 0;white-space:nowrap;font-weight:500}

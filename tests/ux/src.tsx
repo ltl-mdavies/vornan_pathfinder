@@ -10,6 +10,35 @@ import { compactCatalogPilotProducts } from "../../apps/web/src/artwork-catalog/
 // Actual App with an in-memory HTTP boundary. Never fall through to a real API.
 const configured = new Set(["284619","174094","1249"]);
 const query = new URLSearchParams(location.search);
+// Opt-in density/data variants for the existing customer setup workflows.
+// These records live only in this module; mutation requests still return423.
+if (query.has("customerWorkflows")) {
+  for (const workspace of Object.values(fixtures.workspaces)) {
+    if (workspace.import_methods.some(method => method.import_method_id === "qa-paused-method")) continue;
+    const method = workspace.import_methods[0];
+    workspace.import_methods.push(
+      {...structuredClone(method), import_method_id:"qa-paused-method", name:"Seasonal retail display order spreadsheet — regional locations and extended product names", status:"Paused"},
+      {...structuredClone(method), import_method_id:"qa-draft-method", name:"New workbook configuration", status:"Draft"}
+    );
+    const route = workspace.output_routes[0];
+    (workspace.product_mappings as unknown[]).push(...Array.from({length:12}, (_, index) => {
+      const status = (["Mapped", "Unmapped", "Ambiguous", "Inactive"] as const)[index % 4];
+      const identifier = status === "Mapped" ? String(360000 + index) : null;
+      return {
+        mapping_id:`qa-mapping-${workspace.customer.lift_customer_id}-${index}`,
+        output_route_id:route.output_route_id, target_id:route.target_id, target_template:route.output_template,
+        source_scope_id:null, customer_product_key:`QA_PRODUCT_${index + 1}`,
+        display_label:index === 0 ? "LP 60 FV Front Bottom (Aligned) — 25.5 × 77 — 3M IJ35C — Summer promotion, extended regional artwork title" : `Window graphic — location ${index + 1}`,
+        source_columns:["Product Name"], product_identifier_type:route.product_identifier_type,
+        product_identifier_value:identifier, lift_product_id:identifier, lift_unit_number:null,
+        product_name:identifier ? "Synthetic Lift product — long production description" : null,
+        status, mapping_source:index % 2 ? "Observed order" : "Preloaded catalog", source_file_name:"QA product list.xlsx",
+        last_seen_examples:[{sheet_name:"Order",row_number:index+2,final_width:"25.5",final_height:"77"}],
+        created_at:"2026-10-23T17:30:00Z", updated_at:"2026-10-23T17:30:00Z"
+      };
+    }));
+  }
+}
 // Test-only deterministic disk-read delay for processing focus and late completion.
 // The real analyzer still receives the original bytes; no production hook is added.
 let interruptCatalog: (() => void) | undefined;
