@@ -91,3 +91,20 @@ test("Target health describes the existing diagnostics rather than claiming unco
   assert.match(source, /No customer route is configured; readiness has not been established/);
   assert.doesNotMatch(source, /Route diagnostics are passing/);
 });
+
+test("Governance failed reads stay scoped, focus the error and offer a retry of the exact snapshot", () => {
+  const open = section('async function openCanonicalSnapshot', 'async function loadLiftUnitCatalog');
+  assert.match(open, /setCanonicalSnapshotError\(null\)/);
+  assert.match(open, /setCanonicalSnapshotError\(\{ snapshotId, message:/);
+  assert.doesNotMatch(open, /setWorkspaceMessage/);
+  const governance = section('<section className="panel canonical-governance-panel"', '<section className="panel canonical-registry-panel"');
+  assert.match(governance, /ref=\{canonicalSnapshotErrorRef\} tabIndex=\{-1\}.*role="alert"/);
+  assert.match(governance, /openCanonicalSnapshot\(canonicalSnapshotError.snapshotId\)/);
+  assert.match(governance, /Retry snapshot/);
+});
+
+test("opening another import method clears feedback from the previous record", () => {
+  const open = section('function openImportMethodDetail', 'function createDraftImportMethod');
+  assert.match(open, /setWorkspaceMessage\(null\)/);
+  assert.match(source, /setIsImportMethodDetailOpen\(false\); setWorkspaceMessage\(null\)/);
+});

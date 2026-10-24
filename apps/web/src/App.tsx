@@ -4760,6 +4760,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [selectedCanonicalSnapshot, setSelectedCanonicalSnapshot] = useState<CanonicalRegistrySnapshotDetail | null>(null);
   const [canonicalSnapshotCompare, setCanonicalSnapshotCompare] = useState<CanonicalRegistrySnapshotCompare | null>(null);
   const [canonicalSnapshotState, setCanonicalSnapshotState] = useState<"idle" | "loading" | "error">("idle");
+  const [canonicalSnapshotError, setCanonicalSnapshotError] = useState<{ snapshotId: string; message: string } | null>(null);
+  const canonicalSnapshotErrorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (canonicalSnapshotError && activeGlobalView === "Settings" && (!operationsShell || activeSettingsSection === "Governance")) {
+      canonicalSnapshotErrorRef.current?.focus();
+    }
+  }, [canonicalSnapshotError]);
   const [canonicalFieldDraft, setCanonicalFieldDraft] = useState<{
     path: string;
     label: string;
@@ -5770,6 +5777,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   async function openCanonicalSnapshot(snapshotId: string) {
     setCanonicalSnapshotState("loading");
+    setCanonicalSnapshotError(null);
     setSelectedCanonicalSnapshot(null);
     setCanonicalSnapshotCompare(null);
     try {
@@ -5783,7 +5791,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setCanonicalSnapshotCompare(comparePayload);
       setCanonicalSnapshotState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical snapshot load failed.");
+      setCanonicalSnapshotError({ snapshotId, message: error instanceof Error ? error.message : "Canonical snapshot load failed." });
       setCanonicalSnapshotState("error");
     }
   }
@@ -10377,6 +10385,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   function openImportMethodDetail(method: ImportMethod) {
+    setWorkspaceMessage(null);
     setActiveMethodId(method.import_method_id);
     setMappings(method.mappings);
     applyImportMethodSourceContext(method);
@@ -11581,7 +11590,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         ) : null}
                         <button
                           className="secondary-button table-header-action"
-                          onClick={() => requestGuardedNavigation(() => setIsImportMethodDetailOpen(false))}
+                          onClick={() => requestGuardedNavigation(() => { setIsImportMethodDetailOpen(false); setWorkspaceMessage(null); })}
                         >
                           <ArrowLeft size={15} />
                           All Import Methods
@@ -19598,6 +19607,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
                 <span>Version snapshots and recent field-contract changes</span>
               </div>
+              {canonicalSnapshotError ? (
+                <div ref={canonicalSnapshotErrorRef} tabIndex={-1} className="import-error pf-canonical-feedback" role="alert">
+                  <strong>Snapshot unavailable. </strong>{canonicalSnapshotError.message}{" "}
+                  <button type="button" className="secondary-button table-inline-button" onClick={() => void openCanonicalSnapshot(canonicalSnapshotError.snapshotId)}>Retry snapshot</button>
+                </div>
+              ) : null}
               <div className="canonical-governance-grid">
                 <div className="canonical-governance-summary">
                   <span>Latest Snapshot</span>
