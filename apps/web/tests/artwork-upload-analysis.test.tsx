@@ -42,12 +42,12 @@ function jpegFile(width: number, height: number): File {
   return new File([bytes], "sample.jpg", { type: "image/jpeg" });
 }
 
-function pdfFile(): File {
+function pdfFile(pageCount = 2): File {
   const source = `%PDF-1.7
 1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
-2 0 obj << /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >> endobj
+2 0 obj << /Type /Pages /Count ${pageCount} /Kids [3 0 R${pageCount > 1 ? " 4 0 R" : ""}] >> endobj
 3 0 obj << /Type /Page /MediaBox [0 0 10368 2160] /TrimBox [0 0 10368 2160] /BleedBox [-9 -9 10377 2169] /ColorSpace /DeviceCMYK >> endobj
-4 0 obj << /Type /Page /MediaBox [0 0 10368 2160] >> endobj
+${pageCount > 1 ? "4 0 obj << /Type /Page /MediaBox [0 0 432 720] >> endobj" : ""}
 %%EOF`;
   return new File([source], "sample.pdf", { type: "application/pdf" });
 }
@@ -113,16 +113,35 @@ test("reads JPEG dimensions from the file signature rather than the MIME label",
   assert.match(batch.items[0].result?.metrics.find((metric) => metric.label === "Color")?.value ?? "", /RGB/);
 });
 
-test("extracts PDF page boxes, page count, color evidence, and bleed without inventing effective DPI", async () => {
-  const batch = await analyzeArtworkUpload(pdfFile(), spec, { ...deterministicOptions, createId: () => "pdf" });
+test("extracts single-page PDF boxes without inventing effective DPI", async () => {
+  const batch = await analyzeArtworkUpload(pdfFile(1), spec, { ...deterministicOptions, createId: () => "pdf" });
   const result = batch.items[0].result;
   assert.equal(batch.items[0].mediaType, "pdf");
   assert.equal(result?.pages[0].mediaType, "pdf");
-  assert.equal(result?.metrics.find((metric) => metric.label === "Pages")?.value, "2");
+  assert.equal(result?.metrics.find((metric) => metric.label === "Pages")?.value, "1");
   assert.equal(result?.metrics.find((metric) => metric.label === "Trim")?.value, "144 × 30 in");
   assert.equal(result?.metrics.find((metric) => metric.label === "Bleed")?.value, "At least 0.125 in");
   assert.equal(result?.metrics.find((metric) => metric.label === "Effective DPI")?.value, "Indeterminate");
   assert.match(result?.findings.map((finding) => finding.id).join(",") ?? "", /dpi-indeterminate/);
+});
+
+test("multipage PDFs disclose partial coverage and do not apply one page's geometry across the document", async () => {
+  const batch = await analyzeArtworkUpload(pdfFile(), spec, deterministicOptions);
+  const result = batch.items[0].result!;
+  assert.equal(result.pages.length, 1);
+  assert.equal(result.metrics.find(metric => metric.label === "Pages")?.value, "2");
+  for (const label of ["Dimensions", "Trim", "Bleed", "Color"]) {
+    const metric = result.metrics.find(metric => metric.label === label);
+    assert.ok(metric, `${label} metric is present`);
+    assert.equal(metric.value, "Indeterminate");
+  }
+  assert.equal(result.verdict, "review");
+  assert.equal(result.verdictDetail, "Partial PDF check");
+  assert.match(result.verdictSummary, /Other pages are not previewed or individually inspected/);
+  const markup = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={result} actions={{onBack:()=>{},onDownloadReport:()=>{},onOpenAnalyzedArtwork:()=>{}}}/>);
+  assert.match(markup, /of 2 · Preview only/);
+  assert.match(markup, /Aspect match<\/dt><dd>Indeterminate<\/dd>/);
+  assert.doesNotMatch(markup, /inspection-detail-pass">PASS/);
 });
 
 test("fails closed for unsupported or oversized input", async () => {
@@ -132,6 +151,7 @@ test("fails closed for unsupported or oversized input", async () => {
   assert.equal(batch.items[0].result?.verdict, "needs-work");
   assert.equal(batch.items[0].result?.findings[0].category, "File integrity");
   assert.equal(batch.items[0].result?.pages[0].previewUnavailable, true);
+  assert.match(batch.items[0].result?.verdictSummary ?? "", /file could not be validated/);
   const markup = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={batch.items[0].result!} actions={{ onBack: () => undefined, onDownloadReport: () => undefined, onOpenAnalyzedArtwork: () => undefined }} />);
   assert.match(markup, /Aspect match<\/dt><dd>Indeterminate<\/dd>/);
   assert.match(markup, /Artwork preview unavailable/);

@@ -351,8 +351,6 @@ export async function analyzeArtworkUpload(
   const sha256 = await sha256Hex(bytes);
   progress("inspecting", "Inspecting file structure and product fit");
   const parsed = detectAndParse(bytes);
-  const findings = buildFindings(parsed, spec);
-  const verdict = verdictFor(findings);
   const createObjectUrl = options.createObjectUrl ?? ((blob: Blob) => typeof URL !== "undefined" && "createObjectURL" in URL ? URL.createObjectURL(blob) : "");
   let objectUrl = parsed.mediaType === "pdf" ? "" : createObjectUrl(file);
   let previewWidth = parsed.pixelWidth ?? Math.max(1, Math.round((parsed.pageWidthInches ?? spec.finishedWidthInches) * 72));
@@ -373,6 +371,19 @@ export async function analyzeArtworkUpload(
     }
   }
   if (!objectUrl) objectUrl = createObjectUrl(file);
+  // Text-level PDF metadata cannot establish each page's geometry or color.
+  // The local renderer supplies only page 1, not a document-wide inspection.
+  const partialPdf = parsed.mediaType === "pdf" && parsed.pageCount !== 1;
+  if (partialPdf) {
+    parsed.pageWidthInches = null;
+    parsed.pageHeightInches = null;
+    parsed.colorSpace = null;
+    parsed.trimLabel = "Indeterminate";
+    parsed.bleedLabel = "Indeterminate";
+    parsed.bleedCompatible = null;
+  }
+  const findings = buildFindings(parsed, spec);
+  const verdict = verdictFor(findings);
   const page: InspectionPage = {
     pageNumber: 1,
     label: "Page 1",
@@ -398,8 +409,12 @@ export async function analyzeArtworkUpload(
     completedAt: now().toISOString(),
     verdict,
     verdictLabel: verdict === "passed" ? "Passed" : verdict === "needs-work" ? "Needs work" : "Review",
-    verdictDetail: parsed.integrityValid ? "Local technical check" : "File integrity issue",
-    verdictSummary: verdict === "passed"
+    verdictDetail: !parsed.integrityValid ? "File integrity issue" : partialPdf ? "Partial PDF check" : "Local technical check",
+    verdictSummary: !parsed.integrityValid
+      ? "The file could not be validated. Replace it with a valid file before reviewing technical evidence. This does not activate artwork or change Proof approval."
+      : partialPdf
+      ? "Page 1 preview only. Other pages are not previewed or individually inspected. Page dimensions, color and bleed require separate verification across the document. This does not activate artwork or change Proof approval."
+      : verdict === "passed"
       ? "The available browser-local checks passed. This does not activate artwork or change Proof approval."
       : "Review the available technical evidence before production. This does not activate artwork or change Proof approval.",
     policyRevision: "local-v0.1",

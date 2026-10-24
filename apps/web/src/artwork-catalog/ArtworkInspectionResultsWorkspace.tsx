@@ -304,6 +304,7 @@ export function ArtworkInspectionResultsWorkspace({
   const trim = metricValue(result, "Trim") ?? selectedPage.dimensions;
   const bleed = metricValue(result, "Bleed") ?? "Indeterminate";
   const pages = metricValue(result, "Pages") ?? String(result.pages.length);
+  const partialPdf = result.localAnalysis?.format === "PDF" && pages !== "1" && result.pages.length === 1;
   const fileSize = result.localAnalysis ? formatInspectionBytes(result.localAnalysis.byteSize) : metricValue(result, "File size") ?? "Not reported";
   const aspectWarning = result.findings.some((finding) => finding.category === "Specification");
   const aspectUnknown = detectedSize === "Indeterminate" || result.findings.some((finding) => finding.category === "File integrity" || finding.category === "Dimensions");
@@ -405,7 +406,7 @@ export function ArtworkInspectionResultsWorkspace({
               ) : null}
 
               <div className="inspection-artwork-stage">
-                <span className="inspection-canvas-label">Page {selectedPage.pageNumber} · {mode === "compare" ? "Compare" : mode.charAt(0).toUpperCase() + mode.slice(1)}</span>
+                <span className="inspection-canvas-label">Page {selectedPage.pageNumber}{partialPdf ? `${/^\d+$/.test(pages) ? ` of ${pages}` : ""} · Preview only` : ` · ${mode === "compare" ? "Compare" : mode.charAt(0).toUpperCase() + mode.slice(1)}`}</span>
                 {mode === "compare" ? (
                   <div className="inspection-compare-grid">
                     <div><strong>Original</strong><ArtworkPreview page={selectedPage} mode="original" zoom={zoom} findings={pageFindings} selectedFindingId={selectedFindingId} onSelectFinding={selectFinding} compact /></div>
