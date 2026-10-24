@@ -138,3 +138,11 @@ Candidate source: `ebadb04da883186e5593efcc45fb883b35644ed1`, isolated branch `c
 Coordination: original `codex/pathfinder-ux-shell` at `b771488` / port5210 remains frozen during UX's requested file/report test. The corrected candidate is on port5216. UX has been sent the regression results and asked for independent retest plus explicit safe-to-integrate disposition. Its chat was still waiting on a tool approval at this checkpoint; no independent full-workflow acceptance is claimed.
 
 Remaining gates are explicit: finish independent Catalog workflow review; perform deliberate slow-processing keyboard, native zoom and assistive-technology checks; integrate the correction only after the source hold is released; verify the then-current main and live build flags; prepare exact Admin-only resources/artifact hashes, rollback and authenticated smoke plan under the workspace deployment requirements; obtain release approval. Catalog remains the same restricted local-analysis pilot, not production catalog CRUD. No push, deployment, provider action or production configuration/data change occurred.
+
+## Local integration after UX source-hold release
+
+UX completed the held round trip on5210: an independently edited10×6inch/240DPI specification drove analysis of a192px PNG, reporting19.2 effectiveDPI. Returning from inspection restored focus to Check new artwork and retained Pump search, Needs work filter, Cards, selection, edited specification and current Version7/Approved. UX also completed the corrupt-report download; its report-file inspection and independent correction retest remain pending.
+
+After UX explicitly released the source hold, the clean `codex/pathfinder-ux-shell` branch fast-forwarded from `b771488` to `1252387`, incorporating the already-verified `ebadb04` correction without conflict or reimplementation. The isolated5216 worktree remains unchanged for the independent retest. This closes the local integration gate only; it is not final Catalog acceptance or deployment approval.
+
+Post-integration Admin tests192/192, Admin typecheck and diff whitespace check passed. The source is identical to the full1,325-test candidate; only this handoff record was subsequently amended.
