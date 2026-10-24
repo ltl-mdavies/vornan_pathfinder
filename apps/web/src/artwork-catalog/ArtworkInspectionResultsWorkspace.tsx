@@ -50,6 +50,7 @@ export type InspectionPage = Readonly<{
   heatmapPreviewUrl: string;
   heatmapPreviewAlt: string;
   mediaType?: "image" | "pdf";
+  previewUnavailable?: boolean;
 }>;
 
 export type ArtworkInspectionResultViewModel = Readonly<{
@@ -218,10 +219,12 @@ function ArtworkPreview({
 }>) {
   const previewRef = useRef<HTMLElement>(null);
   const [viewport, setViewport] = useState({ width: page.pixelWidth, height: page.pixelHeight });
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
   const heatmapVisible = mode === "heatmap";
   const markersVisible = mode === "heatmap" || mode === "findings";
   const imageUrl = heatmapVisible ? page.heatmapPreviewUrl : page.originalPreviewUrl;
   const imageAlt = heatmapVisible ? page.heatmapPreviewAlt : page.originalPreviewAlt;
+  const previewUnavailable = page.previewUnavailable || page.mediaType === "pdf" || !imageUrl || failedImageUrl === imageUrl;
   const fit = fitInspectionPreview(viewport, { width: page.pixelWidth, height: page.pixelHeight });
   const zoomScale = zoom / 100;
   const style = {
@@ -253,15 +256,15 @@ function ArtworkPreview({
       data-source-height={page.pixelHeight}
       data-fit-zoom={zoom}
     >
-      <div className="inspection-preview-content" style={style}>
-        {page.mediaType === "pdf" ? (
-          <div className="inspection-pdf-fallback" role="img" aria-label={imageAlt}>
+      <div className="inspection-preview-content" style={previewUnavailable ? { width: "100%", height: "100%", minHeight: 120 } : style}>
+        {previewUnavailable ? (
+          <div className="inspection-pdf-fallback" role="img" aria-label={page.mediaType === "pdf" ? "PDF preview unavailable" : "Artwork preview unavailable"}>
             <FileText size={34} aria-hidden="true" />
-            <strong>PDF preview unavailable</strong>
-            <span>The technical inspection results remain available without opening the browser PDF viewer.</span>
+            <strong>{page.mediaType === "pdf" ? "PDF preview unavailable" : "Artwork preview unavailable"}</strong>
+            <span>{page.mediaType === "pdf" ? "The technical inspection results remain available without opening the browser PDF viewer." : "This file could not be displayed. Review the inspection findings, then choose a complete PDF, PNG, or JPEG to check again. The current artwork is unchanged."}</span>
           </div>
-        ) : <img src={imageUrl} alt={imageAlt} />}
-        {markersVisible ? (
+        ) : <img src={imageUrl} alt={imageAlt} onError={() => setFailedImageUrl(imageUrl)} />}
+        {markersVisible && !previewUnavailable ? (
           <PreviewMarkers findings={findings} selectedFindingId={selectedFindingId} onSelectFinding={onSelectFinding} />
         ) : null}
       </div>
@@ -303,6 +306,7 @@ export function ArtworkInspectionResultsWorkspace({
   const pages = metricValue(result, "Pages") ?? String(result.pages.length);
   const fileSize = result.localAnalysis ? formatInspectionBytes(result.localAnalysis.byteSize) : metricValue(result, "File size") ?? "Not reported";
   const aspectWarning = result.findings.some((finding) => finding.category === "Specification");
+  const aspectUnknown = detectedSize === "Indeterminate" || result.findings.some((finding) => finding.category === "File integrity" || finding.category === "Dimensions");
   const summaryMetrics = [
     { label: "Detected size", value: detectedSize },
     { label: "Effective DPI", value: effectiveDpi },
@@ -448,7 +452,7 @@ export function ArtworkInspectionResultsWorkspace({
                 <dl>
                   <div><dt>Specification</dt><dd>{result.specification}</dd></div>
                   <div><dt>Detected size</dt><dd>{detectedSize}</dd></div>
-                  <div><dt>Aspect match</dt><dd className={aspectWarning ? "inspection-detail-warning" : "inspection-detail-pass"}>{aspectWarning ? "WARNING" : "PASS"}</dd></div>
+                  <div><dt>Aspect match</dt><dd className={aspectUnknown ? undefined : aspectWarning ? "inspection-detail-warning" : "inspection-detail-pass"}>{aspectUnknown ? "Indeterminate" : aspectWarning ? "WARNING" : "PASS"}</dd></div>
                   <div><dt>Target resolution</dt><dd>{result.targetDpi} DPI</dd></div>
                   <div><dt>Effective DPI</dt><dd>{effectiveDpi}</dd></div>
                   <div><dt>Trim / Bleed</dt><dd>{bleed !== "Indeterminate" ? bleed : trim}</dd></div>

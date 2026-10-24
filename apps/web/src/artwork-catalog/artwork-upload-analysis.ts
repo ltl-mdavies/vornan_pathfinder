@@ -385,7 +385,8 @@ export async function analyzeArtworkUpload(
     originalPreviewAlt: `Local preview of ${file.name}`,
     heatmapPreviewUrl: objectUrl,
     heatmapPreviewAlt: `No heatmap is available for the local analysis of ${file.name}`,
-    mediaType: previewMediaType
+    mediaType: previewMediaType,
+    previewUnavailable: !parsed.integrityValid
   };
   const inspectionId = `local_inspection_${createId()}`;
   const result: ArtworkInspectionResultViewModel = {

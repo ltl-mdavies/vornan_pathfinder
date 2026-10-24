@@ -114,3 +114,13 @@ Evidence in `tests/ux/evidence`: `catalog-inspection-laptop-before.png` and `cat
 Current engineering checks:191 Admin tests, workspace typecheck, Admin build and diff check passed. Existing build chunk-size warning only. The earlier1322-test cross-app baseline remains recorded above; the full API suite was not repeated for this narrowly scoped continuation. No API, intake, public Proof/Status, worker, dependency or deployment configuration changes.
 
 Remaining: independent UX completion; deliberate long-running processing keyboard stress; malformed-file browser recovery; native zoom/screen-reader audit; fresh-main reconciliation and full release checks before deployment. No release authorization or complete Catalog production acceptance is implied.
+
+## Independent error-path findings and isolated correction
+
+UX identified two P2 issues during its resumed review: a corrupt file claimed green Aspect match PASS despite indeterminate dimensions, and the canvas displayed a broken image. Development reproduced both. Because UX requested a source hold while downloading its report, corrections were built separately in `/private/tmp/pathfinder-catalog-error-recovery` (`codex/catalog-error-recovery`, based on b771488), preview port5216. The original candidate at5210 remains frozen.
+
+The correction displays neutral Indeterminate when geometry is unknown or integrity failed. Invalid parsed input is marked preview-unavailable; image decode/load failures also switch to a deliberate recovery message without a broken-image icon or spatial markers. PDF fallback and valid-artwork rendering remain supported; local checks still do not replace or approve artwork.
+
+Browser evidence: `catalog-corrupt-file-before.png` / `catalog-corrupt-file-after.png`, same1366×768, same syntheticinvalid.pdf and specification (timestamps/run IDs differ). Compared together; false green PASS and broken preview eliminated. Valid JPEG then rendered192×192 after recovery; console errors none.192 Admin tests, Admin typecheck/build passed. Original prior full-workspace and cross-app regression evidence remains above; not a new full-suite claim.
+
+This isolated correction requires integration into the UX shell branch after UX completes its current frozen test, plus independent retest. No push/deployment. Deliberate slow-processing keyboard stress, screen-reader/native zoom, fresh-main reconciliation and release checks remain open.

@@ -110,10 +110,22 @@ test("fails closed for unsupported or oversized input", async () => {
   assert.equal(batch.items[0].mediaType, "unsupported");
   assert.equal(batch.items[0].result?.verdict, "needs-work");
   assert.equal(batch.items[0].result?.findings[0].category, "File integrity");
+  assert.equal(batch.items[0].result?.pages[0].previewUnavailable, true);
+  const markup = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={batch.items[0].result!} actions={{ onBack: () => undefined, onDownloadReport: () => undefined, onOpenAnalyzedArtwork: () => undefined }} />);
+  assert.match(markup, /Aspect match<\/dt><dd>Indeterminate<\/dd>/);
+  assert.match(markup, /Artwork preview unavailable/);
+  assert.doesNotMatch(markup, /<img\b|inspection-detail-pass/);
 
   const oversized = new File([], "large.pdf", { type: "application/pdf" });
   Object.defineProperty(oversized, "size", { value: LOCAL_ARTWORK_ANALYSIS_MAX_BYTES + 1 });
   await assert.rejects(() => analyzeArtworkUpload(oversized, spec), /files up to 250 MB/);
+});
+
+test("a PDF without readable geometry never claims an aspect match", async () => {
+  const file = new File(["%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF"], "unknown-geometry.pdf", {type: "application/pdf"});
+  const batch = await analyzeArtworkUpload(file, spec, { ...deterministicOptions, createId: () => "unknown-geometry" });
+  const markup = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={batch.items[0].result!} actions={{ onBack: () => undefined, onDownloadReport: () => undefined, onOpenAnalyzedArtwork: () => undefined }} />);
+  assert.match(markup, /Aspect match<\/dt><dd>Indeterminate<\/dd>/);
 });
 
 test("renders local evidence without presenting a fabricated heatmap or persistence claim", async () => {

@@ -44,6 +44,7 @@ test("renders the approved single-page results workspace with a default inspecti
   assert.match(markup, /role="tab" id="inspection-details-tab"[^>]*aria-selected="true"/);
   assert.match(markup, /role="tab" id="inspection-findings-tab"[^>]*aria-selected="false"/);
   assert.match(markup, /Product fit/);
+  assert.match(markup, /Aspect match<\/dt><dd class="inspection-detail-pass">PASS<\/dd>/);
   assert.match(markup, /Resolution &amp; print size/);
   assert.match(markup, /File construction/);
   assert.match(markup, /Quality signals/);
