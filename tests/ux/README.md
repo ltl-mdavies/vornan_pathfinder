@@ -10,6 +10,18 @@ npx vite --config tests/ux/vite.config.ts
 
 Open http://127.0.0.1:5210. The generated JSON and evidence screenshots are ignored by Git. The production build does not import this entry point.
 
+### Deterministic startup checks
+
+Use `PATHFINDER_UX_PORT=5214 npx vite --config tests/ux/vite.config.ts` for an isolated follow-up beside the existing review. API requests still terminate in this same in-memory adapter.
+
+- `?startupHold=targets,registry`: customers finish first while global bootstrap remains pending. No customer-directory action or legacy loading panel should appear. **Release startup reads** completes the held requests. Reload resets the gate.
+- `?startupHold=directory`: holds the first directory read. The shared shell and compact loading message remain available.
+- `?startupFail=directory`: initial directory read fails once; **Try again** recovers.
+- `?startupHold=workspace&startupFail=workspace&wrike_oauth=connected&wrike_customer_id=1249`: exercises the existing customer-scoped OAuth return URL using fixtures only. It does not connect Wrike. Release shows the scoped workspace error, with retry/directory controls. Retry loads LTL Demo, never the background default customer.
+- Opening Example new customer still requires explicit **Set up workspace**; root startup never offers that action just because a background customer is unconfigured.
+
+The harness bypasses AuthGate with an explicitly labeled synthetic session; these checks are not proof of real authentication or provider behavior. The authenticated lazy fallback is covered separately by its source contract and visual review.
+
 ## Safety boundary
 
 - All fetch requests terminate in the in-memory adapter; unknown routes fail closed.

@@ -1,0 +1,9 @@
+/* Shared-shell startup only; no changes to public Proof, Status or login. */
+.pf-startup { padding: 24px 0; max-width: 640px; min-width: 0; }
+.pf-startup-status { display: flex; align-items: flex-start; gap: 12px; color: var(--text-secondary); }
+.pf-startup-status > div { min-width: 0; }
+.pf-startup-status strong { display: block; color: var(--text-primary); font-size: 16px; line-height: 1.5; }
+.pf-startup-status p { margin: 4px 0 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.pf-startup-status .workspace-loading-spinner { width: 18px; height: 18px; margin-top: 3px; border-width: 2px; }
+.pf-startup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.pf-startup-actions button { flex: 0 1 auto; width: auto; }

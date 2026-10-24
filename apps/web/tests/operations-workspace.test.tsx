@@ -83,7 +83,8 @@ test("directory uses the full Lift list and preserves explicit workspace setup",
   assert.match(source, /fetch\(`\$\{apiBaseUrl\}\/api\/lift\/customers\?refresh=1`\)/);
   assert.match(source, /<OperationsCustomers customers=\{customers\}/);
   assert.match(source, /if \(response.status === 404\)[\s\S]*?setWorkspaceSetupRequiredCustomerId\(liftCustomerId\)/);
-  assert.match(source, /actionLabel=\{workspaceSetupRequiredCustomerId \? "Set up workspace" : "Try again"\}/);
+  assert.match(source, /actionLabel=\{startup.setupRequired \? "Set up workspace" : "Try again"\}/);
+  assert.match(source, /if \(startup.setupRequired && workspaceSetupRequiredCustomerId\)/);
   const selection = source.slice(source.indexOf("const operationsSelectCustomer ="), source.indexOf("const operationsOpenDirectory ="));
   assert.doesNotMatch(selection, /setupCustomerWorkspace|method: "POST"|customer_status/);
 });
