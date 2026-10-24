@@ -5,10 +5,24 @@ import { proofLines, proofHealth, cachedProofOrder } from "./proof-fixtures";
 import { App } from "../../apps/web/src/App";
 import "../../apps/web/src/styles.css";
 import "../../apps/web/src/pathfinder-shell.css";
+import { compactCatalogPilotProducts } from "../../apps/web/src/artwork-catalog/ArtworkCatalogInternalPilot";
 
 // Actual App with an in-memory HTTP boundary. Never fall through to a real API.
 const configured = new Set(["284619","174094","1249"]);
 const query = new URLSearchParams(location.search);
+// Add density fixtures only in this test entry point. No production flags or API change.
+if (query.has("catalogStress") && compactCatalogPilotProducts.length === 5) {
+  const names = [
+    "LP 60 FV Front Bottom (Aligned) — 25.5 × 77 — 3M IJ35C — Summer promotion, extended regional artwork title",
+    "CustomerSuppliedProductIdentifierWithoutWordBreaks_ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789_ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "Window graphic — north entrance",
+    "Shelf strip — seasonal assortment"
+  ];
+  compactCatalogPilotProducts.push(...Array.from({length: 35}, (_, index) => {
+    const base = compactCatalogPilotProducts[index % 5];
+    return {...base, id: `stress-${index}`, name: `${names[index % names.length]} ${index + 1}`, sku: `QA-DENSITY-${index + 1}`};
+  }));
+}
 const calls: {url:string;method:string}[] = [];
 let jobReads = 0;
 const proofReads = new Map<string, number>();

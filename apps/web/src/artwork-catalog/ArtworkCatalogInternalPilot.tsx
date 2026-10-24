@@ -143,7 +143,7 @@ export function ArtworkCatalogInternalPilot({ customerId, customerLabel, compact
   if (customerId !== INTERNAL_PILOT_CUSTOMER_ID) return null;
 
   return <>
-    {view.kind === "inspection" ? <div ref={inspectionRef}>
+    {view.kind === "inspection" ? <div ref={inspectionRef} className={compact ? "pf-catalog-inspection" : undefined}>
       <ArtworkInspectionResultsWorkspace
         result={view.result}
         sampleReport={!view.result.localAnalysis}

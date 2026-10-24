@@ -37,6 +37,14 @@ test("compact sample inspection agrees with its linked report without changing a
   assert.equal(artworkCatalogFixture[0].versions[0].inspection.state, "Passed");
 });
 
+test("embedded inspection sizing is isolated from the standalone workspace", async () => {
+  const source = await readFile(new URL("../src/artwork-catalog/ArtworkCatalogInternalPilot.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../src/pathfinder-shell.css", import.meta.url), "utf8");
+  assert.match(source, /className=\{compact \? "pf-catalog-inspection" : undefined\}/);
+  assert.match(styles, /\.pf-shell \.pf-catalog-inspection \.artwork-inspection-results\{height:calc\(100dvh - 180px\)/);
+  assert.match(styles, /@media\(max-width:1100px\)\{\.pf-shell \.pf-catalog-inspection \.artwork-inspection-results\{height:auto/);
+});
+
 test("keeps the internal pilot default-dark and restricted to exact customer 1249", async () => {
   assert.equal(isArtworkCatalogInternalPilotAvailable(false, "1249"), false);
   assert.equal(isArtworkCatalogInternalPilotAvailable(true, "1249"), true);

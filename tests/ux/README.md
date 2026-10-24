@@ -36,6 +36,12 @@ Other administrative API routes are intentionally not fully simulated. A local f
 
 See the root `design-qa.md` and `docs/pathfinder-ux-slice1-handoff.md` for evidence, limits and release boundaries.
 
+## Catalog stress and local-file review
+
+`?catalogStress` adds 35 synthetic rows to the five bundled products, including long multi-word names and unbroken identifiers. Open Customers → LTL Demo → Catalog. This changes only the test entry point's in-memory fixture array; production builds do not import it. Use the original Pump Topper Chevron row for inspection navigation. Added rows are density fixtures, not connected products or inspection reports.
+
+Run `node tests/ux/generate-artwork-inputs.mjs` to create a temporary directory containing the bundled PDF/PNG, an optional JPEG converted with macOS `sips`, an invalid PDF, and a sparse 250 MB + 1 byte file for selection-limit testing. These files contain no customer artwork. The oversized fixture must be rejected before reading/hashing. Choose a valid file afterward to verify recovery. Nothing is uploaded or persisted by Catalog.
+
 ## Internal Proof queue review (Slice 2)
 
 The actual Admin queue now receives 54 synthetic lines across 18 orders and three customers. The API simulation returns 27 lines per global cache page or 9 per customer page. Display pagination is separate from cache loading. Mixed states, missing timestamps, stale snapshots, and long product names are intentional.

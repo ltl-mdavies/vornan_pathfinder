@@ -35,6 +35,7 @@ import type {
   UploadCandidate
 } from "./fixtures";
 import type { ArtworkUploadBatch, ArtworkUploadProgress } from "./artwork-upload-analysis";
+import { LOCAL_ARTWORK_ANALYSIS_MAX_BYTES } from "./artwork-upload-analysis";
 
 export type UploadStage = "select" | "review" | "processing";
 
@@ -59,6 +60,12 @@ export function nextUploadStage(stage: UploadStage): UploadStage {
 
 export function firstDroppedArtwork(files: ArrayLike<File>): File | undefined {
   return files.length > 0 ? files[0] : undefined;
+}
+
+export function localArtworkSelectionError(file: Pick<File, "size">): string | null {
+  if (file.size > LOCAL_ARTWORK_ANALYSIS_MAX_BYTES) return "This file exceeds the 250 MB local inspection limit. Choose a smaller file. The current artwork is unchanged.";
+  if (file.size === 0) return "This file is empty. Choose a PDF, PNG, or JPEG with artwork. The current artwork is unchanged.";
+  return null;
 }
 
 export function currentArtworkVersion(product: CatalogProduct): ArtworkVersion {
@@ -403,6 +410,11 @@ export function ArtworkCatalogWorkspace({
 
   const selectLocalArtwork = (file: File | undefined) => {
     if (!file || !selectedProduct || viewer.kind !== "upload") return;
+    const selectionError = localArtworkSelectionError(file);
+    if (selectionError) {
+      setViewer({ kind: "upload", stage: "select", candidate: null, batch: null, progressLabel: "", error: selectionError });
+      return;
+    }
     setViewer({
       kind: "upload",
       stage: "review",
