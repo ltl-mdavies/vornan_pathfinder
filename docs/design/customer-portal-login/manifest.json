@@ -1,0 +1,19 @@
+{
+  "saved": "2026-10-24",
+  "status": "approved design baseline; future work",
+  "sourceChat": "01a16a35-2fc7-7a62-8945-f6c7f25a1638",
+  "images": {
+    "01-sign-in.png": {
+      "source": "/Users/marcusdavies/.codex/generated_images/01a16a35-2fc7-7a62-8945-f6c7f25a1638/exec-8d369847-7e0b-4690-a4ba-10a72615bc6f.png",
+      "sha256": "e55de97e1429e123d94ef2c8a75e95e872833d1bcb04c386cce668dcce2a3712"
+    },
+    "02-check-email.png": {
+      "source": "/Users/marcusdavies/.codex/generated_images/01a16a35-2fc7-7a62-8945-f6c7f25a1638/exec-d4f15a05-dbda-45b0-b3be-dd2b4be6f145.png",
+      "sha256": "c286fe8a6bd3897fa5b838d61a07f00e624db1fff152c13152fb74e27ff20cb9"
+    },
+    "03-accept-invitation.png": {
+      "source": "/Users/marcusdavies/.codex/generated_images/01a16a35-2fc7-7a62-8945-f6c7f25a1638/exec-4b2fca64-2b9f-44ef-a62a-8afb29823b45.png",
+      "sha256": "3c614625fdec183c8da676231dfc6273345cb1fbdbbc6c9e674d1ce688fc3a8e"
+    }
+  }
+}

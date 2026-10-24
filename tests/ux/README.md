@@ -10,6 +10,22 @@ npx vite --config tests/ux/vite.config.ts
 
 Open http://127.0.0.1:5210. The generated JSON and evidence screenshots are ignored by Git. The production build does not import this entry point.
 
+### Deterministic startup checks
+
+Use `PATHFINDER_UX_PORT=5214 npx vite --config tests/ux/vite.config.ts` for an isolated follow-up beside the existing review. API requests still terminate in this same in-memory adapter.
+
+- `?startupHold=targets,registry`: customers finish first while global bootstrap remains pending. No customer-directory action or legacy loading panel should appear. **Release startup reads** completes the held requests. Reload resets the gate.
+- `?startupHold=directory`: holds the first directory read. The shared shell and compact loading message remain available.
+- `?startupFail=directory`: initial directory read fails once; **Try again** recovers.
+- `?startupHold=workspace&startupFail=workspace&wrike_oauth=connected&wrike_customer_id=1249`: exercises the existing customer-scoped OAuth return URL using fixtures only. It does not connect Wrike. Release shows the scoped workspace error, with retry/directory controls. Retry loads LTL Demo, never the background default customer.
+- Opening Example new customer still requires explicit **Set up workspace**; root startup never offers that action just because a background customer is unconfigured.
+
+The harness bypasses AuthGate with an explicitly labeled synthetic session; these checks are not proof of real authentication or provider behavior. The authenticated lazy fallback is covered separately by its source contract and visual review.
+
+Startup follow-up acceptance, October 24, 2026: runtime `d6c37b1`, isolated branch `codex/pathfinder-startup-followup`, baseline deployed `cc7c652`. Development and Pathfinder UX independently verified held root startup, reload, release to Dashboard, directory error/retry, and LTL Demo 1249 OAuth-return workspace error/retry. UX reviewed at 1366 × 768. Loading has no directory action, legacy panel or workspace skeleton; actual customer errors retain compact recovery controls. General customer/job URL deep links are not implemented by the existing App and were not added in this slice.
+
+All workspace typechecks, the Admin build and 1,385 tests passed (API 800, Proof 76, Status 17, Admin 252, shared packages 240). The first sandboxed API run could not bind local Supertest ports; rerunning with local bind permission passed without source changes. The existing bundle-size build warning remains. Development screenshots are in `output/startup-review/`; UX evidence is in its `login-startup-review/startup-checks.json` and accompanying screenshots. No login/auth behavior, public app, API or provider code was changed. The authenticated lazy fallback is source-contract covered; the synthetic App harness does not prove a real Firebase session restore. This follow-up remains **local and undeployed**, pending the coordinated login selection/review and Development release process.
+
 ## Safety boundary
 
 - All fetch requests terminate in the in-memory adapter; unknown routes fail closed.
@@ -128,3 +144,19 @@ Open `http://127.0.0.1:5210/?submissionReview=network&manualImport&reviewCase=ma
 - `&previewSlow`: preview POST delay of eight seconds, for navigation during preview creation.
 
 Preview generation in this mode is an in-memory contract simulation, not an invocation of the production preview builder. First preview uses the original synthetic job; later previews get distinct IDs and independent outcomes. Additional previews live only until reload. Reconciliation/fail-next-read controls target the original job. All external/unsupported writes remain blocked; no server credentials or real customer files are used.
+
+## Provider-free sign-in review
+
+Run `PATHFINDER_UX_PORT=5214 npx vite --config tests/ux/vite.config.ts`.
+Open http://127.0.0.1:5214/auth.html?state=signed-out.
+Supported state values: `signed-out`, `checking`, `signing-in`, `error`,
+`expired`, `restricted`, `unconfigured`. The disclosure below the page
+provides a state selector. Google action only simulates busy; Sign out only
+returns to signed out. This entry imports the actual AuthScreen presentation,
+not AuthGate, Firebase or the application API. It does not authenticate, email,
+or alter live records. Auth preview is outside the production web build.
+
+Reference, screenshots, responsive checks and limits: ../../design-qa.md.
+The Google mark in public/brand is extracted unchanged from the prior auth
+component; the Vornan/scout logo is the existing official asset.
+Deployment remains held pending independent UX and user review.

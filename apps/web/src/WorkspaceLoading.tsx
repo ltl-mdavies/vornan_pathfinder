@@ -6,6 +6,7 @@ interface WorkspaceLoadingProps {
   onChooseCustomer?: () => void;
   setupRequired?: boolean;
   embedded?: boolean;
+  scope?: "application" | "customer";
 }
 
 export function WorkspaceLoading({
@@ -15,8 +16,24 @@ export function WorkspaceLoading({
   actionLabel = "Try again",
   onChooseCustomer,
   setupRequired = false,
-  embedded = false
+  embedded = false,
+  scope = "customer"
 }: WorkspaceLoadingProps) {
+  if (embedded) {
+    return <section className="pf-startup" aria-label={scope === "customer" ? "Customer workspace loading" : "Pathfinder loading"}>
+      <div className="pf-startup-status" role={error ? "alert" : "status"} aria-live="polite">
+        {!error ? <span className="workspace-loading-spinner" aria-hidden="true"/> : null}
+        <div>
+          <strong>{setupRequired ? "Set up Pathfinder workspace" : error ? scope === "customer" ? "This customer workspace could not load." : "Pathfinder could not finish loading." : scope === "customer" ? "Loading customer workspace…" : "Opening Pathfinder…"}</strong>
+          <p>{error ?? (scope === "customer" ? "Preparing this customer’s workspace." : "Preparing your workspace. This may take a moment.")}</p>
+        </div>
+      </div>
+      {error ? <div className="pf-startup-actions">
+        {onRetry ? <button className="secondary-button" type="button" onClick={onRetry}>{actionLabel}</button> : null}
+        {scope === "customer" && onChooseCustomer ? <button className="secondary-button" type="button" onClick={onChooseCustomer}>Back to customer directory</button> : null}
+      </div> : null}
+    </section>;
+  }
   return (
     <div className={embedded ? "pf-loading" : "app-shell workspace-loading-shell"} aria-busy={!error}>
       {!embedded ? <aside className="sidebar workspace-loading-sidebar">

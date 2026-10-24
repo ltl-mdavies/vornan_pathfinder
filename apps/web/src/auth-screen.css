@@ -1,0 +1,70 @@
+/* Scoped to the unauthenticated surface; no app shell or customer styles change. */
+body:has(.pf-auth-shell) { min-width: 0; }
+.pf-auth-shell {
+  box-sizing: border-box;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  border-top: 6px solid #39523b;
+  background: #f3f7f1;
+  color: #191818;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-weight: 500;
+}
+.pf-auth-content { display: grid; place-items: center; padding: 24px; min-width: 0; }
+.pf-auth-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 420px;
+  padding: 32px 28px 36px;
+  border: 1px solid #d8dfd3;
+  border-top: 3px solid #abc65f;
+  border-radius: 8px;
+  background: #fff;
+  text-align: center;
+  box-shadow: 0 8px 28px rgb(25 24 24 / 5%);
+}
+.pf-auth-brand { padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid #d8dfd3; }
+.pf-auth-logo { display: block; width: 180px; max-width: 100%; height: auto; margin: 0 auto; }
+.pf-auth-eyebrow { margin: 0 0 12px; color: #657161; font-size: 10px; font-weight: 800; line-height: 1.5; letter-spacing: 2px; text-transform: uppercase; }
+.pf-auth-card h1 { margin: 0; font-size: 26px; line-height: 1.3; font-weight: 800; letter-spacing: -1px; overflow-wrap: anywhere; }
+.pf-auth-subtitle { margin: 10px 0 0; color: #647060; font-size: 14px; line-height: 1.6; }
+.pf-auth-button {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 24px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 1px solid #8c9687;
+  border-radius: 6px;
+  background: #fff;
+  color: #191818;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.pf-auth-button:hover:not(:disabled) { background: #f3f7f1; border-color: #39523b; }
+.pf-auth-button:disabled { cursor: wait; color: #4f5b4f; background: #f7f8f5; }
+.pf-auth-button:focus-visible, .pf-auth-footer a:focus-visible { outline: 2px solid #39523b; outline-offset: 4px; }
+.pf-auth-button img, .pf-auth-button svg { flex: 0 0 auto; }
+.pf-auth-message { margin: 20px 0 0; text-align: left; color: #9a332c; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.pf-auth-checking { text-align: center; }
+.pf-auth-checking p { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 24px 0 0; color: #4f5b4f; font-size: 14px; line-height: 1.6; }
+.pf-auth-footer { padding: 24px 24px 32px; text-align: center; font-size: 13px; line-height: 1.5; }
+.pf-auth-footer a { color: #39523b; text-decoration: underline; text-underline-offset: 3px; }
+.pf-auth-spinner { animation: pf-auth-spin 1s linear infinite; }
+.pf-auth-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@keyframes pf-auth-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .pf-auth-spinner { animation: none; } }
+@media (max-width: 480px) {
+  .pf-auth-content { padding: 20px 16px; }
+  .pf-auth-card { padding: 28px 20px 32px; }
+  .pf-auth-card h1 { font-size: 24px; letter-spacing: -.8px; }
+}

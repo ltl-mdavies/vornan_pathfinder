@@ -1,3 +1,4 @@
+@import "./pathfinder-startup.css";
 /* Shared Admin shell only. Public Proof/Status and legacy opt-out are untouched. */
 /* Administration uses the same working scale as the reviewed customer workflows. */
 .pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) .panel {border-radius:6px;box-shadow:none;margin-bottom:12px;min-width:0}

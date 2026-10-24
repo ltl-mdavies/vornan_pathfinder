@@ -116,6 +116,7 @@ import {
 import type { PathfinderAuthSession } from "./auth";
 import { configurePathfinderApiAuth, pathfinderFetch as fetch } from "./api-client";
 import { WorkspaceLoading } from "./WorkspaceLoading";
+import { workspaceLoadingState } from "./workspace-loading-state";
 import { ProofOpsPanel } from "./ProofOpsPanel";
 import { OperationsJobs } from "./OperationsWorkspace";
 import { PathfinderShell } from "./PathfinderShell";
@@ -11027,30 +11028,33 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const workspaceMatchesSelectedCustomer = Boolean(
     selectedCustomerId && workspace?.customer.lift_customer_id === selectedCustomerId
   );
-  const initialLoadError =
-    customers.length === 0 && customerImportState === "idle"
-      ? customerDirectory.warning ?? "Pathfinder could not load the customer directory."
-      : !(operationsWorkspaceEnabled && activeGlobalView !== "Customers") && selectedCustomerId && !workspaceMatchesSelectedCustomer && workspaceState === "error"
-        ? workspaceMessage ?? "Pathfinder could not load the selected customer workspace."
-        : null;
-  const isInitialWorkspaceLoading =
-    !initialLoadError &&
-    ((customers.length === 0 && customerImportState === "loading") ||
-      (!(operationsWorkspaceEnabled && activeGlobalView !== "Customers") && Boolean(selectedCustomerId) && !workspaceMatchesSelectedCustomer) ||
-      (targets.length === 0 && targetsAndJobsState === "loading") ||
-      (!canonicalRegistry && canonicalRegistryState === "loading"));
+  const startup = workspaceLoadingState({
+    operations: operationsWorkspaceEnabled,
+    view: activeGlobalView,
+    customerCount: customers.length,
+    customersLoading: customerImportState === "loading",
+    directoryError: customerDirectory.warning,
+    selectedCustomerId,
+    workspaceMatches: workspaceMatchesSelectedCustomer,
+    workspaceState,
+    workspaceError: workspaceMessage,
+    setupCustomerId: workspaceSetupRequiredCustomerId,
+    targetsPending: targets.length === 0 && targetsAndJobsState === "loading",
+    registryPending: !canonicalRegistry && canonicalRegistryState === "loading"
+  });
 
-  if (initialLoadError || isInitialWorkspaceLoading) {
+  if (startup.error || startup.pending) {
     const loading = (
       <WorkspaceLoading
         embedded={operationsShell}
-        error={initialLoadError}
-        setupRequired={Boolean(workspaceSetupRequiredCustomerId)}
-        onChooseCustomer={operationsWorkspaceEnabled && customers.length > 0 ? operationsOpenDirectory : undefined}
-        actionLabel={workspaceSetupRequiredCustomerId ? "Set up workspace" : "Try again"}
+        scope={startup.scope}
+        error={startup.error}
+        setupRequired={startup.setupRequired}
+        onChooseCustomer={startup.showDirectory ? operationsOpenDirectory : undefined}
+        actionLabel={startup.setupRequired ? "Set up workspace" : "Try again"}
         onRetry={() => {
           setWorkspaceMessage(null);
-          if (workspaceSetupRequiredCustomerId) {
+          if (startup.setupRequired && workspaceSetupRequiredCustomerId) {
             void setupCustomerWorkspace(workspaceSetupRequiredCustomerId);
             return;
           }

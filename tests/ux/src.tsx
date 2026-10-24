@@ -9,10 +9,12 @@ import { compactCatalogPilotProducts } from "../../apps/web/src/artwork-catalog/
 import { SOURCE_CONNECTOR_DEFINITIONS } from "../../packages/source-connections/src/index";
 import { createIntegrationReview, type IntegrationSeed } from "./integration-fixtures";
 import { createSubmissionReview, type SubmissionSeed } from "./submission-fixtures";
+import { createStartupReview } from "./startup-fixtures";
 
 // Actual App with an in-memory HTTP boundary. Never fall through to a real API.
 const configured = new Set(["284619","174094","1249"]);
 const query = new URLSearchParams(location.search);
+const startupReview = createStartupReview(query);
 if (query.has("manualImport")) {
   const workspace = fixtures.workspaces["284619"];
   const route = workspace.output_routes[0];
@@ -95,6 +97,8 @@ window.fetch = async (input, init) => {
   const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   calls.push({url:url.pathname,method});
   if (url.origin !== location.origin) return response({error:"Local review blocks every off-origin request."},423);
+  const startupResponse = await startupReview.intercept(url.pathname, method);
+  if (startupResponse) return startupResponse;
   if (submission) {
     let body: unknown;
     try { body = init?.body ? JSON.parse(String(init.body)) : input instanceof Request && method !== "GET" ? await input.clone().json() : undefined; }
@@ -166,7 +170,7 @@ function SubmissionControls() {
     <button type="button" onClick={()=>{submission?.reset();location.reload();}}>Reset simulated submission</button>
   </aside>;
 }
-root.render(<><App authSession={authSession}/>{submission ? <SubmissionControls/> : integration ? <aside aria-label="Isolated integration review" style={{position:"fixed",bottom:8,right:8,zIndex:9999,background:"white",border:"1px solid #39523b",padding:8,fontSize:12}}>Simulated writes · this tab only <button type="button" onClick={()=>{integration.reset();location.reload();}}>Reset simulated data</button></aside> : null}</>);
+root.render(<><App authSession={authSession}/>{startupReview.active ? <aside aria-label="Isolated startup review" style={{position:"fixed",bottom:8,right:8,zIndex:9999,background:"white",border:"1px solid #39523b",padding:8,fontSize:12}}>Synthetic startup · no provider calls <button type="button" onClick={() => startupReview.release()}>Release startup reads</button></aside> : null}{submission ? <SubmissionControls/> : integration ? <aside aria-label="Isolated integration review" style={{position:"fixed",bottom:8,right:8,zIndex:9999,background:"white",border:"1px solid #39523b",padding:8,fontSize:12}}>Simulated writes · this tab only <button type="button" onClick={()=>{integration.reset();location.reload();}}>Reset simulated data</button></aside> : null}</>);
 if (query.has("catalogLate")) {
   // Simulate leaving the workspace while a disk read is pending. This is a test-only
   // remount, not a product navigation control; report cleanup through visible text.
