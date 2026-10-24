@@ -20,6 +20,11 @@ export function createSubmissionReview(seed: SubmissionSeed, query: URLSearchPar
   const source = clone(seed.jobs[0]);
   if (!source) throw new Error("Submission review requires a synthetic seed job.");
   const secondary = query.has("submissionSlow") && seed.jobs[1] ? clone(seed.jobs[1]) : null;
+  let submitRequests = 0;
+  let previewRequests = 0;
+  let jobReads = 0;
+  let failNextRead = false;
+  const additionalPreviews: ReturnType<typeof createSubmissionReview>[] = [];
   function job(): ProcessingJobPreview {
     return {
       ...clone(source), state: outcome === "ready" ? "Ready" : outcome === "uncertain" ? "Submitted" : "Order Confirmed",
@@ -55,6 +60,8 @@ export function createSubmissionReview(seed: SubmissionSeed, query: URLSearchPar
   function save(next: Outcome) { outcome = next; storage?.setItem(storageKey, next); }
   return {
     storageKey,
+    counts: (): { submitRequests: number; previewRequests: number; jobReads: number } => ({ submitRequests: submitRequests + additionalPreviews.reduce((sum, preview) => sum + preview.counts().submitRequests, 0), previewRequests, jobReads: jobReads + additionalPreviews.reduce((sum, preview) => sum + preview.counts().jobReads, 0) }),
+    failNextRead() { failNextRead = true; },
     reset() { storage?.removeItem(storageKey); },
     // Explicit local QA control, not a fabricated production reconciliation endpoint.
     simulateReconciliation() { if (outcome === "uncertain") save("confirmed"); },
@@ -70,17 +77,47 @@ export function createSubmissionReview(seed: SubmissionSeed, query: URLSearchPar
         workspace.submit_attempts = customer === source.customer_id ? attempts() : [];
         return reply(workspace);
       }
+      if (query.has("manualImport") && method === "POST" && url.pathname === `/api/customers/${source.customer_id}/jobs/preview`) {
+        previewRequests++;
+        if (query.has("previewSlow")) await new Promise(resolve => setTimeout(resolve, 8000));
+        const workspace = clone(seed.workspaces[source.customer_id]);
+        let previewJob = job();
+        if (previewRequests > 1) {
+          const nextQuery = new URLSearchParams(query); nextQuery.delete("manualImport");
+          const nextSource = { ...clone(source), job_id: `${source.job_id}_preview${previewRequests}` };
+          const child = createSubmissionReview({ ...seed, jobs: [nextSource] }, nextQuery);
+          additionalPreviews.push(child);
+          previewJob = (await (await child.handle(new URL(`/api/customers/${source.customer_id}/jobs/${nextSource.job_id}`, url), "GET"))!.json()).job;
+        }
+        workspace.jobs = [previewJob];
+        workspace.submit_attempts = [];
+        return reply({ job: previewJob, workspace });
+      }
       const match = url.pathname.match(/^\/api\/customers\/([^/]+)\/jobs\/([^/]+)(?:\/(certification|submit))?$/);
       if (!match) return method === "GET" ? null : reply({ error: "Unsupported simulated write. No provider was called." }, 423);
+      if (match[1] === source.customer_id && match[2].startsWith(`${source.job_id}_preview`)) {
+        for (const child of additionalPreviews) {
+          const result = await child.handle(url, method, body);
+          if (result && result.status !== 404) return result;
+        }
+      }
       if (secondary && method === "GET" && !match[3] && match[1] === secondary.customer_id && match[2] === secondary.job_id) return reply({ job: clone(secondary), submit_attempts: [] });
       if (match[1] !== source.customer_id || match[2] !== source.job_id) return reply({ error: "Synthetic job not found for this customer." }, 404);
-      if (method === "GET" && !match[3]) return reply({ job: job(), submit_attempts: attempts() });
+      if (method === "GET" && !match[3]) {
+        jobReads++;
+        if (query.has("manualReadSlow")) await new Promise(resolve => setTimeout(resolve, 8000));
+        if (failNextRead) { failNextRead = false; return reply({ error: "Synthetic job read unavailable. Retry the refresh." }, 503); }
+        return reply({ job: job(), submit_attempts: attempts() });
+      }
       if (method === "POST" && match[3] === "certification") return reply({ job: job() });
       if (method === "POST" && match[3] === "submit") {
+        submitRequests++;
         const reviewed = (body as { reviewed_submit_fingerprint?: unknown } | undefined)?.reviewed_submit_fingerprint;
         if (scenario === "changed" || reviewed !== fingerprint) return reply({ error: "The reviewed payload has changed. Refresh the job and review it again before submitting.", code: "review_mismatch" }, 409);
         if (attempts().length) return reply({ attempt: attempts()[0], reused: true, message: "The exact submit attempt is uncertain and will not be sent again until reconciled." });
         if (scenario === "blocked") return reply({ error: "Preview job is not certified for Lift submit.", certification: job().submit_certification }, 409);
+        if (scenario === "rejected") return reply({ error: "Synthetic explicit rejection: no order accepted.", certification: { ...job().submit_certification, can_submit: false } }, 422);
+        if (scenario === "success") { save("confirmed"); return reply({ job: job(), message: "Synthetic order confirmed." }); }
         save("uncertain");
         if (scenario === "network") throw new TypeError("Synthetic lost response after reservation");
         if (query.has("submissionSlow")) await new Promise(resolve => setTimeout(resolve, 8000));

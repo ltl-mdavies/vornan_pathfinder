@@ -1,4 +1,5 @@
 import { isIntakeVisibilityAvailable } from "./intake-visibility";
+import { createSubmissionGuard, submissionDisposition } from "./submission-recovery";
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { IntakeExceptions } from "./IntakeExceptions";
 import {
@@ -4802,7 +4803,29 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     required: false,
     repeatable: false
   });
-  const [lastPreviewJob, setLastPreviewJob] = useState<ProcessingJobPreview | null>(null);
+  const [lastPreviewJob, setLastPreviewJobState] = useState<ProcessingJobPreview | null>(null);
+  const manualPreviewEpochRef = useRef(0);
+  const manualRefreshRequestRef = useRef(0);
+  const manualPreviewRef = useRef(lastPreviewJob);
+  manualPreviewRef.current = lastPreviewJob;
+  const submissionGuard = useRef(createSubmissionGuard());
+  const [, updateSubmissionGuard] = useState(0);
+  const [manualRecovery, setManualRecovery] = useState<{ jobId: string; message: string; error: boolean } | null>(null);
+  const [manualRefreshState, setManualRefreshState] = useState<"idle" | "loading" | "error">("idle");
+  const manualRecoveryRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (manualRecovery) manualRecoveryRef.current?.focus(); }, [manualRecovery]);
+  function setLastPreviewJob(value: ProcessingJobPreview | null | ((current: ProcessingJobPreview | null) => ProcessingJobPreview | null)) {
+    if (value === null) {
+      if (manualPreviewRef.current && submissionGuard.current.isPending(manualPreviewRef.current)) setWorkspaceState("idle");
+      manualPreviewEpochRef.current++;
+      manualRefreshRequestRef.current++;
+      manualPreviewRef.current = null;
+      setManualRecovery(null);
+      setManualRefreshState("idle");
+      setCertificationRefreshState("idle");
+    }
+    setLastPreviewJobState(value);
+  }
   const [lastSubmitAttempt, setLastSubmitAttempt] = useState<SubmitAttempt | null>(null);
   const [selectedJobDetail, setSelectedJobDetail] = useState<ProcessingJobPreview | null>(null);
   const jobDetailHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -5918,6 +5941,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
       const payload = await readJsonResponse<{ job: ProcessingJobPreview; submit_attempts: SubmitAttempt[] }>(response);
       if (requestId !== jobDetailRequestIdRef.current) return;
+      submissionGuard.current.reconcile(payload.job, payload.submit_attempts);
+      updateSubmissionGuard(value => value + 1);
       setSelectedJobDetail(payload.job);
       setSelectedJobAttempts(payload.submit_attempts);
     } catch (error) {
@@ -6609,6 +6634,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return;
     }
 
+    const previewEpoch = ++manualPreviewEpochRef.current;
+    manualRefreshRequestRef.current++;
+    setManualRefreshState("idle");
+    const workspaceEpoch = workspaceRequestIdRef.current;
+    const isCurrent = () => previewEpoch === manualPreviewEpochRef.current && workspaceEpoch === workspaceRequestIdRef.current;
+    setManualRecovery(null);
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/jobs/preview`, {
@@ -6635,6 +6666,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         })
       });
       const payload = await readJsonResponse<{ job: ProcessingJobPreview; workspace: PathfinderCustomerWorkspace }>(response);
+      if (!isCurrent()) return;
       setLastPreviewJob(payload.job);
       setLastSubmitAttempt(null);
       setWorkspace(payload.workspace);
@@ -6646,14 +6678,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             : "Preview job created with blocking validation failures."
       );
       await loadTargetsAndJobs();
-      setWorkspaceState("idle");
+      if (isCurrent()) setWorkspaceState("idle");
     } catch (error) {
+      if (!isCurrent()) return;
       setWorkspaceMessage(error instanceof Error ? error.message : "Preview job failed.");
       setWorkspaceState("error");
     }
   }
 
   async function refreshSubmitCertification(job: ProcessingJobPreview, showMessage = false) {
+    const workspaceEpoch = workspaceRequestIdRef.current;
+    const previewEpoch = manualPreviewEpochRef.current;
+    const refreshEpoch = manualRefreshRequestRef.current;
+    const isCurrent = () => workspaceEpoch === workspaceRequestIdRef.current && previewEpoch === manualPreviewEpochRef.current && refreshEpoch === manualRefreshRequestRef.current;
     setCertificationRefreshState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/certification`, {
@@ -6661,24 +6698,55 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         headers: { "Content-Type": "application/json" }
       });
       const payload = await readJsonResponse<{ job: ProcessingJobPreview }>(response);
+      if (!isCurrent()) return;
       setLastPreviewJob((current) => (current?.job_id === payload.job.job_id ? payload.job : current));
       setSelectedJobDetail((current) => (current?.job_id === payload.job.job_id ? payload.job : current));
-      setWorkspace((current) => (current ? { ...current, jobs: upsertJob(current.jobs, payload.job) } : current));
+      setWorkspace((current) => (current?.customer.lift_customer_id === job.customer_id ? { ...current, jobs: upsertJob(current.jobs, payload.job) } : current));
       setGlobalJobs((current) => upsertJob(current, payload.job));
       if (showMessage) {
         const blockingCount = payload.job.submit_certification?.items.filter((item) => item.blocking).length ?? 0;
+        const disposition = submissionDisposition(payload.job, (workspace?.submit_attempts ?? []).filter(attempt => attempt.job_id === job.job_id), submissionGuard.current.isUnknown(payload.job));
         setWorkspaceMessage(
-          blockingCount
+          disposition === "pending" || disposition === "confirmed" ? "Certification refreshed. Submission remains locked; use Refresh job to check its current confirmation." : blockingCount
             ? `Submit certification refreshed. ${blockingCount} item${blockingCount === 1 ? "" : "s"} still blocking.`
             : "Submit certification refreshed. This preview is certified for submit."
         );
       }
       setCertificationRefreshState("idle");
     } catch (error) {
+      if (!isCurrent()) return;
       if (showMessage) {
         setWorkspaceMessage(error instanceof Error ? error.message : "Submit certification refresh failed.");
       }
       setCertificationRefreshState("error");
+    }
+  }
+
+  async function refreshManualSubmission(job: ProcessingJobPreview) {
+    const refreshEpoch = ++manualRefreshRequestRef.current;
+    const previewEpoch = manualPreviewEpochRef.current;
+    const workspaceEpoch = workspaceRequestIdRef.current;
+    const isCurrent = () => refreshEpoch === manualRefreshRequestRef.current && previewEpoch === manualPreviewEpochRef.current && workspaceEpoch === workspaceRequestIdRef.current && manualPreviewRef.current?.job_id === job.job_id;
+    setCertificationRefreshState("idle");
+    setManualRefreshState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
+      const payload = await readJsonResponse<{ job: ProcessingJobPreview; submit_attempts: SubmitAttempt[] }>(response);
+      if (!isCurrent()) return;
+      if (payload.job.customer_id !== job.customer_id || payload.job.job_id !== job.job_id) throw new Error("Job refresh returned a different order. Submission remains locked.");
+      submissionGuard.current.reconcile(payload.job, payload.submit_attempts);
+      updateSubmissionGuard(value => value + 1);
+      setLastPreviewJob(payload.job);
+      setLastSubmitAttempt(payload.submit_attempts[0] ?? null);
+      setWorkspace(current => current?.customer.lift_customer_id === job.customer_id ? { ...current, jobs: upsertJob(current.jobs, payload.job), submit_attempts: [...payload.submit_attempts, ...(current.submit_attempts ?? []).filter(attempt => attempt.job_id !== job.job_id)] } : current);
+      setGlobalJobs(current => upsertJob(current, payload.job));
+      const disposition = submissionDisposition(payload.job, payload.submit_attempts, submissionGuard.current.isUnknown(payload.job));
+      setManualRecovery({ jobId: job.job_id, error: false, message: disposition === "confirmed" ? `Order confirmed in Lift${payload.job.target_order_number ? `: ${payload.job.target_order_number}` : ""}. No further submission is needed.` : disposition === "pending" ? "Confirmation is still pending. Do not resubmit or create a replacement order. Refresh this job again to check reconciliation." : "Job refreshed. Review the current certification before submitting." });
+      setManualRefreshState("idle");
+    } catch (error) {
+      if (!isCurrent()) return;
+      setManualRefreshState("error");
+      setManualRecovery({ jobId: job.job_id, error: true, message: `${error instanceof Error ? error.message : "Job refresh failed."} The last known submission state is retained. Retry Refresh job; do not create a replacement order.` });
     }
   }
 
@@ -7418,7 +7486,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     selectedJobDetail?.state === "Ready" || selectedJobDetail?.state === "Submit Failed";
   const activeJobSubmitFeedback = jobSubmitFeedback?.jobId === selectedJobDetail?.job_id ? jobSubmitFeedback : null;
   const selectedJobCertificationBlocked = canRetrySelectedJob && selectedJobDetail?.submit_certification?.can_submit === false;
-  const selectedJobNeedsSubmitReview = canRetrySelectedJob && (selectedJobCertificationBlocked || Boolean(activeJobSubmitFeedback?.error));
+  const selectedJobNeedsSubmitReview = canRetrySelectedJob && (selectedJobCertificationBlocked || Boolean(activeJobSubmitFeedback?.error) || Boolean(selectedJobDetail && submissionGuard.current.isUnknown(selectedJobDetail)));
   const canReevaluateSelectedJob = Boolean(
     selectedJobDetail?.source_evidence?.provider === "wrike" &&
       ["Needs Mapping", "Failed"].includes(selectedJobDetail.state) &&
@@ -8268,6 +8336,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     currentOrderProductBlockingCount > 0 ||
     hasBlockingFailure;
   const manualPreviewReady = Boolean(lastPreviewJob);
+  const manualAttempts = lastPreviewJob ? [
+    ...(lastSubmitAttempt?.job_id === lastPreviewJob.job_id ? [lastSubmitAttempt] : []),
+    ...(workspace?.submit_attempts ?? []).filter(attempt => attempt.job_id === lastPreviewJob.job_id)
+  ] : [];
+  const manualDisposition = lastPreviewJob ? submissionDisposition(lastPreviewJob, manualAttempts, submissionGuard.current.isUnknown(lastPreviewJob)) : "blocked";
+  const manualSubmissionLabel = manualDisposition === "confirmed" ? "Order confirmed" : manualDisposition === "pending" ? "Confirmation pending" : manualDisposition === "ready" ? "Ready for external submit" : "Submit still gated";
+  const manualConfirmationSummary = manualDisposition === "pending" || manualDisposition === "confirmed" ? "Certification is not confirmation of a new order. Use Refresh job for the current order and attempt status." : submitCertification.summary;
   const manualFixesNeeded = submitCertificationBlockingCount > 0 || currentOrderProductBlockingCount > 0;
   const activeRouteIsProd =
     activeRouteEnvironment?.role === "PROD" || activeRouteEnvironmentLabel.toUpperCase().includes("PROD");
@@ -8281,6 +8356,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     !prodSandboxConfirmationRequired || confirmedProdSandboxSubmitKey === prodSandboxConfirmationKey;
   const manualSubmitReady = Boolean(
     lastPreviewJob &&
+      manualDisposition === "ready" &&
       submitCertification.can_submit &&
       submitCertification.external_submit_enabled &&
       prodSandboxSubmitConfirmed
@@ -8344,11 +8420,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     },
     {
       label: "Certification",
-      value: submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`,
-      detail: submitCertification.summary,
-      status: submitCertification.can_submit ? "Passed" : "Blocked",
-      actionLabel: lastPreviewJob ? "Recheck" : "Preview first",
-      action: lastPreviewJob ? () => void refreshSubmitCertification(lastPreviewJob, true) : () => void createPreviewJob()
+      value: manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`,
+      detail: manualConfirmationSummary,
+      status: manualDisposition === "pending" ? "Warning" : submitCertification.can_submit ? "Passed" : "Blocked",
+      actionLabel: lastPreviewJob ? "Refresh job" : "Preview first",
+      action: lastPreviewJob ? () => void refreshManualSubmission(lastPreviewJob) : () => void createPreviewJob()
     },
     {
       label: "Submit Gate",
@@ -8476,8 +8552,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     },
     {
       label: "Certification",
-      value: submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`,
-      detail: submitCertification.summary,
+      value: manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`,
+      detail: manualConfirmationSummary,
       status: submitCertification.can_submit ? "Passed" : "Blocked"
     }
   ];
@@ -9587,11 +9663,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
     const detailRequestId = jobDetailRequestIdRef.current;
     const submitWorkspaceRequestId = workspaceRequestIdRef.current;
-    const submitContextCurrent = () => detailRequestId === jobDetailRequestIdRef.current && submitWorkspaceRequestId === workspaceRequestIdRef.current;
+    const previewEpoch = manualPreviewEpochRef.current;
+    const manualContextCurrent = () => !jobOverride && previewEpoch === manualPreviewEpochRef.current && manualPreviewRef.current?.job_id === submitJob.job_id && submitWorkspaceRequestId === workspaceRequestIdRef.current;
+    const submitContextCurrent = () => detailRequestId === jobDetailRequestIdRef.current && submitWorkspaceRequestId === workspaceRequestIdRef.current && (Boolean(jobOverride) || manualContextCurrent());
     const showSubmitFeedback = (message: string, error: boolean, responseUnknown = false) => {
       if (submitContextCurrent()) setJobSubmitFeedback({ jobId: submitJob.job_id, message, error, responseUnknown });
+      if (manualContextCurrent()) setManualRecovery({ jobId: submitJob.job_id, message, error });
     };
-    setJobSubmitFeedback(null);
+    if (submissionGuard.current.isPending(submitJob)) return;
     if (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed) {
       showSubmitFeedback("Confirm the PROD sandbox submit lane in Lift Submit Preflight before requesting Lift submit.", true);
       setWorkspaceMessage("Confirm the PROD sandbox submit lane in Lift Submit Preflight before requesting Lift submit.");
@@ -9605,7 +9684,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return;
     }
 
+    const knownAttempts = [...(workspace?.submit_attempts ?? []), ...selectedJobAttempts, ...(lastSubmitAttempt ? [lastSubmitAttempt] : [])].filter(attempt => attempt.job_id === submitJob.job_id);
+    if (!submissionGuard.current.begin(submitJob, knownAttempts)) {
+      showSubmitFeedback("This order is not eligible for another submission. Refresh the job and review its current state before taking further action.", true, submissionGuard.current.isUnknown(submitJob));
+      return;
+    }
+    setJobSubmitFeedback(null);
     setWorkspaceState("saving");
+    let responseUnknown = true;
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/customers/${submitJob.customer_id}/jobs/${submitJob.job_id}/submit`,
@@ -9626,6 +9712,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         certification?: SubmitCertification;
         submit_request_masked?: ProcessingJobPreview["submit_request_masked"];
       };
+      if ((payload.job && (payload.job.job_id !== submitJob.job_id || payload.job.customer_id !== submitJob.customer_id)) ||
+        (payload.attempt && (payload.attempt.job_id !== submitJob.job_id || payload.attempt.customer_id !== submitJob.customer_id))) throw new Error("Submission response belongs to a different order.");
+      if (response.ok && !payload.job && !payload.attempt) throw new Error("Submission response has no order or attempt evidence.");
+      if (response.status >= 500 && !payload.job && !payload.attempt) throw new Error("Submission response is inconclusive.");
+      responseUnknown = false;
       if (!payload.job && payload.certification) {
         const refreshedSubmitJob = {
           ...submitJob,
@@ -9633,7 +9724,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           submit_request_masked: payload.submit_request_masked ?? submitJob.submit_request_masked,
           updated_at: new Date().toISOString()
         };
-        if (lastPreviewJob?.job_id === refreshedSubmitJob.job_id || submitJob.job_id === lastPreviewJob?.job_id) {
+        if (previewEpoch === manualPreviewEpochRef.current && (lastPreviewJob?.job_id === refreshedSubmitJob.job_id || submitJob.job_id === lastPreviewJob?.job_id)) {
           setLastPreviewJob(current => current?.job_id === refreshedSubmitJob.job_id ? refreshedSubmitJob : current);
         }
         if (detailRequestId === jobDetailRequestIdRef.current && selectedJobDetail?.job_id === refreshedSubmitJob.job_id) {
@@ -9655,7 +9746,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       if (payload.job) {
         const submittedJob = payload.job;
         const submitAttempt = payload.attempt;
-        if (lastPreviewJob?.job_id === submittedJob.job_id || submitJob.job_id === lastPreviewJob?.job_id) {
+        if (previewEpoch === manualPreviewEpochRef.current && (lastPreviewJob?.job_id === submittedJob.job_id || submitJob.job_id === lastPreviewJob?.job_id)) {
           setLastPreviewJob(current => current?.job_id === submittedJob.job_id ? submittedJob : current);
         }
         if (detailRequestId === jobDetailRequestIdRef.current && selectedJobDetail?.job_id === submittedJob.job_id) {
@@ -9682,11 +9773,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       }
       if (submitContextCurrent()) setWorkspaceMessage(payload.error ?? payload.message ?? "Lift submit request accepted.");
       showSubmitFeedback(payload.error ?? payload.message ?? "Lift submit request accepted.", !response.ok);
-      if (submitWorkspaceRequestId === workspaceRequestIdRef.current) setWorkspaceState(response.ok || !submitContextCurrent() ? "idle" : "error");
+      if (submitWorkspaceRequestId === workspaceRequestIdRef.current && (jobOverride || previewEpoch === manualPreviewEpochRef.current)) setWorkspaceState(response.ok || !submitContextCurrent() ? "idle" : "error");
     } catch (error) {
-      if (submitContextCurrent()) setWorkspaceMessage(error instanceof Error ? error.message : "Lift submit request failed.");
+      if (submitContextCurrent()) setWorkspaceMessage(jobOverride ? (error instanceof Error ? error.message : "Lift submit request failed.") : "");
       showSubmitFeedback("Pathfinder could not confirm the submission response. The order may already exist in Lift. Refresh this job to check its latest attempt before taking further action; do not create a replacement order.", true, true);
-      if (submitWorkspaceRequestId === workspaceRequestIdRef.current) setWorkspaceState(submitContextCurrent() ? "error" : "idle");
+      if (submitWorkspaceRequestId === workspaceRequestIdRef.current && (jobOverride || previewEpoch === manualPreviewEpochRef.current)) setWorkspaceState(submitContextCurrent() ? "error" : "idle");
+    } finally {
+      submissionGuard.current.finish(submitJob, responseUnknown);
+      updateSubmissionGuard(value => value + 1);
     }
   }
 
@@ -15685,7 +15779,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     {
                       number: "4",
                       title: "Submit to Lift",
-                      detail: manualSubmitReady ? "Certified for external submit" : "Locked until preview is certified",
+                      detail: manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : manualSubmitReady ? "Certified for external submit" : "Locked until preview is certified",
                       state: manualSubmitReady ? "active" : "idle"
                     }
                   ].map((step) => (
@@ -15699,7 +15793,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   ))}
                 </section>
 
-                <div className="pf-manual-context" role="status"><strong>{activeOutputRoute.name} · {activeRouteEnvironmentLabel}</strong><span>{submitCertification.summary}</span><span>{submitPreflightBlockedCount} preflight blockers · {submitCertificationBlockingCount} certification blockers</span></div>
+                <div className="pf-manual-context" role="status"><strong>{activeOutputRoute.name} · {activeRouteEnvironmentLabel}</strong><span>{manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : submitCertification.summary}</span><span>{submitPreflightBlockedCount} preflight blockers · {submitCertificationBlockingCount} certification blockers</span></div>
                 <section className="pf-manual-task-grid" aria-label="Load and validate order source">
                   <div className="panel upload-panel">
                     <PanelHeader icon={FileSpreadsheet} title="1. Upload Order Source" detail={sheetName} />
@@ -16027,7 +16121,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </button>
                       <span>
                         {lastPreviewJob
-                          ? `${displayJobId(lastPreviewJob.job_id)} saved as ${lastPreviewJob.state}`
+                          ? `${displayJobId(lastPreviewJob.job_id)} · ${manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : lastPreviewJob.state}`
                           : `Generate a preview job before ${activeRouteEnvironmentLabel} submission.`}
                       </span>
                     </div>
@@ -16037,16 +16131,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     <PanelHeader
                       icon={ShieldCheck}
                       title="3. Submit Certification"
-                      detail={submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`}
+                      detail={manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`}
                     />
                     <div className="certification-summary">
-                      <strong>{submitCertification.can_submit ? "Ready for external submit" : "Submit still gated"}</strong>
-                      <span>{submitCertification.summary}</span>
+                      <strong>{manualSubmissionLabel}</strong>
+                      <span>{manualConfirmationSummary}</span>
                       {lastPreviewJob ? (
                         <button
                           className="secondary-button compact-button"
                           onClick={() => void refreshSubmitCertification(lastPreviewJob, true)}
-                          disabled={certificationRefreshState === "loading"}
+                          disabled={certificationRefreshState === "loading" || workspaceState === "saving" || manualRefreshState === "loading" || manualDisposition === "pending" || manualDisposition === "confirmed"}
                           type="button"
                         >
                           <RefreshCw size={16} />
@@ -16054,11 +16148,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </button>
                       ) : null}
                     </div>
+                    {manualRecovery && manualRecovery.jobId === lastPreviewJob?.job_id ? <div ref={manualRecoveryRef} tabIndex={-1} className={manualRecovery.error ? "import-warning pf-workflow-feedback" : "pf-workflow-feedback"} role={manualRecovery.error ? "alert" : "status"}>{manualRecovery.message}</div> : lastPreviewJob && manualDisposition === "pending" ? <p role="status">The order may already exist in Lift. Do not resubmit or create a replacement order. Refresh this job to check confirmation.</p> : lastPreviewJob && manualDisposition === "confirmed" ? <p role="status">Lift order {lastPreviewJob.target_order_number ?? "confirmed"}. No further submission is needed.</p> : null}
                     {lastSubmitAttempt ? (
                       <div className="submit-attempt-summary">
                         <div>
                           <span>Last submit attempt</span>
-                          <strong>{lastSubmitAttempt.state}</strong>
+                          <strong>{manualDisposition === "confirmed" && lastSubmitAttempt.state === "Submission Uncertain" ? "Historical timeout retained for audit" : lastSubmitAttempt.state}</strong>
                         </div>
                         <div>
                           <span>Attempt</span>
@@ -16082,7 +16177,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </div>
                         <div>
                           <span>Lift order</span>
-                          <strong>{lastSubmitAttempt.response.lift_order_id ?? "Pending"}</strong>
+                          <strong>{lastPreviewJob?.target_order_number ?? lastSubmitAttempt.response.lift_order_id ?? "Pending"}</strong>
                         </div>
                         <div>
                           <span>Endpoint</span>
@@ -16140,7 +16235,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         className={submitCertification.can_submit ? "primary-button" : "secondary-button"}
                         onClick={() => void requestLiftSubmit()}
                         disabled={
-                          !lastPreviewJob ||
+                          !lastPreviewJob || manualDisposition !== "ready" || manualRefreshState === "loading" || certificationRefreshState === "loading" ||
                           workspaceState === "saving" ||
                           !lastPreviewJob.submit_integrity?.fingerprint ||
                           !submitCertification.external_submit_enabled ||
@@ -16149,6 +16244,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       >
                         {submitCertification.external_submit_enabled ? "Submit to Lift" : "Submit gate locked"}
                       </button>
+                      {lastPreviewJob ? <button type="button" className="secondary-button" onClick={() => void refreshManualSubmission(lastPreviewJob)} disabled={manualRefreshState === "loading" || workspaceState === "saving" || certificationRefreshState === "loading"}><RefreshCw size={16}/>{manualRefreshState === "loading" ? "Refreshing job…" : "Refresh job"}</button> : null}
                       <span>
                         {prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed
                           ? "Confirm the PROD sandbox lane in preflight before submitting."

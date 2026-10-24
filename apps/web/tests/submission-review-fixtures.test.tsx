@@ -109,6 +109,41 @@ test("late submit completion cannot attach feedback or preview attempts to a new
   assert.match(source, /const submitWorkspaceRequestId = workspaceRequestIdRef\.current/);
   assert.match(source, /if \(submitContextCurrent\(\)\) setWorkspaceMessage\(payload\.error/);
   assert.match(source, /submitContextCurrent\(\) && selectedCustomerIdRef\.current === submitJob\.customer_id\) setLastSubmitAttempt/);
-  assert.match(source, /if \(submitWorkspaceRequestId === workspaceRequestIdRef\.current\) setWorkspaceState/);
+  assert.match(source, /if \(submitWorkspaceRequestId === workspaceRequestIdRef\.current && \(jobOverride \|\| previewEpoch === manualPreviewEpochRef\.current\)\) setWorkspaceState/);
   assert.match(source, /setLastPreviewJob\(current => current\?\.job_id === submittedJob\.job_id \? submittedJob : current\)/);
+});
+
+test("manual preview persists through simulated loss, failed read, retry and reconciliation", async () => {
+  const review = createSubmissionReview(seed, new URLSearchParams("submissionReview=network&manualImport"));
+  const previewUrl = new URL("/api/customers/1249/jobs/preview", url());
+  const preview = await (await review.handle(previewUrl, "POST", {}))!.json();
+  assert.equal(preview.job.job_id, "qa-job");
+  await assert.rejects(() => review.handle(url("/submit"), "POST", reviewed));
+  review.failNextRead();
+  assert.equal((await review.handle(url(), "GET"))!.status, 503);
+  assert.equal((await (await review.handle(url(), "GET"))!.json()).job.state, "Submitted");
+  review.simulateReconciliation();
+  assert.equal((await (await review.handle(url(), "GET"))!.json()).job.target_order_number, "A9000999");
+  assert.equal(review.counts().submitRequests, 1);
+  assert.equal(review.counts().previewRequests, 1);
+});
+
+test("manual explicit rejection and immediate success have distinct responses", async () => {
+  for (const scenario of ["rejected", "success"]) {
+    const review = createSubmissionReview(seed, new URLSearchParams(`submissionReview=${scenario}&manualImport`));
+    const result = (await review.handle(url("/submit"), "POST", reviewed))!;
+    const payload = await result.json();
+    if (scenario === "rejected") { assert.equal(result.status, 422); assert.equal(payload.certification.can_submit, false); }
+    else { assert.equal(payload.job.state, "Order Confirmed"); assert.equal(payload.job.target_order_number, "A9000999"); }
+  }
+});
+
+test("a replacement manual preview has a different identity and isolated outcome", async () => {
+  const review = createSubmissionReview(seed, new URLSearchParams("submissionReview=network&manualImport"));
+  const previewUrl = new URL("/api/customers/1249/jobs/preview", url());
+  await review.handle(previewUrl, "POST", {});
+  await assert.rejects(() => review.handle(url("/submit"), "POST", reviewed));
+  const next = await (await review.handle(previewUrl, "POST", {}))!.json();
+  assert.notEqual(next.job.job_id, "qa-job"); assert.equal(next.job.state, "Ready");
+  assert.equal((await (await review.handle(url(), "GET"))!.json()).job.state, "Submitted");
 });

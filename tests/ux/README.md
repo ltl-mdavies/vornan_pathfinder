@@ -110,8 +110,21 @@ Open `?submissionReview=ready&reviewCase=my-review`, then the single synthetic j
 | `blocked` | Submit returns a certification refusal without confirming an order. |
 | `network` | Simulates losing the browser response after a reservation; reopening the job reveals the uncertain attempt. |
 
-The fixed **Simulate reconciliation** control advances only an uncertain synthetic job to confirmed and reloads the app. It is a QA control, not a product action or API endpoint. Reopen the job to inspect the new state and audit history. **Reset simulated submission** clears this case only. Session storage contains only an outcome enum under `pathfinder-ux-submit-v1:<scenario>:<reviewCase>`, not customer data, payloads or credentials.
+The fixed **Simulate reconciliation** control advances only the original uncertain synthetic job to confirmed without reloading. Use the product's Refresh job action to inspect the new state and audit history. It is a QA control, not a product action or API endpoint. **Reset simulated submission** clears this case and reloads. Session storage contains only an outcome enum under `pathfinder-ux-submit-v1:<scenario>:<reviewCase>`, not customer data, payloads or credentials. The visible QA panel counts submit, preview and job-read requests in the current page instance. **Fail next job read** makes the next original-job GET return 503; retry succeeds.
 
 The runtime response advertises mock transport and a simulated enabled gate solely to exercise the UI; the real API environment is untouched. These fixtures complement the actual API integrity, reservation and reconciliation tests; they do not establish live transport or automatic Wrike writeback behavior. Strict fixture typing uses the same command above with `tests/ux/submission-fixtures.ts`.
 
 Add `&submissionSlow` to `submissionReview=ready` for an eight-second response delay after the simulated reservation. This adds a second synthetic job so reviewers can navigate away while the first response is pending and verify that a late result does not replace the newly opened detail.
+
+### Manual Import recovery
+
+Open `http://127.0.0.1:5210/?submissionReview=network&manualImport&reviewCase=manual-review-1` with a new case name for each clean run. Navigate Customers → Empirical – Momentara → Manual Import. Choose **Use Sample**, product key **SKU**, order identity **Order Number**, then **Generate Preview Job** in the upload panel. The fixture supplies approved synthetic sample mappings; the actual frontend still performs its local validation. Wait for automatic certification to finish, then use **Submit to Lift**.
+
+- `network`: lost response after simulated reservation. Submit and certification refresh stay disabled. Fail next job read → Refresh job preserves the lock; retry shows pending; Simulate reconciliation → Refresh job shows confirmed. The submit counter must remain 1 throughout.
+- `rejected`: explicit 422 with failed certification, no accepted order. Submission remains disabled until an authoritative reread/review. No uncertain-order warning is fabricated for this known refusal.
+- `success`: immediately returns a confirmed job. Submit remains disabled even though simulated certification remains positive.
+- `ready&submissionSlow`: delays submit response eight seconds. Use Sample and repeat the two column choices and preview generation before completion; the second persisted preview has a distinct job ID. The old response must not replace its state/feedback. Alternatively switch to Silicon Pasture while pending; no old job or attempt may become its current preview.
+- `&manualReadSlow`: job GET delay of eight seconds, for navigation during refresh.
+- `&previewSlow`: preview POST delay of eight seconds, for navigation during preview creation.
+
+Preview generation in this mode is an in-memory contract simulation, not an invocation of the production preview builder. First preview uses the original synthetic job; later previews get distinct IDs and independent outcomes. Additional previews live only until reload. Reconciliation/fail-next-read controls target the original job. All external/unsupported writes remain blocked; no server credentials or real customer files are used.

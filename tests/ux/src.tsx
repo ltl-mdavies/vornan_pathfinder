@@ -13,6 +13,18 @@ import { createSubmissionReview, type SubmissionSeed } from "./submission-fixtur
 // Actual App with an in-memory HTTP boundary. Never fall through to a real API.
 const configured = new Set(["284619","174094","1249"]);
 const query = new URLSearchParams(location.search);
+if (query.has("manualImport")) {
+  const workspace = fixtures.workspaces["284619"];
+  const route = workspace.output_routes[0];
+  (workspace.product_mappings as unknown[]).push(...fixtures.jobs[0].source_grid.rows.map((row, index) => ({
+    mapping_id: `qa-manual-${index}`, output_route_id: route.output_route_id, target_id: route.target_id,
+    target_template: route.output_template, source_scope_id: null, customer_product_key: row.SKU.replaceAll("-", "_"),
+    display_label: row["Product Name"], source_columns: ["SKU"], product_identifier_type: route.product_identifier_type,
+    product_identifier_value: String(990001 + index), lift_product_id: String(990001 + index), lift_unit_number: null,
+    product_name: row["Product Name"], status: "Mapped", mapping_source: "Preloaded catalog", last_seen_examples: [],
+    created_at: "2026-10-24T14:00:00Z", updated_at: "2026-10-24T14:00:00Z"
+  })));
+}
 // Opt-in density/data variants for the existing customer setup workflows.
 // These records live only in this module; mutation requests still return423.
 if (query.has("customerWorkflows")) {
@@ -144,7 +156,17 @@ window.fetch = async (input, init) => {
 window.open = () => null;
 const authSession = {displayName:submission ? "Local QA · simulated submissions" : integration ? "Local QA · simulated saves" : "Local review · sample data",email:"review@example.invalid",photoURL:null,domain:"example.invalid",token:null,getIdToken:async()=>null,expireSession:async()=>{},signOut:async()=>{}};
 const root = createRoot(document.getElementById("root")!);
-root.render(<><App authSession={authSession}/>{submission ? <aside aria-label="Isolated submission review" style={{position:"fixed",bottom:8,right:8,zIndex:9999,background:"white",border:"1px solid #39523b",padding:8,fontSize:12}}>No provider calls · QA only <button type="button" onClick={()=>{submission.simulateReconciliation();location.reload();}}>Simulate reconciliation</button> <button type="button" onClick={()=>{submission.reset();location.reload();}}>Reset simulated submission</button></aside> : integration ? <aside aria-label="Isolated integration review" style={{position:"fixed",bottom:8,right:8,zIndex:9999,background:"white",border:"1px solid #39523b",padding:8,fontSize:12}}>Simulated writes · this tab only <button type="button" onClick={()=>{integration.reset();location.reload();}}>Reset simulated data</button></aside> : null}</>);
+function SubmissionControls() {
+  const [, update] = React.useReducer(value => value + 1, 0);
+  React.useEffect(() => { const timer = setInterval(update, 250); return () => clearInterval(timer); }, []);
+  return <aside aria-label="Isolated submission review" style={{position:"fixed",bottom:8,right:8,zIndex:9999,background:"white",border:"1px solid #39523b",padding:8,fontSize:12}}>
+    No provider calls · QA only <output aria-label="Simulation request counts">{JSON.stringify(submission?.counts())}</output>
+    <button type="button" onClick={()=>{submission?.simulateReconciliation();update();}}>Simulate reconciliation</button>
+    <button type="button" onClick={()=>{submission?.failNextRead();update();}}>Fail next job read</button>
+    <button type="button" onClick={()=>{submission?.reset();location.reload();}}>Reset simulated submission</button>
+  </aside>;
+}
+root.render(<><App authSession={authSession}/>{submission ? <SubmissionControls/> : integration ? <aside aria-label="Isolated integration review" style={{position:"fixed",bottom:8,right:8,zIndex:9999,background:"white",border:"1px solid #39523b",padding:8,fontSize:12}}>Simulated writes · this tab only <button type="button" onClick={()=>{integration.reset();location.reload();}}>Reset simulated data</button></aside> : null}</>);
 if (query.has("catalogLate")) {
   // Simulate leaving the workspace while a disk read is pending. This is a test-only
   // remount, not a product navigation control; report cleanup through visible text.
