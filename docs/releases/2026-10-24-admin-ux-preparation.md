@@ -1,8 +1,8 @@
 # Pathfinder Admin UX release preparation
 
-Prepared October 24, 2026 for Pathfinder Development. **Release remains on hold.** Manual Import recovery has independent acceptance and a refreshed production-configured artifact. Authenticated Admin baseline checks now work; native 200% zoom and current public Proof/Status session checks remain open. **No push, merge, deployment, invalidation, provider write or configuration change has been performed.**
+Prepared October 24, 2026 for Pathfinder Development. **Pre-deployment checks are complete and the user authorized proceeding.** Manual Import recovery has independent acceptance and a refreshed production-configured artifact. Authenticated Admin baseline, candidate 200% zoom, and current public Proof/Status session checks are documented in the latest recheck record. Scope remains Admin-only; no provider decisions or configuration changes are authorized by this release. Publication and post-deployment acceptance must be recorded separately.
 
-The [focused Manual Import fix](2026-10-24-manual-import-recovery.md) at `d67dc12` has independent local acceptance from Pathfinder UX. The original candidate manifest remains invalidated. Use the [refreshed candidate manifest](2026-10-24-admin-ux-candidate-v2.json) for preparation only, subject to its release hold. The [latest verification record](2026-10-24-admin-ux-release-recheck.md) distinguishes live baseline checks from local candidate acceptance. Recheck live versions immediately before publication.
+The [focused Manual Import fix](2026-10-24-manual-import-recovery.md) at `d67dc12` has independent local acceptance from Pathfinder UX. The original candidate manifest remains invalidated. Use the [refreshed candidate manifest](2026-10-24-admin-ux-candidate-v2.json). The [latest verification record](2026-10-24-admin-ux-release-recheck.md) distinguishes live baseline checks from local candidate acceptance and supersedes the historical pending-check statements below. Recheck live versions immediately before publication.
 
 ## Scope and ownership
 

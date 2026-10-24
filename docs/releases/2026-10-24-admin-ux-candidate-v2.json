@@ -1,6 +1,6 @@
 {
-  "status": "prepared_release_hold",
-  "holdReason": "Authenticated production and native 200% zoom checks remain open; not approved for publication by this manifest.",
+  "status": "predeployment_checks_passed",
+  "holdReason": null,
   "source": "f50becaaf74581fb2e9c4e0c10446feb2802bb2f",
   "acceptedImplementation": "d67dc1260c00614994236789aff4ce16c9fd238a",
   "builtAt": "2026-10-24T14:29:59.495Z",
