@@ -22,6 +22,10 @@ Use `PATHFINDER_UX_PORT=5214 npx vite --config tests/ux/vite.config.ts` for an i
 
 The harness bypasses AuthGate with an explicitly labeled synthetic session; these checks are not proof of real authentication or provider behavior. The authenticated lazy fallback is covered separately by its source contract and visual review.
 
+Startup follow-up acceptance, October 24, 2026: runtime `d6c37b1`, isolated branch `codex/pathfinder-startup-followup`, baseline deployed `cc7c652`. Development and Pathfinder UX independently verified held root startup, reload, release to Dashboard, directory error/retry, and LTL Demo 1249 OAuth-return workspace error/retry. UX reviewed at 1366 × 768. Loading has no directory action, legacy panel or workspace skeleton; actual customer errors retain compact recovery controls. General customer/job URL deep links are not implemented by the existing App and were not added in this slice.
+
+All workspace typechecks, the Admin build and 1,385 tests passed (API 800, Proof 76, Status 17, Admin 252, shared packages 240). The first sandboxed API run could not bind local Supertest ports; rerunning with local bind permission passed without source changes. The existing bundle-size build warning remains. Development screenshots are in `output/startup-review/`; UX evidence is in its `login-startup-review/startup-checks.json` and accompanying screenshots. No login/auth behavior, public app, API or provider code was changed. The authenticated lazy fallback is source-contract covered; the synthetic App harness does not prove a real Firebase session restore. This follow-up remains **local and undeployed**, pending the coordinated login selection/review and Development release process.
+
 ## Safety boundary
 
 - All fetch requests terminate in the in-memory adapter; unknown routes fail closed.
