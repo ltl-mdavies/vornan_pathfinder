@@ -19,6 +19,15 @@ import {
   type CatalogProduct
 } from "../src/artwork-catalog/fixtures";
 
+test("compact detail labels both independent states before artwork and discloses local-only checks", () => {
+  const markup = renderToStaticMarkup(<ArtworkCatalogWorkspace customerLabel="LTL Demo" products={artworkCatalogFixture} actions={artworkCatalogFixtureActions} compactPilot initialProductId={artworkCatalogFixture[0].id} />);
+  const pair = markup.indexOf('class="pf-catalog-status-pair"');
+  assert.ok(pair > 0 && pair < markup.indexOf('class="artwork-catalog-current-preview"'));
+  assert.match(markup.slice(pair, markup.indexOf('class="artwork-catalog-current-preview"')), /Technical inspection[\s\S]*Proof approval/);
+  assert.match(markup, /Local check only\. No catalog data is saved; current artwork stays unchanged/);
+  assert.match(markup, /disabled="" title="Source file is not connected in this sample catalog"/);
+});
+
 test("renders an unmounted operator workspace with distinct specification, inspection, approval, and order evidence", () => {
   const markup = renderToStaticMarkup(
     <ArtworkCatalogWorkspace

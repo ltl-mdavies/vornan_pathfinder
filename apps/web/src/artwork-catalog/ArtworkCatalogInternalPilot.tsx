@@ -18,6 +18,22 @@ const INTERNAL_PILOT_PRODUCT_ID = "product_1249_pump_topper_chevron";
 const INTERNAL_PILOT_VERSION_ID = "artwork_version_7";
 const INTERNAL_PILOT_INSPECTION_ID = "inspection_1249_chevron_v7_001";
 
+// The compact review must describe the same sample run that View results opens.
+// Keep this adaptation isolated from the original standalone fixture composition.
+export const compactCatalogPilotProducts = artworkCatalogFixture.map((product) => product.id !== INTERNAL_PILOT_PRODUCT_ID ? product : {
+  ...product,
+  versions: product.versions.map((version) => version.id !== INTERNAL_PILOT_VERSION_ID ? version : {
+    ...version,
+    inspection: {
+      ...version.inspection,
+      state: "Needs work" as const,
+      checkedAt: artworkInspectionResultFixture.completedAt,
+      summary: "The sample inspection found technical issues. Proof approval is unchanged.",
+      metrics: artworkInspectionResultFixture.metrics
+    }
+  })
+});
+
 export function isArtworkCatalogInternalPilotAvailable(enabled: boolean, customerId: string): boolean {
   return enabled && customerId === INTERNAL_PILOT_CUSTOMER_ID;
 }
@@ -65,6 +81,7 @@ export function resolveArtworkInspectionResult(input: {
 export type ArtworkCatalogInternalPilotProps = Readonly<{
   customerId: string;
   customerLabel: string;
+  compact?: boolean;
 }>;
 
 type PilotView =
@@ -106,10 +123,10 @@ function localResultFromBatch(batch: ArtworkUploadBatch): { productId: string; r
   return { productId: item.productId, result: item.result };
 }
 
-export function ArtworkCatalogInternalPilot({ customerId, customerLabel }: ArtworkCatalogInternalPilotProps) {
+export function ArtworkCatalogInternalPilot({ customerId, customerLabel, compact = false }: ArtworkCatalogInternalPilotProps) {
   const [view, setView] = useState<PilotView>({
     kind: "catalog",
-    selectedProductId: INTERNAL_PILOT_PRODUCT_ID
+    selectedProductId: compact ? "" : INTERNAL_PILOT_PRODUCT_ID
   });
 
   useEffect(() => () => {
@@ -150,7 +167,8 @@ export function ArtworkCatalogInternalPilot({ customerId, customerLabel }: Artwo
   return (
     <ArtworkCatalogWorkspace
       customerLabel={customerLabel}
-      products={artworkCatalogFixture}
+      compactPilot={compact}
+      products={compact ? compactCatalogPilotProducts : artworkCatalogFixture}
       actions={artworkCatalogFixtureActions}
       initialProductId={view.selectedProductId}
       onOpenTechnicalInspection={(identity) => {

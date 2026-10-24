@@ -5,12 +5,35 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   ArtworkCatalogInternalPilot,
+  compactCatalogPilotProducts,
   isArtworkCatalogInternalPilotAvailable,
   localInspectionSpecForProduct,
   resolveArtworkInspectionResult,
   shouldUseArtworkCatalogFocusedShell
 } from "../src/artwork-catalog/ArtworkCatalogInternalPilot";
 import { artworkCatalogFixture } from "../src/artwork-catalog/fixtures";
+
+test("compact pilot starts with an honest unobstructed sample list and leaves default composition intact", () => {
+  const markup = renderToStaticMarkup(<ArtworkCatalogInternalPilot customerId="1249" customerLabel="LTL Demo · 1249" compact />);
+  assert.match(markup, /pf-catalog-candidate/);
+  assert.match(markup, /Sample records · no catalog data is saved/);
+  assert.match(markup, /New product · unavailable/);
+  assert.doesNotMatch(markup, /artwork-catalog-drawer|ready for routine use|Catalog summary/);
+  assert.match(markup, /5<!-- --> of <!-- -->5|5 of 5/);
+  assert.equal(renderToStaticMarkup(<ArtworkCatalogInternalPilot customerId="284619" customerLabel="Other" compact />), "");
+});
+
+test("compact sample inspection agrees with its linked report without changing approval or original fixture", () => {
+  const product = compactCatalogPilotProducts[0];
+  const current = product.versions.find((version) => version.isCurrent)!;
+  const report = resolveArtworkInspectionResult({customerId: "1249", productId: product.id, versionId: current.id})!;
+  assert.equal(report.verdict, "needs-work");
+  assert.equal(current.inspection.state, "Needs work");
+  assert.equal(current.inspection.checkedAt, report.completedAt);
+  assert.deepEqual(current.inspection.metrics, report.metrics);
+  assert.equal(current.approval.state, "Approved");
+  assert.equal(artworkCatalogFixture[0].versions[0].inspection.state, "Passed");
+});
 
 test("keeps the internal pilot default-dark and restricted to exact customer 1249", async () => {
   assert.equal(isArtworkCatalogInternalPilotAvailable(false, "1249"), false);

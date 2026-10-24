@@ -11433,6 +11433,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <ArtworkCatalogInternalPilot
                 customerId={selectedCustomerId}
                 customerLabel={`${selectedCustomer.customer_name} · ${selectedCustomer.lift_customer_id}`}
+                compact={operationsWorkspaceEnabled}
               />
             ) : null}
 

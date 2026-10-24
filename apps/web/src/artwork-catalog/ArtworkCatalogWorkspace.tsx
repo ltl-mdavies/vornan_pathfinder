@@ -147,6 +147,7 @@ export type ArtworkCatalogWorkspaceProps = {
   products: ReadonlyArray<CatalogProduct>;
   actions: ArtworkCatalogActions;
   initialProductId?: string;
+  compactPilot?: boolean;
   onOpenTechnicalInspection?: (input: { productId: string; versionId: string }) => void;
   onAnalyzeLocalArtwork?: (input: {
     product: CatalogProduct;
@@ -204,13 +205,15 @@ export function ArtworkCatalogWorkspace({
   products,
   actions,
   initialProductId,
+  compactPilot = false,
   onOpenTechnicalInspection,
   onAnalyzeLocalArtwork,
   onOpenLocalInspection
 }: ArtworkCatalogWorkspaceProps) {
   const initialProduct = products.find((product) => product.id === initialProductId) ?? products[0] ?? null;
   const [selectedProductId, setSelectedProductId] = useState<string | null>(initialProduct?.id ?? null);
-  const [drawerOpen, setDrawerOpen] = useState(Boolean(initialProduct));
+  const [drawerOpen, setDrawerOpen] = useState(Boolean(initialProduct) && (!compactPilot || Boolean(initialProductId)));
+  const [overlayDetail, setOverlayDetail] = useState(() => typeof window !== "undefined" && window.innerWidth < 1700);
   const [query, setQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "cards">("list");
   const [lifecycleFilters, setLifecycleFilters] = useState<ReadonlyArray<CatalogLifecycle>>([]);
@@ -227,8 +230,39 @@ export function ArtworkCatalogWorkspace({
   const [activityMessage, setActivityMessage] = useState("");
   const filterPanelRef = useRef<HTMLDivElement>(null);
   const modalCloseRef = useRef<HTMLButtonElement>(null);
+  const modalRef = useRef<HTMLElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const lastModalTriggerRef = useRef<HTMLElement | null>(null);
+  const detailCloseRef = useRef<HTMLButtonElement>(null);
+  const detailOriginRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!compactPilot) return;
+    const media = window.matchMedia("(max-width: 1699px)");
+    const update = () => setOverlayDetail(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, [compactPilot]);
+
+  const closeDetail = () => {
+    setDrawerOpen(false);
+    setPendingLifecycle(null);
+    window.requestAnimationFrame(() => detailOriginRef.current?.focus());
+  };
+
+  useEffect(() => {
+    if (!compactPilot || !drawerOpen) return;
+    detailCloseRef.current?.focus();
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && viewer.kind === "closed") {
+        event.preventDefault();
+        closeDetail();
+      }
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [compactPilot, drawerOpen, selectedProductId, viewer.kind]);
 
   const selectedProduct = products.find((product) => product.id === selectedProductId) ?? null;
   const filters = useMemo<CatalogFilterSelection>(() => ({
@@ -287,6 +321,15 @@ export function ArtworkCatalogWorkspace({
     if (viewer.kind === "closed") return;
     modalCloseRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Tab" && compactPilot && modalRef.current) {
+        const controls = Array.from(modalRef.current.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex='0']")).filter((element) => element.getClientRects().length > 0);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (first && last && ((event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last))) {
+          event.preventDefault();
+          (event.shiftKey ? last : first).focus();
+        }
+      }
       if (event.key === "Escape") {
         event.preventDefault();
         closeViewer();
@@ -386,6 +429,7 @@ export function ArtworkCatalogWorkspace({
   };
 
   const openProduct = (product: CatalogProduct) => {
+    detailOriginRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSelectedProductId(product.id);
     setDrawerOpen(true);
     setPendingLifecycle(null);
@@ -425,8 +469,10 @@ export function ArtworkCatalogWorkspace({
     : selectedProduct ? currentArtworkVersion(selectedProduct) : null;
 
   return (
-    <section className={`artwork-catalog-workspace ${drawerOpen ? "artwork-catalog-with-drawer" : ""}`} aria-labelledby="artwork-catalog-title">
-      <div className="artwork-catalog-main">
+    <section className={`artwork-catalog-workspace ${compactPilot ? "pf-catalog-candidate" : ""} ${drawerOpen ? "artwork-catalog-with-drawer" : ""}`} aria-labelledby="artwork-catalog-title">
+      {compactPilot ? <h2 id="artwork-catalog-title" className="sr-only">Artwork catalog</h2> : null}
+      <div className="artwork-catalog-main" inert={compactPilot && drawerOpen && overlayDetail ? true : undefined}>
+        {compactPilot ? <p className="pf-catalog-pilot-note"><strong>Catalog pilot</strong><span>Sample records · no catalog data is saved. Artwork checks run locally.</span></p> : <>
         <header className="artwork-catalog-heading">
           <div>
             <span className="artwork-catalog-eyebrow">{customerLabel}</span>
@@ -443,6 +489,7 @@ export function ArtworkCatalogWorkspace({
           <article><span>Proof approved</span><strong>{totals.approved}</strong><small>Approval is recorded per artwork version</small></article>
           <article><span>Needs attention</span><strong>{totals.needsAttention}</strong><small>Technical or proof follow-up</small></article>
         </div>
+        </>}
 
         <div className="artwork-catalog-toolbar">
           <label className="artwork-catalog-search">
@@ -476,6 +523,7 @@ export function ArtworkCatalogWorkspace({
             <button type="button" aria-label="List view" aria-pressed={viewMode === "list"} onClick={() => setViewMode("list")}><List size={15} aria-hidden="true" /><span>List</span></button>
             <button type="button" aria-label="Card view" aria-pressed={viewMode === "cards"} onClick={() => setViewMode("cards")}><LayoutGrid size={15} aria-hidden="true" /><span>Cards</span></button>
           </div>
+          {compactPilot ? <button type="button" className="artwork-catalog-secondary" disabled title="Product creation is not connected in this sample catalog">New product · unavailable</button> : null}
         </div>
 
         {activeFilterChips.length ? (
@@ -534,11 +582,13 @@ export function ArtworkCatalogWorkspace({
             {filteredProducts.length === 0 ? <div className="artwork-catalog-empty">No products match this view.</div> : null}
           </div>
         )}
+        {compactPilot ? <p className="pf-catalog-count">{filteredProducts.length} of {products.length} sample products · inspection and Proof approval are separate</p> : null}
         <p className="artwork-catalog-live-region" aria-live="polite">{activityMessage}</p>
       </div>
 
+      {compactPilot && drawerOpen && overlayDetail ? <button className="pf-catalog-detail-scrim" type="button" aria-label="Close product detail overlay" onClick={closeDetail} tabIndex={-1} /> : null}
       {selectedProduct && drawerOpen ? (
-        <aside className="artwork-catalog-drawer" aria-label={`${selectedProduct.name} product detail`}>
+        <aside className="artwork-catalog-drawer" aria-label={`${selectedProduct.name} product detail`} inert={compactPilot && viewer.kind !== "closed" ? true : undefined}>
           <header className="artwork-catalog-drawer-header">
             <div><span>{selectedProduct.sku}</span><h2>{selectedProduct.name}</h2><p>{selectedProduct.category}</p></div>
             <div className="artwork-catalog-drawer-header-actions">
@@ -551,7 +601,7 @@ export function ArtworkCatalogWorkspace({
                 }}
                 aria-label={`Change catalog item status. Current status ${effectiveCatalogLifecycle(selectedProduct, lifecycleOverrides)}`}
               ><Power size={13} aria-hidden="true" /> {effectiveCatalogLifecycle(selectedProduct, lifecycleOverrides)} <ChevronDown size={13} aria-hidden="true" /></button>
-              <button type="button" className="artwork-catalog-icon-button" onClick={() => { setDrawerOpen(false); setPendingLifecycle(null); }} aria-label="Close product detail"><X size={18} aria-hidden="true" /></button>
+              <button ref={detailCloseRef} type="button" className="artwork-catalog-icon-button" onClick={closeDetail} aria-label="Close product detail"><X size={18} aria-hidden="true" /></button>
             </div>
           </header>
           <div className="artwork-catalog-drawer-body">
@@ -561,6 +611,7 @@ export function ArtworkCatalogWorkspace({
               const effectiveSpecification = specificationOverrides[selectedProduct.id] ?? selectedProduct.specification;
               return (
                 <>
+                  {compactPilot ? <dl className="pf-catalog-status-pair"><div><dt>Technical inspection</dt><dd><StatusBadge label={current.inspection.state} tone={inspectionTone(current.inspection.state)} /></dd></div><div><dt>Proof approval</dt><dd><StatusBadge label={current.approval.state} tone={approvalTone(current.approval.state)} /></dd></div></dl> : null}
                   {pendingLifecycle?.productId === selectedProduct.id ? (
                     <section className="artwork-catalog-lifecycle-confirmation" aria-labelledby="artwork-catalog-lifecycle-title">
                       <div><span><Power size={17} aria-hidden="true" /></span><div><h3 id="artwork-catalog-lifecycle-title">Make this item {pendingLifecycle.next.toLowerCase()}?</h3><p>{pendingLifecycle.next === "Inactive" ? "It stays in history but will not be available for new orders." : "It will be available for new orders again."}</p></div></div>
@@ -574,10 +625,12 @@ export function ArtworkCatalogWorkspace({
                   </figure>
 
                   <div className="artwork-catalog-art-actions">
-                    <button type="button" onClick={() => actions.onOpenArtwork({ productId: selectedProduct.id, versionId: current.id })}><ExternalLink size={14} aria-hidden="true" /> Open artwork</button>
-                    <button type="button" onClick={() => actions.onDownloadArtwork({ productId: selectedProduct.id, versionId: current.id })}><Download size={14} aria-hidden="true" /> Download</button>
+                    <button type="button" disabled={compactPilot} title={compactPilot ? "Source file is not connected in this sample catalog" : undefined} onClick={() => actions.onOpenArtwork({ productId: selectedProduct.id, versionId: current.id })}><ExternalLink size={14} aria-hidden="true" /> Open artwork</button>
+                    <button type="button" disabled={compactPilot} title={compactPilot ? "Source file is not connected in this sample catalog" : undefined} onClick={() => actions.onDownloadArtwork({ productId: selectedProduct.id, versionId: current.id })}><Download size={14} aria-hidden="true" /> Download</button>
                     <button type="button" onClick={(event) => openHistory(event.currentTarget)}><History size={14} aria-hidden="true" /> Version history ({selectedProduct.versions.length})</button>
                   </div>
+
+                  {compactPilot ? <p className="pf-catalog-sample-note">Sample record · source files are not connected.</p> : null}
 
                   <section className="artwork-catalog-widget">
                     <header><span className="artwork-catalog-widget-icon"><FileImage size={16} aria-hidden="true" /></span><div><h3>Product specification</h3><p>Expected print intent for artwork checks</p></div><button type="button" className="artwork-catalog-widget-action" onClick={(event) => openSpecification(event.currentTarget)}><PencilLine size={12} aria-hidden="true" /> Edit</button></header>
@@ -611,7 +664,7 @@ export function ArtworkCatalogWorkspace({
                     <header><span className="artwork-catalog-widget-icon"><ShoppingBag size={16} aria-hidden="true" /></span><div><h3>Order history</h3><p>Read-only product activity</p></div></header>
                     <div className="artwork-catalog-order-summary"><strong>{selectedProduct.orderHistory.totalOrders}</strong><span>Total orders</span><strong>{selectedProduct.orderHistory.openOrderCount}</strong><span>Open / in production</span><strong>{formatDate(selectedProduct.orderHistory.lastOrderedAt)}</strong><span>Last ordered</span></div>
                     {selectedProduct.orderHistory.recentReferences.length ? <ul>{selectedProduct.orderHistory.recentReferences.slice(0, 3).map((order) => <li key={order.reference}><span><strong>{order.reference}</strong><small>{formatDate(order.orderedAt, true)}</small></span><StatusBadge label={order.status} tone={order.status === "Complete" ? "success" : "neutral"} /></li>)}</ul> : <p className="artwork-catalog-widget-summary">No order references yet.</p>}
-                    <button type="button" className="artwork-catalog-text-button" onClick={() => actions.onOpenFullOrderHistory(selectedProduct.id)}>View full order history <ChevronRight size={14} aria-hidden="true" /></button>
+                    <button type="button" disabled={compactPilot} title={compactPilot ? "Live order history is not connected in this sample catalog" : undefined} className="artwork-catalog-text-button" onClick={() => actions.onOpenFullOrderHistory(selectedProduct.id)}>View full order history <ChevronRight size={14} aria-hidden="true" /></button>
                   </section>
                 </>
               );
@@ -619,14 +672,14 @@ export function ArtworkCatalogWorkspace({
           </div>
           <footer className="artwork-catalog-drawer-footer">
             <button type="button" className="artwork-catalog-primary artwork-catalog-primary-wide" onClick={(event) => openUpload(event.currentTarget)}><Upload size={16} aria-hidden="true" /> {onAnalyzeLocalArtwork ? "Check new artwork" : "Upload new version"}</button>
-            <p>The current version stays in place until a future explicit activation decision.</p>
+            <p>{compactPilot ? "Local check only. No catalog data is saved; current artwork stays unchanged." : "The current version stays in place until a future explicit activation decision."}</p>
           </footer>
         </aside>
       ) : null}
 
       {selectedProduct && viewer.kind !== "closed" && selectedViewerVersion ? (
         <div className="artwork-catalog-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !(viewer.kind === "upload" && viewer.stage === "processing")) closeViewer(); }}>
-          <section className={`artwork-catalog-modal ${viewer.kind === "specification" ? "artwork-catalog-specification-modal" : viewer.kind === "upload" ? "artwork-catalog-upload-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="artwork-viewer-title">
+          <section ref={modalRef} className={`artwork-catalog-modal ${viewer.kind === "specification" ? "artwork-catalog-specification-modal" : viewer.kind === "upload" ? "artwork-catalog-upload-modal" : ""}`} role="dialog" aria-modal="true" aria-labelledby="artwork-viewer-title">
             <header className="artwork-catalog-modal-header">
               <div><span>{selectedProduct.name}</span><h2 id="artwork-viewer-title">{viewer.kind === "history" ? "Artwork viewer" : viewer.kind === "specification" ? "Product configuration" : onAnalyzeLocalArtwork ? "Check new artwork" : "Upload new version"}</h2><p>{viewer.kind === "history" ? `Review ${selectedProduct.versions.length} immutable artwork versions.` : viewer.kind === "specification" ? "Set the finished artwork requirements for this catalog item." : onAnalyzeLocalArtwork ? "Analyze a local file without uploading, storing, or replacing the current artwork." : "Select, review, and confirm without replacing the current artwork."}</p></div>
               <button ref={modalCloseRef} type="button" className="artwork-catalog-icon-button" onClick={closeViewer} aria-label="Close dialog" disabled={viewer.kind === "upload" && viewer.stage === "processing"}><X size={19} aria-hidden="true" /></button>
@@ -637,7 +690,7 @@ export function ArtworkCatalogWorkspace({
                 <div className="artwork-catalog-viewer-preview">
                   <img src={selectedViewerVersion.previewUrl} alt={selectedViewerVersion.previewAlt} />
                   <div><span>Version {selectedViewerVersion.version}{selectedViewerVersion.isCurrent ? " · Current" : " · Historical"}</span><strong>{selectedViewerVersion.filename}</strong><small>{selectedViewerVersion.fileSize} · Uploaded {formatDate(selectedViewerVersion.uploadedAt, true)} by {selectedViewerVersion.uploadedBy}</small></div>
-                  <div className="artwork-catalog-viewer-actions"><button type="button" onClick={() => actions.onOpenArtwork({ productId: selectedProduct.id, versionId: selectedViewerVersion.id })}><Eye size={14} aria-hidden="true" /> Open</button><button type="button" onClick={() => actions.onDownloadArtwork({ productId: selectedProduct.id, versionId: selectedViewerVersion.id })}><Download size={14} aria-hidden="true" /> Download</button></div>
+                  <div className="artwork-catalog-viewer-actions"><button type="button" disabled={compactPilot} title={compactPilot ? "Source file is not connected in this sample catalog" : undefined} onClick={() => actions.onOpenArtwork({ productId: selectedProduct.id, versionId: selectedViewerVersion.id })}><Eye size={14} aria-hidden="true" /> Open</button><button type="button" disabled={compactPilot} title={compactPilot ? "Source file is not connected in this sample catalog" : undefined} onClick={() => actions.onDownloadArtwork({ productId: selectedProduct.id, versionId: selectedViewerVersion.id })}><Download size={14} aria-hidden="true" /> Download</button></div>
                 </div>
                 <div className="artwork-catalog-version-panel">
                   <header><h3>Version history</h3><span>Newest first</span></header>
