@@ -2,7 +2,7 @@
 
 Prepared October 24, 2026 for Pathfinder Development. **Release is on hold following the [secondary acceptance pass](2026-10-24-admin-ux-secondary-acceptance.md).** The exercised scenarios passed, but Manual Import recovery needs a focused follow-up and authenticated production and native zoom checks remain unverified. **No push, merge, deployment, invalidation, provider write or configuration change has been performed.**
 
-The [focused Manual Import fix](2026-10-24-manual-import-recovery.md) now awaits independent acceptance. The candidate manifest below is explicitly invalidated: its source, chunks and hashes describe the earlier build and must not be deployed. The focused build is validation-only, not a refreshed production-configured release artifact. The rollback manifest remains historical evidence and must be revalidated against live state before release.
+The [focused Manual Import fix](2026-10-24-manual-import-recovery.md) at `d67dc12` has independent local acceptance from Pathfinder UX. The candidate manifest below is explicitly invalidated: its source, chunks and hashes describe the earlier build and must not be deployed. The focused build is validation-only, not a refreshed production-configured release artifact. Authenticated production/native zoom checks remain open. The rollback manifest remains historical evidence and must be revalidated against live state before release.
 
 ## Scope and ownership
 

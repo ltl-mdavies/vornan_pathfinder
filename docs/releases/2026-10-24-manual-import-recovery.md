@@ -1,6 +1,6 @@
 # Manual Import submission recovery
 
-October 24, 2026. The existing Manual Import recovery gap has been reproduced and fixed locally. **Deployment remains on hold pending independent acceptance, authenticated production checks and native zoom verification.** No provider request, production mutation, push, merge or deployment was performed.
+October 24, 2026. The existing Manual Import recovery gap has been reproduced, fixed locally and independently accepted by Pathfinder UX. **Deployment remains on hold pending authenticated production checks, native zoom verification and a refreshed production release artifact.** No provider request, production mutation, push, merge or deployment was performed.
 
 Frozen implementation checkpoint: `d67dc12` on `codex/pathfinder-ux-shell` in `/private/tmp/pathfinder-ux-shell`.
 
@@ -32,7 +32,7 @@ Runtime scope is `apps/web/src/App.tsx` and new `apps/web/src/submission-recover
 | Immediate-success browser flow | Confirmed order displayed; submit disabled despite positive certification. |
 | Delayed same-customer response | Second preview remained Ready with distinct ID, no old response feedback or attempt attached. |
 | Delayed job GET during direct regeneration | The replacement preview remained Ready with Submit and Refresh enabled after the old read completed; no inherited loading state or old feedback. |
-| Customer switch during pending response | Initial check showed the new customer with no old persisted preview; independent final-candidate repetition requested. |
+| Customer switch during pending response | UX independently passed final d67dc12 after rapid double-click: LTL Demo retained no prior timeout/attempt and submitRequests remained 1. |
 | Native zoom and production session | Still unverified; no change to the earlier browser-access limitation. |
 
 [Final confirmation capture](../../output/playwright/secondary-oct24/16-manual-final-confirmation.jpg) shows the frozen candidate with one submit request, two job reads, confirmed order A9000999, disabled Submit and preserved historical timeout. [Failed-refresh lock capture](../../output/playwright/secondary-oct24/15-manual-failed-refresh-fixed.jpg) and [late-preview capture](../../output/playwright/secondary-oct24/14-manual-late-preview.jpg) record earlier iterations of the same behaviors. Captures 13–15 preceded the final copy/request-epoch refinement. Independent final screenshots should be retained with UX's acceptance result.
@@ -59,5 +59,7 @@ Use `submissionReview=rejected` and `success` for the other outcomes. `submissio
 ```
 
 ## Release disposition
+
+Pathfinder UX independently accepted `d67dc12` for this focused local recovery scope. Its final core flow included lost response → failed GET → pending GET → simulated reconciliation → confirmed A9000999 with the original uncertain attempt, with counters 1 submit / 1 preview / 3 reads. The slow-read/direct-regeneration race passed with a distinct Ready preview, enabled refresh/submit, no old feedback and counters 1 submit / 2 previews / 2 reads. Its rejection, immediate-success and delayed-submit replacement checks passed on the preceding `e3350c8f` App fingerprint; only refresh-epoch handling changed afterward. UX reported no further implementation change needed. Independent evidence is being finalized at `http://127.0.0.1:5206/manual-import-recovery-review/`.
 
 The earlier production candidate manifest is marked `invalidated_do_not_deploy`; its source and artifact hashes no longer describe this candidate. Rebuild using the preserved production configuration and regenerate the manifest only after acceptance. Revalidate the rollback versions and live baseline then. Pathfinder Development remains the sole release coordinator, and Pathfinder UX owns independent browser acceptance of this frozen candidate.
