@@ -117,9 +117,10 @@ import { configurePathfinderApiAuth, pathfinderFetch as fetch } from "./api-clie
 import { WorkspaceLoading } from "./WorkspaceLoading";
 import { ProofOpsPanel } from "./ProofOpsPanel";
 import { OperationsJobs } from "./OperationsWorkspace";
+import { PathfinderShell } from "./PathfinderShell";
 import { OperationsDashboard } from "./OperationsDashboard";
 import { OperationsProof } from "./OperationsProof";
-import { CustomerRecordHeader, CustomerRecordTabs, CustomerSwitcher, OperationsCustomers } from "./OperationsCustomers";
+import { CustomerRecordHeader, CustomerRecordTabs, OperationsCustomers } from "./OperationsCustomers";
 import { operationsDate, type OperationsJob } from "./operations-model";
 import { ProofingApiSetup } from "./ProofingApiSetup";
 import {
@@ -1623,13 +1624,13 @@ const globalNavItems: Array<{ label: GlobalView; icon: typeof Gauge }> = [
 
 const customerNavItems: Array<{ label: CustomerView; icon: typeof Gauge }> = [
   { label: "Overview", icon: Gauge },
+  { label: "Jobs", icon: Archive },
   ...(operationsWorkspaceEnabled ? [{ label: "Proof" as const, icon: ShieldCheck }] : []),
   { label: "Intake Exceptions", icon: AlertTriangle },
   { label: "Artwork Catalog", icon: FileText },
   { label: "Import Methods", icon: Workflow },
   { label: "Output Product Map", icon: Database },
   { label: "Manual Import", icon: Upload },
-  { label: "Jobs", icon: Archive },
   { label: "Settings", icon: SlidersHorizontal }
 ];
 
@@ -4710,6 +4711,25 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     scope: "import-method" | "target";
   } | null>(null);
   const [destructiveConfirmation, setDestructiveConfirmation] = useState<DestructiveConfirmation | null>(null);
+  const leaveDialogRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!leavePrompt) return;
+    const origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = leaveDialogRef.current;
+    if (!dialog) return;
+    const focusable = () => [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]')].filter(element => element.getClientRects().length > 0);
+    focusable()[0]?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); cancelLeavePrompt(); }
+      if (event.key !== "Tab") return;
+      const controls = focusable();
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    dialog.addEventListener("keydown", onKey);
+    return () => { dialog.removeEventListener("keydown", onKey); if (origin?.isConnected) origin.focus(); };
+  }, [leavePrompt]);
   const pendingNavigationRef = useRef<(() => void) | null>(null);
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("loading");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
@@ -4720,6 +4740,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [workspaceSetupRequiredCustomerId, setWorkspaceSetupRequiredCustomerId] = useState<string | null>(null);
   const workspaceRequestIdRef = useRef(0);
   const sourceConnectionsRequestIdRef = useRef(0);
+  const jobDetailRequestIdRef = useRef(0);
+  const [customerToolsOpen, setCustomerToolsOpen] = useState(false);
+  const [customerLegacyTools, setCustomerLegacyTools] = useState(false);
   const [statusPolicyDraft, setStatusPolicyDraft] = useState<StatusAccessPolicy | null>(null);
   const [newStatusDomain, setNewStatusDomain] = useState("");
   const [newStatusDomainStatus, setNewStatusDomainStatus] = useState<StatusAccessDomainStatus>("Approved");
@@ -4766,6 +4789,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [lastPreviewJob, setLastPreviewJob] = useState<ProcessingJobPreview | null>(null);
   const [lastSubmitAttempt, setLastSubmitAttempt] = useState<SubmitAttempt | null>(null);
   const [selectedJobDetail, setSelectedJobDetail] = useState<ProcessingJobPreview | null>(null);
+  const jobDetailHeadingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (selectedJobDetail) jobDetailHeadingRef.current?.focus(); }, [selectedJobDetail?.job_id]);
   const [selectedJobAttempts, setSelectedJobAttempts] = useState<SubmitAttempt[]>([]);
   const [jobDetailState, setJobDetailState] = useState<"idle" | "loading" | "error">("idle");
   const [jobMappingReevaluationState, setJobMappingReevaluationState] =
@@ -5843,6 +5868,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function openJobDetail(job: JobListRecord) {
+    const requestId = ++jobDetailRequestIdRef.current;
     if (activeGlobalView === "Customers") {
       setActiveCustomerView("Jobs");
     } else {
@@ -5867,9 +5893,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
       const payload = await readJsonResponse<{ job: ProcessingJobPreview; submit_attempts: SubmitAttempt[] }>(response);
+      if (requestId !== jobDetailRequestIdRef.current) return;
       setSelectedJobDetail(payload.job);
       setSelectedJobAttempts(payload.submit_attempts);
     } catch (error) {
+      if (requestId !== jobDetailRequestIdRef.current) return;
       setWorkspaceMessage(error instanceof Error ? error.message : "Job detail load failed.");
       setJobDetailState("error");
       return;
@@ -5878,6 +5906,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   function closeJobDetail() {
+    jobDetailRequestIdRef.current++;
+    setJobDetailState("idle");
     setSelectedJobDetail(null);
     setSelectedJobAttempts([]);
     setJobActionMenuOpen(false);
@@ -7255,7 +7285,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     customerJobView.sortDirection
   );
   const activeCustomerJobs = customerJobsUnfiltered.filter((job) => !job.archived_at);
-  const allJobsUnfiltered = globalJobs.length ? globalJobs : customerJobsUnfiltered;
+  const allJobsUnfiltered = operationsWorkspaceEnabled ? globalJobs : globalJobs.length ? globalJobs : customerJobsUnfiltered;
   // Global operations must never fall back to the selected customer's workspace.
   const operationsJobs: OperationsJob[] = globalJobs.map(job => ({
     id: job.job_id, label: displayJobId(job.job_id), customerId: job.customer_id, customer: job.customer_name,
@@ -7272,13 +7302,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   };
   const operationsRefresh = () => { void refreshVisibleJobs().then(() => setOperationsRefreshError(null)).catch(() => setOperationsRefreshError("Job refresh failed. Retry or check your connection.")); };
   const operationsCustomerProof = operationsWorkspaceEnabled && activeGlobalView === "Customers" && activeCustomerView === "Proof";
-  const operationsShell = operationsWorkspaceEnabled && (["Dashboard", "Jobs", "Proof", "Customer Directory"].includes(activeGlobalView) || operationsCustomerProof);
+  const operationsShell = operationsWorkspaceEnabled;
   const operationsSelectCustomer = (customerId: string) => requestGuardedNavigation(() => {
     if (!customers.some(customer => customer.lift_customer_id === customerId)) return;
+    closeJobDetail();
     if (customerId !== selectedCustomerId) {
       // Invalidate in-flight reads immediately, before the next workspace effect starts.
       workspaceRequestIdRef.current++;
       sourceConnectionsRequestIdRef.current++;
+      jobDetailRequestIdRef.current++;
+      setJobDetailState("idle");
+      setSelectedJobAttempts([]);
+      setCustomerToolsOpen(false);
+      setCustomerLegacyTools(false);
       selectedCustomerIdRef.current = customerId;
       setWorkspace(null);
       setWorkspaceState("loading");
@@ -7294,7 +7330,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setActiveGlobalView("Customers");
     // Deliberately preserve activeCustomerView; restricted tabs remain permission-gated.
   });
-  const operationsOpenDirectory = () => requestGuardedNavigation(() => setActiveGlobalView("Customer Directory"));
+  const operationsOpenDirectory = () => requestGuardedNavigation(() => { closeJobDetail(); setActiveGlobalView("Customer Directory"); });
+  const shellNavigate = (label: string) => requestGuardedNavigation(() => {
+    closeJobDetail();
+    setOpenTopbarMenu(null);
+    setActiveGlobalView(operationsWorkspaceEnabled && label === "Customers" ? "Customer Directory" : label as GlobalView);
+  });
   const allJobs = sortAndFilterJobs(
     allJobsUnfiltered,
     globalJobView.archiveFilter,
@@ -10840,8 +10881,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       (!canonicalRegistry && canonicalRegistryState === "loading"));
 
   if (initialLoadError || isInitialWorkspaceLoading) {
-    return (
+    const loading = (
       <WorkspaceLoading
+        embedded={operationsShell}
         error={initialLoadError}
         setupRequired={Boolean(workspaceSetupRequiredCustomerId)}
         onChooseCustomer={operationsWorkspaceEnabled && customers.length > 0 ? operationsOpenDirectory : undefined}
@@ -10866,11 +10908,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         }}
       />
     );
+    return operationsShell ? <PathfinderShell enabled active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={authSession}><section id="pathfinder-content" tabIndex={-1} className="workspace">{activeGlobalView === "Customers" && selectedCustomerId ? <CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory}/> : null}{loading}</section></PathfinderShell> : loading;
   }
 
   return (
-    <main className={operationsShell ? "app-shell ops-shell" : "app-shell"}>
-      <aside className="sidebar">
+    <PathfinderShell enabled={operationsShell} active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={authSession}>
+      {!operationsShell ? <aside className="sidebar">
         <div className="brand-block">
           <img className="vornan-wordmark" src="/brand/vornan-wordmark.png" alt="Vornan" />
           <img
@@ -11006,16 +11049,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             <span>Customer context controls import setup.</span>
           </div>
         </div>
-      </aside>
+      </aside> : null}
 
-      <section className={artworkCatalogFocusedShell ? "workspace workspace-feature-focus" : "workspace"}>
+      <section id="pathfinder-content" tabIndex={-1} className={artworkCatalogFocusedShell ? "workspace workspace-feature-focus" : "workspace"}>
         {operationsWorkspaceEnabled && activeGlobalView === "Customer Directory" ? <OperationsCustomers customers={customers} workspaceIds={operationsWorkspaceIds} setupError={operationsSetupError} currentTab={activeCustomerView} updated={customerDirectory.loaded_at} refreshing={customerImportState === "loading"} warning={customerDirectory.warning} onSelect={operationsSelectCustomer} onRefresh={() => { void loadCustomers(); void loadOperationsWorkspaceIds(); }} /> : null}
         {activeGlobalView === "Customers" ? (
           <>
-            {operationsCustomerProof ? <><CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory}/><CustomerRecordTabs tabs={visibleCustomerNavItems.map(item => item.label)} selected={activeCustomerView} onSelect={tab => requestGuardedNavigation(() => { setOperationsProofOrder(null); setActiveCustomerView(tab as CustomerView); })} onGlobalProof={() => { setOperationsProofOrder(null); setActiveGlobalView("Proof"); }}/></> : null}
-            {operationsWorkspaceEnabled && !operationsCustomerProof ? <div className="ops-customer-navigation"><button className="ops-link" onClick={operationsOpenDirectory}>Customers / {selectedCustomer.customer_name}</button><CustomerSwitcher customers={customers} selectedId={selectedCustomer.lift_customer_id} onSelect={operationsSelectCustomer}/></div> : null}
+            {operationsShell ? <><CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory} tools={<button className="pf-customer-tools-toggle" aria-expanded={customerToolsOpen} aria-controls="customer-workspace-tools" onClick={() => setCustomerToolsOpen(!customerToolsOpen)}>Workspace tools</button>}/><CustomerRecordTabs tabs={visibleCustomerNavItems.filter(item => item.label !== "Intake Exceptions").map(item => item.label)} selected={activeCustomerView} onSelect={tab => requestGuardedNavigation(() => { closeJobDetail(); setOperationsProofOrder(null); setOpenTopbarMenu(null); setCustomerToolsOpen(false); setActiveCustomerView(tab as CustomerView); if (tab === "Import Methods") setIsImportMethodDetailOpen(false); })} onGlobalProof={() => { setOperationsProofOrder(null); shellNavigate("Proof"); }}/></> : null}
             {operationsWorkspaceEnabled && !visibleCustomerNavItems.some(item => item.label === activeCustomerView) ? <p className="ops-notice" role="status">{activeCustomerView} is not enabled for this customer. Your tab selection is preserved; choose another tab or switch customers.</p> : null}
-            {!artworkCatalogFocusedShell && !operationsCustomerProof ? <header className="topbar">
+            {(operationsShell ? customerToolsOpen : !artworkCatalogFocusedShell && !operationsCustomerProof) ? <header id="customer-workspace-tools" className={operationsShell ? "topbar pf-customer-utilities" : "topbar"}>
               <div className="title-block">
                 <div className="headline-row">
                   <h1>{selectedCustomer.customer_name}</h1>
@@ -11145,9 +11187,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             </header> : null}
 
             {operationsCustomerProof ? operationsProofOrder && operationsProofOrder.customer === selectedCustomer.lift_customer_id ? <><button className="secondary-button" onClick={() => setOperationsProofOrder(null)}>Back to customer proof queue</button><ProofOpsPanel key={operationsProofOrder.order} apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} initialOrderNumber={operationsProofOrder.order} expectedCustomerId={selectedCustomer.lift_customer_id} /></> : <OperationsProof key={selectedCustomer.lift_customer_id} apiBaseUrl={apiBaseUrl} customerId={selectedCustomer.lift_customer_id} customerName={selectedCustomer.customer_name} onOpen={(order, customer) => setOperationsProofOrder({ order, customer })} /> : null}
-            {activeCustomerView === "Intake Exceptions" && intakeVisibilityAvailable ? (
-              <IntakeExceptions key={selectedCustomer.lift_customer_id} customerId={selectedCustomer.lift_customer_id} apiBaseUrl={apiBaseUrl} />
-            ) : null}
+            {activeCustomerView === "Intake Exceptions" && intakeVisibilityAvailable ? <><button className="ops-link" onClick={() => requestGuardedNavigation(() => setActiveCustomerView("Jobs"))}>Back to customer Jobs</button><IntakeExceptions key={selectedCustomer.lift_customer_id} customerId={selectedCustomer.lift_customer_id} apiBaseUrl={apiBaseUrl} /></> : null}
             {activeCustomerView === "Overview" ? (
               <>
                 <section className="customer-overview">
@@ -16293,7 +16333,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </>
             ) : null}
 
-            {activeCustomerView === "Jobs" && !selectedJobDetail ? (
+            {operationsShell && activeCustomerView === "Jobs" ? <OperationsJobs detailState={jobDetailState} detailError={workspaceMessage} onArchive={(ids, archived) => requestJobsArchive(customerJobsUnfiltered.filter(job => ids.includes(job.job_id)), archived)} hidden={Boolean(selectedJobDetail)} key={selectedCustomer.lift_customer_id} customerId={selectedCustomer.lift_customer_id} jobs={customerJobsUnfiltered.map(job => ({ id: job.job_id, label: displayJobId(job.job_id), customerId: job.customer_id, customer: job.customer_name, sourceOrder: ("source_order_id" in job && job.source_order_id) || jobContractNumber(job), intake: ("intake_provider" in job && job.intake_provider) || job.import_method_name, liftOrder: job.target_order_number ?? null, processing: job.state, production: job.target_order_status?.label ?? (job.target_order_number ? "Not checked" : "—"), createdAt: job.created_at, confirmedAt: job.order_confirmed_at ?? null, activityAt: lastMeaningfulActivity(job), archived: Boolean(job.archived_at) }))} updated={jobsLastRefreshedAt} onRefresh={operationsRefresh} error={operationsRefreshError} onOpen={id => { const job = customerJobsUnfiltered.find(item => item.job_id === id); if (job) void openJobDetail(job); }} onIntakeFollowup={intakeVisibilityAvailable ? () => requestGuardedNavigation(() => setActiveCustomerView("Intake Exceptions")) : undefined} tools={<button className="ops-link" onClick={() => setCustomerLegacyTools(!customerLegacyTools)}>{customerLegacyTools ? "Hide" : "Show"} triage, intake review and bulk archive tools</button>}/> : null}
+            {activeCustomerView === "Jobs" && !selectedJobDetail && (!operationsShell || customerLegacyTools) ? (
               <section className="panel jobs-panel">
                 <PanelHeader icon={Archive} title="Customer Jobs" detail={selectedCustomer.customer_name} />
                 <div className="jobs-live-status" role="status">
@@ -18340,7 +18381,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         ) : null}
 
         {operationsWorkspaceEnabled && activeGlobalView === "Proof" ? operationsProofOrder ? <><button className="secondary-button" onClick={() => setOperationsProofOrder(null)}>Back to proof queue</button><ProofOpsPanel key={operationsProofOrder.order} apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} initialOrderNumber={operationsProofOrder.order} expectedCustomerId={operationsProofOrder.customer} /></> : <OperationsProof apiBaseUrl={apiBaseUrl} onOpen={(order, customer) => setOperationsProofOrder({ order, customer })} tools={<ProofOpsPanel apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} />} /> : null}
-        {operationsWorkspaceEnabled && activeGlobalView === "Jobs" && !selectedJobDetail ? <OperationsJobs jobs={operationsJobs} updated={jobsLastRefreshedAt} onOpen={operationsOpenJob} onRefresh={operationsRefresh} error={operationsRefreshError}
+        {operationsWorkspaceEnabled && activeGlobalView === "Jobs" ? <OperationsJobs detailState={jobDetailState} detailError={workspaceMessage} onArchive={(ids, archived) => requestJobsArchive(allJobsUnfiltered.filter(job => ids.includes(job.job_id)), archived)} hidden={Boolean(selectedJobDetail)} jobs={operationsJobs} updated={jobsLastRefreshedAt} onOpen={operationsOpenJob} onRefresh={operationsRefresh} error={operationsRefreshError}
           tools={<button className="secondary-button" onClick={() => setOperationsLegacyTools(!operationsLegacyTools)}>{operationsLegacyTools ? "Hide advanced tools" : "Show existing lookup, bulk archive, and intake review tools"}</button>}
           exceptions={<div><label className="ops-toolbar">Customer <select aria-label="Intake exception customer" value={operationsExceptionCustomer} onChange={e => setOperationsExceptionCustomer(e.target.value)}><option value="">Choose a customer</option>{customers.map(c => <option key={c.lift_customer_id} value={c.lift_customer_id}>{c.customer_name}</option>)}</select></label>{operationsExceptionCustomer && operationsIntakeVisibilityAvailable ? <IntakeExceptions key={operationsExceptionCustomer} customerId={operationsExceptionCustomer} apiBaseUrl={apiBaseUrl} /> : <p className="ops-empty">{!operationsExceptionCustomer ? "Select a customer to inspect available pre-job exceptions and deliveries." : "Intake exception visibility is not enabled for this customer in this environment."}</p>}</div>}
         /> : null}
@@ -18507,6 +18548,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           </section>
         ) : null}
 
+        {!operationsWorkspaceEnabled && jobDetailState === "loading" ? <p role="status">Loading job details…</p> : !operationsWorkspaceEnabled && jobDetailState === "error" ? <p role="alert">{workspaceMessage || "Unable to load this job. Please try opening it again."}</p> : null}
         {selectedJobDetail &&
         (activeGlobalView === "Jobs" || (activeGlobalView === "Customers" && activeCustomerView === "Jobs")) ? (
           <section className="job-detail-layout">
@@ -18520,8 +18562,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             <div className="panel job-detail-panel">
               <div className="job-detail-header">
                 <div>
-                  <p className="eyebrow">Wrike order · {displayJobId(selectedJobDetail.job_id)}</p>
-                  <h2>{selectedJobContractNumber} · {selectedJobCampaignName}</h2>
+                  <p className="eyebrow">{selectedJobDetail.import_method_name || "Order"} · {displayJobId(selectedJobDetail.job_id)}</p>
+                  <h2 ref={jobDetailHeadingRef} tabIndex={-1}>{selectedJobContractNumber} · {selectedJobCampaignName}</h2>
                   <span>{selectedJobDetail.customer_name} · {selectedJobDetail.source_file_name}</span>
                   <small className="job-detail-system-identity">
                     Pathfinder {selectedJobDetail.pathfinder_order_id}
@@ -20638,6 +20680,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           <div className="product-map-modal-backdrop" role="presentation" onClick={cancelLeavePrompt}>
             <section
               className="product-map-modal unsaved-changes-modal"
+              ref={leaveDialogRef}
               role="dialog"
               aria-modal="true"
               aria-label={leavePrompt.title}
@@ -20675,6 +20718,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           </div>
         ) : null}
       </section>
-    </main>
+    </PathfinderShell>
   );
 }

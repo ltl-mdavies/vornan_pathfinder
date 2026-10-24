@@ -16,6 +16,8 @@ export interface OperationsJob {
 
 export type JobFilters = { search: string; customer: string; intake: string; days: string; attention: boolean; archived: string };
 export const defaultOperationsFilters: JobFilters = { search: "", customer: "", intake: "", days: "", attention: false, archived: "active" };
+/** Reserve shell, customer context, controls and footer; long content may still wrap. */
+export const operationsJobsPageSize = (height: number) => Math.max(5, Math.floor((height - 284) / 44));
 export const needsOperationsAttention = (job: OperationsJob) => !job.liftOrder && ["Submitted", "Needs Mapping", "Submit Failed", "Failed", "Retry"].includes(job.processing);
 
 export function filterOperationsJobs(jobs: OperationsJob[], filters: JobFilters, now = Date.now()) {

@@ -1,0 +1,78 @@
+/* Shared Admin shell only. Public Proof/Status and legacy opt-out are untouched. */
+body:has(.pf-shell){min-width:0}
+.pf-shell [hidden]{display:none!important}
+.app-shell.pf-shell{--surface-0:#f3f7f1;display:grid;grid-template-columns:176px minmax(0,1fr)!important;grid-template-rows:48px minmax(0,1fr);background:#fff;font-family:"Plus Jakarta Sans",system-ui,sans-serif;font-weight:500;height:100dvh;min-width:0}
+.pf-masthead{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;background:#39523b;color:#fff;padding:0 24px;min-width:0;z-index:40}
+.pf-brand,.pf-session{display:flex;align-items:center;gap:16px;font-size:12px}
+.pf-brand img{width:108px;height:auto;max-height:28px;object-fit:contain;filter:brightness(0) invert(1)}
+.pf-brand>span{border-left:1px solid #ffffff50;padding-left:16px;font-size:14px;font-weight:800}
+.pf-session button{display:flex;align-items:center;justify-content:center;background:none;border:1px solid #ffffff60;color:white;border-radius:5px;padding:6px}
+.pf-shell>.sidebar.pf-rail{width:auto;min-height:0;overflow:auto;padding:20px 12px;background:#f3f7f1;border-right:1px solid #d8dfd3;gap:0}
+.pf-shell .pf-rail .nav-list{display:flex;flex-direction:column;gap:4px}
+.pf-shell .pf-rail .nav-item{color:#39523b;min-height:40px;font-size:13px;line-height:1.4;padding:8px 10px;gap:12px;border:0;border-left:3px solid transparent;border-radius:4px;background:transparent;font-weight:500}
+.pf-shell .pf-rail .nav-item:nth-child(5){margin-top:16px;position:relative}
+.pf-shell .pf-rail .nav-item:nth-child(5)::before{content:"";position:absolute;top:-10px;left:0;right:0;border-top:1px solid #d8dfd3}
+.pf-shell .pf-rail .nav-item:hover{background:#eaf0e4}
+.pf-shell .pf-rail .nav-item-active{background:#e8efdb;border-left-color:#abc65f;font-weight:800;color:#39523b}
+.pf-shell>.workspace{padding:0 24px 12px!important;background:#fff;min-height:0;overflow:auto;display:block;min-width:0}
+.pf-shell h1,.pf-shell h2,.pf-shell h3,.pf-shell strong{font-family:inherit}
+.pf-shell h1,.pf-shell h2,.pf-shell h3{font-weight:800}
+.pf-shell button:focus-visible,.pf-shell a:focus-visible,.pf-shell input:focus-visible,.pf-shell select:focus-visible{outline:2px solid #39523b;outline-offset:3px}
+.pf-shell .pf-masthead button:focus-visible{outline-color:#abc65f}
+.pf-skip{position:fixed;top:-80px;left:190px;padding:10px;background:white;z-index:100;color:#39523b}.pf-skip:focus{top:4px}
+.pf-shell .ops-customer-header{min-height:56px;margin:0;gap:16px}
+.pf-shell .ops-customer-header>div:first-child{display:flex;align-items:center;gap:16px;min-width:0;flex-wrap:wrap}
+.pf-shell .ops-customer-header h1{font-size:20px;line-height:1.25;color:#191818}
+.pf-shell .ops-customer-breadcrumb{font-size:12px;margin:0;order:2}
+.pf-shell .ops-customer-header-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.pf-shell .ops-switch-trigger,.pf-shell .pf-customer-tools-toggle{height:34px;padding:6px 10px;font-size:12px;background:white;color:#39523b;border:1px solid #d8dfd3;border-radius:5px}
+.pf-shell .ops-customer-tabs-row{height:40px;margin-bottom:12px;gap:8px}
+.pf-shell .ops-customer-tabs{overflow:auto;align-self:stretch;align-items:stretch;flex-wrap:nowrap;gap:20px}
+.pf-shell .ops-customer-tabs button{font-size:13px;padding:4px 0;flex-shrink:0;color:#4f5b4f;font-weight:500;white-space:nowrap}
+.pf-shell .ops-customer-tabs button[aria-current=page]{font-weight:800;color:#39523b;border-bottom:2px solid #39523b}
+.pf-shell .pf-customer-utilities{padding:12px;margin:0 0 12px;border:1px solid #d8dfd3;border-radius:6px;min-height:0}
+.pf-shell .pf-customer-utilities .title-block{display:none}
+.pf-shell .pf-customer-utilities .topbar-actions{margin-left:auto;flex-wrap:wrap}
+.pf-shell .ops-heading{min-height:56px;margin:0;align-items:center}
+.pf-shell .ops-heading h1{font-size:22px;color:#191818}
+.pf-shell .ops-heading>div>span{font-size:12px}
+.pf-shell .ops-directory-toolbar{padding:0 0 12px;border:0;gap:12px;justify-content:flex-start}
+.pf-shell .ops-directory-toolbar .ops-search{flex:0 1 520px;height:34px}
+.pf-shell .ops-directory-toolbar select{height:34px;border:1px solid #d8dfd3;border-radius:5px;padding:4px 12px;background:white;color:#39523b;font-size:13px}
+.pf-shell .ops-directory>.ops-surface{border:0;border-radius:0;overflow:visible}
+.pf-shell .ops-directory-scroll{border:1px solid #d8dfd3;border-radius:6px;max-height:calc(100dvh - 200px)}
+.pf-shell .ops-directory-row{min-height:56px;padding:10px 14px}
+.pf-shell .ops-directory-identity{gap:3px}.pf-shell .ops-directory-identity strong{font-size:14px;color:#191818}.pf-shell .ops-directory-identity small{font-size:12px}
+.pf-shell .ops-directory-count{padding:10px 0;border:0}
+.pf-shell .ops-toolbar{gap:10px;margin-bottom:12px}
+.pf-shell .ops-toolbar input,.pf-shell .ops-toolbar select,.pf-shell .ops-toolbar>button,.pf-shell .ops-toolbar .ops-search{height:34px;min-height:34px;font-size:13px}
+.pf-shell .ops-table th{font-size:12px;font-weight:500;height:34px;padding:6px 12px}
+.pf-shell .ops-table td{font-size:14px;height:44px;padding:4px 12px}
+.pf-shell .ops-table small{font-size:12px;line-height:1.25;margin-top:2px}.pf-shell .ops-table .ops-link{font-weight:800;color:#191818;text-decoration:none}.pf-shell .ops-table .ops-link:hover{text-decoration:underline}
+.pf-shell .ops-table tr:hover td{background:#f8faf5}
+.pf-shell .ops-pagination{min-height:34px;padding:4px 12px;border-top:1px solid #d8dfd3;font-size:12px}
+.pf-shell .ops-table-scroll{max-height:none}.pf-shell .ops-jobs-table{width:100%;min-width:900px}.pf-shell .ops-jobs-table.pf-customer-jobs-table{min-width:760px}
+.pf-shell .pf-jobs-more{padding:10px 12px;margin-bottom:12px;background:#f3f7f1;border:1px solid #d8dfd3;border-radius:6px}
+.pf-shell .pf-jobs-more .ops-toolbar{margin-bottom:8px;flex-wrap:wrap}.pf-shell .pf-jobs-more>button{font-size:13px;margin-right:12px}
+.pf-shell .pf-jobs-footer{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#4f5b4f;margin-top:8px;gap:12px}
+.pf-shell .ops-pagination>small{font-size:11px;color:#4f5b4f}
+.pf-shell .ops-jobs-table .pf-job-check{width:40px;min-width:40px;max-width:40px;padding:0 8px}.pf-job-check input{width:16px;height:16px;accent-color:#39523b;cursor:pointer}.pf-job-check:has(input:hover){background:#e8efdb}
+.pf-job-selection{display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:8px 12px;background:#f3f7f1;font-size:12px}.pf-job-selection button{background:white;border:1px solid #d8dfd3;border-radius:4px;padding:6px}
+.pf-job-inspector{width:min(640px,calc(100vw - 32px));max-height:calc(100dvh - 48px);padding:0;border:1px solid #d8dfd3;border-radius:8px;color:#191818;background:white;box-shadow:0 20px 80px #19181830;font-family:"Plus Jakarta Sans",system-ui,sans-serif}
+.pf-job-inspector::backdrop{background:#19181855}
+.pf-job-inspector header{display:flex;align-items:flex-start;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #d8dfd3}.pf-job-inspector header span,.pf-job-inspector p{font-size:12px;color:#4f5b4f}.pf-job-inspector h2{margin:4px 0;font-size:22px}.pf-job-inspector header p{margin:4px 0 0}.pf-job-inspector header button{display:flex;background:white;border:1px solid #d8dfd3;border-radius:4px;padding:6px}
+.pf-job-inspector dl{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px;padding:20px 24px;margin:0}.pf-job-inspector dt{font-size:12px;color:#4f5b4f;margin-bottom:4px}.pf-job-inspector dd{margin:0;font-size:14px;overflow-wrap:anywhere}.pf-job-inspector .pf-job-reference{padding:0 24px;overflow-wrap:anywhere}.pf-job-inspector footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;border-top:1px solid #d8dfd3}.pf-job-inspector footer span{font-size:12px;color:#4f5b4f;max-width:250px}
+.pf-job-inspector{position:fixed;inset:156px 24px 12px auto;margin:0;width:340px;height:calc(100dvh - 168px);max-height:none;overflow:hidden}
+.pf-job-inspector[open]{display:grid;grid-template-rows:auto minmax(0,1fr) auto auto}
+.pf-job-inspector header{padding:16px}.pf-job-inspector h2{font-size:20px}.pf-job-inspector dl{grid-template-columns:1fr;padding:16px;gap:12px;overflow:auto}.pf-job-inspector .pf-job-reference{padding:0 16px;margin:8px 0;font-size:11px}.pf-job-inspector footer{padding:12px 16px;flex-direction:column;align-items:stretch;gap:10px}.pf-job-inspector footer span{max-width:none}
+@media(min-width:1550px){.pf-jobs:has(.pf-job-inspector[open]){padding-right:360px}}
+@media(max-width:600px){.pf-job-inspector{inset:60px 8px 8px auto;width:min(340px,calc(100vw - 16px));height:calc(100dvh - 68px)}.pf-shell .ops-pagination>small{display:none}}
+.pf-shell .job-detail-layout{margin-top:12px}.pf-shell .job-detail-header{padding:16px}.pf-shell .job-detail-header h2{font-size:22px}.pf-shell .job-detail-actions{gap:8px}
+.pf-shell .workspace-loading-content{padding:24px 0}.pf-shell .workspace-loading-status{max-width:760px}
+.pf-shell .artwork-catalog-workspace{position:relative}
+.pf-shell .artwork-catalog-drawer{position:absolute;top:0;bottom:auto;height:calc(100dvh - 168px);max-height:900px}
+/* At narrow widths the existing detail is stacked, not an overlay over focusable controls. */
+@media(max-width:1320px){.pf-shell .artwork-catalog-with-drawer{display:flex;flex-direction:column}.pf-shell .artwork-catalog-drawer{position:relative;order:-1;width:100%;height:auto;max-height:none;margin-bottom:16px;box-shadow:none;border:1px solid #d8dfd3}.pf-shell .artwork-catalog-drawer-body{max-height:50vh}}
+@media(min-width:1800px){.pf-shell>.workspace{padding-left:28px!important;padding-right:28px!important}}
+@media(max-width:900px){.app-shell.pf-shell{grid-template-columns:144px minmax(0,1fr)!important}.pf-shell>.workspace{padding-left:16px!important;padding-right:16px!important}.pf-shell .ops-customer-header{height:auto;padding:12px 0;align-items:flex-start;flex-wrap:wrap}.pf-shell .ops-customer-header-actions{flex-wrap:wrap}.pf-shell .ops-customer-tabs-row{height:auto;min-height:40px;flex-wrap:wrap}.pf-shell .ops-customer-tabs{min-height:40px}.pf-shell .ops-toolbar{flex-wrap:wrap}.pf-shell .ops-directory-toolbar{flex-wrap:wrap}}
+@media(max-width:600px){.app-shell.pf-shell{grid-template-columns:56px minmax(0,1fr)!important}.pf-shell>.sidebar.pf-rail{padding:12px 4px}.pf-shell .pf-rail .nav-item{justify-content:center;padding:10px 4px}.pf-shell .pf-rail .nav-item span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.pf-masthead{padding:0 12px}.pf-session>span{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pf-shell .ops-customer-tabs{gap:16px}.pf-shell .ops-customer-header-actions{width:100%}}

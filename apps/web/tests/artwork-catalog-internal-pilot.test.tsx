@@ -54,7 +54,8 @@ test("uses the focused workspace shell only for the available Artwork Catalog ex
   const appSource = await readFile(new URL("../src/App.tsx", import.meta.url), "utf8");
   const stylesSource = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
   assert.match(appSource, /artworkCatalogFocusedShell \? "workspace workspace-feature-focus" : "workspace"/);
-  assert.match(appSource, /!artworkCatalogFocusedShell && !operationsCustomerProof \? <header className="topbar">/);
+  assert.match(appSource, /!artworkCatalogFocusedShell && !operationsCustomerProof/);
+  assert.match(appSource, /PathfinderShell/);
   assert.match(appSource, /const operationsCustomerProof = operationsWorkspaceEnabled && activeGlobalView === "Customers" && activeCustomerView === "Proof"/);
   assert.match(stylesSource, /\.workspace\.workspace-feature-focus\s*\{[\s\S]*?padding:\s*0;/);
 });

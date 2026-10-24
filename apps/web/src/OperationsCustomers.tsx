@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { LiftCustomer } from "@pathfinder/customer-directory";
 import { ChevronDown, RefreshCw, Search } from "lucide-react";
 import { filterCustomers } from "./customer-directory";
@@ -33,19 +33,20 @@ export function CustomerSwitcher({ customers, selectedId, onSelect }: {
   </div>;
 }
 
-export function CustomerRecordHeader({ customers, customer, onSelect, onDirectory }: {
+export function CustomerRecordHeader({ customers, customer, onSelect, onDirectory, tools }: {
   customers: LiftCustomer[]; customer: LiftCustomer; onSelect: (id: string) => void; onDirectory: () => void;
+  tools?: ReactNode;
 }) {
   return <header className="ops-customer-header">
     <div><div className="ops-customer-breadcrumb"><button className="ops-link" onClick={onDirectory}>Customers</button><span>/ {customer.lift_customer_id}</span></div><h1>{customer.customer_name}</h1></div>
-    <CustomerSwitcher customers={customers} selectedId={customer.lift_customer_id} onSelect={onSelect}/>
+    <div className="ops-customer-header-actions">{tools}<CustomerSwitcher customers={customers} selectedId={customer.lift_customer_id} onSelect={onSelect}/></div>
   </header>;
 }
 
 export function CustomerRecordTabs({ tabs, selected, onSelect, onGlobalProof }: {
   tabs: string[]; selected: string; onSelect: (tab: string) => void; onGlobalProof: () => void;
 }) {
-  return <div className="ops-customer-tabs-row"><nav className="ops-tabs ops-customer-tabs" aria-label="Customer tabs">{tabs.map(tab => <button key={tab} aria-current={tab === selected ? "page" : undefined} onClick={() => onSelect(tab)}>{tab}</button>)}</nav>{selected === "Proof" ? <button className="ops-link" onClick={onGlobalProof}>All-customer proof queue →</button> : null}</div>;
+  return <div className="ops-customer-tabs-row"><nav className="ops-tabs ops-customer-tabs" aria-label="Customer tabs">{tabs.map(tab => <button key={tab} aria-current={tab === selected || (tab === "Jobs" && selected === "Intake Exceptions") ? "page" : undefined} onClick={() => onSelect(tab)}>{tab === "Artwork Catalog" ? "Catalog" : tab}</button>)}</nav>{selected === "Proof" ? <button className="ops-link" onClick={onGlobalProof}>All-customer proof queue →</button> : null}</div>;
 }
 
 export function OperationsCustomers({ customers, workspaceIds, setupError, updated, refreshing, warning, onSelect, onRefresh }: {
@@ -70,8 +71,8 @@ export function OperationsCustomers({ customers, workspaceIds, setupError, updat
     {setupError ? <p className="ops-notice" role="status">{setupError}</p> : null}
     <div className="ops-surface">
       <div className="ops-directory-toolbar">
-        <nav className="ops-directory-views" aria-label="Customer directory view"><button type="button" aria-pressed={view === "pathfinder"} onClick={() => setView("pathfinder")}>Pathfinder customers</button><button type="button" aria-pressed={view === "lift"} onClick={() => setView("lift")}>All Lift customers</button></nav>
         <label className="ops-search"><Search size={18} aria-hidden="true"/><input aria-label="Search customer directory" placeholder="Search customers…" value={query} onChange={event => setQuery(event.target.value)}/></label>
+        <select aria-label="Customer directory view" value={view} onChange={event => setView(event.target.value as "pathfinder" | "lift")}><option value="pathfinder">Pathfinder Customers</option><option value="lift">All Customers</option></select>
       </div>
       <div className="ops-directory-scroll" aria-busy={refreshing || (view === "pathfinder" && workspaceIds === null && !setupError)}>
         <ul className="ops-directory-list" aria-label={view === "pathfinder" ? "Pathfinder customers" : "All Lift customers"}>{rows.slice(safePage * size, (safePage + 1) * size).map(customer => {

@@ -147,7 +147,9 @@ test("Customer overview distinguishes data provenance and hides technical target
 
 test("Job detail prioritizes order identity, attention, and progressive disclosure", async () => {
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
-  assert.match(source, /Wrike order · \{displayJobId\(selectedJobDetail\.job_id\)\}/);
+  assert.match(source, /selectedJobDetail.import_method_name \|\| "Order"/);
+  assert.match(source, /displayJobId\(selectedJobDetail\.job_id\)/);
+  assert.doesNotMatch(source, /Wrike order · \{displayJobId/);
   assert.match(source, /\{selectedJobContractNumber\} · \{selectedJobCampaignName\}/);
   assert.match(source, /aria-labelledby="source-review-title"/);
   assert.match(source, /No Lift update needed/);
