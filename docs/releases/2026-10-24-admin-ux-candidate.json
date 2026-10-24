@@ -1,4 +1,6 @@
 {
+  "status": "invalidated_do_not_deploy",
+  "invalidated_reason": "Manual Import submission recovery changes supersede this source and artifact. Rebuild with the recorded production configuration and regenerate the manifest after independent acceptance.",
   "source": "9d27f5d78db248564750f971e0dc453b9a58d708",
   "flags": {
     "VITE_API_BASE_URL": "https://api.pathfinder.vornan.co",
