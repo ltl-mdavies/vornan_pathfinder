@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import fixtures from "./fixtures.json";
+import { proofLines, proofHealth, cachedProofOrder } from "./proof-fixtures";
 import { App } from "../../apps/web/src/App";
 import "../../apps/web/src/styles.css";
 import "../../apps/web/src/pathfinder-shell.css";
@@ -10,6 +11,7 @@ const configured = new Set(["284619","174094","1249"]);
 const query = new URLSearchParams(location.search);
 const calls: {url:string;method:string}[] = [];
 let jobReads = 0;
+const proofReads = new Map<string, number>();
 Object.assign(window, { uxReviewRequests:calls });
 const response = (body:unknown,status=200) => Promise.resolve(new Response(JSON.stringify(body),{status,headers:{"Content-Type":"application/json"}}));
 window.fetch = async (input, init) => {
@@ -33,7 +35,23 @@ window.fetch = async (input, init) => {
   if (url.pathname.includes("/jobs/") && customer) { const job=fixtures.jobs.find(j=>j.job_id===url.pathname.split("/").pop() && j.customer_id===customer); return job ? response({job,submit_attempts:[]}) : response({error:"No fixture for this job action"},404); }
   if (url.pathname === "/api/canonical-registry") return response(fixtures.registry);
   if (url.pathname === "/api/submit-runtime") return response({transport_mode:"dry_run",external_submit_enabled:false,live_transport_enabled:false,profiles:[]});
-  if (url.pathname === "/api/operations/proof-queue") return response({lines:[],coverage:"cached_orders_only",next_cursor:null,checked_at:new Date().toISOString()});
+  if (url.pathname === "/api/operations/proof-queue") {
+    const scope = url.searchParams.get("customer") ?? "global";
+    const reads = (proofReads.get(scope) ?? 0) + 1; proofReads.set(scope, reads);
+    if (query.has("proofSlow") || query.get("slow") === scope) await new Promise(resolve => setTimeout(resolve,1800));
+    if (query.has("proofRestricted")) return response({error:"Synthetic permission restriction"},403);
+    if (query.has("proofRecover") && reads <= (scope === "global" ? 2 : 1)) return response({error:"Synthetic temporary cache outage"},503);
+    if (query.has("proofDisabled")) return response({error:"Synthetic disabled queue"},404);
+    // Dashboard may read the global cache before the operator opens the queue.
+    if (query.has("proofError") || (query.has("proofStale") && reads > (scope === "global" ? 2 : 1))) return response({error:"Synthetic proof cache outage"},503);
+    const lines = query.has("proofEmpty") ? [] : proofLines.filter(row => scope === "global" || row.customerId === scope);
+    const offset = Number(url.searchParams.get("cursor") ?? 0), size = scope === "global" ? 27 : 9;
+    return response({lines:lines.slice(offset, offset+size),coverage:"cached_orders_only",next_cursor:offset+size < lines.length ? String(offset+size) : null,checked_at:"2026-10-23T16:20:00Z"});
+  }
+  if (url.pathname === "/api/proof/health/lift") return response(proofHealth);
+  if (/^\/api\/proof\/orders\/A\d+\/grants$/.test(url.pathname)) return response({grants:[]});
+  if (/^\/api\/proof\/orders\/A\d+\/audit$/.test(url.pathname)) return response({events:[],next_cursor:null});
+  if (/^\/api\/proof\/orders\/A\d+$/.test(url.pathname)) { const order = cachedProofOrder(url.pathname.split("/").pop()!); return order ? response(order) : response({error:"Order is not in this local cache"},404); }
   return response({error:`Local review has no fixture for ${url.pathname}. No live request was made.`},503);
 };
 window.open = () => null;

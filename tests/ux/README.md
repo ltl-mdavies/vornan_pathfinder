@@ -35,3 +35,22 @@ Example new customer 300001 is not configured initially. Opening it must not cre
 Other administrative API routes are intentionally not fully simulated. A local fixture error in those inner editors is not evidence of a production API failure. The acceptance scope is shell continuity and the directory/Jobs workflows, with existing API/domain suites verifying unchanged business behavior.
 
 See the root `design-qa.md` and `docs/pathfinder-ux-slice1-handoff.md` for evidence, limits and release boundaries.
+
+## Internal Proof queue review (Slice 2)
+
+The actual Admin queue now receives 54 synthetic lines across 18 orders and three customers. The API simulation returns 27 lines per global cache page or 9 per customer page. Display pagination is separate from cache loading. Mixed states, missing timestamps, stale snapshots, and long product names are intentional.
+
+| Query | Scenario |
+| --- | --- |
+| `?proofEmpty` | Successful empty cache; tools remain available. Cached order lookup fixtures still exist. |
+| `?proofSlow` | Each queue read takes 1.8 seconds; counts must stay unknown until success. |
+| `?proofError` | First-load 503; unknown counts and retry, not successful zero results. |
+| `?proofRecover` | First Dashboard/queue reads fail, then Retry succeeds; focus moves to Search. |
+| `?proofRestricted` | 403 restriction; permissions are not changed. |
+| `?proofDisabled` | 404 feature unavailable; existing tools remain independently gated. |
+| `?proofStale` | Dashboard + global queue initially succeed, then refresh fails. Customer scope succeeds once, then fails. Retain last-success data/time. |
+| `?slow=174094` | Also delays the Silicon Pasture Proof queue; switch away to test late responses. |
+
+Cached internal tool fixtures include `A9000000` (Momentara), `A9000001` (Silicon Pasture), `A9000002` (LTL Demo), through `A9000017`. All grant, approval, upload, publication and email capabilities are disabled in the synthetic health response. No external actions are available. Opening a row uses cached GET inspection, not a public access grant. Customer lookup of another customer's order must fail closed.
+
+Dashboard automatically reads the global queue once on initial load; therefore `proofStale` permits two successful global reads before failure. Reload resets counters. Do not interpret this deterministic fixture schedule as production retry behavior.
