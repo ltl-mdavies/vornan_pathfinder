@@ -167,6 +167,7 @@ test("Catalog remains mounted while inspection is open and hidden listeners resp
   assert.match(workspace, /if \(!mountedRef.current\)/);
   assert.match(workspace, /<input ref=\{uploadInputRef\} hidden disabled=\{viewer.stage === "processing"\}/);
   assert.match(workspace, /if \(!first \|\| !last\)[\s\S]*?modalRef.current.focus\(\)/);
+  assert.match(workspace, /className="artwork-catalog-upload-select" role="status" aria-live="polite" aria-atomic="true"/);
 });
 
 test("resolves only the exact immutable product, version, and inspection identity", () => {

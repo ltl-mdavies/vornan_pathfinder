@@ -341,7 +341,7 @@ export async function analyzeArtworkUpload(
   const createdAt = now().toISOString();
   const progress = (status: ArtworkUploadItemStatus, label: string) => options.onProgress?.({ itemId, status, label });
 
-  progress("selected", "File selected");
+  progress("selected", "Reading artwork");
   if (file.size > LOCAL_ARTWORK_ANALYSIS_MAX_BYTES) {
     throw new Error(`Local analysis supports files up to ${formatBytes(LOCAL_ARTWORK_ANALYSIS_MAX_BYTES)}.`);
   }

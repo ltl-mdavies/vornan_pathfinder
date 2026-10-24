@@ -10,6 +10,17 @@ import { compactCatalogPilotProducts } from "../../apps/web/src/artwork-catalog/
 // Actual App with an in-memory HTTP boundary. Never fall through to a real API.
 const configured = new Set(["284619","174094","1249"]);
 const query = new URLSearchParams(location.search);
+// Test-only deterministic disk-read delay for processing focus and late completion.
+// The real analyzer still receives the original bytes; no production hook is added.
+let interruptCatalog: (() => void) | undefined;
+if (query.has("catalogSlow") || query.has("catalogLate")) {
+  const readFile = File.prototype.arrayBuffer;
+  File.prototype.arrayBuffer = async function () {
+    if (query.has("catalogLate")) setTimeout(() => interruptCatalog?.(), 1000);
+    await new Promise(resolve => setTimeout(resolve, 20000));
+    return readFile.call(this);
+  };
+}
 // Add density fixtures only in this test entry point. No production flags or API change.
 if (query.has("catalogStress") && compactCatalogPilotProducts.length === 5) {
   const names = [
@@ -70,4 +81,21 @@ window.fetch = async (input, init) => {
 };
 window.open = () => null;
 const authSession = {displayName:"Local review · sample data",email:"review@example.invalid",photoURL:null,domain:"example.invalid",token:null,getIdToken:async()=>null,expireSession:async()=>{},signOut:async()=>{}};
-createRoot(document.getElementById("root")!).render(<App authSession={authSession}/>);
+const root = createRoot(document.getElementById("root")!);
+root.render(<App authSession={authSession}/>);
+if (query.has("catalogLate")) {
+  // Simulate leaving the workspace while a disk read is pending. This is a test-only
+  // remount, not a product navigation control; report cleanup through visible text.
+  let revoked = 0;
+  const revoke = URL.revokeObjectURL.bind(URL);
+  URL.revokeObjectURL = (url) => {
+    revoke(url);
+    revoked++;
+    const output = document.getElementById("ux-late-result");
+    if (output) output.textContent = `Local QA: workspace remounted during read; ${revoked} late preview URL(s) released.`;
+  };
+  interruptCatalog = () => {
+    interruptCatalog = undefined;
+    root.render(<div><output id="ux-late-result" style={{position:"fixed",bottom:0,right:0,zIndex:9999,background:"white",padding:8}}>Local QA: workspace remounted during read; awaiting late completion.</output><App authSession={authSession}/></div>);
+  };
+}

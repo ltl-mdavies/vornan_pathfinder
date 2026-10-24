@@ -83,6 +83,27 @@ test("models a real PNG as a one-item batch and reports byte-derived evidence", 
   assert.deepEqual(progress, ["selected", "hashing", "inspecting", "completed"]);
 });
 
+test("announces a pending read without completing or producing a preview early", async () => {
+  const file = pngFile(192, 192);
+  const buffer = await file.arrayBuffer();
+  let release!: (buffer: ArrayBuffer) => void;
+  Object.defineProperty(file, "arrayBuffer", { value: () => new Promise<ArrayBuffer>(resolve => { release = resolve; }) });
+  const labels: string[] = [];
+  let previews = 0;
+  const pending = analyzeArtworkUpload(file, spec, {
+    ...deterministicOptions,
+    onProgress: entry => labels.push(entry.label),
+    createObjectUrl: () => { previews++; return "blob:delayed-preview"; }
+  });
+  assert.deepEqual(labels, ["Reading artwork"]);
+  assert.equal(previews, 0);
+  release(buffer);
+  const result = await pending;
+  assert.equal(result.status, "completed");
+  assert.equal(previews, 1);
+  assert.equal(labels.at(-1), "Technical inspection ready");
+});
+
 test("reads JPEG dimensions from the file signature rather than the MIME label", async () => {
   const mislabeled = jpegFile(4800, 1000);
   const file = new File([await mislabeled.arrayBuffer()], "mislabeled.bin", { type: "application/octet-stream" });
