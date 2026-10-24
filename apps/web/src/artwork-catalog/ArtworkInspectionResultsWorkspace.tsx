@@ -89,6 +89,7 @@ export type ArtworkInspectionResultsWorkspaceProps = Readonly<{
   result: ArtworkInspectionResultViewModel;
   actions: ArtworkInspectionResultsActions;
   initialMode?: InspectionViewMode;
+  sampleReport?: boolean;
 }>;
 
 type InspectionRailTab = "details" | "findings";
@@ -271,7 +272,8 @@ function ArtworkPreview({
 export function ArtworkInspectionResultsWorkspace({
   result,
   actions,
-  initialMode = "heatmap"
+  initialMode = "heatmap",
+  sampleReport = false
 }: ArtworkInspectionResultsWorkspaceProps) {
   if (result.pages.length === 0) throw new Error("Artwork inspection results require at least one page.");
   if (result.findings.some((finding) => !result.pages.some((page) => page.pageNumber === finding.pageNumber))) {
@@ -519,7 +521,7 @@ export function ArtworkInspectionResultsWorkspace({
       </div>
 
       <div className="inspection-results-actions">
-        <span><Info size={14} aria-hidden="true" /> Technical findings do not change Proof approval.</span>
+        <span><Info size={14} aria-hidden="true" /> {sampleReport ? "Sample inspection · illustrative findings. Proof approval is unchanged." : "Technical findings do not change Proof approval."}</span>
         <div>
           <details className="inspection-report-details">
             <summary><Info size={14} aria-hidden="true" /> Report details</summary>
@@ -533,7 +535,7 @@ export function ArtworkInspectionResultsWorkspace({
               <p><strong>Completed</strong><span>{formattedInspectionDate(result.completedAt)}</span></p>
             </div>
           </details>
-          <button type="button" className="inspection-secondary-action" onClick={() => actions.onDownloadReport(result.inspectionId)}><Download size={15} aria-hidden="true" /> Download report</button>
+          <button type="button" className="inspection-secondary-action" disabled={sampleReport} title={sampleReport ? "Sample inspection only; no downloadable report is connected" : undefined} onClick={() => actions.onDownloadReport(result.inspectionId)}><Download size={15} aria-hidden="true" /> Download report</button>
           <button type="button" className="inspection-primary-action" onClick={() => actions.onBack(result.inspectionId)}>Close inspection <ArrowLeft size={15} aria-hidden="true" /></button>
         </div>
       </div>

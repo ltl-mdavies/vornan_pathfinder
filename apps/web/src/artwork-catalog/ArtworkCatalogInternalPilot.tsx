@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ArtworkCatalogWorkspace } from "./ArtworkCatalogWorkspace";
 import {
   ArtworkInspectionResultsWorkspace,
@@ -124,6 +124,7 @@ function localResultFromBatch(batch: ArtworkUploadBatch): { productId: string; r
 }
 
 export function ArtworkCatalogInternalPilot({ customerId, customerLabel, compact = false }: ArtworkCatalogInternalPilotProps) {
+  const inspectionRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<PilotView>({
     kind: "catalog",
     selectedProductId: compact ? "" : INTERNAL_PILOT_PRODUCT_ID
@@ -135,19 +136,23 @@ export function ArtworkCatalogInternalPilot({ customerId, customerLabel, compact
     }
   }, [view]);
 
+  useEffect(() => {
+    if (view.kind === "inspection") inspectionRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [view]);
+
   if (customerId !== INTERNAL_PILOT_CUSTOMER_ID) return null;
 
-  if (view.kind === "inspection") {
-    const isLocal = Boolean(view.result.localAnalysis);
-    return (
+  return <>
+    {view.kind === "inspection" ? <div ref={inspectionRef}>
       <ArtworkInspectionResultsWorkspace
         result={view.result}
+        sampleReport={!view.result.localAnalysis}
         actions={{
           onBack: () => {
             setView({ kind: "catalog", selectedProductId: view.productId });
           },
           onDownloadReport: () => {
-            if (!isLocal) return;
+            if (!view.result.localAnalysis) return;
             const report = new Blob([JSON.stringify(view.result, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(report);
             const link = document.createElement("a");
@@ -157,20 +162,19 @@ export function ArtworkCatalogInternalPilot({ customerId, customerLabel, compact
             URL.revokeObjectURL(url);
           },
           onOpenAnalyzedArtwork: () => {
-            if (isLocal) window.open(view.result.pages[0].originalPreviewUrl, "_blank", "noopener,noreferrer");
+            if (view.result.localAnalysis) window.open(view.result.pages[0].originalPreviewUrl, "_blank", "noopener,noreferrer");
           }
         }}
       />
-    );
-  }
-
-  return (
+    </div> : null}
+    <div hidden={view.kind !== "catalog"} inert={view.kind !== "catalog" ? true : undefined}>
     <ArtworkCatalogWorkspace
+      active={view.kind === "catalog"}
       customerLabel={customerLabel}
       compactPilot={compact}
       products={compact ? compactCatalogPilotProducts : artworkCatalogFixture}
       actions={artworkCatalogFixtureActions}
-      initialProductId={view.selectedProductId}
+      initialProductId={compact ? "" : INTERNAL_PILOT_PRODUCT_ID}
       onOpenTechnicalInspection={(identity) => {
         const result = resolveArtworkInspectionResult({ customerId, ...identity });
         if (!result) return;
@@ -187,5 +191,6 @@ export function ArtworkCatalogInternalPilot({ customerId, customerLabel, compact
         setView({ kind: "inspection", ...resolved });
       }}
     />
-  );
+    </div>
+  </>;
 }

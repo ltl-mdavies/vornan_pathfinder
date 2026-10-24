@@ -16,6 +16,14 @@ import {
   artworkInspectionResultFixture
 } from "../src/artwork-catalog/inspection-results-fixtures";
 
+test("sample inspection is clearly illustrative and cannot offer a no-op report download", () => {
+  const markup = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={artworkInspectionResultFixture} actions={artworkInspectionFixtureActions} sampleReport />);
+  assert.match(markup, /Sample inspection · illustrative findings/);
+  assert.match(markup, /disabled="" title="Sample inspection only; no downloadable report is connected"/);
+  const normal = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={artworkInspectionResultFixture} actions={artworkInspectionFixtureActions} />);
+  assert.doesNotMatch(normal, /no downloadable report is connected/);
+});
+
 test("renders the approved single-page results workspace with a default inspection-details rail", () => {
   const markup = renderToStaticMarkup(
     <ArtworkInspectionResultsWorkspace result={artworkInspectionResultFixture} actions={artworkInspectionFixtureActions} />

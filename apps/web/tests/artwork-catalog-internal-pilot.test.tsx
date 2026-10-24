@@ -12,6 +12,8 @@ import {
   shouldUseArtworkCatalogFocusedShell
 } from "../src/artwork-catalog/ArtworkCatalogInternalPilot";
 import { artworkCatalogFixture } from "../src/artwork-catalog/fixtures";
+import { applyProductSpecificationDraft } from "../src/artwork-catalog/ArtworkCatalogWorkspace";
+import { analyzeArtworkUpload } from "../src/artwork-catalog/artwork-upload-analysis";
 
 test("compact pilot starts with an honest unobstructed sample list and leaves default composition intact", () => {
   const markup = renderToStaticMarkup(<ArtworkCatalogInternalPilot customerId="1249" customerLabel="LTL Demo · 1249" compact />);
@@ -124,6 +126,39 @@ test("binds local analysis to the selected product specification without changin
     expectedColorSpace: "CMYK"
   });
   assert.equal(product.versions.find((version) => version.isCurrent)?.version, 7);
+});
+
+test("applied specifications drive actual local report evidence without mutating fixture artwork", async () => {
+  const product = artworkCatalogFixture[0];
+  const original = structuredClone(product);
+  const specification = applyProductSpecificationDraft(product, {
+    width: "304.8", height: "203.2", units: "mm", targetDpi: "300", color: "RGB"
+  });
+  const effective = localInspectionSpecForProduct("1249", { ...product, specification });
+  assert.ok(Math.abs(effective.finishedWidthInches - 12) < 0.00001);
+  assert.ok(Math.abs(effective.finishedHeightInches - 8) < 0.00001);
+  assert.equal(effective.targetDpi, 300);
+  assert.equal(effective.expectedColorSpace, "RGB");
+  const file = new File([await readFile(new URL("../public/icons/pathfinder-icon-192.png", import.meta.url))], "test.png", { type: "image/png" });
+  const batch = await analyzeArtworkUpload(file, effective, { createObjectUrl: () => "blob:test" });
+  assert.equal(batch.items[0].result?.specification, "12 × 8 in");
+  assert.equal(batch.items[0].result?.targetDpi, "300");
+  assert.equal(batch.items[0].result?.versionLabel, "Proposed Version 8");
+  assert.deepEqual(product, original);
+});
+
+test("Catalog remains mounted while inspection is open and hidden listeners respect active scope", async () => {
+  const pilot = await readFile(new URL("../src/artwork-catalog/ArtworkCatalogInternalPilot.tsx", import.meta.url), "utf8");
+  const workspace = await readFile(new URL("../src/artwork-catalog/ArtworkCatalogWorkspace.tsx", import.meta.url), "utf8");
+  assert.match(pilot, /hidden=\{view.kind !== "catalog"\} inert=/);
+  assert.match(pilot, /active=\{view.kind === "catalog"\}/);
+  assert.doesNotMatch(pilot, /if \(view.kind === "inspection"\)\s*\{/);
+  assert.match(workspace, /specification: specificationOverrides\[selectedProduct.id\] \?\? selectedProduct.specification/);
+  assert.match(workspace, /if \(!active \|\| !compactPilot \|\| !drawerOpen\) return/);
+  assert.match(workspace, /inspectionOriginRef.current = lastModalTriggerRef.current/);
+  assert.match(workspace, /if \(!mountedRef.current\)/);
+  assert.match(workspace, /<input ref=\{uploadInputRef\} hidden disabled=\{viewer.stage === "processing"\}/);
+  assert.match(workspace, /if \(!first \|\| !last\)[\s\S]*?modalRef.current.focus\(\)/);
 });
 
 test("resolves only the exact immutable product, version, and inspection identity", () => {

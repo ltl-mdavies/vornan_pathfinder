@@ -79,3 +79,23 @@ Independent UX disposition: composition checkpoint passed for list/detail/cards/
 Completed independent report: http://127.0.0.1:5206/catalog-review/index.html . Durable report and source fingerprints: `/Users/marcusdavies/.codex/visualizations/2026/10/23/01a16a35-2fc7-7a62-8945-f6c7f25a1638/catalog-review/`. The final review also includes populated Cards and a1600×900 overlay check; the latter is complete, not a remaining viewport requirement.
 
 No push or deployment. Reconcile with fresh main, preserve intervening hotfixes, run the full regression suite and obtain explicit release approval after all agreed UX slices are complete.
+
+## Workflow continuation — October 23 local candidate
+
+This section supersedes the original technical blockers for the changed paths only; it is not a production Catalog release.
+
+- Catalog stays mounted while inspection is displayed, with its hidden subtree inert and its keyboard listeners inactive. Search, filters, card/list mode, selected product, applied specifications and lifecycle overrides remain component-local and survive the round trip.
+- Opening results focuses Back; closing restores the exact View results or Check new artwork origin. No hidden upload modal is left open after a successful local check.
+- Analysis receives a copy of the selected product containing the applied specification snapshot. The review step displays those dimensions, DPI and color before analysis. Neither current artwork nor approval is modified.
+- The real file input remains mounted during selection and review so Choose a different file works. Late local completion after component unmount is ignored and its preview blob URLs are released.
+- Sample results explicitly say illustrative findings and disable the unconnected report download. Historical-version copy now states that previews are illustrative and source files are not connected. Local JSON report download remains real.
+
+Development browser evidence: Pump search + Needs work filter + Cards survived a sample-results round trip, with View results focused on return. An applied 12 × 8 inch / 300 DPI configuration drove analysis of the bundled 192px PNG; the resulting JSON report contains those exact values and Proposed Version 8. Return focused Check new artwork; current Version 7 and Approved remained unchanged. A separately confirmed local Inactive override also survived the sample-results round trip. History Tab/Shift+Tab and Escape restoration passed.
+
+Evidence: `catalog-workflow-sample-report-1366.png`, `catalog-workflow-file-review-1366.png`, `catalog-workflow-local-result-1366.png` under `tests/ux/evidence`. Local downloaded report: `upload_item_d2226f33-631e-4d11-968c-aace1a816c65.json` (user Downloads; synthetic bundled image only).
+
+Initial engineering gate: 189 Admin tests, full-workspace typecheck, Admin build and diff whitespace check passed. The full regression run passed all non-API suites; the sandbox blocked temporary test-server sockets in 81 API cases. Re-running the unchanged API suite with local socket permission passed all 800 tests. Combined result: 1,322 tests passed (API800, public Proof76, Status17, Admin189, domain/adapters240). Independent UX workflow review is in progress; final disposition and narrow follow-up corrections will be recorded below. Dense/long-name data and broader inspection-canvas layout remain a separate acceptance requirement.
+
+Final narrow corrections: native-hidden file input remains mounted but is disabled during processing, so it cannot become an invisible focus stop. Browser selection and replacement from `pathfinder-icon-192.png` to `pathfinder-icon-128.png` succeeded after that correction (`catalog-workflow-file-replacement-final-1366.png`). Compact configuration replaces the large future-manufacturing block with a read-only print-product line; legacy standalone mode retains its original composition. Before/after configuration screenshots were compared together at1366×768 and show the form/primary actions without the roadmap filler. Final Admin tests/typecheck/build passed again.
+
+Independent UX completion is pending a tool approval in the UX chat. The reviewed source remains frozen for that continuation; no independent acceptance or deployment is claimed. Root `design-qa.md` separates Development's bounded verification from the still-open full Catalog gate.
