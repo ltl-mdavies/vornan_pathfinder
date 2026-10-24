@@ -64,7 +64,59 @@ Retained hashed assets allow this without a backend rollback. No migrations.
 
 ## Execution and verification
 
-Pending at preparation: merge validated PR; dispatch main-only Admin workflow;
-verify all 37 live artifact hashes; confirm CDN invalidation; authenticated root
-reload and real Dashboard/Jobs/customer data; independent UX signed-out login.
-Do not claim production OAuth/sign-out from provider-free preview results.
+Completed October 24 at approximately 1:11 PM Eastern:
+
+- PR366 merged as 17f46dbf15b71900296d8fa0a50c3a8692f1741d after validation
+  run40114354385 passed. The merged runtime exactly matches the accepted source.
+- Main-only Admin workflow40114719486 succeeded (2m51s), including checks/tests.
+  No other apps or infrastructure were deployed.
+- CloudFront invalidation I7KGR2GREKPB1ZXTYH9QRBYZYT completed.
+- Published index version xRCE6RjsgC2cZKgaKBRzg7MtRnhKkSEd; SHA-256
+  25abd9757a9ca5f79d84113fec07ea1e3e1f4608c91b54d6eadfcfb0ea28e449.
+- Complete published hashes, cache controls and S3 versions are recorded in
+  2026-10-24-login-startup-published.json.
+
+### Build comparison discrepancy resolved
+
+The first naive local-vs-live hash comparison failed. CI omitted exactly the
+leading 604-byte 2025 Google license comment in the Firebase chunk. Removing
+only that comment from the local Firebase artifact produces an exact byte match
+to CI's Firebase artifact. This changes its content-hashed filename and cascades
+to the entry/App filenames and their references. All 37 files were subsequently
+verified byte-for-byte against the reviewed artifact with only that specific
+comment removal and three exact filename substitutions permitted. No executable
+code, configuration or other content differences remain.
+
+Local Node22.23.3/CI=true reproduction still kept the comment, so Node version
+alone was not the cause. The precise toolchain condition for comment retention
+is not established; it is not a runtime-behavior discrepancy. Raw published
+hashes are retained rather than falsely claiming all preflight hashes matched.
+
+### Authenticated verification
+
+Chrome preserved the existing user session. Root reload showed the quiet
+Vornan logo/Checking your session treatment, then a populated Dashboard.
+Recent order rows matched the pre-release baseline. Jobs loaded 164 records
+with Wrike, JSON API and Manual XLSX filters; the directory showed three
+Pathfinder customers. Opening LTL Demo showed scoped customer loading and then
+two confirmed Manual XLSX orders and its real workspace data.
+
+Independent UX IAB verification also passed two authenticated root reloads into
+populated Dashboard data, without legacy panels, stray directory actions or the
+old login hero. IAB warning/error logs were empty. Chrome had only pre-deployment
+extension listener messages timestamped 1:03 PM, not new application errors.
+
+Local evidence: output/login-release/live-dashboard.jpg and
+live-customer-workspace.jpg. Independent evidence: UX login-startup-review/
+production-startup-reload.jpg and redacted production-verification.json.
+
+Existing sessions were not signed out solely to create a login screenshot.
+Signed-out appearance, busy/error/expiry/restricted/unconfigured states are
+covered by the actual-component local preview, independent UX acceptance and
+published-code equivalence. New live Google reauthentication was not performed.
+No email, proof decision, customer settings, provider submission or API writes
+were made as part of release verification. Public Proof/Status runtime unchanged.
+
+Prior rollback version and hashed assets remain retained as described above.
+GitHub emitted non-blocking action-runtime/ubuntu migration annotations; existing
+bundle-size warnings remain. These are future maintenance, not release blockers.
