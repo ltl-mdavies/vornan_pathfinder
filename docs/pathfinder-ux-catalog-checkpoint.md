@@ -146,3 +146,17 @@ UX completed the held round trip on5210: an independently edited10×6inch/240DPI
 After UX explicitly released the source hold, the clean `codex/pathfinder-ux-shell` branch fast-forwarded from `b771488` to `1252387`, incorporating the already-verified `ebadb04` correction without conflict or reimplementation. The isolated5216 worktree remains unchanged for the independent retest. This closes the local integration gate only; it is not final Catalog acceptance or deployment approval.
 
 Post-integration Admin tests192/192, Admin typecheck and diff whitespace check passed. The source is identical to the full1,325-test candidate; only this handoff record was subsequently amended.
+
+## Independent bounded workflow acceptance
+
+UX independently retested the frozen5216 candidate and reported no remaining P1/P2 findings in the tested changes:
+
+- Corrupt50-byte PNG: neutral Aspect match Indeterminate, intentional Artwork preview unavailable and recovery guidance (`09-corrupt-file-corrected.jpg`,1280×720).
+- Choose a different file recovered to a valid192×192 PNG preview (`10-valid-recovery.jpg`,1366×768).
+- Review dialog Tab/Shift+Tab wrapped; Cancel restored Check new artwork focus.
+- Illustrative sample findings and disabled sample-report download were correctly presented (`11`,1366×768).
+- Downloaded corrupt JSON parsed successfully and matched the independently edited10×6inch/240DPI specification, unsupported/file-integrity findings and50-byte file identity.
+
+This supersedes the pending independent error-path/report disposition above. UX is preparing its durable seven-step report; link and source fingerprints are pending. Original evidence is under `/private/tmp/pathfinder-ux-catalog-workflow-review/`. No further source correction was requested for this bounded review.
+
+Coverage remains explicit: PDF/JPEG and dense layout checks have Development evidence, not independent UX browser coverage. Deliberate slow-processing keyboard/late completion, multipage behavior and broader accessibility are not certified by this review. Existing release gates and the restricted local-analysis pilot boundary remain; this is not production release approval or completion of the full Pathfinder redesign. The5216 source remains stable while UX finishes the report.
