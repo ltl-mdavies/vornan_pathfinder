@@ -106,7 +106,7 @@ test("Jobs shows durable Lift order-header status and the line comparison uses t
   assert.match(source, /<th>Order Status<\/th>/);
   assert.match(source, /job\.target_order_status\.label/);
   assert.match(source, /Lift order header last checked/);
-  assert.match(source, /job\.target_order_number \? "Not checked" : "Not in Lift"/);
+  assert.match(source, /job\.target_order_number \? "Not checked" : "Not confirmed"/);
   assert.match(styles, /\.order-line-comparison table \{[\s\S]*?width: 100%;[\s\S]*?table-layout: fixed;/);
 });
 

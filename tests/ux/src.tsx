@@ -8,6 +8,7 @@ import "../../apps/web/src/pathfinder-shell.css";
 import { compactCatalogPilotProducts } from "../../apps/web/src/artwork-catalog/ArtworkCatalogInternalPilot";
 import { SOURCE_CONNECTOR_DEFINITIONS } from "../../packages/source-connections/src/index";
 import { createIntegrationReview, type IntegrationSeed } from "./integration-fixtures";
+import { createSubmissionReview, type SubmissionSeed } from "./submission-fixtures";
 
 // Actual App with an in-memory HTTP boundary. Never fall through to a real API.
 const configured = new Set(["284619","174094","1249"]);
@@ -69,6 +70,9 @@ const calls: {url:string;method:string}[] = [];
 const integration = query.has("integrationReview")
   ? createIntegrationReview(fixtures as unknown as IntegrationSeed, query, sessionStorage)
   : null;
+const submission = query.has("submissionReview")
+  ? createSubmissionReview(fixtures as unknown as SubmissionSeed, query, sessionStorage)
+  : null;
 let jobReads = 0;
 let emailReads = 0;
 const proofReads = new Map<string, number>();
@@ -79,6 +83,13 @@ window.fetch = async (input, init) => {
   const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   calls.push({url:url.pathname,method});
   if (url.origin !== location.origin) return response({error:"Local review blocks every off-origin request."},423);
+  if (submission) {
+    let body: unknown;
+    try { body = init?.body ? JSON.parse(String(init.body)) : input instanceof Request && method !== "GET" ? await input.clone().json() : undefined; }
+    catch { return response({error:"Invalid local JSON request."},400); }
+    const simulated = await submission.handle(url, method, body);
+    if (simulated) return simulated;
+  }
   const customer = url.pathname.match(/\/customers\/([^/]+)/)?.[1];
   if (customer && query.get("slow") === customer) await new Promise(resolve=>setTimeout(resolve,1800));
   if (integration) {
@@ -131,9 +142,9 @@ window.fetch = async (input, init) => {
   return response({error:`Local review has no fixture for ${url.pathname}. No live request was made.`},503);
 };
 window.open = () => null;
-const authSession = {displayName:integration ? "Local QA · simulated saves" : "Local review · sample data",email:"review@example.invalid",photoURL:null,domain:"example.invalid",token:null,getIdToken:async()=>null,expireSession:async()=>{},signOut:async()=>{}};
+const authSession = {displayName:submission ? "Local QA · simulated submissions" : integration ? "Local QA · simulated saves" : "Local review · sample data",email:"review@example.invalid",photoURL:null,domain:"example.invalid",token:null,getIdToken:async()=>null,expireSession:async()=>{},signOut:async()=>{}};
 const root = createRoot(document.getElementById("root")!);
-root.render(<><App authSession={authSession}/>{integration ? <aside aria-label="Isolated integration review" style={{position:"fixed",bottom:8,right:8,zIndex:9999,background:"white",border:"1px solid #39523b",padding:8,fontSize:12}}>Simulated writes · this tab only <button type="button" onClick={()=>{integration.reset();location.reload();}}>Reset simulated data</button></aside> : null}</>);
+root.render(<><App authSession={authSession}/>{submission ? <aside aria-label="Isolated submission review" style={{position:"fixed",bottom:8,right:8,zIndex:9999,background:"white",border:"1px solid #39523b",padding:8,fontSize:12}}>No provider calls · QA only <button type="button" onClick={()=>{submission.simulateReconciliation();location.reload();}}>Simulate reconciliation</button> <button type="button" onClick={()=>{submission.reset();location.reload();}}>Reset simulated submission</button></aside> : integration ? <aside aria-label="Isolated integration review" style={{position:"fixed",bottom:8,right:8,zIndex:9999,background:"white",border:"1px solid #39523b",padding:8,fontSize:12}}>Simulated writes · this tab only <button type="button" onClick={()=>{integration.reset();location.reload();}}>Reset simulated data</button></aside> : null}</>);
 if (query.has("catalogLate")) {
   // Simulate leaving the workspace while a disk read is pending. This is a test-only
   // remount, not a product navigation control; report cleanup through visible text.

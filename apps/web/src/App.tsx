@@ -3264,7 +3264,7 @@ function JobListTable({
                   </span>
                 ) : (
                   <span className="cell-meta">
-                    {job.target_order_number ? "Not checked" : "Not in Lift"}
+                    {job.target_order_number ? "Not checked" : "Not confirmed"}
                   </span>
                 )}
               </td>
@@ -3274,7 +3274,7 @@ function JobListTable({
               <td>{displayTimestamp(job.created_at)}</td>
               <td>
                 {displayLiftCreated(job.target_order_created_at, job.target_order_created_precision) ??
-                  (job.target_order_number ? "Date unavailable" : "Not in Lift")}
+                  (job.target_order_number ? "Date unavailable" : "Not confirmed")}
               </td>
               <td>{displayTimestamp(lastMeaningfulActivity(job))}</td>
               <td className="job-row-action-cell">
@@ -4738,6 +4738,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const pendingNavigationRef = useRef<(() => void) | null>(null);
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("loading");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [jobSubmitFeedback, setJobSubmitFeedback] = useState<{ jobId: string; message: string; error: boolean; responseUnknown?: boolean } | null>(null);
+  const jobSubmitFeedbackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (jobSubmitFeedback) jobSubmitFeedbackRef.current?.focus(); }, [jobSubmitFeedback]);
   const [targetSaveFeedback, setTargetSaveFeedback] = useState<{
     tone: "success" | "error";
     message: string;
@@ -5889,6 +5892,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   async function openJobDetail(job: JobListRecord) {
     const requestId = ++jobDetailRequestIdRef.current;
+    setJobSubmitFeedback(null);
     if (activeGlobalView === "Customers") {
       setActiveCustomerView("Jobs");
     } else {
@@ -5927,6 +5931,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   function closeJobDetail() {
     jobDetailRequestIdRef.current++;
+    setJobSubmitFeedback(null);
     setJobDetailState("idle");
     setSelectedJobDetail(null);
     setSelectedJobAttempts([]);
@@ -7411,6 +7416,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   );
   const canRetrySelectedJob =
     selectedJobDetail?.state === "Ready" || selectedJobDetail?.state === "Submit Failed";
+  const activeJobSubmitFeedback = jobSubmitFeedback?.jobId === selectedJobDetail?.job_id ? jobSubmitFeedback : null;
+  const selectedJobCertificationBlocked = canRetrySelectedJob && selectedJobDetail?.submit_certification?.can_submit === false;
+  const selectedJobNeedsSubmitReview = canRetrySelectedJob && (selectedJobCertificationBlocked || Boolean(activeJobSubmitFeedback?.error));
   const canReevaluateSelectedJob = Boolean(
     selectedJobDetail?.source_evidence?.provider === "wrike" &&
       ["Needs Mapping", "Failed"].includes(selectedJobDetail.state) &&
@@ -9577,12 +9585,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWorkspaceMessage("Generate a persisted preview job before requesting Lift submit.");
       return;
     }
+    const detailRequestId = jobDetailRequestIdRef.current;
+    const submitWorkspaceRequestId = workspaceRequestIdRef.current;
+    const submitContextCurrent = () => detailRequestId === jobDetailRequestIdRef.current && submitWorkspaceRequestId === workspaceRequestIdRef.current;
+    const showSubmitFeedback = (message: string, error: boolean, responseUnknown = false) => {
+      if (submitContextCurrent()) setJobSubmitFeedback({ jobId: submitJob.job_id, message, error, responseUnknown });
+    };
+    setJobSubmitFeedback(null);
     if (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed) {
+      showSubmitFeedback("Confirm the PROD sandbox submit lane in Lift Submit Preflight before requesting Lift submit.", true);
       setWorkspaceMessage("Confirm the PROD sandbox submit lane in Lift Submit Preflight before requesting Lift submit.");
       setWorkspaceState("error");
       return;
     }
     if (!submitJob.submit_integrity?.fingerprint) {
+      showSubmitFeedback("Refresh submit certification and review the exact payload before requesting Lift submit.", true);
       setWorkspaceMessage("Refresh submit certification and review the exact payload before requesting Lift submit.");
       setWorkspaceState("error");
       return;
@@ -9617,18 +9634,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           updated_at: new Date().toISOString()
         };
         if (lastPreviewJob?.job_id === refreshedSubmitJob.job_id || submitJob.job_id === lastPreviewJob?.job_id) {
-          setLastPreviewJob(refreshedSubmitJob);
+          setLastPreviewJob(current => current?.job_id === refreshedSubmitJob.job_id ? refreshedSubmitJob : current);
         }
-        if (selectedJobDetail?.job_id === refreshedSubmitJob.job_id || submitJob.job_id === selectedJobDetail?.job_id) {
+        if (detailRequestId === jobDetailRequestIdRef.current && selectedJobDetail?.job_id === refreshedSubmitJob.job_id) {
           setSelectedJobDetail(refreshedSubmitJob);
         }
-        setWorkspace((current) => (current ? { ...current, jobs: upsertJob(current.jobs, refreshedSubmitJob) } : current));
+        setWorkspace((current) => (current?.customer.lift_customer_id === submitJob.customer_id ? { ...current, jobs: upsertJob(current.jobs, refreshedSubmitJob) } : current));
         setGlobalJobs((current) => upsertJob(current, refreshedSubmitJob));
       }
       if (payload.attempt) {
         const submitAttempt = payload.attempt;
-        setLastSubmitAttempt(submitAttempt);
-        if ((selectedJobDetail?.job_id ?? submitJob.job_id) === submitAttempt.job_id) {
+        if (submitContextCurrent() && selectedCustomerIdRef.current === submitJob.customer_id) setLastSubmitAttempt(submitAttempt);
+        if (detailRequestId === jobDetailRequestIdRef.current && selectedJobDetail?.job_id === submitAttempt.job_id) {
           setSelectedJobAttempts((current) => [
             submitAttempt,
             ...current.filter((attempt) => attempt.attempt_id !== submitAttempt.attempt_id)
@@ -9639,9 +9656,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         const submittedJob = payload.job;
         const submitAttempt = payload.attempt;
         if (lastPreviewJob?.job_id === submittedJob.job_id || submitJob.job_id === lastPreviewJob?.job_id) {
-          setLastPreviewJob(submittedJob);
+          setLastPreviewJob(current => current?.job_id === submittedJob.job_id ? submittedJob : current);
         }
-        if (selectedJobDetail?.job_id === submittedJob.job_id || submitJob.job_id === selectedJobDetail?.job_id) {
+        if (detailRequestId === jobDetailRequestIdRef.current && selectedJobDetail?.job_id === submittedJob.job_id) {
           setSelectedJobDetail(submittedJob);
           if (submitAttempt) {
             setSelectedJobAttempts((current) => [
@@ -9651,7 +9668,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           }
         }
         setWorkspace((current) =>
-          current
+          current?.customer.lift_customer_id === submitJob.customer_id
             ? {
                 ...current,
                 jobs: upsertJob(current.jobs, submittedJob),
@@ -9663,11 +9680,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         );
         setGlobalJobs((current) => upsertJob(current, submittedJob));
       }
-      setWorkspaceMessage(payload.error ?? payload.message ?? "Lift submit request accepted.");
-      setWorkspaceState(response.ok ? "idle" : "error");
+      if (submitContextCurrent()) setWorkspaceMessage(payload.error ?? payload.message ?? "Lift submit request accepted.");
+      showSubmitFeedback(payload.error ?? payload.message ?? "Lift submit request accepted.", !response.ok);
+      if (submitWorkspaceRequestId === workspaceRequestIdRef.current) setWorkspaceState(response.ok || !submitContextCurrent() ? "idle" : "error");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Lift submit request failed.");
-      setWorkspaceState("error");
+      if (submitContextCurrent()) setWorkspaceMessage(error instanceof Error ? error.message : "Lift submit request failed.");
+      showSubmitFeedback("Pathfinder could not confirm the submission response. The order may already exist in Lift. Refresh this job to check its latest attempt before taking further action; do not create a replacement order.", true, true);
+      if (submitWorkspaceRequestId === workspaceRequestIdRef.current) setWorkspaceState(submitContextCurrent() ? "error" : "idle");
     }
   }
 
@@ -11379,21 +11398,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         <td><StatePill state={job.state} /></td>
                         <td>
                           <span className="job-identity-cell">
-                            <strong>{job.target_order_number ?? "Not in Lift"}</strong>
-                            <small>{job.target_order_number ? jobOrderTitle(job) || "Order name not available" : "Awaiting submission"}</small>
+                            <strong>{job.target_order_number ?? "Not confirmed"}</strong>
+                            <small>{job.target_order_number ? jobOrderTitle(job) || "Order name not available" : job.state === "Submitted" ? "Awaiting confirmation" : "No confirmed order linked"}</small>
                           </span>
                         </td>
                         <td>
                           {job.target_order_status ? (
                             <span className="mini-pill mini-pill-neutral job-order-status">{job.target_order_status.label}</span>
                           ) : (
-                            <span className="cell-meta">{job.target_order_number ? "Not checked" : "Not in Lift"}</span>
+                            <span className="cell-meta">{job.target_order_number ? "Not checked" : "Not confirmed"}</span>
                           )}
                         </td>
                         <td>{displayTimestamp(job.created_at)}</td>
                         <td>
                           {displayLiftCreated(job.target_order_created_at, job.target_order_created_precision) ??
-                            (job.target_order_number ? "Date unavailable" : "Not in Lift")}
+                            (job.target_order_number ? "Date unavailable" : "Not confirmed")}
                         </td>
                         <td>{displayTimestamp(lastMeaningfulActivity(job))}</td>
                         <td>{job.output_route_name ?? activeOutputRoute.name}</td>
@@ -18663,7 +18682,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                 </div>
                 <div className="job-detail-actions">
-                  <StatePill state={selectedJobDetail.state} />
+                  {selectedJobNeedsSubmitReview ? <span className="pill pill-warning">{activeJobSubmitFeedback?.responseUnknown ? "Response unknown" : "Review required"}</span> : <StatePill state={selectedJobDetail.state} />}
                   {selectedJobLiftStatus ? (
                     <span className="mini-pill mini-pill-neutral" title="Current Lift order status">
                       {selectedJobLiftStatus}
@@ -18687,7 +18706,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         : "Check current mappings"}
                     </button>
                   ) : null}
-                  {canRetrySelectedJob ? (
+                  {selectedJobNeedsSubmitReview ? (
+                    <button className="primary-button job-detail-view-order" onClick={() => void openJobDetail(selectedJobDetail)} disabled={workspaceState === "saving"}>
+                      <RefreshCw size={16} /> Refresh job
+                    </button>
+                  ) : canRetrySelectedJob ? (
                     <>
                       {prodSandboxConfirmationRequired && !selectedJobMissingOrderTitle ? (
                         <label className="job-detail-submit-confirmation">
@@ -18896,6 +18919,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                 </div>
               </div>
+              {jobSubmitFeedback?.jobId === selectedJobDetail.job_id ? (
+                <div ref={jobSubmitFeedbackRef} tabIndex={-1} className={jobSubmitFeedback.error ? "job-detail-submit-blocker" : "import-warning pf-workflow-feedback"} role={jobSubmitFeedback.error ? "alert" : "status"}>
+                  {jobSubmitFeedback.message}
+                </div>
+              ) : null}
+              {selectedJobCertificationBlocked ? (
+                <div className="job-detail-submit-blocker" role="status">
+                  <div>
+                  <strong>Submission requires review.</strong>{" "}{selectedJobDetail.submit_certification?.summary}
+                  <ul>{selectedJobDetail.submit_certification?.items.filter(item => item.blocking).map(item => <li key={item.item_id}>{item.label}: {item.message}</li>)}</ul>
+                  <span>Resolve the blocking items, then use Job actions → Refresh Submit Certification to check readiness again.</span>
+                  </div>
+                </div>
+              ) : null}
               {selectedJobMissingOrderTitle ? (
                 <div className="job-detail-submit-blocker" role="alert">
                   <AlertTriangle size={18} />
@@ -18962,7 +18999,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <DetailItem label="Wrike campaign" value={selectedJobCampaignName} />
                   <DetailItem label="Lift order" value={selectedJobLiftOrderNumber ?? "Pending"} />
                   <DetailItem label="Lift order name" value={selectedJobDetail.lift_payload.order.order_title || "Pending"} />
-                  <DetailItem label="Current status" value={selectedJobLiftStatus ?? (selectedJobLiftOrderNumber ? "Not checked" : "Not in Lift")} />
+                  <DetailItem label="Current status" value={selectedJobLiftStatus ?? (selectedJobLiftOrderNumber ? "Not checked" : "Not confirmed")} />
                   <DetailItem label="Current step" value={selectedJobLiftStep ?? "Load current Lift order"} />
                   <DetailItem label="Pathfinder intake" value={displayTimestamp(selectedJobDetail.created_at)} />
                   <DetailItem label="Order confirmed" value={selectedJobDetail.order_confirmed_at ? displayTimestamp(selectedJobDetail.order_confirmed_at) : "Not confirmed"} />
@@ -19286,7 +19323,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   ) : null}
                 </div>
               ) : (
-                <p className="empty-state">No submit attempts have been recorded for this job yet.</p>
+                <p className="empty-state">{activeJobSubmitFeedback?.responseUnknown ? "Refresh the job to check the latest submit attempt. The last loaded record may be out of date." : "No submit attempts have been recorded for this job yet."}</p>
               )}
             </div>
 

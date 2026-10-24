@@ -96,3 +96,22 @@ Integration mode adds paused/draft methods whose real source types are **Wrike**
 Review script: Settings → New Draft Field → enter `order.qa_reference` and a label → save/failure/retry → reload and search → Governance → Open Latest. Targets → Lift ERP → Output Routes → change Route Name only → Save Customer Route → reload and reopen. Check a different customer to verify isolation. Do not edit other target fields while testing route-only save; the existing shared-target guard must remain intact.
 
 Run `npm run test --workspace @pathfinder/web` for the simulator contract/safety tests. Standalone fixture typing uses strict mode: `npx tsc --noEmit --strict --module ESNext --moduleResolution Bundler --target ES2022 --jsx react-jsx --esModuleInterop --resolveJsonModule --skipLibCheck tests/ux/integration-fixtures.ts`.
+
+## Isolated submission review
+
+Open `?submissionReview=ready&reviewCase=my-review`, then the single synthetic job from Dashboard. The actual Admin UI receives simulated submit responses; **no provider request, production reservation, or reconciliation worker runs**. Do not combine this mode with `integrationReview`; submission review takes precedence. All non-simulated writes remain blocked.
+
+| Value of `submissionReview` | Scenario |
+| --- | --- |
+| `ready` | Certified synthetic job. Submit becomes uncertain, with one attempt and no confirmed Lift number. |
+| `uncertain` | Starts with an uncertain attempt. The UI must not offer another submit. |
+| `confirmed` | Starts with a reconciled order and the unchanged historical uncertain attempt. |
+| `changed` | Submit returns a reviewed-payload mismatch without recording an attempt. |
+| `blocked` | Submit returns a certification refusal without confirming an order. |
+| `network` | Simulates losing the browser response after a reservation; reopening the job reveals the uncertain attempt. |
+
+The fixed **Simulate reconciliation** control advances only an uncertain synthetic job to confirmed and reloads the app. It is a QA control, not a product action or API endpoint. Reopen the job to inspect the new state and audit history. **Reset simulated submission** clears this case only. Session storage contains only an outcome enum under `pathfinder-ux-submit-v1:<scenario>:<reviewCase>`, not customer data, payloads or credentials.
+
+The runtime response advertises mock transport and a simulated enabled gate solely to exercise the UI; the real API environment is untouched. These fixtures complement the actual API integrity, reservation and reconciliation tests; they do not establish live transport or automatic Wrike writeback behavior. Strict fixture typing uses the same command above with `tests/ux/submission-fixtures.ts`.
+
+Add `&submissionSlow` to `submissionReview=ready` for an eight-second response delay after the simulated reservation. This adds a second synthetic job so reviewers can navigate away while the first response is pending and verify that a late result does not replace the newly opened detail.
