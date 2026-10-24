@@ -1,4 +1,5 @@
 import { isIntakeVisibilityAvailable } from "./intake-visibility";
+import { createSubmissionGuard, submissionDisposition } from "./submission-recovery";
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { IntakeExceptions } from "./IntakeExceptions";
 import {
@@ -117,9 +118,10 @@ import { configurePathfinderApiAuth, pathfinderFetch as fetch } from "./api-clie
 import { WorkspaceLoading } from "./WorkspaceLoading";
 import { ProofOpsPanel } from "./ProofOpsPanel";
 import { OperationsJobs } from "./OperationsWorkspace";
+import { PathfinderShell } from "./PathfinderShell";
 import { OperationsDashboard } from "./OperationsDashboard";
 import { OperationsProof } from "./OperationsProof";
-import { CustomerRecordHeader, CustomerRecordTabs, CustomerSwitcher, OperationsCustomers } from "./OperationsCustomers";
+import { CustomerRecordHeader, CustomerRecordTabs, OperationsCustomers } from "./OperationsCustomers";
 import { operationsDate, type OperationsJob } from "./operations-model";
 import { ProofingApiSetup } from "./ProofingApiSetup";
 import {
@@ -1623,13 +1625,13 @@ const globalNavItems: Array<{ label: GlobalView; icon: typeof Gauge }> = [
 
 const customerNavItems: Array<{ label: CustomerView; icon: typeof Gauge }> = [
   { label: "Overview", icon: Gauge },
+  { label: "Jobs", icon: Archive },
   ...(operationsWorkspaceEnabled ? [{ label: "Proof" as const, icon: ShieldCheck }] : []),
   { label: "Intake Exceptions", icon: AlertTriangle },
   { label: "Artwork Catalog", icon: FileText },
   { label: "Import Methods", icon: Workflow },
   { label: "Output Product Map", icon: Database },
   { label: "Manual Import", icon: Upload },
-  { label: "Jobs", icon: Archive },
   { label: "Settings", icon: SlidersHorizontal }
 ];
 
@@ -3263,7 +3265,7 @@ function JobListTable({
                   </span>
                 ) : (
                   <span className="cell-meta">
-                    {job.target_order_number ? "Not checked" : "Not in Lift"}
+                    {job.target_order_number ? "Not checked" : "Not confirmed"}
                   </span>
                 )}
               </td>
@@ -3273,7 +3275,7 @@ function JobListTable({
               <td>{displayTimestamp(job.created_at)}</td>
               <td>
                 {displayLiftCreated(job.target_order_created_at, job.target_order_created_precision) ??
-                  (job.target_order_number ? "Date unavailable" : "Not in Lift")}
+                  (job.target_order_number ? "Date unavailable" : "Not confirmed")}
               </td>
               <td>{displayTimestamp(lastMeaningfulActivity(job))}</td>
               <td className="job-row-action-cell">
@@ -4643,13 +4645,18 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [targetsAndJobsState, setTargetsAndJobsState] = useState<"loading" | "idle" | "error">("loading");
   const [canonicalRegistry, setCanonicalRegistry] = useState<CanonicalRegistryPayload | null>(null);
   const [canonicalRegistryState, setCanonicalRegistryState] = useState<"loading" | "idle" | "error">("loading");
+  const [canonicalFeedback, setCanonicalFeedback] = useState<{ message: string; error: boolean } | null>(null);
+  const canonicalFeedbackRef = useRef<HTMLParagraphElement>(null);
   const [emailStatus, setEmailStatus] = useState<EmailStatusPayload | null>(null);
+  const [emailStatusReadAt, setEmailStatusReadAt] = useState<string | null>(null);
   const [emailStatusState, setEmailStatusState] = useState<"idle" | "loading" | "error">("idle");
   const [emailStatusMessage, setEmailStatusMessage] = useState<string | null>(null);
   const [sourceConnectorDefinitions, setSourceConnectorDefinitions] = useState<SourceConnectorDefinition[]>(
     SOURCE_CONNECTOR_DEFINITIONS
   );
   const [sourceConnections, setSourceConnections] = useState<CustomerSourceConnectionPayload[]>([]);
+  const [sourceConnectionsReadState, setSourceConnectionsReadState] = useState<"loading" | "ready" | "error">("loading");
+  const [sourceConnectionsReadMessage, setSourceConnectionsReadMessage] = useState<string | null>(null);
   const [selectedSourceConnectionId, setSelectedSourceConnectionId] = useState("");
   const [wrikeConnectionState, setWrikeConnectionState] = useState<"idle" | "loading" | "saving" | "authorizing" | "testing" | "error">("idle");
   const [wrikeConnectionMessage, setWrikeConnectionMessage] = useState<string | null>(null);
@@ -4710,9 +4717,31 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     scope: "import-method" | "target";
   } | null>(null);
   const [destructiveConfirmation, setDestructiveConfirmation] = useState<DestructiveConfirmation | null>(null);
+  const leaveDialogRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!leavePrompt) return;
+    const origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = leaveDialogRef.current;
+    if (!dialog) return;
+    const focusable = () => [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]')].filter(element => element.getClientRects().length > 0);
+    focusable()[0]?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); cancelLeavePrompt(); }
+      if (event.key !== "Tab") return;
+      const controls = focusable();
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    dialog.addEventListener("keydown", onKey);
+    return () => { dialog.removeEventListener("keydown", onKey); if (origin?.isConnected) origin.focus(); };
+  }, [leavePrompt]);
   const pendingNavigationRef = useRef<(() => void) | null>(null);
   const [workspaceState, setWorkspaceState] = useState<"idle" | "loading" | "saving" | "error">("loading");
   const [workspaceMessage, setWorkspaceMessage] = useState<string | null>(null);
+  const [jobSubmitFeedback, setJobSubmitFeedback] = useState<{ jobId: string; message: string; error: boolean; responseUnknown?: boolean } | null>(null);
+  const jobSubmitFeedbackRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (jobSubmitFeedback) jobSubmitFeedbackRef.current?.focus(); }, [jobSubmitFeedback]);
   const [targetSaveFeedback, setTargetSaveFeedback] = useState<{
     tone: "success" | "error";
     message: string;
@@ -4720,10 +4749,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [workspaceSetupRequiredCustomerId, setWorkspaceSetupRequiredCustomerId] = useState<string | null>(null);
   const workspaceRequestIdRef = useRef(0);
   const sourceConnectionsRequestIdRef = useRef(0);
+  const jobDetailRequestIdRef = useRef(0);
+  const [customerToolsOpen, setCustomerToolsOpen] = useState(false);
+  const [customerLegacyTools, setCustomerLegacyTools] = useState(false);
   const [statusPolicyDraft, setStatusPolicyDraft] = useState<StatusAccessPolicy | null>(null);
   const [newStatusDomain, setNewStatusDomain] = useState("");
   const [newStatusDomainStatus, setNewStatusDomainStatus] = useState<StatusAccessDomainStatus>("Approved");
   const [canonicalRegistrySearch, setCanonicalRegistrySearch] = useState("");
+  const [activeSettingsSection, setActiveSettingsSection] = useState<"Canonical registry" | "Transactional email" | "Governance">("Canonical registry");
   const [canonicalRegistrySectionFilter, setCanonicalRegistrySectionFilter] = useState("All");
   const [editingCanonicalFieldId, setEditingCanonicalFieldId] = useState<string | null>(null);
   const [isCreatingCanonicalField, setIsCreatingCanonicalField] = useState(false);
@@ -4731,6 +4764,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   const [selectedCanonicalSnapshot, setSelectedCanonicalSnapshot] = useState<CanonicalRegistrySnapshotDetail | null>(null);
   const [canonicalSnapshotCompare, setCanonicalSnapshotCompare] = useState<CanonicalRegistrySnapshotCompare | null>(null);
   const [canonicalSnapshotState, setCanonicalSnapshotState] = useState<"idle" | "loading" | "error">("idle");
+  const [canonicalSnapshotError, setCanonicalSnapshotError] = useState<{ snapshotId: string; message: string } | null>(null);
+  const canonicalSnapshotErrorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (canonicalSnapshotError && activeGlobalView === "Settings" && (!operationsShell || activeSettingsSection === "Governance")) {
+      canonicalSnapshotErrorRef.current?.focus();
+    }
+  }, [canonicalSnapshotError]);
   const [canonicalFieldDraft, setCanonicalFieldDraft] = useState<{
     path: string;
     label: string;
@@ -4763,9 +4803,33 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     required: false,
     repeatable: false
   });
-  const [lastPreviewJob, setLastPreviewJob] = useState<ProcessingJobPreview | null>(null);
+  const [lastPreviewJob, setLastPreviewJobState] = useState<ProcessingJobPreview | null>(null);
+  const manualPreviewEpochRef = useRef(0);
+  const manualRefreshRequestRef = useRef(0);
+  const manualPreviewRef = useRef(lastPreviewJob);
+  manualPreviewRef.current = lastPreviewJob;
+  const submissionGuard = useRef(createSubmissionGuard());
+  const [, updateSubmissionGuard] = useState(0);
+  const [manualRecovery, setManualRecovery] = useState<{ jobId: string; message: string; error: boolean } | null>(null);
+  const [manualRefreshState, setManualRefreshState] = useState<"idle" | "loading" | "error">("idle");
+  const manualRecoveryRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (manualRecovery) manualRecoveryRef.current?.focus(); }, [manualRecovery]);
+  function setLastPreviewJob(value: ProcessingJobPreview | null | ((current: ProcessingJobPreview | null) => ProcessingJobPreview | null)) {
+    if (value === null) {
+      if (manualPreviewRef.current && submissionGuard.current.isPending(manualPreviewRef.current)) setWorkspaceState("idle");
+      manualPreviewEpochRef.current++;
+      manualRefreshRequestRef.current++;
+      manualPreviewRef.current = null;
+      setManualRecovery(null);
+      setManualRefreshState("idle");
+      setCertificationRefreshState("idle");
+    }
+    setLastPreviewJobState(value);
+  }
   const [lastSubmitAttempt, setLastSubmitAttempt] = useState<SubmitAttempt | null>(null);
   const [selectedJobDetail, setSelectedJobDetail] = useState<ProcessingJobPreview | null>(null);
+  const jobDetailHeadingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (selectedJobDetail) jobDetailHeadingRef.current?.focus(); }, [selectedJobDetail?.job_id]);
   const [selectedJobAttempts, setSelectedJobAttempts] = useState<SubmitAttempt[]>([]);
   const [jobDetailState, setJobDetailState] = useState<"idle" | "loading" | "error">("idle");
   const [jobMappingReevaluationState, setJobMappingReevaluationState] =
@@ -5277,7 +5341,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setCanonicalRegistry(registry);
       setCanonicalRegistryState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical registry load failed.");
+      reportCanonicalFeedback(error instanceof Error ? error.message : "Canonical registry load failed.", true);
       setCanonicalRegistryState("error");
     }
   }
@@ -5288,6 +5352,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const response = await fetch(`${apiBaseUrl}/api/email/status`);
       const payload = await readJsonResponse<EmailStatusPayload>(response);
       setEmailStatus(payload);
+      setEmailStatusReadAt(new Date().toISOString());
       setEmailStatusMessage(null);
       setEmailStatusState("idle");
     } catch (error) {
@@ -5330,6 +5395,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return;
     }
     const requestId = ++sourceConnectionsRequestIdRef.current;
+    setSourceConnectionsReadState("loading");
+    setSourceConnectionsReadMessage(null);
     setWrikeConnectionState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${encodeURIComponent(liftCustomerId)}/source-connections`);
@@ -5337,6 +5404,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       if (requestId !== sourceConnectionsRequestIdRef.current || liftCustomerId !== selectedCustomerIdRef.current) return;
       setSourceConnectorDefinitions(payload.definitions);
       setSourceConnections(payload.connections);
+      setSourceConnectionsReadState("ready");
       const selected = payload.connections.find((connection) => connection.connection_id === preferredConnectionId)
         ?? payload.connections.find((connection) => connection.connection_id === selectedSourceConnectionId)
         ?? payload.connections.find((connection) => connection.provider === "wrike")
@@ -5359,6 +5427,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWrikeConnectionState("idle");
     } catch (error) {
       if (requestId !== sourceConnectionsRequestIdRef.current || liftCustomerId !== selectedCustomerIdRef.current) return;
+      setSourceConnectionsReadState("error");
+      setSourceConnectionsReadMessage(error instanceof Error ? error.message : "Customer source connections could not be loaded.");
       setWrikeConnectionMessage(error instanceof Error ? error.message : "Customer source connections could not be loaded.");
       setWrikeConnectionState("error");
     }
@@ -5733,6 +5803,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
   async function openCanonicalSnapshot(snapshotId: string) {
     setCanonicalSnapshotState("loading");
+    setCanonicalSnapshotError(null);
     setSelectedCanonicalSnapshot(null);
     setCanonicalSnapshotCompare(null);
     try {
@@ -5746,7 +5817,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setCanonicalSnapshotCompare(comparePayload);
       setCanonicalSnapshotState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical snapshot load failed.");
+      setCanonicalSnapshotError({ snapshotId, message: error instanceof Error ? error.message : "Canonical snapshot load failed." });
       setCanonicalSnapshotState("error");
     }
   }
@@ -5843,6 +5914,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function openJobDetail(job: JobListRecord) {
+    const requestId = ++jobDetailRequestIdRef.current;
+    setJobSubmitFeedback(null);
     if (activeGlobalView === "Customers") {
       setActiveCustomerView("Jobs");
     } else {
@@ -5867,9 +5940,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
       const payload = await readJsonResponse<{ job: ProcessingJobPreview; submit_attempts: SubmitAttempt[] }>(response);
+      if (requestId !== jobDetailRequestIdRef.current) return;
+      submissionGuard.current.reconcile(payload.job, payload.submit_attempts);
+      updateSubmissionGuard(value => value + 1);
       setSelectedJobDetail(payload.job);
       setSelectedJobAttempts(payload.submit_attempts);
     } catch (error) {
+      if (requestId !== jobDetailRequestIdRef.current) return;
       setWorkspaceMessage(error instanceof Error ? error.message : "Job detail load failed.");
       setJobDetailState("error");
       return;
@@ -5878,6 +5955,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   function closeJobDetail() {
+    jobDetailRequestIdRef.current++;
+    setJobSubmitFeedback(null);
+    setJobDetailState("idle");
     setSelectedJobDetail(null);
     setSelectedJobAttempts([]);
     setJobActionMenuOpen(false);
@@ -6290,7 +6370,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     }
   }
 
+  function reportCanonicalFeedback(message: string, error = false) {
+    if (!operationsShell) setWorkspaceMessage(message);
+    setCanonicalFeedback({ message, error });
+  }
+
+  // Focus only newly reported registry feedback, never an unrelated Settings section.
+  useEffect(() => {
+    if (canonicalFeedback && operationsShell && activeGlobalView === "Settings" && activeSettingsSection === "Canonical registry") {
+      canonicalFeedbackRef.current?.focus();
+      canonicalFeedbackRef.current?.scrollIntoView({ block: "nearest" });
+    }
+  }, [canonicalFeedback]);
+
   function startCanonicalFieldEdit(field: CanonicalFieldDefinition) {
+    setCanonicalFeedback(null);
     setEditingCanonicalFieldId(field.field_id);
     setCanonicalFieldDraft({
       path: field.path,
@@ -6326,6 +6420,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function performCanonicalFieldEdit(field: CanonicalFieldDefinition) {
+    setCanonicalFeedback(null);
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}`, {
@@ -6341,15 +6436,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const registry = await readJsonResponse<CanonicalRegistryPayload>(response);
       setCanonicalRegistry(registry);
       setEditingCanonicalFieldId(null);
-      setWorkspaceMessage(`Canonical field saved: ${canonicalFieldDraft.label.trim() || field.label}.`);
+      reportCanonicalFeedback(`Canonical field saved: ${canonicalFieldDraft.label.trim() || field.label}.`);
       setWorkspaceState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field save failed.");
+      reportCanonicalFeedback(error instanceof Error ? error.message : "Canonical field save failed.", true);
       setWorkspaceState("error");
     }
   }
 
   async function createCanonicalRegistryField() {
+    setCanonicalFeedback(null);
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields`, {
@@ -6375,23 +6471,24 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         repeatable: false
       });
       setIsCreatingCanonicalField(false);
-      setWorkspaceMessage("Draft canonical field created.");
+      reportCanonicalFeedback("Draft canonical field created.");
       setWorkspaceState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field creation failed.");
+      reportCanonicalFeedback(error instanceof Error ? error.message : "Canonical field creation failed.", true);
       setWorkspaceState("error");
     }
   }
 
   function deleteCanonicalRegistryField(field: CanonicalRegistryField) {
     if (field.origin !== "custom" || field.status !== "Draft") {
-      setWorkspaceMessage("Only Draft custom canonical fields can be removed.");
+      reportCanonicalFeedback("Only Draft custom canonical fields can be removed.", true);
       return;
     }
     openCanonicalImpactReview("remove", field);
   }
 
   async function performCanonicalRegistryFieldDelete(field: CanonicalRegistryField) {
+    setCanonicalFeedback(null);
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}`, {
@@ -6400,10 +6497,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       const registry = await readJsonResponse<CanonicalRegistryPayload>(response);
       setCanonicalRegistry(registry);
       setEditingCanonicalFieldId(null);
-      setWorkspaceMessage(`Draft canonical field removed: ${field.label}.`);
+      reportCanonicalFeedback(`Draft canonical field removed: ${field.label}.`);
       setWorkspaceState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical field removal failed.");
+      reportCanonicalFeedback(error instanceof Error ? error.message : "Canonical field removal failed.", true);
       setWorkspaceState("error");
     }
   }
@@ -6411,7 +6508,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   function renameCanonicalRegistryFieldPath(field: CanonicalRegistryField) {
     const nextPath = canonicalFieldDraft.path.trim();
     if (field.origin !== "custom") {
-      setWorkspaceMessage("Only custom canonical fields can be renamed.");
+      reportCanonicalFeedback("Only custom canonical fields can be renamed.", true);
       return;
     }
     if (!nextPath || nextPath === field.path) {
@@ -6421,6 +6518,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   async function performCanonicalRegistryFieldPathRename(field: CanonicalRegistryField, nextPath: string) {
+    setCanonicalFeedback(null);
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/canonical-registry/fields/${field.field_id}/path`, {
@@ -6434,10 +6532,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setCanonicalRegistry(registry);
       setEditingCanonicalFieldId(null);
       setCanonicalRegistrySearch(nextPath);
-      setWorkspaceMessage(`Canonical path renamed to ${nextPath}. ${registry.migration?.usage?.total ?? 0} saved references migrated.`);
+      reportCanonicalFeedback(`Canonical path renamed to ${nextPath}. ${registry.migration?.usage?.total ?? 0} saved references migrated.`);
       setWorkspaceState("idle");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Canonical path rename failed.");
+      reportCanonicalFeedback(error instanceof Error ? error.message : "Canonical path rename failed.", true);
       setWorkspaceState("error");
     }
   }
@@ -6536,6 +6634,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       return;
     }
 
+    const previewEpoch = ++manualPreviewEpochRef.current;
+    manualRefreshRequestRef.current++;
+    setManualRefreshState("idle");
+    const workspaceEpoch = workspaceRequestIdRef.current;
+    const isCurrent = () => previewEpoch === manualPreviewEpochRef.current && workspaceEpoch === workspaceRequestIdRef.current;
+    setManualRecovery(null);
     setWorkspaceState("saving");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${selectedCustomer.lift_customer_id}/jobs/preview`, {
@@ -6562,6 +6666,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         })
       });
       const payload = await readJsonResponse<{ job: ProcessingJobPreview; workspace: PathfinderCustomerWorkspace }>(response);
+      if (!isCurrent()) return;
       setLastPreviewJob(payload.job);
       setLastSubmitAttempt(null);
       setWorkspace(payload.workspace);
@@ -6573,14 +6678,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             : "Preview job created with blocking validation failures."
       );
       await loadTargetsAndJobs();
-      setWorkspaceState("idle");
+      if (isCurrent()) setWorkspaceState("idle");
     } catch (error) {
+      if (!isCurrent()) return;
       setWorkspaceMessage(error instanceof Error ? error.message : "Preview job failed.");
       setWorkspaceState("error");
     }
   }
 
   async function refreshSubmitCertification(job: ProcessingJobPreview, showMessage = false) {
+    const workspaceEpoch = workspaceRequestIdRef.current;
+    const previewEpoch = manualPreviewEpochRef.current;
+    const refreshEpoch = manualRefreshRequestRef.current;
+    const isCurrent = () => workspaceEpoch === workspaceRequestIdRef.current && previewEpoch === manualPreviewEpochRef.current && refreshEpoch === manualRefreshRequestRef.current;
     setCertificationRefreshState("loading");
     try {
       const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}/certification`, {
@@ -6588,24 +6698,55 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         headers: { "Content-Type": "application/json" }
       });
       const payload = await readJsonResponse<{ job: ProcessingJobPreview }>(response);
+      if (!isCurrent()) return;
       setLastPreviewJob((current) => (current?.job_id === payload.job.job_id ? payload.job : current));
       setSelectedJobDetail((current) => (current?.job_id === payload.job.job_id ? payload.job : current));
-      setWorkspace((current) => (current ? { ...current, jobs: upsertJob(current.jobs, payload.job) } : current));
+      setWorkspace((current) => (current?.customer.lift_customer_id === job.customer_id ? { ...current, jobs: upsertJob(current.jobs, payload.job) } : current));
       setGlobalJobs((current) => upsertJob(current, payload.job));
       if (showMessage) {
         const blockingCount = payload.job.submit_certification?.items.filter((item) => item.blocking).length ?? 0;
+        const disposition = submissionDisposition(payload.job, (workspace?.submit_attempts ?? []).filter(attempt => attempt.job_id === job.job_id), submissionGuard.current.isUnknown(payload.job));
         setWorkspaceMessage(
-          blockingCount
+          disposition === "pending" || disposition === "confirmed" ? "Certification refreshed. Submission remains locked; use Refresh job to check its current confirmation." : blockingCount
             ? `Submit certification refreshed. ${blockingCount} item${blockingCount === 1 ? "" : "s"} still blocking.`
             : "Submit certification refreshed. This preview is certified for submit."
         );
       }
       setCertificationRefreshState("idle");
     } catch (error) {
+      if (!isCurrent()) return;
       if (showMessage) {
         setWorkspaceMessage(error instanceof Error ? error.message : "Submit certification refresh failed.");
       }
       setCertificationRefreshState("error");
+    }
+  }
+
+  async function refreshManualSubmission(job: ProcessingJobPreview) {
+    const refreshEpoch = ++manualRefreshRequestRef.current;
+    const previewEpoch = manualPreviewEpochRef.current;
+    const workspaceEpoch = workspaceRequestIdRef.current;
+    const isCurrent = () => refreshEpoch === manualRefreshRequestRef.current && previewEpoch === manualPreviewEpochRef.current && workspaceEpoch === workspaceRequestIdRef.current && manualPreviewRef.current?.job_id === job.job_id;
+    setCertificationRefreshState("idle");
+    setManualRefreshState("loading");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/customers/${job.customer_id}/jobs/${job.job_id}`);
+      const payload = await readJsonResponse<{ job: ProcessingJobPreview; submit_attempts: SubmitAttempt[] }>(response);
+      if (!isCurrent()) return;
+      if (payload.job.customer_id !== job.customer_id || payload.job.job_id !== job.job_id) throw new Error("Job refresh returned a different order. Submission remains locked.");
+      submissionGuard.current.reconcile(payload.job, payload.submit_attempts);
+      updateSubmissionGuard(value => value + 1);
+      setLastPreviewJob(payload.job);
+      setLastSubmitAttempt(payload.submit_attempts[0] ?? null);
+      setWorkspace(current => current?.customer.lift_customer_id === job.customer_id ? { ...current, jobs: upsertJob(current.jobs, payload.job), submit_attempts: [...payload.submit_attempts, ...(current.submit_attempts ?? []).filter(attempt => attempt.job_id !== job.job_id)] } : current);
+      setGlobalJobs(current => upsertJob(current, payload.job));
+      const disposition = submissionDisposition(payload.job, payload.submit_attempts, submissionGuard.current.isUnknown(payload.job));
+      setManualRecovery({ jobId: job.job_id, error: false, message: disposition === "confirmed" ? `Order confirmed in Lift${payload.job.target_order_number ? `: ${payload.job.target_order_number}` : ""}. No further submission is needed.` : disposition === "pending" ? "Confirmation is still pending. Do not resubmit or create a replacement order. Refresh this job again to check reconciliation." : "Job refreshed. Review the current certification before submitting." });
+      setManualRefreshState("idle");
+    } catch (error) {
+      if (!isCurrent()) return;
+      setManualRefreshState("error");
+      setManualRecovery({ jobId: job.job_id, error: true, message: `${error instanceof Error ? error.message : "Job refresh failed."} The last known submission state is retained. Retry Refresh job; do not create a replacement order.` });
     }
   }
 
@@ -7255,7 +7396,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     customerJobView.sortDirection
   );
   const activeCustomerJobs = customerJobsUnfiltered.filter((job) => !job.archived_at);
-  const allJobsUnfiltered = globalJobs.length ? globalJobs : customerJobsUnfiltered;
+  const customerJobReadUnavailable = targetsAndJobsState !== "idle" && !jobsLastRefreshedAt;
+  const allJobsUnfiltered = operationsWorkspaceEnabled ? globalJobs : globalJobs.length ? globalJobs : customerJobsUnfiltered;
   // Global operations must never fall back to the selected customer's workspace.
   const operationsJobs: OperationsJob[] = globalJobs.map(job => ({
     id: job.job_id, label: displayJobId(job.job_id), customerId: job.customer_id, customer: job.customer_name,
@@ -7272,17 +7414,25 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   };
   const operationsRefresh = () => { void refreshVisibleJobs().then(() => setOperationsRefreshError(null)).catch(() => setOperationsRefreshError("Job refresh failed. Retry or check your connection.")); };
   const operationsCustomerProof = operationsWorkspaceEnabled && activeGlobalView === "Customers" && activeCustomerView === "Proof";
-  const operationsShell = operationsWorkspaceEnabled && (["Dashboard", "Jobs", "Proof", "Customer Directory"].includes(activeGlobalView) || operationsCustomerProof);
+  const operationsShell = operationsWorkspaceEnabled;
   const operationsSelectCustomer = (customerId: string) => requestGuardedNavigation(() => {
     if (!customers.some(customer => customer.lift_customer_id === customerId)) return;
+    closeJobDetail();
     if (customerId !== selectedCustomerId) {
       // Invalidate in-flight reads immediately, before the next workspace effect starts.
       workspaceRequestIdRef.current++;
       sourceConnectionsRequestIdRef.current++;
+      jobDetailRequestIdRef.current++;
+      setJobDetailState("idle");
+      setSelectedJobAttempts([]);
+      setCustomerToolsOpen(false);
+      setCustomerLegacyTools(false);
       selectedCustomerIdRef.current = customerId;
       setWorkspace(null);
       setWorkspaceState("loading");
       setSourceConnections([]);
+      setSourceConnectionsReadState("loading");
+      setSourceConnectionsReadMessage(null);
       setSelectedSourceConnectionId("");
       setSelectedJobDetail(null);
       setSelectedCustomerId(customerId);
@@ -7294,7 +7444,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     setActiveGlobalView("Customers");
     // Deliberately preserve activeCustomerView; restricted tabs remain permission-gated.
   });
-  const operationsOpenDirectory = () => requestGuardedNavigation(() => setActiveGlobalView("Customer Directory"));
+  const operationsOpenDirectory = () => requestGuardedNavigation(() => { closeJobDetail(); setActiveGlobalView("Customer Directory"); });
+  const shellNavigate = (label: string) => requestGuardedNavigation(() => {
+    closeJobDetail();
+    setOperationsProofOrder(null);
+    setOpenTopbarMenu(null);
+    setActiveGlobalView(operationsWorkspaceEnabled && label === "Customers" ? "Customer Directory" : label as GlobalView);
+  });
   const allJobs = sortAndFilterJobs(
     allJobsUnfiltered,
     globalJobView.archiveFilter,
@@ -7328,6 +7484,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   );
   const canRetrySelectedJob =
     selectedJobDetail?.state === "Ready" || selectedJobDetail?.state === "Submit Failed";
+  const activeJobSubmitFeedback = jobSubmitFeedback?.jobId === selectedJobDetail?.job_id ? jobSubmitFeedback : null;
+  const selectedJobCertificationBlocked = canRetrySelectedJob && selectedJobDetail?.submit_certification?.can_submit === false;
+  const selectedJobNeedsSubmitReview = canRetrySelectedJob && (selectedJobCertificationBlocked || Boolean(activeJobSubmitFeedback?.error) || Boolean(selectedJobDetail && submissionGuard.current.isUnknown(selectedJobDetail)));
   const canReevaluateSelectedJob = Boolean(
     selectedJobDetail?.source_evidence?.provider === "wrike" &&
       ["Needs Mapping", "Failed"].includes(selectedJobDetail.state) &&
@@ -7425,6 +7584,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     targetOutputTemplates.find((template) => template.output_template_id === activeOutputTemplateId) ??
     targetOutputTemplates[0] ??
     null;
+  const selectedTargetTestDiagnostics = selectedTarget && selectedTargetTestRoute
+    ? buildRouteDiagnostics({ target: selectedTarget, route: selectedTargetTestRoute, environment: selectedTargetTestEnvironment, template: selectedTargetTestTemplate })
+    : null;
   const destructiveConfirmationCopy = destructiveConfirmation
     ? destructiveConfirmation.kind === "import-method"
       ? localDraftImportMethodIds.includes(destructiveConfirmation.method.import_method_id)
@@ -8174,6 +8336,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     currentOrderProductBlockingCount > 0 ||
     hasBlockingFailure;
   const manualPreviewReady = Boolean(lastPreviewJob);
+  const manualAttempts = lastPreviewJob ? [
+    ...(lastSubmitAttempt?.job_id === lastPreviewJob.job_id ? [lastSubmitAttempt] : []),
+    ...(workspace?.submit_attempts ?? []).filter(attempt => attempt.job_id === lastPreviewJob.job_id)
+  ] : [];
+  const manualDisposition = lastPreviewJob ? submissionDisposition(lastPreviewJob, manualAttempts, submissionGuard.current.isUnknown(lastPreviewJob)) : "blocked";
+  const manualSubmissionLabel = manualDisposition === "confirmed" ? "Order confirmed" : manualDisposition === "pending" ? "Confirmation pending" : manualDisposition === "ready" ? "Ready for external submit" : "Submit still gated";
+  const manualConfirmationSummary = manualDisposition === "pending" || manualDisposition === "confirmed" ? "Certification is not confirmation of a new order. Use Refresh job for the current order and attempt status." : submitCertification.summary;
   const manualFixesNeeded = submitCertificationBlockingCount > 0 || currentOrderProductBlockingCount > 0;
   const activeRouteIsProd =
     activeRouteEnvironment?.role === "PROD" || activeRouteEnvironmentLabel.toUpperCase().includes("PROD");
@@ -8187,6 +8356,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     !prodSandboxConfirmationRequired || confirmedProdSandboxSubmitKey === prodSandboxConfirmationKey;
   const manualSubmitReady = Boolean(
     lastPreviewJob &&
+      manualDisposition === "ready" &&
       submitCertification.can_submit &&
       submitCertification.external_submit_enabled &&
       prodSandboxSubmitConfirmed
@@ -8209,7 +8379,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     {
       label: "Source",
       value: manualSourceReady ? `${sourceGrid.rows.length} rows loaded` : "No order source",
-      detail: manualSourceReady ? `${sourceName} · ${sheetName}` : "Upload the Momentara workbook or use the sample before preview.",
+      detail: manualSourceReady ? `${sourceName} · ${sheetName}` : "Upload the order workbook or use the sample before preview.",
       status: manualSourceReady ? "Passed" : "Blocked",
       actionLabel: manualSourceReady ? undefined : "Load source",
       action: manualSourceReady ? undefined : () => fileInputRef.current?.click()
@@ -8250,11 +8420,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     },
     {
       label: "Certification",
-      value: submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`,
-      detail: submitCertification.summary,
-      status: submitCertification.can_submit ? "Passed" : "Blocked",
-      actionLabel: lastPreviewJob ? "Recheck" : "Preview first",
-      action: lastPreviewJob ? () => void refreshSubmitCertification(lastPreviewJob, true) : () => void createPreviewJob()
+      value: manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`,
+      detail: manualConfirmationSummary,
+      status: manualDisposition === "pending" ? "Warning" : submitCertification.can_submit ? "Passed" : "Blocked",
+      actionLabel: lastPreviewJob ? "Refresh job" : "Preview first",
+      action: lastPreviewJob ? () => void refreshManualSubmission(lastPreviewJob) : () => void createPreviewJob()
     },
     {
       label: "Submit Gate",
@@ -8293,6 +8463,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         : "Warning"
     }
   ];
+  const credentialCertificationItem = submitCertification.items.find((item) => item.item_id === "credentials");
   const activeRoutePasswordSaved = Boolean(activeRouteEnvironment?.credentials.Password);
   const activeRouteUserSaved = Boolean(activeRouteEnvironment?.credentials.User);
   const extIdMatches = displayedSubmitRequest.headers.Ext_ID === displayedLiftPayload.order.ext_id;
@@ -8317,11 +8488,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     },
     {
       label: "Credentials",
-      value: activeRouteUserSaved && activeRoutePasswordSaved ? "Present" : "Missing",
-      detail: activeRouteUserSaved && activeRoutePasswordSaved
-        ? "Import user and saved secret are available for this environment."
-        : "Enter and save the Lift import user and password on the selected Target Environment.",
-      status: activeRouteUserSaved && activeRoutePasswordSaved ? "Passed" : "Blocked"
+      value: credentialCertificationItem?.status === "Passed"
+        ? "Configured"
+        : credentialCertificationItem?.status === "Blocked" ? "Needs setup" : "Not verified",
+      detail: credentialCertificationItem?.message ?? "Credential readiness has not been verified for this preview.",
+      status: credentialCertificationItem?.status ?? "Warning"
     },
     {
       label: "Submit Customer",
@@ -8381,8 +8552,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
     },
     {
       label: "Certification",
-      value: submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`,
-      detail: submitCertification.summary,
+      value: manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`,
+      detail: manualConfirmationSummary,
       status: submitCertification.can_submit ? "Passed" : "Blocked"
     }
   ];
@@ -9490,18 +9661,37 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       setWorkspaceMessage("Generate a persisted preview job before requesting Lift submit.");
       return;
     }
+    const detailRequestId = jobDetailRequestIdRef.current;
+    const submitWorkspaceRequestId = workspaceRequestIdRef.current;
+    const previewEpoch = manualPreviewEpochRef.current;
+    const manualContextCurrent = () => !jobOverride && previewEpoch === manualPreviewEpochRef.current && manualPreviewRef.current?.job_id === submitJob.job_id && submitWorkspaceRequestId === workspaceRequestIdRef.current;
+    const submitContextCurrent = () => detailRequestId === jobDetailRequestIdRef.current && submitWorkspaceRequestId === workspaceRequestIdRef.current && (Boolean(jobOverride) || manualContextCurrent());
+    const showSubmitFeedback = (message: string, error: boolean, responseUnknown = false) => {
+      if (submitContextCurrent()) setJobSubmitFeedback({ jobId: submitJob.job_id, message, error, responseUnknown });
+      if (manualContextCurrent()) setManualRecovery({ jobId: submitJob.job_id, message, error });
+    };
+    if (submissionGuard.current.isPending(submitJob)) return;
     if (prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed) {
+      showSubmitFeedback("Confirm the PROD sandbox submit lane in Lift Submit Preflight before requesting Lift submit.", true);
       setWorkspaceMessage("Confirm the PROD sandbox submit lane in Lift Submit Preflight before requesting Lift submit.");
       setWorkspaceState("error");
       return;
     }
     if (!submitJob.submit_integrity?.fingerprint) {
+      showSubmitFeedback("Refresh submit certification and review the exact payload before requesting Lift submit.", true);
       setWorkspaceMessage("Refresh submit certification and review the exact payload before requesting Lift submit.");
       setWorkspaceState("error");
       return;
     }
 
+    const knownAttempts = [...(workspace?.submit_attempts ?? []), ...selectedJobAttempts, ...(lastSubmitAttempt ? [lastSubmitAttempt] : [])].filter(attempt => attempt.job_id === submitJob.job_id);
+    if (!submissionGuard.current.begin(submitJob, knownAttempts)) {
+      showSubmitFeedback("This order is not eligible for another submission. Refresh the job and review its current state before taking further action.", true, submissionGuard.current.isUnknown(submitJob));
+      return;
+    }
+    setJobSubmitFeedback(null);
     setWorkspaceState("saving");
+    let responseUnknown = true;
     try {
       const response = await fetch(
         `${apiBaseUrl}/api/customers/${submitJob.customer_id}/jobs/${submitJob.job_id}/submit`,
@@ -9522,6 +9712,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         certification?: SubmitCertification;
         submit_request_masked?: ProcessingJobPreview["submit_request_masked"];
       };
+      if ((payload.job && (payload.job.job_id !== submitJob.job_id || payload.job.customer_id !== submitJob.customer_id)) ||
+        (payload.attempt && (payload.attempt.job_id !== submitJob.job_id || payload.attempt.customer_id !== submitJob.customer_id))) throw new Error("Submission response belongs to a different order.");
+      if (response.ok && !payload.job && !payload.attempt) throw new Error("Submission response has no order or attempt evidence.");
+      if (response.status >= 500 && !payload.job && !payload.attempt) throw new Error("Submission response is inconclusive.");
+      responseUnknown = false;
       if (!payload.job && payload.certification) {
         const refreshedSubmitJob = {
           ...submitJob,
@@ -9529,19 +9724,19 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           submit_request_masked: payload.submit_request_masked ?? submitJob.submit_request_masked,
           updated_at: new Date().toISOString()
         };
-        if (lastPreviewJob?.job_id === refreshedSubmitJob.job_id || submitJob.job_id === lastPreviewJob?.job_id) {
-          setLastPreviewJob(refreshedSubmitJob);
+        if (previewEpoch === manualPreviewEpochRef.current && (lastPreviewJob?.job_id === refreshedSubmitJob.job_id || submitJob.job_id === lastPreviewJob?.job_id)) {
+          setLastPreviewJob(current => current?.job_id === refreshedSubmitJob.job_id ? refreshedSubmitJob : current);
         }
-        if (selectedJobDetail?.job_id === refreshedSubmitJob.job_id || submitJob.job_id === selectedJobDetail?.job_id) {
+        if (detailRequestId === jobDetailRequestIdRef.current && selectedJobDetail?.job_id === refreshedSubmitJob.job_id) {
           setSelectedJobDetail(refreshedSubmitJob);
         }
-        setWorkspace((current) => (current ? { ...current, jobs: upsertJob(current.jobs, refreshedSubmitJob) } : current));
+        setWorkspace((current) => (current?.customer.lift_customer_id === submitJob.customer_id ? { ...current, jobs: upsertJob(current.jobs, refreshedSubmitJob) } : current));
         setGlobalJobs((current) => upsertJob(current, refreshedSubmitJob));
       }
       if (payload.attempt) {
         const submitAttempt = payload.attempt;
-        setLastSubmitAttempt(submitAttempt);
-        if ((selectedJobDetail?.job_id ?? submitJob.job_id) === submitAttempt.job_id) {
+        if (submitContextCurrent() && selectedCustomerIdRef.current === submitJob.customer_id) setLastSubmitAttempt(submitAttempt);
+        if (detailRequestId === jobDetailRequestIdRef.current && selectedJobDetail?.job_id === submitAttempt.job_id) {
           setSelectedJobAttempts((current) => [
             submitAttempt,
             ...current.filter((attempt) => attempt.attempt_id !== submitAttempt.attempt_id)
@@ -9551,10 +9746,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       if (payload.job) {
         const submittedJob = payload.job;
         const submitAttempt = payload.attempt;
-        if (lastPreviewJob?.job_id === submittedJob.job_id || submitJob.job_id === lastPreviewJob?.job_id) {
-          setLastPreviewJob(submittedJob);
+        if (previewEpoch === manualPreviewEpochRef.current && (lastPreviewJob?.job_id === submittedJob.job_id || submitJob.job_id === lastPreviewJob?.job_id)) {
+          setLastPreviewJob(current => current?.job_id === submittedJob.job_id ? submittedJob : current);
         }
-        if (selectedJobDetail?.job_id === submittedJob.job_id || submitJob.job_id === selectedJobDetail?.job_id) {
+        if (detailRequestId === jobDetailRequestIdRef.current && selectedJobDetail?.job_id === submittedJob.job_id) {
           setSelectedJobDetail(submittedJob);
           if (submitAttempt) {
             setSelectedJobAttempts((current) => [
@@ -9564,7 +9759,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           }
         }
         setWorkspace((current) =>
-          current
+          current?.customer.lift_customer_id === submitJob.customer_id
             ? {
                 ...current,
                 jobs: upsertJob(current.jobs, submittedJob),
@@ -9576,11 +9771,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         );
         setGlobalJobs((current) => upsertJob(current, submittedJob));
       }
-      setWorkspaceMessage(payload.error ?? payload.message ?? "Lift submit request accepted.");
-      setWorkspaceState(response.ok ? "idle" : "error");
+      if (submitContextCurrent()) setWorkspaceMessage(payload.error ?? payload.message ?? "Lift submit request accepted.");
+      showSubmitFeedback(payload.error ?? payload.message ?? "Lift submit request accepted.", !response.ok);
+      if (submitWorkspaceRequestId === workspaceRequestIdRef.current && (jobOverride || previewEpoch === manualPreviewEpochRef.current)) setWorkspaceState(response.ok || !submitContextCurrent() ? "idle" : "error");
     } catch (error) {
-      setWorkspaceMessage(error instanceof Error ? error.message : "Lift submit request failed.");
-      setWorkspaceState("error");
+      if (submitContextCurrent()) setWorkspaceMessage(jobOverride ? (error instanceof Error ? error.message : "Lift submit request failed.") : "");
+      showSubmitFeedback("Pathfinder could not confirm the submission response. The order may already exist in Lift. Refresh this job to check its latest attempt before taking further action; do not create a replacement order.", true, true);
+      if (submitWorkspaceRequestId === workspaceRequestIdRef.current && (jobOverride || previewEpoch === manualPreviewEpochRef.current)) setWorkspaceState(submitContextCurrent() ? "error" : "idle");
+    } finally {
+      submissionGuard.current.finish(submitJob, responseUnknown);
+      updateSubmissionGuard(value => value + 1);
     }
   }
 
@@ -10298,6 +10498,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
   }
 
   function openImportMethodDetail(method: ImportMethod) {
+    setWorkspaceMessage(null);
     setActiveMethodId(method.import_method_id);
     setMappings(method.mappings);
     applyImportMethodSourceContext(method);
@@ -10840,8 +11041,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
       (!canonicalRegistry && canonicalRegistryState === "loading"));
 
   if (initialLoadError || isInitialWorkspaceLoading) {
-    return (
+    const loading = (
       <WorkspaceLoading
+        embedded={operationsShell}
         error={initialLoadError}
         setupRequired={Boolean(workspaceSetupRequiredCustomerId)}
         onChooseCustomer={operationsWorkspaceEnabled && customers.length > 0 ? operationsOpenDirectory : undefined}
@@ -10866,11 +11068,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         }}
       />
     );
+    return operationsShell ? <PathfinderShell enabled active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={authSession}><section id="pathfinder-content" tabIndex={-1} className="workspace">{activeGlobalView === "Customers" && selectedCustomerId ? <CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory}/> : null}{loading}</section></PathfinderShell> : loading;
   }
 
   return (
-    <main className={operationsShell ? "app-shell ops-shell" : "app-shell"}>
-      <aside className="sidebar">
+    <PathfinderShell enabled={operationsShell} active={activeGlobalView} items={globalNavItems} onNavigate={shellNavigate} session={authSession}>
+      {!operationsShell ? <aside className="sidebar">
         <div className="brand-block">
           <img className="vornan-wordmark" src="/brand/vornan-wordmark.png" alt="Vornan" />
           <img
@@ -11006,16 +11209,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             <span>Customer context controls import setup.</span>
           </div>
         </div>
-      </aside>
+      </aside> : null}
 
-      <section className={artworkCatalogFocusedShell ? "workspace workspace-feature-focus" : "workspace"}>
+      <section id="pathfinder-content" tabIndex={-1} className={artworkCatalogFocusedShell ? "workspace workspace-feature-focus" : "workspace"} data-admin-view={operationsShell ? activeGlobalView : undefined} data-customer-view={operationsShell && activeGlobalView === "Customers" ? activeCustomerView : undefined}>
         {operationsWorkspaceEnabled && activeGlobalView === "Customer Directory" ? <OperationsCustomers customers={customers} workspaceIds={operationsWorkspaceIds} setupError={operationsSetupError} currentTab={activeCustomerView} updated={customerDirectory.loaded_at} refreshing={customerImportState === "loading"} warning={customerDirectory.warning} onSelect={operationsSelectCustomer} onRefresh={() => { void loadCustomers(); void loadOperationsWorkspaceIds(); }} /> : null}
         {activeGlobalView === "Customers" ? (
           <>
-            {operationsCustomerProof ? <><CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory}/><CustomerRecordTabs tabs={visibleCustomerNavItems.map(item => item.label)} selected={activeCustomerView} onSelect={tab => requestGuardedNavigation(() => { setOperationsProofOrder(null); setActiveCustomerView(tab as CustomerView); })} onGlobalProof={() => { setOperationsProofOrder(null); setActiveGlobalView("Proof"); }}/></> : null}
-            {operationsWorkspaceEnabled && !operationsCustomerProof ? <div className="ops-customer-navigation"><button className="ops-link" onClick={operationsOpenDirectory}>Customers / {selectedCustomer.customer_name}</button><CustomerSwitcher customers={customers} selectedId={selectedCustomer.lift_customer_id} onSelect={operationsSelectCustomer}/></div> : null}
+            {operationsShell ? <><CustomerRecordHeader customers={customers} customer={selectedCustomer} onSelect={operationsSelectCustomer} onDirectory={operationsOpenDirectory} tools={<button className="pf-customer-tools-toggle" aria-expanded={customerToolsOpen} aria-controls="customer-workspace-tools" onClick={() => setCustomerToolsOpen(!customerToolsOpen)}>Workspace tools</button>}/><CustomerRecordTabs tabs={visibleCustomerNavItems.filter(item => item.label !== "Intake Exceptions").map(item => item.label)} selected={activeCustomerView} onSelect={tab => requestGuardedNavigation(() => { closeJobDetail(); setOperationsProofOrder(null); setOpenTopbarMenu(null); setCustomerToolsOpen(false); setActiveCustomerView(tab as CustomerView); if (tab === "Import Methods") setIsImportMethodDetailOpen(false); })} onGlobalProof={() => { setOperationsProofOrder(null); shellNavigate("Proof"); }}/></> : null}
             {operationsWorkspaceEnabled && !visibleCustomerNavItems.some(item => item.label === activeCustomerView) ? <p className="ops-notice" role="status">{activeCustomerView} is not enabled for this customer. Your tab selection is preserved; choose another tab or switch customers.</p> : null}
-            {!artworkCatalogFocusedShell && !operationsCustomerProof ? <header className="topbar">
+            {operationsShell && workspaceMessage && ["Import Methods", "Output Product Map", "Manual Import"].includes(activeCustomerView) ? <p className={workspaceState === "error" ? "import-error pf-workflow-feedback" : "import-warning pf-workflow-feedback"} role={workspaceState === "error" ? "alert" : "status"}>{workspaceMessage}</p> : null}
+            {(operationsShell ? customerToolsOpen : !artworkCatalogFocusedShell && !operationsCustomerProof) ? <header id="customer-workspace-tools" className={operationsShell ? "topbar pf-customer-utilities" : "topbar"}>
               <div className="title-block">
                 <div className="headline-row">
                   <h1>{selectedCustomer.customer_name}</h1>
@@ -11144,15 +11347,35 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </header> : null}
 
-            {operationsCustomerProof ? operationsProofOrder && operationsProofOrder.customer === selectedCustomer.lift_customer_id ? <><button className="secondary-button" onClick={() => setOperationsProofOrder(null)}>Back to customer proof queue</button><ProofOpsPanel key={operationsProofOrder.order} apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} initialOrderNumber={operationsProofOrder.order} expectedCustomerId={selectedCustomer.lift_customer_id} /></> : <OperationsProof key={selectedCustomer.lift_customer_id} apiBaseUrl={apiBaseUrl} customerId={selectedCustomer.lift_customer_id} customerName={selectedCustomer.customer_name} onOpen={(order, customer) => setOperationsProofOrder({ order, customer })} /> : null}
-            {activeCustomerView === "Intake Exceptions" && intakeVisibilityAvailable ? (
-              <IntakeExceptions key={selectedCustomer.lift_customer_id} customerId={selectedCustomer.lift_customer_id} apiBaseUrl={apiBaseUrl} />
-            ) : null}
+            {operationsCustomerProof ? <><OperationsProof key={selectedCustomer.lift_customer_id} hidden={Boolean(operationsProofOrder && operationsProofOrder.customer === selectedCustomer.lift_customer_id)} apiBaseUrl={apiBaseUrl} customerId={selectedCustomer.lift_customer_id} customerName={selectedCustomer.customer_name} onOpen={(order, customer) => setOperationsProofOrder({ order, customer })} />{operationsProofOrder && operationsProofOrder.customer === selectedCustomer.lift_customer_id ? <div className="pf-proof-order-tools"><button autoFocus className="secondary-button" onClick={() => setOperationsProofOrder(null)}>Back to customer proof queue</button><ProofOpsPanel key={`${operationsProofOrder.customer}:${operationsProofOrder.order}`} apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} initialOrderNumber={operationsProofOrder.order} expectedCustomerId={selectedCustomer.lift_customer_id} /></div> : null}</> : null}
+            {activeCustomerView === "Intake Exceptions" && intakeVisibilityAvailable ? <><button className="ops-link" onClick={() => requestGuardedNavigation(() => setActiveCustomerView("Jobs"))}>Back to customer Jobs</button><IntakeExceptions key={selectedCustomer.lift_customer_id} customerId={selectedCustomer.lift_customer_id} apiBaseUrl={apiBaseUrl} /></> : null}
             {activeCustomerView === "Overview" ? (
               <>
+                {targetsAndJobsState !== "idle" || operationsRefreshError ? <p className="pf-customer-data-notice" role="status">{targetsAndJobsState === "loading" ? "Refreshing job activity…" : "Job activity could not be refreshed."} {jobsLastRefreshedAt ? `Showing the last loaded records from ${displayTimestamp(jobsLastRefreshedAt)}.` : "Counts are unavailable until job activity loads."}</p> : null}
+                <section className="metric-strip" aria-label="Customer KPIs">
+                  {[
+                    { value: String(activeCustomerJobs.length), label: "Tracked Orders", trend: "Unique current source orders", intent: "good", icon: FileText },
+                    { value: String(confirmedCustomerJobCount), label: "Confirmed in Lift", trend: `${customerOperationsSummary.confirmedSevenDays} in the last 7 days`, intent: "good", icon: Check },
+                    { value: String(readyCustomerJobCount), label: "Ready to Submit", trend: readyCustomerJobCount ? "Waiting for scheduled or operator submit" : "No orders waiting", intent: "good", icon: Send },
+                    { value: String(customerOperationsSummary.needsTriage), label: "Needs Attention", trend: customerAttentionDetail, intent: customerOperationsSummary.needsTriage ? "bad" : "good", icon: AlertTriangle }
+                  ].map(({ value, label, trend, intent, icon: Icon }) => (
+                    <div className="metric-card" key={label}>
+                      <div className="metric-icon">
+                        <Icon size={20} />
+                      </div>
+                      <div>
+                        <strong>{customerJobReadUnavailable ? "—" : value}</strong>
+                        <span>{label}</span>
+                        <small className={intent === "bad" ? "trend-bad" : "trend-good"}>{customerJobReadUnavailable ? "Job activity unavailable" : trend}</small>
+                      </div>
+                    </div>
+                  ))}
+                </section>
+
                 <section className="customer-overview">
                   <div className="panel customer-panel">
                     <PanelHeader icon={Users} title="Customer Details" detail={customerDirectory.source === "lift-endpoint" ? "Lift directory" : "Saved Pathfinder record"} />
+                    <details className="pf-customer-record-details"><summary>Customer record details</summary>
                     <dl className="customer-detail-grid">
                       <DetailItem label="Customer Name" value={selectedCustomer.customer_name} />
                       <DetailItem label="Status" value={selectedCustomer.customer_status} />
@@ -11162,6 +11385,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <DetailItem label="Default Invoice Email" value={selectedCustomer.default_invoice_email_address} />
                       <DetailItem label="CRM ID" value={selectedCustomer.crm_id} />
                     </dl>
+                    </details>
                     <details className="account-status-details">
                       <summary>
                         <span>Account Status</span>
@@ -11209,30 +11433,105 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                 </section>
 
-                <section className="metric-strip" aria-label="Customer KPIs">
-                  {[
-                    { value: String(activeCustomerJobs.length), label: "Tracked Orders", trend: "Unique current source orders", intent: "good", icon: FileText },
-                    { value: String(confirmedCustomerJobCount), label: "Confirmed in Lift", trend: `${customerOperationsSummary.confirmedSevenDays} in the last 7 days`, intent: "good", icon: Check },
-                    { value: String(readyCustomerJobCount), label: "Ready to Submit", trend: readyCustomerJobCount ? "Waiting for scheduled or operator submit" : "No orders waiting", intent: "good", icon: Send },
-                    { value: String(customerOperationsSummary.needsTriage), label: "Needs Attention", trend: customerAttentionDetail, intent: customerOperationsSummary.needsTriage ? "bad" : "good", icon: AlertTriangle }
-                  ].map(({ value, label, trend, intent, icon: Icon }) => (
-                    <div className="metric-card" key={label}>
-                      <div className="metric-icon">
-                        <Icon size={20} />
-                      </div>
-                      <div>
-                        <strong>{value}</strong>
-                        <span>{label}</span>
-                        <small className={intent === "bad" ? "trend-bad" : "trend-good"}>{trend}</small>
-                      </div>
-                    </div>
-                  ))}
-                </section>
-
                 <section className="overview-grid overview-grid-two">
+                  <div className="panel jobs-panel">
+                    <div className="table-panel-header">
+                      <PanelHeader icon={Archive} title="Recent operational jobs" detail="Issues first, then newest Lift orders" />
+                      <button
+                        className="table-header-link"
+                        onClick={() => {
+                          setActiveGlobalView("Customers");
+                          setActiveCustomerView("Jobs");
+                        }}
+                      >
+                        View all jobs
+                        <ArrowGlyph />
+                      </button>
+                    </div>
+                    {customerOperationsSummary.intakeReview > 0 ? (
+                      <button
+                        className="overview-intake-alert"
+                        onClick={() => {
+                          setCustomerJobView((current) => ({ ...current, stateFilter: "Intake Review" }));
+                          setActiveGlobalView("Customers");
+                          setActiveCustomerView("Jobs");
+                        }}
+                      >
+                        <AlertTriangle size={15} />
+                        {customerOperationsSummary.intakeReview} Wrike intake issue{customerOperationsSummary.intakeReview === 1 ? "" : "s"} need review
+                        <span>Open Pending Intake</span>
+                      </button>
+                    ) : null}
+                    <table className="customer-recent-jobs-table">
+                      <thead>
+                        <tr>
+                          <th>Job</th>
+                          <th>Method</th>
+                          <th>Pathfinder State</th>
+                          <th>Lift Order</th>
+                          <th>Lift Status</th>
+                          <th>Pathfinder Intake</th>
+                          <th>Lift Created</th>
+                          <th>Last Activity</th>
+                          <th>Route</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                    {overviewJobs.map((job) => (
+                      <tr key={job.job_id}>
+                        <td>
+                          <span className="job-identity-cell">
+                            <button className="link-button" onClick={() => void openJobDetail(job)}>
+                              {displayJobId(job.job_id)}
+                            </button>
+                            <small>{jobContractNumber(job)}</small>
+                            <small title={jobCampaignName(job)}>{jobCampaignName(job)}</small>
+                          </span>
+                        </td>
+                        <td>{job.import_method_name}</td>
+                        <td><StatePill state={job.state} /></td>
+                        <td>
+                          <span className="job-identity-cell">
+                            <strong>{job.target_order_number ?? "Not confirmed"}</strong>
+                            <small>{job.target_order_number ? jobOrderTitle(job) || "Order name not available" : job.state === "Submitted" ? "Awaiting confirmation" : "No confirmed order linked"}</small>
+                          </span>
+                        </td>
+                        <td>
+                          {job.target_order_status ? (
+                            <span className="mini-pill mini-pill-neutral job-order-status">{job.target_order_status.label}</span>
+                          ) : (
+                            <span className="cell-meta">{job.target_order_number ? "Not checked" : "Not confirmed"}</span>
+                          )}
+                        </td>
+                        <td>{displayTimestamp(job.created_at)}</td>
+                        <td>
+                          {displayLiftCreated(job.target_order_created_at, job.target_order_created_precision) ??
+                            (job.target_order_number ? "Date unavailable" : "Not confirmed")}
+                        </td>
+                        <td>{displayTimestamp(lastMeaningfulActivity(job))}</td>
+                        <td>{job.output_route_name ?? activeOutputRoute.name}</td>
+                      </tr>
+                    ))}
+                      </tbody>
+                    </table>
+                    {overviewJobs.length === 0 ? <p className="empty-state">{customerJobReadUnavailable ? "Job activity is unavailable." : "No persisted preview jobs yet."}</p> : null}
+                    <div className="jobs-summary-footer">
+                      <span>{customerJobReadUnavailable ? "Waiting for job activity." : `Issues first, then newest Lift orders · showing ${overviewJobs.length} of ${activeCustomerJobs.length} tracked orders. Counts use loaded, non-archived jobs.`}</span>
+                      <button
+                        className="table-header-link"
+                        onClick={() => {
+                          setActiveGlobalView("Customers");
+                          setActiveCustomerView("Jobs");
+                        }}
+                      >
+                        View all jobs
+                        <ArrowGlyph />
+                      </button>
+                    </div>
+                  </div>
                   <div className="panel method-panel">
                     <div className="table-panel-header">
-                      <PanelHeader icon={Workflow} title="Active Import Methods" detail="" />
+                      <PanelHeader icon={Workflow} title="Import Methods" detail="" />
                       <button className="primary-button table-header-action" onClick={createDraftImportMethod}>
                         <Plus size={15} />
                         New Import Method
@@ -11289,101 +11588,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </button>
                   </div>
 
-                  <div className="panel jobs-panel">
-                    <div className="table-panel-header">
-                      <PanelHeader icon={Archive} title="Recent Jobs" detail="" />
-                      <button
-                        className="table-header-link"
-                        onClick={() => {
-                          setActiveGlobalView("Customers");
-                          setActiveCustomerView("Jobs");
-                        }}
-                      >
-                        View all jobs
-                        <ArrowGlyph />
-                      </button>
-                    </div>
-                    {customerOperationsSummary.intakeReview > 0 ? (
-                      <button
-                        className="overview-intake-alert"
-                        onClick={() => {
-                          setCustomerJobView((current) => ({ ...current, stateFilter: "Intake Review" }));
-                          setActiveGlobalView("Customers");
-                          setActiveCustomerView("Jobs");
-                        }}
-                      >
-                        <AlertTriangle size={15} />
-                        {customerOperationsSummary.intakeReview} Wrike intake issue{customerOperationsSummary.intakeReview === 1 ? "" : "s"} need review
-                        <span>Open Pending Intake</span>
-                      </button>
-                    ) : null}
-                    <table className="customer-recent-jobs-table">
-                      <thead>
-                        <tr>
-                          <th>Job</th>
-                          <th>Method</th>
-                          <th>Pathfinder State</th>
-                          <th>Lift Order</th>
-                          <th>Lift Status</th>
-                          <th>Pathfinder Intake</th>
-                          <th>Lift Created</th>
-                          <th>Last Activity</th>
-                          <th>Route</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                    {overviewJobs.map((job) => (
-                      <tr key={job.job_id}>
-                        <td>
-                          <span className="job-identity-cell">
-                            <button className="link-button" onClick={() => void openJobDetail(job)}>
-                              {displayJobId(job.job_id)}
-                            </button>
-                            <small>{jobContractNumber(job)}</small>
-                            <small title={jobCampaignName(job)}>{jobCampaignName(job)}</small>
-                          </span>
-                        </td>
-                        <td>{job.import_method_name}</td>
-                        <td><StatePill state={job.state} /></td>
-                        <td>
-                          <span className="job-identity-cell">
-                            <strong>{job.target_order_number ?? "Not in Lift"}</strong>
-                            <small>{job.target_order_number ? jobOrderTitle(job) || "Order name not available" : "Awaiting submission"}</small>
-                          </span>
-                        </td>
-                        <td>
-                          {job.target_order_status ? (
-                            <span className="mini-pill mini-pill-neutral job-order-status">{job.target_order_status.label}</span>
-                          ) : (
-                            <span className="cell-meta">{job.target_order_number ? "Not checked" : "Not in Lift"}</span>
-                          )}
-                        </td>
-                        <td>{displayTimestamp(job.created_at)}</td>
-                        <td>
-                          {displayLiftCreated(job.target_order_created_at, job.target_order_created_precision) ??
-                            (job.target_order_number ? "Date unavailable" : "Not in Lift")}
-                        </td>
-                        <td>{displayTimestamp(lastMeaningfulActivity(job))}</td>
-                        <td>{job.output_route_name ?? activeOutputRoute.name}</td>
-                      </tr>
-                    ))}
-                      </tbody>
-                    </table>
-                    {overviewJobs.length === 0 ? <p className="empty-state">No persisted preview jobs yet.</p> : null}
-                    <div className="jobs-summary-footer">
-                      <span>Issues first, then newest Lift orders · showing {overviewJobs.length} of {activeCustomerJobs.length} tracked orders.</span>
-                      <button
-                        className="table-header-link"
-                        onClick={() => {
-                          setActiveGlobalView("Customers");
-                          setActiveCustomerView("Jobs");
-                        }}
-                      >
-                        View all jobs
-                        <ArrowGlyph />
-                      </button>
-                    </div>
-                  </div>
                 </section>
               </>
             ) : null}
@@ -11392,6 +11596,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <ArtworkCatalogInternalPilot
                 customerId={selectedCustomerId}
                 customerLabel={`${selectedCustomer.customer_name} · ${selectedCustomer.lift_customer_id}`}
+                compact={operationsWorkspaceEnabled}
               />
             ) : null}
 
@@ -11498,7 +11703,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         ) : null}
                         <button
                           className="secondary-button table-header-action"
-                          onClick={() => requestGuardedNavigation(() => setIsImportMethodDetailOpen(false))}
+                          onClick={() => requestGuardedNavigation(() => { setIsImportMethodDetailOpen(false); setWorkspaceMessage(null); })}
                         >
                           <ArrowLeft size={15} />
                           All Import Methods
@@ -13341,20 +13546,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </label>
                     </div>
                     <div className="source-setup-callout">
-                      <strong>
-                        {detectedSourceSchema
-                          ? "Detected source columns are active for this method."
-                          : isUsingSampleSource
-                            ? "Sample columns are currently shown."
-                            : "Loaded workbook columns are active."}
-                      </strong>
-                      <span>
-                        {detectedSourceSchema
-                          ? "Matching field mappings were preserved and recognized new columns were mapped automatically. Re-upload after changing parser settings, then save the method."
-                          : isUsingSampleSource
-                            ? "Detect the customer's workbook template here before finalizing product resolution and field mapping."
-                            : "Column selectors below are based on the loaded workbook. Save this method when the parser behavior and mappings look right."}
-                      </span>
+                      <strong>{sourceColumnOrigin}</strong>
+                      <span>{sourceColumnOriginDetail}</span>
+                      {detectedSourceSchema || hasSourceContext ? <span>Re-detect after changing parser settings, then save this method when the mappings look right.</span> : null}
                     </div>
                     <div className="panel-action-footer">
                       <span>Detected schema, parser settings, and field mappings save together with this import method.</span>
@@ -14223,59 +14417,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
 
             {activeCustomerView === "Output Product Map" ? (
               <>
-                <section className="metric-strip unit-map-metrics" aria-label="Output product map metrics">
-                  {[
-                    {
-                      value: selectedOutputMapRoute.status,
-                      label: "Output Route",
-                      trend: selectedOutputMapRoute.name,
-                      intent: selectedOutputMapRoute.status === "Active" ? "good" : "bad",
-                      icon: Workflow
-                    },
-                    {
-                      value: selectedOutputMapTarget?.name ?? "Target",
-                      label: selectedOutputMapTarget?.target_type ?? "Target",
-                      trend: `${selectedOutputMapTarget?.health_status ?? "Untested"} · ${selectedOutputMapTarget?.adapter ?? selectedOutputMapRoute.target_system}`,
-                      intent: selectedOutputMapTarget?.status === "Draft" ? "bad" : "good",
-                      icon: Database
-                    },
-                    {
-                      value: selectedOutputMapEnvironment?.name ?? "None",
-                      label: selectedOutputMapEnvironment?.role ?? "Environment",
-                      trend: selectedOutputMapEnvironment?.endpoint_url ? "Endpoint configured" : "Endpoint missing",
-                      intent: selectedOutputMapEnvironment?.endpoint_url ? "good" : "bad",
-                      icon: Gauge
-                    },
-                    {
-                      value: selectedOutputMapTemplate?.output_format ?? "Template",
-                      label: selectedOutputMapTemplate?.destination_method ?? "Output Template",
-                      trend: selectedOutputMapTemplate?.name ?? selectedOutputMapRoute.output_template,
-                      intent: selectedOutputMapTemplate?.status === "Active" ? "good" : "bad",
-                      icon: Braces
-                    },
-                    {
-                      value: `${routeMappedCount}/${routeProductMappings.length}`,
-                      label: "Mapped Keys",
-                      trend: routeBlockingCount
-                        ? `${routeBlockingCount} need ${selectedOutputMapRoute.product_identifier_label}`
-                        : `${routePreloadedCount} preloaded · ${routeSeenExampleCount} seen`,
-                      intent: routeBlockingCount ? "bad" : "good",
-                      icon: routeBlockingCount ? AlertTriangle : CheckCircle2
-                    }
-                  ].map(({ value, label, trend, intent, icon: Icon }) => (
-                    <div className="metric-card" key={label}>
-                      <div className="metric-icon">
-                        <Icon size={20} />
-                      </div>
-                      <div>
-                        <strong>{value}</strong>
-                        <span>{label}</span>
-                        <small className={intent === "bad" ? "trend-bad" : "trend-good"}>{trend}</small>
-                      </div>
-                    </div>
-                  ))}
-                </section>
-
                 <section className="panel unit-map-panel">
                   <div className="panel-header unit-map-panel-header">
                     <div className="panel-title">
@@ -14283,7 +14424,62 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <h2>Output Product Map</h2>
                     </div>
                     <div className="unit-map-header-actions">
-                      <span>Customer keys resolved per output route</span>
+                      <details className="pf-route-diagnostics">
+                        <summary><strong>{routeMappedCount} of {routeProductMappings.length} keys mapped</strong><span>{routeBlockingCount} unresolved · Route and target diagnostics</span></summary>
+                      <section className="metric-strip unit-map-metrics" aria-label="Output product map metrics">
+                        {[
+                          {
+                            value: selectedOutputMapRoute.status,
+                            label: "Output Route",
+                            trend: selectedOutputMapRoute.name,
+                            intent: selectedOutputMapRoute.status === "Active" ? "good" : "bad",
+                            icon: Workflow
+                          },
+                          {
+                            value: selectedOutputMapTarget?.name ?? "Target",
+                            label: selectedOutputMapTarget?.target_type ?? "Target",
+                            trend: `${selectedOutputMapTarget?.health_status ?? "Untested"} · ${selectedOutputMapTarget?.adapter ?? selectedOutputMapRoute.target_system}`,
+                            intent: selectedOutputMapTarget?.status === "Draft" ? "bad" : "good",
+                            icon: Database
+                          },
+                          {
+                            value: selectedOutputMapEnvironment?.name ?? "None",
+                            label: selectedOutputMapEnvironment?.role ?? "Environment",
+                            trend: selectedOutputMapEnvironment?.endpoint_url ? "Endpoint configured" : "Endpoint missing",
+                            intent: selectedOutputMapEnvironment?.endpoint_url ? "good" : "bad",
+                            icon: Gauge
+                          },
+                          {
+                            value: selectedOutputMapTemplate?.output_format ?? "Template",
+                            label: selectedOutputMapTemplate?.destination_method ?? "Output Template",
+                            trend: selectedOutputMapTemplate?.name ?? selectedOutputMapRoute.output_template,
+                            intent: selectedOutputMapTemplate?.status === "Active" ? "good" : "bad",
+                            icon: Braces
+                          },
+                          {
+                            value: `${routeMappedCount}/${routeProductMappings.length}`,
+                            label: "Mapped Keys",
+                            trend: routeBlockingCount
+                              ? `${routeBlockingCount} need ${selectedOutputMapRoute.product_identifier_label}`
+                              : `${routePreloadedCount} preloaded · ${routeSeenExampleCount} seen`,
+                            intent: routeBlockingCount ? "bad" : "good",
+                            icon: routeBlockingCount ? AlertTriangle : CheckCircle2
+                          }
+                        ].map(({ value, label, trend, intent, icon: Icon }) => (
+                          <div className="metric-card" key={label}>
+                            <div className="metric-icon">
+                              <Icon size={20} />
+                            </div>
+                            <div>
+                              <strong>{value}</strong>
+                              <span>{label}</span>
+                              <small className={intent === "bad" ? "trend-bad" : "trend-good"}>{trend}</small>
+                            </div>
+                          </div>
+                        ))}
+                      </section>
+
+                      </details>
                       <button
                         className="secondary-button"
                         onClick={() => {
@@ -14305,6 +14501,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       <Search size={16} />
                       <input
                         value={unitMapSearch}
+                        aria-label="Search output product mappings"
                         placeholder="Search key, source value, route identifier, or product"
                         onChange={(event) => setUnitMapSearch(event.target.value)}
                       />
@@ -14421,6 +14618,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </div>
                   ) : null}
 
+                  <details className="pf-catalog-shortcuts">
+                    <summary>Pinned catalog shortcuts · {routeCatalogPresets.length} saved</summary>
                   <div className="catalog-preset-strip">
                     <div>
                       <span>Pinned Lift Catalogs</span>
@@ -14460,6 +14659,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       Manage Catalogs
                     </button>
                   </div>
+                  </details>
 
                   {openProductMapTool === "preload" ? (
                     <div
@@ -15348,7 +15548,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </aside>
                   ) : null}
 
-                  <div className="unit-map-bulkbar">
+                  {selectedUnitMappings.length > 0 ? <div className="unit-map-bulkbar">
                     <div className="unit-map-bulk-intro">
                       <strong>Bulk actions · {selectedUnitMappings.length} selected</strong>
                       <span>
@@ -15418,9 +15618,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         )}
                       </div>
                     </div>
-                  </div>
+                  </div> : null}
 
-                  <div className="unit-map-table-wrap">
+                  <div className="unit-map-table-wrap" tabIndex={0} role="region" aria-label="Output product mappings">
                     <table className="unit-map-table">
                       <thead>
                         <tr>
@@ -15489,6 +15689,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 <input
                                   className="table-input"
                                   value={draft.unit}
+                                  aria-label={`Product identifier for ${mapping.customer_product_key}`}
                                   placeholder={outputIdentifierPlaceholder(selectedOutputMapRoute)}
                                   onChange={(event) =>
                                     setProductMappingDrafts((current) => ({
@@ -15505,6 +15706,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                                 <input
                                   className="table-input"
                                   value={draft.product}
+                                  aria-label={`Product name for ${mapping.customer_product_key}`}
+                                  title={draft.product}
                                   placeholder="Lift product name"
                                   onChange={(event) =>
                                     setProductMappingDrafts((current) => ({
@@ -15538,6 +15741,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         })}
                       </tbody>
                     </table>
+                    {selectedUnitMappings.length === 0 ? <p className="pf-map-selection-hint">Select rows for bulk actions. Use Map Product for an individual assignment.</p> : null}
                     {filteredProductMappings.length === 0 ? (
                       <p className="empty-state">
                         {isMigrationQueueActive
@@ -15575,7 +15779,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     {
                       number: "4",
                       title: "Submit to Lift",
-                      detail: manualSubmitReady ? "Certified for external submit" : "Locked until preview is certified",
+                      detail: manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : manualSubmitReady ? "Certified for external submit" : "Locked until preview is certified",
                       state: manualSubmitReady ? "active" : "idle"
                     }
                   ].map((step) => (
@@ -15589,89 +15793,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   ))}
                 </section>
 
-                <section className="submit-readiness-grid" aria-label="Submit readiness audit">
-                  {submitReadinessCards.map((card) => (
-                    <article className={`submit-readiness-card submit-readiness-${card.status.toLowerCase()}`} key={card.label}>
-                      <div>
-                        <span>{card.label}</span>
-                        <strong>{card.value}</strong>
-                      </div>
-                      <p>{card.detail}</p>
-                      {card.action ? (
-                        <button className="certification-action" onClick={card.action} type="button">
-                          {card.actionLabel}
-                        </button>
-                      ) : null}
-                    </article>
-                  ))}
-                </section>
-
-                <section className="panel submit-preflight-panel">
-                  <PanelHeader
-                    icon={ShieldCheck}
-                    title="Lift Submit Preflight"
-                    detail={
-                      submitPreflightBlockedCount
-                        ? `${submitPreflightBlockedCount} blocker${submitPreflightBlockedCount === 1 ? "" : "s"}`
-                        : submitPreflightWarningCount
-                          ? `${submitPreflightWarningCount} review item${submitPreflightWarningCount === 1 ? "" : "s"}`
-                          : "Ready"
-                    }
-                  />
-                  <div className="submit-preflight-body">
-                    <div className="submit-preflight-intro">
-                      <strong>
-                        {submitPreflightBlockedCount
-                          ? "Submit test is not clear yet."
-                          : submitPreflightWarningCount
-                            ? "Submit test is technically clear, with review items."
-                            : "Submit test is clear from Pathfinder."}
-                      </strong>
-                      <span>
-                        {activeRouteIsProd && selectedSubmitProfile.mode === "sandbox_customer"
-                          ? prodSandboxSubmitConfirmed
-                            ? "PROD endpoint with sandbox customer is confirmed for this preview."
-                            : "PROD endpoint with sandbox customer is allowed here, but should be confirmed before clicking Submit."
-                          : "Use this check before the real Lift submit so the setup and payload are visible in one place."}
-                      </span>
-                      {prodSandboxConfirmationRequired ? (
-                        <label className="prod-sandbox-confirmation">
-                          <input
-                            type="checkbox"
-                            checked={prodSandboxSubmitConfirmed}
-                            onChange={(event) =>
-                              setConfirmedProdSandboxSubmitKey(event.target.checked ? prodSandboxConfirmationKey : null)
-                            }
-                          />
-                          <span>
-                            <strong>Confirm PROD sandbox lane</strong>
-                            <small>Use PROD endpoint, but submit this test under LTL Demo / 1249.</small>
-                          </span>
-                        </label>
-                      ) : null}
-                    </div>
-                    <div className="submit-preflight-items">
-                      {submitPreflightItems.map((item) => (
-                        <article className={`submit-preflight-item submit-preflight-${item.status.toLowerCase()}`} key={item.label}>
-                          <span>{item.label}</span>
-                          <strong>{item.value}</strong>
-                          <em>{item.detail}</em>
-                        </article>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="panel-footer-row">
-                    <span>
-                      Export includes masked headers, canonical order, Lift payload, validation, product resolution, route, environment, and last attempt.
-                    </span>
-                    <button className="secondary-button" onClick={downloadSubmitPacket} type="button">
-                      <FileText size={16} />
-                      Download Submit Packet
-                    </button>
-                  </div>
-                </section>
-
-                <section className="manual-import-grid">
+                <div className="pf-manual-context" role="status"><strong>{activeOutputRoute.name} · {activeRouteEnvironmentLabel}</strong><span>{manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : submitCertification.summary}</span><span>{submitPreflightBlockedCount} preflight blockers · {submitCertificationBlockingCount} certification blockers</span></div>
+                <section className="pf-manual-task-grid" aria-label="Load and validate order source">
                   <div className="panel upload-panel">
                     <PanelHeader icon={FileSpreadsheet} title="1. Upload Order Source" detail={sheetName} />
                     <div className="manual-import-basis">
@@ -15870,6 +15993,94 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       ))}
                     </div>
                   </div>
+                </section>
+                <details className="pf-readiness-details"><summary>Submission readiness details · {submitCertificationBlockingCount} certification blockers</summary>
+                <section className="submit-readiness-grid" aria-label="Submit readiness audit">
+                  {submitReadinessCards.map((card) => (
+                    <article className={`submit-readiness-card submit-readiness-${card.status.toLowerCase()}`} key={card.label}>
+                      <div>
+                        <span>{card.label}</span>
+                        <strong>{card.value}</strong>
+                      </div>
+                      <p>{card.detail}</p>
+                      {card.action ? (
+                        <button className="certification-action" onClick={card.action} type="button">
+                          {card.actionLabel}
+                        </button>
+                      ) : null}
+                    </article>
+                  ))}
+                </section>
+
+                </details>
+
+                <section className="panel submit-preflight-panel">
+                  <PanelHeader
+                    icon={ShieldCheck}
+                    title="Lift Submit Preflight"
+                    detail={
+                      submitPreflightBlockedCount
+                        ? `${submitPreflightBlockedCount} blocker${submitPreflightBlockedCount === 1 ? "" : "s"}`
+                        : submitPreflightWarningCount
+                          ? `${submitPreflightWarningCount} review item${submitPreflightWarningCount === 1 ? "" : "s"}`
+                          : "Ready"
+                    }
+                  />
+                  <div className="submit-preflight-body">
+                    <div className="submit-preflight-intro">
+                      <strong>
+                        {submitPreflightBlockedCount
+                          ? "Submit test is not clear yet."
+                          : submitPreflightWarningCount
+                            ? "Submit test is technically clear, with review items."
+                            : "Submit test is clear from Pathfinder."}
+                      </strong>
+                      <span>
+                        {activeRouteIsProd && selectedSubmitProfile.mode === "sandbox_customer"
+                          ? prodSandboxSubmitConfirmed
+                            ? "PROD endpoint with sandbox customer is confirmed for this preview."
+                            : "PROD endpoint with sandbox customer is allowed here, but should be confirmed before clicking Submit."
+                          : "Use this check before the real Lift submit so the setup and payload are visible in one place."}
+                      </span>
+                      {prodSandboxConfirmationRequired ? (
+                        <label className="prod-sandbox-confirmation">
+                          <input
+                            type="checkbox"
+                            checked={prodSandboxSubmitConfirmed}
+                            onChange={(event) =>
+                              setConfirmedProdSandboxSubmitKey(event.target.checked ? prodSandboxConfirmationKey : null)
+                            }
+                          />
+                          <span>
+                            <strong>Confirm PROD sandbox lane</strong>
+                            <small>Use PROD endpoint, but submit this test under LTL Demo / 1249.</small>
+                          </span>
+                        </label>
+                      ) : null}
+                    </div>
+                    <div className="submit-preflight-items">
+                      {submitPreflightItems.map((item) => (
+                        <article className={`submit-preflight-item submit-preflight-${item.status.toLowerCase()}`} key={item.label}>
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                          <em>{item.detail}</em>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="panel-footer-row">
+                    <span>
+                      Export includes masked headers, canonical order, Lift payload, validation, product resolution, route, environment, and last attempt.
+                    </span>
+                    <button className="secondary-button" onClick={downloadSubmitPacket} type="button">
+                      <FileText size={16} />
+                      Download Submit Packet
+                    </button>
+                  </div>
+                </section>
+
+                <section className="manual-import-grid pf-manual-review-grid">
+
 
                   <div className="panel request-panel">
                     <PanelHeader
@@ -15910,7 +16121,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </button>
                       <span>
                         {lastPreviewJob
-                          ? `${displayJobId(lastPreviewJob.job_id)} saved as ${lastPreviewJob.state}`
+                          ? `${displayJobId(lastPreviewJob.job_id)} · ${manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : lastPreviewJob.state}`
                           : `Generate a preview job before ${activeRouteEnvironmentLabel} submission.`}
                       </span>
                     </div>
@@ -15920,16 +16131,16 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     <PanelHeader
                       icon={ShieldCheck}
                       title="3. Submit Certification"
-                      detail={submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`}
+                      detail={manualDisposition === "pending" || manualDisposition === "confirmed" ? manualSubmissionLabel : submitCertification.can_submit ? "Certified" : `${submitCertificationBlockingCount} blocking`}
                     />
                     <div className="certification-summary">
-                      <strong>{submitCertification.can_submit ? "Ready for external submit" : "Submit still gated"}</strong>
-                      <span>{submitCertification.summary}</span>
+                      <strong>{manualSubmissionLabel}</strong>
+                      <span>{manualConfirmationSummary}</span>
                       {lastPreviewJob ? (
                         <button
                           className="secondary-button compact-button"
                           onClick={() => void refreshSubmitCertification(lastPreviewJob, true)}
-                          disabled={certificationRefreshState === "loading"}
+                          disabled={certificationRefreshState === "loading" || workspaceState === "saving" || manualRefreshState === "loading" || manualDisposition === "pending" || manualDisposition === "confirmed"}
                           type="button"
                         >
                           <RefreshCw size={16} />
@@ -15937,11 +16148,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </button>
                       ) : null}
                     </div>
+                    {manualRecovery && manualRecovery.jobId === lastPreviewJob?.job_id ? <div ref={manualRecoveryRef} tabIndex={-1} className={manualRecovery.error ? "import-warning pf-workflow-feedback" : "pf-workflow-feedback"} role={manualRecovery.error ? "alert" : "status"}>{manualRecovery.message}</div> : lastPreviewJob && manualDisposition === "pending" ? <p role="status">The order may already exist in Lift. Do not resubmit or create a replacement order. Refresh this job to check confirmation.</p> : lastPreviewJob && manualDisposition === "confirmed" ? <p role="status">Lift order {lastPreviewJob.target_order_number ?? "confirmed"}. No further submission is needed.</p> : null}
                     {lastSubmitAttempt ? (
                       <div className="submit-attempt-summary">
                         <div>
                           <span>Last submit attempt</span>
-                          <strong>{lastSubmitAttempt.state}</strong>
+                          <strong>{manualDisposition === "confirmed" && lastSubmitAttempt.state === "Submission Uncertain" ? "Historical timeout retained for audit" : lastSubmitAttempt.state}</strong>
                         </div>
                         <div>
                           <span>Attempt</span>
@@ -15965,7 +16177,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </div>
                         <div>
                           <span>Lift order</span>
-                          <strong>{lastSubmitAttempt.response.lift_order_id ?? "Pending"}</strong>
+                          <strong>{lastPreviewJob?.target_order_number ?? lastSubmitAttempt.response.lift_order_id ?? "Pending"}</strong>
                         </div>
                         <div>
                           <span>Endpoint</span>
@@ -16023,7 +16235,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         className={submitCertification.can_submit ? "primary-button" : "secondary-button"}
                         onClick={() => void requestLiftSubmit()}
                         disabled={
-                          !lastPreviewJob ||
+                          !lastPreviewJob || manualDisposition !== "ready" || manualRefreshState === "loading" || certificationRefreshState === "loading" ||
                           workspaceState === "saving" ||
                           !lastPreviewJob.submit_integrity?.fingerprint ||
                           !submitCertification.external_submit_enabled ||
@@ -16032,6 +16244,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       >
                         {submitCertification.external_submit_enabled ? "Submit to Lift" : "Submit gate locked"}
                       </button>
+                      {lastPreviewJob ? <button type="button" className="secondary-button" onClick={() => void refreshManualSubmission(lastPreviewJob)} disabled={manualRefreshState === "loading" || workspaceState === "saving" || certificationRefreshState === "loading"}><RefreshCw size={16}/>{manualRefreshState === "loading" ? "Refreshing job…" : "Refresh job"}</button> : null}
                       <span>
                         {prodSandboxConfirmationRequired && !prodSandboxSubmitConfirmed
                           ? "Confirm the PROD sandbox lane in preflight before submitting."
@@ -16254,7 +16467,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 <section className="workbench">
                   <div className="panel code-panel source-panel">
                     <PanelHeader icon={FileSpreadsheet} title="Source Grid" detail="Imported rows" />
-                    <div className="source-grid">
+                    <div className="source-grid" tabIndex={0} role="region" aria-label="Imported source rows">
                       {sourceGrid.columns.length ? (
                         <table>
                           <thead>
@@ -16280,20 +16493,21 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     </div>
                   </div>
 
-                  <div className="panel code-panel">
-                    <PanelHeader icon={Braces} title="Canonical Order" detail="Platform contract" />
+                  <details className="panel code-panel pf-raw-evidence">
+                    <summary>Canonical Order <span>Platform contract</span></summary>
                     <pre>{formatJson(displayedCanonicalOrder)}</pre>
-                  </div>
+                  </details>
 
-                  <div className="panel code-panel">
-                    <PanelHeader icon={Braces} title="Lift Payload" detail="Body + headers" />
+                  <details className="panel code-panel pf-raw-evidence">
+                    <summary>Lift Payload <span>Body + headers</span></summary>
                     <pre>{formatJson({ headers: displayedSubmitRequest.headers, body: displayedLiftPayload })}</pre>
-                  </div>
+                  </details>
                 </section>
               </>
             ) : null}
 
-            {activeCustomerView === "Jobs" && !selectedJobDetail ? (
+            {operationsShell && activeCustomerView === "Jobs" ? <OperationsJobs detailState={jobDetailState} detailError={workspaceMessage} onArchive={(ids, archived) => requestJobsArchive(customerJobsUnfiltered.filter(job => ids.includes(job.job_id)), archived)} hidden={Boolean(selectedJobDetail)} key={selectedCustomer.lift_customer_id} customerId={selectedCustomer.lift_customer_id} jobs={customerJobsUnfiltered.map(job => ({ id: job.job_id, label: displayJobId(job.job_id), customerId: job.customer_id, customer: job.customer_name, sourceOrder: ("source_order_id" in job && job.source_order_id) || jobContractNumber(job), intake: ("intake_provider" in job && job.intake_provider) || job.import_method_name, liftOrder: job.target_order_number ?? null, processing: job.state, production: job.target_order_status?.label ?? (job.target_order_number ? "Not checked" : "—"), createdAt: job.created_at, confirmedAt: job.order_confirmed_at ?? null, activityAt: lastMeaningfulActivity(job), archived: Boolean(job.archived_at) }))} updated={jobsLastRefreshedAt} onRefresh={operationsRefresh} error={operationsRefreshError} onOpen={id => { const job = customerJobsUnfiltered.find(item => item.job_id === id); if (job) void openJobDetail(job); }} onIntakeFollowup={intakeVisibilityAvailable ? () => requestGuardedNavigation(() => setActiveCustomerView("Intake Exceptions")) : undefined} tools={<button className="ops-link" onClick={() => setCustomerLegacyTools(!customerLegacyTools)}>{customerLegacyTools ? "Hide" : "Show"} triage, intake review and bulk archive tools</button>}/> : null}
+            {activeCustomerView === "Jobs" && !selectedJobDetail && (!operationsShell || customerLegacyTools) ? (
               <section className="panel jobs-panel">
                 <PanelHeader icon={Archive} title="Customer Jobs" detail={selectedCustomer.customer_name} />
                 <div className="jobs-live-status" role="status">
@@ -16370,12 +16584,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </p>
                     </div>
                     <span className="mini-pill mini-pill-neutral">
-                      {sourceConnections.length} connection{sourceConnections.length === 1 ? "" : "s"}
+                      {sourceConnectionsReadState === "ready"
+                        ? `${sourceConnections.length} connection${sourceConnections.length === 1 ? "" : "s"}`
+                        : sourceConnectionsReadState === "loading" ? "Loading connections" : "Connections unavailable"}
                     </span>
                   </div>
+                  {sourceConnectionsReadState === "error" ? <div className="email-health-error" role="alert"><AlertTriangle size={16} /><span>{sourceConnections.length ? "Showing previously loaded connections. " : "Connection count is unknown. "}{sourceConnectionsReadMessage}</span></div> : null}
 
                   <div className="source-connector-catalog" aria-label="Source connector templates">
-                    {sourceConnectorDefinitions.map((definition) => (
+                    {sourceConnectorDefinitions.filter(definition => !operationsShell || definition.availability === "Available").map((definition) => (
                       <div className="source-connector-card" key={definition.provider}>
                         <div>
                           <span>{definition.category}</span>
@@ -16397,6 +16614,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       </div>
                     ))}
                   </div>
+                  {operationsShell && sourceConnectorDefinitions.some(definition => definition.availability !== "Available") ? <details className="pf-planned-connectors">
+                    <summary>Planned integrations · {sourceConnectorDefinitions.filter(definition => definition.availability !== "Available").length}</summary>
+                    <div className="source-connector-catalog" aria-label="Planned source connector templates">
+                      {sourceConnectorDefinitions.filter(definition => definition.availability !== "Available").map(definition => <div className="source-connector-card" key={definition.provider}>
+                        <div><span>{definition.category}</span><strong>{definition.name}</strong><p>{definition.description}</p></div>
+                        <span className="mini-pill mini-pill-neutral">Planned</span>
+                      </div>)}
+                    </div>
+                  </details> : null}
 
                   {sourceConnections.length ? (
                     <div className="source-connection-selector" role="list" aria-label="Saved customer source connections">
@@ -16413,13 +16639,13 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         </button>
                       ))}
                     </div>
-                  ) : (
+                  ) : sourceConnectionsReadState === "ready" ? (
                     <p className="empty-state source-connections-empty">
                       No source connections are configured for this customer. Wrike is available now; the other templates are roadmap placeholders.
                     </p>
-                  )}
+                  ) : null}
 
-                  {!selectedWrikeConnection && wrikeConnectionMessage ? (
+                  {!selectedWrikeConnection && wrikeConnectionMessage && sourceConnectionsReadState !== "error" ? (
                     <div className={wrikeConnectionState === "error" ? "email-health-error" : "wrike-connection-message"}>
                       {wrikeConnectionState === "error" ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
                       <span>{wrikeConnectionMessage}</span>
@@ -17078,10 +17304,10 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <>
                 <header className="topbar targets-overview-header">
                   <div>
-                    <p className="eyebrow">Targets</p>
-                    <h1>Destination platforms</h1>
+                    {!operationsShell ? <p className="eyebrow">Targets</p> : null}
+                    <h1>{operationsShell ? "Targets" : "Destination platforms"}</h1>
                     <p className="page-intro">
-                      Configure the systems Pathfinder can send orders to, then combine environments and templates into reusable output routes.
+                      Destination platforms, environments and reusable output templates.
                     </p>
                   </div>
                   <button className="primary-button" onClick={() => requestGuardedNavigation(addTargetDraft)}>
@@ -17101,7 +17327,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <div className="status-step">
                     <CheckCircle2 size={18} />
                     <div>
-                      <strong>Active</strong>
+                      <strong>Configured</strong>
                       <span>{targetRows.filter((target) => target.status !== "Draft").length} ready or configured</span>
                     </div>
                   </div>
@@ -17115,14 +17341,15 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <div className="status-step">
                     <CheckCircle2 size={18} />
                     <div>
-                      <strong>Routes</strong>
-                      <span>{outputRoutes.length} customer route{outputRoutes.length === 1 ? "" : "s"}</span>
+                      <strong>Customer routes</strong>
+                      <span>{outputRoutes.length} · {selectedCustomer.customer_name}</span>
                     </div>
                   </div>
                 </section>
 
                 <section className="panel jobs-panel">
                   <PanelHeader icon={Database} title="Targets" detail="Reusable destination platforms" />
+                  <div className="pf-admin-table-scroll" tabIndex={0} role="region" aria-label="Destination platforms">
                   <table className="targets-overview-table">
                     <thead>
                       <tr>
@@ -17181,6 +17408,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       })}
                     </tbody>
                   </table>
+                  </div>
                 </section>
               </>
             ) : (
@@ -17191,7 +17419,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                     All targets
                   </button>
                   <div className="target-detail-heading">
-                    <p className="eyebrow">Reusable target</p>
+                    {!operationsShell ? <p className="eyebrow">Reusable target</p> : null}
                     <h1>{selectedTarget.name}</h1>
                     <span>Shared destination setup · {selectedTarget.target_type} · {selectedTarget.status}</span>
                   </div>
@@ -17241,6 +17469,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                 </header>
 
+                {operationsShell ? <p className="pf-admin-scope">Active environment: <strong>{selectedTarget.lift.active_environment}</strong> · Customer route context: <strong>{selectedCustomer.customer_name}</strong>. Configuration readiness is separate from observed health. Shared target saving is currently unavailable; customer route saves retain their existing safeguards.</p> : null}
                 {targetSaveFeedback ? (
                   <p
                     className={`target-save-feedback ${targetSaveFeedback.tone === "error" ? "import-error" : "import-warning"}`}
@@ -17255,6 +17484,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   {targetDetailTabs.map((tab) => (
                     <button
                       className={activeTargetsView === tab ? "target-tab target-tab-active" : "target-tab"}
+                      aria-current={activeTargetsView === tab ? "page" : undefined}
                       key={tab}
                       onClick={() => setActiveTargetsView(tab)}
                     >
@@ -18323,7 +18553,9 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                       }, null, 2)}</pre>
                     </div>
                     <div className="panel-action-footer">
-                      <span>Route diagnostics are passing. Certified preview jobs use the enabled route submit profile.</span>
+                      <span>{selectedTargetTestDiagnostics
+                        ? `${selectedTargetTestDiagnostics.blocking_count} blocking · ${selectedTargetTestDiagnostics.warning_count} warning. ${selectedTargetTestDiagnostics.summary}`
+                        : "No customer route is configured; readiness has not been established."} This is a local configuration check, not a live provider test. Submit still requires a certified preview in Manual Import.</span>
                       <button
                         className="secondary-button"
                         disabled
@@ -18339,8 +18571,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           </>
         ) : null}
 
-        {operationsWorkspaceEnabled && activeGlobalView === "Proof" ? operationsProofOrder ? <><button className="secondary-button" onClick={() => setOperationsProofOrder(null)}>Back to proof queue</button><ProofOpsPanel key={operationsProofOrder.order} apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} initialOrderNumber={operationsProofOrder.order} expectedCustomerId={operationsProofOrder.customer} /></> : <OperationsProof apiBaseUrl={apiBaseUrl} onOpen={(order, customer) => setOperationsProofOrder({ order, customer })} tools={<ProofOpsPanel apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} />} /> : null}
-        {operationsWorkspaceEnabled && activeGlobalView === "Jobs" && !selectedJobDetail ? <OperationsJobs jobs={operationsJobs} updated={jobsLastRefreshedAt} onOpen={operationsOpenJob} onRefresh={operationsRefresh} error={operationsRefreshError}
+        {operationsWorkspaceEnabled && activeGlobalView === "Proof" ? <><OperationsProof hidden={Boolean(operationsProofOrder)} apiBaseUrl={apiBaseUrl} onOpen={(order, customer) => setOperationsProofOrder({ order, customer })} tools={<ProofOpsPanel apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} />} />{operationsProofOrder ? <div className="pf-proof-order-tools"><button autoFocus className="secondary-button" onClick={() => setOperationsProofOrder(null)}>Back to proof queue</button><ProofOpsPanel key={`${operationsProofOrder.customer}:${operationsProofOrder.order}`} apiBaseUrl={apiBaseUrl} authToken={authSession?.token ?? null} initialOrderNumber={operationsProofOrder.order} expectedCustomerId={operationsProofOrder.customer} /></div> : null}</> : null}
+        {operationsWorkspaceEnabled && activeGlobalView === "Jobs" ? <OperationsJobs detailState={jobDetailState} detailError={workspaceMessage} onArchive={(ids, archived) => requestJobsArchive(allJobsUnfiltered.filter(job => ids.includes(job.job_id)), archived)} hidden={Boolean(selectedJobDetail)} jobs={operationsJobs} updated={jobsLastRefreshedAt} onOpen={operationsOpenJob} onRefresh={operationsRefresh} error={operationsRefreshError}
           tools={<button className="secondary-button" onClick={() => setOperationsLegacyTools(!operationsLegacyTools)}>{operationsLegacyTools ? "Hide advanced tools" : "Show existing lookup, bulk archive, and intake review tools"}</button>}
           exceptions={<div><label className="ops-toolbar">Customer <select aria-label="Intake exception customer" value={operationsExceptionCustomer} onChange={e => setOperationsExceptionCustomer(e.target.value)}><option value="">Choose a customer</option>{customers.map(c => <option key={c.lift_customer_id} value={c.lift_customer_id}>{c.customer_name}</option>)}</select></label>{operationsExceptionCustomer && operationsIntakeVisibilityAvailable ? <IntakeExceptions key={operationsExceptionCustomer} customerId={operationsExceptionCustomer} apiBaseUrl={apiBaseUrl} /> : <p className="ops-empty">{!operationsExceptionCustomer ? "Select a customer to inspect available pre-job exceptions and deliveries." : "Intake exception visibility is not enabled for this customer in this environment."}</p>}</div>}
         /> : null}
@@ -18507,6 +18739,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           </section>
         ) : null}
 
+        {!operationsWorkspaceEnabled && jobDetailState === "loading" ? <p role="status">Loading job details…</p> : !operationsWorkspaceEnabled && jobDetailState === "error" ? <p role="alert">{workspaceMessage || "Unable to load this job. Please try opening it again."}</p> : null}
         {selectedJobDetail &&
         (activeGlobalView === "Jobs" || (activeGlobalView === "Customers" && activeCustomerView === "Jobs")) ? (
           <section className="job-detail-layout">
@@ -18520,8 +18753,8 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
             <div className="panel job-detail-panel">
               <div className="job-detail-header">
                 <div>
-                  <p className="eyebrow">Wrike order · {displayJobId(selectedJobDetail.job_id)}</p>
-                  <h2>{selectedJobContractNumber} · {selectedJobCampaignName}</h2>
+                  <p className="eyebrow">{selectedJobDetail.import_method_name || "Order"} · {displayJobId(selectedJobDetail.job_id)}</p>
+                  <h2 ref={jobDetailHeadingRef} tabIndex={-1}>{selectedJobContractNumber} · {selectedJobCampaignName}</h2>
                   <span>{selectedJobDetail.customer_name} · {selectedJobDetail.source_file_name}</span>
                   <small className="job-detail-system-identity">
                     Pathfinder {selectedJobDetail.pathfinder_order_id}
@@ -18545,7 +18778,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                 </div>
                 <div className="job-detail-actions">
-                  <StatePill state={selectedJobDetail.state} />
+                  {selectedJobNeedsSubmitReview ? <span className="pill pill-warning">{activeJobSubmitFeedback?.responseUnknown ? "Response unknown" : "Review required"}</span> : <StatePill state={selectedJobDetail.state} />}
                   {selectedJobLiftStatus ? (
                     <span className="mini-pill mini-pill-neutral" title="Current Lift order status">
                       {selectedJobLiftStatus}
@@ -18569,7 +18802,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                         : "Check current mappings"}
                     </button>
                   ) : null}
-                  {canRetrySelectedJob ? (
+                  {selectedJobNeedsSubmitReview ? (
+                    <button className="primary-button job-detail-view-order" onClick={() => void openJobDetail(selectedJobDetail)} disabled={workspaceState === "saving"}>
+                      <RefreshCw size={16} /> Refresh job
+                    </button>
+                  ) : canRetrySelectedJob ? (
                     <>
                       {prodSandboxConfirmationRequired && !selectedJobMissingOrderTitle ? (
                         <label className="job-detail-submit-confirmation">
@@ -18778,6 +19015,20 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   </div>
                 </div>
               </div>
+              {jobSubmitFeedback?.jobId === selectedJobDetail.job_id ? (
+                <div ref={jobSubmitFeedbackRef} tabIndex={-1} className={jobSubmitFeedback.error ? "job-detail-submit-blocker" : "import-warning pf-workflow-feedback"} role={jobSubmitFeedback.error ? "alert" : "status"}>
+                  {jobSubmitFeedback.message}
+                </div>
+              ) : null}
+              {selectedJobCertificationBlocked ? (
+                <div className="job-detail-submit-blocker" role="status">
+                  <div>
+                  <strong>Submission requires review.</strong>{" "}{selectedJobDetail.submit_certification?.summary}
+                  <ul>{selectedJobDetail.submit_certification?.items.filter(item => item.blocking).map(item => <li key={item.item_id}>{item.label}: {item.message}</li>)}</ul>
+                  <span>Resolve the blocking items, then use Job actions → Refresh Submit Certification to check readiness again.</span>
+                  </div>
+                </div>
+              ) : null}
               {selectedJobMissingOrderTitle ? (
                 <div className="job-detail-submit-blocker" role="alert">
                   <AlertTriangle size={18} />
@@ -18844,7 +19095,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <DetailItem label="Wrike campaign" value={selectedJobCampaignName} />
                   <DetailItem label="Lift order" value={selectedJobLiftOrderNumber ?? "Pending"} />
                   <DetailItem label="Lift order name" value={selectedJobDetail.lift_payload.order.order_title || "Pending"} />
-                  <DetailItem label="Current status" value={selectedJobLiftStatus ?? (selectedJobLiftOrderNumber ? "Not checked" : "Not in Lift")} />
+                  <DetailItem label="Current status" value={selectedJobLiftStatus ?? (selectedJobLiftOrderNumber ? "Not checked" : "Not confirmed")} />
                   <DetailItem label="Current step" value={selectedJobLiftStep ?? "Load current Lift order"} />
                   <DetailItem label="Pathfinder intake" value={displayTimestamp(selectedJobDetail.created_at)} />
                   <DetailItem label="Order confirmed" value={selectedJobDetail.order_confirmed_at ? displayTimestamp(selectedJobDetail.order_confirmed_at) : "Not confirmed"} />
@@ -19168,7 +19419,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   ) : null}
                 </div>
               ) : (
-                <p className="empty-state">No submit attempts have been recorded for this job yet.</p>
+                <p className="empty-state">{activeJobSubmitFeedback?.responseUnknown ? "Refresh the job to check the latest submit attempt. The last loaded record may be out of date." : "No submit attempts have been recorded for this job yet."}</p>
               )}
             </div>
 
@@ -19313,32 +19564,36 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
         ) : null}
 
         {activeGlobalView === "Audit" ? (
+          <>
+          {operationsShell ? <header className="pf-admin-heading"><h1>Audit</h1><p>Platform administration summary · event history is not available in this view.</p></header> : null}
           <section className="panel customer-panel">
             <PanelHeader
               icon={History}
-              title="Audit"
-              detail="Platform administration"
+              title={operationsShell ? "Loaded platform context" : "Audit"}
+              detail="Read-only summary"
             />
             <dl className="customer-details">
               <DetailItem label="Scope" value="Global" />
               <DetailItem label="Targets" value={`${activeTargetCount}/${targetRows.length} active`} />
-              <DetailItem label="Jobs" value={`${allJobs.length} persisted`} />
+              <DetailItem label="Jobs in current view" value={customerJobReadUnavailable ? "Not available" : `${allJobs.length} loaded`} />
               <DetailItem label="Customer context" value={selectedCustomer.customer_name} />
             </dl>
+            {operationsShell ? <p className="pf-admin-scope">The job count follows the current global Jobs filters and loaded records. Customer context identifies the selected workspace, not the scope of an audit trail.</p> : null}
           </section>
+          </>
         ) : null}
 
         {activeGlobalView === "Settings" ? (
           <>
             <header className="topbar settings-header">
               <div>
-                <p className="eyebrow">Settings</p>
-                <h1>Canonical Order registry</h1>
+                {!operationsShell ? <p className="eyebrow">Settings</p> : null}
+                <h1>{operationsShell ? "Settings" : "Canonical Order registry"}</h1>
                 <p className="page-intro">
-                  Review the field contract Pathfinder uses between customer inputs, canonical orders, and output templates.
+                  Canonical order fields, transactional email and registry governance.
                 </p>
               </div>
-              <div className="settings-header-actions">
+              <div className="settings-header-actions" hidden={operationsShell && activeSettingsSection !== "Canonical registry"}>
                 <button className="secondary-button" onClick={() => downloadCanonicalRegistry("json")}>
                   <FileText size={16} />
                   Export JSON
@@ -19356,7 +19611,11 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </header>
 
-            <section className="metric-strip canonical-registry-metrics" aria-label="Canonical registry metrics">
+            {operationsShell ? <nav className="pf-admin-sections" aria-label="Settings sections">
+              {(["Canonical registry", "Transactional email", "Governance"] as const).map(section => <button key={section} type="button" aria-current={activeSettingsSection === section ? "page" : undefined} onClick={() => setActiveSettingsSection(section)}>{section}</button>)}
+            </nav> : null}
+
+            <section className="metric-strip canonical-registry-metrics" aria-label="Canonical registry metrics" hidden={operationsShell && activeSettingsSection !== "Canonical registry"}>
               {[
                 {
                   value: canonicalRegistry?.version ?? "Loading",
@@ -19396,13 +19655,14 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               ))}
             </section>
 
-            <section className="panel email-health-panel">
+            <section className="panel email-health-panel" hidden={operationsShell && activeSettingsSection !== "Transactional email"}>
               <div className="panel-header unit-map-panel-header">
                 <div className="panel-title">
                   <Bell size={18} strokeWidth={2.2} />
                   <h2>Transactional Email</h2>
                 </div>
                 <div className="email-health-header-actions">
+                  {emailStatusReadAt ? <span className="pf-email-read-time">Last read {displayTimestamp(emailStatusReadAt)}</span> : null}
                   {emailStatus ? <RouteDiagnosticPill status={emailStatus.readiness.status} /> : null}
                   <button
                     className="secondary-button table-inline-button"
@@ -19418,34 +19678,36 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               <div className="email-health-grid">
                 <div className="email-health-summary">
                   <span>Delivery Mode</span>
-                  <strong>{emailStatus?.mode === "ses" ? "Amazon SES" : emailStatus?.mode === "log" ? "Log mode" : "Loading"}</strong>
+                  <strong>{emailStatus?.mode === "ses" ? "Amazon SES" : emailStatus?.mode === "log" ? "Log mode" : emailStatusState === "loading" ? "Checking" : "Not verified"}</strong>
                   <small>
                     {emailStatus?.mode === "ses"
                       ? "Status links are configured for delivery."
-                      : "Status links are recorded, not sent to customers yet."}
+                      : emailStatus?.mode === "log"
+                        ? "Status links are recorded, not sent to customers yet."
+                        : "Delivery mode is unknown until configuration can be read."}
                   </small>
                 </div>
                 <div className="email-health-summary">
                   <span>From</span>
-                  <strong>{emailStatus?.sender.from ?? "Pending"}</strong>
+                  <strong>{emailStatus?.sender.from ?? (emailStatusState === "loading" ? "Checking" : "Not verified")}</strong>
                   <small>{emailStatus?.sender.from_domain ?? "Sender domain unavailable"}</small>
                 </div>
                 <div className="email-health-summary">
                   <span>Reply-To</span>
-                  <strong>{emailStatus?.sender.status_reply_to ?? "Pending"}</strong>
+                  <strong>{emailStatus?.sender.status_reply_to ?? (emailStatusState === "loading" ? "Checking" : "Not verified")}</strong>
                   <small>{emailStatus?.sender.status_reply_to_domain ?? "Reply-to domain unavailable"}</small>
                 </div>
                 <div className="email-health-summary">
                   <span>SES Region</span>
-                  <strong>{emailStatus?.ses.region ?? "Pending"}</strong>
-                  <small>{emailStatus?.ses.configuration_set ?? "No configuration set"}</small>
+                  <strong>{emailStatus?.ses.region ?? (emailStatusState === "loading" ? "Checking" : "Not verified")}</strong>
+                  <small>{emailStatus ? emailStatus.ses.configuration_set ?? "No configuration set" : "Configuration not verified"}</small>
                 </div>
               </div>
 
               {emailStatusMessage ? (
-                <div className="email-health-error">
+                <div className="email-health-error" role="alert">
                   <AlertTriangle size={16} />
-                  <span>{emailStatusMessage}</span>
+                  <span>{emailStatus ? "Showing last loaded email configuration. " : ""}{emailStatusMessage}</span>
                 </div>
               ) : null}
 
@@ -19470,7 +19732,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </section>
 
-            <section className="panel canonical-governance-panel">
+            <section className="panel canonical-governance-panel" hidden={operationsShell && activeSettingsSection !== "Governance"}>
               <div className="panel-header unit-map-panel-header">
                 <div className="panel-title">
                   <History size={18} strokeWidth={2.2} />
@@ -19478,6 +19740,12 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
                 <span>Version snapshots and recent field-contract changes</span>
               </div>
+              {canonicalSnapshotError ? (
+                <div ref={canonicalSnapshotErrorRef} tabIndex={-1} className="import-error pf-canonical-feedback" role="alert">
+                  <strong>Snapshot unavailable. </strong>{canonicalSnapshotError.message}{" "}
+                  <button type="button" className="secondary-button table-inline-button" onClick={() => void openCanonicalSnapshot(canonicalSnapshotError.snapshotId)}>Retry snapshot</button>
+                </div>
+              ) : null}
               <div className="canonical-governance-grid">
                 <div className="canonical-governance-summary">
                   <span>Latest Snapshot</span>
@@ -19528,7 +19796,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
               </div>
             </section>
 
-            <section className="panel canonical-registry-panel">
+            <section className="panel canonical-registry-panel" hidden={operationsShell && activeSettingsSection !== "Canonical registry"}>
               <div className="panel-header unit-map-panel-header">
                 <div className="panel-title">
                   <Braces size={18} strokeWidth={2.2} />
@@ -19536,6 +19804,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 </div>
                 <span>Stable field IDs, aliases, and paths for template mappings</span>
               </div>
+              {operationsShell && canonicalFeedback ? <p ref={canonicalFeedbackRef} tabIndex={-1} className={canonicalFeedback.error ? "import-error pf-canonical-feedback" : "import-warning pf-canonical-feedback"} role={canonicalFeedback.error ? "alert" : "status"}><strong>Canonical registry: </strong>{canonicalFeedback.message}</p> : null}
 
               {isCreatingCanonicalField ? (
                 <section className="canonical-field-create-panel" aria-label="Create canonical field">
@@ -19679,6 +19948,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                   <Search size={16} />
                   <input
                     value={canonicalRegistrySearch}
+                    aria-label="Search canonical fields"
                     placeholder="Search path, label, alias, or type"
                     onChange={(event) => setCanonicalRegistrySearch(event.target.value)}
                   />
@@ -19713,7 +19983,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
                 ))}
               </div>
 
-              <div className="unit-map-table-wrap">
+              <div className="unit-map-table-wrap" tabIndex={0} role="region" aria-label="Canonical fields">
                 <table className="canonical-registry-table">
                   <thead>
                     <tr>
@@ -20638,6 +20908,7 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           <div className="product-map-modal-backdrop" role="presentation" onClick={cancelLeavePrompt}>
             <section
               className="product-map-modal unsaved-changes-modal"
+              ref={leaveDialogRef}
               role="dialog"
               aria-modal="true"
               aria-label={leavePrompt.title}
@@ -20675,6 +20946,6 @@ export function App({ authSession }: { authSession: PathfinderAuthSession | null
           </div>
         ) : null}
       </section>
-    </main>
+    </PathfinderShell>
   );
 }

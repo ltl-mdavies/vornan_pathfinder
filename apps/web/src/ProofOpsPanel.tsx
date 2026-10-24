@@ -580,6 +580,12 @@ export function ProofOpsPanel({ apiBaseUrl, authToken, initialOrderNumber, expec
   }
 
   async function syncOrder() {
+    // A customer queue may only sync the order whose cached ownership was verified.
+    // Global operator lookup remains the existing entry for uncached orders.
+    if (expectedCustomerId && (order?.customer_id !== expectedCustomerId || order.order_number !== normalizedOrderNumber)) {
+      setMessage("Open this customer's cached order before synchronizing. Use global Proof tools for an order not yet cached.");
+      return;
+    }
     if (!/^A\d{7,8}$/.test(normalizedOrderNumber)) {
       setMessage("Enter a Lift order number in A######## format.");
       return;
@@ -629,6 +635,10 @@ export function ProofOpsPanel({ apiBaseUrl, authToken, initialOrderNumber, expec
   }
 
   async function openDiscoveredOrder(discovered: DiscoveredCustomerOrder) {
+    if (expectedCustomerId && discovered.customer_id !== expectedCustomerId) {
+      setMessage("This order does not belong to the selected customer.");
+      return;
+    }
     if (!canOpenDiscoveredProofOrder(discovered)) {
       setMessage("This Lift order is not eligible for the LTL Demo Proof workspace.");
       return;
@@ -1241,7 +1251,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken, initialOrderNumber, expec
           Lift order number
           <input value={orderNumber} onChange={(event) => setOrderNumber(event.target.value)} placeholder="A0221132" />
         </label>
-        <button className="primary-button" type="button" disabled={state === "loading"} onClick={() => void syncOrder()}>
+        <button className="primary-button" type="button" disabled={state === "loading" || Boolean(expectedCustomerId && (order?.customer_id !== expectedCustomerId || order.order_number !== normalizedOrderNumber))} onClick={() => void syncOrder()}>
           <RefreshCw size={16} /> {state === "loading" ? "Working" : "Sync Proofs"}
         </button>
         <button className="secondary-button" type="button" disabled={state === "loading"} onClick={() => void inspectCachedOrder()}>
@@ -1252,7 +1262,7 @@ export function ProofOpsPanel({ apiBaseUrl, authToken, initialOrderNumber, expec
         </button>
       </div>
 
-      {health?.ltl_demo_qa.active && health.ltl_demo_qa.all_ltl_demo_orders ? (
+      {(!expectedCustomerId || expectedCustomerId === "1249") && health?.ltl_demo_qa.active && health.ltl_demo_qa.all_ltl_demo_orders ? (
         <section className="proof-order-discovery" aria-labelledby="proof-order-discovery-title">
           <div className="proof-order-discovery-heading">
             <div>

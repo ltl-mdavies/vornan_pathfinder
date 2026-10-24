@@ -50,6 +50,7 @@ export type InspectionPage = Readonly<{
   heatmapPreviewUrl: string;
   heatmapPreviewAlt: string;
   mediaType?: "image" | "pdf";
+  previewUnavailable?: boolean;
 }>;
 
 export type ArtworkInspectionResultViewModel = Readonly<{
@@ -89,6 +90,7 @@ export type ArtworkInspectionResultsWorkspaceProps = Readonly<{
   result: ArtworkInspectionResultViewModel;
   actions: ArtworkInspectionResultsActions;
   initialMode?: InspectionViewMode;
+  sampleReport?: boolean;
 }>;
 
 type InspectionRailTab = "details" | "findings";
@@ -217,10 +219,12 @@ function ArtworkPreview({
 }>) {
   const previewRef = useRef<HTMLElement>(null);
   const [viewport, setViewport] = useState({ width: page.pixelWidth, height: page.pixelHeight });
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
   const heatmapVisible = mode === "heatmap";
   const markersVisible = mode === "heatmap" || mode === "findings";
   const imageUrl = heatmapVisible ? page.heatmapPreviewUrl : page.originalPreviewUrl;
   const imageAlt = heatmapVisible ? page.heatmapPreviewAlt : page.originalPreviewAlt;
+  const previewUnavailable = page.previewUnavailable || page.mediaType === "pdf" || !imageUrl || failedImageUrl === imageUrl;
   const fit = fitInspectionPreview(viewport, { width: page.pixelWidth, height: page.pixelHeight });
   const zoomScale = zoom / 100;
   const style = {
@@ -252,15 +256,15 @@ function ArtworkPreview({
       data-source-height={page.pixelHeight}
       data-fit-zoom={zoom}
     >
-      <div className="inspection-preview-content" style={style}>
-        {page.mediaType === "pdf" ? (
-          <div className="inspection-pdf-fallback" role="img" aria-label={imageAlt}>
+      <div className="inspection-preview-content" style={previewUnavailable ? { width: "100%", height: "100%", minHeight: 120 } : style}>
+        {previewUnavailable ? (
+          <div className="inspection-pdf-fallback" role="img" aria-label={page.mediaType === "pdf" ? "PDF preview unavailable" : "Artwork preview unavailable"}>
             <FileText size={34} aria-hidden="true" />
-            <strong>PDF preview unavailable</strong>
-            <span>The technical inspection results remain available without opening the browser PDF viewer.</span>
+            <strong>{page.mediaType === "pdf" ? "PDF preview unavailable" : "Artwork preview unavailable"}</strong>
+            <span>{page.mediaType === "pdf" ? "The technical inspection results remain available without opening the browser PDF viewer." : "This file could not be displayed. Review the inspection findings, then choose a complete PDF, PNG, or JPEG to check again. The current artwork is unchanged."}</span>
           </div>
-        ) : <img src={imageUrl} alt={imageAlt} />}
-        {markersVisible ? (
+        ) : <img src={imageUrl} alt={imageAlt} onError={() => setFailedImageUrl(imageUrl)} />}
+        {markersVisible && !previewUnavailable ? (
           <PreviewMarkers findings={findings} selectedFindingId={selectedFindingId} onSelectFinding={onSelectFinding} />
         ) : null}
       </div>
@@ -271,7 +275,8 @@ function ArtworkPreview({
 export function ArtworkInspectionResultsWorkspace({
   result,
   actions,
-  initialMode = "heatmap"
+  initialMode = "heatmap",
+  sampleReport = false
 }: ArtworkInspectionResultsWorkspaceProps) {
   if (result.pages.length === 0) throw new Error("Artwork inspection results require at least one page.");
   if (result.findings.some((finding) => !result.pages.some((page) => page.pageNumber === finding.pageNumber))) {
@@ -299,8 +304,10 @@ export function ArtworkInspectionResultsWorkspace({
   const trim = metricValue(result, "Trim") ?? selectedPage.dimensions;
   const bleed = metricValue(result, "Bleed") ?? "Indeterminate";
   const pages = metricValue(result, "Pages") ?? String(result.pages.length);
+  const partialPdf = result.localAnalysis?.format === "PDF" && pages !== "1" && result.pages.length === 1;
   const fileSize = result.localAnalysis ? formatInspectionBytes(result.localAnalysis.byteSize) : metricValue(result, "File size") ?? "Not reported";
   const aspectWarning = result.findings.some((finding) => finding.category === "Specification");
+  const aspectUnknown = detectedSize === "Indeterminate" || result.findings.some((finding) => finding.category === "File integrity" || finding.category === "Dimensions");
   const summaryMetrics = [
     { label: "Detected size", value: detectedSize },
     { label: "Effective DPI", value: effectiveDpi },
@@ -399,7 +406,7 @@ export function ArtworkInspectionResultsWorkspace({
               ) : null}
 
               <div className="inspection-artwork-stage">
-                <span className="inspection-canvas-label">Page {selectedPage.pageNumber} · {mode === "compare" ? "Compare" : mode.charAt(0).toUpperCase() + mode.slice(1)}</span>
+                <span className="inspection-canvas-label">Page {selectedPage.pageNumber}{partialPdf ? `${/^\d+$/.test(pages) ? ` of ${pages}` : ""} · Preview only` : ` · ${mode === "compare" ? "Compare" : mode.charAt(0).toUpperCase() + mode.slice(1)}`}</span>
                 {mode === "compare" ? (
                   <div className="inspection-compare-grid">
                     <div><strong>Original</strong><ArtworkPreview page={selectedPage} mode="original" zoom={zoom} findings={pageFindings} selectedFindingId={selectedFindingId} onSelectFinding={selectFinding} compact /></div>
@@ -446,7 +453,7 @@ export function ArtworkInspectionResultsWorkspace({
                 <dl>
                   <div><dt>Specification</dt><dd>{result.specification}</dd></div>
                   <div><dt>Detected size</dt><dd>{detectedSize}</dd></div>
-                  <div><dt>Aspect match</dt><dd className={aspectWarning ? "inspection-detail-warning" : "inspection-detail-pass"}>{aspectWarning ? "WARNING" : "PASS"}</dd></div>
+                  <div><dt>Aspect match</dt><dd className={aspectUnknown ? undefined : aspectWarning ? "inspection-detail-warning" : "inspection-detail-pass"}>{aspectUnknown ? "Indeterminate" : aspectWarning ? "WARNING" : "PASS"}</dd></div>
                   <div><dt>Target resolution</dt><dd>{result.targetDpi} DPI</dd></div>
                   <div><dt>Effective DPI</dt><dd>{effectiveDpi}</dd></div>
                   <div><dt>Trim / Bleed</dt><dd>{bleed !== "Indeterminate" ? bleed : trim}</dd></div>
@@ -519,7 +526,7 @@ export function ArtworkInspectionResultsWorkspace({
       </div>
 
       <div className="inspection-results-actions">
-        <span><Info size={14} aria-hidden="true" /> Technical findings do not change Proof approval.</span>
+        <span><Info size={14} aria-hidden="true" /> {sampleReport ? "Sample inspection · illustrative findings. Proof approval is unchanged." : "Technical findings do not change Proof approval."}</span>
         <div>
           <details className="inspection-report-details">
             <summary><Info size={14} aria-hidden="true" /> Report details</summary>
@@ -533,7 +540,7 @@ export function ArtworkInspectionResultsWorkspace({
               <p><strong>Completed</strong><span>{formattedInspectionDate(result.completedAt)}</span></p>
             </div>
           </details>
-          <button type="button" className="inspection-secondary-action" onClick={() => actions.onDownloadReport(result.inspectionId)}><Download size={15} aria-hidden="true" /> Download report</button>
+          <button type="button" className="inspection-secondary-action" disabled={sampleReport} title={sampleReport ? "Sample inspection only; no downloadable report is connected" : undefined} onClick={() => actions.onDownloadReport(result.inspectionId)}><Download size={15} aria-hidden="true" /> Download report</button>
           <button type="button" className="inspection-primary-action" onClick={() => actions.onBack(result.inspectionId)}>Close inspection <ArrowLeft size={15} aria-hidden="true" /></button>
         </div>
       </div>

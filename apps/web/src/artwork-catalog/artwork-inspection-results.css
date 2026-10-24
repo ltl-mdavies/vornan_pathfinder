@@ -119,7 +119,7 @@
 .inspection-detail-section .inspection-detail-warning { color: var(--inspection-warning); }
 .inspection-detail-section .inspection-detail-pass { color: var(--inspection-pass); }
 
-.inspection-findings-rail { padding-top: 12px; display: grid; align-content: start; gap: 10px; }
+.inspection-findings-rail { padding-top: 12px; display: grid; grid-auto-rows: max-content; align-content: start; gap: 10px; }
 .inspection-finding-card { overflow: hidden; background: #fff; border: 1px solid var(--inspection-border); border-radius: 10px; box-shadow: 0 8px 20px rgba(25, 27, 24, .06); }
 .inspection-finding-card-selected { box-shadow: inset 3px 0 0 var(--inspection-forest), 0 9px 22px rgba(25, 27, 24, .08); }
 .inspection-finding-card > button { width: 100%; min-height: 66px; padding: 12px; display: grid; grid-template-columns: 25px 22px minmax(0, 1fr) auto; align-items: start; gap: 8px; color: var(--inspection-secondary); background: transparent; border: 0; text-align: left; }

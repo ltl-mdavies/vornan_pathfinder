@@ -115,6 +115,15 @@ function displayDate(value: string | null) {
   return Number.isNaN(parsed.getTime()) ? "Not available" : parsed.toLocaleString();
 }
 
+export function proofingApiReadStatus(configuration: ProofingApiConfiguration, known: boolean, loading: boolean) {
+  return {
+    label: known ? (configuration.configured ? "Configured" : "Not configured") : loading ? "Loading…" : "Unavailable",
+    clientId: known ? (configuration.client_id_configured ? "Saved securely" : "Not saved") : "Unknown",
+    clientSecret: known ? (configuration.client_secret_configured ? "Saved securely" : "Not saved") : "Unknown",
+    updatedAt: known ? displayDate(configuration.updated_at) : "Unknown"
+  };
+}
+
 export function ProofingApiSetup({
   apiBaseUrl,
   targetId,
@@ -136,16 +145,26 @@ export function ProofingApiSetup({
   const [message, setMessage] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const endpoint = `${apiBaseUrl}/api/targets/${encodeURIComponent(targetId)}/environments/${encodeURIComponent(environmentId)}/proofing-api`;
+  const [loadedEndpoint, setLoadedEndpoint] = useState<string | null>(null);
+  const [readAttempt, setReadAttempt] = useState(0);
+  const configurationKnown = loadedEndpoint === endpoint;
+  const controlsDisabled = !configurationKnown || state === "loading" || state === "saving";
+  const readStatus = proofingApiReadStatus(configuration, configurationKnown, state === "loading");
 
   useEffect(() => {
     let active = true;
     setState("loading");
     setMessage(null);
+    setLoadedEndpoint(null);
+    setConfiguration(emptyConfiguration);
+    setDraft(draftFromConfiguration(emptyConfiguration, suggestions));
+    setConfirmClear(false);
     void fetch(endpoint)
       .then(readConfiguration)
       .then((loaded) => {
         if (!active) return;
         setConfiguration(loaded);
+        setLoadedEndpoint(endpoint);
         setDraft(draftFromConfiguration(loaded, suggestions));
         setState("idle");
       })
@@ -157,9 +176,10 @@ export function ProofingApiSetup({
     return () => {
       active = false;
     };
-  }, [endpoint, suggestedBaseUrl, suggestedCompanyId]);
+  }, [endpoint, suggestedBaseUrl, suggestedCompanyId, readAttempt]);
 
   async function save() {
+    if (controlsDisabled) return;
     setState("saving");
     setMessage(null);
     try {
@@ -181,6 +201,7 @@ export function ProofingApiSetup({
   }
 
   async function clear() {
+    if (controlsDisabled) return;
     setState("saving");
     setMessage(null);
     try {
@@ -205,9 +226,9 @@ export function ProofingApiSetup({
           <h4 id={`proofing-api-${environmentId}`}>Proofing API</h4>
           <p>Environment-specific credentials for {environmentName}. They are stored separately from order-import credentials.</p>
         </div>
-        <span className={configuration.configured ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
-          {configuration.configured ? <Check size={13} /> : <KeyRound size={13} />}
-          {configuration.configured ? "Configured" : "Not configured"}
+        <span className={configurationKnown && configuration.configured ? "mini-pill mini-pill-success" : "mini-pill mini-pill-neutral"}>
+          {configurationKnown && configuration.configured ? <Check size={13} /> : <KeyRound size={13} />}
+          {readStatus.label}
         </span>
       </div>
 
@@ -219,7 +240,7 @@ export function ProofingApiSetup({
             inputMode="url"
             value={draft.base_url}
             placeholder="https://…"
-            disabled={state === "loading" || state === "saving"}
+            disabled={controlsDisabled}
             onChange={(event) => setDraft((current) => ({ ...current, base_url: event.target.value }))}
           />
           <small>
@@ -232,7 +253,7 @@ export function ProofingApiSetup({
           <input
             value={draft.company_id}
             autoComplete="off"
-            disabled={state === "loading" || state === "saving"}
+            disabled={controlsDisabled}
             onChange={(event) => setDraft((current) => ({ ...current, company_id: event.target.value }))}
           />
         </label>
@@ -242,7 +263,7 @@ export function ProofingApiSetup({
             value={draft.action_user_name}
             autoComplete="off"
             placeholder={DEFAULT_PROOFING_API_ACTION_USER_NAME}
-            disabled={state === "loading" || state === "saving"}
+            disabled={controlsDisabled}
             onChange={(event) => setDraft((current) => ({ ...current, action_user_name: event.target.value }))}
           />
           <small>
@@ -254,8 +275,8 @@ export function ProofingApiSetup({
           <input
             value={draft.client_id}
             autoComplete="off"
-            placeholder={configuration.client_id_configured ? "Saved client ID" : "Enter client ID"}
-            disabled={state === "loading" || state === "saving"}
+            placeholder={!configurationKnown ? "Configuration unavailable" : configuration.client_id_configured ? "Saved client ID" : "Enter client ID"}
+            disabled={controlsDisabled}
             onChange={(event) => setDraft((current) => ({ ...current, client_id: event.target.value }))}
           />
         </label>
@@ -265,8 +286,8 @@ export function ProofingApiSetup({
             type="password"
             value={draft.client_secret}
             autoComplete="new-password"
-            placeholder={configuration.client_secret_configured ? "Saved secret" : "Enter client secret"}
-            disabled={state === "loading" || state === "saving"}
+            placeholder={!configurationKnown ? "Configuration unavailable" : configuration.client_secret_configured ? "Saved secret" : "Enter client secret"}
+            disabled={controlsDisabled}
             onChange={(event) => setDraft((current) => ({ ...current, client_secret: event.target.value }))}
           />
         </label>
@@ -279,48 +300,54 @@ export function ProofingApiSetup({
         </div>
         <div>
           <span>Client ID</span>
-          <strong>{configuration.client_id_configured ? "Saved securely" : "Not saved"}</strong>
+          <strong>{readStatus.clientId}</strong>
         </div>
         <div>
           <span>Client Secret</span>
-          <strong>{configuration.client_secret_configured ? "Saved securely" : "Not saved"}</strong>
+          <strong>{readStatus.clientSecret}</strong>
         </div>
         <div>
           <span>Last updated</span>
-          <strong>{displayDate(configuration.updated_at)}</strong>
+          <strong>{readStatus.updatedAt}</strong>
         </div>
       </div>
 
       {message ? <p className={state === "error" ? "proofing-api-message proofing-api-message-error" : "proofing-api-message"} role={state === "error" ? "alert" : "status"}>{message}</p> : null}
+      {!configurationKnown && state === "error" ? (
+        <div className="proofing-api-actions">
+          <p>Configuration is unknown until it can be read. No settings have been changed.</p>
+          <button type="button" className="secondary-button" onClick={() => setReadAttempt(attempt => attempt + 1)}>Retry configuration</button>
+        </div>
+      ) : null}
 
       <div className="proofing-api-actions">
         <p>
           Client ID and secret sign the Bearer JWT. No Lift user password is used by this API.
         </p>
-        <button className="primary-button" type="button" disabled={state === "loading" || state === "saving"} onClick={() => void save()}>
+        <button className="primary-button" type="button" disabled={controlsDisabled} onClick={() => void save()}>
           {state === "saving" && !confirmClear ? "Saving" : proofingApiSaveLabel(configuration, draft)}
         </button>
-        {(configuration.configured || configuration.base_url || configuration.company_id) && !confirmClear ? (
-          <button className="secondary-button destructive-secondary-button" type="button" disabled={state === "saving"} onClick={() => setConfirmClear(true)}>
+        {configurationKnown && (configuration.configured || configuration.base_url || configuration.company_id) && !confirmClear ? (
+          <button className="secondary-button destructive-secondary-button" type="button" disabled={controlsDisabled} onClick={() => setConfirmClear(true)}>
             <Trash2 size={14} />
             Clear setup
           </button>
         ) : null}
       </div>
 
-      {confirmClear ? (
+      {configurationKnown && confirmClear ? (
         <div className="proofing-api-clear-confirmation" role="group" aria-label={`Confirm clearing ${environmentName} Proofing API setup`}>
           <p>This removes the saved client ID, secret, URL, and company context for this environment only.</p>
           <div>
             <button className="secondary-button" type="button" disabled={state === "saving"} onClick={() => setConfirmClear(false)}>Cancel</button>
-            <button className="secondary-button destructive-secondary-button" type="button" disabled={state === "saving"} onClick={() => void clear()}>
+            <button className="secondary-button destructive-secondary-button" type="button" disabled={controlsDisabled} onClick={() => void clear()}>
               {state === "saving" ? "Clearing" : "Confirm clear"}
             </button>
           </div>
         </div>
       ) : null}
 
-      {configuration.audit_events.length ? (
+      {configurationKnown && configuration.audit_events.length ? (
         <details className="proofing-api-history">
           <summary>Configuration activity</summary>
           <ul>

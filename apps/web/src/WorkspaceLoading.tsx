@@ -5,6 +5,7 @@ interface WorkspaceLoadingProps {
   actionLabel?: string;
   onChooseCustomer?: () => void;
   setupRequired?: boolean;
+  embedded?: boolean;
 }
 
 export function WorkspaceLoading({
@@ -13,11 +14,12 @@ export function WorkspaceLoading({
   onRetry,
   actionLabel = "Try again",
   onChooseCustomer,
-  setupRequired = false
+  setupRequired = false,
+  embedded = false
 }: WorkspaceLoadingProps) {
   return (
-    <main className="app-shell workspace-loading-shell" aria-busy={!error}>
-      <aside className="sidebar workspace-loading-sidebar">
+    <div className={embedded ? "pf-loading" : "app-shell workspace-loading-shell"} aria-busy={!error}>
+      {!embedded ? <aside className="sidebar workspace-loading-sidebar">
         <div className="brand-block">
           <img className="vornan-wordmark" src="/brand/vornan-wordmark.png" alt="Vornan" />
           <img className="pathfinder-product-lockup" src="/brand/pathfinder-lockup-zinnia.svg" alt="Pathfinder" />
@@ -28,7 +30,7 @@ export function WorkspaceLoading({
           <span />
           <span />
         </div>
-      </aside>
+      </aside> : null}
       <section className="workspace workspace-loading-content">
         {onChooseCustomer ? <button className="secondary-button" onClick={onChooseCustomer}>Back to customer directory</button> : null}
         <div
@@ -67,6 +69,6 @@ export function WorkspaceLoading({
           </div>
         ) : null}
       </section>
-    </main>
+    </div>
   );
 }

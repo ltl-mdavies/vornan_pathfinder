@@ -270,7 +270,7 @@ function buildFindings(parsed: ParsedArtwork, spec: ArtworkProductInspectionSpec
       push({ id: "aspect", severity: "needs-work", category: "Specification", title: "Artwork aspect ratio does not match", description: `The detected ratio differs from the ${formatter.format(spec.finishedWidthInches)} × ${formatter.format(spec.finishedHeightInches)} in product specification by ${formatter.format(variance * 100)}%.`, regionLabel: "Whole artwork", affectedArea: "Entire artwork", recommendation: "Confirm the intended product size or supply artwork with the matching aspect ratio." });
     }
   } else {
-    push({ id: "dimensions-indeterminate", severity: "review", category: "Dimensions", title: "Artwork dimensions are indeterminate", description: "This browser-local check could not reliably extract artwork dimensions from the file structure.", regionLabel: "File metadata", affectedArea: "Not applicable", recommendation: "Confirm dimensions in a prepress application or run the future server inspection provider." });
+    push({ id: "dimensions-indeterminate", severity: "review", category: "Dimensions", title: "Artwork dimensions are indeterminate", description: "This browser-local check could not reliably extract artwork dimensions from the file structure.", regionLabel: "File metadata", affectedArea: "Not applicable", recommendation: "Verify each page's dimensions against the product specification in a prepress application." });
   }
 
   const effectiveDpi = parsed.pixelWidth && parsed.pixelHeight
@@ -280,7 +280,7 @@ function buildFindings(parsed: ParsedArtwork, spec: ArtworkProductInspectionSpec
     push({ id: "effective-dpi", severity: "needs-work", category: "Resolution", title: `Effective resolution ${formatter.format(effectiveDpi)} DPI`, listLabel: "Effective resolution below target", description: `The raster artwork is below the ${formatter.format(spec.targetDpi)} DPI target at finished size.`, regionLabel: "Whole artwork", affectedArea: "Entire artwork", recommendation: "Supply higher-resolution artwork or confirm a lower product-scale resolution is acceptable." });
   }
   if (effectiveDpi === null) {
-    push({ id: "dpi-indeterminate", severity: "review", category: "Resolution", title: "Effective resolution is indeterminate", description: parsed.mediaType === "pdf" ? "PDF content may contain vector and raster elements. Browser-local inspection cannot reliably calculate placed-image effective DPI." : "Pixel dimensions could not be read.", regionLabel: "File content", affectedArea: "Not determined", recommendation: "Use the future server inspection provider for placed-element resolution analysis." });
+    push({ id: "dpi-indeterminate", severity: "review", category: "Resolution", title: "Effective resolution is indeterminate", description: parsed.mediaType === "pdf" ? "PDF content may contain vector and raster elements. Browser-local inspection cannot reliably calculate placed-image effective DPI." : "Pixel dimensions could not be read.", regionLabel: "File content", affectedArea: "Not determined", recommendation: "Verify image resolution at the intended print size in a prepress application." });
   }
 
   if (!parsed.colorSpace) {
@@ -341,7 +341,7 @@ export async function analyzeArtworkUpload(
   const createdAt = now().toISOString();
   const progress = (status: ArtworkUploadItemStatus, label: string) => options.onProgress?.({ itemId, status, label });
 
-  progress("selected", "File selected");
+  progress("selected", "Reading artwork");
   if (file.size > LOCAL_ARTWORK_ANALYSIS_MAX_BYTES) {
     throw new Error(`Local analysis supports files up to ${formatBytes(LOCAL_ARTWORK_ANALYSIS_MAX_BYTES)}.`);
   }
@@ -351,8 +351,6 @@ export async function analyzeArtworkUpload(
   const sha256 = await sha256Hex(bytes);
   progress("inspecting", "Inspecting file structure and product fit");
   const parsed = detectAndParse(bytes);
-  const findings = buildFindings(parsed, spec);
-  const verdict = verdictFor(findings);
   const createObjectUrl = options.createObjectUrl ?? ((blob: Blob) => typeof URL !== "undefined" && "createObjectURL" in URL ? URL.createObjectURL(blob) : "");
   let objectUrl = parsed.mediaType === "pdf" ? "" : createObjectUrl(file);
   let previewWidth = parsed.pixelWidth ?? Math.max(1, Math.round((parsed.pageWidthInches ?? spec.finishedWidthInches) * 72));
@@ -373,6 +371,19 @@ export async function analyzeArtworkUpload(
     }
   }
   if (!objectUrl) objectUrl = createObjectUrl(file);
+  // Text-level PDF metadata cannot establish each page's geometry or color.
+  // The local renderer supplies only page 1, not a document-wide inspection.
+  const partialPdf = parsed.mediaType === "pdf" && parsed.pageCount !== 1;
+  if (partialPdf) {
+    parsed.pageWidthInches = null;
+    parsed.pageHeightInches = null;
+    parsed.colorSpace = null;
+    parsed.trimLabel = "Indeterminate";
+    parsed.bleedLabel = "Indeterminate";
+    parsed.bleedCompatible = null;
+  }
+  const findings = buildFindings(parsed, spec);
+  const verdict = verdictFor(findings);
   const page: InspectionPage = {
     pageNumber: 1,
     label: "Page 1",
@@ -385,7 +396,8 @@ export async function analyzeArtworkUpload(
     originalPreviewAlt: `Local preview of ${file.name}`,
     heatmapPreviewUrl: objectUrl,
     heatmapPreviewAlt: `No heatmap is available for the local analysis of ${file.name}`,
-    mediaType: previewMediaType
+    mediaType: previewMediaType,
+    previewUnavailable: !parsed.integrityValid
   };
   const inspectionId = `local_inspection_${createId()}`;
   const result: ArtworkInspectionResultViewModel = {
@@ -397,8 +409,12 @@ export async function analyzeArtworkUpload(
     completedAt: now().toISOString(),
     verdict,
     verdictLabel: verdict === "passed" ? "Passed" : verdict === "needs-work" ? "Needs work" : "Review",
-    verdictDetail: parsed.integrityValid ? "Local technical check" : "File integrity issue",
-    verdictSummary: verdict === "passed"
+    verdictDetail: !parsed.integrityValid ? "File integrity issue" : partialPdf ? "Partial PDF check" : "Local technical check",
+    verdictSummary: !parsed.integrityValid
+      ? "The file could not be validated. Replace it with a valid file before reviewing technical evidence. This does not activate artwork or change Proof approval."
+      : partialPdf
+      ? "Page 1 preview only. Other pages are not previewed or individually inspected. Page dimensions, color and bleed require separate verification across the document. This does not activate artwork or change Proof approval."
+      : verdict === "passed"
       ? "The available browser-local checks passed. This does not activate artwork or change Proof approval."
       : "Review the available technical evidence before production. This does not activate artwork or change Proof approval.",
     policyRevision: "local-v0.1",

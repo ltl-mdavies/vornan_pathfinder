@@ -16,6 +16,8 @@ export interface OperationsJob {
 
 export type JobFilters = { search: string; customer: string; intake: string; days: string; attention: boolean; archived: string };
 export const defaultOperationsFilters: JobFilters = { search: "", customer: "", intake: "", days: "", attention: false, archived: "active" };
+/** Reserve shell, customer context, controls and footer; long content may still wrap. */
+export const operationsJobsPageSize = (height: number) => Math.max(5, Math.floor((height - 284) / 44));
 export const needsOperationsAttention = (job: OperationsJob) => !job.liftOrder && ["Submitted", "Needs Mapping", "Submit Failed", "Failed", "Retry"].includes(job.processing);
 
 export function filterOperationsJobs(jobs: OperationsJob[], filters: JobFilters, now = Date.now()) {
@@ -66,6 +68,22 @@ export function sortProofLines(rows: OperationsProofLine[], grouping: ProofGroup
     (a.lineNumber ?? "").localeCompare(b.lineNumber ?? "", undefined, { numeric: true }) || a.id.localeCompare(b.id));
 }
 export const proofOrderGroupKey = (row: OperationsProofLine) => JSON.stringify([row.customerId, row.orderNumber]);
+// Presentation budget includes group headers and mixed-status subtext; API pages stay independent.
+export function paginateProofLines(rows: OperationsProofLine[], grouping: ProofGrouping, height: number, customerScoped = false) {
+  const budget = Math.max(160, height - (customerScoped ? 400 : 330));
+  const pages: OperationsProofLine[][] = [];
+  let current: OperationsProofLine[] = [], used = 0;
+  for (const row of rows) {
+    const cost = (prior?: OperationsProofLine) => 48
+      + (row.stateCounts && Object.keys(row.stateCounts).length > 1 ? 18 : 0)
+      + (!prior || proofOrderGroupKey(prior) !== proofOrderGroupKey(row) ? 30 : 0)
+      + (grouping === "customer" && (!prior || prior.customerId !== row.customerId) ? 28 : 0);
+    if (current.length && used + cost(current.at(-1)) > budget) { pages.push(current); current = []; used = 0; }
+    used += cost(current.at(-1)); current.push(row);
+  }
+  if (current.length) pages.push(current);
+  return pages;
+}
 export interface OperationsProofPage {
   lines: OperationsProofLine[]; next_cursor: string | null; checked_at: string;
   coverage: "cached_orders_only";

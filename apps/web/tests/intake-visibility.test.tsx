@@ -15,7 +15,7 @@ test("the shared availability check protects navigation and mounting of fetch-ow
   const app=readFileSync(new URL("../src/App.tsx",import.meta.url),"utf8");
   assert.match(app,/isIntakeVisibilityAvailable\(import\.meta\.env\.VITE_ENABLE_INTAKE_EXCEPTIONS, import\.meta\.env\.VITE_INTAKE_EXCEPTIONS_CUSTOMER_ID, selectedCustomerId, Boolean\(authSession\)\)/);
   assert.match(app,/item\.label !== "Intake Exceptions" \|\| intakeVisibilityAvailable/);
-  assert.match(app,/activeCustomerView === "Intake Exceptions" && intakeVisibilityAvailable \? \(/);
+  assert.match(app,/activeCustomerView === "Intake Exceptions" && intakeVisibilityAvailable \?/);
   for(const path of ["../src/IntakeExceptions.tsx","../src/IntakeDeliveries.tsx"]) {
     const component=readFileSync(new URL(path,import.meta.url),"utf8");
     assert.doesNotMatch(component,/method:\s*["'](?:POST|PUT|PATCH|DELETE)["']/);

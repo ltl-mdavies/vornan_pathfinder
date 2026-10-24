@@ -16,6 +16,14 @@ import {
   artworkInspectionResultFixture
 } from "../src/artwork-catalog/inspection-results-fixtures";
 
+test("sample inspection is clearly illustrative and cannot offer a no-op report download", () => {
+  const markup = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={artworkInspectionResultFixture} actions={artworkInspectionFixtureActions} sampleReport />);
+  assert.match(markup, /Sample inspection · illustrative findings/);
+  assert.match(markup, /disabled="" title="Sample inspection only; no downloadable report is connected"/);
+  const normal = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={artworkInspectionResultFixture} actions={artworkInspectionFixtureActions} />);
+  assert.doesNotMatch(normal, /no downloadable report is connected/);
+});
+
 test("renders the approved single-page results workspace with a default inspection-details rail", () => {
   const markup = renderToStaticMarkup(
     <ArtworkInspectionResultsWorkspace result={artworkInspectionResultFixture} actions={artworkInspectionFixtureActions} />
@@ -36,6 +44,7 @@ test("renders the approved single-page results workspace with a default inspecti
   assert.match(markup, /role="tab" id="inspection-details-tab"[^>]*aria-selected="true"/);
   assert.match(markup, /role="tab" id="inspection-findings-tab"[^>]*aria-selected="false"/);
   assert.match(markup, /Product fit/);
+  assert.match(markup, /Aspect match<\/dt><dd class="inspection-detail-pass">PASS<\/dd>/);
   assert.match(markup, /Resolution &amp; print size/);
   assert.match(markup, /File construction/);
   assert.match(markup, /Quality signals/);
@@ -130,6 +139,7 @@ test("keeps the unified workspace viewport-bound with one scrollable rail and pe
   assert.match(styleSource, /artwork-inspection-results[^}]*overflow:\s*hidden/);
   assert.match(styleSource, /inspection-workspace-grid[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 330px/);
   assert.match(styleSource, /inspection-rail-scroll[^}]*overflow-y:\s*auto/);
+  assert.match(styleSource, /inspection-findings-rail[^}]*grid-auto-rows:\s*max-content/);
   assert.match(styleSource, /inspection-preview[^}]*flex:\s*1 1 auto/);
   assert.match(styleSource, /inspection-key-metrics[^}]*repeat\(5/);
   assert.match(styleSource, /inspection-results-actions[^}]*min-height:\s*48px/);

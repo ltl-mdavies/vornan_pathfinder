@@ -1,0 +1,370 @@
+/* Shared Admin shell only. Public Proof/Status and legacy opt-out are untouched. */
+/* Administration uses the same working scale as the reviewed customer workflows. */
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) .panel {border-radius:6px;box-shadow:none;margin-bottom:12px;min-width:0}
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) .panel-header {padding:12px 16px;min-height:48px;gap:12px;flex-wrap:wrap}
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) h2 {font-size:16px;line-height:1.4;color:#39523b}
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) :is(input,select,textarea,td,dd) {font-size:14px;line-height:1.45;font-weight:500}
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) :is(p,.cell-meta,.panel-header>span,dt,.setup-control>span) {font-size:12px;line-height:1.5;font-weight:500}
+.pf-shell :is([data-admin-view="Targets"],[data-admin-view="Settings"],[data-admin-view="Audit"],[data-customer-view="Settings"]) :is(.customer-details dd,.cell-meta) {white-space:normal;overflow-wrap:anywhere;text-overflow:clip;overflow:visible}
+.pf-shell :is(.targets-overview-header,.settings-header,.pf-admin-heading) {min-height:64px;margin:0 0 12px;padding:10px 0;gap:16px;align-items:center}
+.pf-shell :is(.targets-overview-header,.settings-header,.pf-admin-heading,.target-detail-heading) h1 {font-size:22px;line-height:1.25;margin:0;color:#191818}
+.pf-shell :is(.targets-overview-header,.settings-header,.pf-admin-heading) p {margin:4px 0 0;max-width:740px;font-size:12px;font-weight:500;color:#52634c}
+.pf-shell .settings-header-actions {gap:8px;flex-wrap:wrap;max-width:none}
+.pf-shell .settings-header-actions button {font-size:12px;min-height:34px;white-space:nowrap}
+.pf-shell .pf-admin-sections,.pf-shell [data-admin-view="Targets"] .target-tabs {display:flex;gap:24px;overflow-x:auto;flex-wrap:nowrap;margin:0 0 12px;padding:0;background:none;border:0;border-bottom:1px solid #d8dfd3;border-radius:0;min-height:40px}
+.pf-shell .pf-admin-sections button,.pf-shell [data-admin-view="Targets"] .target-tab {flex:none;padding:8px 0;border:0;border-bottom:2px solid transparent;border-radius:0;background:none;box-shadow:none;font-size:14px;font-weight:500;color:#52634c;white-space:nowrap}
+.pf-shell .pf-admin-sections button[aria-current="page"],.pf-shell [data-admin-view="Targets"] .target-tab[aria-current="page"] {border-bottom-color:#39523b;color:#39523b;font-weight:800}
+.pf-shell .pf-admin-scope {margin:0;padding:10px 16px;font-size:12px;line-height:1.5;color:#52634c;background:#f3f7f1;overflow-wrap:anywhere}
+.pf-shell [data-admin-view="Targets"] .target-detail-header {padding:12px 0;margin:0 0 8px;min-height:56px;gap:16px;flex-wrap:wrap}
+.pf-shell [data-admin-view="Targets"] .target-detail-heading {min-width:220px;flex:1}
+.pf-shell [data-admin-view="Targets"] .target-detail-heading>span {font-size:12px;font-weight:500;line-height:1.5}
+.pf-shell [data-admin-view="Targets"] .target-header-status {gap:8px;flex-wrap:wrap}
+.pf-shell [data-admin-view="Targets"] .target-header-status :is(button,.health-chip,.method-save-state) {font-size:12px}
+.pf-shell [data-admin-view="Targets"] .target-tabs {margin-top:8px}
+.pf-shell [data-admin-view="Targets"] .target-status-strip {gap:0;margin:0 0 12px;border:1px solid #d8dfd3;border-radius:6px}
+.pf-shell [data-admin-view="Targets"] .status-step {min-width:0;padding:12px 16px;border:0;border-right:1px solid #d8dfd3;border-radius:0;box-shadow:none}
+.pf-shell [data-admin-view="Targets"] .status-step:last-child {border-right:0}
+.pf-shell [data-admin-view="Targets"] .status-step>svg {display:none}
+.pf-shell [data-admin-view="Targets"] .status-step strong {font-size:14px}
+.pf-shell [data-admin-view="Targets"] .status-step span {font-size:12px;font-weight:500;white-space:normal;overflow-wrap:anywhere}
+.pf-shell [data-admin-view="Targets"] .setup-panel {padding:0}
+.pf-shell [data-admin-view="Targets"] .setup-grid {padding:16px;gap:12px}
+.pf-shell [data-admin-view="Targets"] .target-config-card {margin:12px 16px;border-radius:6px;box-shadow:none;min-width:0}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table {min-width:900px}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table {table-layout:fixed;width:100%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td) {white-space:normal;overflow-wrap:anywhere}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(1) {width:21%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(2) {width:11%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(3) {width:17%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(4) {width:10%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(5) {width:19%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(6) {width:10%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table :is(th,td):nth-child(7) {width:12%}
+.pf-shell [data-admin-view="Targets"] .targets-overview-table td {padding:12px;vertical-align:top}
+.pf-shell .pf-admin-table-scroll {overflow:auto}
+.pf-shell :is(.pf-admin-table-scroll,.unit-map-table-wrap,.source-grid):focus-visible {outline:2px solid #39523b;outline-offset:-2px}
+.pf-shell [data-customer-view="Settings"] .customer-settings-stack {gap:12px}
+.pf-shell :is([data-customer-view="Settings"],[data-admin-view="Audit"]) .customer-details {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px 24px;padding:16px}
+.pf-shell :is([data-customer-view="Settings"],[data-admin-view="Audit"]) .customer-details>div {padding:0;border:0;background:none;min-width:0}
+.pf-shell :is([data-customer-view="Settings"],[data-admin-view="Audit"]) .customer-details dd {margin:4px 0 0}
+.pf-shell [data-customer-view="Settings"] .source-connections-intro {padding:12px 16px;gap:12px}
+.pf-shell [data-customer-view="Settings"] .source-connections-intro strong {font-size:14px}
+.pf-shell [data-customer-view="Settings"] .source-connector-catalog:empty {display:none}
+.pf-shell [data-customer-view="Settings"] :is(.source-connector-card,.source-connection-detail,.wrike-connection-panel) {box-shadow:none;border-radius:6px}
+.pf-shell [data-customer-view="Settings"] .source-connector-catalog {padding:0 16px;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.pf-shell [data-customer-view="Settings"] .source-connector-card {min-height:0;padding:12px 16px;align-items:center}
+.pf-shell [data-customer-view="Settings"] .source-connector-card>div {min-height:0}
+.pf-shell [data-customer-view="Settings"] .source-connections-empty {padding:8px 16px 12px;margin:0}
+.pf-shell .pf-planned-connectors {margin:8px 16px 0;font-size:12px;color:#52634c}
+.pf-shell .pf-planned-connectors>summary {padding:8px 0;cursor:pointer}
+.pf-shell [data-customer-view="Settings"] .pf-planned-connectors .source-connector-catalog {padding:8px 0}
+.pf-shell .pf-canonical-feedback {margin:12px 16px;padding:10px 12px;font-size:14px}
+.pf-shell .pf-canonical-feedback:focus {outline:2px solid #39523b;outline-offset:2px}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics {gap:0;margin:0 0 12px;border:1px solid #d8dfd3;border-radius:6px}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics .metric-card {display:block;min-height:0;padding:12px 16px;border:0;border-right:1px solid #d8dfd3;border-radius:0;box-shadow:none}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics .metric-card:last-child {border-right:0}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics .metric-icon {display:none}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics strong {font-size:18px;line-height:1.35;white-space:normal}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-metrics :is(span,small) {font-size:12px;line-height:1.4;margin-top:4px;font-weight:500}
+.pf-shell [data-admin-view="Settings"] :is(.email-health-grid,.canonical-governance-grid) {padding:16px;gap:16px}
+.pf-shell [data-admin-view="Settings"] .email-health-grid {grid-template-columns:repeat(4,minmax(0,1fr))}
+.pf-shell [data-admin-view="Settings"] .pf-email-read-time {font-size:12px;font-weight:500;color:#52634c}
+.pf-shell [data-admin-view="Settings"] :is(.email-health-summary,.canonical-governance-summary) {padding:0;border:0;background:none;min-width:0}
+.pf-shell [data-admin-view="Settings"] :is(.email-health-summary,.canonical-governance-summary) strong {font-size:14px;overflow-wrap:anywhere}
+.pf-shell [data-admin-view="Settings"] :is(.email-health-summary,.canonical-governance-summary) small {font-size:12px;font-weight:500;line-height:1.5}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-toolbar {padding:12px 16px;gap:12px}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-toolbar .unit-map-search {height:38px;min-height:38px}
+.pf-shell [data-admin-view="Settings"] .canonical-section-strip {padding:8px 16px;gap:8px;flex-wrap:wrap}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table {table-layout:fixed;width:100%;min-width:1040px}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th) {white-space:normal;overflow-wrap:anywhere;padding:10px 12px;vertical-align:top}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(1) {width:30%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(2) {width:9%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(3) {width:9%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(4) {width:12%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(5) {width:18%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(6) {width:9%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table :is(td,th):nth-child(7) {width:13%}
+.pf-shell [data-admin-view="Settings"] .canonical-registry-table .table-input {min-width:0;width:100%}
+.pf-shell [data-customer-view="Manual Import"] .workbench {min-height:0}
+.pf-shell [data-customer-view="Manual Import"] .source-grid {height:auto;max-height:376px;overflow:auto}
+@media(max-width:1050px){
+ .pf-shell :is([data-customer-view="Settings"],[data-admin-view="Audit"]) .customer-details,.pf-shell [data-admin-view="Settings"] .email-health-grid {grid-template-columns:repeat(2,minmax(0,1fr))}
+ .pf-shell .settings-header {flex-wrap:wrap}
+}
+/* Customer workflow composition. No global form or public-app overrides. */
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) {--pf-work-border:#d8dfd3}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) .panel {box-shadow:none;border-color:var(--pf-work-border);border-radius:6px}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) :is(.panel-header,.table-panel-header) {min-height:48px;padding:12px 16px;gap:12px;flex-wrap:wrap}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) .table-panel-header .panel-header {padding:0;min-height:0}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) h2 {font-size:16px;color:#39523b}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) :is(td,input,select,textarea) {font-size:14px;font-weight:500}
+.pf-shell [data-customer-view]:is([data-customer-view="Overview"],[data-customer-view="Import Methods"],[data-customer-view="Output Product Map"],[data-customer-view="Manual Import"]) :is(th,.cell-meta,.setup-control>span,.panel-header>span) {font-size:12px}
+.pf-shell [data-customer-view="Overview"] .metric-strip {gap:12px;margin:0 0 12px}
+.pf-shell .pf-customer-data-notice {padding:10px 12px;margin:0 0 12px;border-left:3px solid #abc65f;background:#f8faf5;font-size:12px;color:#39523b}
+.pf-shell .pf-workflow-feedback {margin:0 0 12px;font-size:14px;padding:10px 12px}
+.pf-shell [data-customer-view="Overview"] .metric-card {min-height:88px;padding:12px 16px;grid-template-columns:28px minmax(0,1fr);gap:12px;box-shadow:none;border-radius:6px}
+.pf-shell [data-customer-view="Overview"] .metric-icon {width:28px;height:28px;border-radius:5px}
+.pf-shell [data-customer-view="Overview"] .metric-card strong {font-size:24px;line-height:1.2}
+.pf-shell [data-customer-view="Overview"] .metric-card :is(span,small) {font-size:12px;line-height:1.4;margin-top:4px}
+.pf-shell [data-customer-view="Overview"] .metric-card small {font-weight:500;color:#687563}
+.pf-shell [data-customer-view="Overview"] .metric-card small.trend-bad {color:#8b601d}
+.pf-shell [data-customer-view="Overview"] .customer-overview {grid-template-columns:minmax(260px,.8fr) minmax(0,1.5fr);gap:12px;margin-bottom:12px;align-items:start}
+.pf-shell [data-customer-view="Overview"] .customer-detail-grid {padding:12px 16px;gap:12px}
+.pf-shell [data-customer-view="Overview"] .customer-detail-grid>div {padding:0;border:0;min-width:0}
+.pf-shell [data-customer-view="Overview"] :is(dd,.target-identity strong,.target-identity span) {white-space:normal;overflow-wrap:anywhere;overflow:visible;text-overflow:clip;font-size:14px}
+.pf-shell [data-customer-view="Overview"] :is(dt,.panel-header>span) {font-size:12px}
+.pf-shell [data-customer-view="Overview"] .primary-target-body {padding:10px 16px;gap:8px}
+.pf-shell [data-customer-view="Overview"] .target-identity {gap:10px;margin:0 0 8px}
+.pf-shell [data-customer-view="Overview"] .target-logo {width:36px;height:30px;font-size:12px}
+.pf-shell [data-customer-view="Overview"] .target-summary {display:grid;grid-template-columns:.5fr 1fr 1.4fr;gap:12px;margin:0}
+.pf-shell [data-customer-view="Overview"] .target-summary>div {padding:0;border:0;display:block;min-width:0;grid-column:auto}
+.pf-shell [data-customer-view="Overview"] .target-summary dd {margin:4px 0 0}
+.pf-shell [data-customer-view="Overview"] .overview-grid {gap:12px}
+.pf-shell [data-customer-view="Overview"] .jobs-panel {overflow:auto}
+.pf-shell [data-customer-view="Overview"] .customer-recent-jobs-table {min-width:1040px}
+.pf-shell [data-customer-view="Overview"] .customer-recent-jobs-table td {padding:10px 12px;vertical-align:top}
+.pf-shell [data-customer-view="Overview"] .job-identity-cell small {font-size:12px}
+.pf-shell :is(.pf-customer-record-details,.pf-readiness-details,.pf-route-diagnostics)>summary {cursor:pointer;padding:12px 16px;font-size:14px;color:#39523b;font-weight:800}
+.pf-shell :is(.pf-customer-record-details,.pf-readiness-details,.pf-route-diagnostics)>summary:focus-visible {outline:2px solid #39523b;outline-offset:-3px}
+.pf-shell .pf-route-diagnostics {min-width:0}
+.pf-shell .pf-route-diagnostics>summary {padding:6px 0;font-size:12px}
+.pf-shell .pf-route-diagnostics>summary span {display:block;margin:4px 0 0 14px;font-size:12px;font-weight:500}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-panel-header {flex-wrap:wrap;gap:8px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-header-actions {flex-wrap:wrap;gap:12px}
+.pf-shell .pf-route-diagnostics[open] {flex-basis:100%}
+.pf-shell :is(.pf-catalog-shortcuts,.pf-raw-evidence)>summary {cursor:pointer;padding:10px 16px;font-size:14px;font-weight:800;color:#39523b}
+.pf-shell :is(.pf-catalog-shortcuts,.pf-raw-evidence)>summary:focus-visible {outline:2px solid #39523b;outline-offset:-3px}
+.pf-shell .pf-catalog-shortcuts>summary {font-size:12px;font-weight:500}
+.pf-shell .pf-raw-evidence>summary span {margin-left:12px;font-size:12px;font-weight:500;color:#687563}
+.pf-shell [data-customer-view="Manual Import"] .workbench {grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+.pf-shell [data-customer-view="Manual Import"] .source-panel {grid-column:1/-1}
+.pf-shell .pf-raw-evidence pre {max-height:360px;overflow:auto}
+.pf-shell .pf-route-diagnostics .unit-map-metrics {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;padding:0 16px;margin:0 0 12px}
+.pf-shell .pf-route-diagnostics .metric-card {display:block;min-height:0;padding:8px 12px;border:0;border-left:1px solid #d8dfd3;border-radius:0;background:none;box-shadow:none}
+.pf-shell .pf-route-diagnostics .metric-icon {display:none}
+.pf-shell .pf-route-diagnostics .metric-card strong {font-size:14px;overflow-wrap:anywhere}
+.pf-shell .pf-route-diagnostics .metric-card :is(span,small) {font-size:12px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-toolbar {padding:12px 16px;gap:12px}
+.pf-shell [data-customer-view="Output Product Map"] .output-route-context {padding:10px 16px;gap:12px}
+.pf-shell [data-customer-view="Output Product Map"] .output-route-context>div {padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+.pf-shell [data-customer-view="Output Product Map"] .output-route-context :is(span,strong) {white-space:normal;overflow-wrap:anywhere;font-size:12px}
+.pf-shell [data-customer-view="Output Product Map"] .catalog-preset-strip {padding:10px 16px}
+.pf-shell .pf-map-selection-hint {margin:0;padding:8px 16px;font-size:12px;color:#687563;border-bottom:1px solid #d8dfd3}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-bulkbar {padding:12px 16px;gap:8px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table td {padding:10px 12px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table {table-layout:fixed;width:100%;min-width:1050px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td) {min-width:0;white-space:normal;overflow-wrap:anywhere;padding:10px 8px}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(1) {width:3%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(2) {width:9%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(3) {width:11%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(4) {width:20%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):is(:nth-child(5),:nth-child(6)) {width:6%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(7) {width:12%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(8) {width:14%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(9) {width:6%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(th,td):nth-child(10) {width:13%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table :is(strong,.cell-meta) {white-space:normal;overflow-wrap:anywhere;overflow:visible;text-overflow:clip}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table .table-input {min-width:0;width:100%}
+.pf-shell [data-customer-view="Output Product Map"] .unit-map-table-wrap:focus-visible {outline:2px solid #39523b;outline-offset:-2px}
+.pf-shell [data-customer-view="Import Methods"] :is(.method-row,.method-table-header) {font-size:12px}
+.pf-shell [data-customer-view="Import Methods"] .method-select-area {font-size:14px}
+.pf-shell [data-customer-view="Import Methods"] .method-select-area {padding:10px 0}
+.pf-shell [data-customer-view="Import Methods"] .method-select-area strong {font-size:14px;line-height:1.45}
+.pf-shell [data-customer-view="Import Methods"] .method-select-area>span {font-size:14px;white-space:normal;overflow-wrap:anywhere;overflow:visible;text-overflow:clip}
+.pf-shell [data-customer-view="Import Methods"] .method-select-area .pill {font-size:12px}
+.pf-shell [data-customer-view="Import Methods"] :is(.method-identity strong,.method-name strong) {font-size:14px;white-space:normal;overflow-wrap:anywhere}
+.pf-shell [data-customer-view="Import Methods"] .method-step-strip {padding:10px 16px;gap:8px}
+.pf-shell [data-customer-view="Import Methods"] .setup-panel {padding:16px}
+.pf-shell [data-customer-view="Import Methods"] .setup-grid {gap:12px 16px}
+.pf-shell [data-customer-view="Manual Import"] .manual-flow-guide {margin:0 0 12px;gap:8px}
+.pf-shell [data-customer-view="Manual Import"] .manual-flow-step {min-height:64px;padding:10px 12px;gap:10px}
+.pf-shell [data-customer-view="Manual Import"] .manual-flow-step strong {font-size:14px}
+.pf-shell [data-customer-view="Manual Import"] .manual-flow-step small {font-size:12px;line-height:1.5}
+.pf-shell .pf-manual-context {display:flex;flex-wrap:wrap;gap:6px 16px;border-left:3px solid #abc65f;background:#f8faf5;padding:10px 12px;margin-bottom:12px;font-size:12px}
+.pf-shell .pf-manual-context>strong {flex-basis:100%;font-size:14px}
+.pf-shell .pf-manual-task-grid {display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,1fr);gap:12px;margin-bottom:12px;align-items:start}
+.pf-shell .pf-manual-task-grid>.panel {grid-area:auto;min-width:0}
+.pf-shell .pf-manual-task-grid .validation-list {max-height:430px;overflow:auto}
+.pf-shell .pf-manual-task-grid .manual-import-basis {padding:12px 16px}
+.pf-shell .pf-manual-task-grid .drop-zone {margin:12px 16px;min-height:100px;padding:16px}
+.pf-shell .pf-manual-task-grid .action-row {gap:8px;flex-wrap:wrap;padding:12px 16px}
+.pf-shell .pf-manual-task-grid .submit-profile-grid {gap:12px}
+.pf-shell .pf-manual-task-grid .submit-profile-grid>div {min-width:0}
+.pf-shell .pf-manual-task-grid .submit-profile-grid :is(strong,em) {white-space:normal;overflow-wrap:anywhere;font-size:12px}
+.pf-shell .pf-readiness-details {border:1px solid #d8dfd3;border-radius:6px;margin-bottom:12px}
+.pf-shell .pf-readiness-details .submit-readiness-grid {padding:0 12px 12px;margin:0;gap:12px}
+.pf-shell [data-customer-view="Manual Import"] .pf-manual-review-grid {grid-template-columns:minmax(280px,1fr) minmax(0,1.5fr);grid-template-areas:"target certification";gap:12px;margin:12px 0}
+.pf-shell [data-customer-view="Manual Import"] .request-panel dd {white-space:normal;overflow-wrap:anywhere}
+@media(max-width:1050px){
+ .pf-shell [data-customer-view="Overview"] .customer-overview,.pf-shell .pf-manual-task-grid,.pf-shell [data-customer-view="Manual Import"] .pf-manual-review-grid {grid-template-columns:minmax(0,1fr);grid-template-areas:none}
+ .pf-shell [data-customer-view="Manual Import"] .pf-manual-review-grid>.panel {grid-area:auto}
+ .pf-shell .pf-route-diagnostics .unit-map-metrics {grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+.pf-shell .pf-proof-queue{display:block}
+.pf-shell .pf-proof-queue .ops-tabs{display:flex;gap:22px;margin:0 0 12px;min-height:38px}
+.pf-shell .pf-proof-queue .ops-tabs button{font-size:13px;padding:8px 0;white-space:nowrap;font-weight:500}
+.pf-shell .pf-proof-queue .ops-tabs button[aria-current=page]{font-weight:800}
+.pf-shell .pf-proof-queue .ops-toolbar>button{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+.pf-shell .pf-proof-queue .ops-search{min-width:180px}
+.pf-shell .pf-proof-queue .ops-order-group th{padding:0;height:30px}
+.pf-shell .pf-proof-queue .ops-order-group button{min-height:30px;gap:10px}
+.pf-shell .pf-proof-queue .ops-proof-customer-group th{height:28px;padding:4px 12px}
+.pf-shell .pf-proof-queue .ops-proof-table{table-layout:fixed;width:100%;min-width:840px}
+.pf-shell .pf-proof-queue .ops-proof-table th:nth-child(1){width:32%}
+.pf-shell .pf-proof-queue .ops-proof-table th:nth-child(2){width:25%}
+.pf-shell .pf-proof-queue .ops-proof-table th:nth-child(3),.pf-shell .pf-proof-queue .ops-proof-table th:nth-child(4){width:15%}
+.pf-shell .pf-proof-queue .ops-proof-table th:nth-child(5){width:13%}
+.pf-shell .pf-proof-queue .ops-proof-table td{height:48px;white-space:normal;overflow-wrap:anywhere}
+.pf-shell .pf-proof-queue .ops-creative{gap:10px}.pf-shell .pf-proof-queue .ops-creative strong{font-size:14px;font-weight:500}
+.pf-shell .pf-proof-queue .ops-proof-table .ops-link{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:#39523b;font-weight:500;text-decoration:underline;text-underline-offset:3px;white-space:nowrap}
+.pf-shell .pf-proof-queue .ops-coverage{font-size:12px;gap:12px;align-items:center;margin-top:8px}
+.pf-shell .pf-proof-queue .ops-coverage small{font-size:12px}.pf-shell .pf-proof-queue .ops-coverage button{font-size:12px;height:32px;white-space:nowrap}
+.pf-shell .pf-proof-notice{display:flex;align-items:center;gap:10px;font-size:12px;padding:10px;margin:0 0 12px}.pf-shell .pf-proof-notice>svg{flex:none}.pf-shell .pf-proof-notice button{margin-left:auto;background:white;border:1px solid #d8dfd3;border-radius:4px;padding:6px 10px}
+.pf-shell .pf-proof-tools{border:1px solid #d8dfd3;border-radius:6px;padding:12px;margin:0 0 12px;background:#f8faf5}
+.pf-shell .pf-proof-tools form{display:flex;align-items:end;gap:12px;flex-wrap:wrap}.pf-shell .pf-proof-tools label{display:grid;gap:4px;font-size:12px}.pf-shell .pf-proof-tools input{height:34px;border:1px solid #d8dfd3;border-radius:4px;padding:6px 10px}.pf-shell .pf-proof-tools p{flex-basis:100%;margin:0;font-size:12px;color:#52634c}
+.pf-shell .pf-proof-order-tools{padding-top:12px}.pf-shell .pf-proof-order-tools>.secondary-button{margin-bottom:12px;font-size:12px}
+.pf-shell .pf-proof-queue .ops-empty{padding:28px 16px}.pf-shell .pf-proof-queue .ops-empty p{margin:0 0 8px}.pf-shell .pf-proof-queue .ops-empty small{display:block}.pf-shell .pf-proof-queue .ops-empty button{display:block;margin:12px auto 0;border:1px solid #d8dfd3;border-radius:4px;background:white;padding:6px 10px;color:#39523b}
+@media(max-width:900px){.pf-shell .pf-proof-queue .ops-tabs{overflow:auto;gap:16px}.pf-shell .pf-proof-queue .ops-coverage{flex-wrap:wrap}}
+body:has(.pf-shell){min-width:0}
+.pf-shell [hidden]{display:none!important}
+.app-shell.pf-shell{--surface-0:#f3f7f1;display:grid;grid-template-columns:176px minmax(0,1fr)!important;grid-template-rows:48px minmax(0,1fr);background:#fff;font-family:"Plus Jakarta Sans",system-ui,sans-serif;font-weight:500;height:100dvh;min-width:0}
+.pf-masthead{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;background:#39523b;color:#fff;padding:0 24px;min-width:0;z-index:40}
+.pf-brand,.pf-session{display:flex;align-items:center;gap:16px;font-size:12px}
+.pf-brand img{width:108px;height:auto;max-height:28px;object-fit:contain;filter:brightness(0) invert(1)}
+.pf-brand>span{border-left:1px solid #ffffff50;padding-left:16px;font-size:14px;font-weight:800}
+.pf-session button{display:flex;align-items:center;justify-content:center;background:none;border:1px solid #ffffff60;color:white;border-radius:5px;padding:6px}
+.pf-shell>.sidebar.pf-rail{width:auto;min-height:0;overflow:auto;padding:20px 12px;background:#f3f7f1;border-right:1px solid #d8dfd3;gap:0}
+.pf-shell .pf-rail .nav-list{display:flex;flex-direction:column;gap:4px}
+.pf-shell .pf-rail .nav-item{color:#39523b;min-height:40px;font-size:13px;line-height:1.4;padding:8px 10px;gap:12px;border:0;border-left:3px solid transparent;border-radius:4px;background:transparent;font-weight:500}
+.pf-shell .pf-rail .nav-item:nth-child(5){margin-top:16px;position:relative}
+.pf-shell .pf-rail .nav-item:nth-child(5)::before{content:"";position:absolute;top:-10px;left:0;right:0;border-top:1px solid #d8dfd3}
+.pf-shell .pf-rail .nav-item:hover{background:#eaf0e4}
+.pf-shell .pf-rail .nav-item-active{background:#e8efdb;border-left-color:#abc65f;font-weight:800;color:#39523b}
+.pf-shell>.workspace{padding:0 24px 12px!important;background:#fff;min-height:0;overflow:auto;display:block;min-width:0}
+.pf-shell h1,.pf-shell h2,.pf-shell h3,.pf-shell strong{font-family:inherit}
+.pf-shell h1,.pf-shell h2,.pf-shell h3{font-weight:800}
+.pf-shell button:focus-visible,.pf-shell a:focus-visible,.pf-shell input:focus-visible,.pf-shell select:focus-visible{outline:2px solid #39523b;outline-offset:3px}
+.pf-shell .pf-masthead button:focus-visible{outline-color:#abc65f}
+.pf-skip{position:fixed;top:-80px;left:190px;padding:10px;background:white;z-index:100;color:#39523b}.pf-skip:focus{top:4px}
+.pf-shell .ops-customer-header{min-height:56px;margin:0;gap:16px}
+.pf-shell .ops-customer-header>div:first-child{display:flex;align-items:center;gap:16px;min-width:0;flex-wrap:wrap}
+.pf-shell .ops-customer-header h1{font-size:20px;line-height:1.25;color:#191818}
+.pf-shell .ops-customer-breadcrumb{font-size:12px;margin:0;order:2}
+.pf-shell .ops-customer-header-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.pf-shell .ops-switch-trigger,.pf-shell .pf-customer-tools-toggle{height:34px;padding:6px 10px;font-size:12px;background:white;color:#39523b;border:1px solid #d8dfd3;border-radius:5px}
+.pf-shell .ops-customer-tabs-row{height:40px;margin-bottom:12px;gap:8px}
+.pf-shell .ops-customer-tabs{overflow:auto;align-self:stretch;align-items:stretch;flex-wrap:nowrap;gap:20px}
+.pf-shell .ops-customer-tabs button{font-size:13px;padding:4px 0;flex-shrink:0;color:#4f5b4f;font-weight:500;white-space:nowrap}
+.pf-shell .ops-customer-tabs button[aria-current=page]{font-weight:800;color:#39523b;border-bottom:2px solid #39523b}
+.pf-shell .pf-customer-utilities{padding:12px;margin:0 0 12px;border:1px solid #d8dfd3;border-radius:6px;min-height:0}
+.pf-shell .pf-customer-utilities .title-block{display:none}
+.pf-shell .pf-customer-utilities .topbar-actions{margin-left:auto;flex-wrap:wrap}
+.pf-shell .ops-heading{min-height:56px;margin:0;align-items:center}
+.pf-shell .ops-heading h1{font-size:22px;color:#191818}
+.pf-shell .ops-heading>div>span{font-size:12px}
+.pf-shell .ops-directory-toolbar{padding:0 0 12px;border:0;gap:12px;justify-content:flex-start}
+.pf-shell .ops-directory-toolbar .ops-search{flex:0 1 520px;height:34px}
+.pf-shell .ops-directory-toolbar select{height:34px;border:1px solid #d8dfd3;border-radius:5px;padding:4px 12px;background:white;color:#39523b;font-size:13px}
+.pf-shell .ops-directory>.ops-surface{border:0;border-radius:0;overflow:visible}
+.pf-shell .ops-directory-scroll{border:1px solid #d8dfd3;border-radius:6px;max-height:calc(100dvh - 200px)}
+.pf-shell .ops-directory-row{min-height:56px;padding:10px 14px}
+.pf-shell .ops-directory-identity{gap:3px}.pf-shell .ops-directory-identity strong{font-size:14px;color:#191818}.pf-shell .ops-directory-identity small{font-size:12px}
+.pf-shell .ops-directory-count{padding:10px 0;border:0}
+.pf-shell .ops-toolbar{gap:10px;margin-bottom:12px}
+.pf-shell .ops-toolbar input,.pf-shell .ops-toolbar select,.pf-shell .ops-toolbar>button,.pf-shell .ops-toolbar .ops-search{height:34px;min-height:34px;font-size:13px}
+.pf-shell .ops-table th{font-size:12px;font-weight:500;height:34px;padding:6px 12px}
+.pf-shell .ops-table td{font-size:14px;height:44px;padding:4px 12px}
+.pf-shell .ops-table small{font-size:12px;line-height:1.25;margin-top:2px}.pf-shell .ops-table .ops-link{font-weight:800;color:#191818;text-decoration:none}.pf-shell .ops-table .ops-link:hover{text-decoration:underline}
+.pf-shell .ops-table tr:hover td{background:#f8faf5}
+.pf-shell .ops-pagination{min-height:34px;padding:4px 12px;border-top:1px solid #d8dfd3;font-size:12px}
+.pf-shell .ops-table-scroll{max-height:none}.pf-shell .ops-jobs-table{width:100%;min-width:900px}.pf-shell .ops-jobs-table.pf-customer-jobs-table{min-width:760px}
+.pf-shell .pf-jobs-more{padding:10px 12px;margin-bottom:12px;background:#f3f7f1;border:1px solid #d8dfd3;border-radius:6px}
+.pf-shell .pf-jobs-more .ops-toolbar{margin-bottom:8px;flex-wrap:wrap}.pf-shell .pf-jobs-more>button{font-size:13px;margin-right:12px}
+.pf-shell .pf-jobs-footer{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#4f5b4f;margin-top:8px;gap:12px}
+.pf-shell .ops-pagination>small{font-size:11px;color:#4f5b4f}
+.pf-shell .ops-jobs-table .pf-job-check{width:40px;min-width:40px;max-width:40px;padding:0 8px}.pf-job-check input{width:16px;height:16px;accent-color:#39523b;cursor:pointer}.pf-job-check:has(input:hover){background:#e8efdb}
+.pf-job-selection{display:flex;align-items:center;gap:12px;margin-bottom:12px;padding:8px 12px;background:#f3f7f1;font-size:12px}.pf-job-selection button{background:white;border:1px solid #d8dfd3;border-radius:4px;padding:6px}
+.pf-job-inspector{width:min(640px,calc(100vw - 32px));max-height:calc(100dvh - 48px);padding:0;border:1px solid #d8dfd3;border-radius:8px;color:#191818;background:white;box-shadow:0 20px 80px #19181830;font-family:"Plus Jakarta Sans",system-ui,sans-serif}
+.pf-job-inspector::backdrop{background:#19181855}
+.pf-job-inspector header{display:flex;align-items:flex-start;justify-content:space-between;padding:20px 24px;border-bottom:1px solid #d8dfd3}.pf-job-inspector header span,.pf-job-inspector p{font-size:12px;color:#4f5b4f}.pf-job-inspector h2{margin:4px 0;font-size:22px}.pf-job-inspector header p{margin:4px 0 0}.pf-job-inspector header button{display:flex;background:white;border:1px solid #d8dfd3;border-radius:4px;padding:6px}
+.pf-job-inspector dl{display:grid;grid-template-columns:1fr 1fr;gap:16px 24px;padding:20px 24px;margin:0}.pf-job-inspector dt{font-size:12px;color:#4f5b4f;margin-bottom:4px}.pf-job-inspector dd{margin:0;font-size:14px;overflow-wrap:anywhere}.pf-job-inspector .pf-job-reference{padding:0 24px;overflow-wrap:anywhere}.pf-job-inspector footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;border-top:1px solid #d8dfd3}.pf-job-inspector footer span{font-size:12px;color:#4f5b4f;max-width:250px}
+.pf-job-inspector{position:fixed;inset:156px 24px 12px auto;margin:0;width:340px;height:calc(100dvh - 168px);max-height:none;overflow:hidden}
+.pf-job-inspector[open]{display:grid;grid-template-rows:auto minmax(0,1fr) auto auto}
+.pf-job-inspector header{padding:16px}.pf-job-inspector h2{font-size:20px}.pf-job-inspector dl{grid-template-columns:1fr;padding:16px;gap:12px;overflow:auto}.pf-job-inspector .pf-job-reference{padding:0 16px;margin:8px 0;font-size:11px}.pf-job-inspector footer{padding:12px 16px;flex-direction:column;align-items:stretch;gap:10px}.pf-job-inspector footer span{max-width:none}
+@media(min-width:1550px){.pf-jobs:has(.pf-job-inspector[open]){padding-right:360px}}
+@media(max-width:600px){.pf-job-inspector{inset:60px 8px 8px auto;width:min(340px,calc(100vw - 16px));height:calc(100dvh - 68px)}.pf-shell .ops-pagination>small{display:none}}
+.pf-shell .job-detail-layout{margin-top:12px}.pf-shell .job-detail-header{padding:16px}.pf-shell .job-detail-header h2{font-size:22px}.pf-shell .job-detail-actions{gap:8px}
+.pf-shell .workspace-loading-content{padding:24px 0}.pf-shell .workspace-loading-status{max-width:760px}
+.pf-shell .artwork-catalog-workspace{position:relative}
+.pf-shell .artwork-catalog-drawer{position:absolute;top:0;bottom:auto;height:calc(100dvh - 168px);max-height:900px}
+/* At narrow widths the existing detail is stacked, not an overlay over focusable controls. */
+@media(max-width:1320px){.pf-shell .artwork-catalog-with-drawer{display:flex;flex-direction:column}.pf-shell .artwork-catalog-drawer{position:relative;order:-1;width:100%;height:auto;max-height:none;margin-bottom:16px;box-shadow:none;border:1px solid #d8dfd3}.pf-shell .artwork-catalog-drawer-body{max-height:50vh}}
+/* Catalog pilot candidate: list first, with detail bounded below the customer tabs. */
+.pf-shell .pf-catalog-candidate{display:block;background:transparent;font-family:"Plus Jakarta Sans",system-ui,sans-serif;font-size:14px;min-height:calc(100dvh - 180px)}
+.pf-shell .pf-catalog-candidate .artwork-catalog-main{padding:0;margin-right:0;transition:none}
+.pf-catalog-pilot-note{display:flex;flex-wrap:wrap;gap:6px 12px;margin:0 0 12px;color:#4f5b4f;font-size:12px;line-height:1.5}
+.pf-catalog-pilot-note strong{color:#39523b}
+.pf-shell .pf-catalog-candidate .artwork-catalog-toolbar{margin:0;align-items:center;gap:8px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-search{flex:1;width:auto;min-height:34px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-search input{font-size:14px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-filter-trigger,.pf-shell .pf-catalog-candidate .artwork-catalog-toolbar>.artwork-catalog-secondary{min-height:34px;font-size:12px;white-space:nowrap}
+.pf-shell .pf-catalog-candidate .artwork-catalog-view-toggle{padding:2px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-view-toggle button{min-height:28px;font-size:12px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-table-wrap{margin-top:12px;box-shadow:none;border-radius:6px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-table{min-width:760px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-table th{font-size:12px;text-transform:none;letter-spacing:0;padding:10px 12px;color:#4f5b4f}
+.pf-shell .pf-catalog-candidate .artwork-catalog-table th:first-child{width:36%}
+.pf-shell .pf-catalog-candidate .artwork-catalog-table th:nth-child(2){width:18%}
+.pf-shell .pf-catalog-candidate .artwork-catalog-table th:nth-child(3){width:18%}
+.pf-shell .pf-catalog-candidate .artwork-catalog-table th:nth-child(4){width:16%}
+.pf-shell .pf-catalog-candidate .artwork-catalog-table th:nth-child(5){width:12%}
+.pf-shell .pf-catalog-candidate .artwork-catalog-table td{padding:10px 12px;font-size:14px;height:62px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-product-link strong,.pf-shell .pf-catalog-candidate .artwork-catalog-table td>strong{font-size:14px;white-space:normal;overflow-wrap:anywhere;line-height:1.4}
+.pf-shell .pf-catalog-candidate .artwork-catalog-product-link small,.pf-shell .pf-catalog-candidate .artwork-catalog-table td>small{font-size:12px;white-space:normal;line-height:1.4;color:#4f5b4f}
+.pf-shell .pf-catalog-candidate .artwork-catalog-product-open>span{display:none}
+.pf-shell .pf-catalog-candidate .artwork-catalog-status{font-size:12px;white-space:normal;line-height:1.35;padding:4px 8px}
+.pf-catalog-count{margin:12px 0;color:#4f5b4f;font-size:12px}
+/* Embedded inspection shares the customer shell; it is not a second full-screen app. */
+.pf-shell .pf-catalog-inspection .artwork-inspection-results{height:calc(100dvh - 180px);min-height:480px;padding:12px;font-family:"Plus Jakarta Sans",system-ui,sans-serif;gap:8px}
+.pf-catalog-inspection .inspection-results-header{min-height:72px;gap:16px}
+.pf-catalog-inspection .inspection-results-title-group h1{font-size:22px}
+.pf-catalog-inspection .inspection-header-facts{gap:16px}
+.pf-catalog-inspection .inspection-viewer-toolbar{gap:8px;padding:6px 8px;flex-wrap:wrap}
+.pf-catalog-inspection .inspection-mode-control button{padding-inline:10px}
+.pf-catalog-inspection .inspection-summary{grid-template-columns:140px minmax(0,1fr)}
+.pf-catalog-inspection .inspection-key-metrics>div{padding-inline:8px}
+.pf-catalog-inspection .inspection-header-facts dt,.pf-catalog-inspection .inspection-verdict-chip small,.pf-catalog-inspection .inspection-key-metrics dt,.pf-catalog-inspection .inspection-results-actions>span,.pf-catalog-inspection .inspection-results-footer{font-size:11px}
+.pf-catalog-inspection .inspection-detail-section h2,.pf-catalog-inspection .inspection-detail-section p,.pf-catalog-inspection .inspection-detail-section dt,.pf-catalog-inspection .inspection-detail-section dd,.pf-catalog-inspection .inspection-finding-card-body p,.pf-catalog-inspection .inspection-finding-card-body dt,.pf-catalog-inspection .inspection-finding-card-body dd,.pf-catalog-inspection .inspection-report-details p>*{font-size:12px;line-height:1.45}
+.pf-catalog-inspection .inspection-results-actions{gap:12px}
+.pf-catalog-inspection .inspection-results-actions>span{max-width:48%}
+.pf-catalog-inspection .inspection-primary-action{min-width:140px}
+@media(max-width:1100px){.pf-shell .pf-catalog-inspection .artwork-inspection-results{height:auto;min-height:0;overflow:visible;grid-template-rows:auto auto auto auto}.pf-catalog-inspection .inspection-workspace-grid{grid-template-columns:1fr;overflow:visible}.pf-catalog-inspection .inspection-viewer-body{min-height:320px}.pf-catalog-inspection .inspection-results-rail{max-height:400px;border-top:1px solid #d8dfd3}.pf-catalog-inspection .inspection-workspace-primary{border-right:0}.pf-catalog-inspection .inspection-results-actions{flex-wrap:wrap}.pf-catalog-inspection .inspection-results-actions>span{max-width:none}.pf-catalog-inspection .inspection-results-footer{flex-wrap:wrap;justify-content:flex-start}}
+.pf-shell .pf-catalog-candidate .artwork-catalog-drawer{position:absolute;inset:0 0 auto auto;width:420px;height:calc(100dvh - 180px);max-height:none;margin:0;order:0;border:1px solid #d8dfd3;border-radius:8px;overflow:hidden;box-shadow:-12px 8px 32px #19181820}
+.pf-shell .pf-catalog-candidate .artwork-catalog-drawer-header{padding:16px;gap:8px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-drawer-header>div:first-child{min-width:0}
+.pf-shell .pf-catalog-candidate .artwork-catalog-drawer-header h2{font-size:20px;overflow-wrap:anywhere}
+.pf-shell .pf-catalog-candidate .artwork-catalog-drawer-header-actions{align-items:flex-start}
+.pf-shell .pf-catalog-candidate .artwork-catalog-drawer-body{padding:16px;max-height:none}
+.pf-shell .pf-catalog-candidate .artwork-catalog-drawer-footer{padding:12px 16px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-drawer-footer p{font-size:11px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-current-preview img{aspect-ratio:2.5;object-fit:contain}
+.pf-shell .pf-catalog-candidate .artwork-catalog-current-preview figcaption strong{font-size:12px;white-space:normal;overflow-wrap:anywhere}
+.pf-shell .pf-catalog-candidate .artwork-catalog-widget h3{font-size:14px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-widget header p,.pf-shell .pf-catalog-candidate .artwork-catalog-widget-summary,.pf-shell .pf-catalog-candidate .artwork-catalog-widget>small{font-size:12px;line-height:1.5}
+.pf-shell .pf-catalog-candidate .artwork-catalog-spec-grid dt{font-size:11px;letter-spacing:0;text-transform:none}
+.pf-shell .pf-catalog-candidate .artwork-catalog-spec-grid dd{font-size:14px}
+.pf-catalog-sample-note{font-size:12px;line-height:1.5;color:#4f5b4f;margin:8px 0 12px}
+.pf-catalog-status-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 16px}
+.pf-catalog-status-pair dt{font-size:12px;color:#4f5b4f;margin-bottom:6px}
+.pf-catalog-status-pair dd{margin:0}
+.pf-shell .pf-catalog-candidate .artwork-catalog-card-grid{grid-template-columns:repeat(auto-fill,minmax(min(240px,100%),1fr))}
+.pf-shell .pf-catalog-candidate .artwork-catalog-card-art{aspect-ratio:16/9;max-height:180px}
+.pf-shell .pf-catalog-candidate .artwork-catalog-card-art>img{object-fit:contain}
+.pf-shell .pf-catalog-candidate .artwork-catalog-card-body h2{font-size:14px;white-space:normal;overflow-wrap:anywhere;line-height:1.4}
+.pf-shell .pf-catalog-candidate .artwork-catalog-card-body header span,.pf-shell .pf-catalog-candidate .artwork-catalog-card-body header p,.pf-shell .pf-catalog-candidate .artwork-catalog-card-body dt,.pf-shell .pf-catalog-candidate .artwork-catalog-card-body dd,.pf-shell .pf-catalog-candidate .artwork-catalog-card-body>footer span,.pf-shell .pf-catalog-candidate .artwork-catalog-card-body>footer strong{font-size:12px;text-transform:none;letter-spacing:0;white-space:normal}
+.pf-catalog-detail-scrim{position:absolute;inset:0;z-index:20;border:0;background:#19181818;cursor:pointer}
+@media(min-width:1700px){.pf-shell .pf-catalog-candidate.artwork-catalog-with-drawer .artwork-catalog-main{margin-right:440px}.pf-shell .pf-catalog-candidate .artwork-catalog-drawer{box-shadow:none}}
+@media(max-width:900px){.pf-shell .pf-catalog-candidate .artwork-catalog-toolbar{flex-wrap:wrap}.pf-shell .pf-catalog-candidate .artwork-catalog-search{flex-basis:100%}.pf-shell .pf-catalog-candidate .artwork-catalog-drawer{width:min(420px,100%)}}
+@media(min-width:1800px){.pf-shell>.workspace{padding-left:28px!important;padding-right:28px!important}}
+@media(max-width:900px){.app-shell.pf-shell{grid-template-columns:144px minmax(0,1fr)!important}.pf-shell>.workspace{padding-left:16px!important;padding-right:16px!important}.pf-shell .ops-customer-header{height:auto;padding:12px 0;align-items:flex-start;flex-wrap:wrap}.pf-shell .ops-customer-header-actions{flex-wrap:wrap}.pf-shell .ops-customer-tabs-row{height:auto;min-height:40px;flex-wrap:wrap}.pf-shell .ops-customer-tabs{min-height:40px}.pf-shell .ops-toolbar{flex-wrap:wrap}.pf-shell .ops-directory-toolbar{flex-wrap:wrap}}
+@media(max-width:600px){.app-shell.pf-shell{grid-template-columns:56px minmax(0,1fr)!important}.pf-shell>.sidebar.pf-rail{padding:12px 4px}.pf-shell .pf-rail .nav-item{justify-content:center;padding:10px 4px}.pf-shell .pf-rail .nav-item span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}.pf-masthead{padding:0 12px}.pf-session>span{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.pf-shell .ops-customer-tabs{gap:16px}.pf-shell .ops-customer-header-actions{width:100%}}

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -8,6 +9,7 @@ import {
   proofingApiBaseUrlFromOrderEndpoint,
   proofingApiSaveLabel,
   proofingApiSavePayload,
+  proofingApiReadStatus,
   type ProofingApiConfiguration
 } from "../src/ProofingApiSetup";
 
@@ -94,6 +96,31 @@ test("renders a responsive write-only Proofing API setup without credential valu
   assert.match(markup, /No Lift user password is used/);
   assert.match(markup, /type="password"/);
   assert.match(markup, /autoComplete="new-password"/);
-  assert.match(markup, />Not configured</);
+  assert.match(markup, />Loading…</);
+  assert.match(markup, />Unknown</);
+  assert.doesNotMatch(markup, />Not configured<|>Not saved</);
   assert.doesNotMatch(markup, /replacement-client|replacement-secret/);
+});
+
+test("unknown Proofing reads never imply missing credentials, while known save errors retain presence", () => {
+  assert.deepEqual(proofingApiReadStatus(configured, false, false), {
+    label: "Unavailable", clientId: "Unknown", clientSecret: "Unknown", updatedAt: "Unknown"
+  });
+  assert.equal(proofingApiReadStatus(configured, false, true).label, "Loading…");
+  assert.equal(proofingApiReadStatus(configured, true, false).clientId, "Saved securely");
+  assert.equal(proofingApiReadStatus({ ...configured, configured: false, client_id_configured: false }, true, false).label, "Not configured");
+});
+
+test("Proofing retries read configuration and gates mutations on an environment-bound successful read", async () => {
+  const source = await readFile(new URL("../src/ProofingApiSetup.tsx", import.meta.url), "utf8");
+  assert.match(source, /configurationKnown = loadedEndpoint === endpoint/);
+  assert.match(source, /controlsDisabled = !configurationKnown \|\| state === "loading" \|\| state === "saving"/);
+  assert.match(source, /async function save\(\) \{\s*if \(controlsDisabled\) return/);
+  assert.match(source, /async function clear\(\) \{\s*if \(controlsDisabled\) return/);
+  assert.match(source, /setLoadedEndpoint\(null\)/);
+  assert.match(source, /setLoadedEndpoint\(endpoint\)/);
+  assert.match(source, /if \(!active\) return/);
+  assert.match(source, /setReadAttempt\(attempt => attempt \+ 1\)/);
+  assert.match(source, /\[endpoint, suggestedBaseUrl, suggestedCompanyId, readAttempt\]/);
+  assert.match(source, /configurationKnown && confirmClear/);
 });

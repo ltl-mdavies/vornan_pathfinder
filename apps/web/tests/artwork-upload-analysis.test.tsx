@@ -42,12 +42,12 @@ function jpegFile(width: number, height: number): File {
   return new File([bytes], "sample.jpg", { type: "image/jpeg" });
 }
 
-function pdfFile(): File {
+function pdfFile(pageCount = 2): File {
   const source = `%PDF-1.7
 1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
-2 0 obj << /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >> endobj
+2 0 obj << /Type /Pages /Count ${pageCount} /Kids [3 0 R${pageCount > 1 ? " 4 0 R" : ""}] >> endobj
 3 0 obj << /Type /Page /MediaBox [0 0 10368 2160] /TrimBox [0 0 10368 2160] /BleedBox [-9 -9 10377 2169] /ColorSpace /DeviceCMYK >> endobj
-4 0 obj << /Type /Page /MediaBox [0 0 10368 2160] >> endobj
+${pageCount > 1 ? "4 0 obj << /Type /Page /MediaBox [0 0 432 720] >> endobj" : ""}
 %%EOF`;
   return new File([source], "sample.pdf", { type: "application/pdf" });
 }
@@ -83,6 +83,27 @@ test("models a real PNG as a one-item batch and reports byte-derived evidence", 
   assert.deepEqual(progress, ["selected", "hashing", "inspecting", "completed"]);
 });
 
+test("announces a pending read without completing or producing a preview early", async () => {
+  const file = pngFile(192, 192);
+  const buffer = await file.arrayBuffer();
+  let release!: (buffer: ArrayBuffer) => void;
+  Object.defineProperty(file, "arrayBuffer", { value: () => new Promise<ArrayBuffer>(resolve => { release = resolve; }) });
+  const labels: string[] = [];
+  let previews = 0;
+  const pending = analyzeArtworkUpload(file, spec, {
+    ...deterministicOptions,
+    onProgress: entry => labels.push(entry.label),
+    createObjectUrl: () => { previews++; return "blob:delayed-preview"; }
+  });
+  assert.deepEqual(labels, ["Reading artwork"]);
+  assert.equal(previews, 0);
+  release(buffer);
+  const result = await pending;
+  assert.equal(result.status, "completed");
+  assert.equal(previews, 1);
+  assert.equal(labels.at(-1), "Technical inspection ready");
+});
+
 test("reads JPEG dimensions from the file signature rather than the MIME label", async () => {
   const mislabeled = jpegFile(4800, 1000);
   const file = new File([await mislabeled.arrayBuffer()], "mislabeled.bin", { type: "application/octet-stream" });
@@ -92,16 +113,37 @@ test("reads JPEG dimensions from the file signature rather than the MIME label",
   assert.match(batch.items[0].result?.metrics.find((metric) => metric.label === "Color")?.value ?? "", /RGB/);
 });
 
-test("extracts PDF page boxes, page count, color evidence, and bleed without inventing effective DPI", async () => {
-  const batch = await analyzeArtworkUpload(pdfFile(), spec, { ...deterministicOptions, createId: () => "pdf" });
+test("extracts single-page PDF boxes without inventing effective DPI", async () => {
+  const batch = await analyzeArtworkUpload(pdfFile(1), spec, { ...deterministicOptions, createId: () => "pdf" });
   const result = batch.items[0].result;
   assert.equal(batch.items[0].mediaType, "pdf");
   assert.equal(result?.pages[0].mediaType, "pdf");
-  assert.equal(result?.metrics.find((metric) => metric.label === "Pages")?.value, "2");
+  assert.equal(result?.metrics.find((metric) => metric.label === "Pages")?.value, "1");
   assert.equal(result?.metrics.find((metric) => metric.label === "Trim")?.value, "144 × 30 in");
   assert.equal(result?.metrics.find((metric) => metric.label === "Bleed")?.value, "At least 0.125 in");
   assert.equal(result?.metrics.find((metric) => metric.label === "Effective DPI")?.value, "Indeterminate");
   assert.match(result?.findings.map((finding) => finding.id).join(",") ?? "", /dpi-indeterminate/);
+});
+
+test("multipage PDFs disclose partial coverage and do not apply one page's geometry across the document", async () => {
+  const batch = await analyzeArtworkUpload(pdfFile(), spec, deterministicOptions);
+  const result = batch.items[0].result!;
+  assert.equal(result.pages.length, 1);
+  assert.equal(result.metrics.find(metric => metric.label === "Pages")?.value, "2");
+  for (const label of ["Dimensions", "Trim", "Bleed", "Color"]) {
+    const metric = result.metrics.find(metric => metric.label === label);
+    assert.ok(metric, `${label} metric is present`);
+    assert.equal(metric.value, "Indeterminate");
+  }
+  assert.equal(result.verdict, "review");
+  assert.equal(result.verdictDetail, "Partial PDF check");
+  assert.match(result.verdictSummary, /Other pages are not previewed or individually inspected/);
+  assert.doesNotMatch(result.findings.map(finding => finding.recommendation).join(" "), /future|server inspection provider/);
+  assert.match(result.findings.find(finding => finding.id === "dimensions-indeterminate")?.recommendation ?? "", /prepress application/);
+  const markup = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={result} actions={{onBack:()=>{},onDownloadReport:()=>{},onOpenAnalyzedArtwork:()=>{}}}/>);
+  assert.match(markup, /of 2 · Preview only/);
+  assert.match(markup, /Aspect match<\/dt><dd>Indeterminate<\/dd>/);
+  assert.doesNotMatch(markup, /inspection-detail-pass">PASS/);
 });
 
 test("fails closed for unsupported or oversized input", async () => {
@@ -110,10 +152,23 @@ test("fails closed for unsupported or oversized input", async () => {
   assert.equal(batch.items[0].mediaType, "unsupported");
   assert.equal(batch.items[0].result?.verdict, "needs-work");
   assert.equal(batch.items[0].result?.findings[0].category, "File integrity");
+  assert.equal(batch.items[0].result?.pages[0].previewUnavailable, true);
+  assert.match(batch.items[0].result?.verdictSummary ?? "", /file could not be validated/);
+  const markup = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={batch.items[0].result!} actions={{ onBack: () => undefined, onDownloadReport: () => undefined, onOpenAnalyzedArtwork: () => undefined }} />);
+  assert.match(markup, /Aspect match<\/dt><dd>Indeterminate<\/dd>/);
+  assert.match(markup, /Artwork preview unavailable/);
+  assert.doesNotMatch(markup, /<img\b|inspection-detail-pass/);
 
   const oversized = new File([], "large.pdf", { type: "application/pdf" });
   Object.defineProperty(oversized, "size", { value: LOCAL_ARTWORK_ANALYSIS_MAX_BYTES + 1 });
   await assert.rejects(() => analyzeArtworkUpload(oversized, spec), /files up to 250 MB/);
+});
+
+test("a PDF without readable geometry never claims an aspect match", async () => {
+  const file = new File(["%PDF-1.7\n1 0 obj << /Type /Catalog >> endobj\n%%EOF"], "unknown-geometry.pdf", {type: "application/pdf"});
+  const batch = await analyzeArtworkUpload(file, spec, { ...deterministicOptions, createId: () => "unknown-geometry" });
+  const markup = renderToStaticMarkup(<ArtworkInspectionResultsWorkspace result={batch.items[0].result!} actions={{ onBack: () => undefined, onDownloadReport: () => undefined, onOpenAnalyzedArtwork: () => undefined }} />);
+  assert.match(markup, /Aspect match<\/dt><dd>Indeterminate<\/dd>/);
 });
 
 test("renders local evidence without presenting a fabricated heatmap or persistence claim", async () => {

@@ -106,7 +106,7 @@ test("Jobs shows durable Lift order-header status and the line comparison uses t
   assert.match(source, /<th>Order Status<\/th>/);
   assert.match(source, /job\.target_order_status\.label/);
   assert.match(source, /Lift order header last checked/);
-  assert.match(source, /job\.target_order_number \? "Not checked" : "Not in Lift"/);
+  assert.match(source, /job\.target_order_number \? "Not checked" : "Not confirmed"/);
   assert.match(styles, /\.order-line-comparison table \{[\s\S]*?width: 100%;[\s\S]*?table-layout: fixed;/);
 });
 
@@ -147,7 +147,9 @@ test("Customer overview distinguishes data provenance and hides technical target
 
 test("Job detail prioritizes order identity, attention, and progressive disclosure", async () => {
   const styles = await readFile(new URL("../src/styles.css", import.meta.url), "utf8");
-  assert.match(source, /Wrike order · \{displayJobId\(selectedJobDetail\.job_id\)\}/);
+  assert.match(source, /selectedJobDetail.import_method_name \|\| "Order"/);
+  assert.match(source, /displayJobId\(selectedJobDetail\.job_id\)/);
+  assert.doesNotMatch(source, /Wrike order · \{displayJobId/);
   assert.match(source, /\{selectedJobContractNumber\} · \{selectedJobCampaignName\}/);
   assert.match(source, /aria-labelledby="source-review-title"/);
   assert.match(source, /No Lift update needed/);

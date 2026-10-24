@@ -10,6 +10,7 @@ import {
   effectiveCatalogLifecycle,
   firstDroppedArtwork,
   filterCatalogProducts,
+  localArtworkSelectionError,
   nextUploadStage,
   productSpecificationDraft
 } from "../src/artwork-catalog/ArtworkCatalogWorkspace";
@@ -18,6 +19,22 @@ import {
   artworkCatalogFixtureActions,
   type CatalogProduct
 } from "../src/artwork-catalog/fixtures";
+
+test("local file selection explains empty and oversized inputs before inspection", () => {
+  assert.match(localArtworkSelectionError({size: 0})!, /empty.*Choose a PDF.*current artwork is unchanged/);
+  assert.match(localArtworkSelectionError({size: 250 * 1024 * 1024 + 1})!, /250 MB.*Choose a smaller file/);
+  assert.equal(localArtworkSelectionError({size: 250 * 1024 * 1024}), null);
+  assert.equal(localArtworkSelectionError({size: 1}), null);
+});
+
+test("compact detail labels both independent states before artwork and discloses local-only checks", () => {
+  const markup = renderToStaticMarkup(<ArtworkCatalogWorkspace customerLabel="LTL Demo" products={artworkCatalogFixture} actions={artworkCatalogFixtureActions} compactPilot initialProductId={artworkCatalogFixture[0].id} />);
+  const pair = markup.indexOf('class="pf-catalog-status-pair"');
+  assert.ok(pair > 0 && pair < markup.indexOf('class="artwork-catalog-current-preview"'));
+  assert.match(markup.slice(pair, markup.indexOf('class="artwork-catalog-current-preview"')), /Technical inspection[\s\S]*Proof approval/);
+  assert.match(markup, /Local check only\. No catalog data is saved; current artwork stays unchanged/);
+  assert.match(markup, /disabled="" title="Source file is not connected in this sample catalog"/);
+});
 
 test("renders an unmounted operator workspace with distinct specification, inspection, approval, and order evidence", () => {
   const markup = renderToStaticMarkup(

@@ -105,8 +105,8 @@ test("customer rows are single keyboard-accessible navigation targets, not setup
   assert.match(directory, /<button className="ops-directory-row" type="button" onClick=\{\(\) => onSelect\(customer.lift_customer_id\)\}/);
   assert.doesNotMatch(directory, /<th>|Open customer|Set up workspace →|Open \$\{currentTab\}/);
   assert.match(directory, /rows.length > size \? <OperationsPagination/);
-  assert.match(directory, /aria-pressed=\{view === "pathfinder"\}/);
-  assert.match(directory, /aria-pressed=\{view === "lift"\}/);
+  assert.match(directory, /aria-label="Customer directory view"/);
+  assert.match(directory, /value=\{view\}/);
 });
 
 test("new page typography inherits the production font families instead of mock-specific overrides", async () => {
@@ -122,7 +122,7 @@ test("customer directory defaults to Pathfinder customers with only an All Lift 
   const directory = source.slice(source.indexOf("export function OperationsCustomers"));
   assert.match(directory, /useState<"pathfinder" \| "lift">\("pathfinder"\)/);
   assert.match(directory, /view === "lift" \|\| configured.has\(c.lift_customer_id\)/);
-  assert.match(directory, /Pathfinder customers<\/button>/);
-  assert.match(directory, /All Lift customers<\/button>/);
-  assert.doesNotMatch(directory, /<select|customer_status|All setup states/);
+  assert.match(directory, /<option value="pathfinder">Pathfinder Customers<\/option>/);
+  assert.match(directory, /<option value="lift">All Customers<\/option>/);
+  assert.doesNotMatch(directory, /customer_status|All setup states/);
 });

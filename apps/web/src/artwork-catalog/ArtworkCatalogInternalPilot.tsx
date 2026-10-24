@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ArtworkCatalogWorkspace } from "./ArtworkCatalogWorkspace";
 import {
   ArtworkInspectionResultsWorkspace,
@@ -17,6 +17,22 @@ const INTERNAL_PILOT_CUSTOMER_ID = "1249";
 const INTERNAL_PILOT_PRODUCT_ID = "product_1249_pump_topper_chevron";
 const INTERNAL_PILOT_VERSION_ID = "artwork_version_7";
 const INTERNAL_PILOT_INSPECTION_ID = "inspection_1249_chevron_v7_001";
+
+// The compact review must describe the same sample run that View results opens.
+// Keep this adaptation isolated from the original standalone fixture composition.
+export const compactCatalogPilotProducts = artworkCatalogFixture.map((product) => product.id !== INTERNAL_PILOT_PRODUCT_ID ? product : {
+  ...product,
+  versions: product.versions.map((version) => version.id !== INTERNAL_PILOT_VERSION_ID ? version : {
+    ...version,
+    inspection: {
+      ...version.inspection,
+      state: "Needs work" as const,
+      checkedAt: artworkInspectionResultFixture.completedAt,
+      summary: "The sample inspection found technical issues. Proof approval is unchanged.",
+      metrics: artworkInspectionResultFixture.metrics
+    }
+  })
+});
 
 export function isArtworkCatalogInternalPilotAvailable(enabled: boolean, customerId: string): boolean {
   return enabled && customerId === INTERNAL_PILOT_CUSTOMER_ID;
@@ -65,6 +81,7 @@ export function resolveArtworkInspectionResult(input: {
 export type ArtworkCatalogInternalPilotProps = Readonly<{
   customerId: string;
   customerLabel: string;
+  compact?: boolean;
 }>;
 
 type PilotView =
@@ -106,10 +123,11 @@ function localResultFromBatch(batch: ArtworkUploadBatch): { productId: string; r
   return { productId: item.productId, result: item.result };
 }
 
-export function ArtworkCatalogInternalPilot({ customerId, customerLabel }: ArtworkCatalogInternalPilotProps) {
+export function ArtworkCatalogInternalPilot({ customerId, customerLabel, compact = false }: ArtworkCatalogInternalPilotProps) {
+  const inspectionRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<PilotView>({
     kind: "catalog",
-    selectedProductId: INTERNAL_PILOT_PRODUCT_ID
+    selectedProductId: compact ? "" : INTERNAL_PILOT_PRODUCT_ID
   });
 
   useEffect(() => () => {
@@ -118,19 +136,23 @@ export function ArtworkCatalogInternalPilot({ customerId, customerLabel }: Artwo
     }
   }, [view]);
 
+  useEffect(() => {
+    if (view.kind === "inspection") inspectionRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [view]);
+
   if (customerId !== INTERNAL_PILOT_CUSTOMER_ID) return null;
 
-  if (view.kind === "inspection") {
-    const isLocal = Boolean(view.result.localAnalysis);
-    return (
+  return <>
+    {view.kind === "inspection" ? <div ref={inspectionRef} className={compact ? "pf-catalog-inspection" : undefined}>
       <ArtworkInspectionResultsWorkspace
         result={view.result}
+        sampleReport={!view.result.localAnalysis}
         actions={{
           onBack: () => {
             setView({ kind: "catalog", selectedProductId: view.productId });
           },
           onDownloadReport: () => {
-            if (!isLocal) return;
+            if (!view.result.localAnalysis) return;
             const report = new Blob([JSON.stringify(view.result, null, 2)], { type: "application/json" });
             const url = URL.createObjectURL(report);
             const link = document.createElement("a");
@@ -140,19 +162,19 @@ export function ArtworkCatalogInternalPilot({ customerId, customerLabel }: Artwo
             URL.revokeObjectURL(url);
           },
           onOpenAnalyzedArtwork: () => {
-            if (isLocal) window.open(view.result.pages[0].originalPreviewUrl, "_blank", "noopener,noreferrer");
+            if (view.result.localAnalysis) window.open(view.result.pages[0].originalPreviewUrl, "_blank", "noopener,noreferrer");
           }
         }}
       />
-    );
-  }
-
-  return (
+    </div> : null}
+    <div hidden={view.kind !== "catalog"} inert={view.kind !== "catalog" ? true : undefined}>
     <ArtworkCatalogWorkspace
+      active={view.kind === "catalog"}
       customerLabel={customerLabel}
-      products={artworkCatalogFixture}
+      compactPilot={compact}
+      products={compact ? compactCatalogPilotProducts : artworkCatalogFixture}
       actions={artworkCatalogFixtureActions}
-      initialProductId={view.selectedProductId}
+      initialProductId={compact ? "" : INTERNAL_PILOT_PRODUCT_ID}
       onOpenTechnicalInspection={(identity) => {
         const result = resolveArtworkInspectionResult({ customerId, ...identity });
         if (!result) return;
@@ -169,5 +191,6 @@ export function ArtworkCatalogInternalPilot({ customerId, customerLabel }: Artwo
         setView({ kind: "inspection", ...resolved });
       }}
     />
-  );
+    </div>
+  </>;
 }
