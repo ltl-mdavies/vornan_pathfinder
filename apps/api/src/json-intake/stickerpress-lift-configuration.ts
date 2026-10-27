@@ -7,6 +7,11 @@ import { stickerPressProofStatus } from './stickerpress-proof-status.js';
 
 export const stickerPressLiftRouteId = 'route-ltl-lift-91-ecomm-orders';
 export const stickerPressProductKey = 'STICKERPRESS_STICKER';
+// Marcus approved these Materials Library identities on 2026-10-27.
+// Destination identifiers remain strings, matching the existing canonical/output field contract.
+export const stickerPressMaterialMappingVersion = 'stickerpress-material-ids-2026-10-27-v1';
+const materialIds = new Map([['White Bopp (Sticker)', '355948'], ['Clear Bopp (Sticker)', '362180']]);
+const laminateIds = new Map([['Gloss Laminate (.75 mil)', '354498'], ['Matte Laminate (.71 mil)', '354757']]);
 
 /** Explicit configuration operation. Does not persist, activate, or submit anything. */
 export function createStickerPressLiftConfiguration(base: OutputTemplate, referenceRoute: OutputRoute,
@@ -79,9 +84,11 @@ export function mapStickerPressReceiptToCanonical(receipt: LiftPreviewReceipt,
     // Current Sticker Press stickers all use Laser; retain the partner's cut in source_line.
     const material = line.production?.material ?? null;
     const laminate = line.production?.laminate ?? line.production?.finish ?? null;
-    line.production = {...line.production, cut_type: 'Laser',
-      material: material === 'White Bopp (Sticker)' ? 'White BOPP Sticker' : material,
-      laminate: laminate === 'Gloss Laminate (.75 mil)' ? 'Gloss' : laminate};
+    const materialId=material === null ? undefined : materialIds.get(material);
+    const laminateId=laminate === null ? undefined : laminateIds.get(laminate);
+    assert.ok(materialId, 'Sticker Press material requires an approved Lift ID mapping');
+    assert.ok(laminateId, 'Sticker Press laminate requires an approved Lift ID mapping');
+    line.production = {...line.production, cut_type: 'Laser', material: materialId, laminate: laminateId};
     line.artwork = {file_name: line.source_line.artwork.filename, checksum: line.source_line.artwork.artwork_sha256};
     line.proof_status = stickerPressProofStatus({
       approval: line.source_line.approval,

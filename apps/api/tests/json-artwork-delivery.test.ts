@@ -11,7 +11,8 @@ import type {OutputRoute,TargetConfig} from '../src/store.js';
 const fixture=JSON.parse(await readFile(new URL('./fixtures/json-intake/sample-factory-test.json',import.meta.url),'utf8'));
 function setup(){
  const identity={customer_id:'174094',customer_name:'Silicone Pasture',integration_id:'stickerpress-sandbox',store:'ltlco',environment:'test' as const,schema:'stickerpress.order.v1'};
- const adapted=stickerPressV1.validate(structuredClone(fixture),identity);
+ const payload=structuredClone(fixture);payload.lines.forEach((l:any)=>{l.material='White Bopp (Sticker)';l.finish='Gloss Laminate (.75 mil)';});
+ const adapted=stickerPressV1.validate(payload,identity);
  const receipt={receipt_id:controlledArtworkReceipt,identity,adapted,fingerprint:adapted.fingerprint,revision:4,
  assets:adapted.canonical.lines.map(l=>({external_line_id:l.source_line.external_line_id,sha256:l.source_line.artwork.artwork_sha256,bytes:l.source_line.artwork.bytes,retained_ref:'synthetic-retained-ref',inspection:'metadata_pass'}))} as Receipt;
  const base=createSeedOutputTemplate();
