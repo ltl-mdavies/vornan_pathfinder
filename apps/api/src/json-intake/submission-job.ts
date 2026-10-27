@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {stickerPressApprovalMappingVersion} from './stickerpress-proof-status.js';
 import {validateCanonicalOrder, type ValidationMessage} from '@pathfinder/canonical';
 import {generateLiftPayload, liftEcommerceExternalId, prepareLiftEcommercePayload, buildLiftSubmitRequest, maskLiftSubmitRequest} from '@pathfinder/lift-adapter';
 import type {ProcessingJobPreview, TargetConfig, SubmitProfile} from '../store.js';
@@ -16,6 +17,7 @@ export interface JsonReceiptJobBinding {
   integration_id:string; store:string; environment:'test'; source_order_number:string;
   configuration_sha256:string;
   production_mapping_version?:string;
+  approval_mapping_version?:string;
   artwork: Array<{external_line_id:string;sha256:string;bytes:number;retained_ref:string}>;
 }
 export type JsonReceiptJob = ProcessingJobPreview & {json_intake_binding:JsonReceiptJobBinding};
@@ -87,8 +89,8 @@ export function prepareReceiptSubmissionJob(receipt:Receipt,
     target_order_number:null,source_document_publications:[],created_at:timestamp,updated_at:timestamp,
     json_intake_binding:{version:1,receipt_id:receipt.receipt_id,receipt_revision:receipt.revision,receipt_sha256:sha256(stableJson(receipt)),
       business_fingerprint:receipt.fingerprint,integration_id:receipt.identity.integration_id,store:receipt.identity.store,environment:'test',
-      source_order_number:canonical.source.source_record_id,configuration_sha256:sha256(stableJson({template:config.template,route:config.route,product:config.product,production_mapping_version:stickerPressMaterialMappingVersion})),
-      production_mapping_version:stickerPressMaterialMappingVersion,artwork}
+      source_order_number:canonical.source.source_record_id,configuration_sha256:sha256(stableJson({template:config.template,route:config.route,product:config.product,production_mapping_version:stickerPressMaterialMappingVersion,approval_mapping_version:stickerPressApprovalMappingVersion})),
+      production_mapping_version:stickerPressMaterialMappingVersion,approval_mapping_version:stickerPressApprovalMappingVersion,artwork}
   };
 }
 

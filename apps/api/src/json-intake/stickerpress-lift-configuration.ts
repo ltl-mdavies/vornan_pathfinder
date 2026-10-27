@@ -3,7 +3,7 @@ import { generateLiftPayload, liftEcommerceExternalId, prepareLiftEcommercePaylo
 import type { OutputTemplate, OutputRoute, CustomerProductMapping, TargetConfig } from '../store.js';
 import { createLiftEcommerceOutputTemplate } from '../lift-output-templates.js';
 import type { LiftPreviewReceipt } from './lift-preview.js';
-import { stickerPressProofStatus } from './stickerpress-proof-status.js';
+import { stickerPressProofStatus, stickerPressProofStatusId } from './stickerpress-proof-status.js';
 
 export const stickerPressLiftRouteId = 'route-ltl-lift-91-ecomm-orders';
 export const stickerPressProductKey = 'STICKERPRESS_STICKER';
@@ -90,13 +90,13 @@ export function mapStickerPressReceiptToCanonical(receipt: LiftPreviewReceipt,
     assert.ok(laminateId, 'Sticker Press laminate requires an approved Lift ID mapping');
     line.production = {...line.production, cut_type: 'Laser', material: materialId, laminate: laminateId};
     line.artwork = {file_name: line.source_line.artwork.filename, checksum: line.source_line.artwork.artwork_sha256};
-    line.proof_status = stickerPressProofStatus({
+    line.proof_status = stickerPressProofStatusId(stickerPressProofStatus({
       approval: line.source_line.approval,
       artwork_sha256: line.source_line.artwork.artwork_sha256,
       artwork_bytes: line.source_line.artwork.bytes,
       retained: receipt.assets.filter(asset => asset.external_line_id === line.source_line.external_line_id),
       existing_status: line.proof_status
-    }, now);
+    }, now));
     delete line.document_delivery;
   }
   return canonical;

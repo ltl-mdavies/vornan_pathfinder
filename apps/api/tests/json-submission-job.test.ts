@@ -32,13 +32,13 @@ test('normal submission job preserves receipt identity, all line bindings and ex
  assert.equal(job.json_intake_binding.artwork.length,4);assert.equal(job.product_resolution_results.length,4);
  assert.ok(job.lift_validation.some(v=>v.severity==='FAIL'&&v.code==='JSON-ARTWORK-PUBLICATION-PENDING'));
  assert.equal(job.json_intake_binding.configuration_sha256.length,64);
- assert.ok(job.lift_payload.lines.every(line=>(line as any).approval.proof_status==='Pending'));
+ assert.ok(job.lift_payload.lines.every(line=>(line as any).approval.proof_status==='5217816'));
 });
 test('new prepared job carries Approved for auto and Pending for operator, while transport stays disabled',()=>{
  const {receipt,config}=setup();receipt.adapted.canonical.lines[0].source_line.approval.approved_by='auto';
  const before=structuredClone(receipt);
  const job=prepareReceiptSubmissionJob(receipt,config,new Date('2026-10-23T12:00:00Z'));
- assert.deepEqual(job.lift_payload.lines.map(line=>(line as any).approval.proof_status),['Approved','Pending','Pending','Pending']);
+ assert.deepEqual(job.lift_payload.lines.map(line=>(line as any).approval.proof_status),['5217817','5217816','5217816','5217816']);
  assert.equal(job.submit_certification?.can_submit,false);assert.equal(job.state,'Waiting');
  assert.deepEqual(receipt,before);
 });
@@ -67,9 +67,11 @@ test('new job carries ID mappings and mapping provenance without mutating input 
  receipt.adapted.canonical.lines.forEach((l,i)=>{l.production={...l.production,material:i%2?'Clear Bopp (Sticker)':'White Bopp (Sticker)',laminate:i<2?'Gloss Laminate (.75 mil)':'Matte Laminate (.71 mil)'};});
  const before=structuredClone({receipt,config});const job=prepareReceiptSubmissionJob(receipt,config);
  assert.deepEqual(job.lift_payload.lines.map((l:any)=>[l.production.material,l.production.laminate]),[['355948','354498'],['362180','354498'],['355948','354757'],['362180','354757']]);
+ assert.equal(job.json_intake_binding.approval_mapping_version,'stickerpress-approval-ids-2026-10-27-v1');
  assert.equal(job.json_intake_binding.production_mapping_version,'stickerpress-material-ids-2026-10-27-v1');
  assert.deepEqual({receipt,config},before);assert.equal(job.submit_certification?.can_submit,false);
- const existing=structuredClone(job);delete existing.json_intake_binding.production_mapping_version;
+ const existing=structuredClone(job);delete existing.json_intake_binding.production_mapping_version;delete existing.json_intake_binding.approval_mapping_version;
+ (existing.lift_payload.lines[0] as any).approval.proof_status='Approved';
  existing.state='Order Confirmed';(existing.lift_payload.lines[0] as any).production.material='White BOPP Sticker';
  const saved=structuredClone(existing);assert.equal(assertReceiptJobReplay(existing,receipt),existing);assert.deepEqual(existing,saved);
 });

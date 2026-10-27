@@ -29,3 +29,14 @@ export function stickerPressProofStatus(input: {
       (input.artwork_bytes as number) <= 0 || asset.bytes !== input.artwork_bytes || !asset.retained_ref.trim()) return 'Pending';
   return 'Approved';
 }
+
+/** Confirmed ecomm_product_status.csv identities; business approval remains a separate label.
+ * CSV SHA256 d7f75e973995c71e427a94c430b5e882295cfea9c098680305ea6546a954c312.
+ * Marcus confirmed Approved triggers Jason's bypass automation on 2026-10-27.
+ */
+export const stickerPressApprovalMappingVersion = 'stickerpress-approval-ids-2026-10-27-v1';
+export function stickerPressProofStatusId(status: StickerPressProofStatus): string {
+  if (status === 'Approved') return '5217817';
+  if (status === 'Pending') return '5217816';
+  throw new Error('Unrecognized Sticker Press approval status');
+}
