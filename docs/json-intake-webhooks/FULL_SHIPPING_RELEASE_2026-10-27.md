@@ -1,0 +1,15 @@
+# Controlled full shipment callback, October 27
+
+Marcus authorized full-shipment callbacks for A0233832, preserving the original receipt and both tracking numbers; High End Work unchanged. Jason confirmed lines2/3 were saved together. Marcus is handling the carrier address exception with Jason; callbacks do not claim delivery or resolve the address.
+
+Baseline main17f46dbf15b71900296d8fa0a50c3a8692f1741d. Development reports no overlapping worker release. Actual worker before update: TW9LbSZb32h8vEvpN7xoAY+3DuyH+BfcJkNJNqm3lhI=, revision0f3761a4-3ebe-4d72-91db-c441f863adbc. Shared API/Admin/Proof/Status, routes, templates, order and note are outside this release.
+
+New FullShippingPermits defaults empty and authorizes only an exact receipt revision, snapshot digest and complete event-ID set until a delivery deadline. Old PartialShippingPermits remain intact for history. Every expected line quantity must be shipped. Full projection is bounded to12packages by existing projection guard. Shipment updates precede order.shipped; final delivery waits for acknowledged package updates even after retries/restarts. Existing event bodies, signing, revision numbering and durable deduplication remain unchanged. Worker has no provider access or receipt mutation permission.
+
+Reviewed source: all three lines100 each and overall order Shipped. Package11519768/box1 retains line1 and UPS Ground tracking1Z60V1570390944077. Package11535028/box2 contains lines2/3 and UPS Ground tracking1Z60V1570395841151. DatesOct23/Oct26; exact shipment times unavailable and remain null. The original package snapshot is retained unchanged. New event set consists of two shipment.updated events (both reflect fulfillment_status shipped) and one order.shipped with both packages, public revision13. Original source numberSPM-D2611133 and receipt remain unchanged.
+
+Bounded manual completeness review uses one exact order lookup, all three exact p2 line reports and the three allocation rows grouped into two packages; it is not a general automatic pagination policy. Re-read complete reports and compare reviewed package facts before receipt CAS. No carrier API call, label purchase, order edit or note edit.
+
+Release only the standalone callback stack: preserve every previous parameter exceptCodeKey and addFullShippingPermits; no direct IAM/scheduler change. Capture only after actual code+permit verification. Post-capture rollback must use a compatible worker and retained immutable partial/full permits/history; expire the full permit deadline to contain delivery, never restore a shipping-incompatible ZIP or delete receipt/event history. Current allowlist contains only this original receipt.
+
+Validation:54 shipping/webhook tests, API typecheck, template contract and isolated bundle boundary passed;18 worker tests passed against the actual unmodified bundle with SDK-class suffix normalization only in the test mock. Private reports, planned event set and audit reside in ignored outputs/stickerpress-full-callback-2026-10-27. Final merge/artifact/change-set/delivery evidence will be recorded after release.

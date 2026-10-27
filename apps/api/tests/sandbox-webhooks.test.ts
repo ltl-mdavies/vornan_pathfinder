@@ -232,5 +232,55 @@ test('expired permit queues but cannot send; changed/full snapshot cannot materi
  await w.run({});assert.equal(w.sent.length,prior);assert.equal((await f.outbox.get(event.envelope.event_id))?.state,'pending');
  const snapshot=structuredClone(shipped.shipping!);snapshot.packages[0].lines=shipped.adapted.canonical.lines.map(l=>({external_line_id:l.source_line.external_line_id,quantity:l.quantity}));
  await f.store.compareAndSet(shipped,{...shipped,revision:shipped.revision+1,shipping:snapshot});
- await assert.rejects(w.run({}),/partial shipment/);assert.equal(w.sent.length,prior);
+ await assert.rejects(w.run({}),/Full shipping permit/);assert.equal(w.sent.length,prior);
+});
+
+import { reviewedFullShipping } from '../src/json-intake/full-shipping-permit.js';
+async function fullFixture(){
+ const p=await partialFixture();
+ p.w.env.WEBHOOK_PARTIAL_SHIPPING_PERMITS=JSON.stringify([p.permit]);await p.w.run({});
+ const snapshot=structuredClone(p.shipped.shipping!);snapshot.source_revision=2;snapshot.observed_at='2026-09-30T15:00:00Z';
+ snapshot.packages.push({...snapshot.packages[0],package_id:'second-package',package_number:2,tracking_number:'SYNTHETIC2',source_updated_at:snapshot.observed_at,
+  lines:p.shipped.adapted.canonical.lines.map((l,i)=>({external_line_id:l.source_line.external_line_id,quantity:i===0?l.quantity/2:l.quantity}))});
+ const full=await captureShippingSnapshot(p.f.store,p.shipped.receipt_id,async()=>snapshot);
+ const events=shippingEvents(full);
+ const permit={receipt_id:full.receipt_id,receipt_revision:full.revision,snapshot_sha256:digest(stableJson(snapshot)),event_ids:events.map(e=>e.envelope.event_id),delivery_before:new Date(Date.now()+3600000).toISOString()};
+ return {...p,full,fullEvents:events,fullPermit:permit};
+}
+test('full shipment requires exact new permit, preserves partial history, sends both package updates before one order.shipped, deduplicates restart',async()=>{
+ const p=await fullFixture(),n=p.w.sent.length;
+ await assert.rejects(p.w.run({}),/Full shipping permit/);assert.equal(p.w.sent.length,n);
+ for(const patch of [{snapshot_sha256:'a'.repeat(64)},{receipt_revision:99},{event_ids:p.fullPermit.event_ids.slice(1)},{event_ids:[...p.fullPermit.event_ids,p.fullPermit.event_ids[0]]}]){
+  p.w.env.WEBHOOK_FULL_SHIPPING_PERMITS=JSON.stringify([{...p.fullPermit,...patch}]);await assert.rejects(p.w.run({}),/Full shipping permit/);
+ }
+ p.w.env.WEBHOOK_FULL_SHIPPING_PERMITS=JSON.stringify([p.fullPermit]);
+ await p.w.run({});await createSandboxWebhookHandler(p.w.deps)({});
+ const sent=p.w.sent.slice(n);assert.equal(sent.length,3);assert.deepEqual(sent.map(e=>e.event_type),['shipment.updated','shipment.updated','order.shipped']);
+ const end=sent.at(-1);assert.equal(end.receipt_id,p.full.receipt_id);assert.equal(end.order_number,p.full.adapted.canonical.source.source_record_id);assert.equal(end.data.all_items_shipped,true);
+ assert.deepEqual(end.data.shipments.map((x:any)=>x.tracking_number).sort(),['SYNTHETIC','SYNTHETIC2']);
+ assert.ok(sent.every(e=>e.order_revision===p.full.revision+1));
+ assert.equal((await p.f.outbox.get(p.event.envelope.event_id))?.attempts.length,1);
+ for(const e of p.fullEvents)assert.equal((await p.f.outbox.get(e.envelope.event_id))?.attempts.length,1);
+});
+test('final shipped waits for acknowledged package updates across retries; expiry holds full events',async()=>{
+ const p=await fullFixture();const n=p.w.sent.length;
+ p.w.env.WEBHOOK_FULL_SHIPPING_PERMITS=JSON.stringify([{...p.fullPermit,delivery_before:'2020-01-01T00:00:00Z'}]);
+ await p.w.run({});assert.equal(p.w.sent.length,n);
+ p.w.env.WEBHOOK_FULL_SHIPPING_PERMITS=JSON.stringify([p.fullPermit]);
+ const original=p.w.deps.transport.send;let fail=true;
+ p.w.deps.transport.send=async(u,b,h)=>{const response=await original(u,b,h);return fail&&JSON.parse(b.toString()).data.shipment?.tracking_number==='SYNTHETIC2'?{status:500}:response;};
+ await p.w.run({});assert.ok(!p.w.sent.slice(n).some(e=>e.event_type==='order.shipped'));
+ const second=p.fullEvents.find(e=>(e.envelope.data.shipment as any)?.tracking_number==='SYNTHETIC2')!;
+ const row=(await p.f.outbox.get(second.envelope.event_id))!;assert.notEqual(row.state,'delivered');
+ await p.f.outbox.cas(row,{...row,revision:row.revision+1,next_attempt_at:new Date().toISOString()});
+ fail=false;await p.w.run({});
+ assert.equal(p.w.sent.slice(n).filter(e=>e.event_type==='order.shipped').length,1);
+ assert.equal((await p.f.outbox.get(second.envelope.event_id))?.attempts.length,2);
+});
+test('full permit cannot approve incomplete quantities, review holds, or mismatched tracking',async()=>{
+ const p=await fullFixture();
+ assert.throws(()=>reviewedFullShipping(p.shipped,[p.fullPermit]),/every line quantity/);
+ assert.throws(()=>reviewedFullShipping({...p.full,shipping_review:{code:'DRIFT',source_revision:2}},[p.fullPermit]),/requires review/);
+ const changed=structuredClone(p.full);changed.shipping!.packages[1].tracking_number='WRONG';
+ assert.throws(()=>reviewedFullShipping(changed,[p.fullPermit]),/permit mismatch/);
 });
