@@ -45,7 +45,7 @@ test('proof statuses export per line through the reusable Ecomm layout without c
   receipt.adapted.canonical.lines[2].proof_status='Pending';
   const before=structuredClone({receipt,config,base,route});
   const preview=buildStickerPressConfiguredPreview(receipt,config,new Date('2026-10-23T12:00:00Z'));
-  assert.deepEqual(preview.payload.lines.map(line=>(line as any).approval.proof_status),['Approved','Pending','Pending','Approved']);
+  assert.deepEqual(preview.payload.lines.map(line=>(line as any).approval.proof_status),['5217817','5217816','5217816','5217817']);
   assert.ok(preview.payload.lines.every(line=>!Object.hasOwn(line,'proof_status')));
   assert.deepEqual({receipt,config,base,route},before);
   assert.equal(preview.submission_allowed,false);

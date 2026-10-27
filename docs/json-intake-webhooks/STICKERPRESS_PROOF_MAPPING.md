@@ -1,5 +1,7 @@
 # Sticker Press Approved/Pending mapping
 
+**October 27 update:** Marcus confirmed Andy approves before intake and Approved triggers Jason’s Lift bypass rule. New scoped preparation now projects Approved to string ID `5217817` and Pending to `5217816` in `lines[].approval.proof_status`, using the supplied ecomm_product_status.csv. Eligibility checks below remain unchanged. New jobs record an approval mapping version in their configuration hash; existing jobs remain untouched. The prior requirement to define a local proof-exception workflow is superseded for the approved-only pilot: incomplete/conflicting approval is held for partner correction. See [current pilot checklist](PILOT_READINESS_2026-10-27.md). The historical text below describes the earlier label-based implementation.
+
 Andy confirmed that `approved_by: "auto"` means his artwork quality gate passed and the file is approved for production. Jason confirmed Lift's exact labels are `Approved` and `Pending`, with strings mapped to LOV IDs by the import interface. No numeric IDs are guessed.
 
 The customer-specific receipt-to-order preparation maps `lines[].proof_status` upstream to the reusable Ecomm output's `lines[].approval.proof_status`:

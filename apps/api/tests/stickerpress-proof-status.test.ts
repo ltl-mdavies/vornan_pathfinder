@@ -36,3 +36,11 @@ for (const [name, change] of Object.entries({
 test('invalid review clock cannot produce Approved', () => {
   assert.equal(stickerPressProofStatus(good(), new Date('invalid')), 'Pending');
 });
+
+// The decision resolver stays label-based; only the scoped destination mapping emits IDs.
+test('confirmed Lift approval IDs preserve semantics and reject unknown labels', async () => {
+  const {stickerPressProofStatusId} = await import('../src/json-intake/stickerpress-proof-status.js');
+  assert.equal(stickerPressProofStatusId('Approved'), '5217817');
+  assert.equal(stickerPressProofStatusId('Pending'), '5217816');
+  assert.throws(() => stickerPressProofStatusId('unknown' as any), /Unrecognized/);
+});
