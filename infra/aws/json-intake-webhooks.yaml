@@ -11,6 +11,7 @@ Parameters:
   EndpointRevision: {Type: String}
   EndpointUrl: {Type: String, Default: ''}
   ReceiptIds: {Type: String, Default: '[]'}
+  FullShippingPermits: {Type: String, Default: '[]'}
   PartialShippingPermits: {Type: String, Default: '[]'}
   ConfirmationPermits: {Type: String, Default: '[]'}
   KeyId: {Type: String}
@@ -87,6 +88,7 @@ Resources:
           WEBHOOK_ENDPOINT_REVISION: !Ref EndpointRevision
           WEBHOOK_ENDPOINT_URL: !Ref EndpointUrl
           WEBHOOK_RECEIPT_IDS: !Ref ReceiptIds
+          WEBHOOK_FULL_SHIPPING_PERMITS: !Ref FullShippingPermits
           WEBHOOK_PARTIAL_SHIPPING_PERMITS: !Ref PartialShippingPermits
           WEBHOOK_CONFIRMATION_PERMITS: !Ref ConfirmationPermits
           WEBHOOK_KEY_ID: !Ref KeyId

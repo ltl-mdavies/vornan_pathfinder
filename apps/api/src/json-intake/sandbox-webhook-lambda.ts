@@ -8,6 +8,8 @@ import { scopeKey, committedEvent } from '../webhooks/contract.js';
 import { SandboxWebhookHistory } from './sandbox-webhook-history.js';
 import { materializeReceiptEvents,currentReceiptEvent } from './webhook-events.js';
 import { reviewedPartialShipping, type PartialShippingPermit } from './partial-shipping-permit.js';
+import { reviewedFullShipping, type FullShippingPermit } from './full-shipping-permit.js';
+import { projectShipping } from './shipping-events.js';
 import { reviewedConfirmation, type ConfirmationPermit } from './manual-confirmation.js';
 
 /** No HTTP route. Trusted IAM invocation returns safe delivery status; schedule is independently gated. */
@@ -24,6 +26,13 @@ return async function(_event:unknown,context?:{getRemainingTimeInMillis():number
   if(!Array.isArray(permits)||permits.length>20||permits.some(p=>!p||!ids.includes(p.receipt_id)))throw new Error('Invalid confirmation permits');
   const shippingPermits=JSON.parse(env.WEBHOOK_PARTIAL_SHIPPING_PERMITS??'[]') as PartialShippingPermit[];
   if(!Array.isArray(shippingPermits)||shippingPermits.length>20||shippingPermits.some(p=>!p||!ids.includes(p.receipt_id)))throw new Error('Invalid partial shipping permits');
+  const fullPermits=JSON.parse(env.WEBHOOK_FULL_SHIPPING_PERMITS??'[]') as FullShippingPermit[];
+  if(!Array.isArray(fullPermits)||fullPermits.length>20||fullPermits.some(p=>!p||!ids.includes(p.receipt_id)))throw new Error('Invalid full shipping permits');
+  const reviewedShipping=(receipt:import('./local-store.js').Receipt)=>{
+    if(receipt.shipping && projectShipping(receipt).all_items_shipped)return reviewedFullShipping(receipt,fullPermits);
+    const partial=reviewedPartialShipping(receipt,shippingPermits);
+    return {events:[partial.event],permit:partial.permit};
+  };
   const {db,s3}=deps;
   const history=new SandboxWebhookHistory(required('SANDBOX_RECEIPTS_TABLE'),required('SANDBOX_RECEIPTS_BUCKET'),db,s3,endpoint.scope,ids);
   const outbox=new DurableWebhookOutbox(required('WEBHOOK_OUTBOX_TABLE'),endpoint.scope,db);
@@ -32,8 +41,8 @@ return async function(_event:unknown,context?:{getRemainingTimeInMillis():number
   const revisions:import('./local-store.js').Receipt[]=[];let historyBytes=0;
   for await(const receipt of history.history()){
     if((context?.getRemainingTimeInMillis()??120000)<30000)throw new Error('Sandbox callback history deadline');
-    // Shipping is limited to an exact reviewed partial snapshot; full shipping stays blocked.
-    if(receipt.shipping||receipt.shipping_review)reviewedPartialShipping(receipt,shippingPermits);
+    // Every historic shipping snapshot requires its own immutable reviewed permit.
+    if(receipt.shipping||receipt.shipping_review)reviewedShipping(receipt);
     if(receipt.confirmation)reviewedConfirmation(receipt,permits);
     historyBytes+=Buffer.byteLength(JSON.stringify(receipt));
     if(historyBytes>16*1024*1024||revisions.length>=500)throw new Error('Sandbox callback history budget');
@@ -51,22 +60,29 @@ return async function(_event:unknown,context?:{getRemainingTimeInMillis():number
         scopeKey(value.scope)!==scopeKey(endpoint.scope)||typeof value.secret!=='string'||Buffer.byteLength(value.secret)<32)throw new Error('Signing secret binding mismatch');
       secret=value.secret;return secret!;
     };
-    for await(const row of outbox.list(endpoint.scope)){
-      if(!ids.includes(row.event.envelope.receipt_id)||!['order.received','order.action_required','order.confirmed','shipment.updated'].includes(row.event.envelope.event_type))continue;
+    // Final order notification follows acknowledged package updates, even after retries/restarts.
+    for(const finalPass of [false,true])for await(const row of outbox.list(endpoint.scope)){
+      if((row.event.envelope.event_type==='order.shipped')!==finalPass)continue;
+      if(!ids.includes(row.event.envelope.receipt_id)||!['order.received','order.action_required','order.confirmed','shipment.updated','order.shipped'].includes(row.event.envelope.event_type))continue;
       if(count>=10||(context?.getRemainingTimeInMillis()??120000)<20000)break;
       if(['delivered','paused','exhausted','suppressed'].includes(row.state)||row.next_attempt_at&&Date.parse(row.next_attempt_at)>Date.now())continue;
-      if(row.event.envelope.event_type==='shipment.updated'){
+      if(['shipment.updated','order.shipped'].includes(row.event.envelope.event_type)){
         const latest=await history.store.get(row.event.envelope.receipt_id);
         if(!latest)continue;
-        const reviewed=reviewedPartialShipping(latest,shippingPermits);
-        if(Date.now()>Date.parse(reviewed.permit.delivery_before)||reviewed.event.body!==row.event.body)continue;
+        const reviewed=reviewedShipping(latest);
+        if(Date.now()>Date.parse(reviewed.permit.delivery_before)||!reviewed.events.some(e=>e.body===row.event.body))continue;
+        if(row.event.envelope.event_type==='order.shipped'){
+          const packages=reviewed.events.filter(e=>e.envelope.event_type==='shipment.updated');
+          const updates=await Promise.all(packages.map(e=>outbox.get(e.envelope.event_id)));
+          if(updates.some((r,i)=>r?.state!=='delivered'||r.event.body!==packages[i].body))continue;
+        }
       }
       await dispatchWebhook(row.event.envelope.event_id,endpoint,{outbox,transport,secret:loadSecret,isCurrent:async event=>{
-        if(event.envelope.event_type==='shipment.updated'){
+        if(['shipment.updated','order.shipped'].includes(event.envelope.event_type)){
           const latest=await history.store.get(event.envelope.receipt_id);if(!latest)return false;
           reviewedConfirmation(latest,permits);
-          const reviewed=reviewedPartialShipping(latest,shippingPermits);
-          if(Date.now()>Date.parse(reviewed.permit.delivery_before)||reviewed.event.body!==event.body)return false;
+          const reviewed=reviewedShipping(latest);
+          if(Date.now()>Date.parse(reviewed.permit.delivery_before)||!reviewed.events.some(e=>e.body===event.body))return false;
         }
         if(event.envelope.event_type==='order.confirmed'){
           const latest=await history.store.get(event.envelope.receipt_id);if(!latest)return false;

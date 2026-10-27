@@ -6,7 +6,7 @@ const raw=await readFile(new URL('../../infra/aws/json-intake-webhooks.yaml',imp
 const template=parse(raw,{customTags:['Ref','Sub','GetAtt'].map(k=>({tag:'!'+k,resolve:v=>({[k]:v})})).concat(['Equals','If','And','Not'].map(k=>({tag:'!'+k,collection:'seq',resolve:v=>({[k]:v.toJSON()})})))});
 test('callbacks have independent disabled gates, retained outbox and read-only receipt permissions',()=>{
  for(const key of ['Enabled','DeliveryEnabled','ScheduleEnabled'])assert.equal(template.Parameters[key].Default,'false');
- for(const key of ['ConfirmationPermits','PartialShippingPermits'])assert.equal(template.Parameters[key].Default,'[]');
+ for(const key of ['ConfirmationPermits','PartialShippingPermits','FullShippingPermits'])assert.equal(template.Parameters[key].Default,'[]');
  assert.deepEqual(template.Resources.Function.Properties.Environment.Variables.WEBHOOK_PARTIAL_SHIPPING_PERMITS,{Ref:'PartialShippingPermits'});
  assert.equal(template.Parameters.ReceiptIds.Default,'[]');assert.equal(template.Parameters.EndpointUrl.Default,'');
  assert.equal(template.Resources.Outbox.DeletionPolicy,'Retain');assert.equal(template.Resources.Outbox.UpdateReplacePolicy,'Retain');
