@@ -84,8 +84,8 @@ export function mapStickerPressReceiptToCanonical(receipt: LiftPreviewReceipt,
     // Current Sticker Press stickers all use Laser; retain the partner's cut in source_line.
     const material = line.production?.material ?? null;
     const laminate = line.production?.laminate ?? line.production?.finish ?? null;
-    const materialId=material === null ? undefined : materialIds.get(material);
-    const laminateId=laminate === null ? undefined : laminateIds.get(laminate);
+    const materialId=typeof material === 'string' ? materialIds.get(material) : undefined;
+    const laminateId=typeof laminate === 'string' ? laminateIds.get(laminate) : undefined;
     assert.ok(materialId, 'Sticker Press material requires an approved Lift ID mapping');
     assert.ok(laminateId, 'Sticker Press laminate requires an approved Lift ID mapping');
     line.production = {...line.production, cut_type: 'Laser', material: materialId, laminate: laminateId};
