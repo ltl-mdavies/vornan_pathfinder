@@ -11,6 +11,8 @@ This is a preparation and operating plan, not production activation. High End Wo
 - Andy confirmed A0233832 fully shipped at revision 13, original receipt retained: line 1 qty100 / UPS Ground `1Z60V1570390944077`; lines 2 and 3 qty100 each / UPS Ground `1Z60V1570395841151`. This launch gate is complete. Do not regenerate or resubmit it.
 - Billing supplied: Silicone Pasture, 8 the green, Ste b, Dover DE 19901. This is billing, not a shipping override. Jason must verify its application in Lift. Marcus is separately resolving the test address exception with Jason.
 
+The approved-only restriction below is a supervised pre-submit check, not new automatic enforcement. Preparation can still produce Pending `5217816`; this slice neither implements an automatic Pending hold nor activates submission.
+
 ## Next fresh controlled test
 
 1. Agree a new test order with Andy, submitted from his normal release button. Keep the original receipt and source order identifiers stable throughout this test.
