@@ -59,8 +59,8 @@ test('every line maps to the single Lift product without source variation, mater
   preview.payload.lines.forEach((line:any,i)=>{
     assert.equal(line.product_id,'374549');assert.equal(line.product_name,'Sticker Press Sticker');
     assert.equal(line.description,payload.lines[i].product_name);assert.equal(line.external_line_id,payload.lines[i].external_line_id);
-    assert.equal(line.quantity,payload.lines[i].quantity);assert.equal(line.production.material,'White BOPP Sticker');
-    assert.equal(line.production.laminate,'Gloss');assert.equal(line.cut.shape,payload.lines[i].shape);
+    assert.equal(line.quantity,payload.lines[i].quantity);assert.equal(line.production.material,'355948');
+    assert.equal(line.production.laminate,'354498');assert.equal(line.cut.shape,payload.lines[i].shape);
     assert.equal(line.cut.type,'Laser');assert.equal(line.artwork.checksum,payload.lines[i].artwork.artwork_sha256);
     assert.ok(!line.artwork.file_url);assert.equal(line.pricing.customer_price,null);
   });
@@ -75,4 +75,29 @@ test('single product binding rejects other customers, integrations, environments
     (x:ReturnType<typeof setup>)=>{x.config.route.output_route_id='old';},
     (x:ReturnType<typeof setup>)=>{x.config.product.lift_product_id='999';}
   ]){const x=setup();change(x);assert.throws(()=>buildStickerPressConfiguredPreview(x.receipt,x.config));}
+});
+
+test('all approved material/laminate combinations translate upstream while reusable template and source evidence remain unchanged',()=>{
+ const {receipt,config,base,payload}=setup();
+ const cases=[['White Bopp (Sticker)','Gloss Laminate (.75 mil)','355948','354498'],['White Bopp (Sticker)','Matte Laminate (.71 mil)','355948','354757'],['Clear Bopp (Sticker)','Gloss Laminate (.75 mil)','362180','354498'],['Clear Bopp (Sticker)','Matte Laminate (.71 mil)','362180','354757']];
+ payload.lines.forEach((line:any,i:number)=>{line.material=cases[i][0];line.finish=cases[i][1];});
+ receipt.adapted=stickerPressV1.validate(payload,receipt.identity);receipt.fingerprint=receipt.adapted.fingerprint;
+ const before=structuredClone({receipt,config,base,route});const preview=buildStickerPressConfiguredPreview(receipt,config);
+ assert.deepEqual(preview.payload.lines.map((l:any)=>[l.production.material,l.production.laminate]),cases.map(c=>c.slice(2)));
+ assert.ok(preview.payload.lines.every(l=>l.product_id==='374549'));
+ assert.equal(preview.validation.filter(v=>v.severity==='FAIL').length,0);
+ assert.deepEqual({receipt,config,base,route},before);
+});
+
+test('unmapped/missing values stop new preparation; laminate takes precedence over legacy finish',()=>{
+ for(const [field,value] of [['material','Unknown'],['material',null],['laminate','Unknown'],['laminate',null]] as const){
+  const x=setup();x.receipt.adapted.canonical.lines[0].production![field]=value;
+  if(field==='laminate')delete x.receipt.adapted.canonical.lines[0].production!.finish;
+  assert.throws(()=>buildStickerPressConfiguredPreview(x.receipt,x.config),/approved Lift ID mapping/);
+ }
+ const x=setup();const line=x.receipt.adapted.canonical.lines[0];
+ line.production!.laminate='Matte Laminate (.71 mil)';line.production!.finish='Gloss Laminate (.75 mil)';
+ assert.equal((buildStickerPressConfiguredPreview(x.receipt,x.config).payload.lines[0] as any).production.laminate,'354757');
+ delete line.production!.laminate;
+ assert.equal((buildStickerPressConfiguredPreview(x.receipt,x.config).payload.lines[0] as any).production.laminate,'354498');
 });

@@ -4,7 +4,7 @@ import {generateLiftPayload, liftEcommerceExternalId, prepareLiftEcommercePayloa
 import type {ProcessingJobPreview, TargetConfig, SubmitProfile} from '../store.js';
 import {sha256, stableJson} from './adapter.js';
 import type {Receipt} from './local-store.js';
-import {mapStickerPressReceiptToCanonical,stickerPressLiftRouteId} from './stickerpress-lift-configuration.js';
+import {mapStickerPressReceiptToCanonical,stickerPressLiftRouteId,stickerPressMaterialMappingVersion} from './stickerpress-lift-configuration.js';
 
 export const stickerPressTestProfile: SubmitProfile = {profile_id:'sandbox-stickerpress-174094',
   name:'Sandbox · Sticker Press',mode:'sandbox_customer',enabled:false,
@@ -15,6 +15,7 @@ export interface JsonReceiptJobBinding {
   version:1; receipt_id:string; receipt_revision:number; receipt_sha256:string; business_fingerprint:string;
   integration_id:string; store:string; environment:'test'; source_order_number:string;
   configuration_sha256:string;
+  production_mapping_version?:string;
   artwork: Array<{external_line_id:string;sha256:string;bytes:number;retained_ref:string}>;
 }
 export type JsonReceiptJob = ProcessingJobPreview & {json_intake_binding:JsonReceiptJobBinding};
@@ -86,7 +87,8 @@ export function prepareReceiptSubmissionJob(receipt:Receipt,
     target_order_number:null,source_document_publications:[],created_at:timestamp,updated_at:timestamp,
     json_intake_binding:{version:1,receipt_id:receipt.receipt_id,receipt_revision:receipt.revision,receipt_sha256:sha256(stableJson(receipt)),
       business_fingerprint:receipt.fingerprint,integration_id:receipt.identity.integration_id,store:receipt.identity.store,environment:'test',
-      source_order_number:canonical.source.source_record_id,configuration_sha256:sha256(stableJson({template:config.template,route:config.route,product:config.product})),artwork}
+      source_order_number:canonical.source.source_record_id,configuration_sha256:sha256(stableJson({template:config.template,route:config.route,product:config.product,production_mapping_version:stickerPressMaterialMappingVersion})),
+      production_mapping_version:stickerPressMaterialMappingVersion,artwork}
   };
 }
 

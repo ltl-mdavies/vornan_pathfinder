@@ -11,7 +11,8 @@ import type {OutputRoute,TargetConfig} from '../src/store.js';
 const fixture=JSON.parse(await readFile(new URL('./fixtures/json-intake/sample-factory-test.json',import.meta.url),'utf8'));
 function setup(){
  const identity={customer_id:'174094',customer_name:'Silicone Pasture',integration_id:'stickerpress-sandbox',store:'ltlco',environment:'test' as const,schema:'stickerpress.order.v1'};
- const adapted=stickerPressV1.validate(fixture,identity);
+ const payload=structuredClone(fixture);payload.lines.forEach((l:any)=>{l.material='White Bopp (Sticker)';l.finish='Gloss Laminate (.75 mil)';});
+ const adapted=stickerPressV1.validate(payload,identity);
  const receipt={receipt_id:`rcpt_${sha256('synthetic-bridge')}`,identity,adapted,fingerprint:adapted.fingerprint,revision:4,
  assets:adapted.canonical.lines.map(l=>({external_line_id:l.source_line.external_line_id,sha256:l.source_line.artwork.artwork_sha256,bytes:l.source_line.artwork.bytes,retained_ref:'synthetic-retained-ref',inspection:'metadata_pass'}))} as Receipt;
  const base=createSeedOutputTemplate();
@@ -59,4 +60,16 @@ test('invalid retained approval evidence, wrong route/profile and confirmed rece
  (x:ReturnType<typeof setup>)=>{x.config.route.submit_profiles=[{...stickerPressTestProfile,enabled:true}];},
  (x:ReturnType<typeof setup>)=>{x.receipt.confirmation={} as any;}
  ]){const x=setup();mutate(x);assert.throws(()=>prepareReceiptSubmissionJob(x.receipt,x.config));}
+});
+
+test('new job carries ID mappings and mapping provenance without mutating input or rewriting existing jobs',()=>{
+ const {receipt,config}=setup();
+ receipt.adapted.canonical.lines.forEach((l,i)=>{l.production={...l.production,material:i%2?'Clear Bopp (Sticker)':'White Bopp (Sticker)',laminate:i<2?'Gloss Laminate (.75 mil)':'Matte Laminate (.71 mil)'};});
+ const before=structuredClone({receipt,config});const job=prepareReceiptSubmissionJob(receipt,config);
+ assert.deepEqual(job.lift_payload.lines.map((l:any)=>[l.production.material,l.production.laminate]),[['355948','354498'],['362180','354498'],['355948','354757'],['362180','354757']]);
+ assert.equal(job.json_intake_binding.production_mapping_version,'stickerpress-material-ids-2026-10-27-v1');
+ assert.deepEqual({receipt,config},before);assert.equal(job.submit_certification?.can_submit,false);
+ const existing=structuredClone(job);delete existing.json_intake_binding.production_mapping_version;
+ existing.state='Order Confirmed';(existing.lift_payload.lines[0] as any).production.material='White BOPP Sticker';
+ const saved=structuredClone(existing);assert.equal(assertReceiptJobReplay(existing,receipt),existing);assert.deepEqual(existing,saved);
 });
