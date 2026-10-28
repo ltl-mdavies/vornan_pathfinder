@@ -1,6 +1,7 @@
 import { validateEcommSubmitIdentity } from './json-intake/ecomm-submit-validation.js';
 import { preflightSubmitDocuments } from "./json-intake/prepaid-submit.js";
 import { getIntakeVisibilityConfig } from "./intake-visibility-config.js";
+import { observeWrikePreparation } from "./wrike-preparation-observer.js";
 import {
   DEFAULT_PUBLIC_STATUS_EXPIRED_TOKEN_RETENTION_DAYS,
   DEFAULT_PUBLIC_STATUS_TOKEN_DAYS,
@@ -6265,6 +6266,8 @@ async function prepareWrikeOrderForTask(args: {
   taskId: string;
   triggerStatusId?: string;
   prequalifiedScope?: WrikePrequalifiedTaskScope;
+  contractNumber?: string;
+  taskUrl?: string | null;
 }) {
   const assurance = await captureManualWrikeAssurance(args.liftCustomerId, args.methodId, args.taskId);
   let orderContext:
@@ -6281,7 +6284,8 @@ async function prepareWrikeOrderForTask(args: {
     | undefined;
   let referenceProofEvidenceSet: WrikeWorkbookEvidenceRecord[] = [];
   let referenceProofArchiveFileNameTemplate = "<contract_number>_referenceProofs.zip";
-  return prepareWrikeManualIntake({
+  return observeWrikePreparation({ customer_id: args.liftCustomerId, import_method_id: args.methodId,
+    task_id: args.taskId, contract_number: args.contractNumber, task_url: args.taskUrl, observed_at: new Date().toISOString() }, () => prepareWrikeManualIntake({
     classifyPreviewError: classifyWrikeManualIntakePreviewError,
     captureEvidence: async () => {
       const captured = await captureWrikeWorkbookEvidenceForMethod(
@@ -6439,7 +6443,7 @@ async function prepareWrikeOrderForTask(args: {
         job_state: preview.job.state
       };
     }
-  }).then(async result => {
+  })).then(async result => {
     if (assurance) {
       const snapshot = await readIntakeRecoverySnapshot(args.liftCustomerId, Number(process.env.PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT));
       await assurance.observe({ jobs: snapshot.jobs, submits: snapshot.submits });
@@ -6927,6 +6931,7 @@ async function runConfiguredWrikeIntakeCore(args: {
         candidates: scopedDiscovery.order_candidates.map((candidate) => ({
           task_id: candidate.task_id,
           contract_number: candidate.contract_number,
+          task_url: candidate.task_url,
           trigger_status_id: candidate.custom_status_id,
           prequalified_scope: {
             task_id: candidate.task_id,
@@ -6947,6 +6952,8 @@ async function runConfiguredWrikeIntakeCore(args: {
         liftCustomerId: args.config.customer_id,
         methodId: args.config.import_method_id,
         taskId: candidate.task_id,
+        contractNumber: candidate.contract_number,
+        taskUrl: candidate.task_url,
         triggerStatusId: candidate.trigger_status_id,
         prequalifiedScope: candidate.prequalified_scope
       });

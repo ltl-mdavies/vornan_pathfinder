@@ -74,6 +74,15 @@ export interface WrikeOAuthAuthorizationResult {
   authorized_at: string;
 }
 
+export interface WrikeAttachmentFailure {
+  kind: "workbook" | "reference_pdf";
+  file_name: string;
+  reason: "file_too_large" | "total_budget_exceeded" | "invalid_pdf";
+  observed_bytes: number;
+  size_source: "content_length" | "stream_lower_bound" | "complete";
+  limit_bytes: number;
+}
+
 export class WrikeConnectionError extends Error {
   public readonly rotated_credentials?: WrikeOAuthCredentials;
 
@@ -92,7 +101,8 @@ export class WrikeConnectionError extends Error {
       | "comment_write_failed"
       | "invalid_response",
     message: string,
-    rotatedCredentials?: WrikeOAuthCredentials
+    rotatedCredentials?: WrikeOAuthCredentials,
+    public readonly attachment_failure?: WrikeAttachmentFailure
   ) {
     super(message);
     this.name = "WrikeConnectionError";
@@ -336,6 +346,7 @@ export interface WrikeContractReadiness {
 
 export interface WrikeEligibleOrderTask {
   task_id: string;
+  task_url?: string | null;
   task_title: string;
   updated_at: string | null;
   account_id: string;
@@ -1955,6 +1966,7 @@ function scopedTaskRecord(task: Record<string, unknown>) {
   }
   return {
     task_id: taskId,
+    task_url: typeof task.permalink === "string" && /^https:\/\/www\.wrike\.com\/open\.htm\?id=\d+$/.test(task.permalink) ? task.permalink : null,
     task_title: typeof task.title === "string" ? task.title.trim().slice(0, 160) : "",
     updated_at:
       typeof task.updatedDate === "string" && Number.isFinite(Date.parse(task.updatedDate))
@@ -2850,7 +2862,7 @@ export async function discoverApprovedWrikeTask(
 }
 
 const WRIKE_DEFAULT_MAX_WORKBOOK_BYTES = 15 * 1024 * 1024;
-const WRIKE_DEFAULT_MAX_REFERENCE_PROOF_BYTES = 25 * 1024 * 1024;
+const WRIKE_DEFAULT_MAX_REFERENCE_PROOF_BYTES = 32 * 1024 * 1024;
 const WRIKE_DEFAULT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const WRIKE_MAX_WORKBOOKS = 10;
 const WRIKE_MAX_REFERENCE_PROOFS = 10;
@@ -2916,18 +2928,25 @@ function canonicalWorkbookContentType(extension: WrikeWorkbookExtension) {
   return "text/csv";
 }
 
-async function readBoundedResponseBytes(response: Response, maxBytes: number) {
+export async function readBoundedResponseBytes(response: Response, maxBytes: number, context: {
+  kind: WrikeAttachmentFailure["kind"]; file_name: string; total_budget?: boolean;
+  credentials?: WrikeOAuthCredentials;
+} = { kind: "workbook", file_name: "Workbook" }) {
+  const overflow = (observed: number, source: WrikeAttachmentFailure["size_source"]) => new WrikeConnectionError(
+    "attachment_validation_failed",
+    `The Wrike ${context.kind === "reference_pdf" ? "reference PDF" : "workbook"} exceeds the ${context.total_budget ? "remaining total attachment budget" : "file evidence limit"} (${(maxBytes / 1024 / 1024).toFixed(2)} MiB).`,
+    context.credentials,
+    { kind: context.kind, file_name: context.file_name, reason: context.total_budget ? "total_budget_exceeded" : "file_too_large", observed_bytes: observed, size_source: source, limit_bytes: maxBytes }
+  );
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new WrikeConnectionError(
-      "attachment_validation_failed",
-      `The Wrike workbook exceeds the ${Math.floor(maxBytes / 1024 / 1024)} MB evidence limit.`
-    );
+    await response.body?.cancel().catch(() => undefined);
+    throw overflow(contentLength, "content_length");
   }
   if (!response.body) {
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength > maxBytes) {
-      throw new WrikeConnectionError("attachment_validation_failed", "The Wrike workbook exceeds the evidence limit.");
+      throw overflow(bytes.byteLength, "complete");
     }
     return bytes;
   }
@@ -2941,8 +2960,8 @@ async function readBoundedResponseBytes(response: Response, maxBytes: number) {
     }
     total += chunk.value.byteLength;
     if (total > maxBytes) {
-      await reader.cancel();
-      throw new WrikeConnectionError("attachment_validation_failed", "The Wrike workbook exceeds the evidence limit.");
+      await reader.cancel().catch(() => undefined);
+      throw overflow(total, "stream_lower_bound");
     }
     chunks.push(chunk.value);
   }
@@ -3094,7 +3113,9 @@ export async function fetchQualifiedWrikeWorkbookSources(
         rotatedCredentials
       );
     }
-    const bytes = await readBoundedResponseBytes(response, Math.min(maxWorkbookBytes, maxTotalBytes - totalBytes));
+    const bytes = await readBoundedResponseBytes(response, Math.min(maxWorkbookBytes, maxTotalBytes - totalBytes), {
+      kind: "workbook", file_name: candidate.file_name, total_budget: maxTotalBytes - totalBytes < maxWorkbookBytes, credentials: rotatedCredentials
+    });
     totalBytes += bytes.byteLength;
     if (totalBytes > maxTotalBytes) {
       throw new WrikeConnectionError(
@@ -3166,13 +3187,15 @@ export async function fetchQualifiedWrikeWorkbookSources(
     // bounded bytes and PDF signature are authoritative for this qualified .pdf.
     const bytes = await readBoundedResponseBytes(
       response,
-      Math.min(maxReferenceProofBytes, maxTotalBytes - totalBytes)
+      Math.min(maxReferenceProofBytes, maxTotalBytes - totalBytes),
+      { kind: "reference_pdf", file_name: candidate.file_name, total_budget: maxTotalBytes - totalBytes < maxReferenceProofBytes, credentials: rotatedCredentials }
     );
     if (new TextDecoder().decode(bytes.slice(0, 5)) !== "%PDF-") {
       throw new WrikeConnectionError(
         "attachment_validation_failed",
         "The matching Wrike reference proof is not a valid PDF document.",
-        rotatedCredentials
+        rotatedCredentials,
+        { kind: "reference_pdf", file_name: candidate.file_name, reason: "invalid_pdf", observed_bytes: bytes.byteLength, size_source: "complete", limit_bytes: maxReferenceProofBytes }
       );
     }
     totalBytes += bytes.byteLength;

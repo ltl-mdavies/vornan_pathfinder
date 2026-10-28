@@ -2,13 +2,34 @@ import { Router } from "express";
 import { listWorkspaceCustomerIds, listOperationsCustomers } from "../store.js";
 import { projectProofQueue } from "./proof-queue.js";
 import { decodeQueueCursor, readProofQueuePage } from "./proof-queue-store.js";
+import { decodeDiagnosticCursor, readIntakeDiagnostics } from "../intake-diagnostics-store.js";
 
 export function createOperationsRouter(deps: {
   enabled?: boolean; list?: typeof readProofQueuePage;
   customers?: () => Promise<Array<{ lift_customer_id: string; customer_status?: string | null }>>;
   workspaceIds?: () => Promise<string[]>;
+  diagnostics?: typeof readIntakeDiagnostics;
 } = {}) {
   const router = Router();
+  router.get("/intake-diagnostics", async (req, res) => {
+    if (!(deps.enabled ?? process.env.PATHFINDER_ENABLE_OPERATIONS_WORKSPACE === "true")) { res.sendStatus(404); return; }
+    res.set("Cache-Control", "no-store");
+    const customer = typeof req.query.customer === "string" ? req.query.customer : "";
+    const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+    const state = req.query.state === undefined || req.query.state === "open" ? "open" : req.query.state === "all" ? "all" : null;
+    try {
+      if ((req.query.customer !== undefined && typeof req.query.customer !== "string") || customer.length > 80 ||
+          (req.query.cursor !== undefined && !cursor) || !state) throw new Error();
+      decodeDiagnosticCursor(cursor, customer, state);
+    } catch { res.status(400).json({ error: "Invalid intake diagnostic request." }); return; }
+    try {
+      const eligible = [...new Set((await (deps.customers ?? listOperationsCustomers)()).map(row => row.lift_customer_id))];
+      if (customer && !eligible.includes(customer)) { res.status(403).json({ error: "The customer does not have a Pathfinder workspace." }); return; }
+      const page = await (deps.diagnostics ?? readIntakeDiagnostics)(eligible, customer, cursor, state!);
+      res.json({ ...page, items: page.items.filter(row => eligible.includes(row.customer_id) && (!customer || row.customer_id === customer)),
+        checked_at: new Date().toISOString(), coverage: "recorded_preparation_observations" });
+    } catch { res.status(503).json({ error: "Intake diagnostics are unavailable. An empty list must not be interpreted as successful intake." }); }
+  });
   router.get("/customer-workspaces", async (_req, res) => {
     if (!(deps.enabled ?? process.env.PATHFINDER_ENABLE_OPERATIONS_WORKSPACE === "true")) { res.sendStatus(404); return; }
     res.set("Cache-Control", "no-store");

@@ -214,6 +214,7 @@ test("scheduled Wrike automation is default-off, independently gated, and exactl
 
 test("production Pathfinder tables are deletion-protected and retained", () => {
   const protectedTables = [
+    "PathfinderIntakeDiagnosticsTable",
     "PathfinderIntakeAttemptsTable",
     "PathfinderCustomersTable",
     "PathfinderCustomerWorkspacesTable",

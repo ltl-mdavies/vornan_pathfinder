@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, Circle, Clock3, RefreshCw } from "lucide-react";
 import { OperationsHeader } from "./OperationsWorkspace";
+import { IntakeDiagnostics } from "./IntakeDiagnostics";
 import { operationsDate, operationsMetrics, type OperationsJob, type OperationsProofPage } from "./operations-model";
 import { dashboardAttention, dashboardIssue, dashboardProofOrders, dashboardRecent, readDashboardProof } from "./dashboard-model";
 
@@ -47,6 +48,7 @@ export function OperationsDashboard({ jobs, updated, health, onOpen, onJobs, onP
       <article><h2>Confirmed today</h2><div><strong>{updated ? metrics.confirmedToday : "—"}</strong><span>Recorded Lift confirmations</span></div></article>
       <article><h2>Needs attention</h2><div><strong className={updated && attention.length ? "ops-warning" : ""}>{updated ? attention.length : "—"}</strong><span>Open job issues · All dates</span></div></article>
     </section>
+    <IntakeDiagnostics compact apiBaseUrl={apiBaseUrl} refreshKey={refresh} customerNames={Object.fromEntries(jobs.map(job => [job.customerId, job.customer]))} />
     <div className="ops-dashboard-panels">
       <section className="ops-surface ops-dashboard-recent" aria-label="Recent orders">
         <header className="ops-section-heading"><h2>Recent orders</h2><button className="ops-link" onClick={onJobs}>View all jobs →</button></header>
@@ -77,6 +79,6 @@ export function OperationsDashboard({ jobs, updated, health, onOpen, onJobs, onP
         {!health.length ? <p className="ops-empty">System health has not been observed.</p> : null}
       </section>
     </div>
-    <p className="ops-footnote">Totals use loaded job records. Pre-job issues: Jobs → Intake exceptions. Cached proof coverage and service health may be incomplete.</p>
+    <p className="ops-footnote">Summary totals use loaded job records. Intake checks are separate recorded preparation observations. Cached proof coverage and service health may be incomplete.</p>
   </section>;
 }
