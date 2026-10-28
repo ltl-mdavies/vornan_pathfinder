@@ -10,12 +10,15 @@ test("pre-job issue exposes reason, declared size, bounded limit and task link w
   for (const text of ["C317112", "Momentara", "Intake blocked", "Reference.pdf", "Declared size", "26.39 MiB", "25.00 MiB", "First seen", "Last failure", "2 observations", "4585490590"]) assert.ok(html.includes(text), text);
   assert.ok(!html.includes("Review job"));
   const recovered = renderToStaticMarkup(<IntakeDiagnosticDetails row={{ ...row, state: "resolved", resolved_at: "2026-10-28T20:05:00Z" }}/>);
-  assert.ok(recovered.includes("Lift confirmation and writeback remain separate job statuses"));
+  assert.ok(recovered.includes("Order confirmation and source updates are tracked separately"));
 });
 test("unloaded diagnostic state is unknown, never zero-success and provides history filter", () => {
   const html = renderToStaticMarkup(<IntakeDiagnostics apiBaseUrl="https://api.example.test"/>);
-  assert.ok(html.includes("Coverage unknown")); assert.ok(html.includes("All recorded issues"));
-  assert.ok(html.includes("not a historical backfill")); assert.ok(!html.includes("0 open"));
+  assert.ok(html.includes("Loading intake checks")); assert.ok(html.includes("All recorded issues"));
+  assert.ok(html.includes("some intake methods and requests excluded before preparation are not captured"));
+  assert.ok(html.includes("earlier issues are not included")); assert.ok(!html.includes("0 open"));
+  assert.ok(!html.includes("No open intake issues recorded")); assert.ok(!html.includes(">Previous</button>"));
+  assert.ok(!html.includes("Wrike"));
 });
 test("diagnostic fetch is authenticated, no-store, bounded and passes pagination without provider action", async () => {
   const original = globalThis.fetch; const calls: Array<{ url: string; init: RequestInit }> = [];
