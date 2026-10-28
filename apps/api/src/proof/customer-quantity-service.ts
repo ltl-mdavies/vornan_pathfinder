@@ -7,6 +7,7 @@ import { prepareProofApprovalDecision } from "./decision-contract.js";
 import { getProofFeedbackAcknowledgement, getProofParticipant } from "./store.js";
 import { getProofRuntimeConfig } from "./runtime-config.js";
 import { syncProofOrder } from "./service.js";
+import { recordActionApproval, reopenConfirmedAction } from "./action-reopening-store.js";
 import { allocationHash, listCustomerAllocations, readCustomerAllocation, replaceCustomerAllocation, reserveCustomerAllocation, type CustomerAllocation, type AllocationEntry } from "./customer-allocation-store.js";
 
 export const customerAllocationsEnabled = () => process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_ALLOCATIONS === "true";
@@ -54,6 +55,7 @@ export function createCustomerAllocationService(deps: {
   read?: typeof readCustomerAllocation; list?: typeof listCustomerAllocations; reserve?: typeof reserveCustomerAllocation; replace?: typeof replaceCustomerAllocation;
   target?: typeof readProofActionTargetConfig; credentials?: typeof readTargetEnvironmentProofingApiRuntimeCredentials;
   send?: typeof sendLiftProofingRuntimeAction; now?: () => Date;
+  recordApproval?: typeof recordActionApproval; reopenAction?: typeof reopenConfirmedAction;
 } = {}) {
   const enabled = deps.enabled ?? customerAllocationsEnabled;
   const runtime = deps.runtime ?? getProofRuntimeConfig;
@@ -114,6 +116,7 @@ export function createCustomerAllocationService(deps: {
         const task = lineTasks.find((t) => t.task_id === e.task_id);
         if (!task || task.attachment_id !== e.attachment_id || task.version !== e.expected_task_version || task.current_version?.version_id !== e.expected_version_id || task.quantity !== selected!.quantity || task.decision_context || order.tasks.filter((t) => t.attachment_id === e.attachment_id).length !== 1) fail("stale", "A creative changed or is shared across lines. Refresh before approving.");
         await validateDecision(order, task!, context, request.note);
+        await (deps.reopenAction ?? reopenConfirmedAction)(order, task!);
         entries.push({ ...e, feedback_fingerprint: task!.current_version!.feedback_fingerprint, filename: task!.current_version!.filename, state: "pending", resulting_line_number: null });
       }
       const timestamp = now().toISOString();
@@ -142,17 +145,24 @@ export function createCustomerAllocationService(deps: {
         if (error instanceof ProofCustomerApprovalError) throw error;
         return publicAllocation(record); // Keep optimistic/checking state on outage.
       }
-      if (order.health !== "active" || record.entries.some((entry) => order.tasks.some((task) => task.attachment_id === entry.attachment_id && order.lines.some((line) => line.order_line_id === task.order_line_id && line.cancelled)))) return publicAllocation(await save(record, { ...record, state: "paused" }, context, "proof.decision_observed"));
+      const cancelled = record.entries.some((entry) => order.tasks.some((task) => task.attachment_id === entry.attachment_id && (task.state === "cancelled" || order.lines.some((line) => line.order_line_id === task.order_line_id && line.cancelled))));
+      // Completion is a normal result of the last approval. Reconcile submitted
+      // work on a complete order, but never start another action there.
+      if (cancelled || !["active", "complete"].includes(order.health)) return publicAllocation(await save(record, { ...record, state: "paused" }, context, "proof.decision_observed"));
       const submitted = record.entries.find((e) => e.state === "submitted");
       if (submitted) {
         const matches = order.tasks.filter((t) => t.attachment_id === submitted.attachment_id && t.current_version?.current && !t.archived_at);
         const approved = matches.length === 1 && matches[0]!.state === "approved" && matches[0]!.current_version!.approval_status?.toUpperCase() === "APPROVED" && matches[0]!.current_version!.version_id === submitted.expected_version_id && matches[0]!.quantity === submitted.quantity;
         if (!approved) return publicAllocation(record);
+        try {
+          if (!await (deps.recordApproval ?? recordActionApproval)(order, matches[0]!, record.batch_id)) return publicAllocation(record);
+        } catch { return publicAllocation(record); } // Retry evidence/readback only, never the Lift action.
         const entries = record.entries.map((e) => e === submitted ? { ...e, state: "confirmed" as const, resulting_line_number: matches[0]!.line_number } : e);
         record = await save(record, { ...record, entries, state: entries.every((e) => e.state === "confirmed") ? "completed" : "ready" }, context, "proof.decision_observed", submitted);
         // A separate request starts the next creative, revalidating permission.
         return publicAllocation(record);
       }
+      if (order.health !== "active") return publicAllocation(await save(record, { ...record, state: "paused" }, context, "proof.decision_observed"));
       const remaining = record.entries.filter((e) => e.state === "pending");
       const next = remaining[0];
       if (!next) return publicAllocation(record);

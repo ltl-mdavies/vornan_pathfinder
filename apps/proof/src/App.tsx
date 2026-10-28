@@ -772,6 +772,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
       ? "Assign a quantity to each selected creative before final review."
       : `Assign the full line quantity across the ${stagedTasks.length} selected ${stagedTasks.length === 1 ? "creative" : "creatives"}, then review before submitting.`;
   const undoSelectedApproval = () => {
+    if (allocationInProgress) return;
     const next = { ...values };
     delete next[selectedTask.task_id];
     onChange(next);
@@ -934,7 +935,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
             <span className="creative-stage-actions">
               {selectedIsStaged ? <span className="staged-status"><CheckCircle2 aria-hidden="true" /> Ready to submit</span> : null}
               {selectedIsStaged
-                ? <button className="button tertiary" type="button" onClick={undoSelectedApproval}>Undo</button>
+                ? <button className="button tertiary" type="button" disabled={allocationInProgress} title={allocationInProgress ? allocationBlocked ?? undefined : undefined} onClick={undoSelectedApproval}>Undo</button>
                 : <button className="button primary" type="button" disabled={Boolean(allocationBlocked)} title={allocationBlocked ?? undefined} onClick={() => onStageApproval(selectedTask.task_id)}><ShieldCheck aria-hidden="true" /> Approve this creative</button>}
               <button className="button secondary request-changes" type="button" disabled title="Multiple-proof revision requests require coordinated support."><Upload aria-hidden="true" /> Request changes</button>
             </span>
@@ -956,7 +957,7 @@ function ActionTransport({ tasks, selectedTaskId, stagedTaskIds, values, onChang
               className="button secondary"
               type="button"
               data-quantity-assignment-trigger
-              disabled={stagedTasks.length === 0 || Boolean(freshnessBlocked) || (!demoBatchEnabled && stagedTasks.length !== actionableTasks.length)}
+              disabled={stagedTasks.length === 0 || Boolean(allocationBlocked) || (!demoBatchEnabled && stagedTasks.length !== actionableTasks.length)}
               onClick={() => allocationReady ? setBatchStage("confirm") : setAssignmentOpen(true)}
             >
               {allocationReady ? "Review approvals" : "Assign quantities"}

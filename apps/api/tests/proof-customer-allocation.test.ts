@@ -28,12 +28,14 @@ function fixture() {
   let enabled = true;
   let reads = 0;
   let outage = false;
+  let evidenceFailure: "none" | "conflict" | "outage" = "none";
   const sends: unknown[] = [];
   const events: string[] = [];
   const service = createCustomerAllocationService({
     enabled: () => enabled,
     runtime: () => ({ feature_flags: { approve: true, public_read: true } }) as never,
     now: () => new Date(timestamp),
+    recordApproval: async () => { if (evidenceFailure === "outage") throw new Error("storage unavailable"); return evidenceFailure !== "conflict"; }, reopenAction: async () => false,
     sync: async () => { reads++; if (outage) throw new Error("offline"); return { order: structuredClone(snapshot) } as never; },
     participant: async () => ({ participant_id: session.participant_id!, grant_id: session.grant_id, order_number: session.order_number, display_name: "Test Reviewer", email: "reviewer@example.invalid", first_seen_at: timestamp, last_seen_at: timestamp }),
     acknowledgement: async () => null,
@@ -53,6 +55,7 @@ function fixture() {
   const context = { session, correlation_id: "test-allocation" };
   return { service, context, sends, events, get saved() { return saved!; }, get reads() { return reads; }, snapshot,
     setSnapshot: (value: ProofOrder) => { snapshot = value; }, disable: () => { enabled = false; }, outage: () => { outage = true; },
+    evidenceFailure: (value: typeof evidenceFailure) => { evidenceFailure = value; },
     prepare: (value = request, identity = session) => service.prepare({ ...context, session: identity, request: value }),
     advance: () => service.advance({ ...context, batch_id: saved!.batch_id }) };
 }
@@ -106,8 +109,24 @@ test("confirms Lift split by attachment, then sends remaining quantity and compl
   assert.equal((await f.advance()).state, "ready"); assert.equal(f.sends.length, 1);
   assert.equal((await f.advance()).state, "checking"); assert.equal(f.sends.length, 2);
   const second = f.snapshot.tasks[1]!; second.state = "approved"; second.actionable = false; second.current_version!.approval_status = "APPROVED";
+  f.snapshot.health = "complete";
   const result = await f.advance(); assert.equal(result.state, "completed"); assert.deepEqual(result.entries.map(e => e.state), ["confirmed", "confirmed"]);
   await f.advance(); assert.equal(f.sends.length, 2);
+});
+test("a complete order cannot start an unsent approval or fabricate confirmation", async () => {
+  const f = fixture(); await f.prepare(); f.snapshot.health = "complete";
+  assert.equal((await f.advance()).state, "paused"); assert.equal(f.sends.length, 0);
+  const checking = fixture(); await checking.prepare(); await checking.advance(); checking.snapshot.health = "complete";
+  assert.equal((await checking.advance()).state, "checking"); assert.equal(checking.sends.length, 1);
+});
+test("evidence persistence trouble preserves checking state and retries only readback", async () => {
+  const f = fixture(); await f.prepare(); await f.advance();
+  const task = f.snapshot.tasks[0]!; task.state = "approved"; task.quantity = 4; task.current_version!.approval_status = "APPROVED";
+  for (const failure of ["conflict", "outage"] as const) {
+    f.evidenceFailure(failure);
+    assert.equal((await f.advance()).state, "checking"); assert.equal(f.sends.length, 1);
+  }
+  f.evidenceFailure("none"); assert.equal((await f.advance()).state, "ready"); assert.equal(f.sends.length, 1);
 });
 test("changed artwork, feedback, quantities or cancelled order pause before any PUT", async () => {
   for (const mutate of [

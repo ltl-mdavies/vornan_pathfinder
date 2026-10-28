@@ -29,6 +29,8 @@ const key = (order: string, sk: string) => ({ pk: proofStringAttribute(`ORDER#${
 const localKey = (order: string, sk: string) => `${order}:${sk}`;
 const batchKey = (id: string) => `ALLOCATION#${id}`;
 const RELEASED = "released-unsent";
+export const REOPENED = "released-after-confirmed-reopening";
+const available = (owner: string | undefined) => !owner || owner === RELEASED || owner === REOPENED;
 function driver() {
   const value = getProofRuntimeConfig().storage_driver;
   if (value === "disabled") throw new Error("Proof storage is unavailable.");
@@ -44,15 +46,15 @@ export async function claimProofAction(order: string, attachment: string, versio
   const sk = actionClaimKey(attachment, version);
   if (driver() === "local") return mutateLocalProofStore((store) => {
     const k = localKey(order, sk);
-    if (store.action_claims[k] && store.action_claims[k] !== owner && store.action_claims[k] !== RELEASED) return false;
+    if (!available(store.action_claims[k]) && store.action_claims[k] !== owner) return false;
     store.action_claims[k] = owner;
     return true;
   });
   try {
     await getProofDynamoClient().send(new PutItemCommand({
       TableName: requiredProofCoreTable(), Item: { ...key(order, sk), owner: proofStringAttribute(owner) },
-      ConditionExpression: "attribute_not_exists(pk) OR #owner = :owner OR #owner = :released",
-      ExpressionAttributeNames: { "#owner": "owner" }, ExpressionAttributeValues: { ":owner": proofStringAttribute(owner), ":released": proofStringAttribute(RELEASED) }
+      ConditionExpression: "attribute_not_exists(pk) OR #owner = :owner OR #owner = :released OR #owner = :reopened",
+      ExpressionAttributeNames: { "#owner": "owner" }, ExpressionAttributeValues: { ":owner": proofStringAttribute(owner), ":released": proofStringAttribute(RELEASED), ":reopened": proofStringAttribute(REOPENED) }
     }));
     return true;
   } catch (error) { if (conflict(error)) return false; throw error; }
@@ -82,7 +84,7 @@ export async function reserveCustomerAllocation(record: CustomerAllocation, audi
   const claims = record.entries.map((e) => actionClaimKey(e.attachment_id, e.expected_version_id));
   if (driver() === "local") return mutateLocalProofStore((store) => {
     const k = localKey(record.order_number, batchKey(record.batch_id));
-    if (store.allocation_records[k] || claims.some((sk) => store.action_claims[localKey(record.order_number, sk)] && store.action_claims[localKey(record.order_number, sk)] !== RELEASED)) return false;
+    if (store.allocation_records[k] || claims.some((sk) => !available(store.action_claims[localKey(record.order_number, sk)]))) return false;
     store.allocation_records[k] = record;
     claims.forEach((sk) => { store.action_claims[localKey(record.order_number, sk)] = record.batch_id; });
     store.audit_events[audit.event_id] = audit;
@@ -91,7 +93,7 @@ export async function reserveCustomerAllocation(record: CustomerAllocation, audi
   try {
     await getProofDynamoClient().send(new TransactWriteItemsCommand({ TransactItems: [
       { Put: { TableName: requiredProofCoreTable(), Item: item(record), ConditionExpression: "attribute_not_exists(pk)" } },
-      ...claims.map((sk) => ({ Put: { TableName: requiredProofCoreTable(), Item: { ...key(record.order_number, sk), owner: proofStringAttribute(record.batch_id) }, ConditionExpression: "attribute_not_exists(pk) OR #owner = :released", ExpressionAttributeNames: { "#owner": "owner" }, ExpressionAttributeValues: { ":released": proofStringAttribute(RELEASED) } } })),
+      ...claims.map((sk) => ({ Put: { TableName: requiredProofCoreTable(), Item: { ...key(record.order_number, sk), owner: proofStringAttribute(record.batch_id) }, ConditionExpression: "attribute_not_exists(pk) OR #owner = :released OR #owner = :reopened", ExpressionAttributeNames: { "#owner": "owner" }, ExpressionAttributeValues: { ":released": proofStringAttribute(RELEASED), ":reopened": proofStringAttribute(REOPENED) } } })),
       { Put: { TableName: requiredProofAuditTable(), Item: auditEventItem(audit), ConditionExpression: "attribute_not_exists(pk)" } }
     ] }));
     return true;

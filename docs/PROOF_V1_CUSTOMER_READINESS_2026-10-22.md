@@ -1,5 +1,120 @@
 # Proof v1 customer-readiness candidate — 2026-10-22
 
+## Current follow-up — October 28, 2026
+
+**Isolated candidate only. No push, deployment, permission activation, real
+uploads or Lift actions were performed. Not ready for general customer launch.**
+
+The historical sections below describe the October 22 candidate, not today's
+production state or fresh browser evidence. Its temporary worktree is no longer
+available. The implementation was recovered from `50d109f3`, cherry-picked as
+`5f94670a` onto `f5c408f` in an independent local clone at
+`/private/tmp/pathfinder-proof-v1-plan.0zAPoM`, branch
+`codex/proof-v1-current-main-plan`. Shared worktrees and unrelated development
+remain untouched. Development has subsequently reported Admin-only main
+`344c2416`; that report is not an independent deployment verification here.
+
+### Completed follow-up
+
+- Final multi-creative confirmation now reconciles submitted entries when Lift
+  marks the order `complete`; an unsent action cannot start on a complete order.
+- A new decision after a Lift reversal requires retained positive approval
+  evidence followed by a later, persisted, actionable snapshot of the same
+  attachment/version. Claim owner, evidence and exact persisted order snapshot
+  are checked atomically. The previous receipt is never replayed. Timeouts,
+  elapsed time, legacy claims without evidence, stale snapshots and unrelated
+  tasks do not unlock an action. A newer claimant cannot be released by old
+  evidence. Both single and multi-creative approvals record this evidence.
+  A batch evidence-storage conflict/outage preserves checking state and retries
+  readback only. Single-proof evidence-storage failure does not turn a positively
+  observed approval into an error; missing evidence keeps future reopening locked.
+- Browser QA found staged Undo could remain clickable during submission. Undo
+  and quantity assignment are now disabled while an allocation is in progress,
+  with a handler guard as well. Viewer/tooltips/background-refresh code is untouched.
+- Added a separate customer revised-art submission backend. It requires an
+  identified review-capable participant, current single/non-shared proof,
+  acknowledged feedback and upload ownership from the immutable initialization
+  audit (same grant and participant). Verified scan, publication, delivery,
+  hashes, versions, retention and settling checks precede submission.
+- Revised-art receipt, attachment/version exclusion and audit are atomic before
+  the sole bearer-authenticated `REVISED_ART_WILL_BE_SENT` attempt. It shares
+  exclusion with single and quantity approvals. Lost responses and failed
+  outcome writes remain recoverable without replay. Transport acceptance is
+  explicitly **not** confirmation that Lift consumed the file.
+- POST `/tasks/:taskId/revised-art/submissions` and bound GET
+  `/revised-art/submissions/:submissionId` are session-protected; POST requires
+  CSRF and never accepts a client delivery URL or client order binding.
+- New `PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_SUBMISSION` gate is absent/off
+  by default, in addition to existing read/review/approval/upload gates. No
+  deployment activation parameter or customer UI entry was enabled. Existing
+  Proof bearer authentication and viewer behavior are unchanged.
+
+### Fresh isolated validation
+
+All outbound actions are mocked. No test authorizes mutation of A0233367 or
+another live order.
+
+| Check | October 28 result |
+| --- | --- |
+| Proof API tests | 219 passed |
+| Proof frontend unit/contract tests | 77 passed |
+| Proof domain + Lift adapter tests | 112 passed |
+| Deployment/boundary tests | 172 passed |
+| API + Proof TypeScript | Pass |
+| Proof production frontend + dedicated public Lambda build | Pass |
+| Local Chromium, intercepted API fixture | 3/7 split → review → submitted → reload recovery → 2/2 confirmed |
+| Mobile modal, 390×844 | No horizontal overflow; focus in modal; Escape dismissal |
+
+New tests include real normalizer snapshots for an approved-to-pending Lift
+line reversal, all-complete confirmation, exclusion between every action type,
+concurrent requests, receipt persistence, Dynamo transaction predicates,
+ownership/feedback/asset-readiness rejection, lost responses, CSRF and revoked
+grants. Dynamo calls are mocked; production transaction behavior remains a
+canary requirement. The API tests require local test-server sockets; the
+restricted sandbox rejected those sockets, and the approved local rerun passed.
+
+Logs: `/private/tmp/proof-v1-oct28-{api,ui,domain,release}.log`.
+Browser evidence: `output/playwright/quantity-status-mobile.png` plus local
+`.playwright-cli` snapshots. This is a fresh Chromium check, not a new full
+cross-browser/accessibility certification. The fixture retains its original
+pending order projection while its fake receipt completes; it is not evidence
+of a real Lift split or production queue transition. No production signed PDF
+or live customer action was tested.
+
+### Remaining release gates / decisions
+
+1. **Revised-art customer completion.** The backend handoff is implemented but
+   intentionally dark. The UI still ends at file readiness. Before exposing
+   “Submit revised artwork,” agree the exact authoritative Lift evidence that
+   proves consumption/acceptance and the recovery path for an uncertain result.
+   A new attachment, successful HTTP response or elapsed timeout alone is not
+   enough. Current GET returns `lift_outcome_confirmed: false`; it does not
+   pretend to reconcile this unknown contract. Wire the customer UI and activation
+   configuration after this decision, then test end-to-end. Multi-creative and
+   shared-art revision submission remain protected.
+2. **Upload ownership.** Conservative implemented policy is same grant plus
+   participant, proven by the initialized audit. Operator uploads, other
+   reviewers' uploads and legacy uploads missing that audit cannot be adopted.
+   Any broader ownership/recovery model needs explicit product approval; do
+   not weaken checks to make old uploads work.
+3. **Disposable live QA order + launch cohort.** Development reports both are
+   still awaiting a human answer. A0233367 remains view-only. Run the approved
+   unequal-quantity split, completion, duplicate/reload, reversal, cancellation,
+   normal customer grant and revised-art canary only on an explicitly authorized
+   disposable order, after the deployment gate is satisfied.
+4. **Coordinated release.** Reconcile against main at integration time, inspect
+   configuration drift, re-run scoped tests, identify artifacts, review the
+   change set and rollback, then deploy only approved Proof resources. Current
+   production revision/activation must be rechecked; dated identifiers below
+   are not permission or evidence for a release today. Preserve all receipts
+   and claims; pause customer decisions before rolling back to claim-unaware
+   code. No automatic retry, claim deletion or real-action QA is authorized by
+   this implementation handoff.
+
+---
+
+## Historical October 22 record
+
 Status: implementation and isolated QA completed for multi-creative approvals;
 **not deployed and not approved for general customer activation**.
 

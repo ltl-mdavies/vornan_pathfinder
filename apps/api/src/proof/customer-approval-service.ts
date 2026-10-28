@@ -33,6 +33,7 @@ import {
 } from "./store.js";
 import { recordProofAuditEvent } from "./audit-service.js";
 import { claimProofAction } from "./customer-allocation-store.js";
+import { recordActionApproval, reopenConfirmedAction } from "./action-reopening-store.js";
 
 const TARGET_ID = "lift-standard-graphics";
 const ENVIRONMENT_ID = "env-lift-prod";
@@ -78,6 +79,8 @@ export interface ProofCustomerApprovalDependencies {
   persistOrder?: typeof persistProofOrder;
   now?: () => Date;
   claimAction?: typeof claimProofAction;
+  recordApproval?: typeof recordActionApproval;
+  reopenAction?: typeof reopenConfirmedAction;
 }
 
 export function targetEnvironment(target: ProofActionTargetConfig | null) {
@@ -282,6 +285,7 @@ export function createProofCustomerApprovalService(
       }
 
       let uncertain;
+      await (dependencies.reopenAction ?? reopenConfirmedAction)(order, task);
       if (!await claimAction(order.order_number, task.attachment_id!, task.current_version!.version_id, `decision:${contract.idempotency_key}`)) {
         throw new ProofCustomerApprovalError("conflict", "This proof already has an approval in progress. Refresh to check its status.");
       }
@@ -339,6 +343,13 @@ export function createProofCustomerApprovalService(
         // The durable state remains uncertain and must never be replayed automatically.
       }
       let confirmed = Boolean(reconciled && decision === "approve" && approvalObserved(reconciled, task));
+      if (confirmed && reconciled) {
+        const approved = reconciled.tasks.find(candidate => candidate.attachment_id === task.attachment_id && candidate.current_version?.version_id === task.current_version?.version_id);
+        if (approved) {
+          try { await (dependencies.recordApproval ?? recordActionApproval)(reconciled, approved, `decision:${contract.idempotency_key}`); }
+          catch { /* Positive readback still stands. Without retained evidence, future reopening stays locked. */ }
+        }
+      }
       if (
         reconciled &&
         decision === "send_back_to_artist" &&

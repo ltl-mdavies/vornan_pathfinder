@@ -87,6 +87,12 @@ test("keeps an accepted-but-unconfirmed approval visibly locked while Lift recon
   assert.doesNotMatch(appSource, /Lift received the approval, but the refreshed proof state still needs review/);
 });
 
+test("submitted creative allocations cannot be undone or reassigned while confirmation runs", () => {
+  assert.match(appSource, /const undoSelectedApproval = \(\) => \{\s*if \(allocationInProgress\) return;/);
+  assert.match(appSource, /disabled=\{allocationInProgress\}[^>]+onClick=\{undoSelectedApproval\}>Undo/);
+  assert.match(appSource, /disabled=\{stagedTasks\.length === 0 \|\| Boolean\(allocationBlocked\)/);
+});
+
 test("keeps revised artwork in its upload lifecycle with an accessible customer file picker", () => {
   assert.match(apiSource, /revised-assets\/uploads\/prepare/);
   assert.match(apiSource, /revised-assets\/uploads\/finalize/);

@@ -36,6 +36,8 @@ export interface LocalProofStore {
   detailed_report_records: Record<string, unknown>;
   allocation_records: Record<string, unknown>;
   action_claims: Record<string, string>;
+  action_approvals: Record<string, unknown>;
+  revision_submissions: Record<string, unknown>;
   audit_events: Record<string, ProofAuditEvent>;
 }
 
@@ -131,6 +133,8 @@ export async function readLocalProofStore(): Promise<LocalProofStore> {
       detailed_report_records: collection<unknown>("detailed_report_records"),
       allocation_records: collection<unknown>("allocation_records"),
       action_claims: collection<string>("action_claims"),
+      action_approvals: collection<unknown>("action_approvals"),
+      revision_submissions: collection<unknown>("revision_submissions"),
       audit_events: collection<ProofAuditEvent>("audit_events")
     };
   } catch (error) {
@@ -147,6 +151,8 @@ export async function readLocalProofStore(): Promise<LocalProofStore> {
         detailed_report_records: {},
         allocation_records: {},
         action_claims: {},
+        action_approvals: {},
+        revision_submissions: {},
         audit_events: {}
       };
     }
