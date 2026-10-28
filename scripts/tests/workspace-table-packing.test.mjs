@@ -1,4 +1,5 @@
 import { withoutOperationsWorkspace } from "./fixtures/operations-workspace.mjs";
+import { withoutIntakeDiagnostics } from "./fixtures/intake-diagnostics.mjs";
 import { withoutJsonArtworkRead } from "./fixtures/json-artwork-permission.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -13,5 +14,5 @@ test("packing changes only eight legacy bindings to one namespace in the validat
   assert.deepEqual(env.PATHFINDER_TABLE_NAMESPACE, { Sub: "1|${DataTablePrefix}|${EnvironmentName}" });
   for (const key of Object.keys(legacyWorkspaceBindings)) assert.ok(!(key in env));
   const baseline = JSON.parse(readFileSync(new URL("./fixtures/workspace-table-packing-baseline.json", import.meta.url), "utf8"));
-  assert.equal(createHash("sha256").update(JSON.stringify(canonical(withoutJsonArtworkRead(withoutWorkspacePacking(template))))).digest("hex"), baseline.sha256, baseline.source_commit);
+  assert.equal(createHash("sha256").update(JSON.stringify(canonical(withoutIntakeDiagnostics(withoutJsonArtworkRead(withoutWorkspacePacking(template)))))).digest("hex"), baseline.sha256, baseline.source_commit);
 });

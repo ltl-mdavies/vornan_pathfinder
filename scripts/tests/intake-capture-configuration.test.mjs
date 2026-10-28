@@ -67,6 +67,6 @@ test("capture fixture byte delta includes serialization after workspace packing"
   const after = environmentBytes(strings(vars(evaluate(captureParameters))));
   const additions = Object.fromEntries(keys.map((key) => [key, String(vars(evaluate(captureParameters))[key])]));
   assert.equal(after - before, environmentBytes(additions) - 1);
-  assert.equal(after, 3675);
+  assert.equal(after, 3749); // Includes the independently tested passive diagnostic table binding (+74 bytes).
   assert.ok(after <= 4096);
 });

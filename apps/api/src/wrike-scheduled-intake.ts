@@ -26,6 +26,7 @@ export function isWrikeScheduledIntakeEvent(event: unknown) {
 
 export interface WrikeScheduledOrderCandidate {
   task_id: string;
+  task_url?: string | null;
   contract_number: string;
   trigger_status_id: string;
   prequalified_scope?: {

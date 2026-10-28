@@ -97,6 +97,17 @@ window.fetch = async (input, init) => {
   const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
   calls.push({url:url.pathname,method});
   if (url.origin !== location.origin) return response({error:"Local review blocks every off-origin request."},423);
+  if (url.pathname === "/api/operations/intake-diagnostics" && method === "GET") {
+    if (query.get("intakeDiagnostics") === "unavailable") return response({ error: "Synthetic diagnostic storage unavailable" }, 503);
+    const items = query.has("intakeDiagnostics") ? ["C317112", "C317113"].map((contract, index) => ({
+      customer_id: "284619", diagnostic_id: `synthetic-${index}`, import_method_id: "synthetic-method", task_id: `SYNTHETIC${index}`,
+      contract_number: contract, task_url: null, state: index === 1 && url.searchParams.get("state") === "all" ? "resolved" : "open",
+      stage: "source_evidence", reason_code: "file_too_large", message: "Reference PDF exceeds the file-size limit. Reduce the file size or contact support.",
+      first_seen_at: "2026-10-28T20:00:00Z", last_seen_at: "2026-10-28T20:12:00Z", resolved_at: index === 1 && url.searchParams.get("state") === "all" ? "2026-10-28T20:30:00Z" : null,
+      occurrences: 3, attachment: { kind: "reference_pdf", file_name: "Synthetic MetroByTMobile_Q4_T100_AmazonLocker_Proof.pdf", observed_bytes: 27673344, size_source: "content_length", limit_bytes: 25 * 1024 * 1024 }
+    })).filter(row => !url.searchParams.get("customer") || row.customer_id === url.searchParams.get("customer")) : [];
+    return response({ items, next_cursor: null, checked_at: "2026-10-28T20:30:00Z", coverage: "recorded_preparation_observations" });
+  }
   const startupResponse = await startupReview.intercept(url.pathname, method);
   if (startupResponse) return startupResponse;
   if (submission) {

@@ -1308,6 +1308,12 @@ Resources:
                   - !GetAtt PathfinderCanonicalRegistryTable.Arn
                   - !If [HasProofCoreTable, !Ref ProofCoreTableArn, !Ref "AWS::NoValue"]
                   - !If [HasProofCoreTable, !Sub "${ProofCoreTableArn}/index/*", !Ref "AWS::NoValue"]
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                Resource: !GetAtt PathfinderIntakeDiagnosticsTable.Arn
               - !If
                 - IntakeAssuranceStorageActive
                 - Effect: Allow
@@ -1442,6 +1448,7 @@ Resources:
           PATHFINDER_INTAKE_ASSURANCE_SLA_SECONDS: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceSlaSeconds, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_SWEEP_SNAPSHOT_LIMIT: !If [IntakeAssuranceScopeActive, !Ref IntakeAssuranceSnapshotLimit, !Ref "AWS::NoValue"]
           PATHFINDER_INTAKE_ATTEMPTS_TABLE: !If [IntakeAssuranceStorageActive, !Ref PathfinderIntakeAttemptsTable, !Ref "AWS::NoValue"]
+          PATHFINDER_INTAKE_DIAGNOSTICS_TABLE: !Ref PathfinderIntakeDiagnosticsTable
           PATHFINDER_CUSTOMER_SEED_FILE: "/var/task/data/lift-customers.sample.csv"
           PATHFINDER_ALLOWED_ORIGINS: !Ref AllowedOrigins
           PATHFINDER_PUBLIC_STATUS_BASE_URL: !Ref PublicStatusBaseUrl
@@ -1679,6 +1686,34 @@ Resources:
       Threshold: 0
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
+
+  PathfinderIntakeDiagnosticsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      DeletionProtectionEnabled: true
+      TableName: !Sub "${DataTablePrefix}-IntakeDiagnostics-${EnvironmentName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+        - AttributeName: diagnostic_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+        - AttributeName: diagnostic_id
+          KeyType: RANGE
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: App
+          Value: Pathfinder
+        - Key: Environment
+          Value: !Ref EnvironmentName
 
   PathfinderIntakeAttemptsTable:
     Type: AWS::DynamoDB::Table

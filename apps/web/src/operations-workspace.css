@@ -163,3 +163,8 @@
 .ops-dashboard .ops-empty{font-size:13px;line-height:1.6;padding:24px 16px}
 @media(max-width:1250px){.ops-dashboard-panels{grid-template-columns:minmax(0,1.8fr) minmax(0,1fr)}.ops-dashboard-recent .ops-table td,.ops-dashboard-recent .ops-table th{padding-left:12px;padding-right:12px}.ops-dashboard-proof-table td{padding-left:8px!important;padding-right:8px!important}.ops-dashboard-summary span{max-width:150px}}
 @media(max-width:1000px){.ops-dashboard-panels{grid-template-columns:minmax(0,1fr)}.ops-dashboard-summary article>div{align-items:flex-start;flex-direction:column;gap:5px}}
+.ops-intake-diagnostics { margin-bottom: 16px; }
+.ops-intake-diagnostic { padding: 12px 18px; border-top: 1px solid var(--border, #dce2d6); overflow-wrap: anywhere; }
+.ops-intake-diagnostic header { display: flex; align-items: baseline; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.ops-intake-diagnostic p { margin: 6px 0; }
+.ops-intake-diagnostic small { color: var(--text-muted, #667160); }
