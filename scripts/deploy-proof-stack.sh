@@ -46,6 +46,8 @@ aws cloudformation deploy \
     CustomerApprovalEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:-false}" \
     CustomerAllocationEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_ALLOCATIONS:-false}" \
     CustomerAllocationScope="${PATHFINDER_PROOF_CUSTOMER_ALLOCATION_SCOPE:-}" \
+    CustomerRevisionSubmissionEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_SUBMISSION:-false}" \
+    CustomerRevisionScope="${PATHFINDER_PROOF_CUSTOMER_REVISION_SCOPE:-}" \
     CustomerRevisionUploadEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS:-false}" \
     ProofAssetUploadEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD:-false}" \
     ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \
