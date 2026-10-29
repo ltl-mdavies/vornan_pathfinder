@@ -4,13 +4,15 @@ Status: preparation; NOT deployed. Allocation activation and order policy change
 
 ### Final integration findings
 
-Integrated Proof recovery delta 8e2711d as c710837; frontend source is identical to the submitted UX revision. Its 86 UI tests, build and full typecheck pass. Await final recorded UX decision before publication.
+Integrated Proof recovery delta 8e2711d as c710837; frontend source is identical to the submitted UX revision. Pathfinder UX recorded exact-revision restricted QA clearance on October 29. Its 86 UI tests, build and full typecheck pass. Full integrated suites pass: 1,454 application/package checks, 175 deployment checks and all 17 browser regressions. CI first exposed an obsolete browser-test expectation (Ready to approve vs approved Ready to review); corrected only the test string and reran the complete browser suite locally, including final submission/completion assertions. No UI change was needed.
 
 Actual AWS change-set review adds the unchanged API Gateway integration ARN reference as a dynamic dependency of the public Lambda; existing integration ccg8t2g remains AWS_PROXY to the same function with 30-second edge timeout. No routing/authentication changes are intended.
 
 Read-only IAM simulation identified an actual missing permission: ConditionCheckItem is implicitly denied on ProofCore, while PutItem is allowed. New durable snapshot/claim transactions use ConditionCheck, which requires its own underlying IAM action (AWS DynamoDB transaction IAM documentation). Add only `dynamodb:ConditionCheckItem` on the exact ProofCore table to the existing public role under CustomerRuntimeActive; no scan/delete/admin/customer-workspace permission added. This explicitly adds the public role's inline policy to the reviewed infrastructure scope. Existing TransactWriteItems statement is preserved; do not infer it authorizes ConditionCheck.
 
 The initial unexecuted change set is superseded by this permission correction; create/review a new one. Retain prior role/template for rollback and verify live policy simulation after deployment before any QA action.
+
+Direct human approval for A0232139-only Advanced QA access was subsequently confirmed in the Proof chat. After deployed baseline smoke, Development will activate only the exact `1249:A0232139` allocation scope; Proof owns the supported UI order exception and fresh grant/session to avoid duplicate access changes. No email. All other defaults/exceptions stay unchanged. Revised-art remains off.
 
 ## Authority and reviewed scope
 

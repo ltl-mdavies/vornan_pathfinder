@@ -262,7 +262,7 @@ test("Proof saves, reviews, processes, and summarizes a multi-proof allocation w
   await dialog.getByLabel("Quantity for creative 2").fill("4");
   await dialog.getByLabel("Quantity for creative 3").fill("4");
   await dialog.getByLabel("Quantity for creative 4").fill("4");
-  await expect(dialog.getByText("Ready to approve")).toBeVisible();
+  await expect(dialog.getByText("Ready to review")).toBeVisible();
   await dialog.getByRole("button", { name: "Continue to review" }).click();
 
   const confirmation = page.getByRole("dialog", { name: "Submit these approvals?" });
