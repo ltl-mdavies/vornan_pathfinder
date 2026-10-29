@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proof thumbnail sizing QA</title>
+<link rel="stylesheet" href="/src/styles.css">
+<style>
+  body { padding: 32px; }
+  main { max-width: 900px; margin: auto; }
+  section { display: flex; gap: 32px; align-items: start; padding: 20px; background: white; margin: 12px 0; }
+  figure { margin: 0; width: 160px; }
+  figcaption { margin-top: 10px; font-size: 12px; }
+  h1 { font-size: 24px; } h2 { font-size: 16px; }
+</style>
+<main><h1>Proof thumbnails · full artwork, centered</h1>
+<p>Local diagnostic patterns — portrait, landscape, and square. All four edge markers and the center must remain visible.</p></main>
+<script>
+  const contexts = [['Queue', 'line-group-thumbnail'], ['Creative selector', 'filmstrip-items'], ['Quantity review', 'quantity-confirm-list']];
+  for (const [label, className] of contexts) {
+    const heading = document.createElement('h2'); heading.textContent = label;
+    const section = document.createElement('section');
+    for (const [shape, w, h] of [['Portrait', 400, 800], ['Landscape', 800, 400], ['Square', 600, 600]]) {
+      const figure = document.createElement('figure');
+      const wrapper = document.createElement('div'); wrapper.className = className;
+      const frame = document.createElement('span'); frame.className = 'task-thumbnail';
+      const image = document.createElement('img'); image.alt = shape + ' diagnostic artwork';
+      image.src = 'data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="#84c63f"/><rect x="4" y="4" width="${w-8}" height="${h-8}" fill="none" stroke="#25422e" stroke-width="8"/><path d="M0 0 L${w} ${h} M${w} 0 L0 ${h}" stroke="white" stroke-width="10"/><circle cx="${w/2}" cy="${h/2}" r="50" fill="#25422e"/></svg>`);
+      frame.append(image); wrapper.append(frame);
+      const caption = document.createElement('figcaption'); caption.textContent = shape;
+      figure.append(wrapper, caption); section.append(figure);
+    }
+    document.querySelector('main').append(heading, section);
+  }
+</script>
+</html>

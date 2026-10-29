@@ -24,6 +24,9 @@ export function createProofPublicApp() {
     }
     next();
   });
+  // A bounded 20-creative request contains exact task/version bindings plus
+  // the optional approval note. Keep every other public route at 4 KiB.
+  app.use("/api/public/proof/approval-batches", express.json({ limit: "16kb", type: "application/json" }));
   app.use(express.json({ limit: "4kb", type: "application/json" }));
   app.use("/api/public/proof", createProofPublicRouter());
   return app;

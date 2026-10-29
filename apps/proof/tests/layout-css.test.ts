@@ -4,6 +4,12 @@ import test from "node:test";
 
 const styles = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
+test("bounds thumbnail grid tracks so intrinsic portrait artwork cannot be clipped", () => {
+  assert.match(styles, /\.task-thumbnail\s*\{[^}]*grid-template:\s*minmax\(0, 1fr\) \/ minmax\(0, 1fr\);/s);
+  assert.match(styles, /\.task-thumbnail img\s*\{[^}]*min-width:\s*0;[^}]*min-height:\s*0;/s);
+  assert.match(styles, /\.task-thumbnail img\s*\{[^}]*object-fit:\s*contain;[^}]*object-position:\s*center;/s);
+});
+
 test("keeps large proof queues scrollable without shrinking line cards", () => {
   assert.match(styles, /\.task-list\s*\{[^}]*flex:\s*1 1 auto;/s);
   assert.match(styles, /\.task-list\s*\{[^}]*grid-auto-rows:\s*max-content;/s);

@@ -32,6 +32,8 @@ import {
   persistProofOrder
 } from "./store.js";
 import { recordProofAuditEvent } from "./audit-service.js";
+import { claimProofAction } from "./customer-allocation-store.js";
+import { recordActionApproval, reopenConfirmedAction } from "./action-reopening-store.js";
 
 const TARGET_ID = "lift-standard-graphics";
 const ENVIRONMENT_ID = "env-lift-prod";
@@ -76,9 +78,12 @@ export interface ProofCustomerApprovalDependencies {
   audit?: typeof recordProofAuditEvent;
   persistOrder?: typeof persistProofOrder;
   now?: () => Date;
+  claimAction?: typeof claimProofAction;
+  recordApproval?: typeof recordActionApproval;
+  reopenAction?: typeof reopenConfirmedAction;
 }
 
-function targetEnvironment(target: ProofActionTargetConfig | null) {
+export function targetEnvironment(target: ProofActionTargetConfig | null) {
   const environment = target?.environments.find(
     (candidate) => candidate.environment_id === ENVIRONMENT_ID && candidate.role === "PROD" && candidate.status === "Active"
   );
@@ -88,7 +93,7 @@ function targetEnvironment(target: ProofActionTargetConfig | null) {
   return environment;
 }
 
-function assertCredentialBoundary(
+export function assertCredentialBoundary(
   credentials: TargetProofingApiRuntimeCredentials,
   environmentEndpointUrl: string
 ) {
@@ -180,6 +185,7 @@ export function createProofCustomerApprovalService(
   const audit = dependencies.audit ?? recordProofAuditEvent;
   const persistOrder = dependencies.persistOrder ?? persistProofOrder;
   const now = dependencies.now ?? (() => new Date());
+  const claimAction = dependencies.claimAction ?? claimProofAction;
 
   async function decide(input: {
       session: ProofAccessSession;
@@ -279,6 +285,10 @@ export function createProofCustomerApprovalService(
       }
 
       let uncertain;
+      await (dependencies.reopenAction ?? reopenConfirmedAction)(order, task);
+      if (!await claimAction(order.order_number, task.attachment_id!, task.current_version!.version_id, `decision:${contract.idempotency_key}`)) {
+        throw new ProofCustomerApprovalError("conflict", "This proof already has an approval in progress. Refresh to check its status.");
+      }
       try {
         uncertain = await transition({
           order_number: order.order_number,
@@ -333,6 +343,13 @@ export function createProofCustomerApprovalService(
         // The durable state remains uncertain and must never be replayed automatically.
       }
       let confirmed = Boolean(reconciled && decision === "approve" && approvalObserved(reconciled, task));
+      if (confirmed && reconciled) {
+        const approved = reconciled.tasks.find(candidate => candidate.attachment_id === task.attachment_id && candidate.current_version?.version_id === task.current_version?.version_id);
+        if (approved) {
+          try { await (dependencies.recordApproval ?? recordActionApproval)(reconciled, approved, `decision:${contract.idempotency_key}`); }
+          catch { /* Positive readback still stands. Without retained evidence, future reopening stays locked. */ }
+        }
+      }
       if (
         reconciled &&
         decision === "send_back_to_artist" &&

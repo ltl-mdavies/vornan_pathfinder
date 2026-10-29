@@ -5,6 +5,8 @@ environment_name="${PATHFINDER_PROOF_ENVIRONMENT_NAME:-dev}"
 stack_name="${PATHFINDER_PROOF_STACK_NAME:-vornan-proof-${environment_name}}"
 artifact_bucket="${PATHFINDER_API_ARTIFACT_BUCKET:?Set PATHFINDER_API_ARTIFACT_BUCKET to the S3 artifact bucket.}"
 artifact_key="${PATHFINDER_PROOF_ARTIFACT_KEY:-proof/${environment_name}/vornan-proof-lambdas-$(date +%Y%m%d%H%M%S).zip}"
+# Preserve operator/sync code when releasing the public customer workflow.
+worker_artifact_key="${PATHFINDER_PROOF_WORKER_ARTIFACT_KEY:?Set PATHFINDER_PROOF_WORKER_ARTIFACT_KEY to the verified live shared artifact key.}"
 zip_path="outputs/vornan-proof-lambdas.zip"
 public_read_enabled="${PATHFINDER_PROOF_ENABLE_PUBLIC_READ:-false}"
 synthetic_qa_enabled="${PATHFINDER_PROOF_ENABLE_SYNTHETIC_QA:-false}"
@@ -35,12 +37,15 @@ aws cloudformation deploy \
     ProductionLiftReadsAcknowledged="${PATHFINDER_PROOF_ACKNOWLEDGE_PRODUCTION_READS:-false}" \
     DataTablePrefix="${PATHFINDER_DATA_TABLE_PREFIX:-Pathfinder}" \
     PublicLambdaCodeS3Bucket="${artifact_bucket}" \
-    PublicLambdaCodeS3Key="${artifact_key}" \
+    PublicLambdaCodeS3Key="${worker_artifact_key}" \
+    PublicFunctionCodeS3Key="${artifact_key}" \
     PublicReadEnabled="${public_read_enabled}" \
     ReadOnlyActivationExpiresAt="${PATHFINDER_PROOF_READ_ONLY_ACTIVATION_EXPIRES_AT:-}" \
     OperatorGrantCreationEnabled="${PATHFINDER_PROOF_OPERATOR_GRANT_CREATION_ENABLED:-false}" \
     GrantAllowedCustomerIds="${PATHFINDER_PROOF_GRANT_ALLOWED_CUSTOMER_IDS:-}" \
     CustomerApprovalEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_APPROVALS:-false}" \
+    CustomerAllocationEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_ALLOCATIONS:-false}" \
+    CustomerAllocationScope="${PATHFINDER_PROOF_CUSTOMER_ALLOCATION_SCOPE:-}" \
     CustomerRevisionUploadEnabled="${PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_UPLOADS:-false}" \
     ProofAssetUploadEnabled="${PATHFINDER_ENABLE_PROOF_ASSET_UPLOAD:-false}" \
     ProofAssetUploadAllowedOrders="${PATHFINDER_PROOF_ASSET_UPLOAD_ALLOWED_ORDERS:-}" \

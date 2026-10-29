@@ -117,6 +117,7 @@ function runtime(enabled: boolean) {
 test("denies a dark customer approval gate before Lift reads, persistence, secrets, or transport", async () => {
   const calls: string[] = [];
   const service = createProofCustomerApprovalService({
+    claimAction: async () => true, recordApproval: async () => true, reopenAction: async () => false,
     runtimeConfig: () => runtime(false),
     syncOrder: async () => { calls.push("sync"); throw new Error("must not run"); },
     readTargetConfig: async () => { calls.push("targets"); return target[0]!; },
@@ -131,13 +132,14 @@ test("denies a dark customer approval gate before Lift reads, persistence, secre
   assert.deepEqual(calls, []);
 });
 
-test("persists the no-retry boundary before one quantity-free PUT and immediately reconciles", async () => {
+test("persists the no-retry boundary before one quantity-free PUT and reconciles despite reopening-evidence storage failure", async () => {
   const pending = proofOrder();
   const approved = proofOrder("approved");
   const lifecycle: string[] = [];
   let syncCount = 0;
   let record: any;
   const service = createProofCustomerApprovalService({
+    claimAction: async () => true, recordApproval: async () => { throw new Error("evidence storage unavailable"); }, reopenAction: async () => false,
     runtimeConfig: () => runtime(true),
     now: () => now,
     readTargetConfig: async () => target[0]!,
@@ -187,6 +189,7 @@ test("sends one comment-required customer change request and records the exact p
     note: "Move the logo above the legal copy."
   };
   const service = createProofCustomerApprovalService({
+    claimAction: async () => true, recordApproval: async () => true, reopenAction: async () => false,
     runtimeConfig: () => runtime(true),
     now: () => now,
     readTargetConfig: async () => target[0]!,
@@ -247,6 +250,7 @@ test("rejects multiple or shared proofs before credentials or transport", async 
   let credentialReads = 0;
   let sends = 0;
   const service = createProofCustomerApprovalService({
+    claimAction: async () => true, recordApproval: async () => true, reopenAction: async () => false,
     runtimeConfig: () => runtime(true),
     readTargetConfig: async () => target[0]!,
     syncOrder: async () => ({ order, diagnostics: null }) as never,
@@ -265,6 +269,7 @@ test("never replays transport after the durable no-retry boundary", async () => 
   let credentialReads = 0;
   let sends = 0;
   const service = createProofCustomerApprovalService({
+    claimAction: async () => true, recordApproval: async () => true, reopenAction: async () => false,
     runtimeConfig: () => runtime(true),
     now: () => now,
     readTargetConfig: async () => target[0]!,

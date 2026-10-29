@@ -37,6 +37,10 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
+  PublicFunctionCodeS3Key:
+    Type: String
+    Default: ""
+    Description: Optional public-only artifact override; empty retains the legacy shared artifact reference.
   ReadOnlyActivationExpiresAt:
     Type: String
     Default: ""
@@ -62,6 +66,16 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: Default-disabled customer revised-art upload boundary for existing review sessions.
+  CustomerAllocationEnabled:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable durable multi-creative quantity approvals only for authorized Advanced review sessions.
+  CustomerAllocationScope:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^[0-9]{1,20}:A[0-9]{7,8}(,[0-9]{1,20}:A[0-9]{7,8}){0,24}$"
+    Description: Exact customer-id:order-number allocation pairs; empty denies allocation for every order.
   ProofAssetUploadEnabled:
     Type: String
     Default: "false"
@@ -209,6 +223,7 @@ Parameters:
     AllowedValues: [14, 30, 60, 90, 120, 180, 365]
 
 Conditions:
+  HasPublicFunctionCodeOverride: !Not [!Equals [!Ref PublicFunctionCodeS3Key, ""]]
   HasPublicLambdaCode: !And
     - !Not [!Equals [!Ref PublicLambdaCodeS3Bucket, ""]]
     - !Not [!Equals [!Ref PublicLambdaCodeS3Key, ""]]
@@ -335,6 +350,18 @@ Rules:
           - !Equals [!Ref ProofDomainName, ""]
           - !Equals [!Ref CertificateArn, ""]
         AssertDescription: The isolated operator window must not configure a customer DNS alias.
+  CustomerAllocationRequiresApproval:
+    RuleCondition: !Equals [!Ref CustomerAllocationEnabled, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref CustomerAllocationScope, ""]]
+        AssertDescription: Creative quantity approvals require an exact customer/order release scope.
+      - Assert: !Or
+          - !Equals [!Ref CustomerApprovalEnabled, "true"]
+          - !And
+            - !Equals [!Ref LtlDemoQaEnabled, "true"]
+            - !Equals [!Ref LtlDemoQaSessionReadEnabled, "true"]
+            - !Equals [!Ref LtlDemoQaCustomerApprovalEnabled, "true"]
+        AssertDescription: Creative quantity approvals require the existing customer approval gate or the bounded LTL Demo approval profile.
   CustomerApprovalRequiresExactRuntimeBindings:
     RuleCondition: !Equals [!Ref CustomerApprovalEnabled, "true"]
     Assertions:
@@ -914,6 +941,14 @@ Resources:
               - !If
                 - CustomerRuntimeActive
                 - Effect: Allow
+                  # Transactional snapshot/claim checks need their own IAM
+                  # permission; PutItem does not authorize ConditionCheck.
+                  Action: dynamodb:ConditionCheckItem
+                  Resource: !GetAtt ProofCoreTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - CustomerRuntimeActive
+                - Effect: Allow
                   Action: secretsmanager:GetSecretValue
                   Resource: !Ref ProofingApiSecretArn
                 - !Ref "AWS::NoValue"
@@ -1006,12 +1041,14 @@ Resources:
       Architectures: [arm64]
       Handler: public-lambda.handler
       Role: !GetAtt ProofPublicLambdaRole.Arn
-      Timeout: 15
+      # Authoritative preflight reads precede one bounded Lift action. Receipts
+      # survive edge/client timeouts; a later request reconciles without replay.
+      Timeout: 60
       MemorySize: 512
       ReservedConcurrentExecutions: 10
       Code:
         S3Bucket: !Ref PublicLambdaCodeS3Bucket
-        S3Key: !Ref PublicLambdaCodeS3Key
+        S3Key: !If [HasPublicFunctionCodeOverride, !Ref PublicFunctionCodeS3Key, !Ref PublicLambdaCodeS3Key]
       Environment:
         Variables:
           PATHFINDER_RUNTIME: lambda
@@ -1020,6 +1057,8 @@ Resources:
           PATHFINDER_PROOF_CORE_TABLE: !Ref ProofCoreTable
           PATHFINDER_PROOF_AUDIT_TABLE: !Ref ProofAuditTable
           PATHFINDER_PROOF_ENABLE_PUBLIC_READ: !Ref PublicReadEnabled
+          PATHFINDER_PROOF_ENABLE_CUSTOMER_ALLOCATIONS: !Ref CustomerAllocationEnabled
+          PATHFINDER_PROOF_CUSTOMER_ALLOCATION_SCOPE: !Ref CustomerAllocationScope
           PATHFINDER_PROOF_LTL_DEMO_QA_SCOPE: !Join
             - "|"
             - - !Ref LtlDemoQaEnabled

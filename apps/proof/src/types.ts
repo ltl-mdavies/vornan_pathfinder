@@ -80,6 +80,7 @@ export interface ProofOrder {
     scope: "view" | "review";
     decisions_enabled: boolean;
     review_experience: "simple" | "advanced";
+    allocation_enabled?: boolean;
     revision_upload_enabled?: boolean;
   };
 }

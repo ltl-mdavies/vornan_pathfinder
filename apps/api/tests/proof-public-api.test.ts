@@ -150,6 +150,64 @@ after(async () => {
   await rm(testDirectory, { recursive: true, force: true });
 });
 
+test("allocation routes require a live session and CSRF before invoking the batch service", async () => {
+  const created = await access.createProofGrant({ order_number: order.order_number });
+  const exchange = await request(app).post("/api/public/proof/sessions").send({ token: created.access_url.split("/").at(-1)! }).expect(201);
+  const { cookie, csrf } = exchangeCredentials(exchange);
+  const calls: string[] = [];
+  const batchApp = express(); batchApp.use(express.json());
+  batchApp.use("/api/public/proof", createPublicRouter({ allocations: {
+    list: async ({ session }) => { calls.push(`list:${session.order_number}`); return []; },
+    prepare: async () => { calls.push("prepare"); return {} as never; },
+    advance: async () => { calls.push("advance"); return {} as never; }
+  } }));
+  for (const path of ["/approval-batches", "/approval-batches/pbatch_test/advance"]) {
+    await request(batchApp).post(`/api/public/proof${path}`).send({}).expect(401);
+    await request(batchApp).post(`/api/public/proof${path}`).set("Cookie", cookie).send({}).expect(403);
+  }
+  assert.deepEqual(calls, []);
+  await request(batchApp).post("/api/public/proof/approval-batches").set("Cookie", cookie).set("X-Vornan-Proof-Csrf", csrf).send({}).expect(200);
+  assert.deepEqual(calls, ["prepare"]);
+  await access.updateProofGrant(created.grant.grant_id, { action: "revoke" });
+  await request(batchApp).get("/api/public/proof/approval-batches").set("Cookie", cookie).expect(401);
+  await request(batchApp).post("/api/public/proof/approval-batches/pbatch_test/advance").set("Cookie", cookie).set("X-Vornan-Proof-Csrf", csrf).send({}).expect(401);
+  assert.deepEqual(calls, ["prepare"]);
+});
+
+test("revision submission routes require session and CSRF, bind requests server-side and reject revoked grants", async () => {
+  const created = await access.createProofGrant({ order_number: order.order_number });
+  const exchange = await request(app).post("/api/public/proof/sessions").send({ token: created.access_url.split("/").at(-1)! }).expect(201);
+  const { cookie, csrf } = exchangeCredentials(exchange);
+  const calls: any[] = [];
+  const revisionApp = express(); revisionApp.use(express.json());
+  revisionApp.use("/api/public/proof", createPublicRouter({ revisionSubmissions: {
+    submit: async context => { calls.push(context); return {} as never; },
+    list: async context => { calls.push(context); return []; },
+    status: async context => { calls.push(context); return {} as never; }
+  } }));
+  const submitPath = "/api/public/proof/tasks/ptask_public_qa/revised-art/submissions";
+  const statusPath = "/api/public/proof/revised-art/submissions/prevision_send_test";
+  await request(revisionApp).post(submitPath).send({}).expect(401);
+  await request(revisionApp).get(statusPath).expect(401);
+  await request(revisionApp).get(submitPath).expect(401);
+  await request(revisionApp).post(submitPath).set("Cookie", cookie).send({}).expect(403);
+  assert.equal(calls.length, 0);
+  await request(revisionApp).post(submitPath).set("Cookie", cookie).set("X-Vornan-Proof-Csrf", csrf).send({ task_id: "spoofed", order_number: "A0000000", delivery_url: "https://attacker.invalid/file.pdf" }).expect(200);
+  assert.equal(calls[0].session.order_number, order.order_number);
+  assert.equal(calls[0].request.task_id, "ptask_public_qa");
+  assert.equal(calls[0].request.delivery_url, undefined);
+  assert.equal(calls[0].request.order_number, undefined);
+  await request(revisionApp).get(statusPath).set("Cookie", cookie).expect(200);
+  assert.equal(calls.length, 2);
+  await request(revisionApp).get(submitPath).set("Cookie", cookie).expect(200);
+  assert.equal(calls[2].task_id, "ptask_public_qa");
+  await access.updateProofGrant(created.grant.grant_id, { action: "revoke" });
+  await request(revisionApp).post(submitPath).set("Cookie", cookie).set("X-Vornan-Proof-Csrf", csrf).send({}).expect(401);
+  await request(revisionApp).get(statusPath).set("Cookie", cookie).expect(401);
+  await request(revisionApp).get(submitPath).set("Cookie", cookie).expect(401);
+  assert.equal(calls.length, 3);
+});
+
 test("rejects an unknown grant scope before it can be persisted", async () => {
   await assert.rejects(
     () => access.createProofGrant({ order_number: order.order_number, scope: "operator" } as never),

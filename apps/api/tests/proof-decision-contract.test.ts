@@ -295,6 +295,8 @@ test("keeps the decision ledger isolated to the default-dark customer approval s
         "proof/decision-ledger-store.ts",
         "proof/decision-ledger.ts",
         "proof/customer-approval-service.ts",
+        "proof/customer-quantity-service.ts",
+        "proof/customer-revision-service.ts",
         "proof/public-router.ts"
       ].includes(path)
     );
@@ -305,6 +307,11 @@ test("keeps the decision ledger isolated to the default-dark customer approval s
     assert.doesNotMatch(source, /decision-(?:atomicity|contract|ledger)/);
   }
   assert.match(publicRouterSource, /customer-approval-service/);
+  const revisionSource = await readFile(new URL("proof/customer-revision-service.ts", sourceRoot), "utf8");
+  assert.match(revisionSource, /PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_SUBMISSION === "true"/);
+  assert.match(revisionSource, /prepareProofApprovalDecision/);
+  assert.match(revisionSource, /getProofAuditEventByIdentity/);
+  assert.doesNotMatch(revisionSource, /reserveProofDecision|transitionProofDecision|persistProofDecision|replaceProofDecision/);
   assert.match(publicRouterSource, /router\.post\("\/tasks\/:taskId\/decisions\/approve"/);
   assert.doesNotMatch(operatorRouterSource, /decision-(?:atomicity|contract|ledger)/);
   assert.doesNotMatch(storeSource, /decision-(?:atomicity|contract|ledger)|ProofDecisionIntegrityContract|TransactWrite/);

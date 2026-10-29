@@ -9,7 +9,6 @@ dist_dir="apps/proof/dist"
 npm run build --workspace @pathfinder/proof
 
 aws s3 sync "${dist_dir}" "s3://${bucket}" \
-  --delete \
   --exclude "index.html" \
   --cache-control "public,max-age=31536000,immutable"
 

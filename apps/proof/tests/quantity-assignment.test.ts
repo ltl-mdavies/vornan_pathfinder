@@ -56,3 +56,16 @@ test("fails closed when the authoritative line quantity is unavailable", () => {
     invalid_task_ids: []
   });
 });
+
+test("zero or empty creative quantities cannot complete an otherwise exact allocation", () => {
+  const tasks = ["first", "second"];
+  const zero = summarizeQuantityAssignment(12, tasks, { first: "12", second: "0" });
+  assert.equal(zero.complete, false);
+  assert.deepEqual(zero.invalid_task_ids, ["second"]);
+  const empty = summarizeQuantityAssignment(12, tasks, { first: "12", second: "" });
+  assert.equal(empty.complete, false);
+  assert.equal(empty.remaining, 0);
+  assert.deepEqual(empty.invalid_task_ids, [], "unfilled fields stay neutral until entered");
+  assert.equal(summarizeQuantityAssignment(0, [], {}).complete, false);
+  assert.equal(summarizeQuantityAssignment(12, tasks, { first: "5", second: "7" }).complete, true);
+});

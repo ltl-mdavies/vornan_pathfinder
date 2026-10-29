@@ -9,7 +9,7 @@ function parsedQuantity(value: string) {
   if (value === "") return { valid: true, quantity: 0 };
   if (!/^\d+$/.test(value)) return { valid: false, quantity: 0 };
   const quantity = Number(value);
-  return Number.isSafeInteger(quantity)
+  return Number.isSafeInteger(quantity) && quantity > 0
     ? { valid: true, quantity }
     : { valid: false, quantity: 0 };
 }
@@ -19,7 +19,7 @@ export function summarizeQuantityAssignment(
   taskIds: string[],
   values: Record<string, string>
 ): QuantityAssignmentSummary {
-  const validLineQuantity = lineQuantity !== null && Number.isSafeInteger(lineQuantity) && lineQuantity >= 0;
+  const validLineQuantity = lineQuantity !== null && Number.isSafeInteger(lineQuantity) && lineQuantity > 0;
   let assigned = 0;
   const invalidTaskIds: string[] = [];
 
@@ -36,7 +36,8 @@ export function summarizeQuantityAssignment(
   return {
     assigned,
     remaining,
-    complete: validLineQuantity && invalidTaskIds.length === 0 && remaining === 0,
+    complete: validLineQuantity && taskIds.length > 0 && invalidTaskIds.length === 0 && remaining === 0
+      && taskIds.every(taskId => (values[taskId] ?? "") !== ""),
     invalid_task_ids: invalidTaskIds
   };
 }
