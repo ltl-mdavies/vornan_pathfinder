@@ -2,6 +2,16 @@
 
 Status: preparation; NOT deployed. Allocation activation and order policy changes are separate from the initial disabled release. Revised-art submission and broader customer launch remain off.
 
+### Final integration findings
+
+Integrated Proof recovery delta 8e2711d as c710837; frontend source is identical to the submitted UX revision. Its 86 UI tests, build and full typecheck pass. Await final recorded UX decision before publication.
+
+Actual AWS change-set review adds the unchanged API Gateway integration ARN reference as a dynamic dependency of the public Lambda; existing integration ccg8t2g remains AWS_PROXY to the same function with 30-second edge timeout. No routing/authentication changes are intended.
+
+Read-only IAM simulation identified an actual missing permission: ConditionCheckItem is implicitly denied on ProofCore, while PutItem is allowed. New durable snapshot/claim transactions use ConditionCheck, which requires its own underlying IAM action (AWS DynamoDB transaction IAM documentation). Add only `dynamodb:ConditionCheckItem` on the exact ProofCore table to the existing public role under CustomerRuntimeActive; no scan/delete/admin/customer-workspace permission added. This explicitly adds the public role's inline policy to the reviewed infrastructure scope. Existing TransactWriteItems statement is preserved; do not infer it authorizes ConditionCheck.
+
+The initial unexecuted change set is superseded by this permission correction; create/review a new one. Retain prior role/template for rollback and verify live policy simulation after deployment before any QA action.
+
 ## Authority and reviewed scope
 
 Marcus requested proceeding through v1 blockers in Vornan Proof Development on October 29, following the restricted deployment → A0232139 live 5/7 QA plan. Development owns the coordinated release; Proof owns supervised customer-path QA. UX approved allocation candidate 43929b4 and thumbnail delta 834928da3d5d370dab3843e8f8caa45a694cd765 for restricted QA only. A subsequently reported paused-status protection fix is still awaited; do not publish the final frontend before its exact-revision approval.

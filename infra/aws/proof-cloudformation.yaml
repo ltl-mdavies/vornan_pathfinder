@@ -941,6 +941,14 @@ Resources:
               - !If
                 - CustomerRuntimeActive
                 - Effect: Allow
+                  # Transactional snapshot/claim checks need their own IAM
+                  # permission; PutItem does not authorize ConditionCheck.
+                  Action: dynamodb:ConditionCheckItem
+                  Resource: !GetAtt ProofCoreTable.Arn
+                - !Ref "AWS::NoValue"
+              - !If
+                - CustomerRuntimeActive
+                - Effect: Allow
                   Action: secretsmanager:GetSecretValue
                   Resource: !Ref ProofingApiSecretArn
                 - !Ref "AWS::NoValue"

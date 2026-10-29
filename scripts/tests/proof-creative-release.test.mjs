@@ -37,3 +37,7 @@ test("public release preserves worker artifacts and previous frontend assets", (
     assert.match(source(path), /PublicLambdaCodeS3Key="\$\{worker_artifact_key\}"/);
   }
 });
+test("durable approval snapshot checks have exact core-table IAM authority", () => {
+  const role = source("infra/aws/proof-cloudformation.yaml").split("  ProofPublicLambdaRole:")[1].split("  ProofSyncLambdaRole:")[0];
+  assert.match(role, /Action: dynamodb:ConditionCheckItem\s+Resource: !GetAtt ProofCoreTable.Arn/);
+});
