@@ -228,6 +228,45 @@ export async function loadRevisionUploadStatus(assetId: string) {
   );
 }
 
+export interface ProofRevisionSubmission {
+  submission_id: string;
+  task_id: string;
+  attachment_id: string;
+  version_id: string;
+  asset_id: string;
+  filename: string;
+  state: "submitted" | "checking" | "accepted";
+  automatic_retry: false;
+  lift_outcome_confirmed: false;
+}
+
+/** Recovery is read-only, including when the original proof task disappears. */
+export const loadRevisionSubmissions = () => api<{ submissions: ProofRevisionSubmission[] }>(
+  "/api/public/proof/revised-art/submissions"
+);
+
+export const loadRevisionSubmission = (submissionId: string) => api<{ submission: ProofRevisionSubmission }>(
+  `/api/public/proof/revised-art/submissions/${encodeURIComponent(submissionId)}`
+);
+
+/** Call only on an explicit user submission; status checks must never call this. */
+export function submitRevisionArtwork(input: {
+  task_id: string;
+  asset_id: string;
+  attachment_id: string;
+  expected_task_version: number;
+  expected_version_id: string;
+  idempotency_key: string;
+  note?: string | null;
+}) {
+  const { task_id, ...body } = input;
+  return api<{ submission: ProofRevisionSubmission }>(
+    `/api/public/proof/tasks/${encodeURIComponent(task_id)}/revised-art/submissions`,
+    { method: "POST", body: JSON.stringify(body) },
+    true
+  );
+}
+
 export async function startDetailedReport(taskId: string, definitionId: string) {
   return api<{ report: ProofDetailedReport }>(
     `/api/public/proof/tasks/${encodeURIComponent(taskId)}/detailed-reports/${encodeURIComponent(definitionId)}`,
