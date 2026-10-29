@@ -9,6 +9,12 @@ const proofUpdateSource = readFileSync(new URL("../src/proof-update-state.ts", i
 const allocationProgressSource = readFileSync(new URL("../src/creative-approval-progress.tsx", import.meta.url), "utf8");
 const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
+test("expired allocation sessions guide re-entry instead of offering another advance", () => {
+  assert.match(allocationProgressSource, /!sessionEnded && batch\?\.state !== "paused"/);
+  assert.match(allocationProgressSource, /Reopen your review link to check the saved approval status/);
+  assert.match(allocationProgressSource, /resumeButton\.current\.focus\(\{ preventScroll: true \}\)/);
+});
+
 test("confirmed allocation refresh recovery never replays approvals", () => {
   const refreshBody = allocationProgressSource.split("const refreshConfirmedOrder = async")[1]!.split("useEffect(() =>")[0]!;
   assert.match(refreshBody, /await complete\.current\(\)/);

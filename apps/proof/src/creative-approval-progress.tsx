@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Clock3, X } from "lucide-react";
 import { advanceProofAllocation, loadProofAllocations, prepareProofAllocation, ProofApiError, type AllocationStatus, type AllocationSubmission } from "./api";
+import { protectedAllocationAttachments } from "./creative-approval-state";
 
 // Lives above the selected creative: Lift may split/renumber the line while
 // background synchronization replaces its task group.
@@ -11,10 +12,12 @@ export function AllocationProgress({ request, onClose, onComplete, onPendingChan
   const [open, setOpen] = useState(Boolean(request));
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const [retry, setRetry] = useState(0);
   const [refreshState, setRefreshState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const dialog = useRef<HTMLDialogElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
+  const resumeButton = useRef<HTMLButtonElement>(null);
   const complete = useRef(onComplete);
   complete.current = onComplete;
   const pendingChange = useRef(onPendingChange);
@@ -50,7 +53,7 @@ export function AllocationProgress({ request, onClose, onComplete, onPendingChan
     const show = (next: AllocationStatus) => {
       if (cancelled) return;
       latestBatch.current = next; setBatch(next); setMessage(null);
-      pendingChange.current(next.state === "completed" && refreshedId.current === next.batch_id ? [] : next.entries.filter((entry) => next.state !== "paused" || entry.state === "submitted").map((entry) => entry.attachment_id));
+      pendingChange.current(protectedAllocationAttachments(next, refreshedId.current === next.batch_id));
       if (next.state === "completed" && completedId.current !== next.batch_id) {
         completedId.current = next.batch_id;
         void refreshConfirmedOrder(next);
@@ -59,6 +62,7 @@ export function AllocationProgress({ request, onClose, onComplete, onPendingChan
     const failure = (error: unknown) => {
       if (cancelled) return;
       setBusy(false);
+      setSessionEnded(error instanceof ProofApiError && error.status === 401);
       setMessage(error instanceof ProofApiError && [400, 403, 409, 503].includes(error.status)
         ? error.message
         : error instanceof ProofApiError && error.status === 401
@@ -106,17 +110,21 @@ export function AllocationProgress({ request, onClose, onComplete, onPendingChan
   }, [open]);
   const dismiss = () => {
     setOpen(false); onClose();
-    window.requestAnimationFrame(() => { if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true }); });
+    window.requestAnimationFrame(() => {
+      // View status is recreated after dismissal; the old opener is detached.
+      if (resumeButton.current) resumeButton.current.focus({ preventScroll: true });
+      else if (returnFocus.current?.isConnected) returnFocus.current.focus({ preventScroll: true });
+    });
   };
   if (!batch && !open) return null;
   const confirmed = batch?.entries.filter((e) => e.state === "confirmed").length ?? 0;
   const done = batch?.state === "completed";
   return <>
-    {!open && batch && (!done || refreshState !== "ready") ? <div className="creative-approval-resume" role="status"><Clock3 aria-hidden="true" /><span>{done ? "Approvals confirmed · proof list not yet refreshed" : batch.state === "paused" ? "Creative approvals need review" : "Creative approvals in progress"}</span><button className="button secondary compact" onClick={() => setOpen(true)}>View status</button></div> : null}
+    {!open && batch && (!done || refreshState !== "ready") ? <div className="creative-approval-resume" role="status"><Clock3 aria-hidden="true" /><span>{sessionEnded ? "Review session ended · approval status saved" : done ? "Approvals confirmed · proof list not yet refreshed" : batch.state === "paused" ? "Creative approvals need review" : "Creative approvals in progress"}</span><button ref={resumeButton} className="button secondary compact" onClick={() => setOpen(true)}>View status</button></div> : null}
     <dialog ref={dialog} className="proof-dialog quantity-batch-dialog creative-approval-progress-dialog" aria-labelledby="creative-approval-progress-title" onCancel={(event) => { event.preventDefault(); dismiss(); }}>
       <div className="dialog-heading quantity-batch-heading">
-        <div><span className="eyebrow">Line {batch?.source_line_number ?? "—"} · Creative approvals</span><h2 id="creative-approval-progress-title">{done ? "Proofs approved" : batch?.state === "paused" ? "Approvals paused" : "Confirming your approvals"}</h2>
-          <p>{done ? "All creative quantities have been confirmed." : batch?.state === "paused" ? "We stopped before sending another approval. Review the latest proofs before continuing." : "Each creative is submitted once. Keep this review page open while we confirm the quantities. If you leave, reopen your review link to continue."}</p></div>
+        <div><span className="eyebrow">Line {batch?.source_line_number ?? "—"} · Creative approvals</span><h2 id="creative-approval-progress-title">{sessionEnded ? "Review session ended" : done ? "Proofs approved" : batch?.state === "paused" ? "Approvals paused" : "Confirming your approvals"}</h2>
+          <p>{sessionEnded ? "Reopen your review link to check the saved approval status. Submitted approvals will not be sent again." : done ? "All creative quantities have been confirmed." : batch?.state === "paused" ? "We stopped before sending another approval. Review the latest proofs before continuing." : "Each creative is submitted once. Keep this review page open while we confirm the quantities. If you leave, reopen your review link to continue."}</p></div>
         <button ref={closeButton} className="icon-button subtle" aria-label="Close approval status" onClick={dismiss}><X aria-hidden="true" /></button>
       </div>
       <div className="quantity-confirm-list" role="list" aria-label="Creative approval status">
@@ -126,7 +134,7 @@ export function AllocationProgress({ request, onClose, onComplete, onPendingChan
       {done && refreshState !== "ready" ? <p className="creative-approval-status" role="status">{refreshState === "error" ? "Your approvals are confirmed. We couldn’t refresh the proof list yet." : "Your approvals are confirmed. Refreshing the proof list…"}</p> : null}
       <div className="quantity-batch-footer">
         {done && refreshState === "error" && batch ? <button className="button primary" onClick={() => void refreshConfirmedOrder(batch)}>Retry refresh</button> : null}
-        {!busy && !done && batch?.state !== "paused" ? <button className="button secondary" onClick={() => setRetry((v) => v + 1)}>Check status</button> : null}
+        {!busy && !done && !sessionEnded && batch?.state !== "paused" ? <button className="button secondary" onClick={() => setRetry((v) => v + 1)}>Check status</button> : null}
         <button className={`button ${done && refreshState === "error" ? "secondary" : "primary"}`} onClick={dismiss}>{done ? refreshState === "ready" ? "View updated proofs" : "Close" : "Continue reviewing"}</button>
       </div>
     </dialog>

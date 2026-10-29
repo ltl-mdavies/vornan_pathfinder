@@ -58,6 +58,10 @@ and positive-quantity validation. Development remains deployment owner.
 
 ### Implementation and fresh evidence
 
+- **Final recovery follow-up:** paused batch + stale pending order projection exposed staging for an already-confirmed attachment. Backend claims still prevented duplicate sends. UI now retains protection for confirmed AND submitted entries; unsent entries are not independently claimed by this UI rule. Existing grouped saved-status dock replaces staging when any protected creative remains in that group.
+- Expired allocation sessions now show an explicit re-entry heading/instruction, with no Check status/advance control while expired. Escape/Close returns keyboard focus to the recreated View status control instead of the page body.
+- Local Chrome verified paused close/reopen and reload, no repeat-action staging, expired guidance, Tab/Escape focus, 1366×768/1920×1080, 720×450 reflow and390×844 mobile. No horizontal page overflow at narrow sizes. These are isolated fixture tests, not live Lift actions or a full screen-reader/physical-browser-zoom certification. 86 UI tests and TypeScript/production build pass. Backend deployment remains with Development; revised-art remains disabled pending provider confirmation contract.
+
 - **12:29 PM Eastern fixture update:** line4 / 10286638 / quantity12 now has
   unique PENDING attachments28794222 (`Mind_Juicer…jpg`) and28794316
   (`5x8_test.jpg`). Neither appears on line1. The independent 5/7 fixture
