@@ -2,6 +2,7 @@
 // Scenarios are selected through /?qa=<scenario> before entering #/proof.
 import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
+import { readFile } from 'node:fs/promises';
 import { demoOrder } from '../../../apps/proof/src/demo.ts';
 
 let scenario = 'entry';
@@ -23,6 +24,10 @@ const server = await createServer({ configFile: false, root: new URL('../../../a
   plugins: [{ name: 'isolated-proof-fixture', configureServer(server) {
     server.middlewares.use(async (req, res, next) => {
       const url = new URL(req.url!, 'http://127.0.0.1:5184');
+      if (url.pathname === '/__qa/thumbnails') {
+        res.setHeader('Content-Type', 'text/html');
+        return res.end(await readFile(new URL('./proof-thumbnail-preview.html', import.meta.url), 'utf8'));
+      }
       if (url.pathname === '/' && url.searchParams.has('qa') && url.searchParams.get('qa') !== scenario) {
         scenario = url.searchParams.get('qa')!; refreshFailed = false; counts = { prepare: 0, advance: 0, order: 0 };
         batch = scenario === 'entry' ? null : savedBatch();

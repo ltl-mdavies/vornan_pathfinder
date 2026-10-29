@@ -414,6 +414,13 @@ rollback. Resolve existing submitted actions by authoritative reads; never clear
 claims or replay uncertain actions. Lift approvals/line splits are not undone by
 rolling back application code.
 
+## Thumbnail sizing QA — October 29
+
+- Reproduced the reported off-center/clipped portrait thumbnail locally using the production stylesheet: a 54×54 queue frame produced a 52×104 image box because its implicit grid row honored intrinsic image height.
+- Bound both thumbnail grid tracks with `minmax(0, 1fr)` and removed image automatic minimum sizes. Retained `object-fit: contain`, explicitly centered artwork, and preserved existing frame sizes and white letterboxing.
+- Chrome verified all nine portrait/landscape/square cases across queue, creative-selector, and quantity-review contexts: every image box stays inside its frame, with all edge markers and center visible. Local fixture: `/__qa/thumbnails` on the isolated preview server; no Lift calls.
+- 82 Proof UI tests passed; TypeScript and production build passed. Main viewer, asset identity, polling, authentication, and action handling were not changed. Live deployment is still pending.
+
 ## Dependency audit triage
 
 The workspace npm audit has pre-existing advisories; no broad dependency update
