@@ -111,6 +111,21 @@ and positive-quantity validation. Development remains deployment owner.
 
 ### Implementation and fresh evidence
 
+#### Revised-art contract refinement — October 29, 1:08 PM Eastern
+
+Marcus clarified that Lift does not provide a response proving import of the exact revised artwork. Production returns the rejected line to7.01 (PDF Proof), prepares a replacement and moves it to7.02 (Approve Art). Fresh read17:08:24Z confirms A0232139 line3/10203616 at7.01/id1042 with zero ProofReport rows; Orders has no attachment-association fields for that line. This evidence does NOT establish physical attachment deletion or imported-file association.
+
+Pathfinder UX approved the following interaction contract **for implementation behind the disabled submission gate**, not activation. This supersedes the earlier requirement to wait for a nonexistent provider import receipt before designing the UI:
+
+- Verified upload: **Ready to submit**, explicit **Submit artwork**. Upload/check completion alone never changes the proof's review lifecycle.
+- Positive transport response: **Artwork sent · Awaiting updated proof**. This describes transmission only, not Lift's file import, production approval, or a replacement being ready.
+- Lost/unknown outcome: **Submission not confirmed**, calm explanation, **Check status** and **Close**. Checks read saved receipt/status only; never resend or auto-retry the Lift action. No permanent spinner or invented support destination.
+- At7.01: **Awaiting updated proof**. Preserve receipt and audit independently of missing current-proof rows.
+- When authoritative current-proof data becomes available at7.02: display the new proof as a new reviewable version. Its appearance does not confirm which submitted file was imported or rewrite the original uncertain receipt into success.
+- Close/reopen/reload must recover the exact submitted proof/replacement context, including when the original task is no longer current. Retain no-replay protection, same grant/participant upload ownership, current-art/feedback validation and single/unshared-proof restriction.
+
+Remaining implementation: customer Submit artwork UI, order-scoped receipt discovery/recovery after task replacement, saved-state dock and truthful upload-only messaging; readiness/transport/unknown/reopened/new-proof visual and keyboard tests; supervised disposable-file handoff and production-generated replacement verification. New scope must stay separate from the allocation release. Revised-art remains OFF. A new pending single proof on line3 will be needed for its future live handoff test; the currently waiting line cannot be treated as an actionable original proof.
+
 - **Final recovery follow-up:** paused batch + stale pending order projection exposed staging for an already-confirmed attachment. Backend claims still prevented duplicate sends. UI now retains protection for confirmed AND submitted entries; unsent entries are not independently claimed by this UI rule. Existing grouped saved-status dock replaces staging when any protected creative remains in that group.
 - Expired allocation sessions now show an explicit re-entry heading/instruction, with no Check status/advance control while expired. Escape/Close returns keyboard focus to the recreated View status control instead of the page body.
 - Local Chrome verified paused close/reopen and reload, no repeat-action staging, expired guidance, Tab/Escape focus, 1366×768/1920×1080, 720×450 reflow and390×844 mobile. No horizontal page overflow at narrow sizes. These are isolated fixture tests, not live Lift actions or a full screen-reader/physical-browser-zoom certification. 86 UI tests and TypeScript/production build pass. Backend deployment remains with Development; revised-art remains disabled pending provider confirmation contract.
