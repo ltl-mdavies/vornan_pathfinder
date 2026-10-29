@@ -40,7 +40,7 @@ test("submitted, checking, and lost receipts remain uncertain without a spinner 
     const copy = revisionSubmissionCopy(receipt);
     assert.equal(copy.title, "Submission not confirmed");
     assert.equal(copy.tone, "uncertain");
-    assert.match(copy.detail, /do not send it again/);
+    assert.match(copy.detail, /do not submit this file again for the original proof/);
     assert.match(copy.detail, /continue reviewing other proofs/);
     assert.doesNotMatch(copy.detail, /before taking another action/);
   }

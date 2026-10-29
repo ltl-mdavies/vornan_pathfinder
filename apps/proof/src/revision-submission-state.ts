@@ -52,7 +52,7 @@ export function revisionSubmissionCopy(receipt: Pick<ProofRevisionSubmission, "s
   }
   return {
     title: "Submission not confirmed",
-    detail: "We could not confirm this artwork submission. Your file is saved. Check its status here; do not send it again. You can continue reviewing other proofs.",
+    detail: "We could not confirm this artwork submission. Your file is saved. Check its status here; do not submit this file again for the original proof. You can continue reviewing other proofs.",
     tone: "uncertain" as const
   };
 }
