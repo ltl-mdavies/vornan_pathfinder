@@ -11,6 +11,15 @@ import { recordActionApproval, reopenConfirmedAction } from "./action-reopening-
 import { allocationHash, listCustomerAllocations, readCustomerAllocation, replaceCustomerAllocation, reserveCustomerAllocation, type CustomerAllocation, type AllocationEntry } from "./customer-allocation-store.js";
 
 export const customerAllocationsEnabled = () => process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_ALLOCATIONS === "true";
+/** Exact customer/order pairs only. An empty or malformed release scope denies all. */
+export function customerAllocationScopeAllowed(
+  session: Pick<ProofAccessSession, "order_number" | "capability">,
+  env: NodeJS.ProcessEnv = process.env
+) {
+  const scope = env.PATHFINDER_PROOF_CUSTOMER_ALLOCATION_SCOPE ?? "";
+  if (!/^[0-9]{1,20}:A[0-9]{7,8}(,[0-9]{1,20}:A[0-9]{7,8}){0,24}$/.test(scope)) return false;
+  return scope.split(",").includes(`${session.capability?.proof_customer_id}:${session.order_number}`);
+}
 export type AllocationRequest = {
   idempotency_key: string;
   entries: Array<{ task_id: string; attachment_id: string; expected_task_version: number; expected_version_id: string; quantity: number }>;
@@ -51,6 +60,7 @@ function normalize(request: AllocationRequest) {
 }
 export function createCustomerAllocationService(deps: {
   enabled?: typeof customerAllocationsEnabled; runtime?: typeof getProofRuntimeConfig;
+  scopeAllowed?: typeof customerAllocationScopeAllowed;
   sync?: typeof syncProofOrder; participant?: typeof getProofParticipant; acknowledgement?: typeof getProofFeedbackAcknowledgement;
   read?: typeof readCustomerAllocation; list?: typeof listCustomerAllocations; reserve?: typeof reserveCustomerAllocation; replace?: typeof replaceCustomerAllocation;
   target?: typeof readProofActionTargetConfig; credentials?: typeof readTargetEnvironmentProofingApiRuntimeCredentials;
@@ -70,6 +80,7 @@ export function createCustomerAllocationService(deps: {
     const config = runtime();
     if (!enabled() || !config.feature_flags.approve || !config.feature_flags.public_read) fail("disabled", "Creative approvals are not enabled for this review.");
     if (session.scope !== "review" || session.capability?.access_mode !== "review" || session.capability.review_experience !== "advanced" || !/^\d{1,20}$/.test(session.capability.proof_customer_id) || !session.participant_id) fail("not_allowed", "Identify the reviewer with approval access before submitting quantities.");
+    if (!(deps.scopeAllowed ?? customerAllocationScopeAllowed)(session)) fail("not_allowed", "Creative approvals are not enabled for this order.");
   }
   function bound(record: CustomerAllocation | null, session: ProofAccessSession): CustomerAllocation {
     if (!record || record.order_number !== session.order_number || record.customer_id !== session.capability?.proof_customer_id || record.grant_id !== session.grant_id || record.participant_id !== session.participant_id) fail("not_allowed", "These approvals are not available in this review.");

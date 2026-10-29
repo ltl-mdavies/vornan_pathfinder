@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCustomerAllocationService, type AllocationRequest } from "../src/proof/customer-quantity-service.ts";
+import { createCustomerAllocationService, customerAllocationScopeAllowed, type AllocationRequest } from "../src/proof/customer-quantity-service.ts";
 import type { CustomerAllocation } from "../src/proof/customer-allocation-store.ts";
 import type { ProofAccessSession, ProofOrder } from "@pathfinder/proof-domain";
 
@@ -22,7 +22,7 @@ const request: AllocationRequest = {
   idempotency_key: "allocation-test-key-0001", note: "Print these quantities",
   entries: ["201", "202"].map((id, i) => ({ task_id: `ptask_${id}`, attachment_id: id, expected_task_version: 1, expected_version_id: `pversion_${id}`, quantity: i ? 6 : 4 }))
 };
-function fixture() {
+function fixture(scopeAllowed = true) {
   let snapshot = order();
   let saved: CustomerAllocation | null = null;
   let enabled = true;
@@ -33,6 +33,7 @@ function fixture() {
   const events: string[] = [];
   const service = createCustomerAllocationService({
     enabled: () => enabled,
+    scopeAllowed: () => scopeAllowed,
     runtime: () => ({ feature_flags: { approve: true, public_read: true } }) as never,
     now: () => new Date(timestamp),
     recordApproval: async () => { if (evidenceFailure === "outage") throw new Error("storage unavailable"); return evidenceFailure !== "conflict"; }, reopenAction: async () => false,
@@ -59,6 +60,24 @@ function fixture() {
     prepare: (value = request, identity = session) => service.prepare({ ...context, session: identity, request: value }),
     advance: () => service.advance({ ...context, batch_id: saved!.batch_id }) };
 }
+
+test("allocation release scope requires an exact customer/order pair and rejects malformed scope", () => {
+  for (const scope of [undefined, "", "*", "1249:*", "1249:A0229638,", "1249:A0229638,bad", "999:A0229638", "1249:A0232139"]) {
+    assert.equal(customerAllocationScopeAllowed(session, { PATHFINDER_PROOF_CUSTOMER_ALLOCATION_SCOPE: scope }), false);
+  }
+  assert.equal(customerAllocationScopeAllowed(session, { PATHFINDER_PROOF_CUSTOMER_ALLOCATION_SCOPE: "999:A0232139,1249:A0229638" }), true);
+  assert.equal(customerAllocationScopeAllowed({ ...session, capability: undefined }, { PATHFINDER_PROOF_CUSTOMER_ALLOCATION_SCOPE: "1249:A0229638" }), false);
+});
+
+test("out-of-scope allocation calls fail before reads, reservations or Lift writes", async () => {
+  const f = fixture(false);
+  await assert.rejects(f.prepare(), /not enabled for this order/);
+  await assert.rejects(f.service.list(f.context), /not enabled for this order/);
+  await assert.rejects(f.service.advance({ ...f.context, batch_id: "pbatch_denied" }), /not enabled for this order/);
+  assert.equal(f.reads, 0);
+  assert.deepEqual(f.events, []);
+  assert.deepEqual(f.sends, []);
+});
 
 test("allocation gate and advanced reviewer authorization fail before reads or writes", async () => {
   for (const identity of [{ ...session, scope: "view" }, { ...session, participant_id: null }, { ...session, capability: { ...session.capability!, review_experience: "simple" } }]) {

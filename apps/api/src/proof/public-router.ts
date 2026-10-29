@@ -32,7 +32,7 @@ import {
 } from "./asset-upload-service.js";
 import type { ProofCustomerCapabilityAuthorityReader } from "./customer-capability-authority.js";
 import { ProofDetailedReportError, proofDetailedReportService } from "./detailed-report-service.js";
-import { customerAllocationService, customerAllocationsEnabled } from "./customer-quantity-service.js";
+import { customerAllocationService, customerAllocationsEnabled, customerAllocationScopeAllowed } from "./customer-quantity-service.js";
 import { customerRevisionService } from "./customer-revision-service.js";
 
 export const PROOF_SESSION_COOKIE = "vornan_proof_session";
@@ -271,7 +271,7 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
         review_experience: grant.capability?.review_experience ?? "simple"
       });
       Object.assign(publicOrder.access, {
-        allocation_enabled: customerAllocationsEnabled() && publicOrder.access.decisions_enabled && grant.capability?.review_experience === "advanced"
+        allocation_enabled: customerAllocationsEnabled() && customerAllocationScopeAllowed(session) && publicOrder.access.decisions_enabled && grant.capability?.review_experience === "advanced"
       });
       const feedbackStates = new Map(
         (await loadProofFeedbackStates(order, session)).map((state) => [state.task_id, state])
