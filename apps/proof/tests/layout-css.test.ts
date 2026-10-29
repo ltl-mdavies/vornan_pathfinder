@@ -42,7 +42,12 @@ test("keeps viewer-control tooltips available on hover and keyboard focus", () =
 
 test("clarifies the new-tab link on hover and keyboard focus without changing sharing or navigation", () => {
   const app = readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8");
-  assert.match(app, /className="icon-button subtle proof-open-tab"[^>]*target="_blank"[^>]*aria-label="Open proof in a new tab" data-tooltip="Open proof in a new tab"/);
-  assert.match(styles, /\.proof-open-tab\[data-tooltip\]::after\s*\{[^}]*right:\s*0;[^}]*top:\s*calc\(100% \+ 6px\);/s);
-  assert.match(styles, /\.proof-open-tab\[data-tooltip\]:hover::after,\s*\.proof-open-tab\[data-tooltip\]:focus-visible::after\s*\{\s*opacity:\s*1;/s);
+  assert.match(app, /className="icon-button subtle"[^>]*target="_blank"[^>]*aria-label="Open proof in a new tab"/s);
+  assert.match(app, /const open = \(hovered \|\| focused\) && !dismissed;/);
+  assert.match(app, /if \(event.key === "Escape"\) setDismissed\(true\);/);
+  assert.match(app, /document.removeEventListener\("keydown", dismissOnEscape\)/);
+  assert.match(app, /onMouseEnter=\{\(\) => \{ setHovered\(true\); setDismissed\(false\); \}\}/);
+  assert.match(app, /onFocus=\{\(\) => \{ setFocused\(true\); setDismissed\(false\); \}\}/);
+  assert.match(styles, /\.proof-open-tab-tooltip\s*\{[^}]*right:\s*0;[^}]*top:\s*100%;[^}]*padding-top:\s*6px;/s);
+  assert.doesNotMatch(styles, /\.proof-open-tab-tooltip\s*\{[^}]*pointer-events:\s*none/s);
 });

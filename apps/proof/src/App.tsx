@@ -104,6 +104,36 @@ function commentCountLabel(count: number) {
   return `${count} ${count === 1 ? "comment" : "comments"}`;
 }
 
+function ProofOpenTabLink({ href }: { href: string }) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const open = (hovered || focused) && !dismissed;
+
+  useEffect(() => {
+    if (!open) return;
+    function dismissOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setDismissed(true);
+    }
+    document.addEventListener("keydown", dismissOnEscape);
+    return () => document.removeEventListener("keydown", dismissOnEscape);
+  }, [open]);
+
+  return <span className="proof-open-tab"
+    onMouseEnter={() => { setHovered(true); setDismissed(false); }}
+    onMouseLeave={() => setHovered(false)}>
+    <a className="icon-button subtle" href={href} target="_blank" rel="noreferrer"
+      aria-label="Open proof in a new tab"
+      onFocus={() => { setFocused(true); setDismissed(false); }}
+      onBlur={() => setFocused(false)}>
+      <ExternalLink aria-hidden="true" />
+    </a>
+    {open && <span className="proof-open-tab-tooltip" role="tooltip">
+      <span>Open proof in a new tab</span>
+    </span>}
+  </span>;
+}
+
 function ProofFileFormatInfo() {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -2071,7 +2101,7 @@ export function App() {
                   </button>
                   <DetailedReportButton task={selectedTask} version={selectedVersion} />
                   {selectedAsset.download && <a className="button secondary" href={selectedAsset.download} target="_blank" rel="noreferrer"><Download aria-hidden="true" /> Download</a>}
-                  {selectedAsset.open && <a className="icon-button subtle proof-open-tab" href={selectedAsset.open} target="_blank" rel="noreferrer" aria-label="Open proof in a new tab" data-tooltip="Open proof in a new tab"><ExternalLink aria-hidden="true" /></a>}
+                  {selectedAsset.open && <ProofOpenTabLink href={selectedAsset.open} />}
                 </div>
               </div>
 
