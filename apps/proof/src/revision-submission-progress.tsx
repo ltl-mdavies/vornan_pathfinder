@@ -96,7 +96,7 @@ export function RevisionSubmissionProgress({ model }: { model: ReturnType<typeof
   return <>
     <div className="creative-approval-resume revision-status-resume" role="status">
       <Clock3 aria-hidden="true" />
-      <span>{model.recovering ? "Checking saved artwork status" : "Revised artwork · saved submission status"}</span>
+      <span>{model.checking ? "Checking saved artwork status" : model.message ? "Artwork status needs a check" : "Revised artwork · saved submission status"}</span>
       <button ref={opener} className="button secondary compact" onClick={() => model.setOpen(true)}>Artwork status</button>
     </div>
     <dialog ref={dialog} className="proof-dialog revision-status-dialog" aria-labelledby="revision-status-title" onCancel={(event) => { event.preventDefault(); close(); }}>

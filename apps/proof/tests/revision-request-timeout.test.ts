@@ -21,4 +21,5 @@ test("both receipt GETs are bounded and failed POST recovery never holds Sending
   assert.match(api, /loadRevisionSubmission = \(submissionId: string\) => boundedRevisionRequest/);
   assert.match(progress, /void check\(\);\s*\} finally/);
   assert.equal((progress.match(/await submitRevisionArtwork\(/g) ?? []).length, 1);
+  assert.match(progress, /model.checking \? "Checking saved artwork status" : model.message \? "Artwork status needs a check"/);
 });

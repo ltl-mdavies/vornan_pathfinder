@@ -37,7 +37,7 @@ const server = await createServer({ configFile: false, root: new URL('../../../a
       if (scenario === 'lost') { receipt = null; return send({ error: 'Simulated lost response' }, 504); }
       return send({ submission: receipt });
     }
-    if (url.pathname.endsWith('/revised-art/submissions') && req.method === 'GET') { reads++; return scenario === 'expired' ? send({ error: 'Session expired' }, 401) : send({ submissions: receipt ? [receipt] : [] }); }
+    if (url.pathname.endsWith('/revised-art/submissions') && req.method === 'GET') { reads++; if (scenario === 'hanging') return; if (scenario === 'read-failure') return send({ error: 'Temporarily unavailable' }, 503); return scenario === 'expired' ? send({ error: 'Session expired' }, 401) : send({ submissions: receipt ? [receipt] : [] }); }
     if (url.pathname.endsWith('/refresh')) return send({ queued: false, order: base });
     return send({ error: 'Outside local fixture' }, 404);
   });
