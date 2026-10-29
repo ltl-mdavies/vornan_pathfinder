@@ -311,7 +311,7 @@ function QuantityAssignmentDialog({ tasks, values, mobile, open, onChange, onClo
   const remainingLabel = summary.remaining === null
     ? "Quantity unavailable"
     : summary.remaining === 0
-      ? "Ready to approve"
+      ? summary.complete ? "Ready to review" : "Enter a quantity for every creative"
       : summary.remaining > 0
         ? `${summary.remaining} remaining`
         : `${Math.abs(summary.remaining)} over`;
@@ -380,7 +380,7 @@ function QuantityAssignmentDialog({ tasks, values, mobile, open, onChange, onClo
                   <span>Quantity</span>
                   <input
                     type="number"
-                    min="0"
+                    min="1"
                     max={lineQuantity ?? undefined}
                     step="1"
                     inputMode="numeric"
@@ -388,9 +388,9 @@ function QuantityAssignmentDialog({ tasks, values, mobile, open, onChange, onClo
                     aria-invalid={invalid || undefined}
                     value={values[task.task_id] ?? ""}
                     onChange={(event) => onChange({ ...values, [task.task_id]: event.target.value })}
-                    placeholder="0"
+                    placeholder="Qty"
                   />
-                  {invalid ? <small role="alert">Enter a whole number from 0 to {lineQuantity ?? "the line total"}.</small> : null}
+                  {invalid ? <small role="alert">Enter a whole number from 1 to {lineQuantity ?? "the line total"}.</small> : null}
                 </label>
               </div>
             );
@@ -401,7 +401,7 @@ function QuantityAssignmentDialog({ tasks, values, mobile, open, onChange, onClo
       <div className="quantity-assignment-footer">
         <div className={`quantity-assignment-status ${summary.complete ? "complete" : summary.remaining !== null && summary.remaining < 0 ? "invalid" : ""}`} role="status">
           <strong>{remainingLabel}</strong>
-          <small>{summary.complete ? saved ? "Saved, not submitted. You can continue reviewing." : "Ready to save. Nothing is sent until final confirmation." : "All proof quantities must add up to the line quantity."}</small>
+          <small>{summary.complete ? saved ? "Saved, not submitted. You can continue reviewing." : "Ready to save. Nothing is sent until final confirmation." : "Each creative needs at least 1. Quantities must add up to the line total."}</small>
         </div>
         <div>
           <button className="button secondary" type="button" onClick={clear}>Clear all</button>

@@ -1,4 +1,4 @@
-import { GetItemCommand, TransactWriteItemsCommand } from "@aws-sdk/client-dynamodb";
+import { GetItemCommand, QueryCommand, TransactWriteItemsCommand, type AttributeValue } from "@aws-sdk/client-dynamodb";
 import type { ProofAuditEvent } from "@pathfinder/proof-domain";
 import { actionClaimKey, REOPENED } from "./customer-allocation-store.js";
 import { getProofRuntimeConfig } from "./runtime-config.js";
@@ -25,6 +25,27 @@ const conflict = (error: unknown) => error instanceof Error && ["TransactionCanc
 export async function readRevisionSubmission(order: string, id: string): Promise<RevisionSubmission | null> {
   if (driver() === "local") return (await readLocalProofStore()).revision_submissions[localKey(order, id)] as RevisionSubmission ?? null;
   return parseProofData<RevisionSubmission>((await getProofDynamoClient().send(new GetItemCommand({ TableName: requiredProofCoreTable(), ConsistentRead: true, Key: key(order, id) }))).Item);
+}
+/** Order-partition-only recovery: never scan other customer orders. */
+export async function listRevisionSubmissions(order: string): Promise<RevisionSubmission[]> {
+  if (driver() === "local") return Object.values((await readLocalProofStore()).revision_submissions)
+    .map(record => record as RevisionSubmission).filter(record => record.order_number === order);
+  const records: RevisionSubmission[] = [];
+  let cursor: Record<string, AttributeValue> | undefined;
+  do {
+    const response = await getProofDynamoClient().send(new QueryCommand({
+      TableName: requiredProofCoreTable(), ConsistentRead: true,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+      ExpressionAttributeValues: { ":pk": proofStringAttribute(`ORDER#${order}`), ":prefix": proofStringAttribute("REVISION_SUBMISSION#") },
+      ExclusiveStartKey: cursor
+    }));
+    for (const item of response.Items ?? []) {
+      const record = parseProofData<RevisionSubmission>(item);
+      if (record?.order_number === order) records.push(record);
+    }
+    cursor = response.LastEvaluatedKey;
+  } while (cursor);
+  return records;
 }
 /** Receipt + exclusion + audit are durable before the one allowed Lift attempt. */
 export async function reserveRevisionSubmission(record: RevisionSubmission, audit: ProofAuditEvent): Promise<boolean> {

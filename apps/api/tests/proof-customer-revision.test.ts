@@ -18,6 +18,7 @@ function fixture() {
     enabled: () => enabled, runtime: () => ({ feature_flags: { public_read: true, revision_upload: true, approve: true } }) as never,
     now: () => new Date("2026-10-28T12:01:00.000Z"),
     read: async () => saved ? structuredClone(saved) : null,
+    list: async () => saved ? [structuredClone(saved)] : [],
     sync: async () => { reads++; return { order } as never; }, asset: async () => asset, ownerAudit: async () => owner,
     participant: async () => ({ grant_id: session.grant_id, participant_id: session.participant_id!, order_number: order.order_number, display_name: "Reviewer", email: "reviewer@example.invalid" }) as never,
     acknowledgement: async () => null, reopen: async () => false,
@@ -72,4 +73,19 @@ test("concurrent requests send once, conflicting claims block, and receipts rema
   f.request.expected_task_version = 2; await assert.rejects(f.submit());
   await assert.rejects(f.service.status({ ...f.context, session: { ...f.session, participant_id: "other" }, submission_id: f.saved.submission_id }));
   const blocked = fixture(); blocked.collide(); await assert.rejects(blocked.submit()); assert.equal(blocked.sends.length, 0);
+});
+test("lost-response recovery discovers only the current reviewer and task receipts without replay", async () => {
+  const f = fixture(); await f.submit();
+  const receipts = await f.service.list({ ...f.context, task_id: f.task.task_id });
+  assert.equal(receipts.length, 1); assert.equal(receipts[0]!.asset_id, f.asset.asset_id);
+  assert.equal(receipts[0]!.version_id, f.request.expected_version_id);
+  assert.equal(f.sends.length, 1);
+  for (const session of [
+    { ...f.session, grant_id: "other" }, { ...f.session, participant_id: "other" },
+    { ...f.session, order_number: "A0000000" },
+    { ...f.session, capability: { ...f.session.capability!, proof_customer_id: "999" } }
+  ]) assert.deepEqual(await f.service.list({ ...f.context, session, task_id: f.task.task_id }), []);
+  assert.deepEqual(await f.service.list({ ...f.context, task_id: "another-task" }), []);
+  f.disable(); await assert.rejects(f.service.list({ ...f.context, task_id: f.task.task_id }));
+  assert.equal(f.sends.length, 1);
 });

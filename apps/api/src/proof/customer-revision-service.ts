@@ -14,7 +14,7 @@ import { prepareProofApprovalDecision } from "./decision-contract.js";
 import { getProofFeedbackAcknowledgement, getProofParticipant } from "./store.js";
 import { getProofRuntimeConfig } from "./runtime-config.js";
 import { syncProofOrder } from "./service.js";
-import { readRevisionSubmission, reserveRevisionSubmission, replaceRevisionSubmission, type RevisionSubmission } from "./customer-revision-store.js";
+import { listRevisionSubmissions, readRevisionSubmission, reserveRevisionSubmission, replaceRevisionSubmission, type RevisionSubmission } from "./customer-revision-store.js";
 
 export const customerRevisionSubmissionEnabled = () => process.env.PATHFINDER_PROOF_ENABLE_CUSTOMER_REVISION_SUBMISSION === "true";
 type Context = { session: ProofAccessSession; correlation_id: string };
@@ -26,7 +26,7 @@ export function revisionUploadOwnerAuditId(assetId: string) {
   return `paudit_asset-${hash.digest("hex")}`;
 }
 export function publicRevisionSubmission(record: RevisionSubmission) {
-  return { submission_id: record.submission_id, asset_id: record.asset_id, filename: record.filename, state: record.state, automatic_retry: false as const, lift_outcome_confirmed: false as const };
+  return { submission_id: record.submission_id, task_id: record.task_id, attachment_id: record.attachment_id, version_id: record.version_id, asset_id: record.asset_id, filename: record.filename, state: record.state, automatic_retry: false as const, lift_outcome_confirmed: false as const };
 }
 function audit(record: RevisionSubmission, context: Context): ProofAuditEvent {
   return {
@@ -42,6 +42,7 @@ export function createCustomerRevisionService(deps: {
   sync?: typeof syncProofOrder; asset?: typeof getProofAssetUploadRecord; ownerAudit?: typeof getProofAuditEventByIdentity;
   participant?: typeof getProofParticipant; acknowledgement?: typeof getProofFeedbackAcknowledgement;
   read?: typeof readRevisionSubmission; reserve?: typeof reserveRevisionSubmission; replace?: typeof replaceRevisionSubmission;
+  list?: typeof listRevisionSubmissions;
   reopen?: typeof reopenConfirmedAction; target?: typeof readProofActionTargetConfig; credentials?: typeof readTargetEnvironmentProofingApiRuntimeCredentials;
   send?: typeof sendLiftProofingRuntimeAction; now?: () => Date;
 } = {}) {
@@ -56,6 +57,20 @@ export function createCustomerRevisionService(deps: {
     return record!;
   }
   return {
+    async list(context: Context & { task_id: string }) {
+      authorize(context.session);
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/.test(context.task_id)) fail("invalid", "Invalid proof reference.");
+      // Recovery remains possible after a proof changes, but receipts never
+      // confer authority to act on the replacement proof or another review.
+      return (await (deps.list ?? listRevisionSubmissions)(context.session.order_number))
+        .filter(record => record.order_number === context.session.order_number
+          && record.customer_id === context.session.capability!.proof_customer_id
+          && record.grant_id === context.session.grant_id
+          && record.participant_id === context.session.participant_id
+          && record.task_id === context.task_id)
+        .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .map(publicRevisionSubmission);
+    },
     async status(context: Context & { submission_id: string }) {
       authorize(context.session);
       if (!/^prevision_send_[a-f0-9]{64}$/.test(context.submission_id)) fail("invalid", "Invalid artwork submission reference.");

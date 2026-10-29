@@ -489,6 +489,13 @@ export function createProofPublicRouter(dependencies: ProofPublicRouterDependenc
   });
 
   // Separate from upload/finalize: file readiness is not a Lift submission.
+  router.get("/tasks/:taskId/revised-art/submissions", async (req, res) => {
+    try {
+      const { session } = await validateProofSession(cookieValue(req, PROOF_SESSION_COOKIE) ?? "", new Date(), readCustomerCapabilityWorkspace);
+      const submissions = await revisionSubmissions.list({ session, task_id: req.params.taskId, correlation_id: req.get("x-request-id") ?? `proof-revision-${session.session_id}` });
+      res.json({ submissions });
+    } catch (error) { handlePublicError(error, res, "Revised artwork submission status is unavailable."); }
+  });
   router.post("/tasks/:taskId/revised-art/submissions", async (req, res) => {
     try {
       const { session } = await validateProofSession(cookieValue(req, PROOF_SESSION_COOKIE) ?? "", new Date(), readCustomerCapabilityWorkspace);
